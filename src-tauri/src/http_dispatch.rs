@@ -359,6 +359,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "discord_webhook_send" => {
             integrations::discord_webhook_send(optional_value(&args, "body")).await
         }
+        "music_dj_status" => integrations::music_dj_status(state).await,
+        "music_dj_resolve" => integrations::music_dj_resolve(state, optional_value(&args, "input")).await,
+        "music_dj_feedback" => integrations::music_dj_feedback(state, optional_value(&args, "input")).await,
         "spotify_status" => {
             spotify_direct(state, "POST", &["status"], optional_value(&args, "body")).await
         }

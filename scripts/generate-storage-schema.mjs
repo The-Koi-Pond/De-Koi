@@ -141,6 +141,11 @@ const collectionMetadata = {
     confidence: "Type-backed",
     notes: "Namespaced plugin KV storage with `pluginId`, `key`, arbitrary `value`, and `schemaVersion`.",
   },
+  "music-dj-playlists": {
+    model: "`MusicDjPlaylist`",
+    confidence: "Type-backed",
+    notes: "Character, chat, and global Music DJ playlist memory. `tracks[]` stores accepted YouTube candidates and feedback-weighted playback history.",
+  },
   connections: {
     model: "`APIConnection`",
     confidence: "Schema-backed",

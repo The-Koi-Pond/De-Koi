@@ -83,8 +83,8 @@ const AgentDebugPanel = lazy(() =>
     default: module.AgentDebugPanel,
   })),
 );
-const SpotifyMobileWidget = lazy(() =>
-  import("../../features/shell/spotify/shell").then((module) => ({ default: module.SpotifyMobileWidget })),
+const MusicDjMobileWidget = lazy(() =>
+  import("../../features/shell/music-dj/shell").then((module) => ({ default: module.MusicDjMobileWidget })),
 );
 
 function clampWidth(width: number, min: number, max: number) {
@@ -1523,7 +1523,7 @@ export function AppShell() {
           )}
           {spotifyMiniPlayerEnabled && (
             <Suspense fallback={null}>
-              <SpotifyMobileWidget />
+              <MusicDjMobileWidget />
             </Suspense>
           )}
         </div>

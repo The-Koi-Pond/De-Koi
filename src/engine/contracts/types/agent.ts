@@ -31,6 +31,7 @@ export type AgentResultType =
   | "custom_tracker_update"
   | "chat_summary"
   | "spotify_control"
+  | "music_control"
   | "cyoa_choices"
   | "secret_plot"
   | "game_master_narration"
@@ -218,6 +219,7 @@ export const BUILT_IN_AGENT_IDS = {
   PERSONA_STATS: "persona-stats",
   HTML: "html",
   CHAT_SUMMARY: "chat-summary",
+  MUSIC_DJ: "music-dj",
   SPOTIFY: "spotify",
   EDITOR: "editor",
   KNOWLEDGE_RETRIEVAL: "knowledge-retrieval",
@@ -429,10 +431,10 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     category: "misc",
   },
   {
-    id: "spotify",
-    name: "Spotify DJ",
+    id: "music-dj",
+    name: "Assistant DJ",
     description:
-      "Analyzes the narrative mood and controls Spotify playback — searching tracks, adjusting volume, and cueing music to match the scene. Requires a Spotify Premium account and API credentials.",
+      "Analyzes roleplay and game scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
     phase: "post_processing",
     enabledByDefault: false,
     category: "misc",
@@ -552,6 +554,7 @@ function boolishFalse(value: unknown): boolean {
 
 function canonicalAgentActiveId(value: unknown): string {
   const id = typeof value === "string" ? value.trim() : "";
+  if (id === "spotify") return "music-dj";
   if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) return id;
   const type = id.slice(BUILT_IN_AGENT_ID_PREFIX.length).trim();
   return BUILT_IN_AGENT_ID_SET.has(type) ? type : id;
@@ -664,6 +667,13 @@ export const DEFAULT_AGENT_TOOLS: Record<string, string[]> = {
   html: [],
   "chat-summary": [],
   // Also used server-side to identify Spotify tools that require token refresh.
+  "music-dj": [
+    "music_get_current_playback",
+    "music_resolve_candidates",
+    "music_play",
+    "music_set_volume",
+    "music_feedback",
+  ],
   spotify: [
     "spotify_get_current_playback",
     "spotify_get_playlists",
@@ -980,6 +990,66 @@ export const BUILT_IN_TOOLS: ToolDefinition[] = [
         value: { type: "string", description: "String value to store for this key" },
       },
       required: ["key", "value"],
+    },
+  },
+  {
+    name: "music_get_current_playback",
+    description: "Get the current De-Koi Music DJ playback state for this chat.",
+    parameters: { type: "object", properties: {} },
+  },
+  {
+    name: "music_resolve_candidates",
+    description:
+      "Resolve YouTube music candidates for a roleplay, conversation, or game scene. Use this before music_play.",
+    parameters: {
+      type: "object",
+      properties: {
+        mood: { type: "string", description: "Short mood label, such as gothic romance or tense combat" },
+        query: { type: "string", description: "Scene-aware search terms for YouTube music" },
+        energy: { type: "string", enum: ["low", "medium", "high"], description: "Scene energy level" },
+        vocals: { type: "string", enum: ["instrumental", "vocals", "either"], description: "Whether vocals fit" },
+      },
+    },
+  },
+  {
+    name: "music_play",
+    description: "Start Music DJ playback with a resolved YouTube track.",
+    parameters: {
+      type: "object",
+      properties: {
+        videoId: { type: "string", description: "YouTube video ID returned by music_resolve_candidates" },
+        title: { type: "string", description: "Track title returned by music_resolve_candidates" },
+        channel: { type: "string", description: "YouTube channel returned by music_resolve_candidates" },
+        durationSeconds: { type: "number", description: "Track duration returned by music_resolve_candidates" },
+        thumbnailUrl: { type: "string", description: "Thumbnail URL returned by music_resolve_candidates" },
+        score: { type: "number", description: "Candidate score returned by music_resolve_candidates" },
+        reason: { type: "string", description: "Why this track fits the current scene" },
+      },
+      required: ["videoId"],
+    },
+  },
+  {
+    name: "music_set_volume",
+    description: "Set De-Koi Music DJ volume from 0 to 100.",
+    parameters: {
+      type: "object",
+      properties: {
+        volume: { type: "number", description: "Volume level 0-100" },
+        reason: { type: "string", description: "Why the volume fits the scene" },
+      },
+      required: ["volume"],
+    },
+  },
+  {
+    name: "music_feedback",
+    description: "Record Music DJ feedback such as play, skip, like, or dislike for future ranking.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["play", "skip", "like", "dislike"], description: "Feedback action" },
+        videoId: { type: "string", description: "YouTube video ID" },
+      },
+      required: ["action", "videoId"],
     },
   },
   {

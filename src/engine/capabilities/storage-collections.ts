@@ -71,6 +71,10 @@ const STORAGE_COLLECTIONS = {
   themes: { genericApi: true },
   extensions: { genericApi: true },
   "plugin-memory": { genericApi: true },
+  "music-dj-playlists": {
+    genericApi: true,
+    readJsonFields: [{ name: "tracks", kind: "array" }],
+  },
   connections: {
     genericApi: true,
     writeInvalidation: [{ kinds: ["entity-image"], whenAnyField: imageWriteFields }],

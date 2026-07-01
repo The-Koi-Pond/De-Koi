@@ -311,13 +311,13 @@
     "coverage": "advanced"
   },
   {
-    "id": "spotify-dj",
-    "title": "Spotify DJ And Mini Player",
+    "id": "music-dj",
+    "title": "Assistant DJ",
     "category": "Media",
-    "summary": "Connect Spotify for agent-assisted playlists, scene music, playback controls, and an optional compact mini player module.",
-    "keywords": ["spotify", "music", "dj", "playlist", "player", "playback", "scene music", "mini player"],
-    "audience": "Users who want music controls or mood-matched playlists inside chats and games.",
-    "where": "Agents > Spotify for account setup, and Settings > Modules for the mini player toggle.",
+    "summary": "Use the YouTube-first Music DJ for scene-matched tracks, visible embedded playback, and character playlist memory without Spotify setup.",
+    "keywords": ["music", "dj", "assistant dj", "youtube", "playlist", "character playlist", "player", "playback", "scene music", "spotify"],
+    "audience": "Users who want mood-matched music for roleplay, characters, chats, and games.",
+    "where": "Chat settings > Agents > Assistant DJ, plus the Music DJ player in the shell while music is active.",
     "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
     "coverage": "advanced"
   },

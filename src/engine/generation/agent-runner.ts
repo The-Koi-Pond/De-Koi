@@ -1276,7 +1276,7 @@ function buildSpotifyDjConstraints(
   const artist = cleanOptionalString(isGame ? chatMeta.gameSpotifyArtist : chatMeta.spotifyArtist);
   const constraints: Record<string, unknown> = {
     mode: isGame ? "game" : "roleplay",
-    replaceBuiltInMusic: isGame && chatMeta.gameUseSpotifyMusic === true,
+    replaceBuiltInMusic: isGame && (chatMeta.gameUseMusicDj === true || chatMeta.gameUseSpotifyMusic === true),
     sourceType,
     playlistId: sourceType === "liked" ? "liked" : sourceType === "playlist" ? playlistId : null,
     playlistName: sourceType === "playlist" ? playlistName : null,

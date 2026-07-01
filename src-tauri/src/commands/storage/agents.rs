@@ -147,9 +147,9 @@ const BUILT_IN_AGENT_DEFINITIONS: &[BuiltInAgentDefinition] = &[
         enabled_by_default: false,
     },
     BuiltInAgentDefinition {
-        agent_type: "spotify",
-        name: "Spotify DJ",
-        description: "Analyzes the narrative mood and controls Spotify playback - searching tracks, adjusting volume, and cueing music to match the scene. Requires a Spotify Premium account and API credentials.",
+        agent_type: "music-dj",
+        name: "Assistant DJ",
+        description: "Analyzes scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
         phase: "post_processing",
         enabled_by_default: false,
     },
@@ -270,6 +270,13 @@ fn default_enabled_tools(agent_type: &str) -> &'static [&'static str] {
         "continuity" | "lorebook-keeper" | "knowledge-retrieval" => &["search_lorebook"],
         "expression" => &["set_expression"],
         "director" => &["trigger_event"],
+        "music-dj" => &[
+            "music_get_current_playback",
+            "music_resolve_candidates",
+            "music_play",
+            "music_set_volume",
+            "music_feedback",
+        ],
         "spotify" => &[
             "spotify_get_current_playback",
             "spotify_get_playlists",

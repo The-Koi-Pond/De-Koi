@@ -8,6 +8,12 @@ export interface SpotifyGateway {
   volume<T = unknown>(input: Record<string, unknown>): Promise<T>;
 }
 
+export interface MusicDjGateway {
+  status<T = unknown>(): Promise<T>;
+  resolve<T = unknown>(input: Record<string, unknown>): Promise<T>;
+  feedback<T = unknown>(input: Record<string, unknown>): Promise<T>;
+}
+
 export interface CustomToolsGateway {
   execute<T = unknown>(input: { toolName: string; arguments: unknown }): Promise<T>;
 }
@@ -27,6 +33,7 @@ export interface DiscordGateway {
 
 export interface IntegrationGateway {
   spotify: SpotifyGateway;
+  musicDj?: MusicDjGateway;
   customTools: CustomToolsGateway;
   image: ImageGenerationGateway;
   discord?: DiscordGateway;
