@@ -4,6 +4,8 @@ use std::collections::HashMap;
 
 #[path = "integrations/discord.rs"]
 mod discord;
+#[path = "integrations/music_dj.rs"]
+mod music_dj;
 #[path = "integrations/spotify.rs"]
 mod spotify;
 #[path = "integrations/spotify_callback.rs"]
@@ -49,4 +51,16 @@ pub(crate) async fn discord_webhook_send(body: Value) -> AppResult<Value> {
 
 pub(crate) fn is_valid_discord_webhook_url(raw: &str) -> bool {
     discord::is_valid_discord_webhook_url(raw)
+}
+
+pub(crate) async fn music_dj_status(state: &AppState) -> AppResult<Value> {
+    music_dj::music_dj_status(state).await
+}
+
+pub(crate) async fn music_dj_resolve(state: &AppState, input: Value) -> AppResult<Value> {
+    music_dj::music_dj_resolve(state, input).await
+}
+
+pub(crate) async fn music_dj_feedback(state: &AppState, input: Value) -> AppResult<Value> {
+    music_dj::music_dj_feedback(state, input).await
 }

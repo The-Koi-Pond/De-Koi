@@ -1,0 +1,9 @@
+{
+  "name": "@de-koi/dj-resolver",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run src/**/*.spec.ts",
+    "deploy": "wrangler deploy"
+  }
+}

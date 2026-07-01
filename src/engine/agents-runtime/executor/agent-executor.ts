@@ -207,8 +207,10 @@ export async function executeAgent(
           ? buildEchoChamberAgentMessages(config, template, context)
           : config.type === "knowledge-retrieval"
             ? buildKnowledgeRetrievalAgentMessages(config, template, context)
-            : config.type === "spotify"
-              ? buildSpotifyAgentMessages(config, template, context)
+            : config.type === "music-dj"
+              ? buildMusicDjAgentMessages(config, template, context)
+              : config.type === "spotify"
+                ? buildSpotifyAgentMessages(config, template, context)
               : buildStandardAgentMessages(config, template, context);
 
     const temperature = agentTemperature(config);
@@ -1974,6 +1976,19 @@ function mainResponseSpeakerLabel(context: AgentContext): string {
   );
 }
 
+function buildMusicDjAgentMessages(config: AgentExecConfig, template: string, context: AgentContext): ChatMessage[] {
+  const constraints = context.memory._musicDjConstraints;
+  const base = buildStandardAgentMessages(config, template, context);
+  if (!constraints) return base;
+  return base.map((message, index) =>
+    index === 0
+      ? {
+          ...message,
+          content: `${message.content}\n\n<music_dj_constraints>\n${JSON.stringify(constraints)}\n</music_dj_constraints>`,
+        }
+      : message,
+  );
+}
 function buildSpotifyAgentMessages(config: AgentExecConfig, template: string, context: AgentContext): ChatMessage[] {
   const modeLabel = context.chatMode === "game" ? "game" : "roleplay";
   const systemParts: string[] = [];
@@ -2595,6 +2610,7 @@ const AGENT_RESULT_TYPE_MAP: Record<string, AgentResultType> = {
   "persona-stats": "persona_stats_update",
   "custom-tracker": "custom_tracker_update",
   "chat-summary": "chat_summary",
+  "music-dj": "music_control",
   spotify: "spotify_control",
   editor: "text_rewrite",
   "knowledge-retrieval": "context_injection",

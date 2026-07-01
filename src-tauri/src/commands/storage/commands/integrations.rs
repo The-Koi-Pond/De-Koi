@@ -40,6 +40,27 @@ pub async fn discord_webhook_send(body: Value) -> Result<Value, AppError> {
     integrations::discord_webhook_send(body).await
 }
 
+
+#[tauri::command]
+pub async fn music_dj_status(state: State<'_, AppState>) -> Result<Value, AppError> {
+    integrations::music_dj_status(&state).await
+}
+
+#[tauri::command]
+pub async fn music_dj_resolve(
+    state: State<'_, AppState>,
+    input: Value,
+) -> Result<Value, AppError> {
+    integrations::music_dj_resolve(&state, input).await
+}
+
+#[tauri::command]
+pub async fn music_dj_feedback(
+    state: State<'_, AppState>,
+    input: Value,
+) -> Result<Value, AppError> {
+    integrations::music_dj_feedback(&state, input).await
+}
 async fn spotify_direct(
     state: State<'_, AppState>,
     method: &str,

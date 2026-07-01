@@ -696,7 +696,7 @@ function ChatSettingsDrawerInner({
   const spotifySourceType = normalizeSpotifySourceType(metadata.spotifySourceType);
   const spotifyPlaylistId = typeof metadata.spotifyPlaylistId === "string" ? metadata.spotifyPlaylistId : "";
   const spotifyArtist = typeof metadata.spotifyArtist === "string" ? metadata.spotifyArtist : "";
-  const gameUseSpotifyMusic = metadata.gameUseSpotifyMusic === true;
+  const gameUseSpotifyMusic = metadata.gameUseMusicDj === true || metadata.gameUseSpotifyMusic === true;
   const gameSpotifySourceType = normalizeGameSpotifySourceType(metadata.gameSpotifySourceType);
   const gameSpotifyPlaylistId =
     typeof metadata.gameSpotifyPlaylistId === "string" ? metadata.gameSpotifyPlaylistId : "";
@@ -729,7 +729,7 @@ function ChatSettingsDrawerInner({
       }>({ limit: 50 }),
     enabled:
       open &&
-      ((isGame && gameUseSpotifyMusic && gameSpotifySourceType === "playlist") ||
+      ((isGame && metadata.gameUseSpotifyMusic === true && gameSpotifySourceType === "playlist") ||
         (isRoleplayMode && agentsEnabled && spotifyActive && spotifySourceType === "playlist")),
     staleTime: 60_000,
     retry: false,
@@ -1671,13 +1671,13 @@ function ChatSettingsDrawerInner({
   };
 
   const ensureSpotifyAgent = useCallback(async () => {
-    const builtInMeta = BUILT_IN_AGENTS.find((entry) => entry.id === "spotify");
-    if (!builtInMeta) throw new Error("Spotify DJ agent metadata is missing.");
-    const config = agentConfigsByType.get("spotify") ?? null;
+    const builtInMeta = BUILT_IN_AGENTS.find((entry) => entry.id === "music-dj");
+    if (!builtInMeta) throw new Error("Music DJ agent metadata is missing.");
+    const config = agentConfigsByType.get("music-dj") ?? null;
     const nextSettings: Record<string, unknown> = {
-      ...getDefaultBuiltInAgentSettings("spotify"),
+      ...getDefaultBuiltInAgentSettings("music-dj"),
       ...parseAgentSettings(config?.settings),
-      enabledTools: DEFAULT_AGENT_TOOLS.spotify ?? [],
+      enabledTools: DEFAULT_AGENT_TOOLS["music-dj"] ?? [],
     };
 
     if (config) {
@@ -1701,8 +1701,10 @@ function ChatSettingsDrawerInner({
     if (gameUseSpotifyMusic) {
       await updateMeta.mutateAsync({
         id: chat.id,
+        gameUseMusicDj: false,
+        musicDjEnabled: false,
         gameUseSpotifyMusic: false,
-        activeAgentIds: activeAgentIds.filter((id) => id !== "spotify"),
+        activeAgentIds: activeAgentIds.filter((id) => id !== "music-dj" && id !== "spotify"),
       });
       return;
     }
@@ -1711,17 +1713,19 @@ function ChatSettingsDrawerInner({
       await ensureSpotifyAgent();
       await updateMeta.mutateAsync({
         id: chat.id,
-        gameUseSpotifyMusic: true,
+        gameUseMusicDj: true,
+        musicDjEnabled: true,
+        musicDjProvider: "youtube",
         gameSpotifySourceType,
-        activeAgentIds: Array.from(new Set([...activeAgentIds, "spotify"])),
+        activeAgentIds: Array.from(new Set([...activeAgentIds.filter((id) => id !== "spotify"), "music-dj"])),
       });
     } catch (error) {
       await showAlertDialog({
-        title: "Couldn't Enable Spotify DJ",
+        title: "Couldn't Enable Music DJ",
         message:
           error instanceof Error
             ? error.message
-            : "Spotify DJ could not be enabled for this game. Check the Spotify agent setup and try again.",
+            : "Music DJ could not be enabled for this game. Check the Assistant DJ setup and try again.",
       });
     }
   }, [activeAgentIds, chat.id, ensureSpotifyAgent, gameSpotifySourceType, gameUseSpotifyMusic, updateMeta]);
@@ -3980,10 +3984,10 @@ function ChatSettingsDrawerInner({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 text-xs font-medium">
                           <Music2 size="0.75rem" className="text-[var(--primary)]" />
-                          <span>Spotify DJ Music</span>
+                          <span>Music DJ</span>
                         </div>
                         <p className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Use Spotify instead of the built-in Game Mode music library.
+                          Use Assistant DJ instead of the built-in Game Mode music library.
                         </p>
                       </div>
                       <div
@@ -4001,7 +4005,7 @@ function ChatSettingsDrawerInner({
                       </div>
                     </button>
 
-                    {gameUseSpotifyMusic && (
+                    {metadata.gameUseSpotifyMusic === true && (
                       <div className="space-y-2 rounded-lg bg-[var(--background)]/55 p-3 ring-1 ring-[var(--border)]">
                         <label className="flex flex-col gap-1">
                           <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">

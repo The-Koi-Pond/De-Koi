@@ -19,8 +19,8 @@ import { useUIStore } from "../../shared/stores/ui.store";
 import { ChatTitleControls } from "./ChatTitleControls";
 import { PanelNavButtons } from "./PanelNavButtons";
 
-const SpotifyMiniPlayer = lazy(() =>
-  import("../../features/shell/spotify/shell").then((module) => ({ default: module.SpotifyMiniPlayer })),
+const MusicDjMiniPlayer = lazy(() =>
+  import("../../features/shell/music-dj/shell").then((module) => ({ default: module.MusicDjMiniPlayer })),
 );
 
 type DesktopPlatform = "darwin" | "windows" | "linux";
@@ -242,7 +242,7 @@ export function WindowTitleBar({
             onDoubleClick={(event) => event.stopPropagation()}
           >
             <Suspense fallback={null}>
-              <SpotifyMiniPlayer />
+              <MusicDjMiniPlayer />
             </Suspense>
           </div>
         )}
