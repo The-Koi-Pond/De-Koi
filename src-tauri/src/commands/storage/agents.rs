@@ -148,7 +148,7 @@ const BUILT_IN_AGENT_DEFINITIONS: &[BuiltInAgentDefinition] = &[
     },
     BuiltInAgentDefinition {
         agent_type: "music-dj",
-        name: "Assistant DJ",
+        name: "Music DJ",
         description: "Analyzes scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
         phase: "post_processing",
         enabled_by_default: false,
@@ -386,6 +386,37 @@ fn merge_agent_config_object(default_object: &mut Map<String, Value>, patch: Map
     }
 }
 
+fn normalize_legacy_built_in_agent_label(
+    definition: &BuiltInAgentDefinition,
+    object: &mut Map<String, Value>,
+) {
+    if definition.agent_type == "music-dj"
+        && object.get("name").and_then(Value::as_str) == Some("Assistant DJ")
+    {
+        object.insert(
+            "name".to_string(),
+            Value::String(definition.name.to_string()),
+        );
+    }
+}
+
+pub(crate) fn normalize_agent_record_for_read(value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    if object.get("type").and_then(Value::as_str) == Some("music-dj")
+        && object.get("name").and_then(Value::as_str) == Some("Assistant DJ")
+    {
+        object.insert("name".to_string(), Value::String("Music DJ".to_string()));
+    }
+}
+
+pub(crate) fn normalize_agent_rows_for_read(rows: &mut [Value]) {
+    for row in rows {
+        normalize_agent_record_for_read(row);
+    }
+}
+
 fn built_in_agent_config_object(
     definition: &BuiltInAgentDefinition,
     enabled: bool,
@@ -407,6 +438,7 @@ fn built_in_agent_config_object(
         "type".to_string(),
         Value::String(definition.agent_type.to_string()),
     );
+    normalize_legacy_built_in_agent_label(definition, &mut object);
     Ok(object)
 }
 
@@ -1240,6 +1272,58 @@ mod tests {
             combat["settings"]["enabledTools"],
             json!(["roll_dice", "update_game_state"])
         );
+    }
+
+    #[test]
+    fn music_dj_builtin_uses_music_label_and_normalizes_legacy_assistant_dj() {
+        let created_state = test_state("music-dj-default-label");
+        let created = patch_agent_type(&created_state, "music-dj", json!({ "enabled": true }))
+            .expect("music dj patch should create built-in config row");
+
+        assert_eq!(
+            created.get("name").and_then(Value::as_str),
+            Some("Music DJ")
+        );
+        assert_eq!(
+            created["settings"]["enabledTools"],
+            json!([
+                "music_get_current_playback",
+                "music_resolve_candidates",
+                "music_play",
+                "music_set_volume",
+                "music_feedback"
+            ])
+        );
+
+        let legacy_state = test_state("music-dj-legacy-label");
+        legacy_state
+            .storage
+            .upsert_with_id(
+                "agents",
+                "legacy-music-dj",
+                json!({
+                    "id": "legacy-music-dj",
+                    "type": "music-dj",
+                    "name": "Assistant DJ",
+                    "enabled": true,
+                    "settings": {}
+                }),
+            )
+            .expect("legacy music dj config should write");
+
+        let hydrated = get_or_create_agent_config(&legacy_state, "music-dj")
+            .expect("music dj get-or-create should normalize legacy label");
+
+        assert_eq!(
+            hydrated.get("name").and_then(Value::as_str),
+            Some("Music DJ")
+        );
+        let stored = legacy_state
+            .storage
+            .get("agents", "legacy-music-dj")
+            .expect("agent lookup should succeed")
+            .expect("hydrated music dj should still exist");
+        assert_eq!(stored.get("name").and_then(Value::as_str), Some("Music DJ"));
     }
 
     #[test]
