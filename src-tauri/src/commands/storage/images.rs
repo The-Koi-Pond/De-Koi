@@ -1,6 +1,8 @@
 use super::shared::*;
 use super::*;
 
+#[path = "images/codex_subscription.rs"]
+mod codex_subscription;
 #[path = "images/providers.rs"]
 mod providers;
 

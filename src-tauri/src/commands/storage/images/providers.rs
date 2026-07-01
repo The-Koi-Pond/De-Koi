@@ -82,7 +82,9 @@ pub(crate) async fn generate_image_with_options(
         ));
     }
     let source = image_source(connection);
-    validate_image_provider_base_url(connection, &source).await?;
+    if source != "codex_subscription" {
+        validate_image_provider_base_url(connection, &source).await?;
+    }
     match source.as_str() {
         "pollinations" => {
             generate_pollinations(
@@ -108,6 +110,17 @@ pub(crate) async fn generate_image_with_options(
             generate_chat_image(connection, prompt, width, height, &options).await
         }
         "google_image" => generate_google_image(connection, prompt, width, height, &options).await,
+        "codex_subscription" => {
+            super::codex_subscription::generate_codex_subscription_image(
+                prompt,
+                width,
+                height,
+                options.negative_prompt.as_deref(),
+                options.transparent_background,
+                &options.reference_images,
+            )
+            .await
+        }
         "xai" => generate_xai(connection, prompt, width, height).await,
         "openai" | "togetherai" | "nanogpt" | "blockentropy" | "" => {
             generate_openai_compatible_image(connection, &source, prompt, width, height, &options)
@@ -147,7 +160,9 @@ fn infer_image_source(model_or_source: &str, base_url: &str) -> String {
     match model.as_str() {
         "openai" | "stability" | "togetherai" | "novelai" | "pollinations" | "horde"
         | "blockentropy" | "openrouter" | "xai" | "comfyui" | "automatic1111"
-        | "runpod_comfyui" | "gemini_image" | "google_image" | "nanogpt" => return model,
+        | "runpod_comfyui" | "gemini_image" | "google_image" | "nanogpt" | "codex_subscription" => {
+            return model
+        }
         "drawthings" => return "automatic1111".to_string(),
         _ => {}
     }
