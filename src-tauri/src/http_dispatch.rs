@@ -342,8 +342,6 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 optional_u32_strict(&args, "size")?,
             )
         }
-        "gif_config" => http::giphy_config(state),
-        "gif_update_config" => http::giphy_update_config(state, optional_value(&args, "body")),
         "gif_search" => gif_search(state, &args).await,
         "tts_config" => integrations::tts_call(state, "GET", &["config"], Value::Null).await,
         "tts_update_config" => {
@@ -359,9 +357,17 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "discord_webhook_send" => {
             integrations::discord_webhook_send(optional_value(&args, "body")).await
         }
-        "music_dj_status" => integrations::music_dj_status(state).await,
-        "music_dj_resolve" => integrations::music_dj_resolve(state, optional_value(&args, "input")).await,
-        "music_dj_feedback" => integrations::music_dj_feedback(state, optional_value(&args, "input")).await,
+        "music_status" => music_direct(state, "POST", &["status"], optional_value(&args, "body")).await,
+        "music_search_candidates" => {
+            music_direct(state, "POST", &["search-candidates"], optional_value(&args, "input")).await
+        }
+        "music_play" => music_direct(state, "POST", &["play"], optional_value(&args, "body")).await,
+        "music_pause" => music_direct(state, "POST", &["pause"], optional_value(&args, "body")).await,
+        "music_stop" => music_direct(state, "POST", &["stop"], optional_value(&args, "body")).await,
+        "music_set_volume" => music_direct(state, "POST", &["volume"], optional_value(&args, "body")).await,
+        "music_fresh_pick" => {
+            music_direct(state, "POST", &["fresh-pick"], optional_value(&args, "input")).await
+        }
         "spotify_status" => {
             spotify_direct(state, "POST", &["status"], optional_value(&args, "body")).await
         }
@@ -1059,16 +1065,6 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "deki_prompt" | "professor_mari_prompt" => {
             deki::deki_prompt(state, optional_value(&args, "request")).await
         }
-        "deki_workspace_status" => {
-            deki::deki_workspace_status(state, optional_string(&args, "connectionId")).await
-        }
-        "deki_workspace_abort" => deki::deki_workspace_abort(state).await,
-        "deki_workspace_approve" => {
-            deki::deki_workspace_approve(state, required_string(&args, "id")?.to_string()).await
-        }
-        "deki_workspace_reject" => {
-            deki::deki_workspace_reject(state, required_string(&args, "id")?.to_string()).await
-        }
         "update_check" => updates::check_updates().await,
         "update_apply" => updates::apply_update(optional_value(&args, "input")),
         _ => Err(AppError::new(
@@ -1218,6 +1214,15 @@ async fn gif_search(state: &AppState, args: &Map<String, Value>) -> AppResult<Va
         },
     )
     .await
+}
+
+async fn music_direct(
+    state: &AppState,
+    method: &str,
+    rest: &[&str],
+    body: Value,
+) -> AppResult<Value> {
+    integrations::music_call(state, method, rest, body).await
 }
 
 async fn spotify_direct(

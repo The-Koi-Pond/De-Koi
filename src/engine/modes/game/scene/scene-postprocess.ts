@@ -2,6 +2,8 @@ import type { DirectionCommand } from "../../../contracts/types/game";
 import type {
   SceneAnalysis,
   SceneIllustrationRequest,
+  SceneMusicTrackCandidate,
+  SceneMusicTrackSelection,
   SceneSegmentEffect,
   SceneSpotifyTrackCandidate,
   SceneSpotifyTrackSelection,
@@ -79,6 +81,43 @@ function sanitizeIllustration(raw: unknown): SceneIllustrationRequest | null {
   };
 }
 
+function sanitizeMusicTrack(
+  raw: unknown,
+  candidates: SceneMusicTrackCandidate[] | undefined,
+): SceneMusicTrackSelection | null {
+  if (!candidates?.length) return null;
+  if (!raw || raw === "null") return null;
+
+  const id =
+    typeof raw === "string"
+      ? sanitizeString(raw)
+      : raw && typeof raw === "object"
+        ? sanitizeString((raw as Record<string, unknown>).id)
+        : null;
+  const provider =
+    raw && typeof raw === "object" ? sanitizeString((raw as Record<string, unknown>).provider) : null;
+  if (!id) return null;
+
+  const candidate = candidates.find((track) => track.id === id && (!provider || track.provider === provider));
+  if (!candidate) {
+    logger.debug(`[postprocess] musicTrack: "${id}" -> null (not in candidate list)`);
+    return null;
+  }
+
+  return {
+    provider: candidate.provider,
+    id: candidate.id,
+    title: sanitizeString(candidate.title),
+    channelOrArtist: sanitizeString(candidate.channelOrArtist),
+    url: sanitizeString(candidate.url),
+    thumbnail: sanitizeString(candidate.thumbnail),
+    durationSeconds:
+      typeof candidate.durationSeconds === "number" && Number.isFinite(candidate.durationSeconds)
+        ? Math.max(0, Math.trunc(candidate.durationSeconds))
+        : null,
+  };
+}
+
 function sanitizeSpotifyTrack(
   raw: unknown,
   candidates: SceneSpotifyTrackCandidate[] | undefined,
@@ -96,7 +135,7 @@ function sanitizeSpotifyTrack(
 
   const candidate = candidates.find((track) => track.uri === uri);
   if (!candidate) {
-    logger.debug(`[postprocess] spotifyTrack: "${uri}" → null (not in candidate list)`);
+    logger.debug(`[postprocess] spotifyTrack: "${uri}" â†’ null (not in candidate list)`);
     return null;
   }
 
@@ -141,7 +180,7 @@ function isDirectionCommand(value: unknown): value is DirectionCommand {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-// ── Tag fuzzy-matching ──
+// â”€â”€ Tag fuzzy-matching â”€â”€
 
 /** Score how well a prose description matches an asset tag by keyword overlap. */
 function tagScore(prose: string, tag: string): number {
@@ -182,11 +221,13 @@ function bestMatch(prose: string, tags: string[]): string | null {
   return best;
 }
 
-// ── Public API ──
+// â”€â”€ Public API â”€â”€
 
 export interface PostProcessContext {
   availableBackgrounds: string[];
   availableSfx: string[];
+  useMusicDj?: boolean;
+  availableMusicTracks?: SceneMusicTrackCandidate[];
   useSpotifyMusic?: boolean;
   availableSpotifyTracks?: SceneSpotifyTrackCandidate[];
   validWidgetIds: Set<string>;
@@ -202,7 +243,7 @@ export interface PostProcessContext {
 function postProcessSegment(seg: SceneSegmentEffect, ctx: PostProcessContext): SceneSegmentEffect {
   const out = { ...seg };
 
-  // Background — fuzzy-match or synthesise generated tag
+  // Background â€” fuzzy-match or synthesise generated tag
   if (typeof out.background === "string" && out.background !== "null") {
     if (!ctx.availableBackgrounds.includes(out.background)) {
       if (out.background.startsWith("backgrounds:generated:") && ctx.canGenerateBackgrounds) {
@@ -210,7 +251,7 @@ function postProcessSegment(seg: SceneSegmentEffect, ctx: PostProcessContext): S
       } else {
         const matched = bestMatch(out.background, ctx.availableBackgrounds);
         if (matched) {
-          logger.debug(`[postprocess] seg[${seg.segment}] bg: "${out.background}" → "${matched}"`);
+          logger.debug(`[postprocess] seg[${seg.segment}] bg: "${out.background}" â†’ "${matched}"`);
           out.background = matched;
         } else if (ctx.canGenerateBackgrounds) {
           const slug = out.background
@@ -219,10 +260,10 @@ function postProcessSegment(seg: SceneSegmentEffect, ctx: PostProcessContext): S
             .replace(/^-+|-+$/g, "")
             .slice(0, 50);
           const gen = `backgrounds:generated:${slug}`;
-          logger.debug(`[postprocess] seg[${seg.segment}] bg: "${out.background}" → "${gen}" (no tag match)`);
+          logger.debug(`[postprocess] seg[${seg.segment}] bg: "${out.background}" â†’ "${gen}" (no tag match)`);
           out.background = gen;
         } else {
-          logger.debug(`[postprocess] seg[${seg.segment}] bg: "${out.background}" → dropped (generation unavailable)`);
+          logger.debug(`[postprocess] seg[${seg.segment}] bg: "${out.background}" â†’ dropped (generation unavailable)`);
           out.background = undefined;
         }
       }
@@ -241,10 +282,10 @@ function postProcessSegment(seg: SceneSegmentEffect, ctx: PostProcessContext): S
       } else {
         const m = bestMatch(item, ctx.availableSfx);
         if (m && !matched.includes(m)) {
-          logger.debug(`[postprocess] seg[${seg.segment}] sfx: "${item}" → "${m}"`);
+          logger.debug(`[postprocess] seg[${seg.segment}] sfx: "${item}" â†’ "${m}"`);
           matched.push(m);
         } else {
-          logger.debug(`[postprocess] seg[${seg.segment}] sfx: "${item}" → dropped`);
+          logger.debug(`[postprocess] seg[${seg.segment}] sfx: "${item}" â†’ dropped`);
         }
       }
     }
@@ -260,7 +301,7 @@ function postProcessSegment(seg: SceneSegmentEffect, ctx: PostProcessContext): S
     );
     if (outWithWidgets.widgetUpdates.length !== before) {
       logger.debug(
-        `[postprocess] seg[${seg.segment}] widgets: ${before} → ${outWithWidgets.widgetUpdates.length} (invalid IDs removed)`,
+        `[postprocess] seg[${seg.segment}] widgets: ${before} â†’ ${outWithWidgets.widgetUpdates.length} (invalid IDs removed)`,
       );
     }
   }
@@ -315,7 +356,7 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
   const result = { ...raw };
   const rawRecord = raw as unknown as Record<string, unknown>;
 
-  // ── Sanitize string "null" → actual null (grammar sometimes emits the string) ──
+  // â”€â”€ Sanitize string "null" â†’ actual null (grammar sometimes emits the string) â”€â”€
   if (result.background === "null" || (result.background !== null && typeof result.background !== "string")) {
     result.background = null;
   }
@@ -327,7 +368,7 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
   }
   result.music = null;
   result.ambient = null;
-  if (ctx.useSpotifyMusic) {
+  if (ctx.useMusicDj || ctx.useSpotifyMusic) {
     result.musicGenre = null;
     result.musicIntensity = null;
   } else {
@@ -335,11 +376,12 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
     result.musicIntensity = normalizeMusicIntensity(rawRecord.musicIntensity);
   }
   result.locationKind = normalizeLocationKind(rawRecord.locationKind);
+  result.musicTrack = ctx.useMusicDj ? sanitizeMusicTrack(rawRecord.musicTrack, ctx.availableMusicTracks) : null;
   result.spotifyTrack = ctx.useSpotifyMusic
     ? sanitizeSpotifyTrack(rawRecord.spotifyTrack, ctx.availableSpotifyTracks)
     : null;
 
-  // ── Background ──
+  // â”€â”€ Background â”€â”€
   if (
     typeof result.background === "string" &&
     result.background &&
@@ -347,11 +389,11 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
   ) {
     // If the model already output a backgrounds:generated:* tag, leave it as-is
     if (result.background.startsWith("backgrounds:generated:") && ctx.canGenerateBackgrounds) {
-      // Already valid generated format — no change needed
+      // Already valid generated format â€” no change needed
     } else {
       const matched = bestMatch(result.background, ctx.availableBackgrounds);
       if (matched) {
-        logger.debug(`[postprocess] bg: "${result.background}" → "${matched}"`);
+        logger.debug(`[postprocess] bg: "${result.background}" â†’ "${matched}"`);
         result.background = matched;
       } else if (ctx.canGenerateBackgrounds) {
         // Synthesise a generated-background slug the client can render
@@ -361,10 +403,10 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
           .replace(/^-+|-+$/g, "")
           .slice(0, 50);
         const gen = `backgrounds:generated:${slug}`;
-        logger.debug(`[postprocess] bg: "${result.background}" → "${gen}" (no tag match)`);
+        logger.debug(`[postprocess] bg: "${result.background}" â†’ "${gen}" (no tag match)`);
         result.background = gen;
       } else {
-        logger.debug(`[postprocess] bg: "${result.background}" → null (generation unavailable)`);
+        logger.debug(`[postprocess] bg: "${result.background}" â†’ null (generation unavailable)`);
         result.background = null;
       }
     }
@@ -373,7 +415,7 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
   // Music and ambient file tags are scored deterministically by scoreMusic/scoreAmbient.
   // Scene analysis only provides compact hints: musicGenre, musicIntensity, locationKind.
 
-  // ── Weather — map non-visual values to visual equivalents ──
+  // â”€â”€ Weather â€” map non-visual values to visual equivalents â”€â”€
   if (typeof result.weather === "string" && result.weather) {
     const weatherMap: Record<string, string> = {
       cold: "frost",
@@ -382,12 +424,12 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
     };
     const mapped = weatherMap[result.weather.toLowerCase()];
     if (mapped) {
-      logger.debug(`[postprocess] weather: "${result.weather}" → "${mapped}"`);
+      logger.debug(`[postprocess] weather: "${result.weather}" â†’ "${mapped}"`);
       result.weather = mapped;
     }
   }
 
-  // ── Top-level widget updates — handled by the GM model ──
+  // â”€â”€ Top-level widget updates â€” handled by the GM model â”€â”€
   // Clear stale widgetUpdates from older scene analyzers.
   const resultWithWidgets = result as SceneAnalysis & { widgetUpdates?: unknown[] };
   if (resultWithWidgets.widgetUpdates?.length) {
@@ -397,7 +439,7 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
     resultWithWidgets.widgetUpdates = [];
   }
 
-  // ── Cinematic directions ──
+  // â”€â”€ Cinematic directions â”€â”€
   if (Array.isArray(result.directions) && result.directions.length) {
     const before = result.directions.length;
     result.directions = result.directions
@@ -406,11 +448,11 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
       .filter((direction): direction is DirectionCommand => !!direction)
       .slice(0, 2);
     if (result.directions.length !== before) {
-      logger.debug(`[postprocess] directions: ${before} → ${result.directions.length} (invalid entries removed)`);
+      logger.debug(`[postprocess] directions: ${before} â†’ ${result.directions.length} (invalid entries removed)`);
     }
   }
 
-  // ── Segment Effects (per-beat) ──
+  // â”€â”€ Segment Effects (per-beat) â”€â”€
   if (Array.isArray(result.segmentEffects) && result.segmentEffects.length) {
     result.segmentEffects = thinSegmentDirections(
       result.segmentEffects

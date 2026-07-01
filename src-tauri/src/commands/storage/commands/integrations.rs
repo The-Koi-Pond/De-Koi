@@ -40,27 +40,50 @@ pub async fn discord_webhook_send(body: Value) -> Result<Value, AppError> {
     integrations::discord_webhook_send(body).await
 }
 
-
-#[tauri::command]
-pub async fn music_dj_status(state: State<'_, AppState>) -> Result<Value, AppError> {
-    integrations::music_dj_status(&state).await
-}
-
-#[tauri::command]
-pub async fn music_dj_resolve(
+async fn music_direct(
     state: State<'_, AppState>,
-    input: Value,
+    method: &str,
+    rest: &[&str],
+    body: Value,
 ) -> Result<Value, AppError> {
-    integrations::music_dj_resolve(&state, input).await
+    integrations::music_call(&state, method, rest, body).await
 }
 
 #[tauri::command]
-pub async fn music_dj_feedback(
-    state: State<'_, AppState>,
-    input: Value,
-) -> Result<Value, AppError> {
-    integrations::music_dj_feedback(&state, input).await
+pub async fn music_status(state: State<'_, AppState>, body: Option<Value>) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["status"], body.unwrap_or(Value::Null)).await
 }
+
+#[tauri::command]
+pub async fn music_search_candidates(state: State<'_, AppState>, input: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["search-candidates"], input).await
+}
+
+#[tauri::command]
+pub async fn music_play(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["play"], body).await
+}
+
+#[tauri::command]
+pub async fn music_pause(state: State<'_, AppState>, body: Option<Value>) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["pause"], body.unwrap_or(Value::Null)).await
+}
+
+#[tauri::command]
+pub async fn music_stop(state: State<'_, AppState>, body: Option<Value>) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["stop"], body.unwrap_or(Value::Null)).await
+}
+
+#[tauri::command]
+pub async fn music_set_volume(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["volume"], body).await
+}
+
+#[tauri::command]
+pub async fn music_fresh_pick(state: State<'_, AppState>, input: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["fresh-pick"], input).await
+}
+
 async fn spotify_direct(
     state: State<'_, AppState>,
     method: &str,

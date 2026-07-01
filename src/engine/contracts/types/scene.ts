@@ -1,12 +1,12 @@
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Scene Types
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // A "scene" is a character-initiated (or user-initiated) mini-roleplay
 // session that branches off from a conversation chat. The character
 // sets up the scenario, background, and participants. After the scene
 // concludes, a summary is injected as a permanent memory and the user
 // returns to the conversation.
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import type { DirectionCommand } from "./game.js";
 import type { LocationKind, MusicGenre, MusicIntensity } from "../../shared/scoring/music-score.js";
@@ -19,7 +19,7 @@ export interface SceneMeta {
   sceneInitiatorCharId: string | null;
   /** Human-readable scenario description (shown as narrator message). */
   sceneDescription: string;
-  /** Hidden scenario / plot outline — not shown to user. */
+  /** Hidden scenario / plot outline â€” not shown to user. */
   sceneScenario: string | null;
   /** Background filename to apply. */
   sceneBackground: string | null;
@@ -39,7 +39,7 @@ export interface SceneFullPlan {
   name: string;
   /** Short description shown to the user as a narrator message. */
   description: string;
-  /** Hidden scenario / plot arc — kept secret from the user. */
+  /** Hidden scenario / plot arc â€” kept secret from the user. */
   scenario: string;
   /** The first in-character message the character sends to start the scene. */
   firstMessage: string;
@@ -150,7 +150,7 @@ export interface ScenePlanRequest {
   connectionId?: string | null;
 }
 
-/** Response from POST /scene/plan — the LLM plans everything. */
+/** Response from POST /scene/plan â€” the LLM plans everything. */
 export interface ScenePlanResponse {
   plan: SceneFullPlan | null;
   /** Set when planning failed (e.g. model didn't return valid JSON). */
@@ -188,7 +188,33 @@ export interface GeneratedSceneIllustration {
   segment?: number;
 }
 
-/** Spotify track candidate offered to scene analysis for Game Mode music selection. */
+export type MusicProvider = "youtube" | "spotify" | "local" | (string & {});
+
+/** Provider-neutral music candidate offered to scene analysis for Music DJ selection. */
+export interface SceneMusicTrackCandidate {
+  provider: MusicProvider;
+  id: string;
+  title: string;
+  channelOrArtist?: string | null;
+  url?: string | null;
+  thumbnail?: string | null;
+  durationSeconds?: number | null;
+  confidence?: number | null;
+  reasonTags?: string[];
+}
+
+/** Provider-neutral track selected by scene analysis from the provided candidates. */
+export interface SceneMusicTrackSelection {
+  provider: MusicProvider;
+  id: string;
+  title?: string | null;
+  channelOrArtist?: string | null;
+  url?: string | null;
+  thumbnail?: string | null;
+  durationSeconds?: number | null;
+}
+
+/** Spotify track candidate offered to scene analysis for legacy Game Mode music selection. */
 export interface SceneSpotifyTrackCandidate {
   uri: string;
   name: string;
@@ -198,7 +224,7 @@ export interface SceneSpotifyTrackCandidate {
   score?: number | null;
 }
 
-/** Spotify track selected by scene analysis from the provided candidates. */
+/** Spotify track selected by scene analysis from the provided legacy candidates. */
 export interface SceneSpotifyTrackSelection {
   uri: string;
   name?: string | null;
@@ -226,7 +252,9 @@ export interface SceneAnalysis {
   musicIntensity?: MusicIntensity | null;
   /** Compact physical-location hint for deterministic ambient scoring. */
   locationKind?: LocationKind | null;
-  /** Spotify track to play when Game Mode is configured to use Spotify music. */
+  /** Provider-neutral track to play when Game Mode is configured to use Music DJ. */
+  musicTrack?: SceneMusicTrackSelection | null;
+  /** Spotify track to play when Game Mode is configured to use the legacy Spotify provider. */
   spotifyTrack?: SceneSpotifyTrackSelection | null;
   /** NPC reputation changes, applied immediately. */
   reputationChanges: SceneReputationChange[];

@@ -2,7 +2,6 @@
 // Chat: Settings Drawer — per-chat configuration
 // ──────────────────────────────────────────────
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { createPortal } from "react-dom";
 import { useQuery, useQueryClient, useQueries } from "@tanstack/react-query";
 import {
   X,
@@ -18,6 +17,7 @@ import {
   MessageSquare,
   Sparkles,
   Image,
+  Info,
   Pencil,
   Clock,
   AlertTriangle,
@@ -71,7 +71,6 @@ import {
 } from "./settings/ScopedRegexControls";
 import { SpriteDisplayModeToggle, SpriteToggleButton } from "./settings/SpriteDisplayControls";
 import {
-  metadataCharacterRoutines,
   metadataCharacterSchedules,
   metadataChoiceSelections,
   metadataNumber,
@@ -80,8 +79,7 @@ import {
   metadataStringArray,
   metadataTranslationProvider,
 } from "../lib/chat-settings-metadata";
-import { toggleChatAgent, toggleConversationStatusMessages } from "../lib/chat-settings-actions";
-import { resolveConversationStatusMessagesEnabled } from "../../../../../engine/modes/chat/status/conversation-status-settings";
+import { toggleChatAgent } from "../lib/chat-settings-actions";
 import { buildContinuityOverviewViewModel } from "../lib/continuity-overview";
 import {
   AgentCategorySection,
@@ -96,7 +94,6 @@ import {
   useCharacterSummaries,
   useCharacterSummariesByIds,
   useCharacterGroups,
-  invalidateCharacterCollectionQueries,
 } from "../../../../catalog/characters/index";
 import { spriteKeys, type SpriteInfo } from "../../../../catalog/sprites/index";
 import { usePersonaSummaries } from "../../../../catalog/personas/index";
@@ -114,8 +111,6 @@ import {
   chatKeys,
 } from "../../../../catalog/chats/index";
 import { generateConversationSchedules as runGenerateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
-import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
-import { conversationSettingsApi, conversationSettingsKeys } from "../../../../../shared/api/conversation-settings-api";
 import { conversationCommandPromptEnabled } from "../../../../../engine/modes/chat/commands/activation";
 import { agentApi } from "../../../../../shared/api/agent-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
@@ -564,31 +559,12 @@ function ChatSettingsDrawerInner({
     () => metadataCharacterSchedules(metadata.characterSchedules),
     [metadata.characterSchedules],
   );
-  const characterRoutines = useMemo(
-    () => metadataCharacterRoutines(metadata.characterRoutines),
-    [metadata.characterRoutines],
-  );
   const isSceneChat = metadata.sceneStatus === "active" || typeof metadata.sceneOriginChatId === "string";
   const hasGeneratedConversationSchedules = Object.keys(characterSchedules).length > 0;
-  const hasGeneratedConversationRoutines = Object.keys(characterRoutines).length > 0;
-  const hasGeneratedConversationAvailability = hasGeneratedConversationRoutines || hasGeneratedConversationSchedules;
   const conversationSchedulesEnabled =
     metadata.conversationSchedulesEnabled === true ||
-    (metadata.conversationSchedulesEnabled == null && hasGeneratedConversationAvailability);
-  const conversationSettingsQuery = useQuery({
-    queryKey: conversationSettingsKeys.settings,
-    queryFn: conversationSettingsApi.settings.get,
-  });
-  const conversationStatusMessagesDefaultEnabled =
-    conversationSettingsQuery.data?.statusMessagesEnabledByDefault === true;
-  const conversationStatusMessagesOverride =
-    metadata.conversationStatusMessagesEnabled === true || metadata.conversationStatusMessagesEnabled === false
-      ? metadata.conversationStatusMessagesEnabled
-      : null;
-  const conversationStatusMessagesEnabled = resolveConversationStatusMessagesEnabled(
-    metadata,
-    conversationStatusMessagesDefaultEnabled,
-  );
+    (metadata.conversationSchedulesEnabled == null && hasGeneratedConversationSchedules);
+  const conversationStatusMessagesEnabled = metadata.conversationStatusMessagesEnabled === true;
   const activeLorebookIds = useMemo<string[]>(
     () => metadataStringArray(metadata.activeLorebookIds),
     [metadata.activeLorebookIds],
@@ -687,6 +663,7 @@ function ChatSettingsDrawerInner({
   const updateRegexScript = useUpdateRegexScript();
   const scopedRegexScripts = useMemo(() => (allRegexScripts ?? []).filter(isRegexScriptScoped), [allRegexScripts]);
   const scopedRegexCount = scopedRegexScripts.length;
+  const musicDjActive = activeAgentIds.includes("music-dj");
   const spotifyActive = activeAgentIds.includes("spotify");
   const gameLorebookKeeperLorebook = gameLorebookKeeperLorebookId
     ? ((lorebooks ?? []) as Array<{ id: string; name: string }>).find(
@@ -696,13 +673,14 @@ function ChatSettingsDrawerInner({
   const spotifySourceType = normalizeSpotifySourceType(metadata.spotifySourceType);
   const spotifyPlaylistId = typeof metadata.spotifyPlaylistId === "string" ? metadata.spotifyPlaylistId : "";
   const spotifyArtist = typeof metadata.spotifyArtist === "string" ? metadata.spotifyArtist : "";
-  const gameUseSpotifyMusic = metadata.gameUseMusicDj === true || metadata.gameUseSpotifyMusic === true;
+  const gameUseMusicDj = metadata.gameUseMusicDj === true;
+  const gameUseSpotifyMusic = metadata.gameUseSpotifyMusic === true;
   const gameSpotifySourceType = normalizeGameSpotifySourceType(metadata.gameSpotifySourceType);
   const gameSpotifyPlaylistId =
     typeof metadata.gameSpotifyPlaylistId === "string" ? metadata.gameSpotifyPlaylistId : "";
   const gameSpotifyArtist = typeof metadata.gameSpotifyArtist === "string" ? metadata.gameSpotifyArtist : "";
   const gameAgentFeatureCount =
-    activeAgentIds.length + (gameLorebookKeeperEnabled ? 1 : 0) + (gameUseSpotifyMusic ? 1 : 0);
+    activeAgentIds.length + (gameLorebookKeeperEnabled ? 1 : 0) + (gameUseMusicDj || gameUseSpotifyMusic ? 1 : 0);
   const spriteCharacterIds = useMemo<string[]>(
     () => (Array.isArray(metadata.spriteCharacterIds) ? metadata.spriteCharacterIds : []),
     [metadata.spriteCharacterIds],
@@ -729,7 +707,7 @@ function ChatSettingsDrawerInner({
       }>({ limit: 50 }),
     enabled:
       open &&
-      ((isGame && metadata.gameUseSpotifyMusic === true && gameSpotifySourceType === "playlist") ||
+      ((isGame && gameUseSpotifyMusic && gameSpotifySourceType === "playlist") ||
         (isRoleplayMode && agentsEnabled && spotifyActive && spotifySourceType === "playlist")),
     staleTime: 60_000,
     retry: false,
@@ -882,40 +860,6 @@ function ChatSettingsDrawerInner({
         .filter((character): character is DrawerCharacter => !!character),
     [chatCharIds, characters],
   );
-
-  const profilePopoverCharacter = useMemo(
-    () =>
-      profilePopoverCharacterId
-        ? (chatCharacters.find((character) => character.id === profilePopoverCharacterId) ??
-          characters.find((character) => character.id === profilePopoverCharacterId) ??
-          null)
-        : null,
-    [characters, chatCharacters, profilePopoverCharacterId],
-  );
-
-  const openCharacterProfilePreview = useCallback((characterId: string) => {
-    setProfilePopoverCharacterId((current) => (current === characterId ? null : characterId));
-  }, []);
-
-  const openCharacterDetailFromProfile = useCallback(
-    (characterId: string) => {
-      setProfilePopoverCharacterId(null);
-      onClose();
-      useUIStore.getState().openCharacterDetail(characterId);
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (!profilePopoverCharacterId) return undefined;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setProfilePopoverCharacterId(null);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [profilePopoverCharacterId]);
 
   const activePersona = useMemo(
     () => (chat.personaId ? (personas.find((persona) => persona.id === chat.personaId) ?? null) : null),
@@ -1462,49 +1406,6 @@ function ChatSettingsDrawerInner({
     },
     [chat.id, chatCharIds, qc],
   );
-  const handleToggleConversationStatusMessagesDefault = useCallback(() => {
-    const nextEnabled = !conversationStatusMessagesDefaultEnabled;
-    void (async () => {
-      try {
-        await conversationSettingsApi.settings.setStatusMessagesEnabledByDefault(nextEnabled);
-        await qc.invalidateQueries({ queryKey: conversationSettingsKeys.settings });
-        if (!nextEnabled || conversationStatusMessagesOverride === false) return;
-
-        const result = await maybeRefreshConversationStatusMessages(
-          { storage: storageApi, llm: llmApi },
-          { chatId: chat.id },
-        );
-        if (result.refreshed.length > 0) {
-          invalidateCharacterCollectionQueries(qc);
-          await qc.invalidateQueries({ queryKey: chatKeys.detail(chat.id) });
-        }
-      } catch (error) {
-        await conversationSettingsApi.settings
-          .setStatusMessagesEnabledByDefault(conversationStatusMessagesDefaultEnabled)
-          .catch(() => undefined);
-        await qc.invalidateQueries({ queryKey: conversationSettingsKeys.settings });
-        toast.error(error instanceof Error ? error.message : "Status blurb generation failed.");
-      }
-    })();
-  }, [chat.id, conversationStatusMessagesDefaultEnabled, conversationStatusMessagesOverride, qc]);
-  const handleToggleConversationStatusMessages = useCallback(() => {
-    const nextEnabled = !conversationStatusMessagesEnabled;
-    void toggleConversationStatusMessages({
-      chat,
-      enabled: conversationStatusMessagesEnabled,
-      nextEnabled,
-      rollbackEnabled: conversationStatusMessagesOverride === true,
-      updateMeta,
-      refreshStatusMessages: (chatId) =>
-        maybeRefreshConversationStatusMessages({ storage: storageApi, llm: llmApi }, { chatId }),
-      invalidateCharacters: () => invalidateCharacterCollectionQueries(qc),
-      invalidateChat: () => qc.invalidateQueries({ queryKey: chatKeys.detail(chat.id) }),
-      showRefreshFailure: (message) => {
-        toast.error(message);
-      },
-    });
-  }, [chat, conversationStatusMessagesEnabled, conversationStatusMessagesOverride, qc, updateMeta]);
-
   const [scenePromptExpanded, setScenePromptExpanded] = useState(false);
   const [scenePromptDraft, setScenePromptDraft] = useState(sceneSystemPrompt);
   const [narratorStyleDraft, setNarratorStyleDraft] = useState(narratorStyleInstructions);
@@ -1512,7 +1413,7 @@ function ChatSettingsDrawerInner({
   const [groupScenarioDraft, setGroupScenarioDraft] = useState(groupScenarioText);
   const [groupScenarioExpanded, setGroupScenarioExpanded] = useState(false);
   const gameAgentPool = useMemo(
-    () => Array.from(new Set(activeAgentIds.filter((id) => id !== "spotify" && id !== "lorebook-keeper"))),
+    () => Array.from(new Set(activeAgentIds.filter((id) => id !== "music-dj" && id !== "spotify" && id !== "lorebook-keeper"))),
     [activeAgentIds],
   );
   const [extraPromptDraft, setExtraPromptDraft] = useState(gameExtraPrompt);
@@ -1670,7 +1571,7 @@ function ChatSettingsDrawerInner({
     }
   };
 
-  const ensureSpotifyAgent = useCallback(async () => {
+  const ensureMusicDjAgent = useCallback(async () => {
     const builtInMeta = BUILT_IN_AGENTS.find((entry) => entry.id === "music-dj");
     if (!builtInMeta) throw new Error("Music DJ agent metadata is missing.");
     const config = agentConfigsByType.get("music-dj") ?? null;
@@ -1697,26 +1598,50 @@ function ChatSettingsDrawerInner({
     });
   }, [agentConfigsByType, createAgent, updateAgentConfig]);
 
-  const toggleGameSpotifyMusic = useCallback(async () => {
-    if (gameUseSpotifyMusic) {
+  const ensureSpotifyAgent = useCallback(async () => {
+    const builtInMeta = BUILT_IN_AGENTS.find((entry) => entry.id === "spotify");
+    if (!builtInMeta) throw new Error("Spotify DJ agent metadata is missing.");
+    const config = agentConfigsByType.get("spotify") ?? null;
+    const nextSettings: Record<string, unknown> = {
+      ...getDefaultBuiltInAgentSettings("spotify"),
+      ...parseAgentSettings(config?.settings),
+      enabledTools: DEFAULT_AGENT_TOOLS.spotify ?? [],
+    };
+
+    if (config) {
+      await updateAgentConfig.mutateAsync({ id: config.id, enabled: true, settings: nextSettings });
+      return;
+    }
+
+    await createAgent.mutateAsync({
+      type: builtInMeta.id,
+      name: builtInMeta.name,
+      description: builtInMeta.description,
+      phase: builtInMeta.phase,
+      enabled: true,
+      connectionId: null,
+      promptTemplate: "",
+      settings: nextSettings,
+    });
+  }, [agentConfigsByType, createAgent, updateAgentConfig]);
+
+  const toggleGameMusicDj = useCallback(async () => {
+    if (gameUseMusicDj) {
       await updateMeta.mutateAsync({
         id: chat.id,
         gameUseMusicDj: false,
-        musicDjEnabled: false,
-        gameUseSpotifyMusic: false,
-        activeAgentIds: activeAgentIds.filter((id) => id !== "music-dj" && id !== "spotify"),
+        activeAgentIds: activeAgentIds.filter((id) => id !== "music-dj"),
       });
       return;
     }
 
     try {
-      await ensureSpotifyAgent();
+      await ensureMusicDjAgent();
       await updateMeta.mutateAsync({
         id: chat.id,
         gameUseMusicDj: true,
-        musicDjEnabled: true,
-        musicDjProvider: "youtube",
-        gameSpotifySourceType,
+        gameMusicProvider: "youtube",
+        gameUseSpotifyMusic: false,
         activeAgentIds: Array.from(new Set([...activeAgentIds.filter((id) => id !== "spotify"), "music-dj"])),
       });
     } catch (error) {
@@ -1725,7 +1650,37 @@ function ChatSettingsDrawerInner({
         message:
           error instanceof Error
             ? error.message
-            : "Music DJ could not be enabled for this game. Check the Assistant DJ setup and try again.",
+            : "Music DJ could not be enabled for this game. Check the agent setup and try again.",
+      });
+    }
+  }, [activeAgentIds, chat.id, ensureMusicDjAgent, gameUseMusicDj, updateMeta]);
+
+  const toggleGameSpotifyMusic = useCallback(async () => {
+    if (gameUseSpotifyMusic) {
+      await updateMeta.mutateAsync({
+        id: chat.id,
+        gameUseSpotifyMusic: false,
+        activeAgentIds: activeAgentIds.filter((id) => id !== "spotify"),
+      });
+      return;
+    }
+
+    try {
+      await ensureSpotifyAgent();
+      await updateMeta.mutateAsync({
+        id: chat.id,
+        gameUseMusicDj: false,
+        gameUseSpotifyMusic: true,
+        gameSpotifySourceType,
+        activeAgentIds: Array.from(new Set([...activeAgentIds.filter((id) => id !== "music-dj"), "spotify"])),
+      });
+    } catch (error) {
+      await showAlertDialog({
+        title: "Couldn't Enable Spotify DJ",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Spotify DJ could not be enabled for this game. Check the Spotify agent setup and try again.",
       });
     }
   }, [activeAgentIds, chat.id, ensureSpotifyAgent, gameSpotifySourceType, gameUseSpotifyMusic, updateMeta]);
@@ -2260,9 +2215,12 @@ function ChatSettingsDrawerInner({
                           className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-3 py-2 ring-1 ring-[var(--primary)]/30"
                         >
                           <button
-                            onClick={() => openCharacterProfilePreview(c.id)}
+                            onClick={() => {
+                              onClose();
+                              useUIStore.getState().openCharacterDetail(c.id);
+                            }}
                             className="flex min-w-0 flex-1 items-center gap-2.5 text-left transition-colors hover:opacity-80"
-                            title="Preview public profile"
+                            title="Open character card"
                           >
                             {c.avatarPath ? (
                               <span className="relative block h-7 w-7 shrink-0 overflow-hidden rounded-full">
@@ -2282,6 +2240,42 @@ function ChatSettingsDrawerInner({
                               )}
                             </div>
                           </button>
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
+                              }}
+                              className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                              title="Preview public profile"
+                            >
+                              <Info size="0.6875rem" />
+                            </button>
+                            {profilePopoverCharacterId === c.id && (
+                              <div
+                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <CharacterPublicProfileCard
+                                  profile={resolveCharacterPublicProfile({
+                                    data: c.data as Record<string, unknown>,
+                                    comment: c.comment,
+                                  })}
+                                  avatarUrl={c.avatarPath}
+                                  avatarFilePath={c.avatarFilePath}
+                                  avatarFilename={c.avatarFilename}
+                                  avatarCrop={charAvatarCrop(c)}
+                                  compact
+                                  onOpenFullProfile={() => {
+                                    setProfilePopoverCharacterId(null);
+                                    onClose();
+                                    useUIStore.getState().openCharacterDetail(c.id);
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
                           <button
                             onClick={() => toggleCharacter(c.id)}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
@@ -2537,7 +2531,7 @@ function ChatSettingsDrawerInner({
                           }}
                           onDragEnd={handleCharDragEnd}
                           className={cn(
-                            "flex items-center gap-2 rounded-lg px-2 py-2 ring-1 transition-opacity",
+                            "relative flex items-center gap-2 rounded-lg px-2 py-2 ring-1 transition-opacity",
                             isInactive
                               ? "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-[var(--border)]"
                               : "bg-[var(--primary)]/10 ring-[var(--primary)]/30",
@@ -2551,9 +2545,12 @@ function ChatSettingsDrawerInner({
                             <GripVertical size="0.75rem" />
                           </div>
                           <button
-                            onClick={() => openCharacterProfilePreview(c.id)}
+                            onClick={() => {
+                              onClose();
+                              useUIStore.getState().openCharacterDetail(c.id);
+                            }}
                             className="flex items-center gap-2.5 min-w-0 flex-1 text-left transition-colors hover:opacity-80"
-                            title="Preview public profile"
+                            title="Open character card"
                           >
                             {c.avatarPath ? (
                               <span className="relative block h-7 w-7 shrink-0 overflow-hidden rounded-full">
@@ -2594,6 +2591,42 @@ function ChatSettingsDrawerInner({
                           >
                             {isInactive ? "Inactive" : "Active"}
                           </button>
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
+                              }}
+                              className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                              title="Preview public profile"
+                            >
+                              <Info size="0.6875rem" />
+                            </button>
+                            {profilePopoverCharacterId === c.id && (
+                              <div
+                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <CharacterPublicProfileCard
+                                  profile={resolveCharacterPublicProfile({
+                                    data: c.data as Record<string, unknown>,
+                                    comment: c.comment,
+                                  })}
+                                  avatarUrl={c.avatarPath}
+                                  avatarFilePath={c.avatarFilePath}
+                                  avatarFilename={c.avatarFilename}
+                                  avatarCrop={charAvatarCrop(c)}
+                                  compact
+                                  onOpenFullProfile={() => {
+                                    setProfilePopoverCharacterId(null);
+                                    onClose();
+                                    useUIStore.getState().openCharacterDetail(c.id);
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
                           <button
                             onClick={() => toggleCharacter(c.id)}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
@@ -3110,12 +3143,12 @@ function ChatSettingsDrawerInner({
                   </button>
                 )}
 
-                {/* Conversation availability toggle */}
+                {/* Conversation schedules toggle */}
                 <button
                   onClick={() => {
                     const nextEnabled = !conversationSchedulesEnabled;
                     updateMeta.mutate({ id: chat.id, conversationSchedulesEnabled: nextEnabled });
-                    if (nextEnabled && !hasGeneratedConversationAvailability) {
+                    if (nextEnabled && !hasGeneratedConversationSchedules) {
                       void generateConversationSchedules(false);
                     }
                   }}
@@ -3127,9 +3160,9 @@ function ChatSettingsDrawerInner({
                   )}
                 >
                   <div className="flex-1 min-w-0">
-                    <span className="text-xs font-medium">Availability</span>
+                    <span className="text-xs font-medium">Schedules</span>
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Fuzzy character routines and response timing
+                      Optional character routines for availability and delays
                     </p>
                   </div>
                   <div
@@ -3148,36 +3181,12 @@ function ChatSettingsDrawerInner({
                 </button>
 
                 <button
-                  onClick={handleToggleConversationStatusMessagesDefault}
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
-                    conversationStatusMessagesDefaultEnabled
-                      ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                      : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
-                  )}
-                >
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs font-medium">Auto-enable Status Blurbs</span>
-                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">Default for conversation chats</p>
-                  </div>
-                  <div
-                    className={cn(
-                      "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                      conversationStatusMessagesDefaultEnabled
-                        ? "bg-[var(--primary)]"
-                        : "bg-[var(--muted-foreground)]/50",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-                        conversationStatusMessagesDefaultEnabled && "translate-x-3.5",
-                      )}
-                    />
-                  </div>
-                </button>
-                <button
-                  onClick={handleToggleConversationStatusMessages}
+                  onClick={() => {
+                    updateMeta.mutate({
+                      id: chat.id,
+                      conversationStatusMessagesEnabled: !conversationStatusMessagesEnabled,
+                    });
+                  }}
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
                     conversationStatusMessagesEnabled
@@ -3186,13 +3195,9 @@ function ChatSettingsDrawerInner({
                   )}
                 >
                   <div className="flex-1 min-w-0">
-                    <span className="text-xs font-medium">This Chat</span>
+                    <span className="text-xs font-medium">Status Blurbs</span>
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      {conversationStatusMessagesOverride === null
-                        ? `Using global default (${conversationStatusMessagesDefaultEnabled ? "on" : "off"})`
-                        : conversationStatusMessagesEnabled
-                          ? "Explicitly on for this chat"
-                          : "Explicitly off for this chat"}
+                      Short generated updates based on routines and recent context
                     </p>
                   </div>
                   <div
@@ -3210,23 +3215,21 @@ function ChatSettingsDrawerInner({
                   </div>
                 </button>
 
-                {/* Availability status */}
+                {/* Schedule status */}
                 <div className="flex items-center gap-2 rounded-lg bg-[var(--secondary)] px-3 py-2.5">
                   <CalendarClock size="0.875rem" className="text-[var(--muted-foreground)]" />
                   <div className="flex-1 min-w-0">
                     <span className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]">
                       {!conversationSchedulesEnabled
-                        ? "Availability is off - autonomous messages will not use routines."
-                        : hasGeneratedConversationRoutines
-                          ? "Routines generated - status uses character habits."
-                          : hasGeneratedConversationSchedules
-                            ? "Legacy schedules found - regenerate to replace them with routines."
-                            : "Availability enabled - generate routines when you're ready."}
+                        ? "Schedules are off — autonomous messages will not create routines."
+                        : hasGeneratedConversationSchedules
+                          ? "Schedules generated — status is derived from character routines."
+                          : "Schedules enabled — generate routines when you're ready."}
                     </span>
                     <p className="text-[0.59375rem] text-[var(--muted-foreground)]/60 mt-0.5">
                       {conversationSchedulesEnabled
-                        ? "Routines refresh only after you enable or regenerate them."
-                        : "Turn availability on if you want character timing to matter."}
+                        ? "Schedules refresh only after you enable or regenerate them."
+                        : "Turn schedules on if you want character availability to matter."}
                     </p>
                   </div>
                   <button
@@ -3243,21 +3246,20 @@ function ChatSettingsDrawerInner({
                         ? "cursor-not-allowed text-[var(--muted-foreground)]/60"
                         : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
                     )}
-                    title={isRegeneratingSchedules ? "Regenerating availability..." : "Generate character routines"}
+                    title={isRegeneratingSchedules ? "Regenerating schedules…" : "Generate schedules"}
                   >
                     <RefreshCw size="0.6875rem" className={cn(isRegeneratingSchedules && "animate-spin")} />
                     {isRegeneratingSchedules
-                      ? "Regenerating..."
-                      : hasGeneratedConversationAvailability
+                      ? "Regenerating…"
+                      : hasGeneratedConversationSchedules
                         ? "Regenerate"
                         : "Generate"}
                   </button>
                 </div>
 
-                {/* Availability editor per character */}
-                {conversationSchedulesEnabled && hasGeneratedConversationAvailability && (
+                {/* Schedule editor per character */}
+                {conversationSchedulesEnabled && hasGeneratedConversationSchedules && (
                   <ScheduleEditor
-                    characterRoutines={characterRoutines}
                     characterSchedules={characterSchedules}
                     chatCharIds={chatCharIds}
                     charNameMap={charNameMap}
@@ -3973,10 +3975,10 @@ function ChatSettingsDrawerInner({
                   <div className="space-y-2">
                     <button
                       type="button"
-                      onClick={() => void toggleGameSpotifyMusic()}
+                      onClick={() => void toggleGameMusicDj()}
                       className={cn(
                         "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
-                        gameUseSpotifyMusic
+                        gameUseMusicDj
                           ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
                           : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
                       )}
@@ -3987,25 +3989,41 @@ function ChatSettingsDrawerInner({
                           <span>Music DJ</span>
                         </div>
                         <p className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Use Assistant DJ instead of the built-in Game Mode music library.
+                          Use YouTube-first Music DJ instead of the built-in Game Mode music library.
                         </p>
                       </div>
                       <div
                         className={cn(
                           "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                          gameUseSpotifyMusic ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                          gameUseMusicDj ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
                         )}
                       >
                         <div
                           className={cn(
                             "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-                            gameUseSpotifyMusic && "translate-x-3.5",
+                            gameUseMusicDj && "translate-x-3.5",
                           )}
                         />
                       </div>
                     </button>
 
-                    {metadata.gameUseSpotifyMusic === true && (
+                    {gameUseMusicDj && (
+                      <div className="space-y-2 rounded-lg bg-[var(--background)]/55 p-3 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+                        <div>
+                          <div className="font-medium text-[var(--foreground)]">Provider: YouTube</div>
+                          <div>No account, OAuth, or API key required.</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void toggleGameSpotifyMusic()}
+                          className="rounded-md border border-[var(--border)] px-2 py-1 text-left text-[0.625rem] text-[var(--foreground)] hover:bg-[var(--accent)]"
+                        >
+                          Use legacy Spotify provider
+                        </button>
+                      </div>
+                    )}
+
+                    {gameUseSpotifyMusic && (
                       <div className="space-y-2 rounded-lg bg-[var(--background)]/55 p-3 ring-1 ring-[var(--border)]">
                         <label className="flex flex-col gap-1">
                           <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">
@@ -4457,12 +4475,26 @@ function ChatSettingsDrawerInner({
                   </div>
                 )}
 
+                {agentsEnabled && isRoleplayMode && musicDjActive && (
+                  <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/70 p-3">
+                    <div className="flex items-start gap-2">
+                      <Music2 size="0.75rem" className="mt-0.5 text-[var(--primary)]" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[0.6875rem] font-medium">Music DJ</div>
+                        <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                          YouTube-first scene music is active. Use the shell Music DJ player for direct URLs, fresh picks, and volume.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {agentsEnabled && isRoleplayMode && spotifyActive && (
                   <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/70 p-3">
                     <div className="flex items-start gap-2">
                       <Music2 size="0.75rem" className="mt-0.5 text-[var(--primary)]" />
                       <div className="min-w-0 flex-1">
-                        <div className="text-[0.6875rem] font-medium">Spotify DJ</div>
+                        <div className="text-[0.6875rem] font-medium">Spotify DJ (Legacy)</div>
                         <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
                           Choose where the DJ should look for roleplay music when it reacts to the scene.
                         </p>
@@ -6027,35 +6059,6 @@ function ChatSettingsDrawerInner({
           </div>
         )}
       </Modal>
-
-      {profilePopoverCharacter &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[90] flex items-start justify-end bg-transparent px-3 pt-16 max-sm:justify-center max-sm:px-2 max-sm:pt-14"
-            onClick={() => setProfilePopoverCharacterId(null)}
-          >
-            <div
-              data-profile-popover
-              className="max-h-[calc(100vh-4.5rem)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <CharacterPublicProfileCard
-                profile={resolveCharacterPublicProfile({
-                  data: profilePopoverCharacter.data as Record<string, unknown>,
-                  comment: profilePopoverCharacter.comment,
-                })}
-                avatarUrl={profilePopoverCharacter.avatarPath}
-                avatarFilePath={profilePopoverCharacter.avatarFilePath}
-                avatarFilename={profilePopoverCharacter.avatarFilename}
-                avatarCrop={charAvatarCrop(profilePopoverCharacter)}
-                compact
-                onOpenFullProfile={() => openCharacterDetailFromProfile(profilePopoverCharacter.id)}
-              />
-            </div>
-          </div>,
-          document.body,
-        )}
 
       {/* First message confirmation dialog */}
       {firstMesConfirm && (

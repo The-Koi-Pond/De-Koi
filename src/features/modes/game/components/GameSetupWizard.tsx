@@ -2,7 +2,6 @@
 // Game: Setup Wizard (initial game setup modal)
 // ──────────────────────────────────────────────
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Wand2,
   ArrowRight,
@@ -24,7 +23,6 @@ import type { GameSetupConfig, GameGmMode } from "../../../../engine/contracts/t
 import type { Lorebook } from "../../../../engine/contracts/types/lorebook";
 import { lorebookCanBeSelectedForContext } from "../../../../engine/generation-core/lorebooks/active-lorebook-scope";
 import { getCharacterTitle, parseCharacterDisplayData } from "../../../../shared/lib/character-display";
-import { spotifyApi } from "../../../../shared/api/integration-utility-api";
 import { cn, normalizeAvatarCropValue, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import {
@@ -180,19 +178,6 @@ const PREFERENCE_SUGGESTIONS = [
   "Make NPCs memorable",
   "Keep it short",
 ];
-
-type GameSpotifySourceType = "liked" | "playlist" | "artist" | "any";
-
-const GAME_SPOTIFY_SOURCE_OPTIONS: Array<{ id: GameSpotifySourceType; label: string; description: string }> = [
-  { id: "liked", label: "Liked Songs", description: "Pick from saved tracks first." },
-  { id: "playlist", label: "Playlist", description: "Keep choices inside one Spotify playlist." },
-  { id: "artist", label: "Artist", description: "Search only around a named artist, like HOYO-MiX." },
-  { id: "any", label: "Any Spotify", description: "Let the DJ use Spotify search when it fits." },
-];
-
-function normalizeGameSpotifySourceType(value: unknown): GameSpotifySourceType {
-  return value === "playlist" || value === "artist" || value === "any" ? value : "liked";
-}
 
 type LearnedOptionGroup = "genres" | "tones" | "settings" | "goals" | "preferences";
 
@@ -376,10 +361,6 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
   const [rating, setRating] = useState<"sfw" | "nsfw">("sfw");
   const [enableSpriteGeneration, setEnableSpriteGeneration] = useState(false);
   const [enableSpotifyDj, setEnableSpotifyDj] = useState(false);
-  const [gameSpotifySourceType, setGameSpotifySourceType] = useState<GameSpotifySourceType>("liked");
-  const [gameSpotifyPlaylistId, setGameSpotifyPlaylistId] = useState("");
-  const [gameSpotifyPlaylistName, setGameSpotifyPlaylistName] = useState("");
-  const [gameSpotifyArtist, setGameSpotifyArtist] = useState("");
   const [enableLorebookKeeper, setEnableLorebookKeeper] = useState(false);
   const [imageConnectionId, setImageConnectionId] = useState<string | null>(null);
   const [sceneConnectionId, setSceneConnectionId] = useState<string | null>(null);
@@ -423,23 +404,6 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
     isError: isPartyCharactersError,
   } = useCharacterSummaries(step === 1, debouncedPartySearch);
   const { data: lorebooksList } = useLorebooks();
-  const spotifyPlaylistsQuery = useQuery({
-    queryKey: ["spotify", "playlists", 50],
-    queryFn: () =>
-      spotifyApi.playlists<{
-        playlists: Array<{
-          id: string;
-          name: string;
-          uri: string;
-          trackCount: number | null;
-          owned: boolean | null;
-        }>;
-      }>({ limit: 50 }),
-    enabled: enableSpotifyDj && gameSpotifySourceType === "playlist",
-    staleTime: 60_000,
-    retry: false,
-  });
-
   const connections = useMemo(
     () =>
       (connectionsList as Array<{
@@ -670,18 +634,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
         imageConnectionId: enableSpriteGeneration && imageConnectionId ? imageConnectionId : undefined,
         activeLorebookIds: activeLorebookIds.length > 0 ? activeLorebookIds : undefined,
         enableCustomWidgets,
-        enableSpotifyDj: enableSpotifyDj || undefined,
-        spotifySourceType: enableSpotifyDj ? gameSpotifySourceType : undefined,
-        spotifyPlaylistId:
-          enableSpotifyDj && gameSpotifySourceType === "playlist"
-            ? gameSpotifyPlaylistId.trim() || undefined
-            : undefined,
-        spotifyPlaylistName:
-          enableSpotifyDj && gameSpotifySourceType === "playlist"
-            ? gameSpotifyPlaylistName.trim() || undefined
-            : undefined,
-        spotifyArtist:
-          enableSpotifyDj && gameSpotifySourceType === "artist" ? gameSpotifyArtist.trim() || undefined : undefined,
+        enableMusicDj: enableSpotifyDj || undefined,
         enableLorebookKeeper: enableLorebookKeeper || undefined,
         language: normalizedLanguage || undefined,
         generationParameters: customizeParameters ? generationParameters : undefined,
@@ -1380,9 +1333,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                         className={enableSpotifyDj ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}
                       />
                       <div className="min-w-0">
-                        <span className="block text-xs font-medium text-[var(--foreground)]">Spotify DJ Music</span>
+                        <span className="block text-xs font-medium text-[var(--foreground)]">Music DJ</span>
                         <span className="block text-[0.575rem] text-[var(--muted-foreground)]">
-                          Use Spotify music for this game instead of local music assets
+                          Use YouTube-first Music DJ instead of local music assets
                         </span>
                       </div>
                     </div>
@@ -1402,99 +1355,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   </button>
 
                   {enableSpotifyDj && (
-                    <div className="mt-2 space-y-2 rounded-lg bg-[var(--background)]/55 p-3 ring-1 ring-[var(--border)]">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Music source</span>
-                        <select
-                          value={gameSpotifySourceType}
-                          onChange={(event) => {
-                            const next = normalizeGameSpotifySourceType(event.target.value);
-                            setGameSpotifySourceType(next);
-                            if (next !== "playlist") {
-                              setGameSpotifyPlaylistId("");
-                              setGameSpotifyPlaylistName("");
-                            }
-                            if (next !== "artist") {
-                              setGameSpotifyArtist("");
-                            }
-                          }}
-                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs text-[var(--foreground)]"
-                        >
-                          {GAME_SPOTIFY_SOURCE_OPTIONS.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="text-[0.5625rem] text-[var(--muted-foreground)]">
-                          {GAME_SPOTIFY_SOURCE_OPTIONS.find((option) => option.id === gameSpotifySourceType)
-                            ?.description ?? ""}
-                        </span>
-                      </label>
-
-                      {gameSpotifySourceType === "playlist" && (
-                        <label className="flex flex-col gap-1">
-                          <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Playlist</span>
-                          {spotifyPlaylistsQuery.data?.playlists.length ? (
-                            <select
-                              value={gameSpotifyPlaylistId}
-                              onChange={(event) => {
-                                const playlist = spotifyPlaylistsQuery.data?.playlists.find(
-                                  (entry) => entry.id === event.target.value,
-                                );
-                                setGameSpotifyPlaylistId(event.target.value);
-                                setGameSpotifyPlaylistName(playlist?.name ?? "");
-                              }}
-                              className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs text-[var(--foreground)]"
-                            >
-                              <option value="">Choose playlist...</option>
-                              {spotifyPlaylistsQuery.data.playlists.map((playlist) => {
-                                const suffix =
-                                  typeof playlist.trackCount === "number"
-                                    ? ` (${playlist.trackCount})`
-                                    : playlist.owned === false
-                                      ? " (followed — unavailable)"
-                                      : "";
-                                return (
-                                  <option key={playlist.id} value={playlist.id}>
-                                    {playlist.name}
-                                    {suffix}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                          ) : (
-                            <input
-                              value={gameSpotifyPlaylistId}
-                              onChange={(event) => {
-                                setGameSpotifyPlaylistId(event.target.value);
-                                setGameSpotifyPlaylistName("");
-                              }}
-                              placeholder={
-                                spotifyPlaylistsQuery.isFetching ? "Loading playlists..." : "Paste playlist ID"
-                              }
-                              className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50"
-                            />
-                          )}
-                          {spotifyPlaylistsQuery.isError && (
-                            <span className="text-[0.5625rem] text-amber-400/90">
-                              Connect Spotify in the Spotify DJ agent to load playlist names.
-                            </span>
-                          )}
-                        </label>
-                      )}
-
-                      {gameSpotifySourceType === "artist" && (
-                        <label className="flex flex-col gap-1">
-                          <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Artist</span>
-                          <input
-                            value={gameSpotifyArtist}
-                            onChange={(event) => setGameSpotifyArtist(event.target.value)}
-                            placeholder="HOYO-MiX"
-                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50"
-                          />
-                        </label>
-                      )}
+                    <div className="mt-2 space-y-1 rounded-lg bg-[var(--background)]/55 p-3 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+                      <div className="font-medium text-[var(--foreground)]">Provider: YouTube</div>
+                      <div>No account, OAuth, API key, or Spotify Premium required.</div>
                     </div>
                   )}
                 </div>

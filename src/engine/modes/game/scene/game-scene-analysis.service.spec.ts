@@ -108,6 +108,28 @@ const baseContext = {
   availableSpotifyTracks: [{ uri: "spotify:track:valid", name: "Valid Song", artist: "The Testers", album: "Proof" }],
 };
 
+const youtubeMusicTrack = {
+  provider: "youtube",
+  id: "yt:rain-waltz",
+  title: "Rain Waltz",
+  channelOrArtist: "Test Channel",
+  url: "https://www.youtube.com/watch?v=rainwaltz",
+  thumbnail: null,
+  durationSeconds: 3600,
+  confidence: 0.9,
+  reasonTags: ["rain", "waltz"],
+};
+
+const musicContext = {
+  ...baseContext,
+  useSpotifyMusic: false,
+  availableSpotifyTracks: [],
+  useMusicDj: true,
+  availableMusicTracks: [youtubeMusicTrack],
+  currentMusicTrack: "yt:old-theme",
+  recentMusicTracks: ["yt:old-theme"],
+};
+
 function validSceneJson(overrides: JsonRecord = {}): string {
   return JSON.stringify({
     background: "backgrounds:tavern:hall",
@@ -145,6 +167,51 @@ describe("analyzeGameScene structured generation", () => {
     expect(result.elapsedMinutes).toBe(3);
     expect(result.segmentEffects?.[0]?.sfx).toEqual(["sfx:door:slam"]);
     expect(llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("selects a neutral Music DJ track only from provided candidates", async () => {
+    const llm = llmWithResponses([
+      validSceneJson({
+        spotifyTrack: undefined,
+        musicTrack: "yt:rain-waltz",
+        musicGenre: null,
+        musicIntensity: null,
+      }),
+    ]);
+
+    const result = await analyzeGameScene(
+      { storage: storageGateway(), llm },
+      { chatId: "chat-1", narration: "Rain drums gently on the tavern roof.", context: musicContext },
+    );
+
+    expect(result.musicTrack).toMatchObject({
+      provider: "youtube",
+      id: "yt:rain-waltz",
+      title: "Rain Waltz",
+      channelOrArtist: "Test Channel",
+    });
+    expect(result.spotifyTrack).toBeNull();
+    expect(llm.requests[0]?.messages[1]?.content).toContain("MUSIC TRACK OPTIONS");
+    expect(llm.requests[0]?.messages[1]?.content).toContain("yt:rain-waltz");
+    expect(llm.requests[0]?.messages[1]?.content).not.toContain("SPOTIFY TRACK OPTIONS");
+  });
+
+  it("rejects invented neutral Music DJ track ids", async () => {
+    const llm = llmWithResponses([
+      validSceneJson({
+        spotifyTrack: undefined,
+        musicTrack: "yt:invented",
+        musicGenre: null,
+        musicIntensity: null,
+      }),
+    ]);
+
+    const result = await analyzeGameScene(
+      { storage: storageGateway(), llm },
+      { chatId: "chat-1", narration: "The room grows quiet.", context: musicContext },
+    );
+
+    expect(result.musicTrack).toBeNull();
   });
 
   it("repairs malformed scene JSON and returns the repaired analysis", async () => {

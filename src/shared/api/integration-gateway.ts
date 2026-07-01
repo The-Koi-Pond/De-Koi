@@ -2,8 +2,8 @@ import type { IntegrationGateway } from "../../engine/capabilities/integrations"
 import { DISCORD_MIRROR_MODULE_ID } from "../../engine/contracts/constants/core-modules";
 import { coreModulesApi } from "./core-modules-api";
 import { imageGenerationApi } from "./image-generation-api";
-import { musicDjApi } from "./music-dj-api";
 import { spotifyApi } from "./integration-utility-api";
+import { musicApi } from "./music-api";
 import { invokeTauri } from "./tauri-client";
 
 async function discordMirrorModuleEnabled(): Promise<boolean> {
@@ -17,6 +17,15 @@ async function discordMirrorModuleEnabled(): Promise<boolean> {
 }
 
 export const integrationGateway: IntegrationGateway = {
+  music: {
+    status: (input) => musicApi.status(input),
+    searchCandidates: (input) => musicApi.searchCandidates(input),
+    play: (input) => musicApi.play(input),
+    pause: (input) => musicApi.pause(input),
+    stop: (input) => musicApi.stop(input),
+    setVolume: (input) => musicApi.setVolume(input),
+    freshPick: (input) => musicApi.freshPick(input),
+  },
   spotify: {
     player: (input) => spotifyApi.player(input),
     playlists: (input) =>
@@ -29,11 +38,6 @@ export const integrationGateway: IntegrationGateway = {
     playTrack: <T = unknown>(input: Record<string, unknown>) => spotifyApi.playTrack(input) as Promise<T>,
     play: <T = unknown>(input: Record<string, unknown>) => spotifyApi.play(input) as Promise<T>,
     volume: <T = unknown>(input: Record<string, unknown>) => spotifyApi.volume(input) as Promise<T>,
-  },
-  musicDj: {
-    status: <T = unknown>() => musicDjApi.status() as Promise<T>,
-    resolve: <T = unknown>(input: Record<string, unknown>) => musicDjApi.resolve(input as never) as Promise<T>,
-    feedback: <T = unknown>(input: Record<string, unknown>) => musicDjApi.feedback(input as never) as Promise<T>,
   },
   customTools: {
     execute: <T = unknown>(input: { toolName: string; arguments: unknown }) =>
