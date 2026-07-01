@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { enabledChatAgentIds, filterAgentIdsForChatMode, isBuiltInAgentAvailableInChatMode } from "./agent";
+import {
+  BUILT_IN_AGENTS,
+  enabledChatAgentIds,
+  filterAgentIdsForChatMode,
+  isBuiltInAgentAvailableInChatMode,
+} from "./agent";
 
 describe("built-in agent chat mode availability", () => {
   it("allows explicit illustrator retries in Conversation mode", () => {
@@ -12,5 +17,9 @@ describe("built-in agent chat mode availability", () => {
     expect(enabledChatAgentIds({ activeAgentIds: ["spotify", "builtin:spotify"] }, "roleplay")).toEqual(["music-dj"]);
     expect(isBuiltInAgentAvailableInChatMode("roleplay", "music-dj")).toBe(true);
     expect(isBuiltInAgentAvailableInChatMode("roleplay", "spotify")).toBe(true);
+  });
+
+  it("labels the YouTube-first built-in music agent as Music DJ", () => {
+    expect(BUILT_IN_AGENTS.find((agent) => agent.id === "music-dj")?.name).toBe("Music DJ");
   });
 });

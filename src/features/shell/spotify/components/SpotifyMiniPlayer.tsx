@@ -574,7 +574,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
             draggable={false}
           />
           <p className="text-sm font-medium leading-snug">
-            Assistant DJ is composing a playlist for you, hold on tight!
+            Spotify DJ is composing a playlist for you, hold on tight!
           </p>
         </div>
       ),
@@ -605,7 +605,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     onSuccess: (result) => {
       dismissDjDekiToast();
       invalidate();
-      toast.success("Assistant DJ playlist is ready", {
+      toast.success("Spotify DJ playlist is ready", {
         description: `${result.name} - ${result.trackCount} tracks`,
         duration: DJ_DEKI_PLAYLIST_READY_TOAST_MS,
         action: result.playlistUrl
@@ -625,7 +625,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     },
     onError: (error) => {
       dismissDjDekiToast();
-      toast.error(error instanceof Error ? error.message : "Assistant DJ could not create the playlist.");
+      toast.error(error instanceof Error ? error.message : "Spotify DJ could not create the playlist.");
     },
   });
 
@@ -926,8 +926,8 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
             onClick={() => createDjDekiPlaylist.mutate()}
             disabled={createDjDekiPlaylist.isPending}
             className="inline-flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[0.625rem] font-black leading-none text-[oklch(0.70_0.012_145)] transition-colors hover:text-[oklch(0.96_0.006_145)] disabled:cursor-wait disabled:opacity-80"
-            title="Assistant DJ composes a playlist for you!"
-            aria-label="Assistant DJ composes a playlist for you!"
+            title="Spotify DJ composes a playlist for you!"
+            aria-label="Spotify DJ composes a playlist for you!"
           >
             {createDjDekiPlaylist.isPending ? <Loader2 size="0.8125rem" className="animate-spin" /> : "DJ"}
           </button>

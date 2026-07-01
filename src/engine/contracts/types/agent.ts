@@ -432,7 +432,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
   },
   {
     id: "music-dj",
-    name: "Assistant DJ",
+    name: "Music DJ",
     description:
       "Analyzes roleplay and game scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
     phase: "post_processing",
