@@ -2,10 +2,12 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { chatKeys } from "../../../catalog/chats/index";
+import { getRecentClientDiagnostics } from "../../../../shared/lib/client-diagnostics";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   generateAndApplyBackgroundRequest,
+  handleGenerationDiagnosticEvent,
   handleSceneCreatedGenerationEvent,
   isTrackerPatchRetryRequest,
   runGenerationWithUi,
@@ -150,6 +152,38 @@ describe("generateAndApplyBackgroundRequest", () => {
   });
 });
 
+describe("handleGenerationDiagnosticEvent", () => {
+  it("records generation timing diagnostics for troubleshooting", () => {
+    handleGenerationDiagnosticEvent({
+      kind: "timing",
+      name: "assemble-prompt",
+      durationMs: 42,
+      chatId: "chat-1",
+      chatMode: "roleplay",
+      groupChatMode: "merged",
+      characterCount: 3,
+      targetCharacterId: null,
+      messageCount: 12,
+      promptMessageCount: 8,
+    });
+
+    expect(getRecentClientDiagnostics()[0]).toEqual(
+      expect.objectContaining({
+        level: "info",
+        source: "generation-timing",
+        message: "assemble-prompt completed in 42ms",
+        details: expect.objectContaining({
+          chatId: "chat-1",
+          chatMode: "roleplay",
+          groupChatMode: "merged",
+          characterCount: 3,
+          messageCount: 12,
+          promptMessageCount: 8,
+        }),
+      }),
+    );
+  });
+});
 describe("isTrackerPatchRetryRequest", () => {
   it("only classifies retry requests for agents that should return tracker patches", () => {
     expect(isTrackerPatchRetryRequest(["world-state", "character-tracker", "persona-stats", "custom-tracker"])).toBe(
@@ -219,6 +253,44 @@ describe("runGenerationWithUi", () => {
     queryClient.clear();
   });
 
+  it("records diagnostic stream events without disrupting generation", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-diagnostic-stream";
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "roleplay",
+      metadata: { groupChatMode: "merged" },
+    } as Chat);
+    useChatStore.getState().setActiveChatId(chatId);
+
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield {
+        type: "diagnostic",
+        data: {
+          kind: "timing",
+          name: "model-call",
+          durationMs: 100,
+          chatId,
+          chatMode: "roleplay",
+          groupChatMode: "merged",
+          characterCount: 2,
+          targetCharacterId: null,
+        },
+      } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    await runGenerationWithUi(queryClient, { chatId }, stream);
+
+    expect(getRecentClientDiagnostics()[0]).toEqual(
+      expect.objectContaining({
+        source: "generation-timing",
+        message: "model-call completed in 100ms",
+      }),
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+    queryClient.clear();
+  });
   it("flushes pending typewriter text when the page becomes hidden", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-background-flush";

@@ -3995,6 +3995,33 @@ export async function* startGeneration(
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
 
+  const generationTimingStartedAt = () => Date.now();
+  const generationTimingEvent = (
+    name: string,
+    startedAt: number,
+    extra: Partial<Extract<GenerationEvent, { type: "diagnostic" }>["data"]> = {},
+  ): GenerationEvent | null => {
+    if (input.debugMode !== true) return null;
+    const chatMode = readString(chat.mode || chat.chatMode, "conversation");
+    const groupChatMode = readString(parseRecord(chat.metadata).groupChatMode).trim() || null;
+    const targetCharacterId = readString(input.forCharacterId).trim() || null;
+    return {
+      type: "diagnostic",
+      data: {
+        kind: "timing",
+        name,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        chatId,
+        chatMode,
+        groupChatMode,
+        characterCount: activeCharacterIds(chat).length,
+        targetCharacterId,
+        ...extra,
+      },
+    };
+  };
+
+  const saveUserMessageStartedAt = generationTimingStartedAt();
   yield { type: "phase", data: "Saving message..." };
   const preparedUserInput = await prepareUserInput(deps.storage, input, chat);
   let savesUserMessage = false;
@@ -4020,6 +4047,11 @@ export async function* startGeneration(
   }
   throwIfAborted(signal);
   if (savedUserMessage) yield { type: "user_message", data: savedGenerationEventData(savedUserMessage) };
+  const saveUserMessageTiming = generationTimingEvent("save-user-message", saveUserMessageStartedAt, {
+    savedUserMessage: !!savedUserMessage,
+  });
+  if (saveUserMessageTiming) yield saveUserMessageTiming;
+  const prepareContextStartedAt = generationTimingStartedAt();
   const connection = await resolveGenerationConnection(deps.storage, chat, input);
   throwIfAborted(signal);
   if (savesUserMessage) {
@@ -4136,6 +4168,10 @@ export async function* startGeneration(
       yield { type: "typing", data: { characters: characterNames } };
     }
   }
+  const prepareContextTiming = generationTimingEvent("prepare-context", prepareContextStartedAt, {
+    messageCount: generationMessages.length,
+  });
+  if (prepareContextTiming) yield prepareContextTiming;
   const isUserMessageRegeneration = isUserRegenerationTarget(regenerationTarget);
   const agentEvents: AgentResult[] = [];
   const continueAssistantResponse = shouldContinueAssistantResponse(input, preparedUserInput, generationMessages);
@@ -4144,6 +4180,7 @@ export async function* startGeneration(
 
   yield { type: "phase", data: "Assembling prompt..." };
   let prompt = directMessages;
+  const assemblePromptStartedAt = generationTimingStartedAt();
   if (!directMessages) {
     chatForGeneration = await withRuntimeConversationCommandCapabilities(chatForGeneration, deps.integrations);
     throwIfAborted(signal);
@@ -4160,6 +4197,11 @@ export async function* startGeneration(
     persistPromptVariables: true,
   });
   throwIfAborted(signal);
+  const assemblePromptTiming = generationTimingEvent("assemble-prompt", assemblePromptStartedAt, {
+    messageCount: generationMessages.length,
+    promptMessageCount: assembly.messages.length,
+  });
+  if (assemblePromptTiming) yield assemblePromptTiming;
   mirrorSavedUserMessageToDiscord({ deps, chat, input, prepared: preparedUserInput, persona: assembly.persona });
 
   if (!directMessages) {
@@ -4283,6 +4325,7 @@ export async function* startGeneration(
     let usage: unknown = null;
     let providerMetadata: unknown = null;
     let promptSnapshot: MainGenerationPromptSnapshot | null = null;
+    const modelCallStartedAt = generationTimingStartedAt();
     try {
       ({
         content: streamedContent,
@@ -4332,6 +4375,10 @@ export async function* startGeneration(
       }
       throw err;
     }
+    const modelCallTiming = generationTimingEvent("model-call", modelCallStartedAt, {
+      promptMessageCount: baseMessages.length,
+    });
+    if (modelCallTiming) yield modelCallTiming;
     throwIfAborted(signal);
     let content = streamedContent;
 
