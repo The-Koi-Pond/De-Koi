@@ -116,6 +116,13 @@ const CLAUDE_SUBSCRIPTION_SETUP_STEPS = [
   { label: "API Key and Base URL are not required - leave them blank." },
 ] as const;
 
+const CODEX_IMAGEGEN_SETUP_STEPS = [
+  { label: "Codex CLI must be installed on the De-Koi server host or container." },
+  { label: "Sign in once on that host", command: "codex login" },
+  { label: "Pi/Docker installs must mount CODEX_HOME into the server container." },
+  { label: "API Key and Base URL are not required - leave them blank." },
+] as const;
+
 type RemoteModel = {
   id: string;
   name: string;
@@ -941,12 +948,7 @@ export function ConnectionEditor() {
 
           {isClaudeSubscriptionProvider && <ClaudeSubscriptionAuthHelp />}
           {usesLocalChatGptAuth && <OpenAiChatGptAuthHelp />}
-          {usesCodexSubscriptionImagegen && (
-            <p className="rounded-xl bg-sky-400/10 px-3 py-2 text-[0.6875rem] leading-relaxed text-sky-200 ring-1 ring-sky-400/20">
-              Uses your local Codex login and Codex imagegen usage. Run <code>codex login</code> before testing; API
-              keys and Base URL are not used.
-            </p>
-          )}
+          {usesCodexSubscriptionImagegen && <CodexImagegenAuthHelp />}
 
           {/* ── OpenRouter Provider Preference ── */}
           {localProvider === "openrouter" && (
@@ -2204,6 +2206,44 @@ function ClaudeSubscriptionAuthHelp() {
   );
 }
 
+function CodexImagegenAuthHelp() {
+  return (
+    <div className="rounded-xl border border-sky-400/25 bg-sky-400/5 p-3 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+      <div className="flex items-start gap-2">
+        <AlertCircle size="0.8125rem" className="mt-0.5 shrink-0 text-sky-300" />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-sky-200">
+            Generates images through the Codex CLI on the De-Koi server, then imports the generated file back into the
+            gallery. This uses your logged-in Codex subscription instead of an image API key.
+          </p>
+          <p className="mt-1 text-sky-200/90">Prerequisites on the De-Koi server:</p>
+          <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+            {CODEX_IMAGEGEN_SETUP_STEPS.map((step) => {
+              return (
+                <li key={step.label}>
+                  {"command" in step ? (
+                    <>
+                      {step.label}:{" "}
+                      <code className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.625rem]">{step.command}</code>
+                    </>
+                  ) : (
+                    step.label
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          <p className="mt-2">
+            For Pi Docker installs, update to a De-Koi server image that includes Codex CLI, run{" "}
+            <code className="rounded bg-[var(--secondary)] px-1 py-0.5">codex login</code> as the Pi user, and keep{" "}
+            <code className="rounded bg-[var(--secondary)] px-1 py-0.5">CODEX_HOME=/root/.codex</code> mounted from the
+            host Codex directory.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 function TestResultCard({
   label,
   success,

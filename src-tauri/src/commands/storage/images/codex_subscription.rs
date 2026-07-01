@@ -1,5 +1,5 @@
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use image::ImageFormat;
 use marinara_core::{AppError, AppResult};
 use marinara_security::redact_sensitive_text;
@@ -14,6 +14,10 @@ use tokio::process::Command;
 const CODEX_IMAGEGEN_TIMEOUT_SECS: u64 = 360;
 const CODEX_GENERATED_IMAGE_POLL_ATTEMPTS: usize = 20;
 const CODEX_GENERATED_IMAGE_POLL_DELAY_MS: u64 = 500;
+const DEFAULT_CODEX_CLI_EXECUTABLE: &str = "codex";
+const CODEX_CLI_PATH_ENV: &str = "CODEX_CLI_PATH";
+const DEFAULT_CODEX_IMAGEGEN_MODEL: &str = "gpt-5.5";
+const CODEX_IMAGEGEN_MODEL_ENV: &str = "CODEX_IMAGEGEN_MODEL";
 
 pub(crate) async fn generate_codex_subscription_image(
     prompt: &str,
@@ -37,18 +41,10 @@ pub(crate) async fn generate_codex_subscription_image(
         transparent_background,
     );
     let cwd = env::current_dir().map_err(AppError::io)?;
+    let args = codex_exec_args(&cwd, request);
     let output = tokio::time::timeout(
         Duration::from_secs(CODEX_IMAGEGEN_TIMEOUT_SECS),
-        Command::new("codex")
-            .arg("exec")
-            .arg("--ignore-rules")
-            .arg("--json")
-            .arg("--cd")
-            .arg(&cwd)
-            .arg("-s")
-            .arg("read-only")
-            .arg(request)
-            .output(),
+        Command::new(codex_cli_executable()).args(args).output(),
     )
     .await
     .map_err(|_| {
@@ -57,12 +53,7 @@ pub(crate) async fn generate_codex_subscription_image(
             "Codex image generation did not finish before the timeout",
         )
     })?
-    .map_err(|error| {
-        AppError::new(
-            "image_network_error",
-            format!("Failed to start local Codex CLI: {error}"),
-        )
-    })?;
+    .map_err(|error| AppError::new("image_network_error", codex_start_error_message(&error)))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -86,6 +77,53 @@ pub(crate) async fn generate_codex_subscription_image(
     image_file_base64(&image_path)
 }
 
+fn codex_exec_args(cwd: &Path, request: String) -> Vec<OsString> {
+    codex_exec_args_with_model(cwd, request, codex_imagegen_model())
+}
+
+fn codex_exec_args_with_model(cwd: &Path, request: String, model: OsString) -> Vec<OsString> {
+    vec![
+        OsString::from("exec"),
+        OsString::from("--skip-git-repo-check"),
+        OsString::from("--ignore-rules"),
+        OsString::from("--json"),
+        OsString::from("-m"),
+        model,
+        OsString::from("--cd"),
+        cwd.as_os_str().to_os_string(),
+        OsString::from("-s"),
+        OsString::from("read-only"),
+        OsString::from(request),
+    ]
+}
+fn codex_cli_executable() -> OsString {
+    fallback_env_os(
+        env::var_os(CODEX_CLI_PATH_ENV),
+        DEFAULT_CODEX_CLI_EXECUTABLE,
+    )
+}
+
+fn codex_imagegen_model() -> OsString {
+    fallback_env_os(
+        env::var_os(CODEX_IMAGEGEN_MODEL_ENV),
+        DEFAULT_CODEX_IMAGEGEN_MODEL,
+    )
+}
+
+fn fallback_env_os(value: Option<OsString>, fallback: &str) -> OsString {
+    value
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| OsString::from(fallback))
+}
+
+fn codex_start_error_message(error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        return format!(
+            "Failed to start local Codex CLI. Install Codex CLI in the De-Koi server environment or set {CODEX_CLI_PATH_ENV}, then run `codex login`. Pi/Docker installs need a server image with @openai/codex and CODEX_HOME mounted to /root/.codex. ({error})"
+        );
+    }
+    format!("Failed to start local Codex CLI: {error}")
+}
 fn codex_imagegen_prompt(
     prompt: &str,
     width: u64,
@@ -266,6 +304,69 @@ mod tests {
     use serde_json::json;
     use std::time::{Duration, SystemTime};
 
+    #[test]
+    fn codex_exec_args_skip_git_repo_check_for_container_app_dir() {
+        let args = codex_exec_args_with_model(
+            Path::new("/app"),
+            "make an image".to_string(),
+            OsString::from(DEFAULT_CODEX_IMAGEGEN_MODEL),
+        );
+        let values = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(values[0], "exec");
+        assert!(values.contains(&"--skip-git-repo-check".to_string()));
+        assert!(values.contains(&"--ignore-rules".to_string()));
+        assert!(values.contains(&"--json".to_string()));
+        assert!(values.contains(&"-m".to_string()));
+        assert!(values.contains(&DEFAULT_CODEX_IMAGEGEN_MODEL.to_string()));
+        assert_eq!(values.last().map(String::as_str), Some("make an image"));
+    }
+    #[test]
+    fn codex_cli_executable_uses_env_override_when_present() {
+        assert_eq!(
+            fallback_env_os(
+                Some(OsString::from("/opt/codex/bin/codex")),
+                DEFAULT_CODEX_CLI_EXECUTABLE
+            ),
+            OsString::from("/opt/codex/bin/codex")
+        );
+        assert_eq!(
+            fallback_env_os(Some(OsString::new()), DEFAULT_CODEX_CLI_EXECUTABLE),
+            OsString::from(DEFAULT_CODEX_CLI_EXECUTABLE)
+        );
+        assert_eq!(
+            fallback_env_os(None, DEFAULT_CODEX_CLI_EXECUTABLE),
+            OsString::from(DEFAULT_CODEX_CLI_EXECUTABLE)
+        );
+    }
+
+    #[test]
+    fn fallback_env_os_uses_non_empty_override_or_fallback() {
+        assert_eq!(
+            fallback_env_os(
+                Some(OsString::from("gpt-5.4")),
+                DEFAULT_CODEX_IMAGEGEN_MODEL
+            ),
+            OsString::from("gpt-5.4")
+        );
+        assert_eq!(
+            fallback_env_os(Some(OsString::new()), DEFAULT_CODEX_IMAGEGEN_MODEL),
+            OsString::from(DEFAULT_CODEX_IMAGEGEN_MODEL)
+        );
+    }
+
+    #[test]
+    fn codex_start_error_explains_container_setup_when_binary_missing() {
+        let error = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+        let message = codex_start_error_message(&error);
+
+        assert!(message.contains("Install Codex CLI in the De-Koi server environment"));
+        assert!(message.contains(CODEX_CLI_PATH_ENV));
+        assert!(message.contains("CODEX_HOME mounted to /root/.codex"));
+    }
     #[test]
     fn codex_prompt_mentions_subscription_source_size_and_options() {
         let prompt = codex_imagegen_prompt(
