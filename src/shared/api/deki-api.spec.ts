@@ -191,6 +191,35 @@ describe("dekiApi.actions.apply", () => {
       },
     });
   });
+
+  it("normalizes string lorebook scopes before applying a redraft", async () => {
+    const action: DekiEntryAction = {
+      type: "apply_lorebook_redraft",
+      lorebook: {
+        name: "The Freak Circus",
+        description: "Shared surreal circus horror notes.",
+        scope: "all",
+      },
+      entries: [{ name: "Pierrot and Harlequin", content: "A mirrored rivalry under canvas and lights." }],
+      label: "Create Freak Circus lorebook",
+    };
+    storageApiMock.get.mockResolvedValue(null);
+    storageApiMock.create.mockImplementation(async (_entity: string, draft: Record<string, unknown>) => ({
+      ...draft,
+      id: draft.id ?? "created-record",
+    }));
+
+    await dekiApi.actions.apply(action, { actionId: "message-freak-circus" });
+
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "lorebooks",
+      expect.objectContaining({
+        name: "The Freak Circus",
+        scope: { mode: "all", chatIds: [] },
+      }),
+    );
+  });
+
   it("keeps draft record actions pending until the user applies them", async () => {
     const action: DekiEntryAction = {
       type: "create_record",
