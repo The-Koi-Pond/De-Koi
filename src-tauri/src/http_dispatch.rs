@@ -597,6 +597,10 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "storage_get" => {
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_get).await
         }
+        "prompt_preset_bundle" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::prompt_preset_bundle)
+                .await
+        }
         "storage_create" => {
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_create)
                 .await
@@ -1450,6 +1454,7 @@ mod tests {
         "storage_duplicate",
         "storage_get",
         "storage_list",
+        "prompt_preset_bundle",
         "storage_update",
         "tracker_snapshot_get",
         "tracker_snapshot_latest",
