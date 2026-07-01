@@ -256,8 +256,8 @@
     "id": "image-generation",
     "title": "Image Generation",
     "category": "Media",
-    "summary": "Use image connections, Codex Subscription imagegen, and style profiles for selfies, sprites, backgrounds, NPC portraits, and Game scene illustrations.",
-    "keywords": ["image", "images", "pictures", "sprites", "selfie", "background", "illustration", "portrait", "style profile", "codex", "subscription", "imagegen", "danbooru", "negative prompt", "novelai", "dall-e"],
+    "summary": "Set up and test image connections, Codex Subscription imagegen, and style profiles for selfies, sprites, backgrounds, NPC portraits, and Game scene illustrations.",
+    "keywords": ["image", "images", "pictures", "sprites", "selfie", "background", "illustration", "portrait", "style profile", "codex", "codex cli", "subscription", "imagegen", "test image", "danbooru", "negative prompt", "novelai", "dall-e"],
     "audience": "Users who want visual scenes and character art generated from chat context.",
     "where": "Connections, Settings > General, chat settings, Game controls, and relevant agents.",
     "actions": [
