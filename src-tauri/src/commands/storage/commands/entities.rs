@@ -227,6 +227,47 @@ pub(crate) fn storage_list_inner(
                 shared::projection_field_selections(options.as_ref()),
             )?
         }
+        (_, Some(filters), None)
+            if !filters.is_empty()
+                && has_search
+                && projection_fields
+                    .as_ref()
+                    .is_some_and(|fields| !fields.is_empty()) =>
+        {
+            let search_projection_fields = shared::search_projection_fields(options.as_ref());
+            let search_projection_field_selections =
+                shared::search_projection_field_selections(options.as_ref());
+            let read_projection_fields = storage_list_projection_fields_for_read(
+                &entity,
+                &search_projection_fields,
+                options.as_ref(),
+            );
+            state.storage.list_projected_where(
+                &entity,
+                filters,
+                &read_projection_fields,
+                &search_projection_field_selections,
+            )?
+        }
+        (_, Some(filters), None)
+            if !filters.is_empty()
+                && !has_search
+                && projection_fields
+                    .as_ref()
+                    .is_some_and(|fields| !fields.is_empty()) =>
+        {
+            let read_projection_fields = storage_list_projection_fields_for_read(
+                &entity,
+                projection_fields.as_deref().unwrap_or(&[]),
+                options.as_ref(),
+            );
+            state.storage.list_projected_where(
+                &entity,
+                filters,
+                &read_projection_fields,
+                shared::projection_field_selections(options.as_ref()),
+            )?
+        }
         (_, Some(filters), None) if !filters.is_empty() => {
             state.storage.list_where(&entity, filters)?
         }
@@ -2388,6 +2429,76 @@ mod tests {
         );
     }
 
+    #[test]
+    fn storage_list_filtered_projected_rows_keep_sort_and_nested_selection() {
+        let state = test_state("storage-list-filtered-projected");
+        state
+            .storage
+            .replace_all(
+                "characters",
+                vec![
+                    json!({
+                        "id": "char-b",
+                        "folderId": "folder-a",
+                        "sortOrder": 2,
+                        "data": {
+                            "name": "Bina",
+                            "description": "large prompt not requested",
+                            "extensions": { "fav": true, "nameColor": "#abcdef" }
+                        },
+                        "avatar": "large avatar payload not requested"
+                    }),
+                    json!({
+                        "id": "char-skip",
+                        "folderId": "folder-b",
+                        "sortOrder": 0,
+                        "data": {
+                            "name": "Skip",
+                            "description": "large prompt not requested",
+                            "extensions": { "fav": false, "nameColor": "#123456" }
+                        },
+                        "avatar": "large avatar payload not requested"
+                    }),
+                    json!({
+                        "id": "char-a",
+                        "folderId": "folder-a",
+                        "sortOrder": 1,
+                        "data": {
+                            "name": "Ari",
+                            "description": "large prompt not requested",
+                            "extensions": { "fav": false, "nameColor": "#654321" }
+                        },
+                        "avatar": "large avatar payload not requested"
+                    }),
+                ],
+            )
+            .expect("characters should seed");
+
+        let result = storage_list_inner(
+            &state,
+            "characters".to_string(),
+            Some(json!({
+                "filters": { "folderId": "folder-a" },
+                "fields": ["id", "data"],
+                "fieldSelections": { "data": ["name", "extensions.fav"] }
+            })),
+        )
+        .expect("filtered projected list should succeed");
+
+        assert_eq!(
+            result,
+            json!([
+                {
+                    "id": "char-a",
+                    "data": { "name": "Ari", "extensions": { "fav": false } }
+                },
+                {
+                    "id": "char-b",
+                    "data": { "name": "Bina", "extensions": { "fav": true } }
+                }
+            ])
+        );
+    }
     #[test]
     fn storage_list_where_in_projected_rows_sort_by_unrequested_field() {
         let state = test_state("where-in-character-sort-projection");
