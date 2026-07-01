@@ -266,7 +266,8 @@ export async function concludeRoleplayScene(
   const summary = await summarizeScene(capabilities, input.sceneChatId, input.connectionId ?? null);
 
   await createChatMessage(capabilities.storage, originChatId, {
-    role: "narrator",
+    role: "assistant",
+    characterId: null,
     content: formatSceneReturnMessage(sceneChat, summary),
   });
   await appendSceneMemory(capabilities.storage, originChatId, input.sceneChatId, summary);
@@ -664,7 +665,7 @@ function compactPromptText(value: unknown, limit: number): string {
 
 function fallbackSceneSummary(sceneChat: JsonRecord, sceneMeta: JsonRecord, messages: StoredMessage[]): string {
   const description = sentenceBoundaryTrim(stripSummaryLabels(stringValue(sceneMeta.sceneDescription)), 320);
-  const recentBeats = sentenceBoundaryTrim(
+  const recentBeats = sentenceBoundaryTailTrim(
     messages
       .map((message) => stripSummaryLabels(stringValue(message.content)))
       .map((content) => content.replace(/\s+/g, " ").trim())
@@ -698,6 +699,23 @@ function stripSummaryLabels(value: string): string {
     .replace(/^\s*(?:scene\s+summary|summary)\s*:\s*/i, "")
     .replace(/(^|\n)\s*(?:assistant|narrator|user|system|tool)\s*:\s*/gi, "$1")
     .trim();
+}
+
+function sentenceBoundaryTailTrim(value: string, limit: number): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text || text.length <= limit) return text;
+
+  const candidate = text.slice(-limit).trimStart();
+  const firstSentenceEnd = candidate.match(/[.!?]\s+/);
+  if (firstSentenceEnd?.index !== undefined && firstSentenceEnd.index < limit * 0.55) {
+    return candidate.slice(firstSentenceEnd.index + firstSentenceEnd[0].length).trim();
+  }
+
+  const firstSpace = candidate.indexOf(" ");
+  if (firstSpace > -1 && firstSpace < limit * 0.55) {
+    return `...${candidate.slice(firstSpace + 1).trimStart()}`;
+  }
+  return `...${candidate}`;
 }
 
 function sentenceBoundaryTrim(value: string, limit: number): string {

@@ -313,6 +313,49 @@ describe("roleplay scene conclusion summaries", () => {
     expect(returnMessage).not.toMatch(/\b(?:assistant|narrator|user):/i);
   });
 
+  it("uses the end of a long no-LLM scene for recent fallback beats", async () => {
+    const openingBeat = [
+      "The violet tent opens on a leash game with Jester, Pierrot, and Harlequin.",
+      "Pierrot kneels anxiously while Harlequin teases from the edge of the stage.",
+    ].join(" ");
+    const fillerBeat = "They negotiate boundaries and rewards under the spotlight. ".repeat(40);
+    const finalBeat = [
+      "At the end, Chai tells all three performers they are quiet and gentle together.",
+      "Jester drops the professional distance and joins the embrace instead of standing above it.",
+    ].join(" ");
+    const { storage, createdMessages } = storageForScene({
+      chats: [
+        { id: "origin", name: "Jester", mode: "chat", metadata: {} },
+        {
+          id: "scene",
+          name: "Scene: The Masters Leash",
+          mode: "roleplay",
+          characterIds: ["jester"],
+          metadata: {
+            sceneOriginChatId: "origin",
+            sceneDescription: "Chai enters the violet-lit circus tent.",
+            sceneStatus: "active",
+          },
+        },
+      ],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: openingBeat },
+          { id: "middle", role: "user", content: fillerBeat },
+          { id: "final", role: "assistant", content: finalBeat },
+        ],
+      },
+    });
+
+    const result = await concludeRoleplayScene({ storage, llm: idleLlm }, { sceneChatId: "scene" });
+    const returnMessage = createdMessages.find((message) => message.chatId === "origin")?.value;
+
+    expect(result.summary).toContain("Recent scene beats:");
+    expect(result.summary).toContain("Jester drops the professional distance");
+    expect(result.summary).not.toContain("Pierrot kneels anxiously");
+    expect(returnMessage).toMatchObject({ role: "assistant", characterId: null });
+  });
+
   it("removes accidental speaker labels from model-returned summaries", async () => {
     const { storage } = storageForScene({
       chats: [
