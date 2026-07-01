@@ -4,6 +4,7 @@ import type { CharacterData } from "../../../../engine/contracts/types/character
 import {
   buildCharacterFieldGenerationMessages,
   cleanGeneratedCharacterField,
+  generateCharacterField,
   type CharacterFieldGenerationField,
 } from "./character-field-generation";
 
@@ -63,6 +64,26 @@ describe("buildCharacterFieldGenerationMessages", () => {
     expect(messages[1]?.content).toContain('"prompt"');
     expect(messages[1]?.content).toContain('"depth"');
     expect(messages[1]?.content).toContain('"role"');
+  });
+  it("keeps creator notes generation short and simple", async () => {
+    const requests: unknown[] = [];
+    const value = await generateCharacterField({
+      field: "creator_notes",
+      data: characterData(),
+      comment: "",
+      connectionId: "test-connection",
+      llm: {
+        async *stream(request) {
+          requests.push(request);
+          yield { type: "token", text: "Use this card for tense mystery scenes." };
+        },
+      },
+    });
+
+    const request = requests[0] as { messages: { content: string }[]; parameters: { maxTokens: number } };
+    expect(value).toBe("Use this card for tense mystery scenes.");
+    expect(request.messages[1]?.content).toContain("a few simple sentences");
+    expect(request.parameters.maxTokens).toBeLessThan(1024);
   });
 });
 
