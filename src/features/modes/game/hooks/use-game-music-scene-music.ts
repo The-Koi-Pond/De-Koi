@@ -76,6 +76,10 @@ function toPlaybackCandidate(track: SceneMusicTrackSelection): MusicCandidate {
   };
 }
 
+function musicErrorMessage(error: unknown, fallback = "Music DJ scene music failed."): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 function sceneMusicQuery(narration: string, context: Record<string, unknown>, playerAction?: string | null): string {
   const genre = typeof context.genre === "string" ? context.genre : "";
   const setting = typeof context.setting === "string" ? context.setting : "";
@@ -125,6 +129,9 @@ export function useGameMusicSceneMusic({
           limit: 8,
           recentMusicTracks: recentMusicTrackHistoryRef.current,
         });
+        if (result.providerError) {
+          throw new Error(result.providerError.message);
+        }
         return (result.candidates ?? []).map(toSceneCandidate);
       } catch (error) {
         console.warn("[music/game] Failed to prepare scene music candidates:", error);
@@ -146,7 +153,7 @@ export function useGameMusicSceneMusic({
         await persistMetadata(activeChatId, { gameRecentMusicTracks: recentMusicTrackHistoryRef.current });
       } catch (error) {
         console.warn("[music/game] Failed to play scene track:", error);
-        toast.error(error instanceof Error ? error.message : "Music DJ scene music failed.");
+        toast.error(musicErrorMessage(error));
       }
     },
     [activeChatId, enabled, persistMetadata],
@@ -198,7 +205,7 @@ export function useGameMusicSceneMusic({
       toast.success("Music DJ scene music refreshed.", { duration: 1800 });
     } catch (error) {
       console.warn("[music/game] Retry failed:", error);
-      toast.error("Music DJ scene music retry failed.");
+      toast.error(musicErrorMessage(error, "Music DJ scene music retry failed."));
     } finally {
       setMusicRetryPending(false);
     }

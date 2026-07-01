@@ -98,12 +98,15 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
         ? await musicApi.freshPick({ query: searchQuery, limit: 5 })
         : await musicApi.searchCandidates({ query: searchQuery, limit: 5 });
       const next = response.candidates[0] ?? null;
+      const providerErrorMessage = response.providerError?.message ?? null;
       setTrack(next);
       if (next) {
         await playTrack(next);
       } else {
         setPlaying(false);
-        setMessage("No YouTube candidate found. Install yt-dlp for power search, or paste a YouTube URL.");
+        setMessage(
+          providerErrorMessage ?? "No YouTube candidate found. Install yt-dlp for power search, or paste a YouTube URL.",
+        );
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Music search failed");

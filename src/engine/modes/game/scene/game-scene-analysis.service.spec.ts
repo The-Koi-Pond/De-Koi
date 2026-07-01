@@ -214,6 +214,38 @@ describe("analyzeGameScene structured generation", () => {
     expect(result.musicTrack).toBeNull();
   });
 
+  it("returns a recoverable failure when Music DJ and Spotify are both enabled", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const llm = llmWithResponses([
+      validSceneJson({
+        spotifyTrack: "spotify:track:valid",
+        musicTrack: "yt:rain-waltz",
+      }),
+    ]);
+
+    const result = await analyzeGameScene(
+      { storage: storageGateway(), llm },
+      {
+        chatId: "chat-1",
+        narration: "The room grows quiet.",
+        context: {
+          ...musicContext,
+          useSpotifyMusic: true,
+          availableSpotifyTracks: baseContext.availableSpotifyTracks,
+        },
+      },
+    );
+
+    expect(result.musicTrack).toBeNull();
+    expect(result.spotifyTrack).toBeNull();
+    expect(result.structuredFailure).toMatchObject({
+      taskName: "game.sceneAnalysis.postprocess",
+      message: "Music DJ and legacy Spotify scene music cannot both be enabled.",
+      validationErrors: ["scene_postprocess_failed"],
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Scene postprocess failed"), expect.any(Error));
+  });
+
   it("repairs malformed scene JSON and returns the repaired analysis", async () => {
     const llm = llmWithResponses(["not json", validSceneJson({ background: "backgrounds:forest:path" })]);
 

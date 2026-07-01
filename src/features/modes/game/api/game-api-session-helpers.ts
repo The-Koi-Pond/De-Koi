@@ -85,7 +85,7 @@ function libraryCharacterIds(value: unknown): string[] {
     : [];
 }
 
-function musicDjSetupConfig(config: g.GameSetupConfig): g.GameSetupConfig {
+export function musicDjSetupConfig(config: g.GameSetupConfig): g.GameSetupConfig {
   if (!config.enableMusicDj) return config;
   const { enableSpotifyDj, spotifySourceType, spotifyPlaylistId, spotifyPlaylistName, spotifyArtist, ...rest } = config;
   return { ...rest, enableMusicDj: true };
@@ -237,7 +237,16 @@ export function gameCarryoverPatch(meta: Record<string, unknown>) {
     "gameLorebookKeeperLorebookId",
     "discordWebhookUrl",
   ];
-  return Object.fromEntries(keys.filter((key) => key in meta).map((key) => [key, meta[key]]));
+  const patch = Object.fromEntries(keys.filter((key) => key in meta).map((key) => [key, meta[key]]));
+  if (patch.gameUseMusicDj === true && isGameSetupConfig(patch.gameSetupConfig)) {
+    patch.gameSetupConfig = musicDjSetupConfig(patch.gameSetupConfig);
+    patch.gameUseSpotifyMusic = false;
+    patch.gameSpotifySourceType = null;
+    patch.gameSpotifyPlaylistId = null;
+    patch.gameSpotifyPlaylistName = null;
+    patch.gameSpotifyArtist = null;
+  }
+  return patch;
 }
 
 function nonEmptyRecord(value: unknown): Record<string, unknown> | null {

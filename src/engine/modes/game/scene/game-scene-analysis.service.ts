@@ -311,5 +311,17 @@ export async function analyzeGameScene(
   }
 
   const analysis = sanitizeGameSceneAnalysis(result.data);
-  return postProcessSceneResult(analysis, scenePostProcessContext(sceneContext));
+  try {
+    return postProcessSceneResult(analysis, scenePostProcessContext(sceneContext));
+  } catch (error) {
+    console.warn("[game/scene] Scene postprocess failed:", error);
+    const fallback = defaultGameSceneAnalysis();
+    fallback.structuredFailure = {
+      taskName: "game.sceneAnalysis.postprocess",
+      message: error instanceof Error ? error.message : "Scene postprocess failed.",
+      validationErrors: ["scene_postprocess_failed"],
+      raw: JSON.stringify(analysis),
+    };
+    return fallback;
+  }
 }
