@@ -7,14 +7,20 @@ function asStorageValue<T>(value: unknown): T {
   return value as T;
 }
 
-function promptStorage(character: Record<string, unknown>): StorageGateway {
+function promptStorage(
+  characters: Record<string, unknown> | Record<string, unknown>[],
+  promptBundle: { preset: Record<string, unknown>; sections: Record<string, unknown>[] } | null = null,
+): StorageGateway {
+  const characterRows = Array.isArray(characters) ? characters : [characters];
   return {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
-      if (["personas", "prompts", "regex-scripts", "lorebooks", "agents"].includes(entity)) return [];
+      if (entity === "prompts") return asStorageValue<T[]>(promptBundle ? [promptBundle.preset] : []);
+      if (["personas", "regex-scripts", "lorebooks", "agents"].includes(entity)) return [];
       return [];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
-      if (entity === "characters" && id === character.id) return asStorageValue<T>(character);
+      const character = characterRows.find((row) => row.id === id);
+      if (entity === "characters" && character) return asStorageValue<T>(character);
       return null;
     },
     async create() {
@@ -71,8 +77,14 @@ function promptStorage(character: Record<string, unknown>): StorageGateway {
     async createLorebookEntries() {
       return [];
     },
-    async promptFull() {
-      return null;
+    async promptFull<T = unknown>() {
+      if (!promptBundle) return null;
+      return asStorageValue<T>({
+        preset: promptBundle.preset,
+        sections: promptBundle.sections,
+        groups: [],
+        choiceBlocks: [],
+      });
     },
   };
 }
@@ -119,5 +131,146 @@ describe("character public profiles in prompt assembly", () => {
     expect(promptText).toContain("A cheerful bard who remembers every song half-wrong.");
     expect(promptText).not.toContain("music, sunny");
     expect(promptText).not.toContain("Private setup notes");
+  });
+});
+describe("merged roleplay prompt compaction", () => {
+  it("omits bulky greeting and example fields for merged multi-character roleplay prompts", async () => {
+    const result = await assembleGenerationPrompt(
+      promptStorage(
+        [
+          {
+            id: "harlequin",
+            data: {
+              name: "Harlequin",
+              description: "Harlequin core description.",
+              personality: "Harlequin core personality.",
+              first_mes: "HARLEQUIN_GREETING_SHOULD_NOT_BE_SENT",
+              mes_example: "HARLEQUIN_EXAMPLES_SHOULD_NOT_BE_SENT",
+            },
+          },
+          {
+            id: "jester",
+            data: {
+              name: "Jester",
+              description: "Jester core description.",
+              personality: "Jester core personality.",
+              first_mes: "JESTER_GREETING_SHOULD_NOT_BE_SENT",
+              mes_example: "JESTER_EXAMPLES_SHOULD_NOT_BE_SENT",
+            },
+          },
+          {
+            id: "pierrot",
+            data: {
+              name: "Pierrot",
+              description: "Pierrot core description.",
+              personality: "Pierrot core personality.",
+              first_mes: "PIERROT_GREETING_SHOULD_NOT_BE_SENT",
+              mes_example: "PIERROT_EXAMPLES_SHOULD_NOT_BE_SENT",
+            },
+          },
+        ],
+        {
+          preset: { id: "default-roleplay-preset", isDefault: true },
+          sections: [
+            {
+              id: "characters",
+              enabled: true,
+              sortOrder: 1,
+              name: "Characters",
+              role: "system",
+              markerConfig: { type: "character" },
+            },
+            {
+              id: "dialogue",
+              enabled: true,
+              sortOrder: 2,
+              name: "Dialogue Examples",
+              role: "system",
+              markerConfig: { type: "dialogue_examples" },
+            },
+          ],
+        },
+      ),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["harlequin", "jester", "pierrot"],
+          metadata: { groupChatMode: "merged" },
+        },
+        storedMessages: [{ role: "user", content: "Continue." }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "Continue.",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+
+    expect(promptText).toContain("Harlequin core description.");
+    expect(promptText).toContain("Jester core personality.");
+    expect(promptText).toContain("Pierrot core description.");
+    expect(promptText).not.toContain("HARLEQUIN_GREETING_SHOULD_NOT_BE_SENT");
+    expect(promptText).not.toContain("HARLEQUIN_EXAMPLES_SHOULD_NOT_BE_SENT");
+    expect(promptText).not.toContain("JESTER_GREETING_SHOULD_NOT_BE_SENT");
+    expect(promptText).not.toContain("JESTER_EXAMPLES_SHOULD_NOT_BE_SENT");
+    expect(promptText).not.toContain("PIERROT_GREETING_SHOULD_NOT_BE_SENT");
+    expect(promptText).not.toContain("PIERROT_EXAMPLES_SHOULD_NOT_BE_SENT");
+  });
+});
+describe("single-character roleplay prompt cards", () => {
+  it("keeps greeting and example fields for ordinary one-character roleplay prompts", async () => {
+    const result = await assembleGenerationPrompt(
+      promptStorage(
+        {
+          id: "mira",
+          data: {
+            name: "Mira",
+            description: "Mira core description.",
+            first_mes: "MIRA_GREETING_SHOULD_STAY",
+            mes_example: "MIRA_EXAMPLES_SHOULD_STAY",
+          },
+        },
+        {
+          preset: { id: "default-roleplay-preset", isDefault: true },
+          sections: [
+            {
+              id: "characters",
+              enabled: true,
+              sortOrder: 1,
+              name: "Characters",
+              role: "system",
+              markerConfig: { type: "character" },
+            },
+            {
+              id: "dialogue",
+              enabled: true,
+              sortOrder: 2,
+              name: "Dialogue Examples",
+              role: "system",
+              markerConfig: { type: "dialogue_examples" },
+            },
+          ],
+        },
+      ),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["mira"],
+          metadata: {},
+        },
+        storedMessages: [{ role: "user", content: "Continue." }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "Continue.",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+
+    expect(promptText).toContain("Mira core description.");
+    expect(promptText).toContain("MIRA_GREETING_SHOULD_STAY");
+    expect(promptText).toContain("MIRA_EXAMPLES_SHOULD_STAY");
   });
 });

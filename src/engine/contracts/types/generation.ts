@@ -20,6 +20,20 @@ type GenerationAgentConnectionWarning =
   | GenerationDefaultAgentConnectionWarning
   | GenerationLocalSidecarUnavailableWarning;
 
+export interface GenerationDiagnosticEventData {
+  kind: "timing";
+  name: string;
+  durationMs: number;
+  chatId: string;
+  chatMode: string;
+  groupChatMode: string | null;
+  characterCount: number;
+  targetCharacterId: string | null;
+  messageCount?: number;
+  promptMessageCount?: number;
+  savedUserMessage?: boolean;
+}
+
 export type LegacyStreamProtocolEvent =
   | { type: "agent_update"; data: string; agentId?: string; messageId?: string }
   | { type: "game_state"; data: string; agentId?: string; messageId?: string }
@@ -37,6 +51,7 @@ export type GenerationEvent =
   | { type: "delayed"; data: { characters: string[]; status: string; delayMs: number } }
   | { type: "offline"; data: { characters: string[] } }
   | { type: "group_turn"; data: { characterId: string; characterName: string; index: number; total: number } }
+  | { type: "diagnostic"; data: GenerationDiagnosticEventData }
   | { type: "message"; data: unknown }
   | { type: "user_message"; data: unknown }
   | { type: "assistant_message"; data: unknown }

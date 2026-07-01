@@ -15,13 +15,17 @@ type StoredMessage = {
   extra?: Record<string, unknown>;
 };
 
-function groupTypingStorage(metadata: Record<string, unknown> = { groupResponseOrder: "sequential" }) {
+function groupTypingStorage(
+  metadata: Record<string, unknown> = { groupResponseOrder: "sequential" },
+  chatOverrides: Record<string, unknown> = {},
+) {
   const chat = {
     id: "chat-1",
     mode: "conversation",
     connectionId: "conn-1",
     characterIds: ["char-a", "char-b"],
     metadata,
+    ...chatOverrides,
   };
   const records: Record<string, Record<string, unknown>> = {
     "chat-1": chat,
@@ -240,5 +244,40 @@ describe("startGeneration group typing", () => {
     const assistantMessages = messages.filter((message) => message.role === "assistant");
 
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-a", "char-b"]);
+  });
+
+  it("emits debug timing diagnostics for merged roleplay group generation", async () => {
+    const { storage, messages } = groupTypingStorage(
+      { groupChatMode: "merged" },
+      { mode: "roleplay", chatMode: "roleplay" },
+    );
+
+    const events = await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm: groupTypingLlm(),
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "set the scene",
+          impersonateBlockAgents: true,
+          debugMode: true,
+        },
+      ),
+    );
+
+    const diagnostics = events.filter((event) => event.type === "diagnostic");
+    const timingNames = diagnostics.map((event) => event.data.name);
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+
+    expect(timingNames).toEqual(
+      expect.arrayContaining(["save-user-message", "prepare-context", "assemble-prompt", "model-call"]),
+    );
+    expect(diagnostics.every((event) => typeof event.data.durationMs === "number")).toBe(true);
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.characterId).toBeNull();
   });
 });

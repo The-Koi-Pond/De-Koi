@@ -1309,6 +1309,13 @@ const DEFAULT_CHARACTER_MARKER_FIELDS = [
   "post_history_instructions",
 ] as const;
 
+const COMPACT_MERGED_ROLEPLAY_OMITTED_CHARACTER_FIELDS = new Set([
+  "first_mes",
+  "firstMes",
+  "mes_example",
+  "mesExample",
+]);
+
 const CHARACTER_FIELD_LABELS: Record<string, string> = {
   name: "Name",
   description: "Description",
@@ -1378,9 +1385,12 @@ function characterMarkerFieldValue(
     : value;
 }
 
-function characterMarkerFields(marker: MarkerConfig | null): string[] {
+function characterMarkerFields(marker: MarkerConfig | null, compactCharacterCards = false): string[] {
   const fields = marker?.characterFields?.filter((fieldName) => typeof fieldName === "string" && fieldName.trim());
-  return fields?.length ? fields : [...DEFAULT_CHARACTER_MARKER_FIELDS];
+  const resolvedFields = fields?.length ? fields : [...DEFAULT_CHARACTER_MARKER_FIELDS];
+  return compactCharacterCards
+    ? resolvedFields.filter((fieldName) => !COMPACT_MERGED_ROLEPLAY_OMITTED_CHARACTER_FIELDS.has(fieldName))
+    : resolvedFields;
 }
 
 function renderNamedFields(entries: Array<[string, string | undefined]>, wrapFormat: WrapFormat, depth = 1): string {
@@ -1429,8 +1439,9 @@ function renderCharacters(
   marker: MarkerConfig | null,
   macros: MacroContext | null = null,
   groupScenarioOverride: GroupScenarioOverride = NO_GROUP_SCENARIO_OVERRIDE,
+  options: { compactCharacterCards?: boolean } = {},
 ): string {
-  const fields = characterMarkerFields(marker);
+  const fields = characterMarkerFields(marker, options.compactCharacterCards === true);
   const characterBlocks = characters
     .map((character) => {
       const content = renderNamedFields(
@@ -1463,7 +1474,11 @@ function renderCharacters(
   return [...characterBlocks, groupScenarioBlock].filter(Boolean).join("\n\n");
 }
 
-function renderDialogueExamples(characters: GenerationCharacterContext[]): string {
+function renderDialogueExamples(
+  characters: GenerationCharacterContext[],
+  options: { compactCharacterCards?: boolean } = {},
+): string {
+  if (options.compactCharacterCards === true) return "";
   return characters
     .map((character) => character.mesExample)
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
@@ -1774,12 +1789,15 @@ function fallbackSystemPrompt(
     wrapFormat: WrapFormat;
     macros: MacroContext;
     groupScenarioOverride: GroupScenarioOverride;
+    compactCharacterCards: boolean;
   },
 ): string {
   const mode = readString(input.chat.mode || input.chat.chatMode, "conversation");
   const meta = parseRecord(input.chat.metadata);
   const common = [
-    renderCharacters(args.characters, args.wrapFormat, null, args.macros, args.groupScenarioOverride),
+    renderCharacters(args.characters, args.wrapFormat, null, args.macros, args.groupScenarioOverride, {
+      compactCharacterCards: args.compactCharacterCards,
+    }),
     renderPersona(args.persona, args.wrapFormat),
     args.worldBefore,
     args.worldAfter,
@@ -3142,6 +3160,17 @@ function promptMessageWithRole(message: ChatMLMessage, role: "user" | "assistant
   return next;
 }
 
+function shouldCompactMergedRoleplayCharacterCards(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+): boolean {
+  const chatMode = readString(input.chat.mode || input.chat.chatMode, "conversation");
+  if (chatMode !== "roleplay" || characters.length <= 1 || input.request.impersonate === true) return false;
+  const metadata = parseRecord(input.chat.metadata);
+  if (metadata.compactMergedRoleplayCards === false) return false;
+  return readString(metadata.groupChatMode, "merged") !== "individual";
+}
+
 function scopedIndividualGroupTarget(
   input: PromptAssemblyInput,
   characters: GenerationCharacterContext[],
@@ -3558,14 +3587,17 @@ function sectionContent(args: {
   wrapFormat: WrapFormat;
   macros: MacroContext | null;
   groupScenarioOverride: GroupScenarioOverride;
+  compactCharacterCards: boolean;
 }) {
   switch (args.marker?.type) {
     case "character":
-      return renderCharacters(args.characters, args.wrapFormat, args.marker, args.macros, args.groupScenarioOverride);
+      return renderCharacters(args.characters, args.wrapFormat, args.marker, args.macros, args.groupScenarioOverride, {
+        compactCharacterCards: args.compactCharacterCards,
+      });
     case "persona":
       return renderPersona(args.persona, args.wrapFormat);
     case "dialogue_examples":
-      return renderDialogueExamples(args.characters);
+      return renderDialogueExamples(args.characters, { compactCharacterCards: args.compactCharacterCards });
     case "chat_summary":
       return args.summary ?? "";
     case "world_info_before":
@@ -3696,6 +3728,7 @@ export async function assembleGenerationPrompt(
     "xml";
   const activeGroupScenarioOverride = reusableContext?.groupScenarioOverride ?? groupScenarioOverride(chatMeta);
   const promptCharacters = reusableContext?.promptCharacters ?? promptCharactersForGeneration(input, characters);
+  const compactMergedRoleplayCards = shouldCompactMergedRoleplayCharacterCards(input, promptCharacters);
   const individualGroupTarget = scopedIndividualGroupTarget(input, characters);
   const regexTargetCharacterId = promptRegexTargetCharacterId(input, characters);
   const individualGroupTargetCharacter = individualGroupTarget
@@ -3874,6 +3907,7 @@ export async function assembleGenerationPrompt(
         wrapFormat,
         macros,
         groupScenarioOverride: activeGroupScenarioOverride,
+        compactCharacterCards: compactMergedRoleplayCards,
       });
       const resolvedContent =
         marker?.type === "character" ? rawContent : resolvePromptMacros(rawContent, macros, deferCharacterMacros);
@@ -3941,6 +3975,7 @@ export async function assembleGenerationPrompt(
         wrapFormat,
         macros,
         groupScenarioOverride: activeGroupScenarioOverride,
+        compactCharacterCards: compactMergedRoleplayCards,
       }),
       contextKind: "prompt",
     });

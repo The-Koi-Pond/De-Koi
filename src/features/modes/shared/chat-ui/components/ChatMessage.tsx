@@ -86,6 +86,7 @@ import { resolvePromptSnapshotFromExtra } from "../lib/prompt-snapshot";
 import { ResolvedAvatarImage } from "./ResolvedAvatarImage";
 import { MessageAttachmentImagePreview } from "./MessageAttachmentImagePreview";
 import { resolveAvatarFileUrl } from "../../../../../shared/api/local-file-api";
+import { mergedGroupDisplayLabel, mergedGroupNames } from "../lib/merged-group-label";
 
 const MESSAGE_ACTION_ICON_SIZE = "1em";
 const MESSAGE_SWIPE_ICON_SIZE = "1.15em";
@@ -1483,7 +1484,13 @@ export const ChatMessage = memo(function ChatMessage({
     userName,
   ]);
 
-  const displayName = isUser ? userName : charName;
+  const isMergedGroup = groupChatMode === "merged" && !isUser && !!chatCharacterIds && chatCharacterIds.length > 1;
+  const mergedNames = useMemo(
+    () => mergedGroupNames(chatCharacterIds, characterMap),
+    [chatCharacterIds, characterMap],
+  );
+  const mergedDisplayName = mergedGroupDisplayLabel(mergedNames);
+  const displayName = isUser ? userName : isMergedGroup ? mergedDisplayName : charName;
   const baseAvatarUrl = isUser
     ? msgPersona
       ? (msgPersona.avatarUrl ?? null)
@@ -1580,7 +1587,6 @@ export const ChatMessage = memo(function ChatMessage({
   }, [personaInfo?.dialogueColor, personaInfo?.name, scopedCharacterMap]);
 
   // Merged group chat: cycling avatars + cycling name color
-  const isMergedGroup = groupChatMode === "merged" && !isUser && chatCharacterIds && chatCharacterIds.length > 1;
   const mergedAvatars = useMemo<MergedAvatar[]>(() => {
     if (!isMergedGroup || !characterMap || !chatCharacterIds) return [];
     return chatCharacterIds
@@ -1649,7 +1655,8 @@ export const ChatMessage = memo(function ChatMessage({
 
   useEffect(() => {
     if (!isMergedGroup) return;
-    const total = Math.max(mergedAvatars.length, mergedNameColors.length);
+    const mergedNameCycleCount = Math.max(1, mergedNames.length);
+    const total = Math.max(mergedAvatars.length, mergedNameColors.length, mergedNameCycleCount);
     if (total <= 1) return;
     cycleTimerRef.current = setInterval(() => {
       cycleIndexRef.current = (cycleIndexRef.current + 1) % total;
@@ -1666,14 +1673,14 @@ export const ChatMessage = memo(function ChatMessage({
       if (nameEl) {
         const spans = nameEl.querySelectorAll<HTMLSpanElement>("[data-cycle-name]");
         spans.forEach((span, i) => {
-          span.style.opacity = i === idx % mergedNameColors.length ? "1" : "0";
+          span.style.opacity = i === idx % mergedNameCycleCount ? "1" : "0";
         });
       }
     }, 2000);
     return () => {
       if (cycleTimerRef.current) clearInterval(cycleTimerRef.current);
     };
-  }, [isMergedGroup, mergedAvatars.length, mergedNameColors.length]);
+  }, [isMergedGroup, mergedAvatars.length, mergedNameColors.length, mergedNames.length]);
 
   /** Build a stable style object for a given name color (gradient or plain). */
   function nameColorToStyle(c: string): React.CSSProperties {
@@ -1692,24 +1699,24 @@ export const ChatMessage = memo(function ChatMessage({
     return { color: c, WebkitTextFillColor: c };
   }
 
-  /** Render a stack of absolutely-positioned "Narrator" labels that crossfade via opacity. */
+  /** Render a stack of absolutely-positioned merged group labels that crossfade via opacity. */
   const mergedNameElement =
     isMergedGroup && mergedNameColors.length > 0 ? (
       <span ref={mergedNameRef} className="relative inline-block">
         {/* Invisible sizer so the parent reserves the right width */}
-        <span className="invisible">Narrator</span>
-        {mergedNameColors.map((c, i) => (
+        <span className="invisible">{mergedDisplayName}</span>
+        {(mergedNames.length > 0 ? mergedNames : [mergedDisplayName]).map((name, i) => (
           <span
-            key={i}
+            key={`${name}-${i}`}
             data-cycle-name
             className="absolute inset-0"
             style={{
-              ...nameColorToStyle(c),
+              ...nameColorToStyle(mergedNameColors[i % mergedNameColors.length] ?? "#c084fc"),
               opacity: i === 0 ? 1 : 0,
               transition: "opacity 1s ease",
             }}
           >
-            Narrator
+            {name}
           </span>
         ))}
       </span>

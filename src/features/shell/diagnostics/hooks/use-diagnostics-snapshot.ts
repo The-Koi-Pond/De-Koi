@@ -8,6 +8,7 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { getRecentClientDiagnostics, recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
+  buildGenerationTimingSection,
   diagnosticsOverallStatus,
   type DiagnosticItem,
   type DiagnosticsRuntimeMode,
@@ -260,14 +261,16 @@ export async function createDiagnosticsSnapshot(remoteRuntimeUrl: string): Promi
     sectionOrError("providers", "Providers", providersSection),
     sectionOrError("storage", "Storage", storageSection),
   ]);
-  const sections = [runtime, sidecar, providers, storage];
+  const recentDiagnostics = getRecentClientDiagnostics();
+  const generationTiming = buildGenerationTimingSection(recentDiagnostics);
+  const sections = [runtime, sidecar, providers, storage, generationTiming];
   return {
     generatedAt: new Date().toISOString(),
     appVersion: APP_VERSION,
     runtimeMode: runtimeMode(remoteRuntimeUrl),
     overallStatus: diagnosticsOverallStatus(sections),
     sections,
-    recentDiagnostics: getRecentClientDiagnostics(),
+    recentDiagnostics,
   };
 }
 

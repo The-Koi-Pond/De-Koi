@@ -32,6 +32,7 @@ import { ApiError } from "../../../../shared/api/api-errors";
 import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { urlBinaryApi } from "../../../../shared/api/url-binary-api";
 import { requestImagePromptReview } from "../../../../shared/components/ui/ImagePromptReviewHost";
+import { recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
 import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { useAgentStore, type PendingCardUpdate } from "../../../../shared/stores/agent.store";
@@ -72,6 +73,7 @@ import {
 } from "../../../../engine/shared/game-state/player-stats";
 import { filterPlayerPersonaPresentCharacters } from "../../../../engine/shared/game-state/present-character-filter";
 import type { AgentDebugEntry } from "../../../../engine/contracts/types/agent";
+import type { GenerationDiagnosticEventData } from "../../../../engine/contracts/types/generation";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
 import { createLeadingSpeakerPrefixFilter, filterLeadingSpeakerPrefix } from "./leading-speaker-prefix-filter";
 
@@ -531,6 +533,25 @@ function parseMaybeRecord(value: unknown): Record<string, unknown> {
     }
   }
   return isRecord(value) ? value : {};
+}
+function isGenerationDiagnosticEventData(value: unknown): value is GenerationDiagnosticEventData {
+  const data = parseMaybeRecord(value);
+  return (
+    data.kind === "timing" &&
+    typeof data.name === "string" &&
+    typeof data.durationMs === "number" &&
+    Number.isFinite(data.durationMs)
+  );
+}
+
+export function handleGenerationDiagnosticEvent(data: unknown): void {
+  if (!isGenerationDiagnosticEventData(data)) return;
+  recordClientDiagnostic({
+    level: "info",
+    source: "generation-timing",
+    message: `${data.name} completed in ${Math.round(data.durationMs)}ms`,
+    details: data,
+  });
 }
 
 function readGenerationReplay(value: unknown): GenerationReplay | null {
@@ -1763,6 +1784,9 @@ export async function runGenerationWithUi(
     for await (const event of streamFactory(streamArgs, controller.signal)) {
       if (!foregroundGenerationReleased && !ownsChatController()) break;
       switch (event.type) {
+        case "diagnostic":
+          handleGenerationDiagnosticEvent(event.data);
+          break;
         case "phase":
           if (!foregroundGenerationReleased && typeof event.data === "string") {
             useChatStore.getState().setGenerationPhase(event.data);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildGenerationTimingSection,
   buildTroubleshootingPacket,
   diagnosticsOverallStatus,
   redactDiagnosticsValue,
@@ -38,6 +39,89 @@ describe("diagnostics model", () => {
     expect(rendered).not.toContain("at sixth");
   });
 
+  it("summarizes recent generation timing diagnostics", () => {
+    const section = buildGenerationTimingSection([
+      {
+        id: "diag-model",
+        level: "info",
+        source: "generation-timing",
+        message: "model-call completed in 12000ms",
+        timestamp: "2026-06-22T20:00:04.000Z",
+        details: {
+          kind: "timing",
+          name: "model-call",
+          durationMs: 12000,
+          chatId: "chat-1",
+          chatMode: "roleplay",
+          groupChatMode: "merged",
+          characterCount: 3,
+          targetCharacterId: null,
+          promptMessageCount: 18,
+        },
+      },
+      {
+        id: "diag-assemble",
+        level: "info",
+        source: "generation-timing",
+        message: "assemble-prompt completed in 450ms",
+        timestamp: "2026-06-22T20:00:03.000Z",
+        details: {
+          kind: "timing",
+          name: "assemble-prompt",
+          durationMs: 450,
+          chatId: "chat-1",
+          chatMode: "roleplay",
+          groupChatMode: "merged",
+          characterCount: 3,
+          targetCharacterId: null,
+          messageCount: 14,
+          promptMessageCount: 18,
+        },
+      },
+    ]);
+
+    expect(section).toEqual(
+      expect.objectContaining({
+        id: "generation-timing",
+        title: "Generation Timing",
+        status: "warning",
+      }),
+    );
+    expect(section.items[0]).toEqual(
+      expect.objectContaining({
+        id: "generation-timing-slowest",
+        label: "Slowest recent generation stage",
+        status: "warning",
+        summary: "model-call took 12.0s in roleplay merged mode with 3 characters.",
+        details: expect.objectContaining({
+          slowestStage: "model-call",
+          durationMs: 12000,
+          chatMode: "roleplay",
+          groupChatMode: "merged",
+          characterCount: 3,
+          promptMessageCount: 18,
+        }),
+      }),
+    );
+  });
+
+  it("explains when no generation timing diagnostics have been captured", () => {
+    const section = buildGenerationTimingSection([]);
+
+    expect(section).toEqual({
+      id: "generation-timing",
+      title: "Generation Timing",
+      status: "unknown",
+      items: [
+        {
+          id: "generation-timing-empty",
+          label: "Generation timings",
+          status: "unknown",
+          summary: "No generation timing diagnostics captured yet. Enable debug mode and run a generation.",
+        },
+      ],
+    });
+  });
   it("builds a shareable packet that preserves useful non-secret state", () => {
     const snapshot: DiagnosticsSnapshot = {
       generatedAt: "2026-06-22T20:00:00.000Z",
