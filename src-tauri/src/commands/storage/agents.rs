@@ -546,7 +546,7 @@ fn run_result_type(run: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-fn list_agent_runs_for_chat(state: &AppState, chat_id: &str) -> AppResult<Vec<Value>> {
+pub(crate) fn list_agent_runs_for_chat(state: &AppState, chat_id: &str) -> AppResult<Vec<Value>> {
     let mut rows = state.storage.list_where("agent-runs", &{
         let mut filters = Map::new();
         filters.insert("chatId".to_string(), Value::String(chat_id.to_string()));
