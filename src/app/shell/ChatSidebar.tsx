@@ -60,14 +60,19 @@ import { Modal } from "../../shared/components/ui/Modal";
 import { Reorder, useDragControls } from "framer-motion";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { useStartNewChat } from "./useStartNewChat";
-import { getDekiBatchDeleteCopy, getSelectedDekiSessionIds, toggleDekiSessionSelection } from "./deki-sidebar-selection";
-
-type ChatSortOption = "newest" | "oldest" | "name-asc" | "name-desc";
+import {
+  getDekiBatchDeleteCopy,
+  getSelectedDekiSessionIds,
+  toggleDekiSessionSelection,
+} from "./deki-sidebar-selection";
+import {
+  deriveChatSidebarRows,
+  type ChatSidebarRow as DerivedChatSidebarRow,
+  type ChatSidebarSortOption,
+} from "./chat-sidebar-rows";
+type ChatSortOption = ChatSidebarSortOption;
 export type ChatSidebarTab = "conversation" | "roleplay" | "game";
-type ChatSidebarRow = {
-  chat: NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number];
-  branchCount: number;
-};
+type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
 type ChatDropTarget = { folderId: string | null } | null;
 
 type ChatSidebarProps = {
@@ -378,57 +383,17 @@ export function ChatSidebar({
   }, [modeChats, searchQuery, activeTag, charLookup]);
 
   // ── Collapse chats that share a groupId into one entry ──
-  const displayChats = useMemo(() => {
-    if (!filtered) return [];
-
-    // Total group sizes from unfiltered chats (for accurate branch count)
-    const totalGroupSizes = new Map<string, number>();
-    if (chats) {
-      for (const chat of chats) {
-        if (chat.groupId) {
-          totalGroupSizes.set(chat.groupId, (totalGroupSizes.get(chat.groupId) ?? 0) + 1);
-        }
-      }
-    }
-
-    const sorted = [...filtered].sort((a, b) => {
-      switch (sort) {
-        case "oldest":
-          return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
-        case "name-asc":
-          return toSearchText(a.name).localeCompare(toSearchText(b.name));
-        case "name-desc":
-          return toSearchText(b.name).localeCompare(toSearchText(a.name));
-        case "newest":
-        default:
-          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-      }
-    });
-
-    const seenGroups = new Set<string>();
-    const result: ChatSidebarRow[] = [];
-    const activeFilteredChat = activeChat ? sorted.find((chat) => chat.id === activeChat.id) : undefined;
-
-    for (const chat of sorted) {
-      if (chat.groupId) {
-        if (seenGroups.has(chat.groupId)) continue;
-        seenGroups.add(chat.groupId);
-        const rememberedChatId = lastActiveChatIdsByGroup.get(chat.groupId);
-        const rememberedChat = rememberedChatId ? sorted.find((item) => item.id === rememberedChatId) : undefined;
-        const representative =
-          activeFilteredChat?.groupId === chat.groupId
-            ? activeFilteredChat
-            : rememberedChat?.groupId === chat.groupId
-              ? rememberedChat
-              : chat;
-        result.push({ chat: representative, branchCount: totalGroupSizes.get(chat.groupId) ?? 1 });
-      } else {
-        result.push({ chat, branchCount: 1 });
-      }
-    }
-
-    return result;
-  }, [activeChat, chats, filtered, lastActiveChatIdsByGroup, sort]);
+  const displayChats = useMemo(
+    () =>
+      deriveChatSidebarRows({
+        allChats: chats ?? [],
+        filteredChats: filtered,
+        activeChatId,
+        lastActiveChatIdsByGroup,
+        sort,
+      }),
+    [activeChatId, chats, filtered, lastActiveChatIdsByGroup, sort],
+  );
 
   // ── Folder grouping ──
   const modeFolders = useMemo(() => {
