@@ -29,10 +29,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server --no-default-features --features server \
     && cp /app/src-tauri/target/release/de-koi-server /usr/local/bin/de-koi-server
 
-FROM debian:bookworm-slim AS runtime
+FROM node:22-bookworm-slim AS runtime
 
 ARG DE_KOI_IMAGE_VERSION=prealpha
 ARG DE_KOI_SOURCE_COMMIT=unknown
+ARG CODEX_CLI_VERSION=0.130.0
 
 LABEL org.opencontainers.image.title="De-Koi Server"
 LABEL org.opencontainers.image.source="https://github.com/The-Koi-Pond/De-Koi"
@@ -43,6 +44,9 @@ LABEL org.opencontainers.image.revision="${DE_KOI_SOURCE_COMMIT}"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" --omit=dev --no-audit --no-fund \
+  && codex --version
 
 WORKDIR /app
 
