@@ -434,7 +434,9 @@ export function ConnectionEditor() {
 
   const isClaudeSubscriptionProvider = localProvider === "claude_subscription";
   const usesLocalChatGptAuth = localProvider === "openai_chatgpt";
-  const usesLocalAuthProvider = usesLocalChatGptAuth || isClaudeSubscriptionProvider;
+  const usesCodexSubscriptionImagegen =
+    localProvider === "image_generation" && selectedImageService === "codex_subscription";
+  const usesLocalAuthProvider = usesLocalChatGptAuth || isClaudeSubscriptionProvider || usesCodexSubscriptionImagegen;
   const embeddingConnectionOptions = useMemo(
     () =>
       ((allConnections ?? []) as Record<string, unknown>[]).filter(
@@ -939,6 +941,12 @@ export function ConnectionEditor() {
 
           {isClaudeSubscriptionProvider && <ClaudeSubscriptionAuthHelp />}
           {usesLocalChatGptAuth && <OpenAiChatGptAuthHelp />}
+          {usesCodexSubscriptionImagegen && (
+            <p className="rounded-xl bg-sky-400/10 px-3 py-2 text-[0.6875rem] leading-relaxed text-sky-200 ring-1 ring-sky-400/20">
+              Uses your local Codex login and Codex imagegen usage. Run <code>codex login</code> before testing; API
+              keys and Base URL are not used.
+            </p>
+          )}
 
           {/* ── OpenRouter Provider Preference ── */}
           {localProvider === "openrouter" && (
@@ -995,7 +1003,9 @@ export function ConnectionEditor() {
                   ? "Not used - read from local Claude Code login"
                   : usesLocalChatGptAuth
                     ? "Not used - read from local Codex ChatGPT login"
-                    : "••••••••  (leave empty to keep existing key)"
+                    : usesCodexSubscriptionImagegen
+                      ? "Not used - read from local Codex login"
+                      : "••••••••  (leave empty to keep existing key)"
               }
             />
             <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
@@ -1003,7 +1013,9 @@ export function ConnectionEditor() {
                 ? "Authentication is read from your local Claude Code session."
                 : usesLocalChatGptAuth
                   ? "Authentication is read from your local Codex auth.json credential file; this field stays locked."
-                  : "Your key is encrypted at rest. Leave blank when editing to keep the existing key."}
+                  : usesCodexSubscriptionImagegen
+                    ? "Image generation is delegated to the local Codex CLI using your Codex subscription login."
+                    : "Your key is encrypted at rest. Leave blank when editing to keep the existing key."}
             </p>
             {!usesLocalAuthProvider && API_KEY_LINKS[localProvider] && (
               <a
@@ -1047,7 +1059,9 @@ export function ConnectionEditor() {
                   ? "Not used - Claude Code selects the endpoint automatically"
                   : usesLocalChatGptAuth
                     ? "Not used - ChatGPT Codex endpoint is selected automatically"
-                    : providerDef?.defaultBaseUrl || "https://api.example.com/v1"
+                    : usesCodexSubscriptionImagegen
+                      ? "Not used - local Codex CLI handles image generation"
+                      : providerDef?.defaultBaseUrl || "https://api.example.com/v1"
               }
             />
             {isClaudeSubscriptionProvider ? (
@@ -1058,6 +1072,10 @@ export function ConnectionEditor() {
               <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
                 De-Koi sends requests to the ChatGPT Codex endpoint automatically using your local Codex auth; this
                 endpoint field stays locked.
+              </p>
+            ) : usesCodexSubscriptionImagegen ? (
+              <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+                De-Koi starts the local Codex CLI and imports the generated image from Codex output storage.
               </p>
             ) : providerDef?.defaultBaseUrl && !localBaseUrl ? (
               <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
@@ -1114,6 +1132,9 @@ export function ConnectionEditor() {
                         const shouldSeedBaseUrl = !localBaseUrl || localBaseUrl === previousSource?.defaultBaseUrl;
                         setLocalImageGenerationSource(src.id);
                         setLocalImageService(src.id);
+                        if (src.id === "codex_subscription") {
+                          setLocalModel("codex_subscription");
+                        }
                         if (shouldSeedBaseUrl) {
                           setLocalBaseUrl(src.defaultBaseUrl);
                         }
@@ -1158,8 +1179,7 @@ export function ConnectionEditor() {
                 placeholder="abc123def456"
               />
               <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                De-Koi calls <code>/run</code> and polls <code>/status</code> on this endpoint using the Base URL
-                above.
+                De-Koi calls <code>/run</code> and polls <code>/status</code> on this endpoint using the Base URL above.
               </p>
             </FieldGroup>
           )}
@@ -2175,8 +2195,8 @@ function ClaudeSubscriptionAuthHelp() {
             })}
           </ol>
           <p className="mt-2">
-            De-Koi reads the local <code className="rounded bg-[var(--secondary)] px-1 py-0.5">claude</code> session
-            and lets the Claude Code tooling choose its endpoint. Embeddings need a separate connection.
+            De-Koi reads the local <code className="rounded bg-[var(--secondary)] px-1 py-0.5">claude</code> session and
+            lets the Claude Code tooling choose its endpoint. Embeddings need a separate connection.
           </p>
         </div>
       </div>

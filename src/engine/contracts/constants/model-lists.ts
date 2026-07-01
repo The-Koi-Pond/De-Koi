@@ -366,6 +366,13 @@ export const IMAGE_GENERATION_SOURCES: ImageGenSource[] = [
     requiresApiKey: true,
   },
   {
+    id: "codex_subscription",
+    name: "Codex Subscription",
+    description: "Generate through your local Codex login and included Codex imagegen usage.",
+    defaultBaseUrl: "",
+    requiresApiKey: false,
+  },
+  {
     id: "stability",
     name: "Stability AI",
     description: "Stable Diffusion 3, SDXL, and Stable Image via the Stability API.",
@@ -467,6 +474,8 @@ export const IMAGE_GENERATION_SOURCES: ImageGenSource[] = [
 
 // Known image generation models (grouped by service)
 const IMAGE_GEN_MODELS: KnownModel[] = [
+  // Codex subscription image generation
+  { id: "codex_subscription", name: "Codex Subscription ($imagegen)", context: 0, maxOutput: 0 },
   // OpenAI
   { id: "gpt-image-2", name: "GPT Image 2", context: 0, maxOutput: 0 },
   { id: "gpt-image-1.5", name: "GPT Image 1.5", context: 0, maxOutput: 0 },
@@ -543,7 +552,8 @@ export function inferImageSource(model: string, baseUrl: string): string {
     m === "automatic1111" ||
     m === "runpod_comfyui" ||
     m === "gemini_image" ||
-    m === "google_image"
+    m === "google_image" ||
+    m === "codex_subscription"
   ) {
     return m;
   }
