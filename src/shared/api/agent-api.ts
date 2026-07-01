@@ -31,6 +31,8 @@ export const agentApi = {
     ),
   toggleByType: (agentType: string) => invokeTauri("agent_toggle_by_type", { agentType }),
   clearRunsForChat: (chatId: string) => invokeTauri<void>("agent_runs_clear_for_chat", { chatId }),
+  listRunsForChat: <T = Record<string, unknown>>(chatId: string) =>
+    invokeTauri<T[]>("agent_runs_list_for_chat", { chatId }),
   clearEchoMessages: (chatId: string) => invokeTauri("agent_echo_messages_clear", { chatId }),
   cadenceStatus: (agentType: string, chatId: string) =>
     invokeTauri<AgentCadenceStatus>("agent_cadence_status", { agentType, chatId }),

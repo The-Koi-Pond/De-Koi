@@ -246,6 +246,7 @@ pub fn run() {
             storage_commands::agent_commands::agent_memory_patch,
             storage_commands::agent_commands::agent_memory_clear,
             storage_commands::agent_commands::agent_runs_clear_for_chat,
+            storage_commands::agent_commands::agent_runs_list_for_chat,
             storage_commands::agent_commands::agent_echo_messages_clear,
             storage_commands::media_commands::sprite_capabilities_command,
             storage_commands::media_commands::sprite_cleanup_status_command,

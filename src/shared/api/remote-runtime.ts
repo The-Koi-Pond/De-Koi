@@ -146,6 +146,7 @@ const REMOTE_COMMANDS = new Set([
   "agent_memory_patch",
   "agent_memory_clear",
   "agent_runs_clear_for_chat",
+  "agent_runs_list_for_chat",
   "agent_echo_messages_clear",
   "sprite_capabilities_command",
   "sprite_cleanup_status_command",

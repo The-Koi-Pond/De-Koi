@@ -102,6 +102,14 @@ pub fn agent_runs_clear_for_chat(
 }
 
 #[tauri::command]
+pub fn agent_runs_list_for_chat(
+    state: State<'_, AppState>,
+    chat_id: String,
+) -> Result<Vec<Value>, AppError> {
+    agents::list_agent_runs_for_chat(&state, &chat_id)
+}
+
+#[tauri::command]
 pub fn agent_echo_messages_clear(
     state: State<'_, AppState>,
     chat_id: String,

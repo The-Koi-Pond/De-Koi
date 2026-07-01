@@ -900,6 +900,13 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             })
             .await
         }
+        "agent_runs_list_for_chat" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::list_agent_runs_for_chat(state, required_string(args, "chatId")?)
+                    .map(Value::Array)
+            })
+            .await
+        }
         "agent_echo_messages_clear" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 agents::echo_messages(state, "DELETE", required_string(args, "chatId")?)
@@ -1418,6 +1425,7 @@ mod tests {
         "agent_memory_patch",
         "agent_patch_by_type",
         "agent_runs_clear_for_chat",
+        "agent_runs_list_for_chat",
         "agent_toggle_by_type",
         "chat_autonomous_unread_clear",
         "chat_autonomous_unread_mark",
@@ -1505,6 +1513,71 @@ mod tests {
             .get("characters", id)
             .expect("characters should be readable")
             .is_some()
+    }
+
+    #[tokio::test]
+    async fn dispatch_lists_agent_runs_for_chat_with_legacy_dedupe() {
+        let state = test_state("agent-runs-list-chat");
+        for (id, row) in [
+            (
+                "current-run",
+                json!({
+                    "id": "current-run",
+                    "chatId": "chat-1",
+                    "agentConfigId": "agent-director"
+                }),
+            ),
+            (
+                "legacy-run",
+                json!({
+                    "id": "legacy-run",
+                    "chat_id": "chat-1",
+                    "agent_config_id": "agent-legacy"
+                }),
+            ),
+            (
+                "duplicate-run",
+                json!({
+                    "id": "duplicate-run",
+                    "chatId": "chat-1",
+                    "chat_id": "chat-1",
+                    "agentConfigId": "agent-duplicate"
+                }),
+            ),
+            (
+                "other-chat-run",
+                json!({
+                    "id": "other-chat-run",
+                    "chatId": "other-chat",
+                    "agentConfigId": "agent-other"
+                }),
+            ),
+        ] {
+            state
+                .storage
+                .upsert_with_id("agent-runs", id, row)
+                .expect("agent run should write");
+        }
+
+        let response = dispatch(
+            &state,
+            InvokeRequest {
+                command: "agent_runs_list_for_chat".to_string(),
+                args: Some(json!({ "chatId": "chat-1" })),
+            },
+        )
+        .await
+        .expect("chat-scoped agent runs should dispatch");
+
+        let mut ids = Vec::new();
+        for row in response.as_array().expect("response should be an array") {
+            if let Some(id) = row.get("id").and_then(Value::as_str) {
+                ids.push(id);
+            }
+        }
+        ids.sort_unstable();
+
+        assert_eq!(ids, vec!["current-run", "duplicate-run", "legacy-run"]);
     }
 
     #[tokio::test]
