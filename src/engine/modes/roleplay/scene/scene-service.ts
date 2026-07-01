@@ -71,7 +71,9 @@ const SCENE_GUIDELINES = [
   "- Continue naturally until the scene concludes or returns to the origin conversation.",
 ].join("\n");
 
-const SCENE_FALLBACK_SUMMARY_MAX_CHARS = 1200;
+const SCENE_SUMMARY_CHUNK_MAX_CHARS = 12000;
+const SCENE_SUMMARY_CHUNK_MAX_TOKENS = 700;
+const SCENE_SUMMARY_FINAL_MAX_TOKENS = 1400;
 
 export async function planRoleplayScene(
   capabilities: RoleplaySceneCapabilities,
@@ -411,53 +413,161 @@ async function summarizeScene(
   const sceneMeta = parseJsonObject(sceneChat.metadata);
   const plannerContext = await buildScenePlannerContext(capabilities.storage, sceneChat, capabilities.visuals);
   const messages = await messagesForChat(capabilities.storage, sceneChatId);
-  const transcript = messages
-    .map((message) => {
-      const role = stringValue(message.role) || "user";
-      const content = stringValue(message.content).trim();
-      return content ? `${role}: ${content}` : "";
-    })
-    .filter(Boolean)
-    .join("\n\n");
-  const fallback = fallbackSceneSummary(sceneChat, sceneMeta, messages);
+  const transcriptLines = formatSceneTranscriptMessages(messages);
+  const transcriptChunks = chunkSceneTranscript(transcriptLines, SCENE_SUMMARY_CHUNK_MAX_CHARS);
 
   try {
     const connectionId = await resolveConnectionId(capabilities.storage, sceneChat, connectionOverride ?? null);
-    const summary = await capabilities.llm.complete({
+    const chunkSummaries: string[] = [];
+    for (let index = 0; index < transcriptChunks.length; index += 1) {
+      chunkSummaries.push(
+        await summarizeSceneChunk({
+          capabilities,
+          connectionId,
+          sceneChat,
+          sceneMeta,
+          plannerContext,
+          chunk: transcriptChunks[index]!,
+          chunkIndex: index,
+          chunkCount: transcriptChunks.length,
+        }),
+      );
+    }
+    return await synthesizeSceneSummary({
+      capabilities,
       connectionId,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "Summarize the completed roleplay scene in concise third-person prose.",
-            "Ground the summary in the scene premise, participating characters, active persona, and relationship continuity.",
-            "Capture concrete outcomes, emotional shifts, promises, conflicts, reveals, and unresolved hooks. Do not invent events not present in the transcript.",
-            "Return only the summary.",
-          ].join("\n"),
-        },
-        {
-          role: "user",
-          content: [
-            "Scene metadata:",
-            formatSceneSummaryMetadata(sceneChat, sceneMeta),
-            "",
-            "Selected character cards:",
-            formatParticipantList(plannerContext.characters),
-            "",
-            "Active persona:",
-            plannerContext.persona ? formatParticipant(plannerContext.persona) : "(none)",
-            "",
-            "Transcript:",
-            transcript || "(none)",
-          ].join("\n"),
-        },
-      ],
-      parameters: { temperature: 0.7, maxTokens: 800 },
+      sceneChat,
+      sceneMeta,
+      plannerContext,
+      chunkSummaries,
     });
-    return sanitizeSceneSummary(summary, fallback);
-  } catch {
-    return fallback;
+  } catch (error) {
+    throw new Error(`Scene summary generation failed: ${errorMessage(error)}`);
   }
+}
+
+type SceneSummaryContext = {
+  capabilities: RoleplaySceneCapabilities;
+  connectionId: string;
+  sceneChat: JsonRecord;
+  sceneMeta: JsonRecord;
+  plannerContext: ScenePlannerContext;
+};
+
+async function summarizeSceneChunk(
+  context: SceneSummaryContext & { chunk: string; chunkIndex: number; chunkCount: number },
+): Promise<string> {
+  const raw = await context.capabilities.llm.complete({
+    connectionId: context.connectionId,
+    messages: [
+      {
+        role: "system",
+        content: [
+          "Summarize this section of a completed roleplay scene in concise third-person prose.",
+          "This is an intermediate continuity summary, not the final user-facing summary.",
+          "Capture concrete events, choices, emotional or relationship shifts, promises, conflicts, reveals, and unresolved hooks present in this section.",
+          "Do not invent events. Do not omit major changes just because they are uncomfortable or intense.",
+          "Return only the section summary.",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          `Scene section ${context.chunkIndex + 1} of ${context.chunkCount}`,
+          "",
+          "Scene metadata:",
+          formatSceneSummaryMetadata(context.sceneChat, context.sceneMeta),
+          "",
+          "Selected character cards:",
+          formatParticipantList(context.plannerContext.characters),
+          "",
+          "Active persona:",
+          context.plannerContext.persona ? formatParticipant(context.plannerContext.persona) : "(none)",
+          "",
+          "Transcript section:",
+          context.chunk,
+        ].join("\n"),
+      },
+    ],
+    parameters: { temperature: 0.45, maxTokens: SCENE_SUMMARY_CHUNK_MAX_TOKENS },
+  });
+  return sanitizeSceneSummary(raw);
+}
+
+async function synthesizeSceneSummary(
+  context: SceneSummaryContext & { chunkSummaries: string[] },
+): Promise<string> {
+  const raw = await context.capabilities.llm.complete({
+    connectionId: context.connectionId,
+    messages: [
+      {
+        role: "system",
+        content: [
+          "Synthesize the final conclusion summary for a completed roleplay scene.",
+          "Use every section summary below so the final summary represents the whole scene, not only the beginning or ending.",
+          "Write concise but substantial third-person prose, roughly 2-5 paragraphs.",
+          "Include the scene premise, key events across the full scene, emotional and relationship shifts, concrete outcomes, promises, conflicts, reveals, and unresolved hooks.",
+          "Do not invent events. Return only the final summary.",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          "Scene metadata:",
+          formatSceneSummaryMetadata(context.sceneChat, context.sceneMeta),
+          "",
+          "Selected character cards:",
+          formatParticipantList(context.plannerContext.characters),
+          "",
+          "Active persona:",
+          context.plannerContext.persona ? formatParticipant(context.plannerContext.persona) : "(none)",
+          "",
+          "Section summaries:",
+          formatSceneChunkSummaries(context.chunkSummaries),
+        ].join("\n"),
+      },
+    ],
+    parameters: { temperature: 0.5, maxTokens: SCENE_SUMMARY_FINAL_MAX_TOKENS },
+  });
+  return sanitizeSceneSummary(raw);
+}
+
+function formatSceneTranscriptMessages(messages: StoredMessage[]): string[] {
+  return messages
+    .map((message, index) => {
+      const role = stringValue(message.role) || "message";
+      const characterId = stringValue(message.characterId).trim();
+      const content = stripSummaryLabels(stringValue(message.content)).replace(/\s+/g, " ").trim();
+      if (!content) return "";
+      const speaker = characterId ? `${role} (${characterId})` : role;
+      return `Message ${index + 1} - ${speaker}: ${content}`;
+    })
+    .filter(Boolean);
+}
+
+function chunkSceneTranscript(lines: string[], maxChars: number): string[] {
+  if (lines.length === 0) return ["(No visible scene transcript.)"];
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let currentLength = 0;
+
+  for (const line of lines) {
+    const separatorLength = current.length > 0 ? 2 : 0;
+    if (current.length > 0 && currentLength + separatorLength + line.length > maxChars) {
+      chunks.push(current.join("\n\n"));
+      current = [];
+      currentLength = 0;
+    }
+    current.push(line);
+    currentLength += (current.length > 1 ? 2 : 0) + line.length;
+  }
+
+  if (current.length > 0) chunks.push(current.join("\n\n"));
+  return chunks;
+}
+
+function formatSceneChunkSummaries(summaries: string[]): string {
+  return summaries.map((summary, index) => `Section ${index + 1}: ${summary}`).join("\n\n");
 }
 
 async function fallbackScenePlan(storage: StorageGateway, chatId: string, prompt: string): Promise<SceneFullPlan> {
@@ -663,34 +773,11 @@ function compactPromptText(value: unknown, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
 }
 
-function fallbackSceneSummary(sceneChat: JsonRecord, sceneMeta: JsonRecord, messages: StoredMessage[]): string {
-  const description = sentenceBoundaryTrim(stripSummaryLabels(stringValue(sceneMeta.sceneDescription)), 320);
-  const recentBeats = sentenceBoundaryTailTrim(
-    messages
-      .map((message) => stripSummaryLabels(stringValue(message.content)))
-      .map((content) => content.replace(/\s+/g, " ").trim())
-      .filter(Boolean)
-      .join(" "),
-    SCENE_FALLBACK_SUMMARY_MAX_CHARS,
-  );
-  const lines: string[] = [];
-  if (description) lines.push(ensureTerminalPunctuation(description));
-  if (recentBeats) lines.push(`Recent scene beats: ${ensureTerminalPunctuation(recentBeats)}`);
 
-  const fallback = lines.join("\n\n").trim();
-  if (fallback) return fallback;
-
-  const sceneName = stringValue(sceneChat.name)
-    .replace(/^Scene:\s*/i, "")
-    .trim();
-  return sceneName
-    ? `The scene "${sceneName}" ended before any substantial roleplay occurred.`
-    : "The scene ended before any substantial roleplay occurred.";
-}
-
-function sanitizeSceneSummary(raw: string, fallback: string): string {
+function sanitizeSceneSummary(raw: string): string {
   const summary = sentenceBoundaryTrim(stripSummaryLabels(raw), 2400);
-  return summary ? ensureTerminalPunctuation(summary) : fallback;
+  if (!summary) throw new Error("The model returned an empty scene summary");
+  return ensureTerminalPunctuation(summary);
 }
 
 function stripSummaryLabels(value: string): string {
@@ -701,22 +788,6 @@ function stripSummaryLabels(value: string): string {
     .trim();
 }
 
-function sentenceBoundaryTailTrim(value: string, limit: number): string {
-  const text = value.replace(/\s+/g, " ").trim();
-  if (!text || text.length <= limit) return text;
-
-  const candidate = text.slice(-limit).trimStart();
-  const firstSentenceEnd = candidate.match(/[.!?]\s+/);
-  if (firstSentenceEnd?.index !== undefined && firstSentenceEnd.index < limit * 0.55) {
-    return candidate.slice(firstSentenceEnd.index + firstSentenceEnd[0].length).trim();
-  }
-
-  const firstSpace = candidate.indexOf(" ");
-  if (firstSpace > -1 && firstSpace < limit * 0.55) {
-    return `...${candidate.slice(firstSpace + 1).trimStart()}`;
-  }
-  return `...${candidate}`;
-}
 
 function sentenceBoundaryTrim(value: string, limit: number): string {
   const text = value.replace(/\s+/g, " ").trim();
