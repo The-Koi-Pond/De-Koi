@@ -87,6 +87,12 @@ import { ResolvedAvatarImage } from "./ResolvedAvatarImage";
 import { MessageAttachmentImagePreview } from "./MessageAttachmentImagePreview";
 import { resolveAvatarFileUrl } from "../../../../../shared/api/local-file-api";
 import { mergedGroupDisplayLabel, mergedGroupNames } from "../lib/merged-group-label";
+import {
+  createSpeakerColorLookup,
+  replaceSpeakerTagsWithColorSpans,
+  splitSpeakerDialogueColorSegments,
+  stripSpeakerTags,
+} from "../lib/speaker-dialogue-colors";
 
 const MESSAGE_ACTION_ICON_SIZE = "1em";
 const MESSAGE_SWIPE_ICON_SIZE = "1.15em";
@@ -438,8 +444,6 @@ type MergedAvatar = {
 /** Regex to match a plain image URL as the entire content. */
 const IMAGE_URL_RE = /^https?:\/\/\S+\.(?:gif|png|jpe?g|webp)(?:\?[^\s]*)?$/i;
 
-/** Regex to match <speaker>dialogue</speaker> and <speaker="name">dialogue</speaker> tags. */
-const SPEAKER_TAG_RE = /<speaker(?:="([^"]*)")?>([\s\S]*?)<\/speaker>/g;
 const INLINE_MARKDOWN_CONTAINER_RE =
   /\*\*\*[\s\S]+?\*\*\*|\*\*[\s\S]+?\*\*|__[\s\S]+?__|(?<!\*)\*(?!\*)[\s\S]+?(?<!\*)\*(?!\*)|==[\s\S]+?==|~~[\s\S]+?~~|(?<![_\w])_[^_]+?_(?![_\w])/g;
 
@@ -454,40 +458,13 @@ function renderWithSpeakerTags(
   boldDialogue = true,
 ): ReactNode[] {
   const renderLine = (line: string, color = defaultDialogueColor) => highlightDialogue(line, color, boldDialogue);
-
-  // Tag stripping is a side-effect of the loop, not the colour logic, so the loop
-  // must run whenever tags are present — otherwise `<speaker="…">` renders as text.
-  if (!SPEAKER_TAG_RE.test(text)) {
-    return renderLine(text, defaultDialogueColor);
+  const segments = splitSpeakerDialogueColorSegments(text, defaultDialogueColor, speakerColorMap);
+  if (segments.length === 1 && segments[0]?.text === text) {
+    return renderLine(text, segments[0].color);
   }
-  SPEAKER_TAG_RE.lastIndex = 0;
-
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-
-  while ((match = SPEAKER_TAG_RE.exec(text)) !== null) {
-    // Text before the speaker tag — use default color
-    if (match.index > lastIndex) {
-      nodes.push(...renderLine(text.slice(lastIndex, match.index), defaultDialogueColor));
-    }
-    const speakerName = match[1]?.trim() ?? "";
-    const dialogue = match[2]!;
-    const speakerColor = speakerName
-      ? (speakerColorMap?.get(speakerName) ?? defaultDialogueColor)
-      : defaultDialogueColor;
-    // Render the dialogue content (without the tags) using the speaker's color
-    nodes.push(<span key={`s${key++}`}>{renderLine(dialogue, speakerColor)}</span>);
-    lastIndex = match.index + match[0].length;
-  }
-
-  // Remaining text after last speaker tag
-  if (lastIndex < text.length) {
-    nodes.push(...renderLine(text.slice(lastIndex), defaultDialogueColor));
-  }
-
-  return nodes;
+  return segments.map((segment, index) => (
+    <span key={`s${index}`}>{renderLine(segment.text, segment.color)}</span>
+  ));
 }
 
 function collectInlineMarkdownRanges(text: string): Array<[number, number]> {
@@ -858,7 +835,7 @@ function renderContent(
   const normalized = formatTextQuotes(text, quoteFormat);
 
   // Strip speaker tags before HTML detection (they aren't real HTML)
-  const withoutSpeakerTags = normalized.replace(/<\/?speaker(?:="[^"]*")?>/g, "");
+  const withoutSpeakerTags = stripSpeakerTags(normalized);
 
   if (!HTML_TAG_RE.test(withoutSpeakerTags)) {
     // renderWithHeadings handles headings, *** and --- horizontal rules,
@@ -869,13 +846,7 @@ function renderContent(
   }
 
   // For HTML content, replace speaker tags with color-annotated spans (preserves per-character colors)
-  const stripped = speakerColorMap
-    ? normalized.replace(SPEAKER_TAG_RE, (_, name, dialogue) => {
-        const speakerName = typeof name === "string" ? name.trim() : "";
-        const color = speakerName ? speakerColorMap.get(speakerName) : undefined;
-        return color ? `<span data-spk="${color}">${dialogue as string}</span>` : (dialogue as string);
-      })
-    : normalized.replace(SPEAKER_TAG_RE, "$2");
+  const stripped = replaceSpeakerTagsWithColorSpans(normalized, speakerColorMap);
 
   const { html: strippedWithoutStyleBlocks, css: rawStyleBlocks } = extractChatStyleBlocks(stripped);
 
@@ -1573,19 +1544,19 @@ export const ChatMessage = memo(function ChatMessage({
 
   // Build speaker → dialogueColor map for group chat speaker tag coloring
   const speakerColorMap = useMemo(() => {
-    if (!scopedCharacterMap || scopedCharacterMap.size <= 1) return undefined;
-    const map = new Map<string, string>();
+    if (!scopedCharacterMap) return undefined;
+    const entries: Array<[string | undefined, string | undefined]> = [];
     for (const [, info] of scopedCharacterMap) {
       if (info.name && info.dialogueColor) {
-        map.set(info.name, info.dialogueColor);
+        entries.push([info.name, info.dialogueColor]);
       }
     }
     if (personaInfo?.name && personaInfo.dialogueColor) {
-      map.set(personaInfo.name, personaInfo.dialogueColor);
+      entries.push([personaInfo.name, personaInfo.dialogueColor]);
     }
+    const map = createSpeakerColorLookup(entries);
     return map.size > 0 ? map : undefined;
   }, [personaInfo?.dialogueColor, personaInfo?.name, scopedCharacterMap]);
-
   // Merged group chat: cycling avatars + cycling name color
   const mergedAvatars = useMemo<MergedAvatar[]>(() => {
     if (!isMergedGroup || !characterMap || !chatCharacterIds) return [];
