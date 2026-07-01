@@ -52,7 +52,7 @@ import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
 import { cn, type AvatarCropValue } from "../../shared/lib/utils";
 import { avatarFileUrlFromPath, resolveAvatarFileUrl } from "../../shared/api/local-file-api";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
-import { useState, useCallback, useMemo, useRef, useEffect, type DragEvent } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties, type DragEvent } from "react";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import type { ChatFolder } from "../../engine/contracts/types/chat";
 import type { DekiSession } from "../../engine/deki/deki-history";
@@ -61,6 +61,7 @@ import { Reorder, useDragControls } from "framer-motion";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { useStartNewChat } from "./useStartNewChat";
 import { getDekiBatchDeleteCopy, getSelectedDekiSessionIds, toggleDekiSessionSelection } from "./deki-sidebar-selection";
+import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
 
 type ChatSortOption = "newest" | "oldest" | "name-asc" | "name-desc";
 export type ChatSidebarTab = "conversation" | "roleplay" | "game";
@@ -467,6 +468,19 @@ export function ChatSidebar({
   useEffect(() => {
     setLocalFolderOrder(modeFolders.map((f) => f.id));
   }, [modeFolders]);
+
+  const sidebarRows = useMemo(
+    () =>
+      buildChatSidebarListRows({
+        pinnedChats,
+        localFolderOrder,
+        modeFolders,
+        folderChatsMap,
+        unfiledChats,
+        includeUnfiledDropZone: unfiledChats.length > 0 || draggedChatId !== null,
+      }),
+    [draggedChatId, folderChatsMap, localFolderOrder, modeFolders, pinnedChats, unfiledChats],
+  );
 
   useEffect(() => {
     const allChats = chats ?? [];
@@ -1377,7 +1391,7 @@ export function ChatSidebar({
       </div>
 
       {/* Chat list */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-1">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 py-1">
         {isLoading && (
           <div className="flex flex-col gap-2 px-2 py-4">
             {[1, 2, 3].map((i) => (
@@ -1429,70 +1443,79 @@ export function ChatSidebar({
           </div>
         )}
 
-        <div className="stagger-children flex flex-col gap-0.5">
-          {/* Pinned chats */}
-          {pinnedChats.length > 0 && (
-            <div className="mb-1 flex flex-col gap-0.5">
-              <div className="flex items-center gap-1 px-2 py-1 text-[0.5625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                <Star size="0.625rem" className="fill-amber-400 text-amber-400" />
-                Pinned
+        {displayChats.length > 0 && !isLoading && !chatsError && (
+          <ChatSidebarVirtualList
+            rows={sidebarRows}
+            activeChatId={activeChatId}
+            activeGroupId={activeGroupId}
+            localFolderOrder={localFolderOrder}
+            onFolderReorder={handleFolderReorder}
+            renderChatRow={(entry, row) => (
+              <div
+                data-chat-folder-root={row.folderId === null ? "" : undefined}
+                onDragOver={row.folderId === null ? (event) => handleChatDragOver(event, null) : undefined}
+                onDragLeave={row.folderId === null ? handleChatDragLeave : undefined}
+                onDrop={row.folderId === null ? (event) => handleChatDrop(event, null) : undefined}
+                className={cn(
+                  row.depth === 1 && "ml-4 border-l border-[var(--border)]/20 pl-1",
+                  row.folderId === null && "rounded-lg transition-colors",
+                  row.folderId === null && draggedChatId && "min-h-8",
+                  row.folderId === null &&
+                    chatDropTarget &&
+                    chatDropTarget.folderId === null &&
+                    "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+                )}
+              >
+                {renderChatRow(entry)}
               </div>
-              {pinnedChats.map(renderChatRow)}
-            </div>
-          )}
-
-          {/* Folders (drag-to-reorder) */}
-          {localFolderOrder.length > 0 && (
-            <Reorder.Group
-              axis="y"
-              values={localFolderOrder}
-              onReorder={handleFolderReorder}
-              as="div"
-              className="flex flex-col gap-0.5 mt-1"
-            >
-              {localFolderOrder.map((folderId) => {
-                const folder = modeFolders.find((f) => f.id === folderId);
-                if (!folder) return null;
-                const folderEntries = folderChatsMap.get(folderId) ?? [];
-                return (
-                  <FolderRow
-                    key={folderId}
-                    folder={folder}
-                    entries={folderEntries}
-                    renderChatRow={renderChatRow}
-                    isDropTarget={chatDropTarget?.folderId === folder.id}
-                    draggedChatId={draggedChatId}
-                    onToggleCollapse={handleToggleCollapse}
-                    onRename={handleRenameFolder}
-                    onDelete={handleDeleteFolder}
-                    onChatDragOver={handleChatDragOver}
-                    onChatDragLeave={handleChatDragLeave}
-                    onChatDrop={handleChatDrop}
-                  />
-                );
-              })}
-            </Reorder.Group>
-          )}
-
-          {/* Unfiled chats */}
-          <div
-            data-chat-folder-root
-            onDragOver={(event) => handleChatDragOver(event, null)}
-            onDragLeave={handleChatDragLeave}
-            onDrop={(event) => handleChatDrop(event, null)}
-            className={cn(
-              "flex flex-col gap-0.5 rounded-lg transition-colors",
-              draggedChatId && "min-h-8",
-              chatDropTarget &&
-                chatDropTarget.folderId === null &&
-                "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
             )}
-          >
-            {unfiledChats.map(renderChatRow)}
-          </div>
-        </div>
+            renderFolderHeader={(row, style) => (
+              <FolderHeaderRow
+                key={row.key}
+                folder={row.folder}
+                entriesCount={row.entriesCount}
+                style={style}
+                isDropTarget={chatDropTarget?.folderId === row.folder.id}
+                draggedChatId={draggedChatId}
+                onToggleCollapse={handleToggleCollapse}
+                onRename={handleRenameFolder}
+                onDelete={handleDeleteFolder}
+                onChatDragOver={handleChatDragOver}
+                onChatDragLeave={handleChatDragLeave}
+                onChatDrop={handleChatDrop}
+              />
+            )}
+            renderSectionHeader={(row, style) =>
+              row.section === "pinned" ? (
+                <div
+                  key={row.key}
+                  style={style}
+                  className="flex items-center gap-1 px-2 py-1 text-[0.5625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"
+                >
+                  <Star size="0.625rem" className="fill-amber-400 text-amber-400" />
+                  {row.label}
+                </div>
+              ) : (
+                <div
+                  key={row.key}
+                  style={style}
+                  data-chat-folder-root
+                  onDragOver={(event) => handleChatDragOver(event, null)}
+                  onDragLeave={handleChatDragLeave}
+                  onDrop={(event) => handleChatDrop(event, null)}
+                  className={cn(
+                    "rounded-lg transition-colors",
+                    draggedChatId && "min-h-2",
+                    chatDropTarget &&
+                      chatDropTarget.folderId === null &&
+                      "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+                  )}
+                />
+              )
+            }
+          />
+        )}
       </div>
-
       {/* ── Multi-select action bar ── */}
       {multiSelectMode && (
         <div className="mari-sidebar-footer border-t border-[var(--border)]/30 bg-[var(--card)]/95 px-3 py-2.5 backdrop-blur-sm">
@@ -1666,11 +1689,11 @@ export function ChatSidebar({
   );
 }
 
-// ── FolderRow (self-contained state for menu/rename) ──
-function FolderRow({
+// FolderHeaderRow keeps folder actions and drag-to-reorder while child chats live in the virtual row model.
+function FolderHeaderRow({
   folder,
-  entries,
-  renderChatRow,
+  entriesCount,
+  style,
   isDropTarget,
   draggedChatId,
   onToggleCollapse,
@@ -1681,8 +1704,8 @@ function FolderRow({
   onChatDrop,
 }: {
   folder: ChatFolder;
-  entries: ChatSidebarRow[];
-  renderChatRow: (entry: ChatSidebarRow) => React.ReactNode;
+  entriesCount: number;
+  style: CSSProperties;
   isDropTarget: boolean;
   draggedChatId: string | null;
   onToggleCollapse: (folder: ChatFolder) => void;
@@ -1698,20 +1721,21 @@ function FolderRow({
 
   return (
     <Reorder.Item
+      key={folder.id}
       value={folder.id}
       dragListener={false}
       dragControls={dragControls}
       as="div"
+      style={style}
       onDragOver={(event) => onChatDragOver(event, folder.id)}
       onDragLeave={onChatDragLeave}
       onDrop={(event) => onChatDrop(event, folder.id)}
       className={cn(
-        "flex flex-col rounded-lg transition-colors",
+        "rounded-lg transition-colors",
         draggedChatId && "ring-inset",
         isDropTarget && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
       )}
     >
-      {/* Folder header */}
       <div className="group relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-[var(--sidebar-accent)]/40">
         <div
           onPointerDown={(e) => {
@@ -1782,8 +1806,8 @@ function FolderRow({
             </span>
           )}
         </div>
-        {entries.length > 0 && (
-          <span className="text-[0.5625rem] text-[var(--muted-foreground)] shrink-0">{entries.length}</span>
+        {entriesCount > 0 && (
+          <span className="text-[0.5625rem] text-[var(--muted-foreground)] shrink-0">{entriesCount}</span>
         )}
         <button
           onClick={(e) => {
@@ -1806,16 +1830,9 @@ function FolderRow({
           <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
         </button>
       </div>
-      {/* Folder contents */}
-      {!folder.collapsed && entries.length > 0 && (
-        <div className="ml-4 flex flex-col gap-0.5 border-l border-[var(--border)]/20 pl-1">
-          {entries.map(renderChatRow)}
-        </div>
-      )}
     </Reorder.Item>
   );
 }
-
 // ── Status config ──
 const STATUS_OPTIONS: Array<{
   value: UserStatus;

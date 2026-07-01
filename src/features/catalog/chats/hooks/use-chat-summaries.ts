@@ -40,6 +40,16 @@ export type ChatListItem = Pick<Chat, ChatSummaryField> & {
 };
 
 const CHAT_SUMMARY_WAKEUP_REFETCH_INTERVAL_MS = 5_000;
+export const CHAT_SUMMARY_SESSION_STALE_TIME_MS = 5 * 60_000;
+const CHAT_SUMMARY_SESSION_GC_TIME_MS = 30 * 60_000;
+
+const CHAT_SUMMARY_SESSION_QUERY_POLICY = {
+  staleTime: CHAT_SUMMARY_SESSION_STALE_TIME_MS,
+  gcTime: CHAT_SUMMARY_SESSION_GC_TIME_MS,
+  refetchOnMount: false,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const;
 
 function chatSummaryWakeupRefetchInterval(error: unknown): number | false {
   return shouldRetryApiQuery(0, error, { maxRetries: 1 }) ? CHAT_SUMMARY_WAKEUP_REFETCH_INTERVAL_MS : false;
@@ -53,10 +63,7 @@ export function useChatSummaries() {
         fields: [...CHAT_SUMMARY_FIELDS],
         fieldSelections: { metadata: [...CHAT_SUMMARY_METADATA_FIELDS] },
       }),
-    staleTime: 10_000,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
+    ...CHAT_SUMMARY_SESSION_QUERY_POLICY,
     refetchInterval: (query) =>
       query.state.status === "error" ? chatSummaryWakeupRefetchInterval(query.state.error) : false,
     retry: (failureCount, error) => shouldRetryApiQuery(failureCount, error, { maxRetries: 10 }),
@@ -75,10 +82,7 @@ export function useRecentChatSummaries(limit = 3) {
         descending: true,
         limit,
       }),
-    staleTime: 10_000,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
+    ...CHAT_SUMMARY_SESSION_QUERY_POLICY,
     refetchInterval: (query) =>
       query.state.status === "error" ? chatSummaryWakeupRefetchInterval(query.state.error) : false,
     retry: (failureCount, error) => shouldRetryApiQuery(failureCount, error, { maxRetries: 10 }),
