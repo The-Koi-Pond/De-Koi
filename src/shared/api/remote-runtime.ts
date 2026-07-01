@@ -107,6 +107,7 @@ const REMOTE_COMMANDS = new Set([
   "storage_list",
   "lorebook_entries_list_by_lorebook_ids",
   "storage_get",
+  "prompt_preset_bundle",
   "storage_create",
   "storage_update",
   "storage_delete",

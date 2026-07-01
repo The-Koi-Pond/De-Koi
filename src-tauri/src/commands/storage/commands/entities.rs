@@ -370,6 +370,18 @@ pub async fn storage_get(
         .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub async fn prompt_preset_bundle(
+    state: State<'_, AppState>,
+    preset_id: String,
+) -> Result<Value, AppError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || prompts::prompt_preset_bundle(&state, &preset_id))
+        .await
+        .map_err(|error| AppError::new("task_join_error", error.to_string()))?
+}
+
 pub(crate) fn storage_get_inner(
     state: &AppState,
     entity: String,

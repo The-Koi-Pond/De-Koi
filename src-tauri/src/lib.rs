@@ -207,6 +207,7 @@ pub fn run() {
             storage_commands::entity_commands::storage_list,
             storage_commands::entity_commands::lorebook_entries_list_by_lorebook_ids,
             storage_commands::entity_commands::storage_get,
+            storage_commands::entity_commands::prompt_preset_bundle,
             storage_commands::entity_commands::storage_create,
             storage_commands::entity_commands::storage_update,
             storage_commands::entity_commands::storage_delete,
