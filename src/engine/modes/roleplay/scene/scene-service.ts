@@ -22,6 +22,7 @@ import {
   copyTrackerSnapshotsForRebasedMessages,
   type TrackerSnapshotMessageRebase,
 } from "../../../generation/tracker-snapshots";
+import { resolveSceneUniversalPreset } from "./universal-preset";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -114,9 +115,11 @@ export async function planRoleplayScene(
           role: "system",
           content: [
             "You are a scene planner for De-Koi roleplay.",
-            "Return only one JSON object with fields name, description, scenario, firstMessage, background, characterIds, systemPrompt, rating, relationshipHistory, and participationGuide.",
+            "Return only one JSON object with fields name, description, scenario, firstMessage, background, characterIds, systemPrompt, rating, relationshipHistory, participationGuide, and presetChoices.",
             "The name must start with Scene:. The rating must be sfw or nsfw. Use only character IDs from the provided list.",
             "The background must be null or one exact filename from the provided available backgrounds list. Never invent or rename backgrounds.",
+            "presetChoices may include Universal preset option IDs for contentBoundary, eroticTone, narration, pov, tense, pacing, styleFlavor, agencyStrictness, length, language, and mode.",
+            "Use option IDs such as boundary_sfw, boundary_mature_dark, boundary_explicit_adult_safe, erotic_tone_none, erotic_tone_restrained, erotic_tone_sensual, erotic_tone_direct, erotic_tone_filthy, narration_second, narration_third, narration_first, pov_user_limited, pov_character_limited, pov_omniscient, tense_present, tense_past, pacing_balanced, pacing_snappy, pacing_cinematic, pacing_slow_burn, style_grounded, style_lyrical, style_dry_wit, style_genre_faithful, agency_strict, agency_organic, agency_transitional, length_flexible, length_short, length_moderate, length_long, language_english, mode_gm, mode_roleplayer, or mode_writer.",
             "Write firstMessage in the origin chat's narration style. If characters speak, use quotation marks.",
           ].join("\n"),
         },
@@ -181,6 +184,7 @@ export async function createRoleplayScene(
   ].filter((id, index, ids) => ids.indexOf(id) === index);
   const inheritedSceneOptions = sceneCarryoverOptions(originMeta);
   const sceneSystemPrompt = [plan.systemPrompt, SCENE_GUIDELINES].filter((part) => part.trim()).join("\n\n");
+  const universalPreset = await resolveSceneUniversalPreset(storage, { plan, sceneConversationContext });
   const sceneFolderId = sceneFolderIdForOriginMode(originChat.mode, originChat.folderId);
 
   const metadata: JsonRecord = {
@@ -197,6 +201,13 @@ export async function createRoleplayScene(
     sceneRating: plan.rating === "nsfw" ? "nsfw" : "sfw",
     sceneStatus: "active",
     enableMemoryRecall: true,
+    ...(universalPreset.presetId
+      ? {
+          sceneUniversalPresetId: universalPreset.presetId,
+          sceneUniversalPresetChoiceHints: universalPreset.choiceHints,
+          presetChoices: universalPreset.presetChoices,
+        }
+      : {}),
     ...(background ? { background } : {}),
   };
 
@@ -207,7 +218,7 @@ export async function createRoleplayScene(
     groupId: originChat.groupId ?? null,
     folderId: sceneFolderId,
     personaId: originChat.personaId ?? null,
-    promptPresetId: originChat.promptPresetId ?? null,
+    promptPresetId: universalPreset.presetId ?? originChat.promptPresetId ?? null,
     connectionId,
     connectedChatId: input.originChatId,
     activeLorebookIds: inheritedActiveLorebookIds,
@@ -747,7 +758,18 @@ function sanitizeScenePlan(
     rating: parsed.rating === "nsfw" ? "nsfw" : "sfw",
     relationshipHistory: stringValue(parsed.relationshipHistory) || fallback.relationshipHistory,
     participationGuide: stringValue(parsed.participationGuide) || fallback.participationGuide,
+    presetChoices: parsePresetChoiceHints(parsed.presetChoices),
   };
+}
+
+function parsePresetChoiceHints(value: unknown): Record<string, string> | undefined {
+  const record = parseJsonObject(value);
+  const choices = Object.fromEntries(
+    Object.entries(record)
+      .map(([key, entry]) => [key, stringValue(entry).trim()] as const)
+      .filter(([, entry]) => entry.length > 0),
+  );
+  return Object.keys(choices).length > 0 ? choices : undefined;
 }
 
 function safeTitle(value: string, fallback: string): string {

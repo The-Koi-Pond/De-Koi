@@ -55,6 +55,8 @@ export interface SceneFullPlan {
   relationshipHistory: string;
   /** A short, fun, user-visible guide about how to play/participate in this scene. */
   participationGuide: string;
+  /** Optional De-Koi Universal Preset option hints (variableName -> option ID, label, or value). */
+  presetChoices?: Record<string, string>;
 }
 
 /** Request body for POST /scene/create. */

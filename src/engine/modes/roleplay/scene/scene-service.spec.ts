@@ -25,6 +25,7 @@ function storageForScene(args: {
   const storage = {
     async get<T>(entity: StorageEntity, id: string) {
       if (entity === "chats") return (chats.get(id) ?? null) as T | null;
+      if (entity === "prompts" && id === "preset_universal_v2") return { id, name: "De-Koi Universal Preset V2" } as T;
       if (entity === "characters") return null as T | null;
       return null as T | null;
     },
@@ -32,6 +33,32 @@ function storageForScene(args: {
       if (entity === "connections") return (args.connections ?? []) as T[];
       if (entity === "personas") return [] as T[];
       if (entity === "background-metadata") return [] as T[];
+      if (entity === "prompt-variables") {
+        return [
+          {
+            variableName: "contentBoundary",
+            options: [
+              { id: "boundary_sfw", value: "Keep the scene SFW." },
+              { id: "boundary_mature_dark", value: "Adult dark fiction is allowed." },
+              { id: "boundary_explicit_adult_safe", value: "Explicit adult content may appear only with consent." },
+            ],
+          },
+          {
+            variableName: "eroticTone",
+            options: [
+              { id: "erotic_tone_none", value: "no erotic tone preference" },
+              { id: "erotic_tone_filthy", value: "filthy erotic tone" },
+            ],
+          },
+          {
+            variableName: "narration",
+            options: [
+              { id: "narration_second", value: "second-person" },
+              { id: "narration_third", value: "third-person" },
+            ],
+          },
+        ] as T[];
+      }
       return [] as T[];
     },
     async update<T>(entity: StorageEntity, id: string, patch: JsonRecord) {
@@ -168,6 +195,50 @@ describe("createRoleplayScene", () => {
     const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
     expect(createdScene).toMatchObject({ mode: "roleplay" });
     expect(createdScene).not.toHaveProperty("folderId", "conversation-folder");
+  });
+
+  it("starts spawned scenes on the De-Koi Universal preset with inferred choices", async () => {
+    const { storage, createdRecords } = storageForScene({
+      chats: [
+        {
+          id: "origin",
+          name: "Dinner Chat",
+          mode: "conversation",
+          characterIds: ["char-1"],
+          metadata: {},
+        },
+      ],
+      messages: {
+        origin: [{ id: "message-1", role: "user", content: "Make this explicit and filthy." }],
+      },
+    });
+
+    await createRoleplayScene(storage, {
+      originChatId: "origin",
+      initiatorCharId: null,
+      connectionId: null,
+      plan: {
+        ...basePlan,
+        description: "The dinner becomes explicitly sexual.",
+        scenario: "The scene heads in a filthy adult direction.",
+        rating: "nsfw",
+        relationshipHistory: "They were flirting over dinner.",
+      },
+    });
+
+    const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
+    expect(createdScene).toMatchObject({
+      mode: "roleplay",
+      promptPresetId: "preset_universal_v2",
+      metadata: {
+        sceneUniversalPresetId: "preset_universal_v2",
+        presetChoices: {
+          contentBoundary: "Adult dark fiction is allowed.",
+          eroticTone: "filthy erotic tone",
+          narration: "second-person",
+        },
+      },
+    });
   });
 
   it.each([
