@@ -1929,6 +1929,33 @@ function buildRoleplayNarratorStylePromptBlock(chat: JsonRecord, wrapFormat: Wra
   );
 }
 
+function buildMergedRoleplayEnsemblePromptBlock(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+  wrapFormat: WrapFormat,
+): string | null {
+  const chatMode = readString(input.chat.mode || input.chat.chatMode, "conversation");
+  const metadata = parseRecord(input.chat.metadata);
+  if (
+    chatMode !== "roleplay" ||
+    characters.length <= 1 ||
+    input.request.impersonate === true ||
+    readString(metadata.groupChatMode, "merged") === "individual"
+  ) {
+    return null;
+  }
+
+  return wrapContent(
+    [
+      "Keep the merged Game Master style: you may weave multiple participating characters into one response instead of forcing a single targeted speaker.",
+      "Avoid echoing the same signature phrase, pet name, physical description, gesture, sentence rhythm, or sensory beat across consecutive turns.",
+      "Rotate attention among participating characters when they are present, and make each character's diction, motives, and body language distinct instead of reusing one character's stock motifs.",
+    ].join("\n"),
+    "ensemble_style",
+    wrapFormat,
+  );
+}
+
 export function chatSummaryForGeneration(chat: JsonRecord): string | null {
   const meta = parseRecord(chat.metadata);
   const mode = readString(chat.mode || chat.chatMode, "conversation");
@@ -4027,7 +4054,8 @@ export async function assembleGenerationPrompt(
   } else {
     const narratorStyleBlock = buildRoleplayNarratorStylePromptBlock(input.chat, wrapFormat);
     const sceneBlock = buildRoleplayScenePromptBlock(input.chat, wrapFormat);
-    const roleplayBlocks = [narratorStyleBlock, sceneBlock].filter((block): block is string => !!block);
+    const ensembleBlock = buildMergedRoleplayEnsemblePromptBlock(input, promptCharacters, wrapFormat);
+    const roleplayBlocks = [narratorStyleBlock, sceneBlock, ensembleBlock].filter((block): block is string => !!block);
     if (roleplayBlocks.length > 0) {
       const firstSystemIndex = messages.findIndex((message) => message.role === "system");
       messages.splice(firstSystemIndex >= 0 ? firstSystemIndex + 1 : 0, 0, {

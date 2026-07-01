@@ -17,19 +17,21 @@ function macroContext(): MacroContext {
   };
 }
 
-function promptAssemblyStorage(args: { sections: JsonRecord[]; character?: JsonRecord; groups?: JsonRecord[] }): StorageGateway {
+function promptAssemblyStorage(args: { sections: JsonRecord[]; character?: JsonRecord; characters?: JsonRecord[]; groups?: JsonRecord[] }): StorageGateway {
   const preset = {
     id: "preset-1",
     name: "Depth preset",
     wrapFormat: "xml",
     parameters: { strictRoleFormatting: true },
   };
-  const character = args.character ?? {
-    id: "char-1",
-    name: "Mira",
-    description: "A friend who likes music.",
-    tags: [],
-  };
+  const characterRows = args.characters ?? [
+    args.character ?? {
+      id: "char-1",
+      name: "Mira",
+      description: "A friend who likes music.",
+      tags: [],
+    },
+  ];
 
   return {
     async list<T = unknown>(entity: StorageEntity, options?: StorageListOptions): Promise<T[]> {
@@ -49,7 +51,10 @@ function promptAssemblyStorage(args: { sections: JsonRecord[]; character?: JsonR
       return [];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
-      if (entity === "characters" && id === character.id) return asStorageValue<T>(character);
+      if (entity === "characters") {
+        const character = characterRows.find((row) => row.id === id);
+        if (character) return asStorageValue<T>(character);
+      }
       if (entity === "prompts" && id === preset.id) return asStorageValue<T>(preset);
       return null;
     },
@@ -168,6 +173,38 @@ describe("prompt assembly connected conversation context", () => {
   });
 });
 
+describe("prompt assembly merged roleplay", () => {
+  it("adds ensemble anti-repetition guidance without forcing a targeted turn", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({
+        sections: [],
+        characters: [
+          { id: "harlequin", name: "Harlequin", description: "Harlequin core description.", tags: [] },
+          { id: "jester", name: "Jester", description: "Jester core description.", tags: [] },
+          { id: "pierrot", name: "Pierrot", description: "Pierrot core description.", tags: [] },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["harlequin", "jester", "pierrot"],
+          metadata: { groupChatMode: "merged" },
+        },
+        storedMessages: [{ role: "user", content: "Continue." }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "Continue.",
+      },
+    );
+
+    const promptText = prompt.messages.map((message) => message.content).join("\n");
+
+    expect(promptText).toContain("Keep the merged Game Master style");
+    expect(promptText).toContain("Avoid echoing the same signature phrase");
+    expect(promptText).not.toContain("Write this turn only from");
+  });
+});
 describe("prompt assembly preset depth sections", () => {
   it("does not append character description extensions to prompt macros", async () => {
     const prompt = await assembleGenerationPrompt(
