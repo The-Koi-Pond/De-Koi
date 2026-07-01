@@ -83,11 +83,12 @@ export function CharacterMetadataTab({
   imageConnections: ImageGenerationConnectionOption[];
 }) {
   const [expandedCreatorNotes, setExpandedCreatorNotes] = useState(false);
-  const [publicProfileGeneratingField, setPublicProfileGeneratingField] =
-    useState<CharacterPublicProfileSuggestionField | null>(null);
+  const [publicProfileGeneratingFields, setPublicProfileGeneratingFields] = useState<
+    Set<CharacterPublicProfileSuggestionField>
+  >(() => new Set());
   const [publicProfileGenerationError, setPublicProfileGenerationError] = useState("");
   const [publicProfileBannerGenerating, setPublicProfileBannerGenerating] = useState(false);
-  const publicProfileAbortRef = useRef<AbortController | null>(null);
+  const publicProfileAbortRefs = useRef(new Map<CharacterPublicProfileSuggestionField, AbortController>());
   const creatorNotesId = "character-creator-notes";
   // Read the saved source-rectangle crop and write the same current shape on edit.
   const savedCrop = (formData.extensions.avatarCrop as AvatarCrop | undefined) ?? null;
@@ -95,10 +96,18 @@ export function CharacterMetadataTab({
   const imageBackgroundHeight = useUIStore((state) => state.imageBackgroundHeight);
   const talkativeness = typeof formData.extensions.talkativeness === "number" ? formData.extensions.talkativeness : 0.5;
   const publicProfile = readPublicProfile(formData.extensions.publicProfile);
-  const updatePublicProfile = (patch: CharacterPublicProfile) =>
-    updateExtension("publicProfile", { ...publicProfile, ...patch });
-  const defaultImageConnectionId =
-    imageConnections.find(isDefaultImageGenerationConnection)?.id ?? imageConnections[0]?.id ?? null;
+  const publicProfileRef = useRef(publicProfile);
+  publicProfileRef.current = publicProfile;
+  const updatePublicProfile = (patch: CharacterPublicProfile) => {
+    const next = { ...publicProfileRef.current, ...patch };
+    publicProfileRef.current = next;
+    updateExtension("publicProfile", next);
+  };
+  const isPublicProfileGenerating = (field: CharacterPublicProfileSuggestionField) =>
+    publicProfileGeneratingFields.has(field);
+  const publicProfileGeneratingLabels = Array.from(publicProfileGeneratingFields).map(
+    (field) => publicProfileFieldLabels[field],
+  );
   const applyGeneratedTags = (value: unknown) => {
     if (!Array.isArray(value)) return;
     const seen = new Set(formData.tags.map((tag) => tag.toLowerCase()));
@@ -114,12 +123,13 @@ export function CharacterMetadataTab({
     }
     updateField("tags", merged);
   };
+  const defaultImageConnectionId =
+    imageConnections.find(isDefaultImageGenerationConnection)?.id ?? imageConnections[0]?.id ?? null;
   const applyPublicProfileSuggestion = async (field: CharacterPublicProfileSuggestionField) => {
-    if (publicProfileGeneratingField) return;
-    publicProfileAbortRef.current?.abort();
+    if (publicProfileAbortRefs.current.has(field)) return;
     const abort = new AbortController();
-    publicProfileAbortRef.current = abort;
-    setPublicProfileGeneratingField(field);
+    publicProfileAbortRefs.current.set(field, abort);
+    setPublicProfileGeneratingFields((current) => new Set(current).add(field));
     setPublicProfileGenerationError("");
 
     try {
@@ -138,9 +148,13 @@ export function CharacterMetadataTab({
         setPublicProfileGenerationError(err instanceof Error ? err.message : "Public profile generation failed");
       }
     } finally {
-      if (publicProfileAbortRef.current === abort) {
-        publicProfileAbortRef.current = null;
-        setPublicProfileGeneratingField(null);
+      if (publicProfileAbortRefs.current.get(field) === abort) {
+        publicProfileAbortRefs.current.delete(field);
+        setPublicProfileGeneratingFields((current) => {
+          const next = new Set(current);
+          next.delete(field);
+          return next;
+        });
       }
     }
   };
@@ -309,15 +323,15 @@ export function CharacterMetadataTab({
 
       <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-4">
         <SectionHeader title="Public Profile" subtitle="Outward-facing identity used by quick inspect cards." />
-        {(publicProfileGeneratingField || publicProfileBannerGenerating) && (
+        {(publicProfileGeneratingFields.size > 0 || publicProfileBannerGenerating) && (
           <div
             role="status"
             aria-live="polite"
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--primary)]/20 bg-[var(--primary)]/8 px-2.5 py-1.5 text-xs font-medium text-[var(--primary)]"
           >
             <Loader2 size="0.75rem" className="animate-spin" />
-            {publicProfileGeneratingField
-              ? `Generating ${publicProfileFieldLabels[publicProfileGeneratingField]}...`
+            {publicProfileGeneratingLabels.length > 0
+              ? `Generating ${publicProfileGeneratingLabels.join(", ")}...`
               : "Generating banner image..."}
           </div>
         )}
@@ -339,13 +353,13 @@ export function CharacterMetadataTab({
               <button
                 type="button"
                 onClick={() => applyPublicProfileSuggestion("displayName")}
-                disabled={publicProfileGeneratingField !== null}
+                disabled={isPublicProfileGenerating("displayName")}
                 className={profileWandButtonClass}
                 title="Generate display name"
                 aria-label="Generate display name"
-                aria-busy={publicProfileGeneratingField === "displayName"}
+                aria-busy={isPublicProfileGenerating("displayName")}
               >
-                {publicProfileGeneratingField === "displayName" ? (
+                {isPublicProfileGenerating("displayName") ? (
                   <Loader2 size="0.875rem" className="animate-spin" />
                 ) : (
                   <Wand2 size="0.875rem" />
@@ -367,13 +381,13 @@ export function CharacterMetadataTab({
               <button
                 type="button"
                 onClick={() => applyPublicProfileSuggestion("handle")}
-                disabled={publicProfileGeneratingField !== null}
+                disabled={isPublicProfileGenerating("handle")}
                 className={profileWandButtonClass}
                 title="Generate handle"
                 aria-label="Generate handle"
-                aria-busy={publicProfileGeneratingField === "handle"}
+                aria-busy={isPublicProfileGenerating("handle")}
               >
-                {publicProfileGeneratingField === "handle" ? (
+                {isPublicProfileGenerating("handle") ? (
                   <Loader2 size="0.875rem" className="animate-spin" />
                 ) : (
                   <Wand2 size="0.875rem" />
@@ -396,13 +410,13 @@ export function CharacterMetadataTab({
             <button
               type="button"
               onClick={() => applyPublicProfileSuggestion("bio")}
-              disabled={publicProfileGeneratingField !== null}
+              disabled={isPublicProfileGenerating("bio")}
               className={profileWandButtonClass}
               title="Generate bio"
               aria-label="Generate bio"
-              aria-busy={publicProfileGeneratingField === "bio"}
+              aria-busy={isPublicProfileGenerating("bio")}
             >
-              {publicProfileGeneratingField === "bio" ? (
+              {isPublicProfileGenerating("bio") ? (
                 <Loader2 size="0.875rem" className="animate-spin" />
               ) : (
                 <Wand2 size="0.875rem" />
