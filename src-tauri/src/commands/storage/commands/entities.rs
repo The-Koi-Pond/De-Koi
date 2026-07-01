@@ -1,5 +1,5 @@
 use super::{
-    avatars, characters, chats, connection_secrets, contracts, entity_images, game_state_snapshots,
+    agents, avatars, characters, chats, connection_secrets, contracts, entity_images, game_state_snapshots,
     integrations, lorebook_images, managed_thumbnails, media_uploads, message_swipes, personas,
     prompts, shared, sprites,
 };
@@ -336,6 +336,10 @@ pub(crate) fn storage_list_inner(
         )));
     }
 
+    if entity == "agents" {
+        agents::normalize_agent_rows_for_read(&mut rows);
+    }
+
     if entity == "connections" {
         connection_secrets::mask_connection_rows_for_read(&mut rows);
     }
@@ -457,6 +461,9 @@ pub(crate) fn storage_get_inner(
                 false,
             ),
         )?;
+    }
+    if entity == "agents" {
+        agents::normalize_agent_record_for_read(&mut value);
     }
     if entity == "connections" {
         connection_secrets::mask_connection_for_read(&mut value);
@@ -765,6 +772,43 @@ mod tests {
             .expect("connection should read")
             .and_then(|row| row.get("defaultForAgents").and_then(Value::as_bool))
             .unwrap_or(false)
+    }
+    #[test]
+    fn storage_agent_reads_normalize_legacy_music_dj_label() {
+        let state = test_state("agent-read-legacy-music-dj-label");
+        state
+            .storage
+            .upsert_with_id(
+                "agents",
+                "legacy-music-dj",
+                json!({
+                    "id": "legacy-music-dj",
+                    "type": "music-dj",
+                    "name": "Assistant DJ",
+                    "enabled": true,
+                    "settings": {}
+                }),
+            )
+            .expect("legacy music dj config should write");
+
+        let listed =
+            storage_list_inner(&state, "agents".to_string(), None).expect("agents should list");
+        assert_eq!(
+            listed[0].get("name").and_then(Value::as_str),
+            Some("Music DJ")
+        );
+
+        let fetched = storage_get_inner(
+            &state,
+            "agents".to_string(),
+            "legacy-music-dj".to_string(),
+            None,
+        )
+        .expect("agent should read");
+        assert_eq!(
+            fetched.get("name").and_then(Value::as_str),
+            Some("Music DJ")
+        );
     }
 
     fn create_record(state: &AppState, collection: &str, value: Value) {
