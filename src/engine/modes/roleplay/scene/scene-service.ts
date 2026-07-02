@@ -78,6 +78,9 @@ const SCENE_SUMMARY_FINAL_MAX_TOKENS = 1400;
 const SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS = 2800;
 const SCENE_SUMMARY_CHUNK_MAX_SUMMARY_CHARS = 2400;
 const SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS = 8000;
+const SCENE_SUMMARY_FINAL_MIN_SENTENCES = 3;
+const SCENE_SUMMARY_SUBSTANTIAL_TRANSCRIPT_MIN_LINES = 8;
+const SCENE_SUMMARY_SUBSTANTIAL_TRANSCRIPT_MIN_CHARS = 1800;
 
 export async function planRoleplayScene(
   capabilities: RoleplaySceneCapabilities,
@@ -444,6 +447,8 @@ async function summarizeScene(
       sceneMeta,
       plannerContext,
       chunkSummaries,
+      transcriptLineCount: transcriptLines.length,
+      transcriptCharCount: transcriptLines.join("\n").length,
     });
   } catch (error) {
     throw new Error(`Scene summary generation failed: ${errorMessage(error)}`);
@@ -505,39 +510,18 @@ async function summarizeSceneChunk(
   return sanitizeSceneSummary(raw, SCENE_SUMMARY_CHUNK_MAX_SUMMARY_CHARS);
 }
 
-async function synthesizeSceneSummary(context: SceneSummaryContext & { chunkSummaries: string[] }): Promise<string> {
+type SceneFinalSummaryContext = SceneSummaryContext & {
+  chunkSummaries: string[];
+  transcriptLineCount: number;
+  transcriptCharCount: number;
+};
+
+async function synthesizeSceneSummary(context: SceneFinalSummaryContext): Promise<string> {
   const raw = await completeSceneSummaryText(
     context.capabilities.llm,
     {
       connectionId: context.connectionId,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "Synthesize the final conclusion summary for a completed roleplay scene.",
-            "Use every section summary below so the final summary represents the whole scene, not only the beginning or ending.",
-            "Write concise but substantial third-person prose, roughly 2-5 paragraphs.",
-            "Include the scene premise, key events across the full scene, emotional and relationship shifts, concrete outcomes, promises, conflicts, reveals, and unresolved hooks.",
-            "Do not invent events. Return only the final summary.",
-          ].join("\n"),
-        },
-        {
-          role: "user",
-          content: [
-            "Scene metadata:",
-            formatSceneSummaryMetadata(context.sceneChat, context.sceneMeta),
-            "",
-            "Selected character cards:",
-            formatParticipantList(context.plannerContext.characters),
-            "",
-            "Active persona:",
-            context.plannerContext.persona ? formatParticipant(context.plannerContext.persona) : "(none)",
-            "",
-            "Section summaries:",
-            formatSceneChunkSummaries(context.chunkSummaries),
-          ].join("\n"),
-        },
-      ],
+      messages: finalSceneSummaryMessages(context),
     },
     {
       temperature: 0.5,
@@ -545,7 +529,82 @@ async function synthesizeSceneSummary(context: SceneSummaryContext & { chunkSumm
       retryMaxTokens: SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS,
     },
   );
-  return sanitizeSceneSummary(raw, SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
+  let summary = sanitizeSceneSummary(raw, SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
+  if (!requiresSubstantialFinalSummary(context) || !isFinalSceneSummaryTooBrief(summary)) return summary;
+
+  const retryRaw = await completeSceneSummaryText(
+    context.capabilities.llm,
+    {
+      connectionId: context.connectionId,
+      messages: finalSceneSummaryMessages(context, summary),
+    },
+    {
+      temperature: 0.35,
+      maxTokens: SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS,
+      retryMaxTokens: SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS,
+    },
+  );
+  summary = sanitizeSceneSummary(retryRaw, SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
+  if (isFinalSceneSummaryTooBrief(summary)) throw new Error("The model returned an incomplete scene summary");
+  return summary;
+}
+
+function finalSceneSummaryMessages(
+  context: SceneFinalSummaryContext,
+  previousTooBriefSummary?: string,
+): SceneSummaryCompletionRequest["messages"] {
+  return [
+    {
+      role: "system",
+      content: [
+        "Synthesize the final conclusion summary for a completed roleplay scene.",
+        "Use every section summary below so the final summary represents the whole scene, not only the beginning or ending.",
+        "Write concise but substantial third-person prose, roughly 2-5 paragraphs and at least 3 complete sentences when there is enough scene history.",
+        "Include the scene premise, key events across the full scene, emotional and relationship shifts, concrete outcomes, promises, conflicts, reveals, and unresolved hooks.",
+        previousTooBriefSummary
+          ? "Your previous answer was too brief. Rewrite it as a fuller whole-scene conclusion, not a one-sentence takeaway."
+          : "Do not collapse the scene into a one-sentence takeaway when the section summaries contain multiple beats.",
+        "Do not invent events. Return only the final summary.",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        "Scene metadata:",
+        formatSceneSummaryMetadata(context.sceneChat, context.sceneMeta),
+        "",
+        "Selected character cards:",
+        formatParticipantList(context.plannerContext.characters),
+        "",
+        "Active persona:",
+        context.plannerContext.persona ? formatParticipant(context.plannerContext.persona) : "(none)",
+        "",
+        previousTooBriefSummary ? "Previous summary was too brief:" : "",
+        previousTooBriefSummary ?? "",
+        previousTooBriefSummary ? "" : "",
+        "Section summaries:",
+        formatSceneChunkSummaries(context.chunkSummaries),
+      ]
+        .filter((line, index, lines) => line || lines[index - 1] !== "")
+        .join("\n"),
+    },
+  ];
+}
+
+function requiresSubstantialFinalSummary(context: SceneFinalSummaryContext): boolean {
+  return (
+    context.chunkSummaries.length > 1 ||
+    context.transcriptLineCount >= SCENE_SUMMARY_SUBSTANTIAL_TRANSCRIPT_MIN_LINES ||
+    context.transcriptCharCount >= SCENE_SUMMARY_SUBSTANTIAL_TRANSCRIPT_MIN_CHARS
+  );
+}
+
+function isFinalSceneSummaryTooBrief(summary: string): boolean {
+  return countCompleteSentences(summary) < SCENE_SUMMARY_FINAL_MIN_SENTENCES;
+}
+
+function countCompleteSentences(value: string): number {
+  return value.match(/[.!?](?=\s|$)/g)?.length ?? 0;
 }
 
 type SceneSummaryCompletionRequest = Pick<LlmRequest, "connectionId" | "messages">;
