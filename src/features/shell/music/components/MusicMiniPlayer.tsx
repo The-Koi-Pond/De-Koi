@@ -1,4 +1,4 @@
-import { GripHorizontal, Pause, Play, RotateCcw, Search, Square, Volume2, X, Zap } from "lucide-react";
+import { GripHorizontal, Music2, Pause, Play, RotateCcw, Search, Square, Volume2, X } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { musicApi, type MusicCandidate, type MusicStatus } from "../../../../shared/api/music-api";
+import { musicApi, type MusicCandidate } from "../../../../shared/api/music-api";
 import { musicDjIntentLabel, type MusicDjIntent } from "../../../../shared/lib/music-dj-intent";
 import { rankMusicCandidates } from "../../../../shared/lib/music-candidate-ranking";
 import { MUSIC_PLAYBACK_EVENT, type MusicPlaybackEventDetail } from "../../../../shared/lib/music-playback-events";
@@ -20,6 +20,8 @@ import {
   type MusicWidgetPosition,
   type MusicWidgetSize,
 } from "../lib/music-widget-position";
+import { getMusicPlayerDisplay } from "../lib/music-player-display";
+import { sendYouTubeIframeCommand } from "../lib/youtube-iframe-player";
 
 const DEFAULT_MUSIC_QUERY = "quiet fantasy tavern instrumental ambience";
 const DEFAULT_WIDGET_SIZE: MusicWidgetSize = { width: 352, height: 188 };
@@ -84,21 +86,6 @@ function resolvedWidgetPosition(position: MusicWidgetPosition, widget: MusicWidg
   const viewport = viewportSize();
   const base = isLegacyDefaultPosition(position) ? defaultMusicWidgetPosition(viewport, widget) : position;
   return clampMusicWidgetPosition(base, viewport, widget);
-}
-
-function useMusicStatus(): MusicStatus | null {
-  const [status, setStatus] = useState<MusicStatus | null>(null);
-  useEffect(() => {
-    let alive = true;
-    musicApi
-      .status()
-      .then((next) => alive && setStatus(next))
-      .catch(() => alive && setStatus(null));
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return status;
 }
 
 function FloatingMusicShell({ children }: { children: ReactNode }) {
@@ -201,8 +188,34 @@ function FloatingMusicShell({ children }: { children: ReactNode }) {
   );
 }
 
-export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
-  const status = useMusicStatus();
+type MusicMiniPlayerVariant = "floating" | "toolbar";
+
+function musicPlayerMediaQuery(variant: MusicMiniPlayerVariant): string {
+  return variant === "toolbar" ? "(min-width: 768px)" : "(max-width: 767px)";
+}
+
+function useMusicPlayerVisible(variant: MusicMiniPlayerVariant): boolean {
+  const [visible, setVisible] = useState(() => {
+    if (typeof window === "undefined") return variant === "toolbar";
+    return window.matchMedia(musicPlayerMediaQuery(variant)).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = window.matchMedia(musicPlayerMediaQuery(variant));
+    const update = () => setVisible(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, [variant]);
+
+  return visible;
+}
+
+export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean; variant?: MusicMiniPlayerVariant }) {
+  const resolvedVariant = variant ?? (mobile ? "floating" : "toolbar");
+  const visible = useMusicPlayerVisible(resolvedVariant);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [query, setQuery] = useState(DEFAULT_MUSIC_QUERY);
   const [lastDiscoveryQuery, setLastDiscoveryQuery] = useState(DEFAULT_MUSIC_QUERY);
   const [track, setTrack] = useState<MusicCandidate | null>(null);
@@ -214,6 +227,7 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
 
   const videoId = youtubeVideoId(track);
   const src = useMemo(() => embedUrl(videoId, playing), [videoId, playing]);
+  const display = getMusicPlayerDisplay(track);
 
   async function playTrack(next: MusicCandidate, nextVolume = volume) {
     setTrack(next);
@@ -221,9 +235,15 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     if (key) setRecentTrackIds((current) => [key, ...current.filter((entry) => entry !== key)].slice(0, 8));
     await musicApi.play({ provider: next.provider, track: next, volume: nextVolume });
     setPlaying(true);
+    sendYouTubeIframeCommand(iframeRef.current, "playVideo");
   }
 
-  async function pick(fresh = false, overrideQuery?: string | null, intent?: MusicDjIntent | null, overrideVolume?: number | null) {
+  async function pick(
+    fresh = false,
+    overrideQuery?: string | null,
+    intent?: MusicDjIntent | null,
+    overrideVolume?: number | null,
+  ) {
     const requestedQuery = (overrideQuery ?? query).trim();
     const requestedVolume = typeof overrideVolume === "number" ? overrideVolume : volume;
     const usedDiscoveryFallback = fresh && isDirectYouTubeTarget(requestedQuery);
@@ -271,22 +291,39 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     }
   }
 
+  async function resumeOrPick() {
+    if (track) {
+      await playTrack(track);
+      return;
+    }
+    await pick(false);
+  }
+
   async function stop() {
     setPlaying(false);
+    sendYouTubeIframeCommand(iframeRef.current, "stopVideo");
     await musicApi.stop().catch(() => undefined);
   }
 
   async function pause() {
     setPlaying(false);
+    sendYouTubeIframeCommand(iframeRef.current, "pauseVideo");
     await musicApi.pause().catch(() => undefined);
   }
 
   async function updateVolume(next: number) {
     setVolume(next);
+    sendYouTubeIframeCommand(iframeRef.current, "setVolume", [next]);
     await musicApi.setVolume({ volume: next }).catch(() => undefined);
   }
 
   useEffect(() => {
+    if (!visible || !src) return;
+    sendYouTubeIframeCommand(iframeRef.current, "setVolume", [volume]);
+  }, [src, visible, volume]);
+
+  useEffect(() => {
+    if (!visible) return;
     function onMusicEvent(event: Event) {
       const detail = (event as CustomEvent<MusicPlaybackEventDetail>).detail;
       if (!detail) return;
@@ -311,7 +348,23 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     }
     window.addEventListener(MUSIC_PLAYBACK_EVENT, onMusicEvent);
     return () => window.removeEventListener(MUSIC_PLAYBACK_EVENT, onMusicEvent);
-  }, [query, volume, track, recentTrackIds]);
+  }, [query, recentTrackIds, track, visible, volume]);
+
+  if (!visible) return null;
+
+  const youtubeFrame = src ? (
+    <iframe
+      ref={iframeRef}
+      className={
+        resolvedVariant === "toolbar"
+          ? "pointer-events-none absolute -left-px -top-px h-px w-px opacity-0"
+          : "mb-2 h-24 w-full rounded border-0"
+      }
+      src={src}
+      title="Music DJ YouTube player"
+      allow="autoplay; encrypted-media"
+    />
+  ) : null;
 
   const player = (
     <section className="overflow-hidden rounded-lg border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[color-mix(in_srgb,var(--surface)_90%,transparent)] p-2.5 text-[var(--foreground)] shadow-[0_18px_60px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
@@ -321,24 +374,13 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
             <Volume2 className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0">
-            <div className="truncate font-medium">{track?.title ?? "Music DJ"}</div>
-            <div className="truncate text-[var(--muted-foreground)]">{track?.channelOrArtist ?? "YouTube first"}</div>
+            <div className="truncate font-medium">{display.title}</div>
+            <div className="truncate text-[var(--muted-foreground)]">{display.subtitle}</div>
           </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1 rounded border border-[var(--border)] px-1.5 py-1 text-[var(--muted-foreground)]">
-          <Zap className="h-3 w-3" />
-          {status?.powerModeAvailable ? "Power" : "Iframe"}
         </div>
       </div>
 
-      {src ? (
-        <iframe
-          className="mb-2 h-24 w-full rounded border-0"
-          src={src}
-          title="Music DJ YouTube player"
-          allow="autoplay; encrypted-media"
-        />
-      ) : null}
+      {youtubeFrame}
 
       <div className="mb-2 flex gap-1">
         <input
@@ -373,7 +415,7 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
         <button
           type="button"
           className="rounded border border-[var(--border)] p-1.5"
-          onClick={() => (playing ? pause() : pick(false))}
+          onClick={() => (playing ? pause() : resumeOrPick())}
           aria-label={playing ? "Pause" : "Play"}
         >
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -396,11 +438,74 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     </section>
   );
 
-  return mobile ? <FloatingMusicShell>{player}</FloatingMusicShell> : <div className="w-80">{player}</div>;
+  if (resolvedVariant === "toolbar") {
+    return (
+      <div
+        data-component="MusicToolbarPlayer"
+        className="relative flex h-9 w-[clamp(16rem,34vw,34rem)] shrink-0 items-center gap-2 overflow-hidden rounded-md border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[color-mix(in_srgb,var(--surface)_82%,transparent)] px-2 text-[var(--foreground)] shadow-sm backdrop-blur-xl"
+      >
+        {youtubeFrame}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--muted)] text-[var(--muted-foreground)]">
+            <Music2 className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0 leading-tight">
+            <div className="truncate text-xs font-medium">{display.title}</div>
+            <div className="truncate text-[10px] text-[var(--muted-foreground)]">{display.subtitle}</div>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          onClick={() => (playing ? pause() : resumeOrPick())}
+          aria-label={playing ? "Pause Music DJ" : "Play Music DJ"}
+          title={playing ? "Pause" : "Play"}
+        >
+          {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
+          onClick={stop}
+          disabled={!track && !playing}
+          aria-label="Stop Music DJ"
+          title="Stop"
+        >
+          <Square className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
+          onClick={() => pick(true)}
+          disabled={busy}
+          aria-label="Fresh Music DJ pick"
+          title="Fresh pick"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </button>
+        <input
+          className="w-20 shrink-0"
+          type="range"
+          min={0}
+          max={100}
+          value={volume}
+          onChange={(event) => updateVolume(Number(event.target.value))}
+          aria-label="Music volume"
+          title="Volume"
+        />
+      </div>
+    );
+  }
+
+  return <FloatingMusicShell>{player}</FloatingMusicShell>;
+}
+
+export function MusicToolbarPlayer() {
+  return <MusicMiniPlayer variant="toolbar" />;
 }
 
 export function MusicFloatingWidget() {
-  return <MusicMiniPlayer mobile />;
+  return <MusicMiniPlayer variant="floating" />;
 }
 
 export function MusicMobileWidget() {

@@ -314,10 +314,10 @@
     "id": "music-dj",
     "title": "Music DJ And Mini Player",
     "category": "Media",
-    "summary": "Use YouTube-first Music DJ for intelligent roleplay scene music, reranked mood-based fresh picks, pasted YouTube URLs, playback controls, and a draggable floating mini player module.",
-    "keywords": ["youtube", "spotify legacy", "music", "dj", "playlist", "player", "playback", "scene music", "roleplay music", "fresh pick", "mini player", "draggable"],
+    "summary": "Use YouTube-first Music DJ for intelligent roleplay scene music, reranked mood-based fresh picks, pasted YouTube URLs, playback controls, desktop toolbar controls, and a draggable floating mini player module.",
+    "keywords": ["youtube", "spotify legacy", "music", "dj", "playlist", "player", "playback", "scene music", "roleplay music", "fresh pick", "mini player", "toolbar", "draggable"],
     "audience": "Users who want music controls, smarter roleplay cues, or mood-matched playlists inside chats and games.",
-    "where": "Chat or Game settings for Music DJ, and Settings > Modules for the floating mini player toggle.",
+    "where": "Chat or Game settings for Music DJ, the desktop titlebar when the module is active, and Settings > Modules for the mini player toggle.",
     "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
     "coverage": "advanced"
   },

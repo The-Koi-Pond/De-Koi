@@ -1,5 +1,5 @@
 import { Maximize2, Minus, Square, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   closeDesktopWindow,
   getDesktopWindowVisualState,
@@ -34,10 +34,12 @@ export function WindowTitleBar({
   dekiOpen = false,
   onOpenDeki,
   onGoHome,
+  titlebarAccessory,
 }: {
   dekiOpen?: boolean;
   onOpenDeki?: () => void;
   onGoHome?: () => void;
+  titlebarAccessory?: ReactNode;
 }) {
   const platform = useMemo(inferDesktopPlatform, []);
   const hasWindowControls = useMemo(hasDesktopWindowControls, []);
@@ -233,6 +235,8 @@ export function WindowTitleBar({
           onMouseDown={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
         >
+          {titlebarAccessory ? <div className="hidden min-w-0 md:flex">{titlebarAccessory}</div> : null}
+
           <PanelNavButtons />
           <span className="mari-window-actions-divider" aria-hidden />
         </div>

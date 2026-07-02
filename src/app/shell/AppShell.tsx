@@ -86,6 +86,9 @@ const AgentDebugPanel = lazy(() =>
 const MusicFloatingWidget = lazy(() =>
   import("../../features/shell/music/shell").then((module) => ({ default: module.MusicFloatingWidget })),
 );
+const MusicToolbarPlayer = lazy(() =>
+  import("../../features/shell/music/shell").then((module) => ({ default: module.MusicToolbarPlayer })),
+);
 
 function clampWidth(width: number, min: number, max: number) {
   return Math.max(min, Math.min(max, width));
@@ -1242,7 +1245,18 @@ export function AppShell() {
           aria-hidden={activeMobileOverlayPanel ? true : undefined}
           className="mari-app-chrome relative z-40 flex shrink-0 flex-col overflow-visible"
         >
-          <WindowTitleBar dekiOpen={dekiOpen} onOpenDeki={() => openActiveDeki()} onGoHome={() => setDekiOpen(false)} />
+          <WindowTitleBar
+            dekiOpen={dekiOpen}
+            onOpenDeki={() => openActiveDeki()}
+            onGoHome={() => setDekiOpen(false)}
+            titlebarAccessory={
+              musicDjMiniPlayerEnabled ? (
+                <Suspense fallback={null}>
+                  <MusicToolbarPlayer />
+                </Suspense>
+              ) : null
+            }
+          />
           <TopBar dekiOpen={dekiOpen} onOpenDeki={() => openActiveDeki()} onGoHome={() => setDekiOpen(false)} />
         </header>
 
