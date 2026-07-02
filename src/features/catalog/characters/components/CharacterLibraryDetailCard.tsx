@@ -1,8 +1,8 @@
-import { Hash, MessageCircle, Pencil, Star, User } from "lucide-react";
+import { Hash, MessageCircle, Music2, Pencil, Star, User } from "lucide-react";
 import { useStartChatFromCharacter } from "../hooks/use-start-chat-from-character";
 import { characterAvatarUrl } from "../lib/character-avatar-url";
-import { resolveCharacterPublicProfile } from "../lib/character-public-profile";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../lib/character-token-count";
+import { resolveCharacterPublicProfile } from "../lib/character-public-profile";
 import {
   getCharacterMeta,
   getCharacterSections,
@@ -51,7 +51,6 @@ export function CharacterLibraryDetailCard({
               alt={characterName || "Selected character"}
               crop={avatarCrop}
               thumbnailSize={avatarCrop ? 256 : undefined}
-              upgradeToFullResolution={Boolean(avatarCrop)}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-white/85">
@@ -90,27 +89,30 @@ export function CharacterLibraryDetailCard({
               </div>
             </div>
 
-            {publicProfile.bio && (
-              <div className="mt-4 rounded-lg border border-[var(--border)]/50 bg-[var(--secondary)]/70 px-4 py-3">
-                <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-                  Public Profile
-                </p>
-                <p className="mt-2 text-sm leading-6 text-[var(--foreground)]/85">{publicProfile.bio}</p>
-                {publicProfile.tags.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {publicProfile.tags.slice(0, 6).map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1 rounded-full bg-[var(--background)]/80 px-2 py-0.5 text-[0.625rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)]"
-                      >
-                        <Hash size="0.625rem" />
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
+            <div className="mt-4 rounded-[1.25rem] border border-[var(--border)]/50 bg-[var(--secondary)]/70 px-4 py-3">
+              <div className="text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                Public Profile
               </div>
-            )}
+              {publicProfile.nowListeningLine && (
+                <div className="mt-2 flex min-w-0 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)]/70 px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)]">
+                  <Music2 size="0.75rem" className="shrink-0 text-[var(--primary)]" />
+                  <span className="truncate">{publicProfile.nowListeningLine}</span>
+                </div>
+              )}
+              <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">{publicProfile.bio}</p>
+              {publicProfile.tags.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {publicProfile.tags.slice(0, 6).map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full bg-[var(--primary)]/8 px-2 py-1 text-[0.625rem] font-medium text-[var(--primary)]/85"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
               <button
@@ -170,3 +172,6 @@ export function CharacterLibraryDetailCard({
     </div>
   );
 }
+
+
+

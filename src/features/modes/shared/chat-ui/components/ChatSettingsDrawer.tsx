@@ -48,6 +48,7 @@ import { cn, type AvatarCrop } from "../../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { extractCreatorNotesCss } from "../../../../../shared/lib/creator-notes-css";
 import { showAlertDialog, showConfirmDialog, showPromptDialog } from "../../../../../shared/lib/app-dialogs";
+import { dispatchMusicPlaybackEvent } from "../../../../../shared/lib/music-playback-events";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
 import { ExpandedTextarea } from "../../../../../shared/components/ui/ExpandedTextarea";
 import { Modal } from "../../../../../shared/components/ui/Modal";
@@ -88,8 +89,11 @@ import {
   SpriteRangeSlider,
 } from "./settings/ChatSettingsSections";
 import {
+  buildCharacterMusicPlaybackCue,
   characterAvatarUrl,
+  characterMusicOptionCount,
   CharacterPublicProfileCard,
+  readCharacterMusicProfile,
   resolveCharacterPublicProfile,
   useCharacterSummaries,
   useCharacterSummariesByIds,
@@ -145,20 +149,11 @@ import {
 import type { AgentPhase } from "../../../../../engine/contracts/types/agent";
 import type { Chat, ChatMetadata, ChatMode } from "../../../../../engine/contracts/types/chat";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
-import {
-  isCustomAgentConfig,
-  useAgentConfigs,
-  useCreateAgent,
-  useUpdateAgent,
-  type AgentConfigRow,
-} from "../../../../catalog/agents/index";
+import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { DEFAULT_AGENT_PROMPTS } from "../../../../../engine/contracts/constants/agent-prompts";
-import {
-  LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID,
-  MUSIC_DJ_MINI_PLAYER_MODULE_ID,
-} from "../../../../../engine/contracts/constants/core-modules";
+import { SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../../../../engine/contracts/constants/core-modules";
 import { LIMITS } from "../../../../../engine/contracts/constants/defaults";
 import {
   BUILT_IN_AGENTS,
@@ -489,6 +484,7 @@ function ChatSettingsDrawerInner({
 
   const [showCharPicker, setShowCharPicker] = useState(false);
   const [profilePopoverCharacterId, setProfilePopoverCharacterId] = useState<string | null>(null);
+  const [musicProfilePickIndexes, setMusicProfilePickIndexes] = useState<Record<string, number>>({});
   const [charSearch, setCharSearch] = useState("");
   const debouncedCharSearch = useDebouncedValue(charSearch, 180);
   const chatCharIds: string[] = useMemo(
@@ -760,7 +756,7 @@ function ChatSettingsDrawerInner({
     // Custom agents from DB
     if (agentConfigs) {
       for (const c of agentConfigs as AgentConfigRow[]) {
-        if (isCustomAgentConfig(c)) {
+        if (!BUILT_IN_AGENTS.some((b) => b.id === c.type)) {
           agents.push({
             id: c.type,
             name: c.name,
@@ -1009,6 +1005,47 @@ function ChatSettingsDrawerInner({
         | undefined) ?? null
     );
   }, []);
+  const musicProfileForCharacter = useCallback((c: { data?: unknown }) => {
+    const extensions = (c.data as { extensions?: Record<string, unknown> } | null)?.extensions ?? {};
+    return readCharacterMusicProfile(extensions.musicProfile);
+  }, []);
+
+  const characterMusicOptionCountFor = useCallback(
+    (c: { data?: unknown }) => characterMusicOptionCount(musicProfileForCharacter(c)),
+    [musicProfileForCharacter],
+  );
+
+  const characterPublicProfile = useCallback(
+    (c: { id: string; data?: unknown; comment?: string | null }) =>
+      resolveCharacterPublicProfile({
+        data: c.data as Record<string, unknown>,
+        comment: c.comment,
+        musicPickIndex: musicProfilePickIndexes[c.id] ?? 0,
+      }),
+    [musicProfilePickIndexes],
+  );
+
+  const shuffleCharacterProfileMusic = useCallback(
+    (c: { id: string; data?: unknown }) => {
+      const optionCount = characterMusicOptionCountFor(c);
+      if (optionCount <= 1) return;
+      setMusicProfilePickIndexes((current) => ({
+        ...current,
+        [c.id]: ((current[c.id] ?? 0) + 1) % optionCount,
+      }));
+    },
+    [characterMusicOptionCountFor],
+  );
+
+  const playCharacterProfileMusic = useCallback(
+    (c: { id: string; data?: unknown; comment?: string | null }) => {
+      const cue = buildCharacterMusicPlaybackCue(characterPublicProfile(c).nowListening);
+      if (!cue) return;
+      dispatchMusicPlaybackEvent({ type: "cue", query: cue.query });
+      toast.success("Music DJ cued character music.", { duration: 1800 });
+    },
+    [characterPublicProfile],
+  );
 
   // ── First message confirm state ──
   const [firstMesConfirm, setFirstMesConfirm] = useState<{
@@ -1424,10 +1461,7 @@ function ChatSettingsDrawerInner({
   const [groupScenarioDraft, setGroupScenarioDraft] = useState(groupScenarioText);
   const [groupScenarioExpanded, setGroupScenarioExpanded] = useState(false);
   const gameAgentPool = useMemo(
-    () =>
-      Array.from(
-        new Set(activeAgentIds.filter((id) => id !== "music-dj" && id !== "spotify" && id !== "lorebook-keeper")),
-      ),
+    () => Array.from(new Set(activeAgentIds.filter((id) => id !== "music-dj" && id !== "spotify" && id !== "lorebook-keeper"))),
     [activeAgentIds],
   );
   const [extraPromptDraft, setExtraPromptDraft] = useState(gameExtraPrompt);
@@ -1517,11 +1551,12 @@ function ChatSettingsDrawerInner({
 
   const openAgentAddModal = (agent: AvailableAgent) => openAgentConfigModal(agent, "add");
   const openAgentSettingsModal = (agent: AvailableAgent) => openAgentConfigModal(agent, "edit");
+
   const showMusicDjMiniPlayerModuleHint = useCallback(async () => {
     const settings = await coreModulesApi.settings.get().catch(() => null);
     const enabled = settings?.enabled ?? {};
     const miniPlayerEnabled =
-      enabled[MUSIC_DJ_MINI_PLAYER_MODULE_ID] === true || enabled[LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID] === true;
+      enabled[SPOTIFY_MINI_PLAYER_MODULE_ID] === true;
     if (miniPlayerEnabled) return;
 
     await showAlertDialog({
@@ -2240,6 +2275,7 @@ function ChatSettingsDrawerInner({
                       if (!c) return null;
                       const name = charName(c);
                       const title = charTitle(c);
+                      const publicProfile = characterPublicProfile(c);
                       return (
                         <div
                           key={c.id}
@@ -2289,15 +2325,20 @@ function ChatSettingsDrawerInner({
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 <CharacterPublicProfileCard
-                                  profile={resolveCharacterPublicProfile({
-                                    data: c.data as Record<string, unknown>,
-                                    comment: c.comment,
-                                  })}
+                                  profile={publicProfile}
                                   avatarUrl={c.avatarPath}
                                   avatarFilePath={c.avatarFilePath}
                                   avatarFilename={c.avatarFilename}
                                   avatarCrop={charAvatarCrop(c)}
                                   compact
+                                  onShuffleMusic={
+                                    publicProfile.nowListening && characterMusicOptionCountFor(c) > 1
+                                      ? () => shuffleCharacterProfileMusic(c)
+                                      : undefined
+                                  }
+                                  onPlayMusic={
+                                    publicProfile.nowListening ? () => playCharacterProfileMusic(c) : undefined
+                                  }
                                   onOpenFullProfile={() => {
                                     setProfilePopoverCharacterId(null);
                                     onClose();
@@ -2546,6 +2587,7 @@ function ChatSettingsDrawerInner({
                     if (!c) return null;
                     const name = charName(c);
                     const title = charTitle(c);
+                    const publicProfile = characterPublicProfile(c);
                     const isInactive = inactiveCharacterIdSet.has(c.id);
                     const canDeactivate = !isInactive && activeChatCharacterCount <= 1;
                     return (
@@ -2640,15 +2682,20 @@ function ChatSettingsDrawerInner({
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 <CharacterPublicProfileCard
-                                  profile={resolveCharacterPublicProfile({
-                                    data: c.data as Record<string, unknown>,
-                                    comment: c.comment,
-                                  })}
+                                  profile={publicProfile}
                                   avatarUrl={c.avatarPath}
                                   avatarFilePath={c.avatarFilePath}
                                   avatarFilename={c.avatarFilename}
                                   avatarCrop={charAvatarCrop(c)}
                                   compact
+                                  onShuffleMusic={
+                                    publicProfile.nowListening && characterMusicOptionCountFor(c) > 1
+                                      ? () => shuffleCharacterProfileMusic(c)
+                                      : undefined
+                                  }
+                                  onPlayMusic={
+                                    publicProfile.nowListening ? () => playCharacterProfileMusic(c) : undefined
+                                  }
                                   onOpenFullProfile={() => {
                                     setProfilePopoverCharacterId(null);
                                     onClose();
@@ -4513,8 +4560,7 @@ function ChatSettingsDrawerInner({
                       <div className="min-w-0 flex-1">
                         <div className="text-[0.6875rem] font-medium">Music DJ</div>
                         <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                          YouTube-first scene music is active. Use the shell Music DJ player for direct URLs, fresh
-                          picks, and volume.
+                          YouTube-first scene music is active. Use the shell Music DJ player for direct URLs, fresh picks, and volume.
                         </p>
                       </div>
                     </div>
@@ -6145,3 +6191,9 @@ function ChatSettingsDrawerInner({
     </>
   );
 }
+
+
+
+
+
+

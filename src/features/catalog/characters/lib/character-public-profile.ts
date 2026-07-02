@@ -1,5 +1,11 @@
 import type { LlmChunk, LlmGateway, LlmMessage } from "../../../../engine/capabilities/llm";
 import type { CharacterPublicProfile } from "../../../../engine/contracts/types/character";
+import {
+  deriveCharacterNowListening,
+  formatNowListeningLine,
+  readCharacterMusicProfile,
+  type ResolvedCharacterNowListening,
+} from "./character-music-profile";
 
 type CharacterPublicProfileData = {
   name?: unknown;
@@ -19,6 +25,7 @@ export type CharacterPublicProfileRow = {
   id?: string;
   data?: CharacterPublicProfileData | null;
   comment?: string | null;
+  musicPickIndex?: number;
 };
 
 export type ResolvedCharacterPublicProfile = {
@@ -28,6 +35,8 @@ export type ResolvedCharacterPublicProfile = {
   bio: string;
   tags: string[];
   bannerImage: string | null;
+  nowListening: ResolvedCharacterNowListening | null;
+  nowListeningLine: string | null;
   hasSavedProfile: boolean;
 };
 
@@ -210,7 +219,6 @@ export function buildCharacterPublicProfileBannerPrompt(input: CharacterPublicPr
     context || "No additional public character context was provided.",
   ].join("\n");
 }
-
 export function getSavedCharacterPublicProfile(
   data: CharacterPublicProfileData | null | undefined,
 ): CharacterPublicProfile {
@@ -336,6 +344,8 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
     readText(data.personality) ||
     title ||
     "No public profile yet.";
+  const extensions = readRecord(data.extensions);
+  const nowListening = deriveCharacterNowListening(readCharacterMusicProfile(extensions.musicProfile), row.musicPickIndex ?? 0);
 
   return {
     displayName,
@@ -344,6 +354,8 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
     bio,
     tags: cardTags,
     bannerImage: readText(saved.bannerImage) || null,
+    nowListening,
+    nowListeningLine: formatNowListeningLine(nowListening),
     hasSavedProfile:
       !!readText(saved.displayName) ||
       !!readText(saved.handle) ||
@@ -351,3 +363,5 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
       !!readText(saved.bannerImage),
   };
 }
+
+

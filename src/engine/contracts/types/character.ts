@@ -36,6 +36,8 @@ export interface CharacterExtensions {
   depth_prompt: DepthPrompt;
   /** De-Koi: outward-facing profile used by quick inspect cards and shallow social context */
   publicProfile?: CharacterPublicProfile;
+  /** De-Koi: public music taste and optional listening presence for profile previews */
+  musicProfile?: CharacterMusicProfile;
   /** De-Koi extension: character backstory / lore */
   backstory: string;
   /** De-Koi extension: physical appearance description */
@@ -50,15 +52,6 @@ export interface CharacterExtensions {
   rpgStats?: RPGStatsConfig;
   /** De-Koi: Conversation-mode availability status */
   conversationStatus?: "online" | "idle" | "dnd" | "offline";
-  /** De-Koi: Conversation-mode flavor status blurb shown in compact UI surfaces */
-  conversationStatusMessage?: string;
-  /** De-Koi: Status blurb refresh metadata for autonomous polling */
-  conversationStatusMessageMeta?: {
-    generatedAt: string;
-    nextRefreshAt: string;
-    sourceStatus: "online" | "idle" | "dnd" | "offline";
-    sourceActivity: string;
-  };
   /** De-Koi: Conversation-mode avatar override (Default / Hide / Emoji / Sprite / Gallery) */
   conversationAvatar?: ConversationAvatarOverride;
   [key: string]: unknown;
@@ -70,6 +63,22 @@ export interface CharacterPublicProfile {
   handle?: string;
   bio?: string;
   bannerImage?: string;
+}
+
+/** De-Koi: a favorite song row used for profile presence and manual Music DJ playback. */
+export interface CharacterMusicFavoriteSong {
+  title: string;
+  artist?: string;
+  url?: string;
+}
+
+/** De-Koi: public-safe music taste shown as profile flavor and used for manual Music DJ cues. */
+export interface CharacterMusicProfile {
+  publicListeningEnabled?: boolean;
+  favoriteGenres?: string[];
+  favoriteArtists?: string[];
+  favoriteSongs?: CharacterMusicFavoriteSong[];
+  vibeNotes?: string;
 }
 
 /** De-Koi: Conversation-mode avatar override modes. */
@@ -186,3 +195,4 @@ export interface PersonaGroup {
   createdAt: string;
   updatedAt: string;
 }
+

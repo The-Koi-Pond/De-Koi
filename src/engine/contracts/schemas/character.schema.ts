@@ -19,6 +19,25 @@ const publicProfileSchema = z
   .partial()
   .passthrough();
 
+const musicFavoriteSongSchema = z
+  .object({
+    title: z.string().default(""),
+    artist: z.string().optional(),
+    url: z.string().optional(),
+  })
+  .passthrough();
+
+const musicProfileSchema = z
+  .object({
+    publicListeningEnabled: z.boolean().default(false),
+    favoriteGenres: z.array(z.string()).default([]),
+    favoriteArtists: z.array(z.string()).default([]),
+    favoriteSongs: z.array(musicFavoriteSongSchema).default([]),
+    vibeNotes: z.string().default(""),
+  })
+  .partial()
+  .passthrough();
+
 export const characterExtensionsSchema = z
   .object({
     talkativeness: z.number().min(0).max(1).default(0.5),
@@ -26,6 +45,7 @@ export const characterExtensionsSchema = z
     world: z.string().default(""),
     depth_prompt: depthPromptSchema.default({}),
     publicProfile: publicProfileSchema.optional(),
+    musicProfile: musicProfileSchema.optional(),
     backstory: z.string().default(""),
     appearance: z.string().default(""),
   })
@@ -140,3 +160,4 @@ export type CreateGroupInput = z.infer<typeof createGroupSchema>;
 export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
 export type CreatePersonaGroupInput = z.infer<typeof createPersonaGroupSchema>;
 export type UpdatePersonaGroupInput = z.infer<typeof updatePersonaGroupSchema>;
+

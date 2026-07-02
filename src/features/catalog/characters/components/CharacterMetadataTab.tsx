@@ -1,7 +1,11 @@
 import { useRef, useState } from "react";
 import { Loader2, Maximize2, Tag, Wand2, X } from "lucide-react";
 
-import type { CharacterData, CharacterPublicProfile } from "../../../../engine/contracts/types/character";
+import type {
+  CharacterData,
+  CharacterMusicProfile,
+  CharacterPublicProfile,
+} from "../../../../engine/contracts/types/character";
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
@@ -22,6 +26,13 @@ import {
   generateCharacterPublicProfileField,
   type CharacterPublicProfileSuggestionField,
 } from "../lib/character-public-profile";
+import {
+  parseFavoriteSongsText,
+  parseMusicTextList,
+  readCharacterMusicProfile,
+  serializeFavoriteSongsText,
+  serializeMusicTextList,
+} from "../lib/character-music-profile";
 
 function readPublicProfile(value: unknown): CharacterPublicProfile {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as CharacterPublicProfile) : {};
@@ -96,12 +107,20 @@ export function CharacterMetadataTab({
   const imageBackgroundHeight = useUIStore((state) => state.imageBackgroundHeight);
   const talkativeness = typeof formData.extensions.talkativeness === "number" ? formData.extensions.talkativeness : 0.5;
   const publicProfile = readPublicProfile(formData.extensions.publicProfile);
+  const musicProfile = readCharacterMusicProfile(formData.extensions.musicProfile);
   const publicProfileRef = useRef(publicProfile);
+  const musicProfileRef = useRef(musicProfile);
   publicProfileRef.current = publicProfile;
+  musicProfileRef.current = musicProfile;
   const updatePublicProfile = (patch: CharacterPublicProfile) => {
     const next = { ...publicProfileRef.current, ...patch };
     publicProfileRef.current = next;
     updateExtension("publicProfile", next);
+  };
+  const updateMusicProfile = (patch: CharacterMusicProfile) => {
+    const next = readCharacterMusicProfile({ ...musicProfileRef.current, ...patch });
+    musicProfileRef.current = next;
+    updateExtension("musicProfile", next);
   };
   const isPublicProfileGenerating = (field: CharacterPublicProfileSuggestionField) =>
     publicProfileGeneratingFields.has(field);
@@ -463,6 +482,74 @@ export function CharacterMetadataTab({
         </div>
       </div>
 
+      <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-4">
+        <SectionHeader title="Music Taste" subtitle="Public listening flavor and manual Music DJ cues." />
+        <label className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/70 p-3">
+          <input
+            type="checkbox"
+            checked={musicProfile.publicListeningEnabled === true}
+            onChange={(event) => updateMusicProfile({ publicListeningEnabled: event.target.checked })}
+            className="mt-0.5 accent-[var(--primary)]"
+          />
+          <span className="min-w-0 text-xs text-[var(--muted-foreground)]">
+            <span className="block font-medium text-[var(--foreground)]">Show Listening To on Public Profile</span>
+            <span className="block leading-5">
+              This is profile flavor only. Music plays only when a user presses the profile music play button.
+            </span>
+          </span>
+        </label>
+        <label className="space-y-1.5 block">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+            Favorite Songs <HelpTooltip text="One per line. Use Song - Artist, optionally followed by | YouTube URL." />
+          </span>
+          <textarea
+            value={serializeFavoriteSongsText(musicProfile.favoriteSongs)}
+            onChange={(event) => updateMusicProfile({ favoriteSongs: parseFavoriteSongsText(event.target.value) })}
+            rows={4}
+            className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            placeholder={"Promise - Akira Yamaoka | https://youtu.be/...\nDigital Love - Daft Punk"}
+          />
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="space-y-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Favorite Artists <HelpTooltip text="Comma or newline separated artists used for profile radio-style picks." />
+            </span>
+            <textarea
+              value={serializeMusicTextList(musicProfile.favoriteArtists)}
+              onChange={(event) => updateMusicProfile({ favoriteArtists: parseMusicTextList(event.target.value) })}
+              rows={2}
+              className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              placeholder="Akira Yamaoka, Portishead"
+            />
+          </label>
+          <label className="space-y-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Favorite Genres <HelpTooltip text="Comma or newline separated genres used when no specific song is selected." />
+            </span>
+            <textarea
+              value={serializeMusicTextList(musicProfile.favoriteGenres)}
+              onChange={(event) => updateMusicProfile({ favoriteGenres: parseMusicTextList(event.target.value) })}
+              rows={2}
+              className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              placeholder="synthwave, dark ambient"
+            />
+          </label>
+        </div>
+        <label className="space-y-1.5 block">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+            Vibe Notes <HelpTooltip text="Short flavor used for fallback Music DJ searches, not sent to character prompts in V1." />
+          </span>
+          <textarea
+            value={musicProfile.vibeNotes ?? ""}
+            onChange={(event) => updateMusicProfile({ vibeNotes: event.target.value })}
+            rows={2}
+            className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            placeholder="rainy neon, dramatic piano after midnight"
+          />
+        </label>
+      </div>
+
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <label
@@ -510,3 +597,4 @@ export function CharacterMetadataTab({
     </div>
   );
 }
+
