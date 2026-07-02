@@ -36,6 +36,7 @@ import { recordClientDiagnostic } from "../../../../shared/lib/client-diagnostic
 import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
+import type { MusicDjIntent } from "../../../../shared/lib/music-dj-intent";
 import { useAgentStore, type PendingCardUpdate } from "../../../../shared/stores/agent.store";
 import { formatAgentFailuresToast, toAgentFailure, type AgentFailure } from "../../../../shared/lib/agent-failures";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -156,6 +157,31 @@ function readString(value: unknown, fallback = ""): string {
 
 function readPositiveNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((entry) => readString(entry).trim()).filter((entry) => entry.length > 0)
+    : [];
+}
+
+function readMusicDjIntent(data: Record<string, unknown>): MusicDjIntent {
+  return {
+    mood: readString(data.mood).trim() || null,
+    setting: readString(data.setting).trim() || null,
+    intensity: readString(data.intensity).trim() || null,
+    constraints: readStringArray(data.constraints),
+    reason: readString(data.reason).trim() || null,
+  };
+}
+
+function musicDjSearchQuery(data: Record<string, unknown>, intent: MusicDjIntent): string | null {
+  const direct = readString(data.searchQuery).trim();
+  if (direct) return direct;
+  const pieces = [intent.mood, intent.setting, intent.intensity, ...(intent.constraints ?? [])]
+    .map((entry) => entry?.trim())
+    .filter((entry): entry is string => !!entry);
+  return pieces.length > 0 ? `${pieces.join(" ")} instrumental ambience`.trim() : null;
 }
 
 function imageDataUrlFromGeneratedImage(image: { base64?: unknown; mimeType?: unknown; image?: unknown }): string {
@@ -1346,10 +1372,11 @@ async function applyAgentResultEffects(
   if (result.type === "music_control" || result.agentType === "music-dj") {
     const action = readString(data.action).trim().toLowerCase();
     const volume = typeof data.volume === "number" && Number.isFinite(data.volume) ? Math.max(0, Math.min(100, Math.trunc(data.volume))) : null;
+    const intent = readMusicDjIntent(data);
     if (action === "play") {
-      dispatchMusicPlaybackEvent({ type: "cue", query: readString(data.searchQuery).trim() || null, volume });
+      dispatchMusicPlaybackEvent({ type: "cue", query: musicDjSearchQuery(data, intent), volume, intent, fresh: true });
     } else if (action === "volume" && volume !== null) {
-      dispatchMusicPlaybackEvent({ type: "volume", volume });
+      dispatchMusicPlaybackEvent({ type: "volume", volume, intent });
     } else if (action === "pause") {
       dispatchMusicPlaybackEvent({ type: "pause" });
     } else if (action === "stop") {
