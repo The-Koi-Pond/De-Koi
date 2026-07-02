@@ -5,15 +5,35 @@ import { musicApi, type MusicCandidate, type MusicStatus } from "../../../../sha
 import { MUSIC_PLAYBACK_EVENT, type MusicPlaybackEventDetail } from "../../../../shared/lib/music-playback-events";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 
-function youtubeVideoId(track: MusicCandidate | null): string | null {
-  if (!track) return null;
-  const raw = `${track.id} ${track.url ?? ""}`;
-  const patterns = [/youtube:([a-zA-Z0-9_-]{11})/, /[?&]v=([a-zA-Z0-9_-]{11})/, /youtu\.be\/([a-zA-Z0-9_-]{11})/];
+const DEFAULT_MUSIC_QUERY = "quiet fantasy tavern instrumental ambience";
+
+function youtubeVideoIdFromText(raw: string): string | null {
+  const text = raw.trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(text)) return text;
+  const patterns = [
+    /youtube:([a-zA-Z0-9_-]{11})/,
+    /[?&]v=([a-zA-Z0-9_-]{11})/,
+    /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+    /embed\/([a-zA-Z0-9_-]{11})/,
+    /shorts\/([a-zA-Z0-9_-]{11})/,
+  ];
   for (const pattern of patterns) {
-    const match = raw.match(pattern);
+    const match = text.match(pattern);
     if (match?.[1]) return match[1];
   }
   return null;
+}
+
+function youtubeVideoId(track: MusicCandidate | null): string | null {
+  if (!track) return null;
+  const raw = `${track.id} ${track.url ?? ""}`;
+  return youtubeVideoIdFromText(raw);
+}
+
+function isDirectYouTubeTarget(raw: string): boolean {
+  const text = raw.trim();
+  if (!text) return false;
+  return youtubeVideoIdFromText(text) !== null && /^(https?:\/\/|www\.|youtube:|[a-zA-Z0-9_-]{11}$)/.test(text);
 }
 
 function embedUrl(videoId: string | null, playing: boolean): string | null {
@@ -94,7 +114,8 @@ function FloatingMusicShell({ children }: { children: ReactNode }) {
 }
 export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
   const status = useMusicStatus();
-  const [query, setQuery] = useState("quiet fantasy tavern instrumental ambience");
+  const [query, setQuery] = useState(DEFAULT_MUSIC_QUERY);
+  const [lastDiscoveryQuery, setLastDiscoveryQuery] = useState(DEFAULT_MUSIC_QUERY);
   const [track, setTrack] = useState<MusicCandidate | null>(null);
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(55);
@@ -111,21 +132,40 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
   }
 
   async function pick(fresh = false, overrideQuery?: string | null) {
-    const searchQuery = (overrideQuery ?? query).trim();
+    const requestedQuery = (overrideQuery ?? query).trim();
+    const usedDiscoveryFallback = fresh && isDirectYouTubeTarget(requestedQuery);
+    const searchQuery = usedDiscoveryFallback ? lastDiscoveryQuery.trim() || DEFAULT_MUSIC_QUERY : requestedQuery;
     if (!searchQuery) return;
+    if (!isDirectYouTubeTarget(searchQuery)) {
+      setLastDiscoveryQuery(searchQuery);
+    }
+    if (usedDiscoveryFallback) {
+      setQuery(searchQuery);
+    }
     setBusy(true);
     setMessage(null);
     try {
       const response = fresh
         ? await musicApi.freshPick({ query: searchQuery, limit: 5 })
         : await musicApi.searchCandidates({ query: searchQuery, limit: 5 });
-      const next = response.candidates[0] ?? null;
+      const currentVideoId = youtubeVideoId(track);
+      const next =
+        fresh && currentVideoId
+          ? (response.candidates.find((candidate) => youtubeVideoId(candidate) !== currentVideoId) ??
+            response.candidates[0] ??
+            null)
+          : (response.candidates[0] ?? null);
       setTrack(next);
       if (next) {
         await playTrack(next);
+        if (usedDiscoveryFallback) {
+          setMessage(`Fresh pick uses mood text, so I used: ${searchQuery}`);
+        }
       } else {
         setPlaying(false);
-        setMessage("No YouTube candidate found. Install yt-dlp for power search, or paste a YouTube URL.");
+        setMessage(
+          "No YouTube result found. Search needs yt-dlp on this machine; pasted YouTube URLs can still play directly.",
+        );
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Music search failed");

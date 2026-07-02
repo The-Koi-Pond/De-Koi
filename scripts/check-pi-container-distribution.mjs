@@ -93,6 +93,7 @@ assertContains("Dockerfile", serverDockerfile, "COPY AGENTS.md package.json");
 assertContains("Dockerfile", serverDockerfile, "COPY src ./src");
 assertContains("Dockerfile", serverDockerfile, "ENV DE_KOI_REPO_ROOT=/app");
 assertContains("Dockerfile", serverDockerfile, "FROM node:22-bookworm-slim AS runtime");
+assertContains("Dockerfile", serverDockerfile, "yt-dlp");
 assertContains("Dockerfile", serverDockerfile, 'npm install -g "@openai/codex@${CODEX_CLI_VERSION}"');
 assertContains("Dockerfile", serverDockerfile, "codex --version");
 assertNotContains("Dockerfile", serverDockerfile, "libwebkit2gtk");

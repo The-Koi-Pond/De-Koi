@@ -43,6 +43,7 @@ LABEL org.opencontainers.image.revision="${DE_KOI_SOURCE_COMMIT}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    yt-dlp \
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" --omit=dev --no-audit --no-fund \
