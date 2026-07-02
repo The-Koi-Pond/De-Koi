@@ -444,6 +444,7 @@ export function ConnectionEditor() {
   const usesCodexSubscriptionImagegen =
     localProvider === "image_generation" && selectedImageService === "codex_subscription";
   const usesLocalAuthProvider = usesLocalChatGptAuth || isClaudeSubscriptionProvider || usesCodexSubscriptionImagegen;
+  const showsConnectionTest = !usesCodexSubscriptionImagegen;
   const embeddingConnectionOptions = useMemo(
     () =>
       ((allConnections ?? []) as Record<string, unknown>[]).filter(
@@ -1920,18 +1921,20 @@ export function ConnectionEditor() {
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 space-y-4">
             <h3 className="text-sm font-semibold">Connection Tests</h3>
             <div className="flex gap-2">
-              <button
-                onClick={handleTestConnection}
-                disabled={testConnection.isPending}
-                className="flex items-center gap-1.5 rounded-xl bg-sky-400/10 px-4 py-2.5 text-xs font-medium text-sky-400 ring-1 ring-sky-400/20 transition-all hover:bg-sky-400/20 active:scale-[0.98] disabled:opacity-50"
-              >
-                {testConnection.isPending ? (
-                  <Loader2 size="0.8125rem" className="animate-spin" />
-                ) : (
-                  <Wifi size="0.8125rem" />
-                )}
-                Test Connection
-              </button>
+              {showsConnectionTest && (
+                <button
+                  onClick={handleTestConnection}
+                  disabled={testConnection.isPending}
+                  className="flex items-center gap-1.5 rounded-xl bg-sky-400/10 px-4 py-2.5 text-xs font-medium text-sky-400 ring-1 ring-sky-400/20 transition-all hover:bg-sky-400/20 active:scale-[0.98] disabled:opacity-50"
+                >
+                  {testConnection.isPending ? (
+                    <Loader2 size="0.8125rem" className="animate-spin" />
+                  ) : (
+                    <Wifi size="0.8125rem" />
+                  )}
+                  Test Connection
+                </button>
+              )}
               {localProvider !== "image_generation" && (
                 <button
                   onClick={handleTestMessage}
@@ -1979,14 +1982,23 @@ export function ConnectionEditor() {
             </div>
 
             <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-              <strong>Test Connection</strong>{" "}
-              {isClaudeSubscriptionProvider
-                ? "verifies your local Claude Code command is available."
-                : usesLocalChatGptAuth
-                  ? "verifies your local Codex ChatGPT login and refreshes the saved session when needed."
-                  : localProvider === "nanogpt"
-                    ? "checks NanoGPT's model list only. Use Send Test Message to verify generation auth and account balance."
-                    : "verifies your API key works."}
+              {usesCodexSubscriptionImagegen ? (
+                <>
+                  Codex Subscription image connections use <strong>Test Image</strong> to verify the server Codex CLI,
+                  local Codex login, and image generation path.
+                </>
+              ) : (
+                <>
+                  <strong>Test Connection</strong>{" "}
+                  {isClaudeSubscriptionProvider
+                    ? "verifies your local Claude Code command is available."
+                    : usesLocalChatGptAuth
+                      ? "verifies your local Codex ChatGPT login and refreshes the saved session when needed."
+                      : localProvider === "nanogpt"
+                        ? "checks NanoGPT's model list only. Use Send Test Message to verify generation auth and account balance."
+                        : "verifies your API key works."}
+                </>
+              )}
               {usesLocalChatGptAuth && (
                 <>
                   {" "}
@@ -2014,7 +2026,7 @@ export function ConnectionEditor() {
             </p>
 
             {/* Connection test result */}
-            {testResult && (
+            {testResult && showsConnectionTest && (
               <TestResultCard
                 label="Connection Test"
                 success={testResult.success}
