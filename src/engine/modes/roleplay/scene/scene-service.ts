@@ -1,4 +1,4 @@
-import type { LlmGateway } from "../../../capabilities/llm";
+import type { LlmGateway, LlmRequest } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import type {
   BackgroundAssetInfo,
@@ -73,7 +73,9 @@ const SCENE_GUIDELINES = [
 
 const SCENE_SUMMARY_CHUNK_MAX_CHARS = 12000;
 const SCENE_SUMMARY_CHUNK_MAX_TOKENS = 700;
+const SCENE_SUMMARY_CHUNK_RETRY_MAX_TOKENS = 2048;
 const SCENE_SUMMARY_FINAL_MAX_TOKENS = 1400;
+const SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS = 2800;
 
 export async function planRoleplayScene(
   capabilities: RoleplaySceneCapabilities,
@@ -457,81 +459,177 @@ type SceneSummaryContext = {
 async function summarizeSceneChunk(
   context: SceneSummaryContext & { chunk: string; chunkIndex: number; chunkCount: number },
 ): Promise<string> {
-  const raw = await context.capabilities.llm.complete({
-    connectionId: context.connectionId,
-    messages: [
-      {
-        role: "system",
-        content: [
-          "Summarize this section of a completed roleplay scene in concise third-person prose.",
-          "This is an intermediate continuity summary, not the final user-facing summary.",
-          "Capture concrete events, choices, emotional or relationship shifts, promises, conflicts, reveals, and unresolved hooks present in this section.",
-          "Do not invent events. Do not omit major changes just because they are uncomfortable or intense.",
-          "Return only the section summary.",
-        ].join("\n"),
-      },
-      {
-        role: "user",
-        content: [
-          `Scene section ${context.chunkIndex + 1} of ${context.chunkCount}`,
-          "",
-          "Scene metadata:",
-          formatSceneSummaryMetadata(context.sceneChat, context.sceneMeta),
-          "",
-          "Selected character cards:",
-          formatParticipantList(context.plannerContext.characters),
-          "",
-          "Active persona:",
-          context.plannerContext.persona ? formatParticipant(context.plannerContext.persona) : "(none)",
-          "",
-          "Transcript section:",
-          context.chunk,
-        ].join("\n"),
-      },
-    ],
-    parameters: { temperature: 0.45, maxTokens: SCENE_SUMMARY_CHUNK_MAX_TOKENS },
-  });
+  const raw = await completeSceneSummaryText(
+    context.capabilities.llm,
+    {
+      connectionId: context.connectionId,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "Summarize this section of a completed roleplay scene in concise third-person prose.",
+            "This is an intermediate continuity summary, not the final user-facing summary.",
+            "Capture concrete events, choices, emotional or relationship shifts, promises, conflicts, reveals, and unresolved hooks present in this section.",
+            "Do not invent events. Do not omit major changes just because they are uncomfortable or intense.",
+            "Return only the section summary.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: [
+            `Scene section ${context.chunkIndex + 1} of ${context.chunkCount}`,
+            "",
+            "Scene metadata:",
+            formatSceneSummaryMetadata(context.sceneChat, context.sceneMeta),
+            "",
+            "Selected character cards:",
+            formatParticipantList(context.plannerContext.characters),
+            "",
+            "Active persona:",
+            context.plannerContext.persona ? formatParticipant(context.plannerContext.persona) : "(none)",
+            "",
+            "Transcript section:",
+            context.chunk,
+          ].join("\n"),
+        },
+      ],
+    },
+    {
+      temperature: 0.45,
+      maxTokens: SCENE_SUMMARY_CHUNK_MAX_TOKENS,
+      retryMaxTokens: SCENE_SUMMARY_CHUNK_RETRY_MAX_TOKENS,
+    },
+  );
   return sanitizeSceneSummary(raw);
 }
 
-async function synthesizeSceneSummary(
-  context: SceneSummaryContext & { chunkSummaries: string[] },
+async function synthesizeSceneSummary(context: SceneSummaryContext & { chunkSummaries: string[] }): Promise<string> {
+  const raw = await completeSceneSummaryText(
+    context.capabilities.llm,
+    {
+      connectionId: context.connectionId,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "Synthesize the final conclusion summary for a completed roleplay scene.",
+            "Use every section summary below so the final summary represents the whole scene, not only the beginning or ending.",
+            "Write concise but substantial third-person prose, roughly 2-5 paragraphs.",
+            "Include the scene premise, key events across the full scene, emotional and relationship shifts, concrete outcomes, promises, conflicts, reveals, and unresolved hooks.",
+            "Do not invent events. Return only the final summary.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: [
+            "Scene metadata:",
+            formatSceneSummaryMetadata(context.sceneChat, context.sceneMeta),
+            "",
+            "Selected character cards:",
+            formatParticipantList(context.plannerContext.characters),
+            "",
+            "Active persona:",
+            context.plannerContext.persona ? formatParticipant(context.plannerContext.persona) : "(none)",
+            "",
+            "Section summaries:",
+            formatSceneChunkSummaries(context.chunkSummaries),
+          ].join("\n"),
+        },
+      ],
+    },
+    {
+      temperature: 0.5,
+      maxTokens: SCENE_SUMMARY_FINAL_MAX_TOKENS,
+      retryMaxTokens: SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS,
+    },
+  );
+  return sanitizeSceneSummary(raw);
+}
+
+type SceneSummaryCompletionRequest = Pick<LlmRequest, "connectionId" | "messages">;
+
+type SceneSummaryCompletionOptions = {
+  temperature: number;
+  maxTokens: number;
+  retryMaxTokens: number;
+};
+
+async function completeSceneSummaryText(
+  llm: LlmGateway,
+  request: SceneSummaryCompletionRequest,
+  options: SceneSummaryCompletionOptions,
 ): Promise<string> {
-  const raw = await context.capabilities.llm.complete({
-    connectionId: context.connectionId,
-    messages: [
-      {
-        role: "system",
-        content: [
-          "Synthesize the final conclusion summary for a completed roleplay scene.",
-          "Use every section summary below so the final summary represents the whole scene, not only the beginning or ending.",
-          "Write concise but substantial third-person prose, roughly 2-5 paragraphs.",
-          "Include the scene premise, key events across the full scene, emotional and relationship shifts, concrete outcomes, promises, conflicts, reveals, and unresolved hooks.",
-          "Do not invent events. Return only the final summary.",
-        ].join("\n"),
-      },
-      {
-        role: "user",
-        content: [
-          "Scene metadata:",
-          formatSceneSummaryMetadata(context.sceneChat, context.sceneMeta),
-          "",
-          "Selected character cards:",
-          formatParticipantList(context.plannerContext.characters),
-          "",
-          "Active persona:",
-          context.plannerContext.persona ? formatParticipant(context.plannerContext.persona) : "(none)",
-          "",
-          "Section summaries:",
-          formatSceneChunkSummaries(context.chunkSummaries),
-        ].join("\n"),
-      },
-    ],
-    parameters: { temperature: 0.5, maxTokens: SCENE_SUMMARY_FINAL_MAX_TOKENS },
-  });
-  return sanitizeSceneSummary(raw);
+  try {
+    return await llm.complete({
+      ...request,
+      parameters: sceneSummaryParameters(options.temperature, options.maxTokens),
+    });
+  } catch (error) {
+    if (!retryableEmptySceneSummaryResponse(error)) throw error;
+    return llm.complete({
+      ...request,
+      parameters: sceneSummaryParameters(options.temperature, options.retryMaxTokens),
+    });
+  }
 }
 
+function sceneSummaryParameters(temperature: number, maxTokens: number): Record<string, unknown> {
+  return {
+    temperature,
+    maxTokens,
+    reasoningEffort: "none",
+    reasoning_effort: "none",
+    customParameters: {
+      reasoning_effort: "none",
+      reasoning: { exclude: true },
+    },
+  };
+}
+
+function retryableEmptySceneSummaryResponse(error: unknown): boolean {
+  const text = collectErrorText(error).join(" ").toLowerCase();
+  return (
+    text.includes("provider response did not contain assistant text") ||
+    text.includes("did not contain assistant text or tool calls") ||
+    text.includes("empty assistant") ||
+    text.includes("no final assistant text")
+  );
+}
+
+function collectErrorText(value: unknown, seen = new Set<unknown>()): string[] {
+  if (value == null) return [];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return [String(value)];
+  if (typeof value !== "object") return [];
+  if (seen.has(value)) return [];
+  seen.add(value);
+
+  const parts: string[] = [];
+  if (value instanceof Error) {
+    parts.push(value.name, value.message);
+    parts.push(...collectErrorText(value.cause, seen));
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const key of [
+    "code",
+    "status",
+    "statusCode",
+    "error",
+    "message",
+    "details",
+    "data",
+    "payload",
+    "providerMetadata",
+    "provider_metadata",
+    "finishReason",
+    "finish_reason",
+    "type",
+  ]) {
+    if (record[key] !== undefined) parts.push(key);
+    parts.push(...collectErrorText(record[key], seen));
+  }
+  return parts.filter(Boolean);
+}
 function formatSceneTranscriptMessages(messages: StoredMessage[]): string[] {
   return messages
     .map((message, index) => {
@@ -773,7 +871,6 @@ function compactPromptText(value: unknown, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
 }
 
-
 function sanitizeSceneSummary(raw: string): string {
   const summary = sentenceBoundaryTrim(stripSummaryLabels(raw), 2400);
   if (!summary) throw new Error("The model returned an empty scene summary");
@@ -787,7 +884,6 @@ function stripSummaryLabels(value: string): string {
     .replace(/(^|\n)\s*(?:assistant|narrator|user|system|tool)\s*:\s*/gi, "$1")
     .trim();
 }
-
 
 function sentenceBoundaryTrim(value: string, limit: number): string {
   const text = value.replace(/\s+/g, " ").trim();
