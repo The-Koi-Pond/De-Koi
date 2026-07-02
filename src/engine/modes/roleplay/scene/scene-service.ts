@@ -76,6 +76,8 @@ const SCENE_SUMMARY_CHUNK_MAX_TOKENS = 700;
 const SCENE_SUMMARY_CHUNK_RETRY_MAX_TOKENS = 2048;
 const SCENE_SUMMARY_FINAL_MAX_TOKENS = 1400;
 const SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS = 2800;
+const SCENE_SUMMARY_CHUNK_MAX_SUMMARY_CHARS = 2400;
+const SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS = 8000;
 
 export async function planRoleplayScene(
   capabilities: RoleplaySceneCapabilities,
@@ -500,7 +502,7 @@ async function summarizeSceneChunk(
       retryMaxTokens: SCENE_SUMMARY_CHUNK_RETRY_MAX_TOKENS,
     },
   );
-  return sanitizeSceneSummary(raw);
+  return sanitizeSceneSummary(raw, SCENE_SUMMARY_CHUNK_MAX_SUMMARY_CHARS);
 }
 
 async function synthesizeSceneSummary(context: SceneSummaryContext & { chunkSummaries: string[] }): Promise<string> {
@@ -543,7 +545,7 @@ async function synthesizeSceneSummary(context: SceneSummaryContext & { chunkSumm
       retryMaxTokens: SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS,
     },
   );
-  return sanitizeSceneSummary(raw);
+  return sanitizeSceneSummary(raw, SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
 }
 
 type SceneSummaryCompletionRequest = Pick<LlmRequest, "connectionId" | "messages">;
@@ -871,8 +873,8 @@ function compactPromptText(value: unknown, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
 }
 
-function sanitizeSceneSummary(raw: string): string {
-  const summary = sentenceBoundaryTrim(stripSummaryLabels(raw), 2400);
+function sanitizeSceneSummary(raw: string, maxChars = SCENE_SUMMARY_CHUNK_MAX_SUMMARY_CHARS): string {
+  const summary = sentenceBoundaryTrim(stripSummaryLabels(raw), maxChars);
   if (!summary) throw new Error("The model returned an empty scene summary");
   return ensureTerminalPunctuation(summary);
 }
