@@ -12,7 +12,11 @@ import {
 import { musicApi, type MusicCandidate } from "../../../../shared/api/music-api";
 import { musicDjIntentLabel, type MusicDjIntent } from "../../../../shared/lib/music-dj-intent";
 import { rankMusicCandidates } from "../../../../shared/lib/music-candidate-ranking";
-import { MUSIC_PLAYBACK_EVENT, type MusicPlaybackEventDetail } from "../../../../shared/lib/music-playback-events";
+import {
+  getLastMusicPlaybackContext,
+  MUSIC_PLAYBACK_EVENT,
+  type MusicPlaybackEventDetail,
+} from "../../../../shared/lib/music-playback-events";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   clampMusicWidgetPosition,
@@ -324,6 +328,15 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
 
   useEffect(() => {
     if (!visible) return;
+    const context = getLastMusicPlaybackContext();
+    const contextQuery = context?.query?.trim();
+    if (!contextQuery) return;
+    setQuery(contextQuery);
+    setLastDiscoveryQuery(contextQuery);
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
     function onMusicEvent(event: Event) {
       const detail = (event as CustomEvent<MusicPlaybackEventDetail>).detail;
       if (!detail) return;
@@ -337,6 +350,13 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           setQuery(detail.query);
           void pick(detail.fresh === true, detail.query, detail.intent ?? null, detail.volume ?? null);
         }
+      } else if (detail.type === "context") {
+        const contextQuery = detail.query?.trim();
+        if (contextQuery) {
+          setQuery(contextQuery);
+          setLastDiscoveryQuery(contextQuery);
+        }
+        if (detail.intent) setMessage(`Music DJ ready: ${musicDjIntentLabel(detail.intent)}`);
       } else if (detail.type === "volume") {
         if (detail.intent) setMessage(`Music DJ volume: ${musicDjIntentLabel(detail.intent)}`);
         void updateVolume(detail.volume);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
+import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useEncounterStore } from "../../../../shared/stores/encounter.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -33,6 +34,7 @@ import {
 import { AgentInjectionReviewModal } from "./AgentInjectionReviewModal";
 import { ChatRoleplaySurface } from "./ChatRoleplaySurface";
 import { CreatorNotesCssInjector } from "../../shared/chat-ui/index";
+import { buildRoleplayMusicContext } from "../lib/music-dj-roleplay-context";
 
 type RoleplayModeRouteProps = {
   activeChatId: string;
@@ -195,6 +197,23 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     characterMap: data.characterMap,
     isStreaming: timeline.isStreaming,
   });
+
+  const musicDjContext = useMemo(
+    () =>
+      buildRoleplayMusicContext({
+        chatName: data.chat?.name,
+        chatMeta: data.chatMeta,
+        characterNames: data.characterNames,
+        personaName: data.personaInfo?.name,
+        messages: renderMessages,
+      }),
+    [data.chat?.name, data.chatMeta, data.characterNames, data.personaInfo?.name, renderMessages],
+  );
+
+  useEffect(() => {
+    if (data.chatMode !== "roleplay" || !enabledAgentTypes.has("music-dj") || !musicDjContext) return;
+    dispatchMusicPlaybackEvent({ type: "context", query: musicDjContext.query, intent: musicDjContext.intent });
+  }, [data.chatMode, enabledAgentTypes, musicDjContext]);
 
   const hasAnimatedRef = useRef(false);
   useEffect(() => {
