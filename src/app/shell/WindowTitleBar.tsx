@@ -1,5 +1,5 @@
 import { Maximize2, Minus, Square, X } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   closeDesktopWindow,
   getDesktopWindowVisualState,
@@ -11,17 +11,11 @@ import {
   toggleDesktopWindowMaximize,
   type DesktopWindowVisualState,
 } from "../../shared/api/window-controls-api";
-import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
-import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
 import { cn } from "../../shared/lib/utils";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { ChatTitleControls } from "./ChatTitleControls";
 import { PanelNavButtons } from "./PanelNavButtons";
-
-const MusicMiniPlayer = lazy(() =>
-  import("../../features/shell/music/shell").then((module) => ({ default: module.MusicMiniPlayer })),
-);
 
 type DesktopPlatform = "darwin" | "windows" | "linux";
 type WindowControlAction = "close" | "minimize" | "maximize" | "fullscreen";
@@ -55,7 +49,6 @@ export function WindowTitleBar({
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const closeRightPanel = useUIStore((s) => s.closeRightPanel);
-  const { data: musicDjMiniPlayerEnabled } = useIsCoreModuleEnabled(MUSIC_DJ_MINI_PLAYER_MODULE_ID);
   const hasOpenSurface = useUIStore((s) =>
     Boolean(
       s.characterDetailId ||
@@ -235,17 +228,6 @@ export function WindowTitleBar({
             )}
           </button>
         </div>
-        {musicDjMiniPlayerEnabled && (
-          <div
-            className="mari-titlebar-spotify hidden min-w-0 flex-[0_1_31rem] items-center overflow-hidden px-2 md:flex"
-            onMouseDown={(event) => event.stopPropagation()}
-            onDoubleClick={(event) => event.stopPropagation()}
-          >
-            <Suspense fallback={null}>
-              <MusicMiniPlayer />
-            </Suspense>
-          </div>
-        )}
         <div
           className="mari-window-actions flex h-full shrink-0 items-center gap-2"
           onMouseDown={(event) => event.stopPropagation()}

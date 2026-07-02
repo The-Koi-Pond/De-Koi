@@ -83,8 +83,8 @@ const AgentDebugPanel = lazy(() =>
     default: module.AgentDebugPanel,
   })),
 );
-const MusicMobileWidget = lazy(() =>
-  import("../../features/shell/music/shell").then((module) => ({ default: module.MusicMobileWidget })),
+const MusicFloatingWidget = lazy(() =>
+  import("../../features/shell/music/shell").then((module) => ({ default: module.MusicFloatingWidget })),
 );
 
 function clampWidth(width: number, min: number, max: number) {
@@ -1523,7 +1523,7 @@ export function AppShell() {
           )}
           {musicDjMiniPlayerEnabled && (
             <Suspense fallback={null}>
-              <MusicMobileWidget />
+              <MusicFloatingWidget />
             </Suspense>
           )}
         </div>
@@ -1540,4 +1540,3 @@ export function AppShell() {
     </TopBarActionsProvider>
   );
 }
-

@@ -1,5 +1,5 @@
-import { Pause, Play, RotateCcw, Search, Square, Volume2, Zap } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Pause, Play, RotateCcw, Search, Square, Volume2, X, Zap } from "lucide-react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import { musicApi, type MusicCandidate, type MusicStatus } from "../../../../shared/api/music-api";
 import { MUSIC_PLAYBACK_EVENT, type MusicPlaybackEventDetail } from "../../../../shared/lib/music-playback-events";
@@ -26,7 +26,10 @@ function useMusicStatus(): MusicStatus | null {
   const [status, setStatus] = useState<MusicStatus | null>(null);
   useEffect(() => {
     let alive = true;
-    musicApi.status().then((next) => alive && setStatus(next)).catch(() => alive && setStatus(null));
+    musicApi
+      .status()
+      .then((next) => alive && setStatus(next))
+      .catch(() => alive && setStatus(null));
     return () => {
       alive = false;
     };
@@ -34,7 +37,7 @@ function useMusicStatus(): MusicStatus | null {
   return status;
 }
 
-function MobileDragShell({ children }: { children: ReactNode }) {
+function FloatingMusicShell({ children }: { children: ReactNode }) {
   const collapsed = useUIStore((s) => s.spotifyMobileWidgetCollapsed);
   const position = useUIStore((s) => s.spotifyMobileWidgetPosition);
   const setCollapsed = useUIStore((s) => s.setSpotifyMobileWidgetCollapsed);
@@ -45,31 +48,50 @@ function MobileDragShell({ children }: { children: ReactNode }) {
       <button
         type="button"
         onClick={() => setCollapsed(false)}
-        className="fixed bottom-20 right-4 z-50 rounded-full border border-[var(--border)] bg-[var(--surface)] p-3 text-[var(--foreground)] shadow-lg"
+        className="fixed bottom-20 right-4 z-[60] inline-flex h-11 items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--border)_70%,transparent)] bg-[color-mix(in_srgb,var(--surface)_88%,transparent)] px-3 text-[var(--foreground)] shadow-[0_12px_36px_rgba(0,0,0,0.32)] backdrop-blur-xl transition-transform hover:-translate-y-0.5 hover:border-[var(--primary)]/45 md:bottom-4 md:right-4 md:h-10 md:rounded-xl"
         aria-label="Open Music DJ"
+        title="Open Music DJ"
       >
         <Volume2 className="h-4 w-4" />
+        <span className="hidden text-xs font-medium md:inline">Music DJ</span>
       </button>
     );
   }
 
   const left = Math.max(8, Math.min(position.x ?? 16, typeof window === "undefined" ? 320 : window.innerWidth - 360));
   const bottom = Math.max(8, position.y ?? 96);
+  const floatingStyle = {
+    "--music-widget-left": `${left}px`,
+    "--music-widget-bottom": `${bottom}px`,
+  } as CSSProperties;
+
   return (
-    <div className="fixed z-50 w-[min(22rem,calc(100vw-1.5rem))]" style={{ left, bottom }}>
+    <div
+      className="fixed z-[60] w-[min(22rem,calc(100vw-1.5rem))] max-md:left-[var(--music-widget-left)] max-md:bottom-[var(--music-widget-bottom)] md:bottom-4 md:right-4"
+      style={floatingStyle}
+    >
       <div className="mb-1 flex justify-end gap-1">
-        <button type="button" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" onClick={() => setPosition({ x: left > 80 ? 16 : 160, y: bottom })}>
+        <button
+          type="button"
+          className="rounded-full border border-[var(--border)] bg-[var(--surface)]/90 px-2 py-1 text-[0.6875rem] text-[var(--muted-foreground)] shadow-sm backdrop-blur md:hidden"
+          onClick={() => setPosition({ x: left > 80 ? 16 : 160, y: bottom })}
+        >
           Move
         </button>
-        <button type="button" className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" onClick={() => setCollapsed(true)}>
-          Hide
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)]/90 text-[var(--muted-foreground)] shadow-sm backdrop-blur transition-colors hover:text-[var(--foreground)]"
+          onClick={() => setCollapsed(true)}
+          aria-label="Hide Music DJ"
+          title="Hide Music DJ"
+        >
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
       {children}
     </div>
   );
 }
-
 export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
   const status = useMusicStatus();
   const [query, setQuery] = useState("quiet fantasy tavern instrumental ambience");
@@ -98,15 +120,12 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
         ? await musicApi.freshPick({ query: searchQuery, limit: 5 })
         : await musicApi.searchCandidates({ query: searchQuery, limit: 5 });
       const next = response.candidates[0] ?? null;
-      const providerErrorMessage = response.providerError?.message ?? null;
       setTrack(next);
       if (next) {
         await playTrack(next);
       } else {
         setPlaying(false);
-        setMessage(
-          providerErrorMessage ?? "No YouTube candidate found. Install yt-dlp for power search, or paste a YouTube URL.",
-        );
+        setMessage("No YouTube candidate found. Install yt-dlp for power search, or paste a YouTube URL.");
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Music search failed");
@@ -155,7 +174,7 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
   }, [query, volume]);
 
   const player = (
-    <section className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--foreground)] shadow-sm">
+    <section className="overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[color-mix(in_srgb,var(--surface)_88%,transparent)] p-2.5 text-[var(--foreground)] shadow-[0_18px_60px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
       <div className="mb-2 flex items-center justify-between gap-2 text-xs">
         <div className="flex min-w-0 items-center gap-2">
           <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-[var(--muted)]">
@@ -172,7 +191,14 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
         </div>
       </div>
 
-      {src ? <iframe className="mb-2 h-24 w-full rounded border-0" src={src} title="Music DJ YouTube player" allow="autoplay; encrypted-media" /> : null}
+      {src ? (
+        <iframe
+          className="mb-2 h-24 w-full rounded border-0"
+          src={src}
+          title="Music DJ YouTube player"
+          allow="autoplay; encrypted-media"
+        />
+      ) : null}
 
       <div className="mb-2 flex gap-1">
         <input
@@ -181,31 +207,62 @@ export function MusicMiniPlayer({ mobile = false }: { mobile?: boolean }) {
           className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs outline-none"
           placeholder="Mood, genre, or YouTube URL"
         />
-        <button type="button" className="rounded border border-[var(--border)] p-1.5" onClick={() => pick(false)} disabled={busy} aria-label="Search music">
+        <button
+          type="button"
+          className="rounded border border-[var(--border)] p-1.5"
+          onClick={() => pick(false)}
+          disabled={busy}
+          aria-label="Search music"
+          title="Search YouTube music"
+        >
           <Search className="h-4 w-4" />
         </button>
-        <button type="button" className="rounded border border-[var(--border)] p-1.5" onClick={() => pick(true)} disabled={busy} aria-label="Fresh pick">
+        <button
+          type="button"
+          className="rounded border border-[var(--border)] p-1.5"
+          onClick={() => pick(true)}
+          disabled={busy}
+          aria-label="Fresh pick"
+          title="Fresh pick"
+        >
           <RotateCcw className="h-4 w-4" />
         </button>
       </div>
 
       <div className="flex items-center gap-2">
-        <button type="button" className="rounded border border-[var(--border)] p-1.5" onClick={() => (playing ? pause() : pick(false))} aria-label={playing ? "Pause" : "Play"}>
+        <button
+          type="button"
+          className="rounded border border-[var(--border)] p-1.5"
+          onClick={() => (playing ? pause() : pick(false))}
+          aria-label={playing ? "Pause" : "Play"}
+        >
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </button>
         <button type="button" className="rounded border border-[var(--border)] p-1.5" onClick={stop} aria-label="Stop">
           <Square className="h-4 w-4" />
         </button>
-        <input className="min-w-24 flex-1" type="range" min={0} max={100} value={volume} onChange={(event) => updateVolume(Number(event.target.value))} aria-label="Music volume" />
+        <input
+          className="min-w-24 flex-1"
+          type="range"
+          min={0}
+          max={100}
+          value={volume}
+          onChange={(event) => updateVolume(Number(event.target.value))}
+          aria-label="Music volume"
+        />
         <span className="w-8 text-right text-xs text-[var(--muted-foreground)]">{volume}</span>
       </div>
       {message ? <div className="mt-2 text-xs text-[var(--muted-foreground)]">{message}</div> : null}
     </section>
   );
 
-  return mobile ? <MobileDragShell>{player}</MobileDragShell> : <div className="w-80">{player}</div>;
+  return mobile ? <FloatingMusicShell>{player}</FloatingMusicShell> : <div className="w-80">{player}</div>;
+}
+
+export function MusicFloatingWidget() {
+  return <MusicMiniPlayer mobile />;
 }
 
 export function MusicMobileWidget() {
-  return <MusicMiniPlayer mobile />;
+  return <MusicFloatingWidget />;
 }

@@ -314,10 +314,10 @@
     "id": "music-dj",
     "title": "Music DJ And Mini Player",
     "category": "Media",
-    "summary": "Use YouTube-first Music DJ for scene music, playback controls, fresh picks, and an optional compact mini player module.",
+    "summary": "Use YouTube-first Music DJ for scene music, playback controls, fresh picks, and an optional floating mini player module.",
     "keywords": ["youtube", "spotify legacy", "music", "dj", "playlist", "player", "playback", "scene music", "mini player"],
     "audience": "Users who want music controls or mood-matched playlists inside chats and games.",
-    "where": "Chat or Game settings for Music DJ, and Settings > Modules for the mini player toggle.",
+    "where": "Chat or Game settings for Music DJ, and Settings > Modules for the floating mini player toggle.",
     "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
     "coverage": "advanced"
   },

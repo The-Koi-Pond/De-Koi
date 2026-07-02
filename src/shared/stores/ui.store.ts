@@ -192,7 +192,7 @@ export const useUIStore = create<UIState>()(
       speechToTextEnabled: false,
       spotifyPlayerEnabled: false,
       remoteRuntimeUrl: "",
-      spotifyMobileWidgetCollapsed: true,
+      spotifyMobileWidgetCollapsed: false,
       spotifyMobileWidgetPosition: { x: 16, y: 96 },
       intuitiveSwipeNavigation: false,
       intuitiveSwipeRerollLatest: false,
