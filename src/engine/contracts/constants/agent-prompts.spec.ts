@@ -35,4 +35,15 @@ describe("default agent prompts", () => {
     expect(prompt).not.toContain("Write them in first person");
     expect(prompt).toContain("preserving the chat's perspective and tense");
   });
+
+  it("gives Music DJ its own YouTube-first scene intent prompt", () => {
+    const prompt = DEFAULT_AGENT_PROMPTS["music-dj"];
+
+    expect(prompt).toContain("YouTube-first Music DJ");
+    expect(prompt).toContain("meaningful mood shift");
+    expect(prompt).toContain('"action": "play" | "volume" | "none"');
+    expect(prompt).toContain('"setting"');
+    expect(prompt).toContain('"constraints"');
+    expect(prompt).not.toContain("spotify_play");
+  });
 });
