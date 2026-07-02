@@ -6,3 +6,4 @@ export * from "./lib/character-public-profile";
 export * from "./components/CharacterAvatarImage";
 export * from "./components/CharacterPublicProfileCard";
 export * from "./components/CharacterPublicProfilePopover";
+export * from "./lib/character-music-profile";

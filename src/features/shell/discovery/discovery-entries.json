@@ -47,8 +47,8 @@
     "id": "characters",
     "title": "Characters",
     "category": "Library",
-    "summary": "Create, import, organize into groups, and edit character cards used across Conversation, Roleplay, and Game chats.",
-    "keywords": ["card", "character", "bot", "import", "avatar", "sprite", "persona", "library", "groups", "drag and drop"],
+    "summary": "Create, import, organize into groups, edit character cards, tune Public Profile details, and save Music Taste for visible Listening To flavor.",
+    "keywords": ["card", "character", "bot", "import", "avatar", "sprite", "persona", "library", "groups", "drag and drop", "public profile", "music taste", "listening to"],
     "audience": "Users building or collecting characters to chat or roleplay with.",
     "where": "Title bar > Characters.",
     "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
@@ -314,8 +314,8 @@
     "id": "music-dj",
     "title": "Music DJ And Mini Player",
     "category": "Media",
-    "summary": "Use YouTube-first Music DJ for intelligent roleplay scene music, reranked mood-based fresh picks, pasted YouTube URLs, playback controls, desktop toolbar controls, and a draggable floating mini player module.",
-    "keywords": ["youtube", "spotify legacy", "music", "dj", "playlist", "player", "playback", "scene music", "roleplay music", "fresh pick", "mini player", "toolbar", "draggable"],
+    "summary": "Use YouTube-first Music DJ for intelligent roleplay scene music, character profile music cues, reranked mood-based fresh picks, pasted YouTube URLs, playback controls, desktop toolbar controls, and a draggable floating mini player module.",
+    "keywords": ["youtube", "spotify legacy", "music", "dj", "playlist", "player", "playback", "scene music", "roleplay music", "character music", "profile music", "fresh pick", "mini player", "toolbar", "draggable"],
     "audience": "Users who want music controls, smarter roleplay cues, or mood-matched playlists inside chats and games.",
     "where": "Chat or Game settings for Music DJ, the desktop titlebar when the module is active, and Settings > Modules for the mini player toggle.",
     "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
@@ -498,3 +498,4 @@
     "coverage": "advanced"
   }
 ]
+

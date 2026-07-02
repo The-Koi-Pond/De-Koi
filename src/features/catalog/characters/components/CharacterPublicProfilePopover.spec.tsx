@@ -20,6 +20,8 @@ const profile = {
   bio: "A public blurb for quick inspection.",
   tags: ["horror"],
   bannerImage: null,
+  nowListening: null,
+  nowListeningLine: null,
   hasSavedProfile: true,
 };
 
@@ -104,3 +106,4 @@ describe("CharacterPublicProfilePopover", () => {
     );
   });
 });
+

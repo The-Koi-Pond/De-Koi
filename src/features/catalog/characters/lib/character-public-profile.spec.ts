@@ -110,6 +110,46 @@ describe("resolveCharacterPublicProfile", () => {
     expect(profile.tags).toEqual(["android", "pilot"]);
     expect(profile.hasSavedProfile).toBe(false);
   });
+
+  it("includes public music presence only from the explicit music profile", () => {
+    const profile = resolveCharacterPublicProfile({
+      id: "char-4",
+      data: {
+        name: "Nocturne",
+        description: "Haunts the late train platform.",
+        creator_notes: "Secretly always humming a forbidden song.",
+        extensions: {
+          musicProfile: {
+            publicListeningEnabled: true,
+            favoriteSongs: [{ title: "Shadow Waltz", artist: "The Clockhands" }],
+          },
+        },
+      },
+      comment: "",
+    });
+
+    expect(profile.nowListening?.displayText).toBe("Shadow Waltz by The Clockhands");
+    expect(profile.nowListeningLine).toBe("Listening to: Shadow Waltz by The Clockhands");
+    expect(profile.nowListeningLine).not.toContain("forbidden");
+
+    const hidden = resolveCharacterPublicProfile({
+      id: "char-5",
+      data: {
+        name: "Quiet",
+        description: "",
+        extensions: {
+          musicProfile: {
+            publicListeningEnabled: false,
+            favoriteSongs: [{ title: "Private Track", artist: "Hidden Artist" }],
+          },
+        },
+      },
+      comment: "",
+    });
+
+    expect(hidden.nowListening).toBeNull();
+    expect(hidden.nowListeningLine).toBeNull();
+  });
 });
 
 describe("suggestCharacterPublicProfileField", () => {
@@ -234,7 +274,6 @@ describe("buildCharacterPublicProfileBannerPrompt", () => {
     expect(prompt).not.toContain("Secret behavior policy");
   });
 });
-
 describe("cleanGeneratedCharacterPublicProfileField", () => {
   it("extracts JSON field values and normalizes handles", () => {
     expect(cleanGeneratedCharacterPublicProfileField("handle", '{ "handle": "Night Shift Keys" }')).toBe(
@@ -251,3 +290,4 @@ describe("cleanGeneratedCharacterPublicProfileField", () => {
     );
   });
 });
+
