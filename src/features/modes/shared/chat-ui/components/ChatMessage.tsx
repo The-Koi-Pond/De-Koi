@@ -1740,24 +1740,17 @@ export const ChatMessage = memo(function ChatMessage({
   const compactAvatarFrameClass = useCompactRectangleAvatar
     ? "h-[calc(3.5rem*var(--roleplay-avatar-scale))] w-[calc(2.75rem*var(--roleplay-avatar-scale))] rounded-xl"
     : "h-[calc(2.5rem*var(--roleplay-avatar-scale))] w-[calc(2.5rem*var(--roleplay-avatar-scale))] rounded-full";
-  // RP rectangle avatars (compact "rectangles" style and the larger glued
-  // panel) can't apply the source-rectangle crop format directly — that
-  // format renders the <img> with position: absolute and non-aspect-preserving
-  // width/height, which stretches when forced into a rectangle whose aspect
-  // ratio differs from the (square) crop. Bypass the crop entirely for new
-  // format so the <img>'s className (object-cover [object-top]) governs.
-  // A previous attempt mapped the crop center to `object-position`, but on a
-  // short message the glued panel becomes a wide rectangle — `object-cover`
-  // against a tall source then crops the top off and 50%/50% (or any centered
-  // focal point on a top-of-source face) lands on chin/chest instead of face.
+  // The large glued panel/tail paths intentionally render the full artwork
+  // with object-top. Compact avatar chips are still avatar surfaces, so they
+  // keep the saved crop even when the selected shape is rectangular.
   const compactAvatarCrop: AvatarCropValue | null = isUser
     ? (personaAvatarCrop ?? null)
     : expressionAvatarUrl
       ? null
       : (charInfo?.avatarCrop ?? null);
-  const compactAvatarCropForRender: AvatarCropValue | null = useCompactRectangleAvatar ? null : compactAvatarCrop;
+  const compactAvatarCropForRender: AvatarCropValue | null = compactAvatarCrop;
   const compactMergedAvatarCropForRender = (avatar: { crop?: AvatarCropValue | null }): AvatarCropValue | null =>
-    useCompactRectangleAvatar ? null : (avatar.crop ?? null);
+    avatar.crop ?? null;
   const compactAvatarSpacerClass = useCompactRectangleAvatar
     ? "w-[calc(2.75rem*var(--roleplay-avatar-scale))]"
     : "w-[calc(2.5rem*var(--roleplay-avatar-scale))]";

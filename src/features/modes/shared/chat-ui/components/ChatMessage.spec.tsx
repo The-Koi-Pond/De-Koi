@@ -4,7 +4,30 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Message } from "../../../../../engine/contracts/types/chat";
+import { useUIStore } from "../../../../../shared/stores/ui.store";
+import type { CharacterMap } from "../types";
 import { ChatMessage } from "./ChatMessage";
+
+vi.mock("./ResolvedAvatarImage", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    ResolvedAvatarImage: React.forwardRef<HTMLImageElement, Record<string, unknown>>(function MockResolvedAvatarImage(
+      { crop, src, className },
+      ref,
+    ) {
+      return (
+        <img
+          ref={ref}
+          src={typeof src === "string" ? src : undefined}
+          alt=""
+          data-resolved-avatar="true"
+          data-crop={JSON.stringify(crop ?? null)}
+          data-class-name={typeof className === "string" ? className : ""}
+        />
+      );
+    }),
+  };
+});
 
 const message: Message = {
   id: "message-1",
@@ -33,12 +56,30 @@ const characterMap = new Map([
   ],
 ]);
 
+function resetChatMessageUiState() {
+  useUIStore.setState({
+    roleplayAvatarStyle: "circles",
+    roleplayAvatarScale: 1,
+    chatFontSize: 16,
+    showMessageNumbers: false,
+    guideGenerations: false,
+    boldDialogue: true,
+    quoteFormat: "straight",
+    summaryPopoverSettings: {
+      ...useUIStore.getState().summaryPopoverSettings,
+      collapseHiddenMessages: false,
+    },
+  });
+}
+
 describe("ChatMessage", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
   let queryClient: QueryClient | null = null;
 
   beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    resetChatMessageUiState();
     queryClient = new QueryClient();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -55,6 +96,7 @@ describe("ChatMessage", () => {
     queryClient = null;
     container?.remove();
     container = null;
+    resetChatMessageUiState();
     vi.restoreAllMocks();
   });
 
@@ -121,5 +163,48 @@ describe("ChatMessage", () => {
     expect(mergedName!.className).toContain("cursor-default");
 
     expect(onOpenCharacterProfile).not.toHaveBeenCalled();
+  });
+  it("keeps saved crops on compact merged roleplay avatars", () => {
+    const avatarCrop = { srcX: 0.2, srcY: 0.1, srcWidth: 0.5, srcHeight: 0.5 };
+    const groupCharacterMap: CharacterMap = new Map([
+      [
+        "harlequin",
+        {
+          name: "Harlequin",
+          avatarUrl: "asset://harlequin",
+          avatarCrop,
+        },
+      ],
+      [
+        "pierrot",
+        {
+          name: "Pierrot",
+          avatarUrl: "asset://pierrot",
+          avatarCrop: null,
+        },
+      ],
+    ]);
+
+    act(() => {
+      useUIStore.getState().setRoleplayAvatarStyle("rectangles");
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{ ...message, id: "message-merged-avatar", characterId: null }}
+            chatMode="roleplay"
+            groupChatMode="merged"
+            characterMap={groupCharacterMap}
+            chatCharacterIds={["harlequin", "pierrot"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const avatars = container!.querySelectorAll<HTMLImageElement>("[data-resolved-avatar='true']");
+
+    expect(avatars).toHaveLength(2);
+    expect(avatars[0]?.dataset.crop).toBe(JSON.stringify(avatarCrop));
+    expect(avatars[0]?.dataset.className).toContain("object-cover");
   });
 });
