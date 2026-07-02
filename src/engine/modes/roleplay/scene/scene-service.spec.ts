@@ -578,6 +578,72 @@ describe("roleplay scene conclusion summaries", () => {
       reasoning: { exclude: true },
     });
   });
+  it("retries a too-brief final synthesis for substantial LinkAPI scene summaries", async () => {
+    const sceneMessages = Array.from({ length: 10 }, (_, index) => {
+      const phase =
+        index < 3
+          ? "BEGINNING Chai challenges Jester's rules and reframes the leash game as a trust negotiation."
+          : index < 7
+            ? "MIDDLE Pierrot admits fear, Harlequin drops the teasing act, and the group renegotiates control."
+            : "ENDING Jester accepts Chai's terms, lowers the leashes, and leaves unresolved intimacy for later.";
+      return {
+        id: `scene-message-${index + 1}`,
+        role: index % 2 === 0 ? "assistant" : "user",
+        content: `${phase} Detail ${index + 1} adds concrete emotional and relationship consequences.`,
+      };
+    });
+    const { storage, createdMessages } = storageForScene({
+      chats: [
+        { id: "origin", name: "Jester", mode: "chat", metadata: {} },
+        {
+          id: "scene",
+          name: "Scene: LinkAPI Brief Final",
+          mode: "roleplay",
+          characterIds: ["jester"],
+          connectionId: "main",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "main" }],
+      messages: { scene: sceneMessages },
+    });
+    const finalPrompts: string[] = [];
+    const llm: LlmGateway = {
+      async complete(request) {
+        const system = request.messages.find((message) => message.role === "system")?.content ?? "";
+        const user = request.messages.find((message) => message.role === "user")?.content ?? "";
+        if (system.includes("Summarize this section")) {
+          return [
+            "The section summary covers Chai challenging Jester's rules at the beginning.",
+            "Pierrot admits fear in the middle while Harlequin drops the teasing act.",
+            "The ending has Jester lower the leashes and accept Chai's terms, with unresolved intimacy left open.",
+          ].join(" ");
+        }
+        finalPrompts.push(user);
+        if (finalPrompts.length === 1) return "Chai wins Jester's game and everyone changes.";
+        return [
+          "Chai enters Jester's leash game by challenging the rules instead of submitting to them, turning the premise into a negotiation over trust and control.",
+          "Through the middle of the scene, Pierrot admits his fear and loyalty while Harlequin drops the teasing mask long enough to respond honestly.",
+          "By the end, Jester lowers the leashes and accepts Chai's terms, leaving the group with a gentler pact and unresolved intimacy to carry forward.",
+        ].join(" ");
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    const result = await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" });
+
+    expect(finalPrompts).toHaveLength(2);
+    expect(finalPrompts[1]).toContain("Previous summary was too brief");
+    expect(result.summary).toContain("Pierrot admits his fear");
+    expect(result.summary).toContain("Jester lowers the leashes");
+    expect(result.summary).not.toBe("Chai wins Jester's game and everyone changes.");
+    expect(createdMessages.find((message) => message.chatId === "origin")?.value.content).toContain(result.summary);
+  });
   it("removes accidental speaker labels from model-returned summaries", async () => {
     const { storage } = storageForScene({
       chats: [
