@@ -268,7 +268,7 @@ describe("createRoleplayScene", () => {
   });
 });
 describe("roleplay scene conclusion summaries", () => {
-  it("uses clean prose for the no-LLM fallback instead of raw role-prefixed transcript slices", async () => {
+  it("does not conclude the scene with a transcript excerpt when summary generation fails", async () => {
     const longSceneBeat = [
       "Pulled from the safety of your screen and into the damp woods, you stand before the towering Trapper.",
       "His cleaver scrapes across nearby stone while he watches you decide whether to run or keep your promise.",
@@ -302,18 +302,16 @@ describe("roleplay scene conclusion summaries", () => {
       },
     });
 
-    const result = await concludeRoleplayScene({ storage, llm: idleLlm }, { sceneChatId: "scene" });
-    const returnMessage = createdMessages.find((message) => message.chatId === "origin")?.value.content;
-
-    expect(result.summary).not.toMatch(/\b(?:assistant|narrator|user):/i);
-    expect(result.summary).toContain("A dangerous meeting in the MacMillan Estate.");
-    expect(result.summary).toContain("Recent scene beats:");
-    expect(result.summary).toMatch(/[.!?]$/);
-    expect(returnMessage).toContain('The scene "The Fog Claims You" concluded.');
-    expect(returnMessage).not.toMatch(/\b(?:assistant|narrator|user):/i);
+    await expect(concludeRoleplayScene({ storage, llm: idleLlm }, { sceneChatId: "scene" })).rejects.toThrow(
+      "Scene summary generation failed",
+    );
+    expect(createdMessages.find((message) => message.chatId === "origin")).toBeUndefined();
+    await expect(storage.get("chats", "scene")).resolves.toMatchObject({
+      metadata: { sceneStatus: "active" },
+    });
   });
 
-  it("uses the end of a long no-LLM scene for recent fallback beats", async () => {
+  it("does not write origin memory or conclude long scenes when only fallback text is available", async () => {
     const openingBeat = [
       "The violet tent opens on a leash game with Jester, Pierrot, and Harlequin.",
       "Pierrot kneels anxiously while Harlequin teases from the edge of the stage.",
@@ -347,15 +345,131 @@ describe("roleplay scene conclusion summaries", () => {
       },
     });
 
-    const result = await concludeRoleplayScene({ storage, llm: idleLlm }, { sceneChatId: "scene" });
-    const returnMessage = createdMessages.find((message) => message.chatId === "origin")?.value;
-
-    expect(result.summary).toContain("Recent scene beats:");
-    expect(result.summary).toContain("Jester drops the professional distance");
-    expect(result.summary).not.toContain("Pierrot kneels anxiously");
-    expect(returnMessage).toMatchObject({ role: "assistant", characterId: null });
+    await expect(concludeRoleplayScene({ storage, llm: idleLlm }, { sceneChatId: "scene" })).rejects.toThrow(
+      "Scene summary generation failed",
+    );
+    expect(createdMessages.find((message) => message.chatId === "origin")).toBeUndefined();
+    await expect(storage.get("chats", "origin")).resolves.toMatchObject({ metadata: {} });
   });
 
+  it("summarizes every chunk before synthesizing a long-scene conclusion", async () => {
+    const beginningBeat = "BEGINNING_BEAT Chai enters the violet tent and names the leash game as a test of trust. ";
+    const middleBeat = "MIDDLE_BEAT Pierrot admits his fear while Harlequin stops teasing and chooses honesty. ";
+    const endingBeat = "ENDING_BEAT Jester lowers the leashes, accepts Chai's terms, and the group settles into a gentler pact. ";
+    const longFiller = "stage lights hum while everyone keeps negotiating boundaries and intent. ".repeat(180);
+    const calls: Array<{ system: string; user: string }> = [];
+    const { storage, createdMessages } = storageForScene({
+      chats: [
+        { id: "origin", name: "Jester", mode: "chat", metadata: {} },
+        {
+          id: "scene",
+          name: "Scene: The Masters Leash",
+          mode: "roleplay",
+          characterIds: ["jester"],
+          connectionId: "main",
+          metadata: {
+            sceneOriginChatId: "origin",
+            sceneDescription: "Chai tests control and trust in the violet-lit circus tent.",
+            sceneStatus: "active",
+          },
+        },
+      ],
+      connections: [{ id: "main" }],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: beginningBeat + longFiller },
+          { id: "middle", role: "user", content: middleBeat + longFiller },
+          { id: "final", role: "assistant", content: endingBeat + longFiller },
+        ],
+      },
+    });
+    const llm: LlmGateway = {
+      async complete(request) {
+        const system = request.messages.find((message) => message.role === "system")?.content ?? "";
+        const user = request.messages.find((message) => message.role === "user")?.content ?? "";
+        calls.push({ system, user });
+        if (system.includes("Summarize this section of a completed roleplay scene")) {
+          if (user.includes("BEGINNING_BEAT")) return "Chunk beginning: Chai frames the leash game as a test of trust.";
+          if (user.includes("MIDDLE_BEAT")) return "Chunk middle: Pierrot admits fear and Harlequin chooses honesty.";
+          if (user.includes("ENDING_BEAT")) return "Chunk ending: Jester lowers the leashes and accepts Chai's gentler pact.";
+          return "Chunk extra: The performers continue negotiating boundaries.";
+        }
+        if (system.includes("Synthesize the final conclusion summary")) {
+          expect(user).toContain("Chunk beginning: Chai frames the leash game as a test of trust.");
+          expect(user).toContain("Chunk middle: Pierrot admits fear and Harlequin chooses honesty.");
+          expect(user).toContain("Chunk ending: Jester lowers the leashes and accepts Chai's gentler pact.");
+          return [
+            "Chai entered the violet tent and turned Jester's leash game into a test of mutual trust.",
+            "Pierrot admitted his fear, Harlequin gave up the teasing mask for honesty, and Jester finally lowered the leashes.",
+            "The scene ended with Chai's terms accepted and the group settling into a gentler pact with unresolved intimacy still ahead.",
+          ].join(" ");
+        }
+        return "One-shot summary should not be used for long scene conclusions.";
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    const result = await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" });
+    const returnMessage = createdMessages.find((message) => message.chatId === "origin")?.value;
+
+    expect(calls.filter((call) => call.system.includes("Summarize this section"))).toHaveLength(3);
+    expect(calls.at(-1)?.system).toContain("Synthesize the final conclusion summary");
+    expect(result.summary).toContain("Chai entered the violet tent");
+    expect(result.summary).toContain("Pierrot admitted his fear");
+    expect(result.summary).toContain("Jester finally lowered the leashes");
+    expect(returnMessage).toMatchObject({ role: "assistant", characterId: null });
+    expect(returnMessage?.content).toContain(result.summary);
+  });
+
+  it("rejects an empty final synthesis after successful chunk summaries", async () => {
+    const longFiller = "The scene keeps developing with enough detail to require section summaries. ".repeat(220);
+    const { storage, createdMessages } = storageForScene({
+      chats: [
+        { id: "origin", name: "Jester", mode: "chat", metadata: {} },
+        {
+          id: "scene",
+          name: "Scene: Empty Final Summary",
+          mode: "roleplay",
+          characterIds: ["jester"],
+          connectionId: "main",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "main" }],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: `BEGINNING ${longFiller}` },
+          { id: "ending", role: "assistant", content: `ENDING ${longFiller}` },
+        ],
+      },
+    });
+    const llm: LlmGateway = {
+      async complete(request) {
+        const system = request.messages.find((message) => message.role === "system")?.content ?? "";
+        if (system.includes("Summarize this section of a completed roleplay scene")) {
+          return "A valid chunk summary.";
+        }
+        if (system.includes("Synthesize the final conclusion summary")) return "   ";
+        return "";
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    await expect(concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" })).rejects.toThrow(
+      "Scene summary generation failed",
+    );
+    expect(createdMessages.find((message) => message.chatId === "origin")).toBeUndefined();
+  });
   it("removes accidental speaker labels from model-returned summaries", async () => {
     const { storage } = storageForScene({
       chats: [
