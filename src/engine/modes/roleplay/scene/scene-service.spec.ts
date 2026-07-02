@@ -472,6 +472,54 @@ describe("roleplay scene conclusion summaries", () => {
     );
     expect(createdMessages.find((message) => message.chatId === "origin")).toBeUndefined();
   });
+  it("preserves late-scene facts from a long final synthesis", async () => {
+    const { storage } = storageForScene({
+      chats: [
+        { id: "origin", name: "Jester", mode: "chat", metadata: {} },
+        {
+          id: "scene",
+          name: "Scene: Long Final Summary",
+          mode: "roleplay",
+          characterIds: ["jester"],
+          connectionId: "main",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "main" }],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: "The scene opens with Chai challenging Jester's rules." },
+          {
+            id: "ending",
+            role: "assistant",
+            content: "ENDING_FACT Jester admits the game changed him after Chai's final demand.",
+          },
+        ],
+      },
+    });
+    const longMiddle = Array.from({ length: 34 }, (_, index) => {
+      return `Middle detail ${index + 1}: the scene summary keeps describing negotiations, pauses, reactions, and emotional context before it reaches the final outcome.`;
+    }).join(" ");
+    const llm: LlmGateway = {
+      async complete(request) {
+        const system = request.messages.find((message) => message.role === "system")?.content ?? "";
+        if (system.includes("Summarize this section")) {
+          return "The chunk summary includes the opening challenge and the ending fact.";
+        }
+        return `${longMiddle} ENDING_FACT Jester admits the game changed him after Chai's final demand.`;
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    const result = await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" });
+
+    expect(result.summary).toContain("ENDING_FACT Jester admits");
+  });
   it("retries LinkAPI-style empty assistant scene summary responses with a larger no-reasoning budget", async () => {
     const { storage } = storageForScene({
       chats: [
