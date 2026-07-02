@@ -355,7 +355,8 @@ describe("roleplay scene conclusion summaries", () => {
   it("summarizes every chunk before synthesizing a long-scene conclusion", async () => {
     const beginningBeat = "BEGINNING_BEAT Chai enters the violet tent and names the leash game as a test of trust. ";
     const middleBeat = "MIDDLE_BEAT Pierrot admits his fear while Harlequin stops teasing and chooses honesty. ";
-    const endingBeat = "ENDING_BEAT Jester lowers the leashes, accepts Chai's terms, and the group settles into a gentler pact. ";
+    const endingBeat =
+      "ENDING_BEAT Jester lowers the leashes, accepts Chai's terms, and the group settles into a gentler pact. ";
     const longFiller = "stage lights hum while everyone keeps negotiating boundaries and intent. ".repeat(180);
     const calls: Array<{ system: string; user: string }> = [];
     const { storage, createdMessages } = storageForScene({
@@ -391,7 +392,8 @@ describe("roleplay scene conclusion summaries", () => {
         if (system.includes("Summarize this section of a completed roleplay scene")) {
           if (user.includes("BEGINNING_BEAT")) return "Chunk beginning: Chai frames the leash game as a test of trust.";
           if (user.includes("MIDDLE_BEAT")) return "Chunk middle: Pierrot admits fear and Harlequin chooses honesty.";
-          if (user.includes("ENDING_BEAT")) return "Chunk ending: Jester lowers the leashes and accepts Chai's gentler pact.";
+          if (user.includes("ENDING_BEAT"))
+            return "Chunk ending: Jester lowers the leashes and accepts Chai's gentler pact.";
           return "Chunk extra: The performers continue negotiating boundaries.";
         }
         if (system.includes("Synthesize the final conclusion summary")) {
@@ -469,6 +471,64 @@ describe("roleplay scene conclusion summaries", () => {
       "Scene summary generation failed",
     );
     expect(createdMessages.find((message) => message.chatId === "origin")).toBeUndefined();
+  });
+  it("retries LinkAPI-style empty assistant scene summary responses with a larger no-reasoning budget", async () => {
+    const { storage } = storageForScene({
+      chats: [
+        { id: "origin", name: "Jester", mode: "chat", metadata: {} },
+        {
+          id: "scene",
+          name: "Scene: LinkAPI Summary",
+          mode: "roleplay",
+          characterIds: ["jester"],
+          connectionId: "main",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "main" }],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: "The scene begins with Jester testing Chai's patience." },
+          { id: "ending", role: "user", content: "Chai ends the scene by making Jester admit the game changed him." },
+        ],
+      },
+    });
+    const requests: Array<Parameters<LlmGateway["complete"]>[0]> = [];
+    const llm: LlmGateway = {
+      async complete(request) {
+        requests.push(request);
+        const system = request.messages.find((message) => message.role === "system")?.content ?? "";
+        if (system.includes("Summarize this section") && requests.length === 1) {
+          throw Object.assign(new Error("Provider response did not contain assistant text or tool calls"), {
+            details: {
+              finishReason: "MAX_TOKENS",
+              providerMetadata: { note: "reasoning but no final assistant text" },
+            },
+          });
+        }
+        if (system.includes("Summarize this section")) {
+          return "The section summary covers Jester's test and Chai's final challenge.";
+        }
+        return "Jester tested Chai's patience, but Chai turned the game back on him and ended by making him admit the scene changed him.";
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    const result = await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" });
+
+    expect(result.summary).toContain("Jester tested Chai's patience");
+    expect(requests).toHaveLength(3);
+    expect(requests[0].parameters).toMatchObject({ maxTokens: 700, reasoningEffort: "none" });
+    expect(requests[1].parameters).toMatchObject({ maxTokens: 2048, reasoningEffort: "none" });
+    expect(requests[0].parameters?.customParameters).toMatchObject({
+      reasoning_effort: "none",
+      reasoning: { exclude: true },
+    });
   });
   it("removes accidental speaker labels from model-returned summaries", async () => {
     const { storage } = storageForScene({
