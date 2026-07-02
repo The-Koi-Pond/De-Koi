@@ -67,4 +67,16 @@ describe("conversation clean response display", () => {
       }),
     ).toBe(false);
   });
+
+  it("does not show group typing feedback before the current speaker is known", () => {
+    expect(
+      shouldShowConversationTypingIndicator({
+        isStreaming: true,
+        hasDelayedCharacterInfo: false,
+        messageStyle: "classic",
+        activeCharacterCount: 2,
+        hasSpecificTypingTarget: false,
+      }),
+    ).toBe(false);
+  });
 });

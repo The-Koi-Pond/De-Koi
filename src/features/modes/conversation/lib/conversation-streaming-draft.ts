@@ -22,6 +22,10 @@ export function shouldShowConversationTypingIndicator(input: {
   isStreaming: boolean;
   hasDelayedCharacterInfo: boolean;
   messageStyle: string;
+  activeCharacterCount?: number;
+  hasSpecificTypingTarget?: boolean;
 }) {
-  return input.isStreaming && !input.hasDelayedCharacterInfo && input.messageStyle !== "bubble";
+  if (!input.isStreaming || input.hasDelayedCharacterInfo || input.messageStyle === "bubble") return false;
+  if ((input.activeCharacterCount ?? 1) > 1 && input.hasSpecificTypingTarget === false) return false;
+  return true;
 }

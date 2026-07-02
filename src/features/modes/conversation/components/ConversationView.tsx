@@ -439,6 +439,8 @@ export function ConversationView({
     isStreaming,
     hasDelayedCharacterInfo: !!delayedCharacterInfo,
     messageStyle: conversationMessageStyle,
+    activeCharacterCount: activeChatCharIds.length,
+    hasSpecificTypingTarget: !!typingCharacterName || !!streamingCharacterId,
   });
   const liveTypingLabel = `${liveTypingName} ${liveTypingVerb} typing...`;
 
