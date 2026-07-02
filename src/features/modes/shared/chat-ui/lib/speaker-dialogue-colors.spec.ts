@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  createSpeakerColorLookup,
-  splitSpeakerDialogueColorSegments,
-} from "./speaker-dialogue-colors";
+import { createSpeakerColorLookup, splitSpeakerDialogueColorSegments } from "./speaker-dialogue-colors";
 
 describe("speaker dialogue colors", () => {
   it("uses each speaker tag color case-insensitively on repeated renders", () => {
@@ -52,6 +49,37 @@ describe("speaker dialogue colors", () => {
       { text: '"Ready."', color: "#ff3366" },
       { text: " Bob smiled. ", color: "#ffffff" },
       { text: '"Always."', color: "#33aaff" },
+    ]);
+  });
+  it("keeps the previous speaker color across same-attribution quote continuations", () => {
+    const colors = createSpeakerColorLookup([
+      ["Harlequin", "#00ff66"],
+      ["Jester", "#aa77ff"],
+    ]);
+
+    expect(
+      splitSpeakerDialogueColorSegments(
+        'Harlequin leans close. "Oh, I want to hear this," he murmurs. "Please make it official." Jester ignores him.',
+        "#ffffff",
+        colors,
+      ),
+    ).toEqual([
+      { text: "Harlequin leans close. ", color: "#ffffff" },
+      { text: '"Oh, I want to hear this,"', color: "#00ff66" },
+      { text: " he murmurs. ", color: "#ffffff" },
+      { text: '"Please make it official."', color: "#00ff66" },
+      { text: " Jester ignores him.", color: "#ffffff" },
+    ]);
+  });
+  it("prefers the speaking subject over a later addressed character name", () => {
+    const colors = createSpeakerColorLookup([
+      ["Harlequin", "#00ff66"],
+      ["Jester", "#aa77ff"],
+    ]);
+
+    expect(splitSpeakerDialogueColorSegments('Harlequin tells Jester, "Sign here."', "#ffffff", colors)).toEqual([
+      { text: "Harlequin tells Jester, ", color: "#ffffff" },
+      { text: '"Sign here."', color: "#00ff66" },
     ]);
   });
 });

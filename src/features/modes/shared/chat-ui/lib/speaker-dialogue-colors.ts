@@ -8,6 +8,13 @@ export type SpeakerDialogueColorSegment = {
 const SPEAKER_TAG_RE = /<speaker(?:="([^"]*)")?>([\s\S]*?)<\/speaker>/g;
 const SPEAKER_TAG_STRIP_RE = /<\/?speaker(?:="[^"]*")?>/g;
 const NAME_BOUNDARY_RE = /[\p{L}\p{N}_-]/u;
+const SPEECH_VERB_PATTERN_SOURCE =
+  "said|says|asked|asks|replied|replies|answered|answers|continued|continues|murmured|murmurs|mumbled|mumbles|whispered|whispers|muttered|mutters|snapped|snaps|sighed|sighs|hissed|hisses|growled|growls|breathed|breathes|called|calls|added|adds|told|tells|promised|promises|confessed|confesses|admitted|admits|insisted|insists|cooed|coos|purred|purrs|laughed|laughs|chuckled|chuckles|sobbed|sobs|cried|cries|shouted|shouts|yelled|yells";
+const SAME_SPEAKER_ATTRIBUTION_RE = new RegExp(
+  `^\\s*(?:[,.;:!?-]+)?\\s*(?:(?:he|she|they|it)\\s+)?(?:${SPEECH_VERB_PATTERN_SOURCE})(?:[\\s,;:-]+[^"\\n]{0,120})?[.!?,;:-]?\\s*$`,
+  "iu",
+);
+const SPEAKER_NAME_ATTRIBUTION_RE = new RegExp(`^\\s+(?:${SPEECH_VERB_PATTERN_SOURCE})\\b`, "iu");
 
 function normalizeSpeakerColorKey(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
@@ -114,10 +121,20 @@ function hasNameBoundary(value: string, start: number, end: number) {
   return !NAME_BOUNDARY_RE.test(before) && !NAME_BOUNDARY_RE.test(after);
 }
 
-function findLastSpeakerColorInContext(context: string, speakerColorMap: Map<string, string> | undefined) {
+type SpeakerColorMatch = { index: number; length: number; color: string };
+
+function betterSpeakerColorMatch(best: SpeakerColorMatch | null, next: SpeakerColorMatch) {
+  if (!best) return next;
+  if (next.index > best.index) return next;
+  if (next.index === best.index && next.length > best.length) return next;
+  return best;
+}
+
+function findSpeakerColorInContext(context: string, speakerColorMap: Map<string, string> | undefined) {
   if (!speakerColorMap?.size) return undefined;
   const lower = context.toLowerCase();
-  let best: { index: number; color: string } | null = null;
+  let explicitAttribution: SpeakerColorMatch | null = null;
+  let nearestMention: SpeakerColorMatch | null = null;
 
   for (const [speakerName, color] of speakerColorMap) {
     let fromIndex = 0;
@@ -125,14 +142,25 @@ function findLastSpeakerColorInContext(context: string, speakerColorMap: Map<str
       const index = lower.indexOf(speakerName, fromIndex);
       if (index === -1) break;
       const end = index + speakerName.length;
-      if (hasNameBoundary(lower, index, end) && (!best || index > best.index)) {
-        best = { index, color };
+      if (hasNameBoundary(lower, index, end)) {
+        const match = { index, length: speakerName.length, color };
+        nearestMention = betterSpeakerColorMatch(nearestMention, match);
+        if (SPEAKER_NAME_ATTRIBUTION_RE.test(context.slice(end))) {
+          explicitAttribution = betterSpeakerColorMatch(explicitAttribution, match);
+        }
       }
       fromIndex = end;
     }
   }
 
-  return best?.color;
+  return explicitAttribution?.color ?? nearestMention?.color;
+}
+
+function isSameSpeakerQuoteContinuation(context: string) {
+  const trimmed = context.trim();
+  return (
+    trimmed.length > 0 && trimmed.length <= 160 && !trimmed.includes("\n") && SAME_SPEAKER_ATTRIBUTION_RE.test(context)
+  );
 }
 
 function splitAttributedQuotes(
@@ -144,15 +172,19 @@ function splitAttributedQuotes(
   const segments: SpeakerDialogueColorSegment[] = [];
   let found = false;
   let lastIndex = 0;
+  let lastQuoteColor: string | undefined;
   let match: RegExpExecArray | null;
 
   while ((match = quoteRe.exec(text)) !== null) {
     const context = text.slice(lastIndex, match.index);
-    const color = findLastSpeakerColorInContext(context, speakerColorMap);
+    const namedColor = findSpeakerColorInContext(context, speakerColorMap);
+    const color =
+      namedColor ?? (lastQuoteColor && isSameSpeakerQuoteContinuation(context) ? lastQuoteColor : undefined);
     if (!color) continue;
     found = true;
     pushSegment(segments, context, defaultDialogueColor);
     pushSegment(segments, match[0], color);
+    lastQuoteColor = color;
     lastIndex = match.index + match[0].length;
   }
 
