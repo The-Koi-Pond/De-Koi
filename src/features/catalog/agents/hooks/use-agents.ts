@@ -47,7 +47,8 @@ export interface AgentRunRow {
   createdAt: string;
 }
 
-const builtInAgentTypes = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
+export const LEGACY_BUILT_IN_AGENT_TYPES = new Set(["spotify"]);
+const builtInAgentTypes = new Set([...BUILT_IN_AGENTS.map((agent) => agent.id), ...LEGACY_BUILT_IN_AGENT_TYPES]);
 const agentResultTypeValues = [
   "game_state_update",
   "text_rewrite",
@@ -158,6 +159,15 @@ export function agentEnabledFlag(value: unknown, fallback = true): boolean {
   return readBoolean(value, fallback);
 }
 
+export function isBuiltInOrLegacyAgentType(type: string | null | undefined): boolean {
+  const normalized = readString(type);
+  return !!normalized && builtInAgentTypes.has(normalized);
+}
+
+export function isCustomAgentConfig(config: Pick<AgentConfigRow, "type">): boolean {
+  return !isBuiltInOrLegacyAgentType(config.type);
+}
+
 function normalizeAgentUpdatePayload(data: Record<string, unknown>): Record<string, unknown> {
   const nested = data.data;
   const patch =
@@ -190,7 +200,7 @@ export function useCustomAgentRuns(chatId: string | null, enabled = true) {
       const configsById = new Map(configs.map((config) => [config.id, config]));
       return runs
         .map((run) => normalizeAgentRunRow(run, configsById))
-        .filter((run): run is AgentRunRow => !!run && !builtInAgentTypes.has(run.agentType));
+        .filter((run): run is AgentRunRow => !!run && !isBuiltInOrLegacyAgentType(run.agentType));
     },
     enabled: !!chatId && enabled,
     staleTime: 15_000,

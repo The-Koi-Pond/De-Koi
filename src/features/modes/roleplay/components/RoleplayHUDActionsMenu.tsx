@@ -11,9 +11,9 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { BUILT_IN_AGENTS } from "../../../../engine/contracts/types/agent";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import {
+  isCustomAgentConfig,
   useUpdateAgentRunData,
   type AgentConfigRow,
   type AgentRunRow,
@@ -520,10 +520,6 @@ function CustomAgentsRetrySection({
       </div>
     </div>
   );
-}
-
-function isCustomAgentConfig(config: AgentConfigRow): boolean {
-  return !BUILT_IN_AGENTS.some((agent) => agent.id === config.type);
 }
 
 function isAgentConfigActiveForMenu(config: AgentConfigRow, enabledAgentTypes?: Set<string>): boolean {

@@ -144,7 +144,7 @@ import {
 import type { AgentPhase } from "../../../../../engine/contracts/types/agent";
 import type { Chat, ChatMetadata, ChatMode } from "../../../../../engine/contracts/types/chat";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
-import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
+import { isCustomAgentConfig, useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { DEFAULT_AGENT_PROMPTS } from "../../../../../engine/contracts/constants/agent-prompts";
@@ -749,7 +749,7 @@ function ChatSettingsDrawerInner({
     // Custom agents from DB
     if (agentConfigs) {
       for (const c of agentConfigs as AgentConfigRow[]) {
-        if (!BUILT_IN_AGENTS.some((b) => b.id === c.type)) {
+        if (isCustomAgentConfig(c)) {
           agents.push({
             id: c.type,
             name: c.name,

@@ -24,6 +24,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   agentEnabledFlag,
   agentKeys,
+  isCustomAgentConfig,
   useAgentConfigs,
   useCreateAgent,
   useDeleteAgent,
@@ -87,13 +88,8 @@ export function AgentsPanel() {
     for (const config of agentConfigRows) map.set(config.type, config);
     return map;
   }, [agentConfigRows]);
-  const builtInAgentTypes = useMemo(() => new Set(BUILT_IN_AGENTS.map((agent) => agent.id)), []);
-
-  // Custom agents = DB entries whose type doesn't match any built-in
-  const customAgents = useMemo(
-    () => agentConfigRows.filter((config) => !builtInAgentTypes.has(config.type)),
-    [agentConfigRows, builtInAgentTypes],
-  );
+  // Custom agents = DB entries whose type does not match a current or legacy built-in.
+  const customAgents = useMemo(() => agentConfigRows.filter(isCustomAgentConfig), [agentConfigRows]);
   const customToolRows = useMemo(() => (customTools ?? []) as CustomToolRow[], [customTools]);
   const searchQuery = search.trim().toLowerCase();
   const searchActive = searchQuery.length > 0;
