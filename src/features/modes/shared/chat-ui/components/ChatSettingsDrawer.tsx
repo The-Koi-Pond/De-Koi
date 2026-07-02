@@ -113,6 +113,7 @@ import {
 import { generateConversationSchedules as runGenerateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
 import { conversationCommandPromptEnabled } from "../../../../../engine/modes/chat/commands/activation";
 import { agentApi } from "../../../../../shared/api/agent-api";
+import { coreModulesApi } from "../../../../../shared/api/core-modules-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { spotifyApi } from "../../../../../shared/api/integration-utility-api";
@@ -144,10 +145,20 @@ import {
 import type { AgentPhase } from "../../../../../engine/contracts/types/agent";
 import type { Chat, ChatMetadata, ChatMode } from "../../../../../engine/contracts/types/chat";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
-import { isCustomAgentConfig, useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
+import {
+  isCustomAgentConfig,
+  useAgentConfigs,
+  useCreateAgent,
+  useUpdateAgent,
+  type AgentConfigRow,
+} from "../../../../catalog/agents/index";
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { DEFAULT_AGENT_PROMPTS } from "../../../../../engine/contracts/constants/agent-prompts";
+import {
+  LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID,
+  MUSIC_DJ_MINI_PLAYER_MODULE_ID,
+} from "../../../../../engine/contracts/constants/core-modules";
 import { LIMITS } from "../../../../../engine/contracts/constants/defaults";
 import {
   BUILT_IN_AGENTS,
@@ -1413,7 +1424,10 @@ function ChatSettingsDrawerInner({
   const [groupScenarioDraft, setGroupScenarioDraft] = useState(groupScenarioText);
   const [groupScenarioExpanded, setGroupScenarioExpanded] = useState(false);
   const gameAgentPool = useMemo(
-    () => Array.from(new Set(activeAgentIds.filter((id) => id !== "music-dj" && id !== "spotify" && id !== "lorebook-keeper"))),
+    () =>
+      Array.from(
+        new Set(activeAgentIds.filter((id) => id !== "music-dj" && id !== "spotify" && id !== "lorebook-keeper")),
+      ),
     [activeAgentIds],
   );
   const [extraPromptDraft, setExtraPromptDraft] = useState(gameExtraPrompt);
@@ -1503,6 +1517,19 @@ function ChatSettingsDrawerInner({
 
   const openAgentAddModal = (agent: AvailableAgent) => openAgentConfigModal(agent, "add");
   const openAgentSettingsModal = (agent: AvailableAgent) => openAgentConfigModal(agent, "edit");
+  const showMusicDjMiniPlayerModuleHint = useCallback(async () => {
+    const settings = await coreModulesApi.settings.get().catch(() => null);
+    const enabled = settings?.enabled ?? {};
+    const miniPlayerEnabled =
+      enabled[MUSIC_DJ_MINI_PLAYER_MODULE_ID] === true || enabled[LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID] === true;
+    if (miniPlayerEnabled) return;
+
+    await showAlertDialog({
+      title: "Turn On Music DJ Mini Player",
+      message:
+        "Music DJ is enabled for this chat, but the visible player is a separate module. Open Settings > Modules and turn on Music DJ Mini Player to see the YouTube player, volume, and Fresh pick controls.",
+    });
+  }, []);
 
   const confirmAgentSettings = async () => {
     if (!agentAddPreview) return;
@@ -1556,6 +1583,9 @@ function ChatSettingsDrawerInner({
         });
       }
       setAgentAddPreview(null);
+      if (mode === "add" && agent.id === "music-dj") {
+        await showMusicDjMiniPlayerModuleHint();
+      }
     } catch (error) {
       await showAlertDialog({
         title: mode === "add" ? "Couldn’t Add Agent" : "Couldn’t Update Agent",
@@ -1644,6 +1674,7 @@ function ChatSettingsDrawerInner({
         gameUseSpotifyMusic: false,
         activeAgentIds: Array.from(new Set([...activeAgentIds.filter((id) => id !== "spotify"), "music-dj"])),
       });
+      await showMusicDjMiniPlayerModuleHint();
     } catch (error) {
       await showAlertDialog({
         title: "Couldn't Enable Music DJ",
@@ -1653,7 +1684,7 @@ function ChatSettingsDrawerInner({
             : "Music DJ could not be enabled for this game. Check the agent setup and try again.",
       });
     }
-  }, [activeAgentIds, chat.id, ensureMusicDjAgent, gameUseMusicDj, updateMeta]);
+  }, [activeAgentIds, chat.id, ensureMusicDjAgent, gameUseMusicDj, showMusicDjMiniPlayerModuleHint, updateMeta]);
 
   const toggleGameSpotifyMusic = useCallback(async () => {
     if (gameUseSpotifyMusic) {
@@ -4482,7 +4513,8 @@ function ChatSettingsDrawerInner({
                       <div className="min-w-0 flex-1">
                         <div className="text-[0.6875rem] font-medium">Music DJ</div>
                         <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                          YouTube-first scene music is active. Use the shell Music DJ player for direct URLs, fresh picks, and volume.
+                          YouTube-first scene music is active. Use the shell Music DJ player for direct URLs, fresh
+                          picks, and volume.
                         </p>
                       </div>
                     </div>
@@ -4748,7 +4780,16 @@ function ChatSettingsDrawerInner({
                                     activeAgentIds: activeAgentIds.filter((id) => id !== agentId),
                                   });
                                 } else {
-                                  updateMeta.mutate({ id: chat.id, activeAgentIds: [...activeAgentIds, agentId] });
+                                  updateMeta.mutate(
+                                    { id: chat.id, activeAgentIds: [...activeAgentIds, agentId] },
+                                    {
+                                      onSuccess: () => {
+                                        if (agentId === "music-dj") {
+                                          void showMusicDjMiniPlayerModuleHint();
+                                        }
+                                      },
+                                    },
+                                  );
                                 }
                               }}
                               className={cn(
