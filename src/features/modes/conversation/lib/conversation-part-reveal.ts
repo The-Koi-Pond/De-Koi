@@ -1,6 +1,6 @@
 import type { Message } from "../../../../engine/contracts/types/chat";
 
-export const CONVERSATION_PART_REVEAL_FRESHNESS_MS = 15_000;
+const CONVERSATION_PART_REVEAL_FRESHNESS_MS = 15_000;
 
 interface ConversationPartRevealCandidate {
   key: string;
@@ -15,6 +15,21 @@ interface CollectFreshAssistantPartRevealStartsOptions {
   prevKeys: ReadonlySet<string>;
   prevPartCounts?: ReadonlyMap<string, number>;
   seenKeys: ReadonlySet<string>;
+  now: number;
+  freshnessMs?: number;
+}
+
+interface ConversationNotificationCandidate<TMessage = Message> {
+  key: string;
+  role: Message["role"];
+  createdAtMs: number;
+  message?: TMessage;
+}
+
+interface FindFreshAssistantNotificationMessageOptions<TMessage = Message> {
+  initialLoadSettled: boolean;
+  candidates: ConversationNotificationCandidate<TMessage>[];
+  previousMessageKeys: ReadonlySet<string>;
   now: number;
   freshnessMs?: number;
 }
@@ -55,6 +70,34 @@ export function collectFreshAssistantPartRevealStarts({
     starts.push({ key: candidate.key, count: candidate.partCount, initialVisiblePartCount });
   }
   return starts;
+}
+
+export function findFreshAssistantNotificationMessage<TMessage = Message>({
+  initialLoadSettled,
+  candidates,
+  previousMessageKeys,
+  now,
+  freshnessMs = CONVERSATION_PART_REVEAL_FRESHNESS_MS,
+}: FindFreshAssistantNotificationMessageOptions<TMessage>): TMessage | null {
+  if (!initialLoadSettled) return null;
+
+  let lastPreviouslyLoadedIndex = -1;
+  for (let index = 0; index < candidates.length; index += 1) {
+    if (previousMessageKeys.has(candidates[index]!.key)) {
+      lastPreviouslyLoadedIndex = index;
+    }
+  }
+  if (lastPreviouslyLoadedIndex < 0) return null;
+
+  for (const candidate of candidates.slice(lastPreviouslyLoadedIndex + 1)) {
+    if (candidate.role !== "assistant") continue;
+    if (!candidate.message) continue;
+    if (!Number.isFinite(candidate.createdAtMs)) continue;
+    if (now - candidate.createdAtMs >= freshnessMs) continue;
+    return candidate.message;
+  }
+
+  return null;
 }
 
 interface ResolveConversationVisiblePartCountOptions {

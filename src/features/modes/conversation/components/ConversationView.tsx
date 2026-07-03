@@ -20,9 +20,9 @@ import { ConversationInput } from "./ConversationInput";
 import { SceneBanner, EndSceneBar } from "../../shared/scene-ui";
 
 import {
-  CONVERSATION_PART_REVEAL_FRESHNESS_MS,
   clearConversationRevealGeneration,
   collectFreshAssistantPartRevealStarts,
+  findFreshAssistantNotificationMessage,
   isCurrentConversationRevealGeneration,
   resolveConversationVisiblePartCount,
   startConversationRevealGeneration,
@@ -1091,6 +1091,8 @@ export function ConversationView({
   const renderedMessageKeysRef = useRef<Set<string>>(new Set());
   const prevRenderedKeysRef = useRef<Set<string>>(new Set());
   const prevRenderedPartCountsRef = useRef<Map<string, number>>(new Map());
+  const notificationInitialLoadSettledRef = useRef(false);
+  const prevNotificationMessageKeysRef = useRef<Set<string>>(new Set());
   // Track whether the initial data load has settled. Until it has, we treat
   // all arriving keys as "already seen" so re-mounting the component (or the
   // first async page of messages landing) never replays stagger/sounds.
@@ -1109,8 +1111,10 @@ export function ConversationView({
   if (prevChatIdRef.current !== chatId) {
     prevChatIdRef.current = chatId;
     initialLoadSettledRef.current = false;
+    notificationInitialLoadSettledRef.current = false;
     prevRenderedKeysRef.current = new Set();
     prevRenderedPartCountsRef.current = new Map();
+    prevNotificationMessageKeysRef.current = new Set();
     renderedMessageKeysRef.current = new Set();
     Object.values(staggerTimersRef.current).forEach((timers) => timers.forEach(clearTimeout));
     staggerTimersRef.current = {};
@@ -1138,7 +1142,6 @@ export function ConversationView({
     const messageItems = renderedItems.filter((item): item is RenderedMessageItem => item.type === "message");
     const currentKeys = new Set(messageItems.map((item) => item.key));
     const currentPartCounts = new Map(messageItems.map((item) => [item.key, item.contentParts?.length ?? 0]));
-    const itemByKey = new Map(messageItems.map((item) => [item.key, item]));
     renderedMessageKeysRef.current = currentKeys;
 
     for (const key of Object.keys(staggerTimersRef.current)) {
@@ -1159,12 +1162,36 @@ export function ConversationView({
       return changed ? next : prev;
     });
 
+    const now = Date.now();
+    let newAssistantMessage: Message | null = null;
+    if (messages) {
+      const currentMessageKeys = new Set(messages.map((message) => message.id));
+      if (!notificationInitialLoadSettledRef.current) {
+        prevNotificationMessageKeysRef.current = currentMessageKeys;
+        notificationInitialLoadSettledRef.current = true;
+      } else {
+        newAssistantMessage = findFreshAssistantNotificationMessage({
+          initialLoadSettled: true,
+          candidates: messages
+            .filter((message) => !isHiddenFromUser(message))
+            .map((message) => ({
+              key: message.id,
+              role: message.role,
+              createdAtMs: new Date(message.createdAt).getTime(),
+              message,
+            })),
+          previousMessageKeys: prevNotificationMessageKeysRef.current,
+          now,
+        });
+        prevNotificationMessageKeysRef.current = currentMessageKeys;
+      }
+    }
+
     // On the very first render that has messages, just snapshot the keys and
-    // mark the initial load as settled ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â don't stagger or play sounds.
+    // mark the initial load as settled - don't stagger or play sounds.
     if (!initialLoadSettledRef.current) {
       if (currentKeys.size > 0) {
         prevRenderedKeysRef.current = currentKeys;
-        // Mark all current keys as globally seen so remount won't replay them
         for (const k of currentKeys) globalSeenKeysRef.current.add(k);
         prevRenderedPartCountsRef.current = currentPartCounts;
         initialLoadSettledRef.current = true;
@@ -1174,7 +1201,6 @@ export function ConversationView({
 
     const prevKeys = prevRenderedKeysRef.current;
     const seenGlobal = globalSeenKeysRef.current;
-    const now = Date.now();
 
     const newPartMessages = collectFreshAssistantPartRevealStarts({
       initialLoadSettled: true,
@@ -1189,36 +1215,12 @@ export function ConversationView({
       seenKeys: seenGlobal,
       now,
     });
-    // Find newly arrived assistant messages (for notification sound)
-    let newAssistantMessage: Message | null = null;
 
-    for (const key of currentKeys) {
-      if (!prevKeys.has(key) && !seenGlobal.has(key)) {
-        const item = itemByKey.get(key);
-        if (!item) continue;
-
-        // Check if this message is fresh (created recently, meaning it was
-        // generated while the user is actively in this chat)
-        const ts = new Date(item.msg.createdAt).getTime();
-        const isFresh = now - ts < CONVERSATION_PART_REVEAL_FRESHNESS_MS;
-
-        if (!isFresh) {
-          // Stale message from cache refetch ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â silently mark as seen, skip animation
-          continue;
-        }
-
-        if (item.msg.role === "assistant") {
-          newAssistantMessage ??= item.msg;
-        }
-      }
-    }
-
-    // Mark all current keys as globally seen
+    // Mark all current keys as globally seen.
     for (const k of currentKeys) seenGlobal.add(k);
     prevRenderedKeysRef.current = currentKeys;
     prevRenderedPartCountsRef.current = currentPartCounts;
 
-    // Play notification for the first new message appearance
     if (newAssistantMessage) {
       const uiState = useUIStore.getState();
       if (uiState.convoNotificationSound) {
@@ -1284,10 +1286,7 @@ export function ConversationView({
             }
             return next;
           });
-          const uiState = useUIStore.getState();
-          if (uiState.convoNotificationSound) {
-            playNotificationPing(uiState.notificationSound, uiState.customNotificationSound);
-          }
+
           staggerTimersRef.current[key] = (staggerTimersRef.current[key] ?? []).filter(
             (currentTimer) => currentTimer !== timer,
           );
@@ -1302,7 +1301,7 @@ export function ConversationView({
     // No cleanup return here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â timers are managed via staggerTimersRef and
     // must survive effect re-runs caused by query refetches. Cleanup on
     // unmount is handled by a separate effect below.
-  }, [activeCharacterNames, characterMap, chatId, renderedItems]);
+  }, [activeCharacterNames, characterMap, chatId, messages, renderedItems]);
 
   // Clean up stagger timers on unmount only (empty deps = unmount cleanup)
   useEffect(() => {
