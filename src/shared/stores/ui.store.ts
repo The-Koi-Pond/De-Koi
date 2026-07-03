@@ -217,7 +217,7 @@ export const useUIStore = create<UIState>()(
       },
       convoNotificationSound: true,
       rpNotificationSound: true,
-      notificationSound: "refactor",
+      notificationSound: "frog",
       customNotificationSound: null,
       textBlipMode: "off" as TextBlipMode,
       customTextBlipSound: null,

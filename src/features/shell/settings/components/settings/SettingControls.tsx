@@ -259,7 +259,7 @@ export function ConversationSoundSetting() {
                   type="button"
                   onClick={() => {
                     setCustomNotificationSound(null);
-                    if (notificationSound === "custom") setNotificationSound("refactor");
+                    if (notificationSound === "custom") setNotificationSound("frog");
                     setCustomSoundError(null);
                     if (customSoundInputRef.current) customSoundInputRef.current.value = "";
                   }}
