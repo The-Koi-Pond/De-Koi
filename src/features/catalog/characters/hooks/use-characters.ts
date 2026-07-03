@@ -56,6 +56,29 @@ export type CharacterSummary = {
   updatedAt?: string;
 };
 
+export type CharacterLibrarySummary = {
+  id: string;
+  data?: {
+    name?: string;
+    description?: string;
+    personality?: string;
+    creator?: string;
+    character_version?: string;
+    tags?: unknown[];
+    extensions?: {
+      avatarCrop?: unknown;
+      fav?: unknown;
+      publicProfile?: unknown;
+    };
+  };
+  comment?: string | null;
+  avatarPath?: string | null;
+  avatarFilePath?: string | null;
+  avatarFilename?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type CharacterPanelSummary = {
   id: string;
   data?: {
@@ -116,6 +139,23 @@ const CHARACTER_SUMMARY_OPTIONS = {
 };
 const EMPTY_CHARACTER_SUMMARIES: CharacterSummary[] = [];
 
+const CHARACTER_LIBRARY_SUMMARY_OPTIONS = {
+  fields: CHARACTER_LIST_FIELDS,
+  fieldSelections: {
+    data: [
+      "name",
+      "description",
+      "personality",
+      "creator",
+      "character_version",
+      "tags",
+      "extensions.avatarCrop",
+      "extensions.fav",
+      "extensions.publicProfile",
+    ],
+  },
+};
+
 const CHARACTER_PANEL_SUMMARY_OPTIONS = {
   fields: CHARACTER_LIST_FIELDS,
   fieldSelections: {
@@ -156,6 +196,15 @@ async function listCharacterSummaries(search?: string): Promise<CharacterSummary
   return characters.map(normalizeCharacterAvatarFields);
 }
 
+async function listCharacterLibrarySummaries(search?: string): Promise<CharacterLibrarySummary[]> {
+  const query = normalizeSearchQuery(search);
+  const characters = await storageApi.list<CharacterLibrarySummary>("characters", {
+    ...CHARACTER_LIBRARY_SUMMARY_OPTIONS,
+    ...(query ? { search: query } : {}),
+  });
+  return characters.map(normalizeCharacterAvatarFields);
+}
+
 async function listCharacterPanelSummaries(search?: string): Promise<CharacterPanelSummary[]> {
   const query = normalizeSearchQuery(search);
   const characters = await storageApi.list<CharacterPanelSummary>("characters", {
@@ -188,6 +237,17 @@ export function useCharacterSummaries(enabled = true, search?: string) {
   return useQuery({
     queryKey: query ? characterKeys.summarySearch(query) : characterKeys.summaries(),
     queryFn: () => listCharacterSummaries(query),
+    enabled,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useCharacterLibrarySummaries(enabled = true, search?: string) {
+  const query = normalizeSearchQuery(search);
+  return useQuery({
+    queryKey: query ? characterKeys.librarySummarySearch(query) : characterKeys.librarySummaries(),
+    queryFn: () => listCharacterLibrarySummaries(query),
     enabled,
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
