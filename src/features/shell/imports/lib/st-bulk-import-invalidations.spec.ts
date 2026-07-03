@@ -38,6 +38,7 @@ describe("applySTBulkImportInvalidations", () => {
     ).toEqual([
       ["characters", "list"],
       ["characters", "summaries"],
+      ["characters", "library-summaries"],
       ["characters", "panel-summaries"],
       ["chats", "list"],
       ["lorebooks"],
