@@ -10,10 +10,20 @@ function asStorageValue<T>(value: unknown): T {
 function promptStorage(
   characters: Record<string, unknown> | Record<string, unknown>[],
   promptBundle: { preset: Record<string, unknown>; sections: Record<string, unknown>[] } | null = null,
+  seed: {
+    chats?: Record<string, unknown>[];
+    messages?: Record<string, Record<string, unknown>[]>;
+    onListChatsOptions?: (options: unknown) => void;
+    onListChatMessagesOptions?: (chatId: string, options: unknown) => Promise<void> | void;
+  } = {},
 ): StorageGateway {
   const characterRows = Array.isArray(characters) ? characters : [characters];
   return {
-    async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+    async list<T = unknown>(entity: StorageEntity, options?: unknown): Promise<T[]> {
+      if (entity === "chats") {
+        seed.onListChatsOptions?.(options);
+        return asStorageValue<T[]>(seed.chats ?? []);
+      }
       if (entity === "prompts") return asStorageValue<T[]>(promptBundle ? [promptBundle.preset] : []);
       if (["personas", "regex-scripts", "lorebooks", "agents"].includes(entity)) return [];
       return [];
@@ -32,8 +42,9 @@ function promptStorage(
     async delete() {
       return { deleted: false };
     },
-    async listChatMessages() {
-      return [];
+    async listChatMessages<T = unknown>(chatId: string, options?: unknown) {
+      await seed.onListChatMessagesOptions?.(chatId, options);
+      return asStorageValue<T[]>(seed.messages?.[chatId] ?? []);
     },
     async getChatMessage() {
       return null;
@@ -131,6 +142,116 @@ describe("character public profiles in prompt assembly", () => {
     expect(promptText).toContain("A cheerful bard who remembers every song half-wrong.");
     expect(promptText).not.toContain("music, sunny");
     expect(promptText).not.toContain("Private setup notes");
+  });
+});
+describe("cross-chat awareness prompt assembly", () => {
+  it("reads sibling chat messages with bounded parallelism while keeping recency output order", async () => {
+    const listChatsOptions: unknown[] = [];
+    const messageOptions: Array<{ chatId: string; options: unknown }> = [];
+    let activeReads = 0;
+    let maxActiveReads = 0;
+
+    const storage = promptStorage(
+      {
+        id: "mira",
+        data: {
+          name: "Mira",
+          description: "Mira core description.",
+        },
+      },
+      null,
+      {
+        chats: [
+          {
+            id: "chat-1",
+            name: "Current",
+            mode: "conversation",
+            characterIds: ["mira"],
+            updatedAt: "2026-07-03T12:00:00.000Z",
+          },
+          {
+            id: "chat-new",
+            name: "New sibling",
+            mode: "conversation",
+            characterIds: ["mira"],
+            updatedAt: "2026-07-03T11:00:00.000Z",
+          },
+          {
+            id: "chat-old",
+            name: "Old sibling",
+            mode: "conversation",
+            characterIds: ["mira"],
+            updatedAt: "2026-07-02T11:00:00.000Z",
+          },
+          {
+            id: "chat-other",
+            name: "Other character",
+            mode: "conversation",
+            characterIds: ["other"],
+            updatedAt: "2026-07-04T11:00:00.000Z",
+          },
+        ],
+        messages: {
+          "chat-new": [{ role: "assistant", characterId: "mira", content: "New clue from the later sibling." }],
+          "chat-old": [{ role: "assistant", characterId: "mira", content: "Old clue from the earlier sibling." }],
+        },
+        onListChatsOptions(options) {
+          listChatsOptions.push(options);
+        },
+        async onListChatMessagesOptions(chatId, options) {
+          messageOptions.push({ chatId, options });
+          activeReads += 1;
+          maxActiveReads = Math.max(maxActiveReads, activeReads);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          activeReads -= 1;
+        },
+      },
+    );
+
+    const result = await assembleGenerationPrompt(storage, {
+      chat: {
+        id: "chat-1",
+        mode: "conversation",
+        characterIds: ["mira"],
+        metadata: { crossChatAwareness: true },
+      },
+      storedMessages: [{ role: "user", content: "What did I miss?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "What did I miss?",
+    });
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+
+    expect(maxActiveReads).toBeGreaterThan(1);
+    expect(listChatsOptions[0]).toMatchObject({
+      fields: [
+        "id",
+        "name",
+        "mode",
+        "chatMode",
+        "characterIds",
+        "metadata",
+        "lastActivityAt",
+        "updatedAt",
+        "lastMessageAt",
+        "createdAt",
+      ],
+    });
+    expect(messageOptions).toHaveLength(2);
+    expect(messageOptions.map((entry) => entry.chatId).sort()).toEqual(["chat-new", "chat-old"]);
+    expect(messageOptions.every((entry) => entry.options && typeof entry.options === "object")).toBe(true);
+    expect(messageOptions.map((entry) => entry.options)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          limit: 8,
+          fields: ["role", "content", "characterId", "hiddenFromAi", "extra"],
+        }),
+      ]),
+    );
+    expect(promptText.indexOf("Chat: New sibling")).toBeLessThan(promptText.indexOf("Chat: Old sibling"));
+    expect(promptText).toContain("New clue from the later sibling.");
+    expect(promptText).toContain("Old clue from the earlier sibling.");
   });
 });
 describe("merged roleplay prompt compaction", () => {
