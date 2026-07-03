@@ -4,11 +4,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CharacterPublicProfilePopover } from "./CharacterPublicProfilePopover";
 
-const avatarImageMock = vi.fn();
-const dispatchMusicPlaybackEventMock = vi.fn();
+const { avatarImageMock, coreModulesGetMock, dispatchMusicPlaybackEventMock, toastInfoMock } = vi.hoisted(() => ({
+  avatarImageMock: vi.fn(),
+  coreModulesGetMock: vi.fn(),
+  dispatchMusicPlaybackEventMock: vi.fn(),
+  toastInfoMock: vi.fn(),
+}));
 
 vi.mock("../../../../shared/lib/music-playback-events", () => ({
   dispatchMusicPlaybackEvent: (detail: unknown) => dispatchMusicPlaybackEventMock(detail),
+}));
+
+vi.mock("../../../../shared/api/core-modules-api", () => ({
+  coreModulesApi: {
+    settings: {
+      get: coreModulesGetMock,
+    },
+  },
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    info: toastInfoMock,
+  },
 }));
 
 vi.mock("../../../../shared/components/ui/AvatarImage", () => ({
@@ -80,7 +98,10 @@ describe("CharacterPublicProfilePopover", () => {
 
   beforeEach(() => {
     avatarImageMock.mockClear();
+    coreModulesGetMock.mockReset();
     dispatchMusicPlaybackEventMock.mockClear();
+    toastInfoMock.mockClear();
+    coreModulesGetMock.mockResolvedValue({ enabled: { "music-dj-mini-player": true } });
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -174,6 +195,69 @@ describe("CharacterPublicProfilePopover", () => {
       type: "cue",
       query: "Disciple Throbbing Gristle",
     });
+  });
+
+  it("tells users to enable the Music DJ Mini Player when public profile music is cued without it", async () => {
+    coreModulesGetMock.mockResolvedValue({ enabled: { "music-dj-mini-player": false } });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <CharacterPublicProfilePopover
+          profile={musicProfile}
+          anchorRect={{ top: 40, right: 144, bottom: 64, left: 80, width: 64, height: 24, x: 80, y: 40 }}
+          onClose={vi.fn()}
+        />,
+      );
+    });
+
+    const play = document.body.querySelector<HTMLButtonElement>("[aria-label='Play character music']");
+    expect(play).not.toBeNull();
+
+    await act(async () => {
+      play!.click();
+      await Promise.resolve();
+    });
+
+    expect(dispatchMusicPlaybackEventMock).toHaveBeenCalledWith({
+      type: "cue",
+      query: "Disciple Throbbing Gristle",
+    });
+    expect(toastInfoMock).toHaveBeenCalledWith(
+      "Enable Music DJ Mini Player in Settings > Modules to see playback controls.",
+      { duration: 5000 },
+    );
+  });
+
+  it("tells users to enable the Music DJ Mini Player when delegated public profile music is played without it", async () => {
+    const onPlayMusic = vi.fn();
+    coreModulesGetMock.mockResolvedValue({ enabled: { "music-dj-mini-player": false } });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <CharacterPublicProfilePopover
+          profile={musicProfile}
+          anchorRect={{ top: 40, right: 144, bottom: 64, left: 80, width: 64, height: 24, x: 80, y: 40 }}
+          onClose={vi.fn()}
+          onPlayMusic={onPlayMusic}
+        />,
+      );
+    });
+
+    const play = document.body.querySelector<HTMLButtonElement>("[aria-label='Play character music']");
+    expect(play).not.toBeNull();
+
+    await act(async () => {
+      play!.click();
+      await Promise.resolve();
+    });
+
+    expect(onPlayMusic).toHaveBeenCalledTimes(1);
+    expect(toastInfoMock).toHaveBeenCalledWith(
+      "Enable Music DJ Mini Player in Settings > Modules to see playback controls.",
+      { duration: 5000 },
+    );
   });
 
   it("shuffles between public character music options without caller-managed state", () => {

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
+import {
+  LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID,
+  MUSIC_DJ_MINI_PLAYER_MODULE_ID,
+} from "../../../../engine/contracts/constants/core-modules";
+import { coreModulesApi } from "../../../../shared/api/core-modules-api";
 import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
 import { buildCharacterMusicPlaybackCue, formatNowListeningLine } from "../lib/character-music-profile";
 import type { ResolvedCharacterPublicProfile } from "../lib/character-public-profile";
@@ -28,6 +34,16 @@ const CARD_WIDTH = 320;
 const CARD_MAX_HEIGHT = 448;
 const EDGE_GAP = 8;
 const ANCHOR_GAP = 8;
+const MUSIC_DJ_MINI_PLAYER_HINT = "Enable Music DJ Mini Player in Settings > Modules to see playback controls.";
+
+async function showMusicDjMiniPlayerHintIfNeeded() {
+  const settings = await coreModulesApi.settings.get().catch(() => null);
+  const enabled = settings?.enabled ?? {};
+  if (enabled[MUSIC_DJ_MINI_PLAYER_MODULE_ID] === true || enabled[LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID] === true) {
+    return;
+  }
+  toast.info(MUSIC_DJ_MINI_PLAYER_HINT, { duration: 5000 });
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -80,7 +96,8 @@ export function CharacterPublicProfilePopover({
   const localMusicShuffleEnabled = !onShuffleMusic && musicOptions.length > 1;
   const selectedMusicIndex =
     musicOptions.length > 0
-      ? ((profile.musicPickIndex + musicShuffleOffset) % musicOptions.length + musicOptions.length) % musicOptions.length
+      ? (((profile.musicPickIndex + musicShuffleOffset) % musicOptions.length) + musicOptions.length) %
+        musicOptions.length
       : 0;
   const displayedProfile = useMemo(() => {
     const nowListening = musicOptions[selectedMusicIndex] ?? profile.nowListening;
@@ -105,14 +122,20 @@ export function CharacterPublicProfilePopover({
   const playProfileMusic = useCallback(() => {
     const cue = buildCharacterMusicPlaybackCue(displayedProfile.nowListening);
     if (!cue) return;
+    void showMusicDjMiniPlayerHintIfNeeded();
     dispatchMusicPlaybackEvent({ type: "cue", query: cue.query });
   }, [displayedProfile.nowListening]);
+  const playProvidedProfileMusic = useCallback(() => {
+    if (!onPlayMusic) return;
+    void showMusicDjMiniPlayerHintIfNeeded();
+    onPlayMusic();
+  }, [onPlayMusic]);
   const resolvedPlayMusic =
     localMusicShuffleEnabled || !onPlayMusic
       ? displayedProfile.nowListening
         ? playProfileMusic
         : undefined
-      : onPlayMusic;
+      : playProvidedProfileMusic;
 
   if (typeof document === "undefined") return null;
 
