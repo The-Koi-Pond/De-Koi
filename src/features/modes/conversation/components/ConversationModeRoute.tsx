@@ -1,8 +1,9 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import { getChatDisplayName, parseChatMetadata } from "../../../../shared/lib/chat-display";
 import { extractCreatorNotesCss } from "../../../../shared/lib/creator-notes-css";
 import { cssTargetsTypingIndicator, filterCssByMode } from "../../../../shared/lib/chat-css";
+import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
@@ -20,6 +21,7 @@ import { useDeleteChat } from "../../../catalog/chats/index";
 import { ChatConversationSurface } from "./ChatConversationSurface";
 import { CreatorNotesCssInjector } from "../../shared/chat-ui/index";
 import { useConversationAvatarOverrides } from "../hooks/use-conversation-avatar-overrides";
+import { buildConversationMusicContext } from "../lib/music-dj-conversation-context";
 
 type ConversationModeRouteProps = {
   activeChatId: string;
@@ -91,6 +93,23 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
     characterMap: conversationCharacterMap,
     isStreaming: timeline.isStreaming,
   });
+
+  const musicDjContext = useMemo(
+    () =>
+      buildConversationMusicContext({
+        chatName: data.chat?.name,
+        chatMeta: data.chatMeta,
+        characterNames: data.characterNames,
+        personaName: data.personaInfo?.name,
+        messages: data.messages,
+      }),
+    [data.chat?.name, data.chatMeta, data.characterNames, data.personaInfo?.name, data.messages],
+  );
+
+  useEffect(() => {
+    if (data.chatMode !== "conversation" || !enabledAgentTypes.has("music-dj") || !musicDjContext) return;
+    dispatchMusicPlaybackEvent({ type: "context", query: musicDjContext.query, intent: musicDjContext.intent });
+  }, [data.chatMode, enabledAgentTypes, musicDjContext]);
 
   const connectedChatId = (data.chat as unknown as { connectedChatId?: string | null } | null | undefined)
     ?.connectedChatId;
