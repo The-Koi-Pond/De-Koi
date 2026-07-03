@@ -168,6 +168,59 @@ describe("CharacterMetadataTab public profile generation", () => {
       bannerImage: "http://pi:7860/api/assets/gallery/rook-banner.png",
     });
   });
+
+  it("writes generated favorite music artists into the music profile", async () => {
+    const updateExtension = vi.fn();
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <CharacterMetadataTab
+          characterId="char-1"
+          formData={formData}
+          characterComment="Freelance journalist with a taste for fear"
+          updateField={vi.fn()}
+          updateExtension={updateExtension}
+          newTag=""
+          setNewTag={vi.fn()}
+          addTag={vi.fn()}
+          removeTag={vi.fn()}
+          removeAllTags={vi.fn()}
+          avatarPreview={null}
+          imageConnections={[]}
+        />,
+      );
+    });
+
+    const generateButton = container!.querySelector<HTMLButtonElement>(
+      'button[aria-label="Generate Favorite Music Artists"]',
+    );
+    expect(generateButton).toBeTruthy();
+    apiMocks.streamCompletion.mockImplementationOnce(async function* (_request?: unknown) {
+      yield { type: "token", text: '["Portishead", "Akira Yamaoka"]' };
+    });
+
+    await act(async () => {
+      generateButton!.click();
+    });
+
+    expect(apiMocks.streamCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "conn-1",
+        messages: expect.arrayContaining([
+          expect.objectContaining({ content: expect.stringContaining("Requested field: Favorite Music Artists") }),
+        ]),
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(updateExtension).toHaveBeenCalledWith("musicProfile", {
+      publicListeningEnabled: false,
+      favoriteGenres: [],
+      favoriteArtists: ["Portishead", "Akira Yamaoka"],
+      favoriteSongs: [],
+      vibeNotes: "",
+    });
+  });
   it("starts another public profile wand request while a previous wand is still pending", async () => {
     const releases: Array<() => void> = [];
     const requestedFields: string[] = [];

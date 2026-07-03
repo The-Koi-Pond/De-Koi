@@ -1,5 +1,16 @@
 import type { LlmChunk, LlmGateway, LlmMessage } from "../../../../engine/capabilities/llm";
-import type { CharacterData, DepthPrompt } from "../../../../engine/contracts/types/character";
+import type {
+  CharacterData,
+  CharacterMusicFavoriteSong,
+  DepthPrompt,
+} from "../../../../engine/contracts/types/character";
+import {
+  parseFavoriteSongsText,
+  parseMusicTextList,
+  readCharacterMusicProfile,
+  serializeFavoriteSongsText,
+  serializeMusicTextList,
+} from "./character-music-profile";
 
 export type CharacterFieldGenerationField =
   | "description"
@@ -13,9 +24,13 @@ export type CharacterFieldGenerationField =
   | "post_history_instructions"
   | "creator_notes"
   | "tags"
+  | "music_favorite_songs"
+  | "music_favorite_artists"
+  | "music_favorite_genres"
+  | "music_vibe_notes"
   | "depth_prompt";
 
-export type CharacterFieldGenerationValue = string | string[] | DepthPrompt;
+export type CharacterFieldGenerationValue = string | string[] | CharacterMusicFavoriteSong[] | DepthPrompt;
 
 export type CharacterFieldGenerationInput = {
   data: CharacterData;
@@ -41,6 +56,10 @@ export const CHARACTER_FIELD_LABELS: Record<CharacterFieldGenerationField, strin
   post_history_instructions: "Post-History Instructions",
   creator_notes: "Creator Notes",
   tags: "Tags",
+  music_favorite_songs: "Favorite Music Songs",
+  music_favorite_artists: "Favorite Music Artists",
+  music_favorite_genres: "Favorite Music Genres",
+  music_vibe_notes: "Vibe Notes",
   depth_prompt: "Depth Prompt",
 };
 
@@ -66,6 +85,14 @@ const FIELD_INSTRUCTIONS: Record<CharacterFieldGenerationField, string> = {
   creator_notes:
     "Write complete private creator notes in a few simple sentences. Keep them practical: intended use, strengths, notable quirks, and any handling tips needed to use the card well. Do not write as the character. Do not stop mid-thought. Return only the creator notes.",
   tags: "Write 4-8 short organization tags. Return either a JSON array of strings or comma-separated tag names.",
+  music_favorite_songs:
+    'Write 3-6 favorite songs this character would plausibly love or publicly list. Return JSON only: [{ "title": "Song title", "artist": "Artist name" }]. Include a "url" only if the source context already provided one; do not invent URLs.',
+  music_favorite_artists:
+    "Write 3-8 favorite music artists this character would plausibly love or publicly list. Return JSON only: an array of artist name strings.",
+  music_favorite_genres:
+    "Write 3-8 favorite music genres or microgenres that fit this character. Return JSON only: an array of genre strings.",
+  music_vibe_notes:
+    "Write one short music-taste vibe note for fallback Music DJ searches. Use mood, setting, sonic texture, or listening context. Return only the note text.",
   depth_prompt:
     'Write a depth prompt plus settings. Return JSON only: { "prompt": "persistent reminder text", "depth": 4, "role": "system" }. Depth should be 0-100. Role must be "system", "user", or "assistant".',
 };
@@ -173,6 +200,51 @@ function cleanTags(raw: string): string[] {
   );
 }
 
+function jsonArrayFieldValue(raw: string, keys: string[]): unknown[] {
+  const parsedValue = parseJsonValue(raw);
+  if (Array.isArray(parsedValue)) return parsedValue;
+  const parsedRecord = readRecord(parsedValue);
+  for (const key of keys) {
+    const value = parsedRecord[key];
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
+function cleanMusicTextListField(field: CharacterFieldGenerationField, raw: string, keys: string[]): string[] {
+  const jsonValues = jsonArrayFieldValue(raw, [...keys, field, CHARACTER_FIELD_LABELS[field], "value"])
+    .map((item) => readText(item))
+    .filter(Boolean);
+  if (jsonValues.length > 0) return parseMusicTextList(jsonValues.join("\n"));
+  return parseMusicTextList(stripFieldLabel(field, stripMarkdownFence(raw)));
+}
+
+function cleanMusicFavoriteSongs(raw: string): CharacterMusicFavoriteSong[] {
+  const jsonValues = jsonArrayFieldValue(raw, [
+    "favoriteSongs",
+    "songs",
+    "music_favorite_songs",
+    "Favorite Music Songs",
+    "value",
+  ]);
+  if (jsonValues.length > 0) {
+    return parseFavoriteSongsText(
+      jsonValues
+        .map((item) => {
+          const record = readRecord(item);
+          const title = readText(record.title);
+          if (!title) return "";
+          const artist = readText(record.artist);
+          const url = readText(record.url);
+          return `${title}${artist ? ` - ${artist}` : ""}${url ? ` | ${url}` : ""}`;
+        })
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
+  return parseFavoriteSongsText(stripFieldLabel("music_favorite_songs", stripMarkdownFence(raw)));
+}
+
 function normalizeDepth(value: unknown): number {
   const numeric = typeof value === "number" ? value : Number.parseInt(String(value), 10);
   if (!Number.isFinite(numeric)) return 4;
@@ -210,6 +282,10 @@ export function buildCharacterFieldGenerationMessages(
   input: CharacterFieldGenerationInput,
 ): LlmMessage[] {
   const depthPrompt = readRecord(input.data.extensions.depth_prompt);
+  const musicProfile = readCharacterMusicProfile(input.data.extensions.musicProfile);
+  const favoriteSongs = musicProfile.favoriteSongs ?? [];
+  const favoriteArtists = musicProfile.favoriteArtists ?? [];
+  const favoriteGenres = musicProfile.favoriteGenres ?? [];
   const context = [
     labelledLine("Character name", input.data.name),
     labelledLine("Profile title/comment", input.comment),
@@ -224,6 +300,10 @@ export function buildCharacterFieldGenerationMessages(
     labelledLine("Post-history instructions", input.data.post_history_instructions),
     labelledLine("Creator notes", input.data.creator_notes),
     readTextArray(input.data.tags).length > 0 ? `Tags:\n${readTextArray(input.data.tags).join(", ")}` : "",
+    favoriteSongs.length > 0 ? `Favorite songs:\n${serializeFavoriteSongsText(favoriteSongs)}` : "",
+    favoriteArtists.length > 0 ? `Favorite artists:\n${serializeMusicTextList(favoriteArtists)}` : "",
+    favoriteGenres.length > 0 ? `Favorite genres:\n${serializeMusicTextList(favoriteGenres)}` : "",
+    musicProfile.vibeNotes ? `Music vibe notes:\n${musicProfile.vibeNotes}` : "",
     readText(depthPrompt.prompt)
       ? `Depth prompt:\n${readText(depthPrompt.prompt)}\nDepth: ${normalizeDepth(depthPrompt.depth)}\nRole: ${normalizeDepthRole(depthPrompt.role)}`
       : "",
@@ -261,6 +341,9 @@ export function cleanGeneratedCharacterField(
   raw: string,
 ): CharacterFieldGenerationValue {
   if (field === "tags") return cleanTags(raw);
+  if (field === "music_favorite_songs") return cleanMusicFavoriteSongs(raw);
+  if (field === "music_favorite_artists") return cleanMusicTextListField(field, raw, ["favoriteArtists", "artists"]);
+  if (field === "music_favorite_genres") return cleanMusicTextListField(field, raw, ["favoriteGenres", "genres"]);
   if (field === "depth_prompt") return cleanDepthPrompt(raw);
   return cleanTextField(field, raw);
 }
@@ -276,7 +359,11 @@ export async function generateCharacterField(
     parameters: {
       temperature: 0.9,
       maxTokens:
-        input.field === "tags"
+        input.field === "tags" ||
+        input.field === "music_favorite_songs" ||
+        input.field === "music_favorite_artists" ||
+        input.field === "music_favorite_genres" ||
+        input.field === "music_vibe_notes"
           ? 512
           : input.field === "creator_notes"
             ? 1536
@@ -294,7 +381,9 @@ export async function generateCharacterField(
   }
 
   const value = cleanGeneratedCharacterField(input.field, rawParts.join(""));
-  if (Array.isArray(value) && value.length === 0) throw new Error("Provider returned no tags.");
+  if (Array.isArray(value) && value.length === 0) {
+    throw new Error(`Provider returned no ${CHARACTER_FIELD_LABELS[input.field].toLowerCase()}.`);
+  }
   if (!Array.isArray(value) && typeof value !== "object" && !value.trim()) {
     throw new Error(`Provider returned no ${CHARACTER_FIELD_LABELS[input.field].toLowerCase()} text.`);
   }
