@@ -6,7 +6,7 @@ export interface MusicPlayerDisplay {
 }
 
 export function getMusicPlayerDisplay(track: MusicCandidate | null): MusicPlayerDisplay {
-  const title = track?.title?.trim() || "Music DJ";
+  const title = track?.title?.trim() || "Music Player";
   const subtitle = track?.channelOrArtist?.trim() || "YouTube first";
   return { title, subtitle };
 }

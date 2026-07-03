@@ -218,7 +218,7 @@ const SPOTIFY_SOURCE_OPTIONS: Array<{ id: SpotifySourceType; label: string; desc
   { id: "liked", label: "Liked Songs", description: "Pick from the user's saved tracks first." },
   { id: "playlist", label: "Playlist", description: "Keep choices inside one Spotify playlist." },
   { id: "artist", label: "Artist", description: "Search only around a named artist, like HOYO-MiX." },
-  { id: "any", label: "Any Spotify", description: "Let the DJ use Spotify search when it fits." },
+  { id: "any", label: "Any Spotify", description: "Legacy Spotify DJ can search Spotify when it fits." },
 ];
 
 const GAME_SPOTIFY_SOURCE_OPTIONS = SPOTIFY_SOURCE_OPTIONS;
@@ -1055,7 +1055,7 @@ function ChatSettingsDrawerInner({
       const cue = buildCharacterMusicPlaybackCue(characterPublicProfile(c).nowListening);
       if (!cue) return;
       dispatchMusicPlaybackEvent({ type: "cue", query: cue.query });
-      toast.success("Music DJ cued character music.", { duration: 1800 });
+      toast.success("Music Player cued character music.", { duration: 1800 });
     },
     [characterPublicProfile],
   );
@@ -1575,9 +1575,9 @@ function ChatSettingsDrawerInner({
     if (miniPlayerEnabled) return;
 
     await showAlertDialog({
-      title: "Turn On Music DJ Mini Player",
+      title: "Turn On Music Player",
       message:
-        "Music DJ is enabled for this chat, but the visible player is a separate module. Open Settings > Modules and turn on Music DJ Mini Player to see the YouTube player, volume, and Fresh pick controls.",
+        "Music Player automatic picks are enabled for this chat. The visible playback controls are a separate module: open Settings > Modules and turn on Music Player to see the YouTube player, volume, and Fresh pick controls.",
     });
   }, []);
 
@@ -1653,7 +1653,7 @@ function ChatSettingsDrawerInner({
 
   const ensureMusicDjAgent = useCallback(async () => {
     const builtInMeta = BUILT_IN_AGENTS.find((entry) => entry.id === "music-dj");
-    if (!builtInMeta) throw new Error("Music DJ agent metadata is missing.");
+    if (!builtInMeta) throw new Error("Music Player agent metadata is missing.");
     const config = agentConfigsByType.get("music-dj") ?? null;
     const nextSettings: Record<string, unknown> = {
       ...getDefaultBuiltInAgentSettings("music-dj"),
@@ -1727,11 +1727,11 @@ function ChatSettingsDrawerInner({
       await showMusicDjMiniPlayerModuleHint();
     } catch (error) {
       await showAlertDialog({
-        title: "Couldn't Enable Music DJ",
+        title: "Couldn't Enable Music Player",
         message:
           error instanceof Error
             ? error.message
-            : "Music DJ could not be enabled for this game. Check the agent setup and try again.",
+            : "Music Player could not be enabled for this game. Check the agent setup and try again.",
       });
     }
   }, [activeAgentIds, chat.id, ensureMusicDjAgent, gameUseMusicDj, showMusicDjMiniPlayerModuleHint, updateMeta]);
@@ -4071,10 +4071,10 @@ function ChatSettingsDrawerInner({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 text-xs font-medium">
                           <Music2 size="0.75rem" className="text-[var(--primary)]" />
-                          <span>Music DJ</span>
+                          <span>Music Player</span>
                         </div>
                         <p className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Use YouTube-first Music DJ instead of the built-in Game Mode music library.
+                          Automatic scene-aware YouTube picks for this game. Turn on the Music Player module separately when you want visible controls.
                         </p>
                       </div>
                       <div
@@ -4096,7 +4096,7 @@ function ChatSettingsDrawerInner({
                       <div className="space-y-2 rounded-lg bg-[var(--background)]/55 p-3 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
                         <div>
                           <div className="font-medium text-[var(--foreground)]">Provider: YouTube</div>
-                          <div>No account, OAuth, or API key required.</div>
+                          <div>No account, OAuth, or API key required. This controls automatic picks, not whether the mini player is visible.</div>
                         </div>
                         <button
                           type="button"
@@ -4565,9 +4565,9 @@ function ChatSettingsDrawerInner({
                     <div className="flex items-start gap-2">
                       <Music2 size="0.75rem" className="mt-0.5 text-[var(--primary)]" />
                       <div className="min-w-0 flex-1">
-                        <div className="text-[0.6875rem] font-medium">Music DJ</div>
+                        <div className="text-[0.6875rem] font-medium">Music Player</div>
                         <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                          YouTube-first scene music is active. Use the shell Music DJ player for direct URLs, fresh
+                          YouTube-first scene music is active. Use the shell Music Player for direct URLs, fresh
                           picks, and volume.
                         </p>
                       </div>

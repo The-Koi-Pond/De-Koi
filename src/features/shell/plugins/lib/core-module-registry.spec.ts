@@ -8,14 +8,14 @@ import {
 import { coreModuleViews, isCoreModuleEnabled } from "./core-module-registry";
 
 describe("core module registry", () => {
-  it("registers the Music DJ mini player as a bundled opt-in module", () => {
+  it("registers the Music Player as a bundled opt-in module", () => {
     const modules = coreModuleViews({ enabled: {} });
 
     const musicModule = modules.find((module) => module.id === MUSIC_DJ_MINI_PLAYER_MODULE_ID);
 
     expect(musicModule).toMatchObject({
       id: MUSIC_DJ_MINI_PLAYER_MODULE_ID,
-      name: "Music DJ Mini Player",
+      name: "Music Player",
       slug: "music-dj-mini-player",
       enabled: false,
       status: "disabled",
@@ -26,7 +26,7 @@ describe("core module registry", () => {
     expect(SPOTIFY_MINI_PLAYER_MODULE_ID).toBe(MUSIC_DJ_MINI_PLAYER_MODULE_ID);
   });
 
-  it("enables the Music DJ mini player from current and legacy module settings", () => {
+  it("enables the Music Player from current and legacy module settings", () => {
     expect(isCoreModuleEnabled(MUSIC_DJ_MINI_PLAYER_MODULE_ID, { enabled: {} })).toBe(false);
     expect(
       isCoreModuleEnabled(MUSIC_DJ_MINI_PLAYER_MODULE_ID, {

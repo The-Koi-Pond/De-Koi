@@ -28,10 +28,10 @@ const CORE_MODULES: readonly CoreModuleManifest[] = [
   },
   {
     id: MUSIC_DJ_MINI_PLAYER_MODULE_ID,
-    name: "Music DJ Mini Player",
+    name: "Music Player",
     slug: "music-dj-mini-player",
     description:
-      "Adds optional YouTube-first Music DJ playback controls to the desktop title bar and mobile floating widget.",
+      "Shows the YouTube-first Music Player controls. Turn this on when you want visible playback controls. Enable the Music Player agent in a chat when you want automatic scene-aware picks.",
     version: "1.0.0",
     source: "core",
     main: "core-modules/music-dj-mini-player",
