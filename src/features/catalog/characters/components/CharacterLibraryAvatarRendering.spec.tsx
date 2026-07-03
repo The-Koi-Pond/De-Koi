@@ -83,21 +83,21 @@ describe("character library avatar rendering", () => {
     });
   }
 
-  it("upgrades cropped grid card avatars from thumbnail preview to full resolution", () => {
+  it("keeps cropped grid card avatars on thumbnail previews", () => {
     render(<CharacterLibraryCard character={croppedCharacter()} active={false} onSelect={vi.fn()} />);
 
     expect(avatarImageMock.props[0]).toMatchObject({
       thumbnailSize: 256,
-      upgradeToFullResolution: true,
     });
+    expect(avatarImageMock.props[0]?.upgradeToFullResolution).not.toBe(true);
   });
 
-  it("upgrades cropped detail avatars from thumbnail preview to full resolution", () => {
+  it("keeps cropped detail avatars on thumbnail previews", () => {
     render(<CharacterLibraryDetailCard character={croppedCharacter()} onEdit={vi.fn()} />);
 
     expect(avatarImageMock.props[0]).toMatchObject({
       thumbnailSize: 256,
-      upgradeToFullResolution: true,
     });
+    expect(avatarImageMock.props[0]?.upgradeToFullResolution).not.toBe(true);
   });
 });
