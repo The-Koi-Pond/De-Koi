@@ -46,6 +46,28 @@ export async function fileToUploadPayload(file: File, options: FilePayloadOption
   };
 }
 
+export function dataUrlToUploadPayload(
+  dataUrl: string,
+  filename: string,
+  options: FilePayloadOptions = {},
+): UploadFilePayload {
+  const match = /^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/i.exec(dataUrl.trim());
+  if (!match) throw new Error("Generated image must be an inline base64 image data URL");
+  const type = match[1]?.trim() || "image/png";
+  if (!type.toLowerCase().startsWith("image/")) throw new Error("Generated banner must be an image");
+  const base64 = (match[2] ?? "").replace(/\s+/g, "");
+  const binary = atob(base64);
+  if (options.maxBytes !== undefined && binary.length > options.maxBytes) {
+    throw new Error(options.tooLargeMessage ?? `Uploads must be ${options.maxBytes} bytes or smaller`);
+  }
+  return {
+    name: filename,
+    type,
+    size: binary.length,
+    lastModified: Date.now(),
+    base64,
+  };
+}
 export async function formDataToJson(
   body: FormData,
   options: FilePayloadOptions = {},
