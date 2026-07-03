@@ -130,6 +130,8 @@ describe("resolveCharacterPublicProfile", () => {
 
     expect(profile.nowListening?.displayText).toBe("Shadow Waltz by The Clockhands");
     expect(profile.nowListeningLine).toBe("Listening to: Shadow Waltz by The Clockhands");
+    expect(profile.musicOptions.map((option) => option.displayText)).toEqual(["Shadow Waltz by The Clockhands"]);
+    expect(profile.musicPickIndex).toBe(0);
     expect(profile.nowListeningLine).not.toContain("forbidden");
 
     const hidden = resolveCharacterPublicProfile({
@@ -149,6 +151,37 @@ describe("resolveCharacterPublicProfile", () => {
 
     expect(hidden.nowListening).toBeNull();
     expect(hidden.nowListeningLine).toBeNull();
+    expect(hidden.musicOptions).toEqual([]);
+  });
+
+  it("retains every public music option so profile previews can shuffle locally", () => {
+    const profile = resolveCharacterPublicProfile({
+      id: "char-6",
+      data: {
+        name: "Rook",
+        description: "",
+        extensions: {
+          musicProfile: {
+            publicListeningEnabled: true,
+            favoriteSongs: [{ title: "Disciple", artist: "Throbbing Gristle" }],
+            favoriteArtists: ["Coil"],
+            favoriteGenres: ["industrial"],
+            vibeNotes: "coldwave ritual",
+          },
+        },
+      },
+      comment: "",
+      musicPickIndex: 2,
+    });
+
+    expect(profile.musicOptions.map((option) => option.displayText)).toEqual([
+      "Disciple by Throbbing Gristle",
+      "Coil radio",
+      "industrial mix",
+      "coldwave ritual mix",
+    ]);
+    expect(profile.musicPickIndex).toBe(2);
+    expect(profile.nowListening?.displayText).toBe("industrial mix");
   });
 });
 

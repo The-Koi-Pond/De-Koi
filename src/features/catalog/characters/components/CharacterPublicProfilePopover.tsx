@@ -1,8 +1,8 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
-import { buildCharacterMusicPlaybackCue } from "../lib/character-music-profile";
+import { buildCharacterMusicPlaybackCue, formatNowListeningLine } from "../lib/character-music-profile";
 import type { ResolvedCharacterPublicProfile } from "../lib/character-public-profile";
 import { CharacterPublicProfileCard } from "./CharacterPublicProfileCard";
 
@@ -72,12 +72,47 @@ export function CharacterPublicProfilePopover({
   onOpenFullProfile,
 }: CharacterPublicProfilePopoverProps) {
   const position = useMemo(() => getPopoverPosition(anchorRect), [anchorRect]);
+  const [musicShuffleOffset, setMusicShuffleOffset] = useState(0);
+  const musicOptions = useMemo(
+    () => (profile.musicOptions.length > 0 ? profile.musicOptions : profile.nowListening ? [profile.nowListening] : []),
+    [profile.musicOptions, profile.nowListening],
+  );
+  const localMusicShuffleEnabled = !onShuffleMusic && musicOptions.length > 1;
+  const selectedMusicIndex =
+    musicOptions.length > 0
+      ? ((profile.musicPickIndex + musicShuffleOffset) % musicOptions.length + musicOptions.length) % musicOptions.length
+      : 0;
+  const displayedProfile = useMemo(() => {
+    const nowListening = musicOptions[selectedMusicIndex] ?? profile.nowListening;
+    if (nowListening === profile.nowListening && selectedMusicIndex === profile.musicPickIndex) return profile;
+    return {
+      ...profile,
+      nowListening,
+      nowListeningLine: formatNowListeningLine(nowListening),
+      musicPickIndex: selectedMusicIndex,
+    };
+  }, [musicOptions, profile, selectedMusicIndex]);
+
+  useEffect(() => {
+    setMusicShuffleOffset(0);
+  }, [profile]);
+
+  const shuffleProfileMusic = useCallback(() => {
+    if (musicOptions.length <= 1) return;
+    setMusicShuffleOffset((current) => current + 1);
+  }, [musicOptions.length]);
+  const resolvedShuffleMusic = onShuffleMusic ?? (localMusicShuffleEnabled ? shuffleProfileMusic : undefined);
   const playProfileMusic = useCallback(() => {
-    const cue = buildCharacterMusicPlaybackCue(profile.nowListening);
+    const cue = buildCharacterMusicPlaybackCue(displayedProfile.nowListening);
     if (!cue) return;
     dispatchMusicPlaybackEvent({ type: "cue", query: cue.query });
-  }, [profile.nowListening]);
-  const resolvedPlayMusic = onPlayMusic ?? (profile.nowListening ? playProfileMusic : undefined);
+  }, [displayedProfile.nowListening]);
+  const resolvedPlayMusic =
+    localMusicShuffleEnabled || !onPlayMusic
+      ? displayedProfile.nowListening
+        ? playProfileMusic
+        : undefined
+      : onPlayMusic;
 
   if (typeof document === "undefined") return null;
 
@@ -90,13 +125,13 @@ export function CharacterPublicProfilePopover({
         onClick={(event) => event.stopPropagation()}
       >
         <CharacterPublicProfileCard
-          profile={profile}
+          profile={displayedProfile}
           avatarUrl={avatarUrl}
           avatarFilePath={avatarFilePath}
           avatarFilename={avatarFilename}
           avatarCrop={avatarCrop}
           compact
-          onShuffleMusic={onShuffleMusic}
+          onShuffleMusic={resolvedShuffleMusic}
           onPlayMusic={resolvedPlayMusic}
           onOpenFullProfile={onOpenFullProfile}
         />

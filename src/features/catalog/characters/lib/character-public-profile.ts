@@ -1,7 +1,7 @@
 import type { LlmChunk, LlmGateway, LlmMessage } from "../../../../engine/capabilities/llm";
 import type { CharacterPublicProfile } from "../../../../engine/contracts/types/character";
 import {
-  deriveCharacterNowListening,
+  deriveCharacterMusicOptions,
   formatNowListeningLine,
   readCharacterMusicProfile,
   type ResolvedCharacterNowListening,
@@ -37,6 +37,8 @@ export type ResolvedCharacterPublicProfile = {
   bannerImage: string | null;
   nowListening: ResolvedCharacterNowListening | null;
   nowListeningLine: string | null;
+  musicOptions: ResolvedCharacterNowListening[];
+  musicPickIndex: number;
   hasSavedProfile: boolean;
 };
 
@@ -348,10 +350,12 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
     title ||
     "No public profile yet.";
   const extensions = readRecord(data.extensions);
-  const nowListening = deriveCharacterNowListening(
-    readCharacterMusicProfile(extensions.musicProfile),
-    row.musicPickIndex ?? 0,
-  );
+  const musicOptions = deriveCharacterMusicOptions(readCharacterMusicProfile(extensions.musicProfile));
+  const musicPickIndex =
+    musicOptions.length > 0
+      ? ((Math.trunc(row.musicPickIndex ?? 0) % musicOptions.length) + musicOptions.length) % musicOptions.length
+      : 0;
+  const nowListening = musicOptions[musicPickIndex] ?? null;
 
   return {
     displayName,
@@ -362,6 +366,8 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
     bannerImage: readText(saved.bannerImage) || null,
     nowListening,
     nowListeningLine: formatNowListeningLine(nowListening),
+    musicOptions,
+    musicPickIndex,
     hasSavedProfile:
       !!readText(saved.displayName) ||
       !!readText(saved.handle) ||
