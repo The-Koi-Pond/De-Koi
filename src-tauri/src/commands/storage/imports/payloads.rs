@@ -261,6 +261,55 @@ fn resolve_charx_asset(bytes: &[u8], uri: &str, ext: Option<&str>) -> AppResult<
     )))
 }
 
+fn charx_character_data(value: &Value) -> &Value {
+    value
+        .get("data")
+        .filter(|data| data.is_object())
+        .unwrap_or(value)
+}
+
+fn charx_public_profile_banner_asset_ext(card_data: &Value, uri: &str) -> Option<String> {
+    card_data
+        .get("assets")
+        .and_then(Value::as_array)
+        .and_then(|assets| {
+            assets
+                .iter()
+                .find(|asset| asset.get("uri").and_then(Value::as_str) == Some(uri))
+        })
+        .and_then(|asset| asset.get("ext").and_then(Value::as_str))
+        .map(ToOwned::to_owned)
+}
+
+fn resolve_charx_public_profile_banner(bytes: &[u8], card: &mut Value) -> AppResult<()> {
+    let (uri, ext) = {
+        let card_data = charx_character_data(card);
+        let Some(uri) = card_data
+            .pointer("/extensions/publicProfile/bannerImage")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+        else {
+            return Ok(());
+        };
+        let ext = charx_public_profile_banner_asset_ext(card_data, &uri);
+        (uri, ext)
+    };
+
+    let Some(resolved) = resolve_charx_asset(bytes, &uri, ext.as_deref())? else {
+        return Ok(());
+    };
+    let target = if card.get("data").is_some_and(Value::is_object) {
+        card.pointer_mut("/data/extensions/publicProfile/bannerImage")
+    } else {
+        card.pointer_mut("/extensions/publicProfile/bannerImage")
+    };
+    if let Some(target) = target {
+        *target = Value::String(resolved);
+    }
+    Ok(())
+}
 fn extract_charx(bytes: &[u8]) -> AppResult<Value> {
     validate_charx_zip_package_limits(bytes)?;
     let Some(card_bytes) =
@@ -311,6 +360,7 @@ fn extract_charx(bytes: &[u8]) -> AppResult<Value> {
             }
         }
     }
+    resolve_charx_public_profile_banner(bytes, &mut card)?;
     if let Some(avatar) = avatar {
         let object = card
             .as_object_mut()

@@ -1,7 +1,10 @@
 use super::*;
 use crate::state::AppState;
 use base64::engine::general_purpose;
+use std::io::{Cursor, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
+use zip::write::SimpleFileOptions;
+use zip::CompressionMethod;
 
 const TINY_PNG: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -48,6 +51,24 @@ fn uploaded_bytes(name: &str, content_type: &str, bytes: Vec<u8>) -> Value {
     })
 }
 
+fn charx_with_entries(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, data) in entries {
+        writer
+            .start_file(
+                *name,
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+            )
+            .expect("charx fixture entry should start");
+        writer
+            .write_all(data)
+            .expect("charx fixture entry should write");
+    }
+    writer
+        .finish()
+        .expect("charx fixture should finish")
+        .into_inner()
+}
 fn collection_ids(state: &AppState, collection: &str) -> Vec<String> {
     let mut ids = state
         .storage
@@ -577,6 +598,94 @@ fn import_st_character_materializes_mixed_case_inline_avatar() {
     let _ = fs::remove_dir_all(app_root);
 }
 
+#[test]
+fn import_st_character_materializes_charx_public_profile_banner() {
+    let app_root = temp_path("charx-public-profile-banner");
+    let state =
+        AppState::from_data_dir(&app_root, Vec::new()).expect("test app state should initialize");
+    let image_bytes = general_purpose::STANDARD
+        .decode(TINY_PNG)
+        .expect("fixture PNG should decode");
+    let card = json!({
+        "spec": "chara_card_v3",
+        "spec_version": "3.0",
+        "data": {
+            "name": "Banner Package",
+            "description": "Carries a bundled public profile banner.",
+            "extensions": {
+                "publicProfile": {
+                    "displayName": "Banner Package",
+                    "bannerImage": "embedded://assets/banner/images/main.png"
+                }
+            },
+            "assets": [
+                {
+                    "type": "icon",
+                    "name": "main",
+                    "uri": "embedded://assets/icon/images/main.png",
+                    "ext": "png"
+                },
+                {
+                    "type": "background",
+                    "name": "main",
+                    "uri": "embedded://assets/banner/images/main.png",
+                    "ext": "png"
+                }
+            ]
+        }
+    });
+    let charx = charx_with_entries(&[
+        (
+            "card.json",
+            serde_json::to_vec(&card).expect("card fixture should serialize"),
+        ),
+        ("assets/icon/images/main.png", image_bytes.clone()),
+        ("assets/banner/images/main.png", image_bytes),
+    ]);
+
+    let result = import_st_character(
+        &state,
+        json!({
+            "file": uploaded_bytes("banner-package.charx", "application/zip", charx)
+        }),
+    )
+    .expect("charx character should import");
+
+    let character_id = result
+        .get("characterId")
+        .and_then(Value::as_str)
+        .expect("import should return a character id");
+    let banner = result
+        .pointer("/character/data/extensions/publicProfile/bannerImage")
+        .and_then(Value::as_str)
+        .expect("public profile banner should be preserved");
+    assert!(
+        banner.starts_with("asset://localhost/") || banner.starts_with("http://asset.localhost/"),
+        "embedded public profile banners should import as managed asset URLs, got {banner}"
+    );
+
+    let gallery_rows = state
+        .storage
+        .list("character-gallery")
+        .expect("character gallery should be readable");
+    let gallery = gallery_rows
+        .iter()
+        .find(|row| row.get("characterId").and_then(Value::as_str) == Some(character_id))
+        .expect("imported banner should create a character gallery row");
+    assert_eq!(gallery.get("url").and_then(Value::as_str), Some(banner));
+    assert!(
+        Path::new(
+            gallery
+                .get("filePath")
+                .and_then(Value::as_str)
+                .expect("gallery filePath should be stored")
+        )
+        .exists(),
+        "managed banner file should exist"
+    );
+
+    let _ = fs::remove_dir_all(app_root);
+}
 #[test]
 fn import_st_preset_keeps_reasoning_effort_auto_unset_and_keeps_fallbacks() {
     for (label, raw_effort, expected_effort) in [

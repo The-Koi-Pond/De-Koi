@@ -1,6 +1,6 @@
 use super::super::media_uploads::{
     decode_image_payload, extension_for_image_mime, is_inline_image_data_url, persist_image_bytes,
-    persist_image_file_copy, remove_copied_file_path, safe_filename, unique_file_path,
+    remove_copied_file_path, safe_filename, unique_file_path,
 };
 use super::super::shared::*;
 use super::super::*;
@@ -8,6 +8,8 @@ use super::super::*;
 mod access;
 #[path = "bulk_imports.rs"]
 mod bulk_imports;
+#[path = "character_assets.rs"]
+mod character_assets;
 #[path = "lorebook_normalization.rs"]
 mod lorebook_normalization;
 #[path = "lorebook_signals.rs"]
@@ -25,7 +27,9 @@ mod st_preset;
 #[path = "timestamps.rs"]
 mod timestamps;
 use access::*;
+use character_assets::*;
 use lorebook_normalization::*;
+pub(crate) use lorebook_normalization::{lorebook_entries, normalize_lorebook_entry};
 use marinara::*;
 use normalization::*;
 use payloads::*;
@@ -34,7 +38,6 @@ use st_preset::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use timestamps::{apply_timestamp_overrides, timestamp_overrides_from_value};
-pub(crate) use lorebook_normalization::{lorebook_entries, normalize_lorebook_entry};
 
 const MAX_CHARACTER_IMPORT_UPLOAD_BYTES: usize = 75 * 1024 * 1024;
 const CHARACTER_IMPORT_UPLOAD_TOO_LARGE: &str = "Character imports must be 75 MB or smaller";
@@ -183,10 +186,19 @@ fn import_st_character_payload(
         .map(ToOwned::to_owned);
     let mut created_character_id = None;
     let mut created_lorebook_id = None;
+    let mut created_banner_gallery_id = None;
+    let mut banner_gallery_file_path = None;
     let result = (|| -> AppResult<Value> {
-        let character = state.storage.create("characters", record)?;
+        let mut character = state.storage.create("characters", record)?;
         let character_id = created_record_id(&character, "character")?;
         created_character_id = Some(character_id.clone());
+        materialize_imported_public_profile_banner(
+            state,
+            &character_id,
+            &mut character,
+            &mut created_banner_gallery_id,
+            &mut banner_gallery_file_path,
+        )?;
 
         let import_embedded = body
             .get("importEmbeddedLorebook")
@@ -242,6 +254,17 @@ fn import_st_character_payload(
         if let Some(lorebook_id) = created_lorebook_id.as_deref() {
             rollback_lorebook_tree(state, lorebook_id, &mut rollback_errors);
         }
+        if let Some(gallery_id) = created_banner_gallery_id.as_deref() {
+            rollback_created_records(
+                state,
+                "character-gallery",
+                &[gallery_id.to_string()],
+                &mut rollback_errors,
+            );
+        }
+        if let Some(path) = banner_gallery_file_path.as_deref() {
+            rollback_managed_file_path(state, "gallery", path, &mut rollback_errors);
+        }
         if let Some(character_id) = created_character_id.as_deref() {
             rollback_created_records(
                 state,
@@ -263,69 +286,6 @@ fn strip_reserved_avatar_source_fields(payload: &mut Value) {
     };
     object.remove("_avatarSourcePath");
     object.remove("_avatarFileCopySourcePath");
-}
-
-struct ImportedAvatarReference {
-    asset_url: String,
-    absolute_path: String,
-    filename: String,
-}
-
-fn imported_avatar_reference(
-    state: &AppState,
-    payload: &Value,
-    filename: Option<&str>,
-    trusted_avatar_source: Option<&Path>,
-) -> AppResult<Option<ImportedAvatarReference>> {
-    imported_avatar_reference_in_folder(
-        state,
-        payload,
-        filename,
-        trusted_avatar_source,
-        "avatars/characters",
-    )
-}
-
-fn imported_avatar_reference_in_folder(
-    state: &AppState,
-    payload: &Value,
-    filename: Option<&str>,
-    trusted_avatar_source: Option<&Path>,
-    folder: &str,
-) -> AppResult<Option<ImportedAvatarReference>> {
-    if let Some(source) = trusted_avatar_source {
-        let filename_hint = source
-            .file_name()
-            .and_then(|value| value.to_str())
-            .or(filename)
-            .unwrap_or("avatar.png");
-        let stored = persist_image_file_copy(state, folder, filename_hint, source)?;
-        return Ok(Some(ImportedAvatarReference {
-            asset_url: stored.asset_url,
-            absolute_path: stored.absolute_path,
-            filename: stored.filename,
-        }));
-    }
-    let Some(value) = payload.get("_avatarDataUrl").and_then(Value::as_str) else {
-        return Ok(None);
-    };
-    if !is_inline_image_data_url(value) {
-        return Ok(None);
-    }
-    let (mime, bytes) = decode_image_payload(value, "avatar")?;
-    let fallback = payload
-        .get("data")
-        .and_then(|data| data.get("name"))
-        .or_else(|| payload.get("name"))
-        .and_then(Value::as_str)
-        .or(filename)
-        .unwrap_or("avatar");
-    let stored = persist_image_bytes(state, folder, &safe_filename(fallback), &bytes, &mime)?;
-    Ok(Some(ImportedAvatarReference {
-        asset_url: stored.asset_url,
-        absolute_path: stored.absolute_path,
-        filename: stored.filename,
-    }))
 }
 
 pub(crate) fn import_st_character(state: &AppState, body: Value) -> AppResult<Value> {
