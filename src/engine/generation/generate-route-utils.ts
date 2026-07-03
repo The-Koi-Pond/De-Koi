@@ -12,6 +12,7 @@ export type SimplePromptMessage = { role: "system" | "user" | "assistant"; conte
 
 const TEXT_ATTACHMENT_CHAR_LIMIT = 60_000;
 const IMAGE_ATTACHMENT_PROVIDER_BYTE_LIMIT = 6 * 1024 * 1024;
+const INLINE_IMAGE_DATA_URL_PATTERN = /data:image\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*;base64,[A-Za-z0-9+/=_-]+/gi;
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
   "json",
@@ -147,6 +148,14 @@ function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
+function redactInlineImageDataUrls(value: string): string {
+  return value.replace(INLINE_IMAGE_DATA_URL_PATTERN, (match) => {
+    const bytes = estimateDataUrlBytes(match);
+    const size = bytes > 0 ? "; " + bytes.toLocaleString("en-US") + " bytes" : "";
+    return "[redacted inline image data URL" + size + "]";
+  });
+}
+
 function isReadableTextAttachment(attachment: PromptAttachment): boolean {
   const type = typeof attachment.type === "string" ? attachment.type.toLowerCase() : "";
   if (type.startsWith("text/")) return true;
@@ -202,10 +211,14 @@ function buildReadableAttachmentBlocks(attachments: PromptAttachment[] | undefin
 
     const filename = getAttachmentFilename(attachment);
     const type = typeof attachment.type === "string" && attachment.type.trim() ? attachment.type.trim() : "text/plain";
+    const redacted = redactInlineImageDataUrls(decoded);
     const trimmed =
-      decoded.length > TEXT_ATTACHMENT_CHAR_LIMIT
-        ? `${decoded.slice(0, TEXT_ATTACHMENT_CHAR_LIMIT)}\n\n[Attachment truncated after ${TEXT_ATTACHMENT_CHAR_LIMIT} characters.]`
-        : decoded;
+      redacted.length > TEXT_ATTACHMENT_CHAR_LIMIT
+        ? redacted.slice(0, TEXT_ATTACHMENT_CHAR_LIMIT) +
+          "\n\n[Attachment truncated after " +
+          TEXT_ATTACHMENT_CHAR_LIMIT.toString() +
+          " characters.]"
+        : redacted;
 
     return [
       [
