@@ -45,4 +45,24 @@ describe("WindowTitleBar web mode", () => {
     expect(container!.querySelector(".mari-titlebar-web-home-button svg")).toBeTruthy();
     expect(container!.querySelector(".mari-title-home-button img")?.getAttribute("src")).toBe("/favicon.png");
   });
+  it("treats browser-hosted shells without desktop controls as web mode", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<WindowTitleBar />);
+    });
+
+    expect(container!.querySelector('[aria-label="Window controls"]')).toBeNull();
+    expect(container!.querySelector(".mari-titlebar-web-home-button svg")).toBeTruthy();
+    expect(container!.querySelector(".mari-title-home-button img")?.getAttribute("src")).toBe("/favicon.png");
+  });
+
+  it("places the titlebar accessory on the left side of the titlebar", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<WindowTitleBar titlebarAccessory={<div data-testid="music-toolbar">Music DJ</div>} />);
+    });
+
+    expect(container!.querySelector(".mari-title-drag-region [data-testid='music-toolbar']")).toBeTruthy();
+    expect(container!.querySelector(".mari-window-actions [data-testid='music-toolbar']")).toBeNull();
+  });
 });
