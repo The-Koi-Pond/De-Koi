@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   clearConversationRevealGeneration,
   collectFreshAssistantPartRevealStarts,
+  findFreshAssistantNotificationMessage,
   isCurrentConversationRevealGeneration,
   resolveConversationVisiblePartCount,
   startConversationRevealGeneration,
@@ -10,6 +11,49 @@ import {
 } from "./conversation-part-reveal";
 
 describe("conversation part reveal", () => {
+  it("does not notify for fresh assistant messages that were already in the loaded transcript", () => {
+    const previousMessageKeys = new Set(["user-1", "assistant-1", "user-2"]);
+
+    const notification = findFreshAssistantNotificationMessage({
+      initialLoadSettled: true,
+      candidates: [
+        {
+          key: "assistant-1",
+          role: "assistant",
+          createdAtMs: 100_000,
+          message: { id: "assistant-1", role: "assistant", content: "Already here", createdAt: "1970-01-01T00:01:40.000Z" },
+        },
+      ],
+      previousMessageKeys,
+      now: 101_000,
+    });
+
+    expect(notification).toBeNull();
+  });
+
+  it("notifies for fresh assistant messages appended after the previously loaded transcript", () => {
+    const appendedAssistant = {
+      id: "assistant-2",
+      role: "assistant" as const,
+      content: "New response",
+      createdAt: "1970-01-01T00:01:40.000Z",
+    };
+
+    const notification = findFreshAssistantNotificationMessage({
+      initialLoadSettled: true,
+      candidates: [
+        { key: "user-1", role: "user", createdAtMs: 99_000 },
+        { key: "assistant-1", role: "assistant", createdAtMs: 99_500 },
+        { key: "user-2", role: "user", createdAtMs: 100_000 },
+        { key: appendedAssistant.id, role: appendedAssistant.role, createdAtMs: 101_000, message: appendedAssistant },
+      ],
+      previousMessageKeys: new Set(["user-1", "assistant-1"]),
+      now: 102_000,
+    });
+
+    expect(notification).toBe(appendedAssistant);
+  });
+
   it("starts fresh unseen multi-part assistant messages at the first part before the reveal effect runs", () => {
     const starts = collectFreshAssistantPartRevealStarts({
       initialLoadSettled: true,
