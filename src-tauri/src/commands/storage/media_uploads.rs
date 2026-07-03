@@ -1,5 +1,8 @@
 use super::*;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
+
+const MAX_STORED_AVATAR_EDGE: u32 = 1024;
 
 pub(crate) struct StoredManagedImage {
     pub(crate) asset_url: String,
@@ -14,12 +17,38 @@ pub(crate) fn persist_image_upload(
     body: &Value,
     field_name: &str,
 ) -> AppResult<StoredManagedImage> {
+    persist_image_upload_inner(state, folder, id, body, field_name, false)
+}
+
+pub(crate) fn persist_avatar_image_upload(
+    state: &AppState,
+    folder: &str,
+    id: &str,
+    body: &Value,
+    field_name: &str,
+) -> AppResult<StoredManagedImage> {
+    persist_image_upload_inner(state, folder, id, body, field_name, true)
+}
+
+fn persist_image_upload_inner(
+    state: &AppState,
+    folder: &str,
+    id: &str,
+    body: &Value,
+    field_name: &str,
+    optimize_avatar: bool,
+) -> AppResult<StoredManagedImage> {
     let image = body
         .get(field_name)
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| AppError::invalid_input(format!("{field_name} is required")))?;
     let (mime, bytes) = decode_image_payload(image, field_name)?;
+    let bytes = if optimize_avatar {
+        optimize_avatar_image_bytes(&bytes, &mime)?
+    } else {
+        bytes
+    };
     let ext = extension_for_image_mime(&mime)
         .or_else(|| {
             body.get("filename")
@@ -77,6 +106,88 @@ pub(crate) fn persist_image_bytes(
     let target = unique_file_path(&dir.join(filename))?;
     fs::write(&target, bytes)?;
     stored_managed_image(target)
+}
+
+pub(crate) fn optimize_avatar_image_bytes(bytes: &[u8], mime: &str) -> AppResult<Vec<u8>> {
+    let Some(format) = avatar_resize_format_for_mime(mime) else {
+        return Ok(bytes.to_vec());
+    };
+    let image = image::load_from_memory(bytes).map_err(|error| {
+        AppError::invalid_input(format!("Avatar image could not be decoded: {error}"))
+    })?;
+    if image.width() <= MAX_STORED_AVATAR_EDGE && image.height() <= MAX_STORED_AVATAR_EDGE {
+        return Ok(bytes.to_vec());
+    }
+
+    let resized = image.thumbnail(MAX_STORED_AVATAR_EDGE, MAX_STORED_AVATAR_EDGE);
+    let mut buffer = Cursor::new(Vec::new());
+    resized
+        .write_to(&mut buffer, format)
+        .map_err(|error| AppError::new("avatar_resize_error", error.to_string()))?;
+    Ok(buffer.into_inner())
+}
+
+pub(crate) fn optimize_managed_avatar_file(path: &Path) -> AppResult<bool> {
+    let Some(mime) = avatar_resize_mime_for_extension(path) else {
+        return Ok(false);
+    };
+    let bytes = fs::read(path)?;
+    let optimized = match optimize_avatar_image_bytes(&bytes, mime) {
+        Ok(optimized) => optimized,
+        Err(error) => {
+            log::warn!(
+                "skipping avatar resize for {} because it could not be decoded: {error}",
+                path.display()
+            );
+            return Ok(false);
+        }
+    };
+    if optimized == bytes {
+        return Ok(false);
+    }
+    let filename = path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "avatar".to_string());
+    let temp = path.with_file_name(format!(".{filename}.{}.tmp", new_id()));
+    fs::write(&temp, optimized)?;
+    replace_file(&temp, path)?;
+    Ok(true)
+}
+
+fn avatar_resize_format_for_mime(mime: &str) -> Option<image::ImageFormat> {
+    match mime.to_ascii_lowercase().as_str() {
+        "image/png" => Some(image::ImageFormat::Png),
+        "image/jpeg" | "image/jpg" => Some(image::ImageFormat::Jpeg),
+        "image/webp" => Some(image::ImageFormat::WebP),
+        _ => None,
+    }
+}
+
+fn avatar_resize_mime_for_extension(path: &Path) -> Option<&'static str> {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
+}
+
+fn replace_file(temp: &Path, target: &Path) -> std::io::Result<()> {
+    match fs::rename(temp, target) {
+        Ok(()) => Ok(()),
+        Err(_) if target.exists() => {
+            fs::remove_file(target)?;
+            fs::rename(temp, target)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn stored_managed_image(target: PathBuf) -> AppResult<StoredManagedImage> {

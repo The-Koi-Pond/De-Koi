@@ -15,7 +15,9 @@ use crate::seed_defaults::seed_bundled_defaults;
 use crate::storage_commands::{
     contracts,
     images::percent_encode_component,
-    media_uploads::{file_path_asset_url, safe_filename, unique_file_path},
+    media_uploads::{
+        file_path_asset_url, optimize_managed_avatar_file, safe_filename, unique_file_path,
+    },
     shared::{
         agent_run_config_info_from_rows, compact_message_legacy_prompt_snapshots,
         normalize_agent_run_row_fields, normalize_typed_json_fields,
@@ -766,6 +768,14 @@ fn migrate_media_file(
         fs::copy(source, &target)?;
         target
     };
+    if folder.starts_with("avatars/") {
+        if let Err(error) = optimize_managed_avatar_file(&target) {
+            log::warn!(
+                "failed to resize managed avatar {} during startup migration: {error}",
+                target.display()
+            );
+        }
+    }
     let filename = target
         .file_name()
         .map(|value| value.to_string_lossy().to_string())
@@ -1346,6 +1356,47 @@ mod tests {
         assert_eq!(character["avatar"], character["avatarPath"]);
     }
 
+    #[test]
+    fn app_state_startup_resizes_existing_managed_character_avatar() {
+        let root = temp_root("managed-avatar-resize");
+        let avatar_dir = root.0.join("avatars").join("characters");
+        std::fs::create_dir_all(&avatar_dir).expect("avatar dir should exist");
+        let avatar_file = avatar_dir.join("huge.png");
+        image::RgbaImage::from_pixel(2048, 1536, image::Rgba([255, 64, 64, 255]))
+            .save(&avatar_file)
+            .expect("large managed avatar should be written");
+        let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
+        storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-1",
+                    "data": { "name": "Rina" },
+                    "avatarPath": file_path_asset_url(&avatar_file),
+                    "avatar": file_path_asset_url(&avatar_file),
+                    "avatarFilePath": avatar_file.to_string_lossy(),
+                    "avatarFilename": "huge.png"
+                }),
+            )
+            .expect("character should be inserted");
+        persist_fixture_storage(&storage);
+
+        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
+        let character = state
+            .storage
+            .get("characters", "char-1")
+            .expect("character should load")
+            .expect("character should exist");
+        let stored_path = character["avatarFilePath"]
+            .as_str()
+            .expect("avatar file path should be stored");
+
+        assert_eq!(stored_path, avatar_file.to_string_lossy());
+        assert_eq!(
+            image::image_dimensions(stored_path).expect("managed avatar should decode"),
+            (1024, 768)
+        );
+    }
     #[test]
     fn app_state_startup_persists_inline_character_and_persona_avatars() {
         let root = temp_root("inline-avatar-repair");
