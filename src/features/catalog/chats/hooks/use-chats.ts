@@ -541,16 +541,17 @@ export function useCreateMessage(chatId: string | null) {
     },
     onSuccess: (created, _data, context) => {
       if (chatId) {
-        qc.setQueryData<InfiniteData<Message[]> | undefined>(chatKeys.messages(chatId), (old) =>
-          created
-            ? replaceOptimisticCreatedMessage(
-                old,
-                context?.optimisticId,
-                preserveRecentMessageContentEdit(chatId, sanitizeTimelineMessage(created)),
-              )
-            : old,
-        );
-        qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+        if (created) {
+          qc.setQueryData<InfiniteData<Message[]> | undefined>(chatKeys.messages(chatId), (old) =>
+            replaceOptimisticCreatedMessage(
+              old,
+              context?.optimisticId,
+              preserveRecentMessageContentEdit(chatId, sanitizeTimelineMessage(created)),
+            ),
+          );
+        } else {
+          qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+        }
         qc.invalidateQueries({ queryKey: chatKeys.messageCount(chatId) });
         qc.invalidateQueries({ queryKey: chatKeys.list() });
         qc.invalidateQueries({ queryKey: lorebookKeys.active(chatId) });
