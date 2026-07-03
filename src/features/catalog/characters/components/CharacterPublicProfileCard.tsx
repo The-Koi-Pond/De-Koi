@@ -56,7 +56,7 @@ export function CharacterPublicProfileCard({
               avatarFilename={avatarFilename}
               alt={profile.displayName}
               crop={avatarCrop}
-              thumbnailSize={64}
+              thumbnailSize={128}
             />
           ) : (
             <UserRound size="1.35rem" />

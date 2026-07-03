@@ -84,7 +84,7 @@ describe("CharacterPublicProfileCard", () => {
     expect(avatar?.dataset.crop).toBe(JSON.stringify(avatarCrop));
     expect(avatar?.dataset.avatarFilePath).toBe("C:\\avatars\\mira.png");
     expect(avatar?.dataset.avatarFilename).toBe("mira.png");
-    expect(avatar?.dataset.thumbnailSize).toBe("64");
+    expect(avatar?.dataset.thumbnailSize).toBe("128");
   });
 
   it("renders music presence and hides music actions when handlers are absent", () => {

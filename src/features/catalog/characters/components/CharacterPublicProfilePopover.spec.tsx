@@ -27,6 +27,8 @@ const profile = {
   bannerImage: null,
   nowListening: null,
   nowListeningLine: null,
+  musicOptions: [],
+  musicPickIndex: 0,
   hasSavedProfile: true,
 };
 
@@ -40,7 +42,33 @@ const musicProfile = {
     query: "Disciple Throbbing Gristle",
     displayText: "Disciple by Throbbing Gristle",
   },
+  musicOptions: [
+    {
+      kind: "song" as const,
+      title: "Disciple",
+      artist: "Throbbing Gristle",
+      url: null,
+      query: "Disciple Throbbing Gristle",
+      displayText: "Disciple by Throbbing Gristle",
+    },
+  ],
+  musicPickIndex: 0,
   nowListeningLine: "Listening to: Disciple by Throbbing Gristle",
+};
+
+const multiMusicProfile = {
+  ...musicProfile,
+  musicOptions: [
+    musicProfile.nowListening,
+    {
+      kind: "taste" as const,
+      title: "Industrial ritual mix",
+      artist: null,
+      url: null,
+      query: "industrial ritual music",
+      displayText: "Industrial ritual mix",
+    },
+  ],
 };
 
 const originalInnerHeight = window.innerHeight;
@@ -148,6 +176,39 @@ describe("CharacterPublicProfilePopover", () => {
     });
   });
 
+  it("shuffles between public character music options without caller-managed state", () => {
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <CharacterPublicProfilePopover
+          profile={multiMusicProfile}
+          anchorRect={{ top: 40, right: 144, bottom: 64, left: 80, width: 64, height: 24, x: 80, y: 40 }}
+          onClose={vi.fn()}
+        />,
+      );
+    });
+
+    const shuffle = document.body.querySelector<HTMLButtonElement>("[aria-label='Shuffle character music']");
+    expect(shuffle).not.toBeNull();
+    expect(document.body.textContent).toContain("Disciple by Throbbing Gristle");
+
+    act(() => {
+      shuffle!.click();
+    });
+
+    expect(document.body.textContent).toContain("Industrial ritual mix");
+
+    const play = document.body.querySelector<HTMLButtonElement>("[aria-label='Play character music']");
+    act(() => {
+      play!.click();
+    });
+
+    expect(dispatchMusicPlaybackEventMock).toHaveBeenCalledWith({
+      type: "cue",
+      query: "industrial ritual music",
+    });
+  });
+
   it("forwards crop metadata to the shared avatar renderer", () => {
     const crop = { srcX: 0.25, srcY: 0.1, srcWidth: 0.5, srcHeight: 0.7 };
 
@@ -172,7 +233,7 @@ describe("CharacterPublicProfilePopover", () => {
         avatarFilePath: "C:/avatars/clown.png",
         avatarFilename: "clown.png",
         crop,
-        thumbnailSize: 64,
+        thumbnailSize: 128,
       }),
     );
   });
