@@ -18,7 +18,7 @@ function baseConfig(overrides: Partial<GameSetupConfig> = {}): GameSetupConfig {
 }
 
 describe("gameSetupMetadataPatch", () => {
-  it("strips legacy Spotify fields when Music DJ is enabled", () => {
+  it("strips legacy Spotify fields when Music Player is enabled", () => {
     const patch = gameSetupMetadataPatch(
       baseConfig({
         enableMusicDj: true,
@@ -46,7 +46,7 @@ describe("gameSetupMetadataPatch", () => {
     expect(patch.gameSetupConfig).not.toHaveProperty("spotifyArtist");
   });
 
-  it("strips legacy Spotify fields from carried-over Music DJ setup config", () => {
+  it("strips legacy Spotify fields from carried-over Music Player setup config", () => {
     const patch = gameCarryoverPatch({
       gameUseMusicDj: true,
       gameUseSpotifyMusic: true,

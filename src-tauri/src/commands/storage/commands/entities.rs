@@ -789,13 +789,13 @@ mod tests {
                     "settings": {}
                 }),
             )
-            .expect("legacy music dj config should write");
+            .expect("legacy music player config should write");
 
         let listed =
             storage_list_inner(&state, "agents".to_string(), None).expect("agents should list");
         assert_eq!(
             listed[0].get("name").and_then(Value::as_str),
-            Some("Music DJ")
+            Some("Music Player")
         );
 
         let fetched = storage_get_inner(
@@ -807,7 +807,7 @@ mod tests {
         .expect("agent should read");
         assert_eq!(
             fetched.get("name").and_then(Value::as_str),
-            Some("Music DJ")
+            Some("Music Player")
         );
     }
 

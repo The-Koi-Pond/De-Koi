@@ -23,13 +23,13 @@ export interface SceneAnalyzerContext {
   currentMusic: string | null;
   /** Recently played music tags, most recent first. */
   recentMusic?: string[];
-  /** Whether Game Mode is using Music DJ instead of local music assets. */
+  /** Whether Game Mode is using Music Player instead of local music assets. */
   useMusicDj?: boolean;
-  /** Music DJ tracks preselected mechanically for the scene analyzer to choose from. */
+  /** Music Player tracks preselected mechanically for the scene analyzer to choose from. */
   availableMusicTracks?: SceneMusicTrackCandidate[];
-  /** Currently or most recently played Music DJ track ID. */
+  /** Currently or most recently played Music Player track ID. */
   currentMusicTrack?: string | null;
-  /** Recently played Music DJ track IDs, most recent first. */
+  /** Recently played Music Player track IDs, most recent first. */
   recentMusicTracks?: string[];
   /** Whether Game Mode is using legacy Spotify instead of local music assets. */
   useSpotifyMusic?: boolean;
@@ -258,7 +258,7 @@ export function buildSceneAnalyzerUserPrompt(
       ? [
           `- musicTrack must be null or one id string copied exactly from MUSIC TRACK OPTIONS. Never invent a music id. Do not wrap it in an object. Do not include a reason.`,
           `- Prefer a musicTrack that is not in RECENT MUSIC TRACKS when another suitable option exists.`,
-          `- Do not include musicGenre, musicIntensity, or spotifyTrack when Music DJ is enabled.`,
+          `- Do not include musicGenre, musicIntensity, or spotifyTrack when Music Player is enabled.`,
         ]
       : useSpotifyMusic
         ? [

@@ -344,9 +344,9 @@ export interface ChatMetadata {
   gameImagePromptInstructions?: string | null;
   /** Per-game asset browser folder exclusions. Omitted/null means every asset folder is available. */
   gameAssetSelection?: { excludedFolders?: string[] } | null;
-  /** When true, Game Mode uses Music DJ for music instead of local music assets. */
+  /** When true, Game Mode uses Music Player for music instead of local music assets. */
   gameUseMusicDj?: boolean;
-  /** Default Music DJ provider for Game Mode. */
+  /** Default Music Player provider for Game Mode. */
   gameMusicProvider?: "youtube" | "spotify" | "local" | string;
   /** Recently selected provider-neutral music track IDs for Game Mode scene music de-duplication. */
   gameRecentMusicTracks?: string[];

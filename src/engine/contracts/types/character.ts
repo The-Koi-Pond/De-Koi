@@ -65,14 +65,14 @@ export interface CharacterPublicProfile {
   bannerImage?: string;
 }
 
-/** De-Koi: a favorite song row used for profile presence and manual Music DJ playback. */
+/** De-Koi: a favorite song row used for profile presence and manual Music Player playback. */
 export interface CharacterMusicFavoriteSong {
   title: string;
   artist?: string;
   url?: string;
 }
 
-/** De-Koi: public-safe music taste shown as profile flavor and used for manual Music DJ cues. */
+/** De-Koi: public-safe music taste shown as profile flavor and used for manual Music Player cues. */
 export interface CharacterMusicProfile {
   publicListeningEnabled?: boolean;
   favoriteGenres?: string[];

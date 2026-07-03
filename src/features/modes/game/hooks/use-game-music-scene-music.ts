@@ -76,7 +76,7 @@ function toPlaybackCandidate(track: SceneMusicTrackSelection): MusicCandidate {
   };
 }
 
-function musicErrorMessage(error: unknown, fallback = "Music DJ scene music failed."): string {
+function musicErrorMessage(error: unknown, fallback = "Music Player scene music failed."): string {
   return error instanceof Error ? error.message : fallback;
 }
 
@@ -172,7 +172,7 @@ export function useGameMusicSceneMusic({
         retryRequest.playerAction,
       );
       if (availableMusicTracks.length === 0) {
-        toast.error("No Music DJ tracks were available for this scene.");
+        toast.error("No Music Player tracks were available for this scene.");
         return;
       }
 
@@ -202,10 +202,10 @@ export function useGameMusicSceneMusic({
       }
 
       await playMusicSceneTrack(selectedTrack);
-      toast.success("Music DJ scene music refreshed.", { duration: 1800 });
+      toast.success("Music Player scene music refreshed.", { duration: 1800 });
     } catch (error) {
       console.warn("[music/game] Retry failed:", error);
-      toast.error(musicErrorMessage(error, "Music DJ scene music retry failed."));
+      toast.error(musicErrorMessage(error, "Music Player scene music retry failed."));
     } finally {
       setMusicRetryPending(false);
     }

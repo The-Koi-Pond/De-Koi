@@ -169,7 +169,7 @@ describe("analyzeGameScene structured generation", () => {
     expect(llm.complete).toHaveBeenCalledTimes(1);
   });
 
-  it("selects a neutral Music DJ track only from provided candidates", async () => {
+  it("selects a neutral Music Player track only from provided candidates", async () => {
     const llm = llmWithResponses([
       validSceneJson({
         spotifyTrack: undefined,
@@ -196,7 +196,7 @@ describe("analyzeGameScene structured generation", () => {
     expect(llm.requests[0]?.messages[1]?.content).not.toContain("SPOTIFY TRACK OPTIONS");
   });
 
-  it("rejects invented neutral Music DJ track ids", async () => {
+  it("rejects invented neutral Music Player track ids", async () => {
     const llm = llmWithResponses([
       validSceneJson({
         spotifyTrack: undefined,
@@ -214,7 +214,7 @@ describe("analyzeGameScene structured generation", () => {
     expect(result.musicTrack).toBeNull();
   });
 
-  it("returns a recoverable failure when Music DJ and Spotify are both enabled", async () => {
+  it("returns a recoverable failure when Music Player and Spotify are both enabled", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const llm = llmWithResponses([
       validSceneJson({
@@ -240,7 +240,7 @@ describe("analyzeGameScene structured generation", () => {
     expect(result.spotifyTrack).toBeNull();
     expect(result.structuredFailure).toMatchObject({
       taskName: "game.sceneAnalysis.postprocess",
-      message: "Music DJ and legacy Spotify scene music cannot both be enabled.",
+      message: "Music Player and legacy Spotify scene music cannot both be enabled.",
       validationErrors: ["scene_postprocess_failed"],
     });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("Scene postprocess failed"), expect.any(Error));

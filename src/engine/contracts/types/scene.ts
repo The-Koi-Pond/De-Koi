@@ -190,7 +190,7 @@ export interface GeneratedSceneIllustration {
 
 export type MusicProvider = "youtube" | "spotify" | "local" | (string & {});
 
-/** Provider-neutral music candidate offered to scene analysis for Music DJ selection. */
+/** Provider-neutral music candidate offered to scene analysis for Music Player selection. */
 export interface SceneMusicTrackCandidate {
   provider: MusicProvider;
   id: string;
@@ -252,7 +252,7 @@ export interface SceneAnalysis {
   musicIntensity?: MusicIntensity | null;
   /** Compact physical-location hint for deterministic ambient scoring. */
   locationKind?: LocationKind | null;
-  /** Provider-neutral track to play when Game Mode is configured to use Music DJ. */
+  /** Provider-neutral track to play when Game Mode is configured to use Music Player. */
   musicTrack?: SceneMusicTrackSelection | null;
   /** Spotify track to play when Game Mode is configured to use the legacy Spotify provider. */
   spotifyTrack?: SceneSpotifyTrackSelection | null;
