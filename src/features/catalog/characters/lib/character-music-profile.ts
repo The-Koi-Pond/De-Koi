@@ -103,17 +103,11 @@ export function characterMusicOptionCount(profile: CharacterMusicProfile): numbe
   return songCount + artistCount + genreCount + vibeCount;
 }
 
-export function deriveCharacterNowListening(
-  profile: CharacterMusicProfile,
-  optionIndex = 0,
-): ResolvedCharacterNowListening | null {
-  if (!profile.publicListeningEnabled) return null;
+export function deriveCharacterMusicOptions(profile: CharacterMusicProfile): ResolvedCharacterNowListening[] {
+  if (!profile.publicListeningEnabled) return [];
   const songs = profile.favoriteSongs ?? [];
   const artists = profile.favoriteArtists ?? [];
   const genres = profile.favoriteGenres ?? [];
-  const optionCount = characterMusicOptionCount(profile);
-  if (optionCount <= 0) return null;
-
   const options: ResolvedCharacterNowListening[] = songs.map((song) => {
     const query = songQuery(song);
     return {
@@ -128,14 +122,20 @@ export function deriveCharacterNowListening(
 
   for (const artist of artists) {
     const title = `${artist} radio`;
-    const query = [artist, ...genres, profile.vibeNotes, "music"].map((part) => cleanText(part ?? "")).filter(Boolean).join(" ");
+    const query = [artist, ...genres, profile.vibeNotes, "music"]
+      .map((part) => cleanText(part ?? ""))
+      .filter(Boolean)
+      .join(" ");
     if (!query) continue;
     options.push({ kind: "taste", title, artist: null, url: null, query, displayText: title });
   }
 
   for (const genre of genres) {
     const title = `${genre} mix`;
-    const query = [...artists, genre, profile.vibeNotes, "music"].map((part) => cleanText(part ?? "")).filter(Boolean).join(" ");
+    const query = [...artists, genre, profile.vibeNotes, "music"]
+      .map((part) => cleanText(part ?? ""))
+      .filter(Boolean)
+      .join(" ");
     if (!query) continue;
     options.push({ kind: "taste", title, artist: null, url: null, query, displayText: title });
   }
@@ -148,6 +148,14 @@ export function deriveCharacterNowListening(
     }
   }
 
+  return options;
+}
+
+export function deriveCharacterNowListening(
+  profile: CharacterMusicProfile,
+  optionIndex = 0,
+): ResolvedCharacterNowListening | null {
+  const options = deriveCharacterMusicOptions(profile);
   if (options.length === 0) return null;
   const normalizedIndex = ((Math.trunc(optionIndex) % options.length) + options.length) % options.length;
   return options[normalizedIndex] ?? null;
