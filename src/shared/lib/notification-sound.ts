@@ -1,6 +1,6 @@
 type NotificationAudioContext = AudioContext & { state: AudioContextState | "interrupted" };
 
-const NOTIFICATION_SOUND_IDS = ["frog", "refactor", "legacy-v1.6.1", "custom"] as const;
+const NOTIFICATION_SOUND_IDS = ["frog", "legacy", "custom"] as const;
 export type NotificationSoundId = (typeof NOTIFICATION_SOUND_IDS)[number];
 
 export type CustomNotificationSound = {
@@ -25,14 +25,9 @@ export const NOTIFICATION_SOUND_OPTIONS: Array<{
     description: "A short little frog chirp.",
   },
   {
-    id: "refactor",
-    label: "Refactor",
-    description: "The current short De-Koi ping.",
-  },
-  {
-    id: "legacy-v1.6.1",
-    label: "Legacy 1.6.1",
-    description: "The two-tone ding from v1.6.1.",
+    id: "legacy",
+    label: "Legacy",
+    description: "The two-tone ding.",
   },
   {
     id: "custom",
@@ -68,24 +63,6 @@ function getNotificationAudioContext(): NotificationAudioContext | null {
     notificationAudioContext = new AudioContextClass();
   }
   return notificationAudioContext;
-}
-
-function playRefactorPing() {
-  const context = getNotificationAudioContext();
-  if (!context) return;
-
-  if (context.state === "suspended" || context.state === "interrupted") {
-    void context.resume().catch(() => {});
-  }
-
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.frequency.value = 880;
-  gain.gain.value = 0.03;
-  oscillator.connect(gain);
-  gain.connect(context.destination);
-  oscillator.start();
-  oscillator.stop(context.currentTime + 0.08);
 }
 
 function playFrogPing() {
@@ -127,7 +104,7 @@ function playFrogPing() {
   throat.stop(now + 0.2);
 }
 
-function playLegacy161Ping() {
+function playLegacyPing() {
   const context = getNotificationAudioContext();
   if (!context) return;
 
@@ -165,7 +142,7 @@ function playLegacy161Ping() {
 
 function playCustomNotificationSound(sound: CustomNotificationSound | null) {
   if (!sound?.dataUrl || typeof Audio === "undefined") {
-    playRefactorPing();
+    playFrogPing();
     return;
   }
 
@@ -176,6 +153,7 @@ function playCustomNotificationSound(sound: CustomNotificationSound | null) {
 }
 
 export function normalizeNotificationSoundId(value: unknown): NotificationSoundId {
+  if (value === "legacy-v1.6.1") return "legacy";
   return NOTIFICATION_SOUND_IDS.includes(value as NotificationSoundId)
     ? (value as NotificationSoundId)
     : DEFAULT_NOTIFICATION_SOUND_ID;
@@ -227,13 +205,7 @@ function getPlayableNotificationSoundId(
   soundId: NotificationSoundId,
   customSound: CustomNotificationSound | null,
 ): Exclude<NotificationSoundId, "custom"> | "custom" {
-  return soundId === "custom" && customSound?.dataUrl
-    ? "custom"
-    : soundId === "legacy-v1.6.1"
-      ? "legacy-v1.6.1"
-      : soundId === "refactor"
-        ? "refactor"
-        : "frog";
+  return soundId === "custom" && customSound?.dataUrl ? "custom" : soundId === "legacy" ? "legacy" : "frog";
 }
 
 export function playNotificationPing(
@@ -246,12 +218,8 @@ export function playNotificationPing(
       playCustomNotificationSound(customSound);
       return;
     }
-    if (playableSoundId === "legacy-v1.6.1") {
-      playLegacy161Ping();
-      return;
-    }
-    if (playableSoundId === "refactor") {
-      playRefactorPing();
+    if (playableSoundId === "legacy") {
+      playLegacyPing();
       return;
     }
     playFrogPing();
