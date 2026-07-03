@@ -240,6 +240,7 @@ const CONVERSATION_BUILT_IN_AGENT_IDS = [
   "response-orchestrator",
   "autonomous-messenger",
   "illustrator",
+  "music-dj",
 ] as const;
 
 const GAME_BUILT_IN_AGENT_IDS = ["world-state", "quest", "expression", "combat"] as const;
@@ -434,7 +435,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     id: "music-dj",
     name: "Music DJ",
     description:
-      "Analyzes roleplay and game scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
+      "Analyzes conversation, roleplay, and game scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
     phase: "post_processing",
     enabledByDefault: false,
     category: "misc",
