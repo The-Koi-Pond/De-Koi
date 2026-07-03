@@ -3,6 +3,7 @@ import { Loader2, Maximize2, Tag, Wand2, X } from "lucide-react";
 
 import type {
   CharacterData,
+  CharacterMusicFavoriteSong,
   CharacterMusicProfile,
   CharacterPublicProfile,
 } from "../../../../engine/contracts/types/character";
@@ -163,6 +164,23 @@ export function CharacterMetadataTab({
       merged.push(tag);
     }
     updateField("tags", merged);
+  };
+  const applyGeneratedMusicList = (field: "favoriteArtists" | "favoriteGenres", value: unknown) => {
+    if (!Array.isArray(value)) return;
+    const entries = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+    updateMusicProfile({ [field]: entries } as Pick<CharacterMusicProfile, typeof field>);
+  };
+  const applyGeneratedFavoriteSongs = (value: unknown) => {
+    if (!Array.isArray(value)) return;
+    const songs = value.filter((item): item is CharacterMusicFavoriteSong => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      return typeof (item as Partial<CharacterMusicFavoriteSong>).title === "string";
+    });
+    updateMusicProfile({ favoriteSongs: songs });
+  };
+  const applyGeneratedVibeNotes = (value: unknown) => {
+    if (typeof value !== "string") return;
+    updateMusicProfile({ vibeNotes: value });
   };
   const defaultImageConnectionId =
     imageConnections.find(isDefaultImageGenerationConnection)?.id ?? imageConnections[0]?.id ?? null;
@@ -537,9 +555,19 @@ export function CharacterMetadataTab({
           </span>
         </label>
         <label className="space-y-1.5 block">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-            Favorite Songs <HelpTooltip text="One per line. Use Song - Artist, optionally followed by | YouTube URL." />
-          </span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Favorite Songs <HelpTooltip text="One per line. Use Song - Artist, optionally followed by | YouTube URL." />
+            </span>
+            <CharacterFieldGenerationButton
+              field="music_favorite_songs"
+              data={formData}
+              comment={characterComment}
+              mode="direct"
+              onApply={applyGeneratedFavoriteSongs}
+              className={profileWandButtonClass}
+            />
+          </div>
           <textarea
             value={serializeFavoriteSongsText(musicProfile.favoriteSongs)}
             onChange={(event) => updateMusicProfile({ favoriteSongs: parseFavoriteSongsText(event.target.value) })}
@@ -550,10 +578,20 @@ export function CharacterMetadataTab({
         </label>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1.5">
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Favorite Artists{" "}
-              <HelpTooltip text="Comma or newline separated artists used for profile radio-style picks." />
-            </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Favorite Artists{" "}
+                <HelpTooltip text="Comma or newline separated artists used for profile radio-style picks." />
+              </span>
+              <CharacterFieldGenerationButton
+                field="music_favorite_artists"
+                data={formData}
+                comment={characterComment}
+                mode="direct"
+                onApply={(value) => applyGeneratedMusicList("favoriteArtists", value)}
+                className={profileWandButtonClass}
+              />
+            </div>
             <textarea
               value={serializeMusicTextList(musicProfile.favoriteArtists)}
               onChange={(event) => updateMusicProfile({ favoriteArtists: parseMusicTextList(event.target.value) })}
@@ -563,10 +601,20 @@ export function CharacterMetadataTab({
             />
           </label>
           <label className="space-y-1.5">
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Favorite Genres{" "}
-              <HelpTooltip text="Comma or newline separated genres used when no specific song is selected." />
-            </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Favorite Genres{" "}
+                <HelpTooltip text="Comma or newline separated genres used when no specific song is selected." />
+              </span>
+              <CharacterFieldGenerationButton
+                field="music_favorite_genres"
+                data={formData}
+                comment={characterComment}
+                mode="direct"
+                onApply={(value) => applyGeneratedMusicList("favoriteGenres", value)}
+                className={profileWandButtonClass}
+              />
+            </div>
             <textarea
               value={serializeMusicTextList(musicProfile.favoriteGenres)}
               onChange={(event) => updateMusicProfile({ favoriteGenres: parseMusicTextList(event.target.value) })}
@@ -577,10 +625,20 @@ export function CharacterMetadataTab({
           </label>
         </div>
         <label className="space-y-1.5 block">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-            Vibe Notes{" "}
-            <HelpTooltip text="Short flavor used for fallback Music DJ searches, not sent to character prompts in V1." />
-          </span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Vibe Notes{" "}
+              <HelpTooltip text="Short flavor used for fallback Music DJ searches, not sent to character prompts in V1." />
+            </span>
+            <CharacterFieldGenerationButton
+              field="music_vibe_notes"
+              data={formData}
+              comment={characterComment}
+              mode="direct"
+              onApply={applyGeneratedVibeNotes}
+              className={profileWandButtonClass}
+            />
+          </div>
           <textarea
             value={musicProfile.vibeNotes ?? ""}
             onChange={(event) => updateMusicProfile({ vibeNotes: event.target.value })}

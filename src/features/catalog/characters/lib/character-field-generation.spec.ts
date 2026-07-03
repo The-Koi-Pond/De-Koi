@@ -65,6 +65,30 @@ describe("buildCharacterFieldGenerationMessages", () => {
     expect(messages[1]?.content).toContain('"depth"');
     expect(messages[1]?.content).toContain('"role"');
   });
+
+  it("asks for one music taste field using current character context", () => {
+    const messages = buildCharacterFieldGenerationMessages("music_favorite_artists", {
+      data: characterData({
+        extensions: {
+          ...characterData().extensions,
+          musicProfile: {
+            publicListeningEnabled: true,
+            favoriteArtists: ["Portishead"],
+            favoriteGenres: ["trip-hop"],
+            favoriteSongs: [{ title: "Roads", artist: "Portishead" }],
+            vibeNotes: "rain on glass",
+          },
+        },
+      }),
+      comment: "Night-shift archive keeper",
+    });
+
+    expect(messages[1]?.content).toContain("Requested field: Favorite Music Artists");
+    expect(messages[1]?.content).toContain("Portishead");
+    expect(messages[1]?.content).toContain("trip-hop");
+    expect(messages[1]?.content).toContain("rain on glass");
+    expect(messages[1]?.content).toContain("Return only the requested field");
+  });
   it("gives creator notes enough budget to finish complete practical notes", async () => {
     const requests: unknown[] = [];
     const value = await generateCharacterField({
@@ -117,6 +141,30 @@ describe("cleanGeneratedCharacterField", () => {
     ]);
   });
 
+  it("normalizes generated music taste fields", () => {
+    expect(cleanGeneratedCharacterField("music_favorite_artists", '["Portishead", "Akira Yamaoka", "portishead"]')).toEqual([
+      "Portishead",
+      "Akira Yamaoka",
+    ]);
+    expect(cleanGeneratedCharacterField("music_favorite_genres", "dark ambient, trip-hop\nindustrial")).toEqual([
+      "dark ambient",
+      "trip-hop",
+      "industrial",
+    ]);
+    expect(
+      cleanGeneratedCharacterField(
+        "music_favorite_songs",
+        '{ "favoriteSongs": [{ "title": "Roads", "artist": "Portishead" }, { "title": "Promise", "artist": "Akira Yamaoka" }] }',
+      ),
+    ).toEqual([
+      { title: "Roads", artist: "Portishead" },
+      { title: "Promise", artist: "Akira Yamaoka" },
+    ]);
+    expect(cleanGeneratedCharacterField("music_vibe_notes", "Vibe Notes: rainy neon, broken radio romance")).toBe(
+      "rainy neon, broken radio romance",
+    );
+  });
+
   it("normalizes generated depth prompt text and settings", () => {
     expect(
       cleanGeneratedCharacterField(
@@ -147,6 +195,7 @@ describe("cleanGeneratedCharacterField", () => {
     "system_prompt",
     "post_history_instructions",
     "creator_notes",
+    "music_vibe_notes",
   ] satisfies CharacterFieldGenerationField[])("returns strings for %s", (field) => {
     expect(cleanGeneratedCharacterField(field, "Generated value")).toBe("Generated value");
   });
