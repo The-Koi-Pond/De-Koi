@@ -146,6 +146,20 @@ describe("cleanGeneratedCharacterField", () => {
       "Portishead",
       "Akira Yamaoka",
     ]);
+    expect(
+      cleanGeneratedCharacterField(
+        "music_favorite_artists",
+        '```json[, "The Dresden Dolls", "Aurelio Voltaire", "My Chemical Romance", "Sub Urban", "Siouxsie and the Banshees", "Ghostemane", "IC3PEAK", ]```',
+      ),
+    ).toEqual([
+      "The Dresden Dolls",
+      "Aurelio Voltaire",
+      "My Chemical Romance",
+      "Sub Urban",
+      "Siouxsie and the Banshees",
+      "Ghostemane",
+      "IC3PEAK",
+    ]);
     expect(cleanGeneratedCharacterField("music_favorite_genres", "dark ambient, trip-hop\nindustrial")).toEqual([
       "dark ambient",
       "trip-hop",
