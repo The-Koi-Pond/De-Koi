@@ -116,7 +116,7 @@ function labelledLine(label: string, value: unknown): string {
 
 function stripMarkdownFence(value: string): string {
   const trimmed = value.trim();
-  const match = /^```(?:[a-zA-Z0-9_-]+)?\s*\n([\s\S]*?)\n?```$/.exec(trimmed);
+  const match = /^```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
   return (match?.[1] ?? trimmed).trim();
 }
 
@@ -200,6 +200,19 @@ function cleanTags(raw: string): string[] {
   );
 }
 
+function parseLooseJsonArray(raw: string): unknown[] {
+  const source = stripMarkdownFence(raw);
+  const start = source.indexOf("[");
+  const end = source.lastIndexOf("]");
+  if (start < 0 || end <= start) return [];
+  const repaired = source
+    .slice(start, end + 1)
+    .replace(/^\[\s*,+\s*/, "[")
+    .replace(/,\s*\]$/, "]");
+  const parsed = parseJsonValue(repaired);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
 function jsonArrayFieldValue(raw: string, keys: string[]): unknown[] {
   const parsedValue = parseJsonValue(raw);
   if (Array.isArray(parsedValue)) return parsedValue;
@@ -208,7 +221,7 @@ function jsonArrayFieldValue(raw: string, keys: string[]): unknown[] {
     const value = parsedRecord[key];
     if (Array.isArray(value)) return value;
   }
-  return [];
+  return parseLooseJsonArray(raw);
 }
 
 function cleanMusicTextListField(field: CharacterFieldGenerationField, raw: string, keys: string[]): string[] {
