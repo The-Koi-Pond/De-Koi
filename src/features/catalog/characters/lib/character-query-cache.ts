@@ -43,6 +43,7 @@ function removeCharacterListRecord(current: unknown[] | undefined, id: string): 
 export function invalidateCharacterCollectionQueries(queryClient: Pick<QueryClient, "invalidateQueries">): void {
   queryClient.invalidateQueries({ queryKey: characterKeys.list() });
   queryClient.invalidateQueries({ queryKey: characterKeys.summaries() });
+  queryClient.invalidateQueries({ queryKey: characterKeys.librarySummaries() });
   queryClient.invalidateQueries({ queryKey: characterKeys.panelSummaries() });
 }
 
@@ -75,9 +76,14 @@ export function cacheCharacterListRecordFromResult(
 
   const updatedList = upsertCharacterCollectionRecord(queryClient, characterKeys.list(), record);
   const updatedSummaries = upsertCharacterCollectionRecord(queryClient, characterKeys.summaries(), record);
+  const updatedLibrarySummaries = upsertCharacterCollectionRecord(
+    queryClient,
+    characterKeys.librarySummaries(),
+    record,
+  );
   queryClient.setQueryData(characterKeys.detail(record.id), record);
   queryClient.setQueryData(characterKeys.summaryDetail(record.id), record);
-  return updatedList || updatedSummaries;
+  return updatedList || updatedSummaries || updatedLibrarySummaries;
 }
 
 export function removeCachedCharacterRecord(
@@ -86,9 +92,11 @@ export function removeCachedCharacterRecord(
 ) {
   removeCharacterCollectionRecord(queryClient, characterKeys.list(), id);
   removeCharacterCollectionRecord(queryClient, characterKeys.summaries(), id);
+  removeCharacterCollectionRecord(queryClient, characterKeys.librarySummaries(), id);
   queryClient.removeQueries({ queryKey: characterKeys.detail(id) });
   queryClient.removeQueries({ queryKey: characterKeys.summaryDetail(id) });
   queryClient.invalidateQueries({ queryKey: characterKeys.summaries() });
+  queryClient.invalidateQueries({ queryKey: characterKeys.librarySummaries() });
   queryClient.invalidateQueries({ queryKey: characterKeys.panelSummaries() });
 }
 
@@ -100,6 +108,7 @@ export function refreshCharacterCollectionAfterMutation(
   if (!updated) invalidateCharacterCollectionQueries(queryClient);
   else {
     queryClient.invalidateQueries({ queryKey: characterKeys.summaries() });
+    queryClient.invalidateQueries({ queryKey: characterKeys.librarySummaries() });
     queryClient.invalidateQueries({ queryKey: characterKeys.panelSummaries() });
   }
 }

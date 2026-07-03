@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCharacter, useCharacterSummaries, type CharacterSummary } from "../hooks/use-characters";
+import { useCharacter, useCharacterLibrarySummaries, type CharacterLibrarySummary } from "../hooks/use-characters";
 import {
   characterHasAnyExcludedTag,
   characterMatchesScopedSearchTerms,
@@ -69,7 +69,7 @@ function useElementWidth(ref: RefObject<HTMLElement | null>): number {
   return width;
 }
 
-function characterSummaryToRow(character: CharacterSummary): CharacterRow {
+function characterSummaryToRow(character: CharacterLibrarySummary): CharacterRow {
   const data = character.data ?? {};
   return {
     id: character.id,
@@ -77,19 +77,9 @@ function characterSummaryToRow(character: CharacterSummary): CharacterRow {
       name: getText(data.name) || undefined,
       description: getText(data.description) || undefined,
       personality: getText(data.personality) || undefined,
-      scenario: getText(data.scenario) || undefined,
-      first_mes: getText(data.first_mes) || undefined,
-      mes_example: getText(data.mes_example) || undefined,
       creator: getText(data.creator) || undefined,
-      creator_notes: getText(data.creator_notes) || undefined,
       character_version: getText(data.character_version) || undefined,
-      system_prompt: getText(data.system_prompt) || undefined,
-      post_history_instructions: getText(data.post_history_instructions) || undefined,
       tags: Array.isArray(data.tags) ? data.tags.filter((tag): tag is string => typeof tag === "string") : undefined,
-      alternate_greetings: Array.isArray(data.alternate_greetings)
-        ? data.alternate_greetings.filter((greeting): greeting is string => typeof greeting === "string")
-        : undefined,
-      character_book: data.character_book,
       extensions:
         data.extensions && typeof data.extensions === "object" && !Array.isArray(data.extensions)
           ? data.extensions
@@ -115,7 +105,13 @@ export function CharacterLibraryView() {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const debouncedSearch = useDebouncedValue(search, 180);
   const searchQuery = useMemo(() => parseCharacterSearchQuery(debouncedSearch), [debouncedSearch]);
-  const { data: characters, isLoading, isFetching, isError, refetch } = useCharacterSummaries(true, searchQuery.text);
+  const {
+    data: characters,
+    isLoading,
+    isFetching,
+    isError,
+    refetch,
+  } = useCharacterLibrarySummaries(true, searchQuery.text);
   const selectedCharacterQuery = useCharacter(selectedCharacterId);
   const { data: selectedCharacterDetail } = selectedCharacterQuery;
   const listScrollRef = useRef<HTMLElement | null>(null);
