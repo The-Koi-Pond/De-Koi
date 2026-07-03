@@ -63,10 +63,16 @@ pub(crate) fn export_record(
     if collection == "messages" {
         message_swipes::materialize_message(state, &mut record, true)?;
     }
-    if format == Some("compatible") {
-        return compatible_record(collection, &record);
-    }
-    native_record_export(state, kind, collection, &record)
+    let compatible = format == Some("compatible") && collection != "prompts";
+    let item = if compatible {
+        compatible_record(collection, &record)?
+    } else {
+        native_record_export(state, kind, collection, &record)?
+    };
+    json_download(
+        &item,
+        &single_record_filename(collection, &record, compatible),
+    )
 }
 
 pub(crate) fn export_records(
@@ -863,6 +869,16 @@ fn singular_export_name(collection: &str) -> &'static str {
     }
 }
 
+fn single_record_filename(collection: &str, record: &Value, compatible: bool) -> String {
+    let fallback = singular_export_name(collection);
+    let name = item_export_name(collection, record).unwrap_or_else(|| fallback.to_string());
+    format!(
+        "{}.{}",
+        safe_export_name(&name, fallback),
+        if compatible { "json" } else { "dekoi.json" }
+    )
+}
+
 fn named_zip_filename(collection: &str, compatible: bool) -> &'static str {
     match (collection, compatible) {
         ("characters", true) => "compatible-characters.zip",
@@ -1291,6 +1307,14 @@ fn crc32(bytes: &[u8]) -> u32 {
     crc ^ 0xffff_ffff
 }
 
+fn json_download(value: &Value, filename: &str) -> AppResult<Value> {
+    Ok(binary_download(
+        serde_json::to_vec_pretty(value)?,
+        "application/json",
+        filename,
+    ))
+}
+
 fn binary_download(bytes: Vec<u8>, content_type: &str, filename: &str) -> Value {
     json!({
         "base64": general_purpose::STANDARD.encode(bytes),
@@ -1456,6 +1480,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn single_character_export_uses_character_name_for_filename() {
+        let state = test_state("character-single-filename");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "character-1",
+                    "name": "Generic Shell Name",
+                    "data": { "name": "Mira Koi!" }
+                }),
+            )
+            .expect("character should be seeded");
+
+        let export = export_record(
+            &state,
+            "marinara_character",
+            "characters",
+            "character-1",
+            None,
+        )
+        .expect("single character should export");
+
+        assert_eq!(
+            export.get("contentType").and_then(Value::as_str),
+            Some("application/json")
+        );
+        assert_eq!(
+            export.get("filename").and_then(Value::as_str),
+            Some("Mira_Koi.dekoi.json")
+        );
+    }
     #[test]
     fn sprite_archive_exports_every_requested_sprite_as_single_zip() {
         let state = test_state("sprite-archive-selected");

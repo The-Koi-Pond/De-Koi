@@ -15,7 +15,7 @@ describe("exportApi", () => {
     mocks.invokeTauri.mockResolvedValue({ ok: true });
   });
 
-  it("uses De-Koi fallback filenames for native catalog exports", async () => {
+  it("uses De-Koi fallback filenames when native catalog exports omit filenames", async () => {
     const { exportApi } = await import("./export-api");
 
     await expect(exportApi.prompt("preset-1")).resolves.toMatchObject({ filename: "preset.dekoi.json" });
@@ -24,6 +24,16 @@ describe("exportApi", () => {
     await expect(exportApi.lorebook("lorebook-1")).resolves.toMatchObject({ filename: "lorebook.dekoi.json" });
   });
 
+  it("uses command-provided filenames for named character exports", async () => {
+    mocks.invokeTauri.mockResolvedValueOnce({
+      base64: "e30=",
+      contentType: "application/json",
+      filename: "Mira_Koi.dekoi.json",
+    });
+    const { exportApi } = await import("./export-api");
+
+    await expect(exportApi.character("character-1")).resolves.toMatchObject({ filename: "Mira_Koi.dekoi.json" });
+  });
   it("keeps compatible single-item exports on plain json filenames", async () => {
     const { exportApi } = await import("./export-api");
 
