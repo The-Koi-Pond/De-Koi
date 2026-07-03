@@ -9,7 +9,7 @@ export interface MusicWidgetSize {
 }
 
 const EDGE_MARGIN = 8;
-const RIGHT_OFFSET = 16;
+const LEFT_OFFSET = 16;
 const COMPOSER_CLEARANCE = 128;
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -31,7 +31,7 @@ export function clampMusicWidgetPosition(
 export function defaultMusicWidgetPosition(viewport: MusicWidgetSize, widget: MusicWidgetSize): MusicWidgetPosition {
   return clampMusicWidgetPosition(
     {
-      x: viewport.width - widget.width - RIGHT_OFFSET,
+      x: LEFT_OFFSET,
       y: COMPOSER_CLEARANCE,
     },
     viewport,

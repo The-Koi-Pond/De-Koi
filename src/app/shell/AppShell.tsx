@@ -1250,6 +1250,7 @@ export function AppShell() {
         >
           <WindowTitleBar
             dekiOpen={dekiOpen}
+            webMode={botBrowserOpen}
             onOpenDeki={() => openActiveDeki()}
             onGoHome={() => setDekiOpen(false)}
             titlebarAccessory={
