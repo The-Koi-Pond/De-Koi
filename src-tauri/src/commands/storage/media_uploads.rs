@@ -45,7 +45,15 @@ fn persist_image_upload_inner(
         .ok_or_else(|| AppError::invalid_input(format!("{field_name} is required")))?;
     let (mime, bytes) = decode_image_payload(image, field_name)?;
     let bytes = if optimize_avatar {
-        optimize_avatar_image_bytes(&bytes, &mime)?
+        match optimize_avatar_image_bytes(&bytes, &mime) {
+            Ok(optimized) => optimized,
+            Err(error) => {
+                log::warn!(
+                    "skipping avatar resize during upload because it could not be decoded: {error}"
+                );
+                bytes
+            }
+        }
     } else {
         bytes
     };
