@@ -188,6 +188,19 @@ with throwaway data. The optional Rust runtime is an API server for supported
 desktop workflows; it is not a replacement for the desktop app installer and
 does not serve the React UI.
 
+### Local Network Prompts
+
+Some operating systems may ask whether De-Koi can access devices or services on
+the local network. De-Koi uses that access for opt-in local workflows such as
+local model servers, image-generation tools, OAuth callbacks, Home Assistant,
+or the optional hostable runtime. Most built-in desktop paths use `localhost`
+or `127.0.0.1`, which means the same computer.
+
+If you do not use local models, local image tools, Home Assistant, or a
+self-hosted runtime, you can deny the prompt and continue using ordinary remote
+provider connections. Enable it later if you choose a local integration that
+needs it.
+
 ## Optional Remote Runtime
 
 De-Koi includes an optional hostable Rust API runtime for advanced local or
