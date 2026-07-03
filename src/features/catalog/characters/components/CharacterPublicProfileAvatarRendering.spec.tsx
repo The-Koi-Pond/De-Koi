@@ -83,6 +83,6 @@ describe("CharacterPublicProfileCard avatar rendering", () => {
     expect(avatar?.dataset.crop).toBe(JSON.stringify(avatarCrop));
     expect(avatar?.dataset.avatarFilePath).toBe("C:\\avatars\\mira.png");
     expect(avatar?.dataset.avatarFilename).toBe("mira.png");
-    expect(avatar?.dataset.thumbnailSize).toBe("64");
+    expect(avatar?.dataset.thumbnailSize).toBe("128");
   });
 });
