@@ -1,6 +1,6 @@
 use super::media_uploads::{
-    decode_image_payload, managed_record_file_path, persist_image_upload, remove_copied_file_path,
-    remove_managed_record_file, safe_filename,
+    decode_image_payload, managed_record_file_path, persist_avatar_image_upload,
+    remove_copied_file_path, remove_managed_record_file, safe_filename,
 };
 use super::*;
 use image::ImageFormat;
@@ -31,7 +31,7 @@ where
     F: FnOnce(),
 {
     let previous = shared::get_required(state, collection, id)?;
-    let stored = persist_image_upload(
+    let stored = persist_avatar_image_upload(
         state,
         &format!("avatars/{}", safe_filename(collection)),
         id,
@@ -630,7 +630,7 @@ fn avatar_thumbnail_is_fresh(source: &Path, target: &Path) -> AppResult<bool> {
 
 pub(crate) fn update_npc_avatar(state: &AppState, chat_id: &str, body: Value) -> AppResult<Value> {
     let name = required_npc_avatar_name(&body)?;
-    let stored = persist_image_upload(
+    let stored = persist_avatar_image_upload(
         state,
         "avatars/npc",
         &format!("{chat_id}-{name}"),
@@ -752,6 +752,22 @@ mod tests {
         "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lTmZsgAAAABJRU5ErkJggg=="
     }
 
+    fn large_png_data_url(width: u32, height: u32) -> String {
+        let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            width,
+            height,
+            image::Rgba([128, 64, 255, 255]),
+        ));
+        let mut buffer = Cursor::new(Vec::new());
+        image
+            .write_to(&mut buffer, ImageFormat::Png)
+            .expect("large avatar fixture should encode");
+        format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(buffer.into_inner())
+        )
+    }
+
     fn create_character_with_managed_avatar(state: &AppState, filename: &str) -> PathBuf {
         let avatar_dir = state.data_dir.join("avatars").join("characters");
         std::fs::create_dir_all(&avatar_dir).expect("avatar dir should be created");
@@ -842,6 +858,37 @@ mod tests {
         .expect("avatar should update");
 
         assert_managed_avatar_upload(&updated, "characters");
+    }
+
+    #[test]
+    fn character_avatar_upload_resizes_large_source_image() {
+        let state = test_state("character-avatar-upload-resize");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-1",
+                    "data": { "name": "Rina" }
+                }),
+            )
+            .expect("character should be created");
+
+        let updated = update_character_avatar(
+            &state,
+            "characters",
+            "char-1",
+            json!({ "avatar": large_png_data_url(2048, 1536), "filename": "portrait.png" }),
+        )
+        .expect("avatar should update");
+        let avatar_path = updated["avatarFilePath"]
+            .as_str()
+            .expect("avatar file path should be stored");
+
+        assert_eq!(
+            image::image_dimensions(avatar_path).expect("stored avatar should decode"),
+            (1024, 768)
+        );
     }
 
     #[test]

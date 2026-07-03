@@ -1,7 +1,7 @@
 use super::{
     media_uploads::{
         decode_image_payload, extension_for_image_mime, file_path_asset_url,
-        is_inline_image_data_url, safe_filename, unique_file_path,
+        is_inline_image_data_url, optimize_avatar_image_bytes, safe_filename, unique_file_path,
     },
     message_swipes,
 };
@@ -74,6 +74,7 @@ fn migrate_inline_avatar_collection(
                 &hint,
                 &data_url,
                 collection,
+                true,
                 &mut created_files,
             )?
             else {
@@ -135,6 +136,7 @@ fn migrate_inline_gallery_collection(
                 &hint,
                 &data_url,
                 collection,
+                false,
                 &mut created_files,
             )?
             else {
@@ -303,6 +305,7 @@ fn migrate_inline_avatar_array(
             &hint,
             &data_url,
             fallback_prefix,
+            true,
             created_files,
         )?
         else {
@@ -556,6 +559,7 @@ fn stage_gallery_row_for_inline_attachment(
         &hint,
         data_url,
         "message attachment",
+        false,
         context.created_files,
     )?
     else {
@@ -630,6 +634,7 @@ fn persist_inline_image_reference(
     filename_hint: &str,
     data_url: &str,
     context: &str,
+    optimize_avatar: bool,
     created_files: &mut Vec<PathBuf>,
 ) -> AppResult<Option<MigratedInlineImageReference>> {
     let (mime, bytes) = match decode_image_payload(data_url, context) {
@@ -640,6 +645,19 @@ fn persist_inline_image_reference(
             );
             return Ok(None);
         }
+    };
+    let bytes = if optimize_avatar {
+        match optimize_avatar_image_bytes(&bytes, &mime) {
+            Ok(optimized) => optimized,
+            Err(error) => {
+                log::warn!(
+                    "skipping inline avatar resize during startup migration for {context}: {error}"
+                );
+                bytes
+            }
+        }
+    } else {
+        bytes
     };
     let ext = extension_for_image_mime(&mime).unwrap_or("png");
     let dir = data_dir.join(folder);
