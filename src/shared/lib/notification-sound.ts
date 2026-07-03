@@ -1,6 +1,6 @@
 type NotificationAudioContext = AudioContext & { state: AudioContextState | "interrupted" };
 
-const NOTIFICATION_SOUND_IDS = ["refactor", "legacy-v1.6.1", "custom"] as const;
+const NOTIFICATION_SOUND_IDS = ["frog", "refactor", "legacy-v1.6.1", "custom"] as const;
 export type NotificationSoundId = (typeof NOTIFICATION_SOUND_IDS)[number];
 
 export type CustomNotificationSound = {
@@ -10,7 +10,7 @@ export type CustomNotificationSound = {
   dataUrl: string;
 };
 
-const DEFAULT_NOTIFICATION_SOUND_ID: NotificationSoundId = "refactor";
+const DEFAULT_NOTIFICATION_SOUND_ID: NotificationSoundId = "frog";
 const CUSTOM_NOTIFICATION_SOUND_MAX_BYTES = 512 * 1024;
 export const CUSTOM_NOTIFICATION_SOUND_ACCEPT = "audio/*,.mp3,.wav,.ogg,.webm,.m4a,.aac,.flac";
 
@@ -20,6 +20,11 @@ export const NOTIFICATION_SOUND_OPTIONS: Array<{
   description: string;
 }> = [
   {
+    id: "frog",
+    label: "Frog",
+    description: "A short little frog chirp.",
+  },
+  {
     id: "refactor",
     label: "Refactor",
     description: "The current short De-Koi ping.",
@@ -27,7 +32,7 @@ export const NOTIFICATION_SOUND_OPTIONS: Array<{
   {
     id: "legacy-v1.6.1",
     label: "Legacy 1.6.1",
-    description: "The softer two-tone ding from v1.6.1.",
+    description: "The two-tone ding from v1.6.1.",
   },
   {
     id: "custom",
@@ -81,6 +86,45 @@ function playRefactorPing() {
   gain.connect(context.destination);
   oscillator.start();
   oscillator.stop(context.currentTime + 0.08);
+}
+
+function playFrogPing() {
+  const context = getNotificationAudioContext();
+  if (!context) return;
+
+  if (context.state === "suspended" || context.state === "interrupted") {
+    void context.resume().catch(() => {});
+  }
+
+  const now = context.currentTime;
+  const croak = context.createOscillator();
+  croak.type = "sawtooth";
+  croak.frequency.setValueAtTime(190, now);
+  croak.frequency.exponentialRampToValueAtTime(142, now + 0.07);
+  croak.frequency.exponentialRampToValueAtTime(205, now + 0.15);
+
+  const throat = context.createOscillator();
+  throat.type = "triangle";
+  throat.frequency.setValueAtTime(96, now);
+  throat.frequency.linearRampToValueAtTime(118, now + 0.12);
+
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.12, now + 0.025);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+  const throatGain = context.createGain();
+  throatGain.gain.setValueAtTime(0.0001, now);
+  throatGain.gain.exponentialRampToValueAtTime(0.08, now + 0.03);
+  throatGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+  croak.connect(gain).connect(context.destination);
+  throat.connect(throatGain).connect(context.destination);
+
+  croak.start(now);
+  croak.stop(now + 0.22);
+  throat.start(now);
+  throat.stop(now + 0.2);
 }
 
 function playLegacy161Ping() {
@@ -187,7 +231,9 @@ function getPlayableNotificationSoundId(
     ? "custom"
     : soundId === "legacy-v1.6.1"
       ? "legacy-v1.6.1"
-      : "refactor";
+      : soundId === "refactor"
+        ? "refactor"
+        : "frog";
 }
 
 export function playNotificationPing(
@@ -204,7 +250,11 @@ export function playNotificationPing(
       playLegacy161Ping();
       return;
     }
-    playRefactorPing();
+    if (playableSoundId === "refactor") {
+      playRefactorPing();
+      return;
+    }
+    playFrogPing();
   } catch {
     /* notification audio is best-effort */
   }
