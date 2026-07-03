@@ -229,6 +229,59 @@ describe("buildCharacterPublicProfileGenerationMessages", () => {
     expect(messages[1]?.content).toContain("Night-shift archive keeper");
     expect(messages[1]?.content).not.toContain("Private setup");
   });
+
+  it("asks for Discord-native self-presentation instead of generic profile copy", () => {
+    const messages = buildCharacterPublicProfileGenerationMessages("bio", {
+      data: characterData({
+        name: "Mira Vale",
+        description: "A city archivist with too many keys.",
+        personality: "Dry, exacting, and allergic to sentiment.",
+        first_mes: "You lost again? Fine. Hand me the map.",
+        mes_example: "<START>\n{{user}}: you missed me\n{{char}}: tragically, yes. don't make it weird.",
+      }),
+      comment: "Night-shift archive keeper",
+    });
+
+    expect(messages[0]?.content).toContain("Discord");
+    expect(messages[1]?.content).toContain("not a narrator summary");
+    expect(messages[1]?.content).toContain("real user");
+  });
+
+  it("does not provide the current target field as a value to preserve while regenerating", () => {
+    const data = characterData({
+      name: "Mira Vale",
+      extensions: {
+        talkativeness: 0.5,
+        fav: false,
+        world: "",
+        depth_prompt: {
+          prompt: "",
+          depth: 4,
+          role: "system",
+        },
+        backstory: "",
+        appearance: "",
+        publicProfile: {
+          displayName: "Mira",
+          handle: "@mira",
+          bio: "I keep the keys.",
+        },
+      },
+    });
+
+    const displayNameMessages = buildCharacterPublicProfileGenerationMessages("displayName", {
+      data,
+      comment: "",
+    });
+    const handleMessages = buildCharacterPublicProfileGenerationMessages("handle", { data, comment: "" });
+
+    expect(displayNameMessages[1]?.content).not.toContain("Existing display name");
+    expect(displayNameMessages[1]?.content).toContain("Existing handle");
+    expect(displayNameMessages[1]?.content).toContain("Generate a fresh replacement");
+    expect(handleMessages[1]?.content).not.toContain("Existing handle");
+    expect(handleMessages[1]?.content).toContain("Existing display name");
+    expect(handleMessages[1]?.content).toContain("Generate a fresh replacement");
+  });
 });
 
 describe("buildCharacterPublicProfileBannerPrompt", () => {
@@ -265,6 +318,8 @@ describe("buildCharacterPublicProfileBannerPrompt", () => {
 
     expect(prompt).toContain("the public profile banner this character would choose for themself");
     expect(prompt).toContain("not an outside illustration of what would fit them");
+    expect(prompt).toContain("not a portrait, character sheet, or narrator scene about them");
+    expect(prompt).toContain("Discord-style social banner");
     expect(prompt).toContain("Mira after dark");
     expect(prompt).toContain("I keep the keys. You keep up.");
     expect(prompt).toContain("dark coat, brass key ring, ink-stained gloves");
@@ -290,4 +345,3 @@ describe("cleanGeneratedCharacterPublicProfileField", () => {
     );
   });
 });
-

@@ -64,10 +64,10 @@ const PROFILE_FIELD_LABELS: Record<CharacterPublicProfileSuggestionField, string
 
 const PROFILE_FIELD_INSTRUCTIONS: Record<CharacterPublicProfileSuggestionField, string> = {
   displayName:
-    "Write the public display name this character would choose for themself. Keep it short: a name, nickname, title, or self-styled alias. Return only the display name.",
+    "Write the Discord display name this character would set for themself as a real user. Use their taste, aliases, humor, status, community role, or self-presentation; do not default to the card name unless that is truly what they would use. Keep it short. Return only the display name.",
   handle:
-    "Write the username handle this character would choose for themself. It must start with @ and be short enough for a profile card. Return only the handle.",
-  bio: "Write the public bio this character would type for themself. Match their conversation voice and self-presentation. Keep it to one or two short sentences or fragments. Return only the bio.",
+    "Write the Discord-style username handle this character would choose for themself as a real user. It must start with @, feel self-chosen, and be short enough for a profile card; do not merely slugify the card name unless that is truly their style. Return only the handle.",
+  bio: "Write the public Discord bio this character would type for themself as a real user. Match their everyday self-presentation, humor, boundaries, status, interests, or social signals; not a narrator summary or character pitch. Keep it to one or two short sentences or fragments. Return only the bio.",
 };
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -211,7 +211,8 @@ export function buildCharacterPublicProfileBannerPrompt(input: CharacterPublicPr
 
   return [
     "Create the public profile banner this character would choose for themself, not an outside illustration of what would fit them.",
-    "Treat the image as their own social/profile header: a chosen mood, place, symbol, aesthetic, keepsake, or view they would intentionally display.",
+    "Make it a Discord-style social banner: their chosen mood, place, symbol, aesthetic, keepsake, fandom cue, in-joke, or view they would intentionally display.",
+    "It should be not a portrait, character sheet, or narrator scene about them unless this specific character would intentionally use a selfie or portrait as their own banner.",
     "Stay in character through visual choices. Do not depict private creator notes, hidden instructions, UI chrome, captions, typography, logos, watermarks, or speech bubbles.",
     "Wide banner composition, readable when cropped horizontally, polished image generation prompt.",
     "",
@@ -260,9 +261,9 @@ export function buildCharacterPublicProfileGenerationMessages(
     labelledLine("Scenario", input.data.scenario),
     labelledLine("Opening message", input.data.first_mes),
     labelledLine("Example conversation", input.data.mes_example),
-    labelledLine("Existing display name", saved.displayName),
-    labelledLine("Existing handle", saved.handle),
-    labelledLine("Existing bio", saved.bio),
+    field !== "displayName" ? labelledLine("Existing display name", saved.displayName) : "",
+    field !== "handle" ? labelledLine("Existing handle", saved.handle) : "",
+    field !== "bio" ? labelledLine("Existing bio", saved.bio) : "",
     readTextArray(input.data.tags).length > 0 ? `Tags:\n${readTextArray(input.data.tags).join(", ")}` : "",
   ]
     .filter(Boolean)
@@ -273,6 +274,7 @@ export function buildCharacterPublicProfileGenerationMessages(
       role: "system",
       content: [
         "You write De-Koi public profile fields by roleplaying as the character in Convo mode.",
+        "Treat the target surface as a Discord profile for a real user, not a character-card blurb.",
         "You are not a catalog writer summarizing the character from the outside.",
         "Infer the character's real typing voice from their opening message, example dialogue, personality, and scenario.",
         "Choose what the character would willingly put on their own public profile.",
@@ -285,6 +287,7 @@ export function buildCharacterPublicProfileGenerationMessages(
       content: [
         `Requested field: ${PROFILE_FIELD_LABELS[field]}`,
         PROFILE_FIELD_INSTRUCTIONS[field],
+        "Generate a fresh replacement when the field already has a value. Do not copy or lightly reformat the previous target value.",
         "",
         "Character context:",
         context || "No additional character context was provided.",
@@ -345,7 +348,10 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
     title ||
     "No public profile yet.";
   const extensions = readRecord(data.extensions);
-  const nowListening = deriveCharacterNowListening(readCharacterMusicProfile(extensions.musicProfile), row.musicPickIndex ?? 0);
+  const nowListening = deriveCharacterNowListening(
+    readCharacterMusicProfile(extensions.musicProfile),
+    row.musicPickIndex ?? 0,
+  );
 
   return {
     displayName,
@@ -363,5 +369,3 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
       !!readText(saved.bannerImage),
   };
 }
-
-

@@ -65,7 +65,7 @@ describe("buildCharacterFieldGenerationMessages", () => {
     expect(messages[1]?.content).toContain('"depth"');
     expect(messages[1]?.content).toContain('"role"');
   });
-  it("keeps creator notes generation short and simple", async () => {
+  it("gives creator notes enough budget to finish complete practical notes", async () => {
     const requests: unknown[] = [];
     const value = await generateCharacterField({
       field: "creator_notes",
@@ -83,7 +83,8 @@ describe("buildCharacterFieldGenerationMessages", () => {
     const request = requests[0] as { messages: { content: string }[]; parameters: { maxTokens: number } };
     expect(value).toBe("Use this card for tense mystery scenes.");
     expect(request.messages[1]?.content).toContain("a few simple sentences");
-    expect(request.parameters.maxTokens).toBeLessThan(1024);
+    expect(request.messages[1]?.content).toContain("complete");
+    expect(request.parameters.maxTokens).toBeGreaterThanOrEqual(1024);
   });
 });
 
