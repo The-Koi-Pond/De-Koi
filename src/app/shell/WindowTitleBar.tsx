@@ -135,7 +135,8 @@ export function WindowTitleBar({
   }, [closeAllDetails, closeRightPanel, onGoHome, setActiveChatId]);
 
   const isHomeSurface = !dekiOpen && !activeChatId && !hasOpenSurface;
-  const showWindowControls = !webMode;
+  const effectiveWebMode = webMode || !hasWindowControls;
+  const showWindowControls = !effectiveWebMode;
   const controlActions: WindowControlAction[] =
     platform === "darwin" ? ["close", "minimize", "fullscreen"] : ["minimize", "maximize", "close"];
   const controls = (
@@ -199,7 +200,7 @@ export function WindowTitleBar({
       onDoubleClick={toggleMaximizeFromDragRegion}
     >
       {platform === "darwin" && showWindowControls && controls}
-      {webMode ? (
+      {effectiveWebMode ? (
         <button
           type="button"
           className="mari-titlebar-action mari-titlebar-web-home-button ml-2.5 rounded-md p-1.5 text-[var(--muted-foreground)] transition-all duration-200 hover:text-[var(--primary)]"
@@ -246,14 +247,13 @@ export function WindowTitleBar({
               <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
             )}
           </button>
+          {titlebarAccessory ? <div className="ml-2 hidden min-w-0 md:flex">{titlebarAccessory}</div> : null}
         </div>
         <div
           className="mari-window-actions flex h-full shrink-0 items-center gap-2"
           onMouseDown={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
         >
-          {titlebarAccessory ? <div className="hidden min-w-0 md:flex">{titlebarAccessory}</div> : null}
-
           <PanelNavButtons />
           <span className="mari-window-actions-divider" aria-hidden />
         </div>
