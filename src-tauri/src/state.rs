@@ -40,7 +40,14 @@ struct LlmStreamCancellations {
 }
 
 const STARTUP_MIGRATIONS_SETTINGS_ID: &str = "startup-migrations";
+const STORAGE_JSON_FIELDS_MIGRATION_KEY: &str = "storageJsonFieldsV1";
 const MESSAGE_PROMPT_SNAPSHOT_COMPACTION_KEY: &str = "messagePromptSnapshotCompactionV1";
+const NESTED_MESSAGE_SWIPES_MIGRATION_KEY: &str = "nestedMessageSwipesV1";
+const AGENT_RUN_ROWS_MIGRATION_KEY: &str = "agentRunRowsV1";
+const LEGACY_CHAT_GROUP_ROOTS_MIGRATION_KEY: &str = "legacyChatGroupRootsV1";
+const LOCAL_MEDIA_REFERENCES_MIGRATION_KEY: &str = "localMediaReferencesV1";
+const LEGACY_CHAT_GALLERY_FILES_MIGRATION_KEY: &str = "legacyChatGalleryFilesV1";
+const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 
 impl AppState {
@@ -73,16 +80,43 @@ impl AppState {
         let game_assets = AssetService::new(data_dir.join("game-assets"))?;
         let backgrounds = AssetService::new(data_dir.join("backgrounds"))?;
         Self::seed_defaults(&storage, &game_assets, &backgrounds, default_data_roots)?;
-        migrate_storage_json_fields(&storage)?;
-        migrate_message_prompt_snapshots_once(&storage)?;
-        crate::storage_commands::message_swipes::migrate_nested_message_swipes(&storage)?;
-        migrate_agent_run_rows(&storage)?;
-        migrate_legacy_chat_group_roots(&storage)?;
-        migrate_local_media_references(&storage, &data_dir)?;
-        recover_legacy_chat_gallery_files(&storage, &data_dir)?;
-        crate::storage_commands::startup_migrations::migrate_inline_image_references(
-            &storage, &data_dir,
+        // Default seeding and FileStorage load-time recovery remain always-on. The
+        // following gates cover legacy full-collection passes that only need one
+        // successful run per normalized data directory.
+        run_startup_migration_once(
+            &storage,
+            STORAGE_JSON_FIELDS_MIGRATION_KEY,
+            migrate_storage_json_fields,
         )?;
+        migrate_message_prompt_snapshots_once(&storage)?;
+        run_startup_migration_once(
+            &storage,
+            NESTED_MESSAGE_SWIPES_MIGRATION_KEY,
+            crate::storage_commands::message_swipes::migrate_nested_message_swipes,
+        )?;
+        run_startup_migration_once(
+            &storage,
+            AGENT_RUN_ROWS_MIGRATION_KEY,
+            migrate_agent_run_rows,
+        )?;
+        run_startup_migration_once(
+            &storage,
+            LEGACY_CHAT_GROUP_ROOTS_MIGRATION_KEY,
+            migrate_legacy_chat_group_roots,
+        )?;
+        run_startup_migration_once(&storage, LOCAL_MEDIA_REFERENCES_MIGRATION_KEY, |storage| {
+            migrate_local_media_references(storage, &data_dir)
+        })?;
+        run_startup_migration_once(
+            &storage,
+            LEGACY_CHAT_GALLERY_FILES_MIGRATION_KEY,
+            |storage| recover_legacy_chat_gallery_files(storage, &data_dir),
+        )?;
+        run_startup_migration_once(&storage, INLINE_IMAGE_REFERENCES_MIGRATION_KEY, |storage| {
+            crate::storage_commands::startup_migrations::migrate_inline_image_references(
+                storage, &data_dir,
+            )
+        })?;
 
         Ok(Self {
             storage,
@@ -263,11 +297,22 @@ fn migrate_collection_json_fields(storage: &FileStorage, collection: &str) -> Ap
 }
 
 fn migrate_message_prompt_snapshots_once(storage: &FileStorage) -> AppResult<()> {
-    if startup_migration_applied(storage, MESSAGE_PROMPT_SNAPSHOT_COMPACTION_KEY)? {
+    run_startup_migration_once(
+        storage,
+        MESSAGE_PROMPT_SNAPSHOT_COMPACTION_KEY,
+        compact_message_prompt_snapshots,
+    )
+}
+
+fn run_startup_migration_once<F>(storage: &FileStorage, key: &str, migration: F) -> AppResult<()>
+where
+    F: FnOnce(&FileStorage) -> AppResult<()>,
+{
+    if startup_migration_applied(storage, key)? {
         return Ok(());
     }
-    compact_message_prompt_snapshots(storage)?;
-    mark_startup_migration_applied(storage, MESSAGE_PROMPT_SNAPSHOT_COMPACTION_KEY)
+    migration(storage)?;
+    mark_startup_migration_applied(storage, key)
 }
 
 fn compact_message_prompt_snapshots(storage: &FileStorage) -> AppResult<()> {
@@ -987,6 +1032,56 @@ mod tests {
         );
     }
 
+    #[test]
+    fn startup_migration_once_marks_completion_and_skips_later_runs() {
+        let root = temp_root("startup-migration-once");
+        let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
+        let mut runs = 0;
+
+        run_startup_migration_once(&storage, "testMigrationOnceV1", |_| {
+            runs += 1;
+            Ok(())
+        })
+        .expect("first migration run should succeed");
+        run_startup_migration_once(&storage, "testMigrationOnceV1", |_| {
+            runs += 1;
+            Ok(())
+        })
+        .expect("completed migration should skip");
+
+        assert_eq!(runs, 1);
+        assert!(startup_migration_applied(&storage, "testMigrationOnceV1")
+            .expect("migration marker should load"));
+    }
+
+    #[test]
+    fn startup_migration_once_does_not_mark_failed_runs() {
+        let root = temp_root("startup-migration-failure");
+        let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
+        let error = run_startup_migration_once(&storage, "testMigrationFailureV1", |_| {
+            Err(AppError::new("migration_failed", "first run failed"))
+        })
+        .expect_err("failed migration should return its error");
+
+        assert_eq!(error.code, "migration_failed");
+        assert!(
+            !startup_migration_applied(&storage, "testMigrationFailureV1")
+                .expect("migration marker should load")
+        );
+
+        let mut runs = 0;
+        run_startup_migration_once(&storage, "testMigrationFailureV1", |_| {
+            runs += 1;
+            Ok(())
+        })
+        .expect("unmarked migration should retry later");
+
+        assert_eq!(runs, 1);
+        assert!(
+            startup_migration_applied(&storage, "testMigrationFailureV1")
+                .expect("migration marker should load")
+        );
+    }
     #[test]
     fn llm_stream_pending_cancellations_inside_ttl_are_retained() {
         let now = Instant::now();
