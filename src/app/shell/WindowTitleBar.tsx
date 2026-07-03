@@ -1,4 +1,4 @@
-import { Maximize2, Minus, Square, X } from "lucide-react";
+import { Home, Maximize2, Minus, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   closeDesktopWindow,
@@ -35,11 +35,13 @@ export function WindowTitleBar({
   onOpenDeki,
   onGoHome,
   titlebarAccessory,
+  webMode = false,
 }: {
   dekiOpen?: boolean;
   onOpenDeki?: () => void;
   onGoHome?: () => void;
   titlebarAccessory?: ReactNode;
+  webMode?: boolean;
 }) {
   const platform = useMemo(inferDesktopPlatform, []);
   const hasWindowControls = useMemo(hasDesktopWindowControls, []);
@@ -133,6 +135,7 @@ export function WindowTitleBar({
   }, [closeAllDetails, closeRightPanel, onGoHome, setActiveChatId]);
 
   const isHomeSurface = !dekiOpen && !activeChatId && !hasOpenSurface;
+  const showWindowControls = !webMode;
   const controlActions: WindowControlAction[] =
     platform === "darwin" ? ["close", "minimize", "fullscreen"] : ["minimize", "maximize", "close"];
   const controls = (
@@ -195,14 +198,28 @@ export function WindowTitleBar({
       onMouseDown={startWindowDrag}
       onDoubleClick={toggleMaximizeFromDragRegion}
     >
-      {platform === "darwin" && controls}
-      <ChatTitleControls
-        className="pl-2.5 pr-0"
-        dekiOpen={dekiOpen}
-        onOpenDeki={onOpenDeki}
-        onGoHome={onGoHome}
-        hideHome
-      />
+      {platform === "darwin" && showWindowControls && controls}
+      {webMode ? (
+        <button
+          type="button"
+          className="mari-titlebar-action mari-titlebar-web-home-button ml-2.5 rounded-md p-1.5 text-[var(--muted-foreground)] transition-all duration-200 hover:text-[var(--primary)]"
+          onClick={goHome}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          title="Home"
+          aria-label="Home"
+        >
+          <Home size="0.9rem" aria-hidden />
+        </button>
+      ) : (
+        <ChatTitleControls
+          className="pl-2.5 pr-0"
+          dekiOpen={dekiOpen}
+          onOpenDeki={onOpenDeki}
+          onGoHome={onGoHome}
+          hideHome
+        />
+      )}
       <div className="mari-titlebar-content flex h-full min-w-0 flex-1 items-center">
         <div
           className="mari-title-drag-region flex h-full min-w-0 flex-1 items-center justify-start pl-0.5 pr-3"
@@ -241,7 +258,7 @@ export function WindowTitleBar({
           <span className="mari-window-actions-divider" aria-hidden />
         </div>
       </div>
-      {platform !== "darwin" && controls}
+      {platform !== "darwin" && showWindowControls && controls}
     </header>
   );
 }
