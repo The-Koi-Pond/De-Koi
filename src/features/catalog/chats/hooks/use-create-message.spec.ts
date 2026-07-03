@@ -52,7 +52,7 @@ function messagePages(messages: Message[]): InfiniteData<Message[]> {
   return { pages: [messages], pageParams: [undefined] };
 }
 
-function createMutationOptions(qc: QueryClient): CreateMessageOptions {
+function useCreateMessageOptions(qc: QueryClient): CreateMessageOptions {
   reactQueryMocks.currentQueryClient = qc;
   return useCreateMessage("chat-1") as unknown as CreateMessageOptions;
 }
@@ -67,7 +67,7 @@ describe("useCreateMessage cache behavior", () => {
     const qc = new QueryClient();
     qc.setQueryData(chatKeys.messages("chat-1"), messagePages([message("existing", "Before")]));
     qc.setQueryData(chatKeys.messageCount("chat-1"), { count: 1 });
-    const options = createMutationOptions(qc);
+    const options = useCreateMessageOptions(qc);
 
     options.onMutate({ role: "user", content: "Hello" });
 
@@ -81,7 +81,7 @@ describe("useCreateMessage cache behavior", () => {
     qc.setQueryData(chatKeys.messages("chat-1"), messagePages([message("existing", "Before")]));
     qc.setQueryData(chatKeys.messageCount("chat-1"), { count: 1 });
     const invalidateQueries = vi.spyOn(qc, "invalidateQueries").mockResolvedValue(undefined);
-    const options = createMutationOptions(qc);
+    const options = useCreateMessageOptions(qc);
 
     const context = options.onMutate({ role: "user", content: "Hello" });
     options.onSuccess(message("saved", "Saved"), { role: "user", content: "Hello" }, context);
@@ -98,7 +98,7 @@ describe("useCreateMessage cache behavior", () => {
     const qc = new QueryClient();
     qc.setQueryData(chatKeys.messages("chat-1"), messagePages([message("existing", "Before")]));
     const invalidateQueries = vi.spyOn(qc, "invalidateQueries").mockResolvedValue(undefined);
-    const options = createMutationOptions(qc);
+    const options = useCreateMessageOptions(qc);
 
     const context = options.onMutate({ role: "user", content: "Hello" });
     options.onSuccess(null, { role: "user", content: "Hello" }, context);
@@ -111,7 +111,7 @@ describe("useCreateMessage cache behavior", () => {
     const previousMessages = messagePages([message("existing", "Before")]);
     qc.setQueryData(chatKeys.messages("chat-1"), previousMessages);
     qc.setQueryData(chatKeys.messageCount("chat-1"), { count: 1 });
-    const options = createMutationOptions(qc);
+    const options = useCreateMessageOptions(qc);
 
     const context = options.onMutate({ role: "user", content: "Hello" });
     options.onError(new Error("nope"), { role: "user", content: "Hello" }, context);
