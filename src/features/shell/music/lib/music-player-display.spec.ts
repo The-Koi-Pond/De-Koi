@@ -17,9 +17,9 @@ describe("music player display", () => {
     });
   });
 
-  it("uses neutral Music DJ fallback text before a track is selected", () => {
+  it("uses neutral Music Player fallback text before a track is selected", () => {
     expect(getMusicPlayerDisplay(null)).toEqual({
-      title: "Music DJ",
+      title: "Music Player",
       subtitle: "YouTube first",
     });
   });

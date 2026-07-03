@@ -539,7 +539,7 @@ export function CharacterMetadataTab({
       </div>
 
       <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-4">
-        <SectionHeader title="Music Taste" subtitle="Public listening flavor and manual Music DJ cues." />
+        <SectionHeader title="Music Taste" subtitle="Character profile flavor and manual Music Player cues, not automatic scene music." />
         <label className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/70 p-3">
           <input
             type="checkbox"
@@ -550,14 +550,14 @@ export function CharacterMetadataTab({
           <span className="min-w-0 text-xs text-[var(--muted-foreground)]">
             <span className="block font-medium text-[var(--foreground)]">Show Listening To on Public Profile</span>
             <span className="block leading-5">
-              This is profile flavor only. Music plays only when a user presses the profile music play button.
+              This only changes the character's public profile. It does not enable automatic scene music.
             </span>
           </span>
         </label>
         <label className="space-y-1.5 block">
           <div className="flex items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Favorite Songs <HelpTooltip text="One per line. Use Song - Artist, optionally followed by | YouTube URL." />
+              Favorite Songs <HelpTooltip text="One per line. Use Song - Artist, optionally followed by | YouTube URL. These feed profile/manual character cues, not the automatic scene DJ." />
             </span>
             <CharacterFieldGenerationButton
               field="music_favorite_songs"
@@ -581,7 +581,7 @@ export function CharacterMetadataTab({
             <div className="flex items-center justify-between gap-2">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
                 Favorite Artists{" "}
-                <HelpTooltip text="Comma or newline separated artists used for profile radio-style picks." />
+                <HelpTooltip text="Comma or newline separated artists used for profile radio-style picks and manual character music cues." />
               </span>
               <CharacterFieldGenerationButton
                 field="music_favorite_artists"
@@ -604,7 +604,7 @@ export function CharacterMetadataTab({
             <div className="flex items-center justify-between gap-2">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
                 Favorite Genres{" "}
-                <HelpTooltip text="Comma or newline separated genres used when no specific song is selected." />
+                <HelpTooltip text="Comma or newline separated genres used when no specific character song is selected." />
               </span>
               <CharacterFieldGenerationButton
                 field="music_favorite_genres"
@@ -628,7 +628,7 @@ export function CharacterMetadataTab({
           <div className="flex items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
               Vibe Notes{" "}
-              <HelpTooltip text="Short flavor used for fallback Music DJ searches, not sent to character prompts in V1." />
+              <HelpTooltip text="Short flavor used for fallback Music Player searches, not sent to character prompts in V1." />
             </span>
             <CharacterFieldGenerationButton
               field="music_vibe_notes"

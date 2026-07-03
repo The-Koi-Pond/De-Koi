@@ -433,7 +433,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
   },
   {
     id: "music-dj",
-    name: "Music DJ",
+    name: "Music Player",
     description:
       "Analyzes conversation, roleplay, and game scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
     phase: "post_processing",
@@ -999,7 +999,7 @@ export const BUILT_IN_TOOLS: ToolDefinition[] = [
   },
   {
     name: "music_get_current_playback",
-    description: "Get the current De-Koi Music DJ playback state for this chat.",
+    description: "Get the current De-Koi Music Player playback state for this chat.",
     parameters: { type: "object", properties: {} },
   },
   {
@@ -1018,7 +1018,7 @@ export const BUILT_IN_TOOLS: ToolDefinition[] = [
   },
   {
     name: "music_play",
-    description: "Start Music DJ playback with a resolved YouTube track.",
+    description: "Start Music Player playback with a resolved YouTube track.",
     parameters: {
       type: "object",
       properties: {
@@ -1035,7 +1035,7 @@ export const BUILT_IN_TOOLS: ToolDefinition[] = [
   },
   {
     name: "music_set_volume",
-    description: "Set De-Koi Music DJ volume from 0 to 100.",
+    description: "Set De-Koi Music Player volume from 0 to 100.",
     parameters: {
       type: "object",
       properties: {
@@ -1047,7 +1047,7 @@ export const BUILT_IN_TOOLS: ToolDefinition[] = [
   },
   {
     name: "music_feedback",
-    description: "Record Music DJ feedback such as play, skip, like, or dislike for future ranking.",
+    description: "Record Music Player feedback such as play, skip, like, or dislike for future ranking.",
     parameters: {
       type: "object",
       properties: {

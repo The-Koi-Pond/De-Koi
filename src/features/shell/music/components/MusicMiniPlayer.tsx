@@ -111,11 +111,11 @@ function FloatingMusicShell({ children }: { children: ReactNode }) {
         type="button"
         onClick={() => setCollapsed(false)}
         className="fixed bottom-28 right-4 z-[60] inline-flex h-11 items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--border)_70%,transparent)] bg-[color-mix(in_srgb,var(--surface)_88%,transparent)] px-3 text-[var(--foreground)] shadow-[0_12px_36px_rgba(0,0,0,0.32)] backdrop-blur-xl transition-transform hover:-translate-y-0.5 hover:border-[var(--primary)]/45 md:h-10 md:rounded-xl"
-        aria-label="Open Music DJ"
-        title="Open Music DJ"
+        aria-label="Open Music Player"
+        title="Open Music Player"
       >
         <Volume2 className="h-4 w-4" />
-        <span className="hidden text-xs font-medium md:inline">Music DJ</span>
+        <span className="hidden text-xs font-medium md:inline">Music Player</span>
       </button>
     );
   }
@@ -172,8 +172,8 @@ function FloatingMusicShell({ children }: { children: ReactNode }) {
           onPointerMove={onDragMove}
           onPointerUp={onDragEnd}
           onPointerCancel={onDragEnd}
-          aria-label="Drag Music DJ"
-          title="Drag Music DJ"
+          aria-label="Drag Music Player"
+          title="Drag Music Player"
         >
           <GripHorizontal className="h-4 w-4" />
         </button>
@@ -181,8 +181,8 @@ function FloatingMusicShell({ children }: { children: ReactNode }) {
           type="button"
           className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)]/90 text-[var(--muted-foreground)] shadow-sm backdrop-blur transition-colors hover:text-[var(--foreground)]"
           onClick={() => setCollapsed(true)}
-          aria-label="Hide Music DJ"
-          title="Hide Music DJ"
+          aria-label="Hide Music Player"
+          title="Hide Music Player"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -278,7 +278,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
       if (next) {
         await playTrack(next, requestedVolume);
         if (intent) {
-          setMessage(`Music DJ: ${musicDjIntentLabel(intent)}${intent.reason ? ` - ${intent.reason}` : ""}`);
+          setMessage(`Music Player: ${musicDjIntentLabel(intent)}${intent.reason ? ` - ${intent.reason}` : ""}`);
         } else if (usedDiscoveryFallback) {
           setMessage(`Fresh pick uses mood text, so I used: ${searchQuery}`);
         }
@@ -345,7 +345,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         if (detail.track) {
           if (detail.query) setQuery(detail.query);
           void playTrack(detail.track, typeof detail.volume === "number" ? detail.volume : volume);
-          if (detail.intent) setMessage(`Music DJ: ${musicDjIntentLabel(detail.intent)}`);
+          if (detail.intent) setMessage(`Music Player: ${musicDjIntentLabel(detail.intent)}`);
         } else if (detail.query) {
           setQuery(detail.query);
           void pick(detail.fresh === true, detail.query, detail.intent ?? null, detail.volume ?? null);
@@ -356,9 +356,9 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           setQuery(contextQuery);
           setLastDiscoveryQuery(contextQuery);
         }
-        if (detail.intent) setMessage(`Music DJ ready: ${musicDjIntentLabel(detail.intent)}`);
+        if (detail.intent) setMessage(`Music Player ready: ${musicDjIntentLabel(detail.intent)}`);
       } else if (detail.type === "volume") {
-        if (detail.intent) setMessage(`Music DJ volume: ${musicDjIntentLabel(detail.intent)}`);
+        if (detail.intent) setMessage(`Music Player volume: ${musicDjIntentLabel(detail.intent)}`);
         void updateVolume(detail.volume);
       } else if (detail.type === "pause") {
         void pause();
@@ -381,7 +381,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           : "mb-2 h-24 w-full rounded border-0"
       }
       src={src}
-      title="Music DJ YouTube player"
+      title="Music Player YouTube player"
       allow="autoplay; encrypted-media"
     />
   ) : null;
@@ -408,14 +408,15 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           onChange={(event) => setQuery(event.target.value)}
           className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs outline-none"
           placeholder="Mood, genre, or YouTube URL"
+          title="Type mood text for a YouTube search, or paste a YouTube URL to play it directly."
         />
         <button
           type="button"
           className="rounded border border-[var(--border)] p-1.5"
           onClick={() => pick(false)}
           disabled={busy}
-          aria-label="Search music"
-          title="Search YouTube music"
+          aria-label="Search YouTube music from the current mood or URL"
+          title="Search YouTube from the mood text, or play the pasted YouTube URL."
         >
           <Search className="h-4 w-4" />
         </button>
@@ -424,8 +425,8 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           className="rounded border border-[var(--border)] p-1.5"
           onClick={() => pick(true)}
           disabled={busy}
-          aria-label="Fresh pick"
-          title="Fresh pick"
+          aria-label="Fresh Music Player pick"
+          title="Pick a different YouTube result for the same mood."
         >
           <RotateCcw className="h-4 w-4" />
         </button>
@@ -436,11 +437,18 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           type="button"
           className="rounded border border-[var(--border)] p-1.5"
           onClick={() => (playing ? pause() : resumeOrPick())}
-          aria-label={playing ? "Pause" : "Play"}
+          aria-label={playing ? "Pause Music Player" : "Play Music Player"}
+          title={playing ? "Pause Music Player" : track ? "Resume Music Player" : "Play a YouTube pick from the current mood"}
         >
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </button>
-        <button type="button" className="rounded border border-[var(--border)] p-1.5" onClick={stop} aria-label="Stop">
+        <button
+          type="button"
+          className="rounded border border-[var(--border)] p-1.5"
+          onClick={stop}
+          aria-label="Stop Music Player"
+          title="Stop Music Player"
+        >
           <Square className="h-4 w-4" />
         </button>
         <input
@@ -450,7 +458,8 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           max={100}
           value={volume}
           onChange={(event) => updateVolume(Number(event.target.value))}
-          aria-label="Music volume"
+          aria-label="Music Player volume"
+          title="Music Player volume"
         />
         <span className="w-8 text-right text-xs text-[var(--muted-foreground)]">{volume}</span>
       </div>
@@ -478,8 +487,8 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           type="button"
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
           onClick={() => (playing ? pause() : resumeOrPick())}
-          aria-label={playing ? "Pause Music DJ" : "Play Music DJ"}
-          title={playing ? "Pause" : "Play"}
+          aria-label={playing ? "Pause Music Player" : "Play Music Player"}
+          title={playing ? "Pause Music Player" : track ? "Resume Music Player" : "Play a YouTube pick from the current mood"}
         >
           {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
         </button>
@@ -488,7 +497,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
           onClick={stop}
           disabled={!track && !playing}
-          aria-label="Stop Music DJ"
+          aria-label="Stop Music Player"
           title="Stop"
         >
           <Square className="h-3.5 w-3.5" />
@@ -498,8 +507,8 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
           onClick={() => pick(true)}
           disabled={busy}
-          aria-label="Fresh Music DJ pick"
-          title="Fresh pick"
+          aria-label="Fresh Music Player pick"
+          title="Pick a different YouTube result for the same mood."
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
@@ -510,7 +519,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           max={100}
           value={volume}
           onChange={(event) => updateVolume(Number(event.target.value))}
-          aria-label="Music volume"
+          aria-label="Music Player volume"
           title="Volume"
         />
       </div>
