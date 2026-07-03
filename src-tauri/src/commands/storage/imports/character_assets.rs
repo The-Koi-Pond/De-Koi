@@ -82,9 +82,11 @@ pub(super) fn materialize_imported_public_profile_banner(
     state: &AppState,
     character_id: &str,
     character: &mut Value,
-) -> AppResult<Option<Value>> {
+    created_gallery_id: &mut Option<String>,
+    gallery_file_path: &mut Option<String>,
+) -> AppResult<bool> {
     let Some(data) = character.get("data") else {
-        return Ok(None);
+        return Ok(false);
     };
     let Some(banner) = data
         .pointer("/extensions/publicProfile/bannerImage")
@@ -93,7 +95,7 @@ pub(super) fn materialize_imported_public_profile_banner(
         .filter(|value| is_inline_image_data_url(value))
         .map(ToOwned::to_owned)
     else {
-        return Ok(None);
+        return Ok(false);
     };
 
     let (mime, bytes) = decode_image_payload(&banner, "public profile banner")?;
@@ -111,6 +113,14 @@ pub(super) fn materialize_imported_public_profile_banner(
             }
         }),
     )?;
+    *created_gallery_id = gallery
+        .get("id")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    *gallery_file_path = gallery
+        .get("filePath")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
     let Some(url) = gallery
         .get("url")
         .and_then(Value::as_str)
@@ -143,5 +153,5 @@ pub(super) fn materialize_imported_public_profile_banner(
     *character = state
         .storage
         .patch("characters", character_id, json!({ "data": data }))?;
-    Ok(Some(gallery))
+    Ok(true)
 }

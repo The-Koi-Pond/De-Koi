@@ -192,18 +192,13 @@ fn import_st_character_payload(
         let mut character = state.storage.create("characters", record)?;
         let character_id = created_record_id(&character, "character")?;
         created_character_id = Some(character_id.clone());
-        if let Some(gallery) =
-            materialize_imported_public_profile_banner(state, &character_id, &mut character)?
-        {
-            created_banner_gallery_id = gallery
-                .get("id")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned);
-            banner_gallery_file_path = gallery
-                .get("filePath")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned);
-        }
+        materialize_imported_public_profile_banner(
+            state,
+            &character_id,
+            &mut character,
+            &mut created_banner_gallery_id,
+            &mut banner_gallery_file_path,
+        )?;
 
         let import_embedded = body
             .get("importEmbeddedLorebook")
