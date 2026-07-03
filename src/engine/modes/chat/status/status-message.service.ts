@@ -107,10 +107,20 @@ function sanitizeStatusMessage(value: string): string {
     .slice(0, 96);
 }
 
+function statusMessageJsonCandidate(raw: string): string {
+  const trimmed = raw.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced?.[1]) return fenced[1].trim();
+
+  const languagePrefixed = trimmed.match(/^json\s*(\{[\s\S]*\})$/i);
+  return languagePrefixed?.[1]?.trim() ?? trimmed;
+}
+
 function parseGeneratedStatusMessage(raw: string): string {
   const trimmed = raw.trim();
+  const candidate = statusMessageJsonCandidate(trimmed);
   try {
-    const parsed = JSON.parse(trimmed) as JsonRecord;
+    const parsed = JSON.parse(candidate) as JsonRecord;
     const message = typeof parsed.message === "string" ? parsed.message : "";
     return sanitizeStatusMessage(message);
   } catch {

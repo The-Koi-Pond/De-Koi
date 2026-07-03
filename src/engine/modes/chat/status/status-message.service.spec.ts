@@ -318,6 +318,42 @@ describe("maybeRefreshConversationStatusMessages", () => {
     });
   });
 
+  it("parses fenced JSON status blurbs instead of storing the code fence label", async () => {
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["char1"],
+          metadata: { conversationStatusMessagesEnabled: true },
+        },
+      },
+      connections: {
+        conn1: { id: "conn1", model: "test-model" },
+      },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            extensions: { conversationStatus: "online", conversationActivity: "drafting notes" },
+          },
+        },
+      },
+    };
+
+    await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: llmReturning('```json\n{"message":"hitting the draft"}\n```'),
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect((seed.characters.char1.data.extensions as Row).conversationStatusMessage).toBe("hitting the draft");
+  });
+
   it("asks for a character-authored custom status in default Conversation style", async () => {
     const seed = {
       chats: {
