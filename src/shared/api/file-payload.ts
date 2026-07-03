@@ -28,6 +28,17 @@ export interface FilePayloadOptions {
   tooLargeMessage?: string;
 }
 
+const BASE64_BYTE_CHUNK_SIZE = 32_766;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let encoded = "";
+  for (let offset = 0; offset < bytes.length; offset += BASE64_BYTE_CHUNK_SIZE) {
+    const chunk = bytes.subarray(offset, offset + BASE64_BYTE_CHUNK_SIZE);
+    encoded += btoa(String.fromCharCode(...chunk));
+  }
+  return encoded;
+}
+
 export async function fileToUploadPayload(file: File, options: FilePayloadOptions = {}): Promise<UploadFilePayload> {
   if (options.maxBytes !== undefined && file.size > options.maxBytes) {
     throw new Error(options.tooLargeMessage ?? `Uploads must be ${options.maxBytes} bytes or smaller`);
@@ -35,14 +46,12 @@ export async function fileToUploadPayload(file: File, options: FilePayloadOption
 
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
   return {
     name: file.name,
     type: file.type,
     size: file.size,
     lastModified: file.lastModified,
-    base64: btoa(binary),
+    base64: bytesToBase64(bytes),
   };
 }
 
