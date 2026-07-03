@@ -33,6 +33,7 @@ import { cn } from "../../shared/lib/utils";
 import { parseChatMetadata } from "../../shared/lib/chat-display";
 import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { getDetailRouteView } from "./detail-route-registry";
+import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
 import { shouldUseLowPowerShellMode } from "./shell-performance";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
@@ -777,8 +778,10 @@ export function AppShell() {
   useEffect(() => {
     if (hasDetailView) setDekiOpen(false);
   }, [hasDetailView]);
-  const trackerPanelActive = trackerPanelEnabled && trackerPanelOpen;
-  const trackerPanelSurfaceAvailable = !botBrowserOpen && !gameAssetsBrowserOpen && !hasDetailView && !dekiOpen;
+  const trackerPanelModeAvailable = isTrackerPanelAvailableForChatMode(activeChat?.mode);
+  const trackerPanelActive = trackerPanelModeAvailable && trackerPanelEnabled && trackerPanelOpen;
+  const trackerPanelSurfaceAvailable =
+    trackerPanelModeAvailable && !botBrowserOpen && !gameAssetsBrowserOpen && !hasDetailView && !dekiOpen;
   const trackerPanelVisible = trackerPanelActive && trackerPanelSurfaceAvailable;
   useEffect(() => {
     if (trackerPanelVisible) {
