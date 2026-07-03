@@ -92,7 +92,8 @@ import {
   buildCharacterMusicPlaybackCue,
   characterAvatarUrl,
   characterMusicOptionCount,
-  CharacterPublicProfileCard,
+  CharacterPublicProfilePopover,
+  type CharacterPublicProfilePopoverAnchor,
   readCharacterMusicProfile,
   resolveCharacterPublicProfile,
   useCharacterSummaries,
@@ -483,7 +484,10 @@ function ChatSettingsDrawerInner({
   const roleplaySpriteScale = useUIStore((s) => s.roleplaySpriteScale);
 
   const [showCharPicker, setShowCharPicker] = useState(false);
-  const [profilePopoverCharacterId, setProfilePopoverCharacterId] = useState<string | null>(null);
+  const [profilePopover, setProfilePopover] = useState<{
+    characterId: string;
+    anchorRect: CharacterPublicProfilePopoverAnchor | null;
+  } | null>(null);
   const [musicProfilePickIndexes, setMusicProfilePickIndexes] = useState<Record<string, number>>({});
   const [charSearch, setCharSearch] = useState("");
   const debouncedCharSearch = useDebouncedValue(charSearch, 180);
@@ -1015,6 +1019,15 @@ function ChatSettingsDrawerInner({
     [musicProfileForCharacter],
   );
 
+  const toggleCharacterProfilePopover = useCallback(
+    (characterId: string, anchorRect: CharacterPublicProfilePopoverAnchor | null) => {
+      setProfilePopover((current) => (current?.characterId === characterId ? null : { characterId, anchorRect }));
+    },
+    [],
+  );
+
+  const closeCharacterProfilePopover = useCallback(() => setProfilePopover(null), []);
+
   const characterPublicProfile = useCallback(
     (c: { id: string; data?: unknown; comment?: string | null }) =>
       resolveCharacterPublicProfile({
@@ -1461,7 +1474,10 @@ function ChatSettingsDrawerInner({
   const [groupScenarioDraft, setGroupScenarioDraft] = useState(groupScenarioText);
   const [groupScenarioExpanded, setGroupScenarioExpanded] = useState(false);
   const gameAgentPool = useMemo(
-    () => Array.from(new Set(activeAgentIds.filter((id) => id !== "music-dj" && id !== "spotify" && id !== "lorebook-keeper"))),
+    () =>
+      Array.from(
+        new Set(activeAgentIds.filter((id) => id !== "music-dj" && id !== "spotify" && id !== "lorebook-keeper")),
+      ),
     [activeAgentIds],
   );
   const [extraPromptDraft, setExtraPromptDraft] = useState(gameExtraPrompt);
@@ -1555,8 +1571,7 @@ function ChatSettingsDrawerInner({
   const showMusicDjMiniPlayerModuleHint = useCallback(async () => {
     const settings = await coreModulesApi.settings.get().catch(() => null);
     const enabled = settings?.enabled ?? {};
-    const miniPlayerEnabled =
-      enabled[SPOTIFY_MINI_PLAYER_MODULE_ID] === true;
+    const miniPlayerEnabled = enabled[SPOTIFY_MINI_PLAYER_MODULE_ID] === true;
     if (miniPlayerEnabled) return;
 
     await showAlertDialog({
@@ -2312,40 +2327,36 @@ function ChatSettingsDrawerInner({
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
+                                toggleCharacterProfilePopover(c.id, event.currentTarget.getBoundingClientRect());
                               }}
                               className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
                               title="Preview public profile"
                             >
                               <Info size="0.6875rem" />
                             </button>
-                            {profilePopoverCharacterId === c.id && (
-                              <div
-                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <CharacterPublicProfileCard
-                                  profile={publicProfile}
-                                  avatarUrl={c.avatarPath}
-                                  avatarFilePath={c.avatarFilePath}
-                                  avatarFilename={c.avatarFilename}
-                                  avatarCrop={charAvatarCrop(c)}
-                                  compact
-                                  onShuffleMusic={
-                                    publicProfile.nowListening && characterMusicOptionCountFor(c) > 1
-                                      ? () => shuffleCharacterProfileMusic(c)
-                                      : undefined
-                                  }
-                                  onPlayMusic={
-                                    publicProfile.nowListening ? () => playCharacterProfileMusic(c) : undefined
-                                  }
-                                  onOpenFullProfile={() => {
-                                    setProfilePopoverCharacterId(null);
-                                    onClose();
-                                    useUIStore.getState().openCharacterDetail(c.id);
-                                  }}
-                                />
-                              </div>
+                            {profilePopover?.characterId === c.id && (
+                              <CharacterPublicProfilePopover
+                                profile={publicProfile}
+                                avatarUrl={c.avatarPath}
+                                avatarFilePath={c.avatarFilePath}
+                                avatarFilename={c.avatarFilename}
+                                avatarCrop={charAvatarCrop(c)}
+                                anchorRect={profilePopover.anchorRect}
+                                onClose={closeCharacterProfilePopover}
+                                onShuffleMusic={
+                                  publicProfile.nowListening && characterMusicOptionCountFor(c) > 1
+                                    ? () => shuffleCharacterProfileMusic(c)
+                                    : undefined
+                                }
+                                onPlayMusic={
+                                  publicProfile.nowListening ? () => playCharacterProfileMusic(c) : undefined
+                                }
+                                onOpenFullProfile={() => {
+                                  closeCharacterProfilePopover();
+                                  onClose();
+                                  useUIStore.getState().openCharacterDetail(c.id);
+                                }}
+                              />
                             )}
                           </div>
                           <button
@@ -2669,40 +2680,36 @@ function ChatSettingsDrawerInner({
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
+                                toggleCharacterProfilePopover(c.id, event.currentTarget.getBoundingClientRect());
                               }}
                               className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
                               title="Preview public profile"
                             >
                               <Info size="0.6875rem" />
                             </button>
-                            {profilePopoverCharacterId === c.id && (
-                              <div
-                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <CharacterPublicProfileCard
-                                  profile={publicProfile}
-                                  avatarUrl={c.avatarPath}
-                                  avatarFilePath={c.avatarFilePath}
-                                  avatarFilename={c.avatarFilename}
-                                  avatarCrop={charAvatarCrop(c)}
-                                  compact
-                                  onShuffleMusic={
-                                    publicProfile.nowListening && characterMusicOptionCountFor(c) > 1
-                                      ? () => shuffleCharacterProfileMusic(c)
-                                      : undefined
-                                  }
-                                  onPlayMusic={
-                                    publicProfile.nowListening ? () => playCharacterProfileMusic(c) : undefined
-                                  }
-                                  onOpenFullProfile={() => {
-                                    setProfilePopoverCharacterId(null);
-                                    onClose();
-                                    useUIStore.getState().openCharacterDetail(c.id);
-                                  }}
-                                />
-                              </div>
+                            {profilePopover?.characterId === c.id && (
+                              <CharacterPublicProfilePopover
+                                profile={publicProfile}
+                                avatarUrl={c.avatarPath}
+                                avatarFilePath={c.avatarFilePath}
+                                avatarFilename={c.avatarFilename}
+                                avatarCrop={charAvatarCrop(c)}
+                                anchorRect={profilePopover.anchorRect}
+                                onClose={closeCharacterProfilePopover}
+                                onShuffleMusic={
+                                  publicProfile.nowListening && characterMusicOptionCountFor(c) > 1
+                                    ? () => shuffleCharacterProfileMusic(c)
+                                    : undefined
+                                }
+                                onPlayMusic={
+                                  publicProfile.nowListening ? () => playCharacterProfileMusic(c) : undefined
+                                }
+                                onOpenFullProfile={() => {
+                                  closeCharacterProfilePopover();
+                                  onClose();
+                                  useUIStore.getState().openCharacterDetail(c.id);
+                                }}
+                              />
                             )}
                           </div>
                           <button
@@ -4560,7 +4567,8 @@ function ChatSettingsDrawerInner({
                       <div className="min-w-0 flex-1">
                         <div className="text-[0.6875rem] font-medium">Music DJ</div>
                         <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                          YouTube-first scene music is active. Use the shell Music DJ player for direct URLs, fresh picks, and volume.
+                          YouTube-first scene music is active. Use the shell Music DJ player for direct URLs, fresh
+                          picks, and volume.
                         </p>
                       </div>
                     </div>
@@ -6191,9 +6199,3 @@ function ChatSettingsDrawerInner({
     </>
   );
 }
-
-
-
-
-
-
