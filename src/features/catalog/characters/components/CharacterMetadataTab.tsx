@@ -9,7 +9,7 @@ import type {
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
-import { imageGenerationApi } from "../../../../shared/api/image-generation-api";
+import { galleryApi, imageGenerationApi } from "../../../../shared/api/image-generation-api";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import type { AvatarCrop } from "../../../../shared/lib/utils";
@@ -51,6 +51,28 @@ const publicProfileFieldLabels: Record<CharacterPublicProfileSuggestionField, st
   bio: "bio",
 };
 
+function isInlineImageDataUrl(value: string): boolean {
+  return /^data:image\//i.test(value.trim());
+}
+
+function publicProfileBannerFilename(characterName: string): string {
+  const baseName = characterName
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${baseName || "character"}-public-profile-banner.png`;
+}
+
+function uploadedBannerUrl(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const record = value as { url?: unknown; filePath?: unknown };
+  return typeof record.url === "string" && record.url.trim()
+    ? record.url.trim()
+    : typeof record.filePath === "string" && record.filePath.trim()
+      ? record.filePath.trim()
+      : "";
+}
 function boolish(value: unknown): boolean {
   return value === true || value === "true" || value === 1 || value === "1";
 }
@@ -196,7 +218,17 @@ export function CharacterMetadataTab({
             ? `data:${result.mimeType || "image/png"};base64,${result.base64.trim()}`
             : "";
       if (!generatedImage) throw new Error("Image provider returned no banner image.");
-      updatePublicProfile({ bannerImage: generatedImage });
+      if (isInlineImageDataUrl(generatedImage)) {
+        if (!characterId) throw new Error("Save this character before generating a banner image.");
+        const uploaded = await galleryApi.uploadCharacterDataUrl(characterId, generatedImage, {
+          filename: publicProfileBannerFilename(formData.name),
+        });
+        const managedUrl = uploadedBannerUrl(uploaded);
+        if (!managedUrl) throw new Error("Generated banner image could not be saved to the gallery.");
+        updatePublicProfile({ bannerImage: managedUrl });
+      } else {
+        updatePublicProfile({ bannerImage: generatedImage });
+      }
     } catch (err) {
       setPublicProfileGenerationError(err instanceof Error ? err.message : "Banner image generation failed");
     } finally {
@@ -459,9 +491,15 @@ export function CharacterMetadataTab({
               <button
                 type="button"
                 onClick={applyPublicProfileBannerImage}
-                disabled={!defaultImageConnectionId || publicProfileBannerGenerating}
+                disabled={!defaultImageConnectionId || !characterId || publicProfileBannerGenerating}
                 className={profileWandButtonClass}
-                title={defaultImageConnectionId ? "Generate banner image" : "No image generation connection configured"}
+                title={
+                  !defaultImageConnectionId
+                    ? "No image generation connection configured"
+                    : !characterId
+                      ? "Save this character before generating a banner image"
+                      : "Generate banner image"
+                }
                 aria-label="Generate banner image"
                 aria-busy={publicProfileBannerGenerating}
               >
@@ -513,7 +551,8 @@ export function CharacterMetadataTab({
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1.5">
             <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Favorite Artists <HelpTooltip text="Comma or newline separated artists used for profile radio-style picks." />
+              Favorite Artists{" "}
+              <HelpTooltip text="Comma or newline separated artists used for profile radio-style picks." />
             </span>
             <textarea
               value={serializeMusicTextList(musicProfile.favoriteArtists)}
@@ -525,7 +564,8 @@ export function CharacterMetadataTab({
           </label>
           <label className="space-y-1.5">
             <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Favorite Genres <HelpTooltip text="Comma or newline separated genres used when no specific song is selected." />
+              Favorite Genres{" "}
+              <HelpTooltip text="Comma or newline separated genres used when no specific song is selected." />
             </span>
             <textarea
               value={serializeMusicTextList(musicProfile.favoriteGenres)}
@@ -538,7 +578,8 @@ export function CharacterMetadataTab({
         </div>
         <label className="space-y-1.5 block">
           <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-            Vibe Notes <HelpTooltip text="Short flavor used for fallback Music DJ searches, not sent to character prompts in V1." />
+            Vibe Notes{" "}
+            <HelpTooltip text="Short flavor used for fallback Music DJ searches, not sent to character prompts in V1." />
           </span>
           <textarea
             value={musicProfile.vibeNotes ?? ""}
@@ -597,4 +638,3 @@ export function CharacterMetadataTab({
     </div>
   );
 }
-

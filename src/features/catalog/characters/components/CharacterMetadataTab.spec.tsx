@@ -11,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
     yield { type: "token", text: "I turn fear into a headline. Smile for the camera." };
   }),
   generateImage: vi.fn(async () => ({ image: "data:image/png;base64,banner" })),
+  uploadCharacterDataUrl: vi.fn(async () => ({ url: "http://pi:7860/api/assets/gallery/rook-banner.png" })),
 }));
 
 vi.mock("../../../../shared/api/storage-api", () => ({
@@ -23,6 +24,7 @@ vi.mock("../../../../shared/api/llm-api", () => ({
 
 vi.mock("../../../../shared/api/image-generation-api", () => ({
   imageGenerationApi: { generate: apiMocks.generateImage },
+  galleryApi: { uploadCharacterDataUrl: apiMocks.uploadCharacterDataUrl },
 }));
 
 vi.mock("./CharacterVersionHistoryPanel", () => ({
@@ -119,7 +121,7 @@ describe("CharacterMetadataTab public profile generation", () => {
     });
   });
 
-  it("writes a generated in-character banner image into the public profile", async () => {
+  it("stores a generated in-character banner image as a managed gallery asset", async () => {
     const updateExtension = vi.fn();
 
     await act(async () => {
@@ -157,8 +159,13 @@ describe("CharacterMetadataTab public profile generation", () => {
         prompt: expect.stringContaining("the public profile banner this character would choose for themself"),
       }),
     );
+    expect(apiMocks.uploadCharacterDataUrl).toHaveBeenCalledWith(
+      "char-1",
+      "data:image/png;base64,banner",
+      expect.objectContaining({ filename: "The Ghost Face-public-profile-banner.png" }),
+    );
     expect(updateExtension).toHaveBeenCalledWith("publicProfile", {
-      bannerImage: "data:image/png;base64,banner",
+      bannerImage: "http://pi:7860/api/assets/gallery/rook-banner.png",
     });
   });
   it("starts another public profile wand request while a previous wand is still pending", async () => {

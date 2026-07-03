@@ -1,6 +1,15 @@
 import { invokeTauri } from "./tauri-client";
-import { fileToUploadPayload, IMAGE_UPLOAD_SIZE_ERROR, MAX_IMAGE_UPLOAD_BYTES } from "./file-payload";
-import { invalidateRemoteManagedAssetObjectUrlsAfter, resolveSpriteFileUrl } from "./local-file-api";
+import {
+  dataUrlToUploadPayload,
+  fileToUploadPayload,
+  IMAGE_UPLOAD_SIZE_ERROR,
+  MAX_IMAGE_UPLOAD_BYTES,
+} from "./file-payload";
+import {
+  invalidateRemoteManagedAssetObjectUrlsAfter,
+  resolveGalleryFileUrl,
+  resolveSpriteFileUrl,
+} from "./local-file-api";
 
 export type SpriteOwnerType = "character" | "persona";
 
@@ -154,16 +163,51 @@ export const imageGenerationApi = {
   generate: <T = unknown>(body: Record<string, unknown>) => invokeTauri<T>("image_generate", { body }),
 };
 
+type CharacterGalleryUploadRecord = {
+  filePath?: unknown;
+  filename?: unknown;
+  url?: unknown;
+};
+
+function readOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+async function resolveCharacterGalleryUploadRecord<T>(value: T): Promise<T> {
+  if (!isRecord(value)) return value;
+  const record = value as CharacterGalleryUploadRecord;
+  const resolvedUrl = await resolveGalleryFileUrl(
+    readOptionalString(record.filename),
+    readOptionalString(record.filePath),
+  ).catch(() => null);
+  return (resolvedUrl ? { ...value, url: resolvedUrl } : value) as T;
+}
 export const galleryApi = {
   uploadCharacter: async <T = unknown>(characterId: string, file: File) => {
     const payload = await fileToUploadPayload(file, {
       maxBytes: MAX_IMAGE_UPLOAD_BYTES,
       tooLargeMessage: IMAGE_UPLOAD_SIZE_ERROR,
     });
-    return invalidateRemoteManagedAssetObjectUrlsAfter(
+    const result = await invalidateRemoteManagedAssetObjectUrlsAfter(
       invokeTauri<T>("character_gallery_upload", { characterId, body: { file: payload } }),
       "gallery",
     );
+    return resolveCharacterGalleryUploadRecord(result);
+  },
+  uploadCharacterDataUrl: async <T = unknown>(
+    characterId: string,
+    dataUrl: string,
+    options: { filename?: string } = {},
+  ) => {
+    const payload = dataUrlToUploadPayload(dataUrl, options.filename ?? "public-profile-banner.png", {
+      maxBytes: MAX_IMAGE_UPLOAD_BYTES,
+      tooLargeMessage: IMAGE_UPLOAD_SIZE_ERROR,
+    });
+    const result = await invalidateRemoteManagedAssetObjectUrlsAfter(
+      invokeTauri<T>("character_gallery_upload", { characterId, body: { file: payload } }),
+      "gallery",
+    );
+    return resolveCharacterGalleryUploadRecord(result);
   },
   uploadPersona: async <T = unknown>(personaId: string, file: File) => {
     const payload = await fileToUploadPayload(file, {
