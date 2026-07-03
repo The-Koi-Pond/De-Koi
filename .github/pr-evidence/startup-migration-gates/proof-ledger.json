@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "enhancement",
+    "title": "Gate completed startup storage migrations",
+    "source": "GitHub issue #778",
+    "classification": "storage startup migration performance and compatibility",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Legacy full-collection startup migration passes record versioned completion after a successful first run and are skipped on later startups for the same normalized data directory.",
+  "rootCause": "AppState construction called several broad legacy storage migrations unconditionally after default seeding, so already-normalized data directories could rescan large collections on every launch.",
+  "scope": {
+    "inScope": [
+      "AppState startup migration sequencing in src-tauri/src/state.rs",
+      "Versioned completion markers for legacy full-collection passes",
+      "Focused proof for first-run marking, second-run skip, and failed-run retry behavior"
+    ],
+    "outOfScope": [
+      "Changing FileStorage load-time recovery behavior",
+      "Changing default data seeding behavior",
+      "Changing import/export normalization paths",
+      "Changing UI startup or shell rendering"
+    ],
+    "intendedFiles": [
+      "src-tauri/src/state.rs",
+      ".github/pr-evidence/startup-migration-gates/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src-tauri/src/state.rs",
+      ".github/pr-evidence/startup-migration-gates/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "storage migration",
+      "legacy compatibility",
+      "user data startup path"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Legacy full-collection startup migration passes are gated by versioned completion keys after one successful run per data directory.",
+    "riskType": "storage migration legacy compatibility user-data startup performance",
+    "entrypoints": [
+      "AppState::from_data_dir",
+      "AppState::from_data_dir_with_resource_dir",
+      "desktop AppState::new",
+      "server AppState initialization through from_data_dir"
+    ],
+    "currentPathsOrFormats": [
+      "src-tauri/src/state.rs STARTUP_MIGRATIONS_SETTINGS_ID app-settings/startup-migrations value object",
+      "FileStorage collections under data/collections/*.json",
+      "messages and message-swipes sidecar collections",
+      "gallery and managed media reference collections"
+    ],
+    "legacyPathsOrFormats": [
+      "characters with string or missing data fields repaired by migrate_storage_json_fields",
+      "messages with embedded swipes compacted into message-swipes sidecars",
+      "agent-runs with legacy row shapes normalized from agent configs",
+      "chats with legacy ungrouped root groupId state",
+      "local media references and inline image data URLs copied into managed storage",
+      "legacy chat gallery files under gallery/<chatId>/"
+    ],
+    "outOfScopeClaims": [
+      "This PR does not prove startup timing on a seeded large production data directory.",
+      "This PR does not change import paths; newly imported rows must still be normalized by their import/write owner paths.",
+      "This PR does not gate default data seeding or FileStorage load-time corrupt-file recovery."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The Rust storage startup path treated completed one-time legacy migrations as always-on repair work.",
+    "producer": "src-tauri/src/state.rs AppState startup migration sequence",
+    "consumer": "De-Koi desktop and hostable runtime startup using FileStorage data directories",
+    "impliedContract": "Legacy data normalization should run until a data directory has been successfully normalized, then avoid broad repeated scans on later startups.",
+    "actualEnforcement": "run_startup_migration_once checks app-settings/startup-migrations for a versioned key, runs the migration only when the key is absent, and writes the key only after the migration returns Ok.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "Rust storage owns local FileStorage startup migrations and app data repair mechanics.",
+    "consumerOnlyLanes": [],
+    "wrongLaneFixToAvoid": "Do not hide repeated startup scans with UI loading copy or shell throttling; the storage startup owner must decide which legacy passes are completed for the data directory.",
+    "regressionProof": [
+      "cargo test --manifest-path src-tauri/Cargo.toml startup_migration_once --lib",
+      "cargo test --manifest-path src-tauri/Cargo.toml app_state_startup --lib",
+      "pnpm check"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A completed startup migration records its versioned key and skips later runs.",
+        "evidence": "startup_migration_once_marks_completion_and_skips_later_runs passed in cargo test --manifest-path src-tauri/Cargo.toml startup_migration_once --lib."
+      },
+      {
+        "claim": "A failed startup migration is not marked complete and can retry later.",
+        "evidence": "startup_migration_once_does_not_mark_failed_runs passed in cargo test --manifest-path src-tauri/Cargo.toml startup_migration_once --lib."
+      },
+      {
+        "claim": "Legacy first-run AppState startup migrations still normalize existing fixture rows.",
+        "evidence": "cargo test --manifest-path src-tauri/Cargo.toml app_state_startup --lib passed 16 tests covering snapshot stats, media references, inline image references, legacy gallery recovery, chat root grouping, and message prompt snapshot compaction."
+      },
+      {
+        "claim": "The PR preserves De-Koi architecture and baseline gates.",
+        "evidence": "pnpm check passed, including line endings, scratch, architecture, storage contracts, frontend typecheck, Rust check, docs, discovery, agent workflow, launcher safety, and warning-only unused-code reporting."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Failed migrations must not produce fake success markers.",
+        "evidence": "startup_migration_once_does_not_mark_failed_runs asserts startup_migration_applied remains false after an AppError and that a later successful run executes once and marks the key."
+      },
+      {
+        "claim": "Always-on startup work should not be accidentally gated.",
+        "evidence": "The startup sequence leaves seed_defaults before the gated block and documents that default seeding and FileStorage load-time recovery remain always-on."
+      },
+      {
+        "claim": "The fix should not expand UI, shared API, HTTP dispatch, or import/export behavior.",
+        "evidence": "The code diff is limited to src-tauri/src/state.rs plus this proof ledger; no UI, TypeScript runtime wrapper, HTTP dispatch, or import/export module changed."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing legacy rows are still repaired on the first startup before completion is marked.",
+        "evidence": "app_state_startup tests passed after the gating change and exercise the legacy storage shapes listed in the issue."
+      },
+      {
+        "claim": "Already-normalized data directories preserve startup behavior without repeated full scans.",
+        "evidence": "run_startup_migration_once skips invoking the provided migration closure when startup_migration_applied returns true."
+      },
+      {
+        "claim": "Existing message prompt snapshot marker behavior remains compatible with the shared helper.",
+        "evidence": "migrate_message_prompt_snapshots_once now delegates to run_startup_migration_once using the existing messagePromptSnapshotCompactionV1 key, and the existing app_state_startup_compacts_legacy_message_prompt_snapshots_once test still passes."
+      }
+    ],
+    "untestedRows": [
+      "A large seeded production-scale startup timing comparison was not run in this environment; performance benefit is inferred from skipping migration closures after completion markers."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Startup migration completion markers are stored in FileStorage app-settings/startup-migrations under the value object.",
+      "sourceType": "derived",
+      "evidence": "src-tauri/src/state.rs startup_migration_flags and mark_startup_migration_applied read and write STARTUP_MIGRATIONS_SETTINGS_ID."
+    },
+    {
+      "description": "The gated passes are Rust storage startup mechanics, not React UI or TypeScript engine behavior.",
+      "sourceType": "derived",
+      "evidence": "All production code changes are in src-tauri/src/state.rs AppState initialization."
+    },
+    {
+      "description": "The focused second-run and failed-run retry behavior is harness-proven with FileStorage temp directories.",
+      "sourceType": "harness-proven",
+      "evidence": "The new startup_migration_once tests create temporary FileStorage roots and assert marker reads after helper calls."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No manual user action is required by this PR. For optional manual rollback before testing startup migration behavior, copy the De-Koi app data directory to a backup folder outside the app data directory.",
+      "action": "copy",
+      "source": "De-Koi app data directory before launch, such as the desktop app_data_dir or the data_dir passed to AppState::from_data_dir",
+      "destination": "A user-chosen backup folder outside the app data directory, for example <backup>\\de-koi-app-data-before-startup-migration",
+      "folders": [
+        "data/collections",
+        "gallery",
+        "avatars",
+        "backgrounds"
+      ],
+      "detectedLayouts": [
+        "current FileStorage data/collections JSON files",
+        "legacy inline media values in hot storage rows",
+        "legacy chat gallery files under gallery/<chatId>/"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Production-scale startup timing measurement",
+      "blockingCoreClaim": false,
+      "reason": "The core correctness claim is marker gating and migration preservation. Timing would quantify the benefit but is not required to prove the behavior."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check exited 0 from the isolated PR worktree after dependencies were installed with pnpm install --frozen-lockfile.",
+    "githubValidationPassed": false,
+    "reviewIterationFastPath": false
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 785,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/785",
+    "headRefName": "fix/startup-migration-gates",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "The PR remains draft until proof health, CI, and Bunny gates are clean."
+  ]
+}
