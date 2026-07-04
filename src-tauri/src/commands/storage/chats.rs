@@ -1730,6 +1730,7 @@ mod tests {
                         },
                         {
                             "id": "drop-newer",
+                            "messageIds": ["message-after"],
                             "lastMessageAt": "2026-06-01T10:01:00.000Z"
                         }
                     ]
@@ -4532,6 +4533,7 @@ mod tests {
                         },
                         {
                             "id": "drop-newer",
+                            "messageIds": ["message-after"],
                             "lastMessageAt": "2026-06-01T10:01:00.000Z"
                         }
                     ]
