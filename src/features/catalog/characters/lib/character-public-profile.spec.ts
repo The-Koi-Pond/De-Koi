@@ -315,6 +315,36 @@ describe("buildCharacterPublicProfileGenerationMessages", () => {
     expect(handleMessages[1]?.content).toContain("Existing display name");
     expect(handleMessages[1]?.content).toContain("Generate a fresh replacement");
   });
+
+  it("provides the current public profile target only as text to avoid on regeneration", () => {
+    const data = characterData({
+      name: "Mira Vale",
+      extensions: {
+        talkativeness: 0.5,
+        fav: false,
+        world: "",
+        depth_prompt: {
+          prompt: "",
+          depth: 4,
+          role: "system",
+        },
+        backstory: "",
+        appearance: "",
+        publicProfile: {
+          displayName: "Mira",
+          handle: "@mira",
+          bio: "I keep the keys.",
+        },
+      },
+    });
+
+    const messages = buildCharacterPublicProfileGenerationMessages("bio", { data, comment: "" });
+
+    expect(messages[1]?.content).not.toContain("Existing bio");
+    expect(messages[1]?.content).toContain("Previous bio to replace");
+    expect(messages[1]?.content).toContain("I keep the keys.");
+    expect(messages[1]?.content).toContain("substantially different");
+  });
 });
 
 describe("buildCharacterPublicProfileBannerPrompt", () => {

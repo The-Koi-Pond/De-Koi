@@ -63,6 +63,9 @@ export const CHARACTER_FIELD_LABELS: Record<CharacterFieldGenerationField, strin
   depth_prompt: "Depth Prompt",
 };
 
+const MUSIC_FIELD_INSTRUCTION =
+  "For music taste, decide whether picks should be famous, niche, local, archival, online-only, or obscure from the character's background, era, access, subculture, and listening habits. Avoid defaulting to the same canonical moody/alternative picks unless the card context specifically points there.";
+
 const FIELD_INSTRUCTIONS: Record<CharacterFieldGenerationField, string> = {
   description:
     "Write a rich character description in 2-4 compact paragraphs. Include identity, role, motivations, mannerisms, and speech patterns. Return only the description text.",
@@ -85,14 +88,10 @@ const FIELD_INSTRUCTIONS: Record<CharacterFieldGenerationField, string> = {
   creator_notes:
     "Write complete private creator notes in a few simple sentences. Keep them practical: intended use, strengths, notable quirks, and any handling tips needed to use the card well. Do not write as the character. Do not stop mid-thought. Return only the creator notes.",
   tags: "Write 4-8 short organization tags. Return either a JSON array of strings or comma-separated tag names.",
-  music_favorite_songs:
-    'Write 3-6 favorite songs this character would plausibly love or publicly list. Return JSON only: [{ "title": "Song title", "artist": "Artist name" }]. Include a "url" only if the source context already provided one; do not invent URLs.',
-  music_favorite_artists:
-    "Write 3-8 favorite music artists this character would plausibly love or publicly list. Return JSON only: an array of artist name strings.",
-  music_favorite_genres:
-    "Write 3-8 favorite music genres or microgenres that fit this character. Return JSON only: an array of genre strings.",
-  music_vibe_notes:
-    "Write one short music-taste vibe note for fallback Music DJ searches. Use mood, setting, sonic texture, or listening context. Return only the note text.",
+  music_favorite_songs: `Write 3-6 favorite songs this character would plausibly love or publicly list. ${MUSIC_FIELD_INSTRUCTION} Return JSON only: [{ "title": "Song title", "artist": "Artist name" }]. Include a "url" only if the source context already provided one; do not invent URLs.`,
+  music_favorite_artists: `Write 3-8 favorite music artists this character would plausibly love or publicly list. ${MUSIC_FIELD_INSTRUCTION} Return JSON only: an array of artist name strings.`,
+  music_favorite_genres: `Write 3-8 favorite music genres or microgenres that fit this character. ${MUSIC_FIELD_INSTRUCTION} Return JSON only: an array of genre strings.`,
+  music_vibe_notes: `Write one short music-taste vibe note for fallback Music Player searches. Use mood, setting, sonic texture, or listening context. ${MUSIC_FIELD_INSTRUCTION} Return only the note text.`,
   depth_prompt:
     'Write a depth prompt plus settings. Return JSON only: { "prompt": "persistent reminder text", "depth": 4, "role": "system" }. Depth should be 0-100. Role must be "system", "user", or "assistant".',
 };
@@ -112,6 +111,27 @@ function readTextArray(value: unknown): string[] {
 function labelledLine(label: string, value: unknown): string {
   const text = readText(value);
   return text ? `${label}:\n${text}` : "";
+}
+
+function isMusicField(field: CharacterFieldGenerationField): boolean {
+  return (
+    field === "music_favorite_songs" ||
+    field === "music_favorite_artists" ||
+    field === "music_favorite_genres" ||
+    field === "music_vibe_notes"
+  );
+}
+
+function replacementLine(
+  activeField: CharacterFieldGenerationField,
+  targetField: CharacterFieldGenerationField,
+  label: string,
+  value: unknown,
+): string {
+  const text = readText(value);
+  if (!text) return "";
+  if (activeField === targetField) return `Previous ${label.toLowerCase()} to replace:\n${text}`;
+  return `${label}:\n${text}`;
 }
 
 function stripMarkdownFence(value: string): string {
@@ -313,10 +333,16 @@ export function buildCharacterFieldGenerationMessages(
     labelledLine("Post-history instructions", input.data.post_history_instructions),
     labelledLine("Creator notes", input.data.creator_notes),
     readTextArray(input.data.tags).length > 0 ? `Tags:\n${readTextArray(input.data.tags).join(", ")}` : "",
-    favoriteSongs.length > 0 ? `Favorite songs:\n${serializeFavoriteSongsText(favoriteSongs)}` : "",
-    favoriteArtists.length > 0 ? `Favorite artists:\n${serializeMusicTextList(favoriteArtists)}` : "",
-    favoriteGenres.length > 0 ? `Favorite genres:\n${serializeMusicTextList(favoriteGenres)}` : "",
-    musicProfile.vibeNotes ? `Music vibe notes:\n${musicProfile.vibeNotes}` : "",
+    favoriteSongs.length > 0
+      ? replacementLine(field, "music_favorite_songs", "Favorite songs", serializeFavoriteSongsText(favoriteSongs))
+      : "",
+    favoriteArtists.length > 0
+      ? replacementLine(field, "music_favorite_artists", "Favorite artists", serializeMusicTextList(favoriteArtists))
+      : "",
+    favoriteGenres.length > 0
+      ? replacementLine(field, "music_favorite_genres", "Favorite genres", serializeMusicTextList(favoriteGenres))
+      : "",
+    replacementLine(field, "music_vibe_notes", "Music vibe notes", musicProfile.vibeNotes),
     readText(depthPrompt.prompt)
       ? `Depth prompt:\n${readText(depthPrompt.prompt)}\nDepth: ${normalizeDepth(depthPrompt.depth)}\nRole: ${normalizeDepthRole(depthPrompt.role)}`
       : "",
@@ -331,6 +357,7 @@ export function buildCharacterFieldGenerationMessages(
         "You are a creative character card editor for De-Koi.",
         "Generate exactly one requested character card field from the supplied card context.",
         "Preserve the established character voice, setting, and continuity.",
+        "Favor concrete, idiosyncratic details from the supplied card over stock tropes, generic genre shorthand, or cliche personality copy.",
         "Do not explain your reasoning, offer alternatives, or add markdown unless the requested field format requires it.",
       ].join("\n"),
     },
@@ -339,6 +366,9 @@ export function buildCharacterFieldGenerationMessages(
       content: [
         `Requested field: ${CHARACTER_FIELD_LABELS[field]}`,
         FIELD_INSTRUCTIONS[field],
+        isMusicField(field)
+          ? "When previous values are listed for the requested music field, use them only as an avoid-list. Generate substantially different picks instead of copying, reordering, or swapping in near-neighbor defaults."
+          : "",
         "",
         "Character context:",
         context || "No additional character context was provided.",

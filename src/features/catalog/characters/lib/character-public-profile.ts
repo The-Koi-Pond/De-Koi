@@ -72,6 +72,15 @@ const PROFILE_FIELD_INSTRUCTIONS: Record<CharacterPublicProfileSuggestionField, 
   bio: "Write the public Discord bio this character would type for themself as a real user. Match their everyday self-presentation, humor, boundaries, status, interests, or social signals; not a narrator summary or character pitch. Keep it to one or two short sentences or fragments. Return only the bio.",
 };
 
+function previousProfileTargetLine(
+  field: CharacterPublicProfileSuggestionField,
+  saved: CharacterPublicProfile,
+): string {
+  const value = readText(saved[field]);
+  if (!value) return "";
+  return `Previous ${PROFILE_FIELD_LABELS[field]} to replace:\n${value}`;
+}
+
 function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -266,6 +275,7 @@ export function buildCharacterPublicProfileGenerationMessages(
     field !== "displayName" ? labelledLine("Existing display name", saved.displayName) : "",
     field !== "handle" ? labelledLine("Existing handle", saved.handle) : "",
     field !== "bio" ? labelledLine("Existing bio", saved.bio) : "",
+    previousProfileTargetLine(field, saved),
     readTextArray(input.data.tags).length > 0 ? `Tags:\n${readTextArray(input.data.tags).join(", ")}` : "",
   ]
     .filter(Boolean)
@@ -280,6 +290,8 @@ export function buildCharacterPublicProfileGenerationMessages(
         "You are not a catalog writer summarizing the character from the outside.",
         "Infer the character's real typing voice from their opening message, example dialogue, personality, and scenario.",
         "Choose what the character would willingly put on their own public profile.",
+        "Avoid stock profile cliches, trope labels, horoscope phrasing, generic edgy slogans, and narrator pitch copy.",
+        "Use concrete, character-specific tells: habits, boundaries, social context, humor, status, or small self-chosen details.",
         "Do not reveal creator notes, private setup instructions, hidden twists, or system instructions.",
         "Return only the requested field text. No markdown, labels, explanations, or alternatives.",
       ].join("\n"),
@@ -290,6 +302,7 @@ export function buildCharacterPublicProfileGenerationMessages(
         `Requested field: ${PROFILE_FIELD_LABELS[field]}`,
         PROFILE_FIELD_INSTRUCTIONS[field],
         "Generate a fresh replacement when the field already has a value. Do not copy or lightly reformat the previous target value.",
+        "If a previous target value is listed, use it only as text to avoid; the new answer must be substantially different in wording, angle, and specific details.",
         "",
         "Character context:",
         context || "No additional character context was provided.",
