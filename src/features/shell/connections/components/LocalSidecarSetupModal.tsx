@@ -30,6 +30,7 @@ import type {
 } from "../../../../engine/contracts/types/sidecar";
 import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { Modal } from "../../../../shared/components/ui/Modal";
+import { preferredCuratedQuantization } from "../lib/local-sidecar-setup-defaults";
 import { cn } from "../../../../shared/lib/utils";
 
 interface LocalSidecarSetupModalProps {
@@ -196,6 +197,7 @@ export function LocalSidecarSetupModal({
   const openRefreshTokenRef = useRef(0);
   const fallbackConfigRef = useRef<LocalSidecarStatusResponse["config"] | null>(null);
   const dirtyFieldsRef = useRef<Set<ConfigInputField>>(new Set());
+  const selectedQuantTouchedRef = useRef(false);
   const dirtyFieldVersionsRef = useRef<Map<ConfigInputField, number>>(new Map());
 
   const config = status?.config;
@@ -211,6 +213,10 @@ export function LocalSidecarSetupModal({
   const runtimeOptions = useMemo(
     () => getRuntimePreferenceOptions(status?.platform, status?.arch),
     [status?.platform, status?.arch],
+  );
+  const preferredCuratedQuant = useMemo(
+    () => preferredCuratedQuantization(status?.platform, status?.arch),
+    [status?.arch, status?.platform],
   );
   const curatedModels = useMemo(() => status?.curatedModels ?? [], [status?.curatedModels]);
   const selectedPreset =
@@ -320,9 +326,12 @@ export function LocalSidecarSetupModal({
   }, [customModels, selectedCustomModel]);
 
   useEffect(() => {
-    if (!curatedModels.length || curatedModels.some((model) => model.quantization === selectedQuant)) return;
-    setSelectedQuant(curatedModels[0]!.quantization);
-  }, [curatedModels, selectedQuant]);
+    if (!curatedModels.length || selectedQuantTouchedRef.current) return;
+    const preferred = curatedModels.find((model) => model.quantization === preferredCuratedQuant) ?? curatedModels[0]!;
+    if (selectedQuant !== preferred.quantization) {
+      setSelectedQuant(preferred.quantization);
+    }
+  }, [curatedModels, preferredCuratedQuant, selectedQuant]);
 
   const runStatusAction = async (
     label: string,
@@ -1067,7 +1076,10 @@ export function LocalSidecarSetupModal({
                   name="local-sidecar-quantization"
                   value={model.quantization}
                   checked={selectedQuant === model.quantization}
-                  onChange={() => setSelectedQuant(model.quantization)}
+                  onChange={() => {
+                    selectedQuantTouchedRef.current = true;
+                    setSelectedQuant(model.quantization);
+                  }}
                   className="sr-only"
                 />
                 <span
@@ -1090,7 +1102,7 @@ export function LocalSidecarSetupModal({
                     </span>
                   </span>
                 </span>
-                {model.quantization === "q8_0" && (
+                {model.quantization === preferredCuratedQuant && (
                   <span className="shrink-0 rounded-full bg-purple-500/15 px-2 py-0.5 text-[0.625rem] font-medium text-purple-300">
                     Recommended
                   </span>

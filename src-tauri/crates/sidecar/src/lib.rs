@@ -21,13 +21,13 @@ use tokio::sync::{watch, Mutex};
 pub const SIDECAR_CONNECTION_ID: &str = "sidecar:local";
 pub const SIDECAR_MODEL: &str = "local-sidecar";
 
-const DEFAULT_CONTEXT_SIZE: u32 = 8192;
-const DEFAULT_MAX_TOKENS: u32 = 4096;
+const DEFAULT_CONTEXT_SIZE: u32 = 4096;
+const DEFAULT_MAX_TOKENS: u32 = 1024;
 const DEFAULT_TEMPERATURE: f64 = 0.3;
 const DEFAULT_TOP_P: f64 = 0.95;
 const DEFAULT_TOP_K: u32 = 64;
 const DEFAULT_GPU_LAYERS: i32 = -1;
-const LLAMA_SERVER_PARALLEL_SLOTS: u32 = 2;
+const LLAMA_SERVER_PARALLEL_SLOTS: u32 = 1;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(500);
 #[cfg(target_os = "windows")]
@@ -420,7 +420,11 @@ fn write_config(state: &LocalSidecarState, config: &LocalSidecarConfig) -> AppRe
     Ok(())
 }
 
-fn normalize_config(mut config: LocalSidecarConfig) -> LocalSidecarConfig {
+fn normalize_config(config: LocalSidecarConfig) -> LocalSidecarConfig {
+    normalize_config_for(config, current_platform(), current_arch())
+}
+
+fn normalize_config_for(mut config: LocalSidecarConfig, platform: &str, arch: &str) -> LocalSidecarConfig {
     config.executable_path = normalize_optional_string(config.executable_path);
     config.model_path = normalize_optional_string(config.model_path);
     config.custom_model_repo = normalize_optional_string(config.custom_model_repo);
@@ -429,6 +433,10 @@ fn normalize_config(mut config: LocalSidecarConfig) -> LocalSidecarConfig {
     }
     config.context_size = config.context_size.clamp(512, 32768);
     config.max_tokens = config.max_tokens.clamp(64, 32768);
+    if is_linux_arm64(platform, arch) {
+        config.context_size = config.context_size.min(DEFAULT_CONTEXT_SIZE);
+        config.max_tokens = config.max_tokens.min(DEFAULT_MAX_TOKENS);
+    }
     if !config.temperature.is_finite() {
         config.temperature = DEFAULT_TEMPERATURE;
     }
@@ -940,7 +948,18 @@ fn find_free_port() -> AppResult<u16> {
     Ok(port)
 }
 
+fn is_linux_arm64(platform: &str, arch: &str) -> bool {
+    platform == "linux" && arch == "arm64"
+}
+
 fn llama_startup_plans(config: &LocalSidecarConfig) -> Vec<LlamaStartupPlan> {
+    llama_startup_plans_for(config, current_platform(), current_arch())
+}
+
+fn llama_startup_plans_for(config: &LocalSidecarConfig, platform: &str, arch: &str) -> Vec<LlamaStartupPlan> {
+    if config.gpu_layers == -1 && is_linux_arm64(platform, arch) {
+        return vec![LlamaStartupPlan { label: "CPU fallback", gpu_layers: 0 }];
+    }
     if config.gpu_layers == -1 {
         vec![
             LlamaStartupPlan {
@@ -1696,7 +1715,7 @@ fn runtime_asset_candidates_for_hints(
             vec!["linux-arm64-vulkan"]
         }
         ("linux", "arm64", "cpu") => vec!["linux-arm64-cpu"],
-        ("linux", "arm64", "auto") => vec!["linux-arm64-vulkan", "linux-arm64-cpu"],
+        ("linux", "arm64", "auto") => vec!["linux-arm64-cpu"],
         ("linux", "arm64", _) => Vec::new(),
         _ => Vec::new(),
     }
@@ -3340,6 +3359,14 @@ mod tests {
     }
 
     #[test]
+    fn linux_arm64_auto_runtime_prefers_cpu_runtime() {
+        assert_eq!(
+            runtime_asset_candidates_for("linux", "arm64", "auto"),
+            vec!["linux-arm64-cpu"]
+        );
+    }
+
+    #[test]
     fn linux_gpu_probe_ignores_non_display_pci_devices() {
         let filtered = lspci_display_controller_lines(
             "00:00.0 Host bridge: Advanced Micro Devices, Inc. [AMD] Device 14da\n\
@@ -3398,6 +3425,48 @@ mod tests {
         );
     }
 
+    #[test]
+    fn linux_arm64_auto_gpu_layers_start_cpu_only() {
+        let auto_config = LocalSidecarConfig {
+            gpu_layers: -1,
+            ..LocalSidecarConfig::default()
+        };
+
+        assert_eq!(
+            llama_startup_plans_for(&auto_config, "linux", "arm64"),
+            vec![LlamaStartupPlan {
+                label: "CPU fallback",
+                gpu_layers: 0
+            }]
+        );
+    }
+
+    #[test]
+    fn default_sidecar_args_keep_single_4096_context_slot() {
+        let config = LocalSidecarConfig::default();
+        let plan = LlamaStartupPlan {
+            label: "CPU fallback",
+            gpu_layers: 0,
+        };
+        let args = sidecar_args(&config, "model.gguf", 1234, &plan);
+
+        assert!(args.windows(2).any(|pair| pair == ["--parallel", "1"]));
+        assert!(args.windows(2).any(|pair| pair == ["--ctx-size", "4096"]));
+    }
+
+    #[test]
+    fn linux_arm64_normalize_caps_generation_window() {
+        let config = LocalSidecarConfig {
+            context_size: 8192,
+            max_tokens: 4096,
+            ..LocalSidecarConfig::default()
+        };
+
+        let normalized = normalize_config_for(config, "linux", "arm64");
+
+        assert_eq!(normalized.context_size, 4096);
+        assert_eq!(normalized.max_tokens, 1024);
+    }
     #[test]
     fn smoke_test_request_disables_reasoning_outputs() {
         let request = smoke_test_request("local-sidecar", "abc123");
