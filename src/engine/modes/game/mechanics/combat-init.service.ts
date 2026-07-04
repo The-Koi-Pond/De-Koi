@@ -1,5 +1,5 @@
 import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
-import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
+import type { ChatMessageListOptions, StorageEntity, StorageGateway } from "../../../capabilities/storage";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { generateStructured } from "../../../generation/structured-generation";
 import { readString as stringValue } from "../../../shared/value-readers";
@@ -49,6 +49,8 @@ type GameCombatInitContext = {
 const COMBAT_BLUEPRINT_OUTPUT_TOKENS = 12_000;
 const COMBAT_INIT_FAILURE_MESSAGE =
   "Combat setup did not return usable structured data. Nothing was changed; try again or choose a different model.";
+
+const RECENT_HISTORY_EXTRA_FIELDS = ["hiddenFromAI", "hiddenFromAi"];
 
 const DEFAULT_STYLE_NOTES: CombatStyleNotes = {
   environmentType: "plains",
@@ -719,8 +721,12 @@ function sanitizeStatus(value: JsonRecord | null, fallback?: CombatStatus): Comb
 }
 
 async function recentHistory(storage: StorageGateway, chatId: string, depth: number): Promise<LlmMessage[]> {
-  const messages = await messagesForChat(storage, chatId);
   const limit = Math.max(1, depth || 8);
+  const messages = await messagesForChat(storage, chatId, {
+    limit,
+    fields: ["role", "content", "extra"],
+    fieldSelections: { extra: RECENT_HISTORY_EXTRA_FIELDS },
+  });
   return messages
     .filter((message) => !hiddenFromAi(message) && stringValue(message.content).trim())
     .slice(-limit)
@@ -730,9 +736,13 @@ async function recentHistory(storage: StorageGateway, chatId: string, depth: num
     }));
 }
 
-async function messagesForChat(storage: StorageGateway, chatId: string): Promise<Array<JsonRecord & Partial<Message>>> {
+async function messagesForChat(
+  storage: StorageGateway,
+  chatId: string,
+  options: ChatMessageListOptions,
+): Promise<Array<JsonRecord & Partial<Message>>> {
   try {
-    const rows = await storage.listChatMessages<unknown>(chatId);
+    const rows = await storage.listChatMessages<unknown>(chatId, options);
     return Array.isArray(rows) ? rows.filter(isRecord) : [];
   } catch {
     return [];

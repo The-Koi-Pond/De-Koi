@@ -6,15 +6,19 @@ import type {
   StorageGateway,
   StorageListOptions,
 } from "../../../capabilities/storage";
-import type { EncounterSettings } from "../../../contracts/types/combat-encounter";
-import { initGameCombatEncounter } from "./combat-init.service";
+import type {
+  CombatInitState,
+  EncounterActionRequest,
+  EncounterSettings,
+} from "../../../contracts/types/combat-encounter";
+import { initRoleplayEncounter, resolveRoleplayEncounterAction } from "./encounter-service";
 
 type JsonRecord = Record<string, unknown>;
 
 const settings: EncounterSettings = {
   combatNarrative: { tense: "present", person: "second", narration: "limited", pov: "Player" },
   summaryNarrative: { tense: "past", person: "third", narration: "omniscient", pov: "Narrator" },
-  historyDepth: 4,
+  historyDepth: 5,
 };
 
 function validCombatJson(overrides: JsonRecord = {}): string {
@@ -25,7 +29,7 @@ function validCombatJson(overrides: JsonRecord = {}): string {
         hp: 30,
         maxHp: 30,
         attacks: [{ name: "Blade", type: "single-target", description: "A clean strike." }],
-        items: ["Potion"],
+        items: [],
         statuses: [],
         isPlayer: true,
       },
@@ -75,9 +79,10 @@ function listRecords(records: JsonRecord[], options?: StorageListOptions): JsonR
 
 function storageGateway(): StorageGateway {
   const rows: Partial<Record<StorageEntity, JsonRecord[]>> = {
-    chats: [{ id: "chat-1", connectionId: "conn-1", metadata: { gameCharacterCards: [{ name: "Mira" }] } }],
+    chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {} }],
     connections: [{ id: "conn-1", provider: "test" }],
-    personas: [],
+    personas: [{ id: "persona-1", name: "Mira", isActive: true }],
+    characters: [],
     "lorebook-entries": [],
   };
 
@@ -98,7 +103,10 @@ function storageGateway(): StorageGateway {
       return { deleted: false };
     },
     async listChatMessages<T = unknown>(_chatId: string, _options?: ChatMessageListOptions) {
-      return [{ role: "assistant", content: "The hall trembles." }] as T[];
+      return [
+        { role: "user", content: "The door opens." },
+        { role: "assistant", content: "The hall trembles." },
+      ] as T[];
     },
     async getChatMessage() {
       return null;
@@ -145,81 +153,46 @@ function storageGateway(): StorageGateway {
   };
 }
 
-describe("initGameCombatEncounter structured generation", () => {
-  it("returns sanitized combat state from valid combat JSON", async () => {
-    const llm = llmWithResponses([
-      validCombatJson({
-        party: [{ name: "Mira", hp: 99, maxHp: 30, attacks: [], items: [], statuses: [], isPlayer: true }],
-      }),
-    ]);
-
-    const result = await initGameCombatEncounter(
-      { storage: storageGateway(), llm },
-      { chatId: "chat-1", connectionId: null, settings },
-    );
-
-    expect(result.combatState.party[0]).toMatchObject({ name: "Mira", hp: 30, maxHp: 30 });
-    expect(result.combatState.enemies[0]?.name).toBe("Glass Warden");
-  });
-
-  it("accepts a combatState wrapper object", async () => {
-    const llm = llmWithResponses([JSON.stringify({ combatState: JSON.parse(validCombatJson()) })]);
-
-    const result = await initGameCombatEncounter(
-      { storage: storageGateway(), llm },
-      { chatId: "chat-1", connectionId: null, settings },
-    );
-
-    expect(result.combatState.environment).toBe("A mirror-bright hall.");
-    expect(result.combatState.enemies).toHaveLength(1);
-  });
-  it("bounds recent chat history reads to the requested depth", async () => {
+describe("roleplay encounter recent history", () => {
+  it("bounds initial encounter chat history reads to the requested depth", async () => {
     const storage = storageGateway();
     const listChatMessages = vi.spyOn(storage, "listChatMessages");
     const llm = llmWithResponses([validCombatJson()]);
 
-    await initGameCombatEncounter({ storage, llm }, { chatId: "chat-1", connectionId: null, settings });
+    await initRoleplayEncounter({ storage, llm }, { chatId: "chat-1", connectionId: null, settings });
 
     expect(listChatMessages).toHaveBeenCalledWith("chat-1", expect.objectContaining({ limit: settings.historyDepth }));
   });
-  it("keeps direct combat JSON when passthrough combatState noise is malformed", async () => {
+
+  it("bounds action chat history reads to the requested depth", async () => {
+    const storage = storageGateway();
+    const listChatMessages = vi.spyOn(storage, "listChatMessages");
     const llm = llmWithResponses([
-      validCombatJson({
-        environment: "A direct arena.",
-        combatState: { party: [], enemies: [] },
+      JSON.stringify({
+        combatStats: {
+          party: [{ name: "Mira", hp: 30, maxHp: 30, attacks: [], items: [], statuses: [], isPlayer: true }],
+          enemies: [],
+          environment: "A mirror-bright hall.",
+        },
+        playerActions: { attacks: [], items: [] },
+        enemyActions: [],
+        partyActions: [],
+        narrative: "Mira advances.",
       }),
     ]);
+    const combatStats = JSON.parse(validCombatJson()) as CombatInitState;
+    const input: EncounterActionRequest = {
+      chatId: "chat-1",
+      connectionId: null,
+      action: "Strike",
+      combatStats,
+      playerActions: { attacks: [], items: [] },
+      encounterLog: [],
+      settings,
+    };
 
-    const result = await initGameCombatEncounter(
-      { storage: storageGateway(), llm },
-      { chatId: "chat-1", connectionId: null, settings },
-    );
+    await resolveRoleplayEncounterAction({ storage, llm }, input);
 
-    expect(result.combatState.environment).toBe("A direct arena.");
-    expect(result.combatState.party[0]?.name).toBe("Mira");
-    expect(llm.complete).toHaveBeenCalledTimes(1);
-  });
-
-  it("repairs malformed initial combat JSON and returns the repaired state", async () => {
-    const llm = llmWithResponses(["not json", validCombatJson({ environment: "A repaired arena." })]);
-
-    const result = await initGameCombatEncounter(
-      { storage: storageGateway(), llm },
-      { chatId: "chat-1", connectionId: null, settings },
-    );
-
-    expect(result.combatState.environment).toBe("A repaired arena.");
-    expect(llm.complete).toHaveBeenCalledTimes(2);
-    expect(llm.requests[1]?.messages.at(-1)?.content).toContain("game.combatInit");
-  });
-
-  it("rejects malformed combat output instead of returning fallback combat state", async () => {
-    const llm = llmWithResponses(["not json", JSON.stringify({ party: [], enemies: [] })]);
-
-    await expect(
-      initGameCombatEncounter({ storage: storageGateway(), llm }, { chatId: "chat-1", connectionId: null, settings }),
-    ).rejects.toThrow(
-      "Combat setup did not return usable structured data. Nothing was changed; try again or choose a different model.",
-    );
+    expect(listChatMessages).toHaveBeenCalledWith("chat-1", expect.objectContaining({ limit: settings.historyDepth }));
   });
 });
