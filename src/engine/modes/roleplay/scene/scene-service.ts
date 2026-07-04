@@ -1184,10 +1184,12 @@ async function cleanOriginScenePointers(storage: StorageGateway, originChatId: s
 }
 
 async function deleteChatWithMessages(storage: StorageGateway, chatId: string): Promise<void> {
-  for (const message of await messagesForChat(storage, chatId)) {
-    if (message.id) {
-      await storage.deleteChatMessage(message.id);
-    }
+  const messageIds = (await messagesForChat(storage, chatId))
+    .map((message) => stringValue(message.id).trim())
+    .filter((id) => id.length > 0);
+  if (messageIds.length > 0) {
+    if (!storage.bulkDeleteChatMessages) throw new Error("Bulk chat message delete is not available");
+    await storage.bulkDeleteChatMessages(chatId, messageIds);
   }
   await storage.delete("chats", chatId);
 }

@@ -6,6 +6,7 @@ describe("focused storage ports", () => {
   it("exposes chat transcript behavior without generic collection CRUD", () => {
     expect(Object.keys(chatTranscriptStorageApi).sort()).toEqual([
       "addChatMessageSwipe",
+      "bulkDeleteChatMessages",
       "createChatMessage",
       "deleteChatMessage",
       "evictPromptSnapshots",

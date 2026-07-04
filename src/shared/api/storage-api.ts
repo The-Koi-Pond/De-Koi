@@ -496,6 +496,7 @@ export const storageApi: StorageGateway = {
     } as never;
   },
   deleteChatMessage: (messageId) => storageApi.delete("messages", messageId),
+  bulkDeleteChatMessages: (chatId, messageIds) => chatCommandApi.bulkDeleteMessages(chatId, messageIds),
   patchChatMessageExtra: async (messageId, patch) => {
     const message = await storageApi.get<Record<string, unknown>>("messages", messageId, { fields: ["extra"] });
     if (!message) throw new ApiError(`Message ${messageId} was not found`, 404);
@@ -550,6 +551,7 @@ export const chatTranscriptStorageApi: ChatTranscriptPort = {
   updateChatMessage: (...args) => storageApi.updateChatMessage(...args),
   updateChatMessageContentIfUnchanged: (...args) => storageApi.updateChatMessageContentIfUnchanged?.(...args) as never,
   deleteChatMessage: (...args) => storageApi.deleteChatMessage(...args),
+  bulkDeleteChatMessages: (...args) => chatCommandApi.bulkDeleteMessages(...args),
   patchChatMessageExtra: (...args) => storageApi.patchChatMessageExtra(...args),
   resolveImageAttachmentDataUrl: (...args) => storageApi.resolveImageAttachmentDataUrl?.(...args) as never,
   evictPromptSnapshots: (...args) => storageApi.evictPromptSnapshots?.(...args) as never,

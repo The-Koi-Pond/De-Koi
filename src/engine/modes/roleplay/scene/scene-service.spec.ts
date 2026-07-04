@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { ChatMessageListOptions, StorageEntity, StorageGateway } from "../../../capabilities/storage";
-import { concludeRoleplayScene, createRoleplayScene, planRoleplayScene, reopenRoleplayScene } from "./scene-service";
+import {
+  abandonRoleplayScene,
+  concludeRoleplayScene,
+  createRoleplayScene,
+  forkRoleplayScene,
+  planRoleplayScene,
+  reopenRoleplayScene,
+} from "./scene-service";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -15,6 +22,9 @@ function storageForScene(args: {
   createdRecords: Array<{ entity: StorageEntity; value: JsonRecord }>;
   createdMessages: Array<{ chatId: string; value: JsonRecord }>;
   messageReads: Array<{ chatId: string; options?: ChatMessageListOptions }>;
+  deletedRecords: Array<{ entity: StorageEntity; id: string }>;
+  deletedMessages: string[];
+  bulkDeletedMessageBatches: Array<{ chatId: string; messageIds: string[] }>;
 } {
   const chats = new Map(args.chats.map((chat) => [String(chat.id), { ...chat }]));
   const messages = new Map(
@@ -23,7 +33,9 @@ function storageForScene(args: {
   const createdRecords: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
   const createdMessages: Array<{ chatId: string; value: JsonRecord }> = [];
   const messageReads: Array<{ chatId: string; options?: ChatMessageListOptions }> = [];
-
+  const deletedRecords: Array<{ entity: StorageEntity; id: string }> = [];
+  const deletedMessages: string[] = [];
+  const bulkDeletedMessageBatches: Array<{ chatId: string; messageIds: string[] }> = [];
   const storage = {
     async get<T>(entity: StorageEntity, id: string) {
       if (entity === "chats") return (chats.get(id) ?? null) as T | null;
@@ -79,7 +91,8 @@ function storageForScene(args: {
       createdRecords.push({ entity, value });
       return { id: "created-" + createdRecords.length, ...value } as T;
     },
-    async delete() {
+    async delete(entity: StorageEntity, id: string) {
+      deletedRecords.push({ entity, id });
       return { deleted: true };
     },
     async listChatMessages<T>(chatId: string, options?: ChatMessageListOptions) {
@@ -107,8 +120,13 @@ function storageForScene(args: {
     async updateChatMessage<T>(_messageId: string, patch: JsonRecord) {
       return patch as T;
     },
-    async deleteChatMessage() {
+    async deleteChatMessage(messageId: string) {
+      deletedMessages.push(messageId);
       return { deleted: true };
+    },
+    async bulkDeleteChatMessages(chatId: string, messageIds: string[]) {
+      bulkDeletedMessageBatches.push({ chatId, messageIds });
+      return { deleted: messageIds.length };
     },
     async patchChatMessageExtra<T>(_messageId: string, patch: JsonRecord) {
       return patch as T;
@@ -133,7 +151,15 @@ function storageForScene(args: {
     },
   } as unknown as StorageGateway;
 
-  return { storage, createdRecords, createdMessages, messageReads };
+  return {
+    storage,
+    createdRecords,
+    createdMessages,
+    messageReads,
+    deletedRecords,
+    deletedMessages,
+    bulkDeletedMessageBatches,
+  };
 }
 
 function llmWithResponse(response: string): LlmGateway {
@@ -789,5 +815,79 @@ describe("reopenRoleplayScene", () => {
       connectedChatId: "scene-2",
       metadata: { activeSceneChatId: "scene-2", sceneBusyCharIds: ["char-3"] },
     });
+  });
+});
+describe("roleplay scene cleanup", () => {
+  it("abandons a scene by bulk-deleting the scene transcript before deleting the scene chat", async () => {
+    const sceneMessages = Array.from({ length: 25 }, (_, index) => ({
+      id: `scene-message-${index + 1}`,
+      role: index % 2 === 0 ? "assistant" : "user",
+      content: `Scene beat ${index + 1}`,
+    }));
+    const { storage, deletedRecords, deletedMessages, bulkDeletedMessageBatches } = storageForScene({
+      chats: [
+        {
+          id: "origin",
+          connectedChatId: "scene",
+          metadata: { activeSceneChatId: "scene", sceneBusyCharIds: ["char-1"] },
+        },
+        {
+          id: "scene",
+          connectedChatId: "origin",
+          characterIds: ["char-1"],
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      messages: { scene: sceneMessages },
+    });
+
+    await expect(abandonRoleplayScene(storage, { sceneChatId: "scene" })).resolves.toEqual({ originChatId: "origin" });
+
+    expect(bulkDeletedMessageBatches).toEqual([
+      { chatId: "scene", messageIds: sceneMessages.map((message) => message.id) },
+    ]);
+    expect(deletedMessages).toEqual([]);
+    expect(deletedRecords).toContainEqual({ entity: "chats", id: "scene" });
+    await expect(storage.get("chats", "origin")).resolves.toMatchObject({
+      connectedChatId: null,
+      metadata: { activeSceneChatId: null, sceneBusyCharIds: null },
+    });
+  });
+
+  it("converts a scene by cloning messages and bulk-deleting the source scene transcript", async () => {
+    const sceneMessages = Array.from({ length: 18 }, (_, index) => ({
+      id: `scene-message-${index + 1}`,
+      role: index % 2 === 0 ? "assistant" : "user",
+      content: `Scene beat ${index + 1}`,
+    }));
+    const { storage, createdRecords, deletedRecords, deletedMessages, bulkDeletedMessageBatches } = storageForScene({
+      chats: [
+        {
+          id: "origin",
+          connectedChatId: "scene",
+          metadata: { activeSceneChatId: "scene", sceneBusyCharIds: ["char-1"] },
+        },
+        {
+          id: "scene",
+          name: "Scene: Keep the Good Bits",
+          connectedChatId: "origin",
+          characterIds: ["char-1"],
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      messages: { scene: sceneMessages },
+    });
+
+    await expect(forkRoleplayScene(storage, { sceneChatId: "scene", mode: "convert" })).resolves.toMatchObject({
+      originChatId: "origin",
+      mode: "convert",
+    });
+
+    expect(createdRecords.filter((record) => record.entity === "messages")).toHaveLength(sceneMessages.length);
+    expect(bulkDeletedMessageBatches).toEqual([
+      { chatId: "scene", messageIds: sceneMessages.map((message) => message.id) },
+    ]);
+    expect(deletedMessages).toEqual([]);
+    expect(deletedRecords).toContainEqual({ entity: "chats", id: "scene" });
   });
 });

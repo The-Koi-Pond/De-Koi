@@ -76,6 +76,7 @@ export interface ChatTranscriptPort {
     content: string,
   ): Promise<{ updated: boolean; message?: T }>;
   deleteChatMessage(messageId: string): Promise<{ deleted: boolean }>;
+  bulkDeleteChatMessages?(chatId: string, messageIds: string[]): Promise<{ deleted: number }>;
   patchChatMessageExtra<T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T>;
   resolveImageAttachmentDataUrl?(attachment: StorageImageAttachmentReference): Promise<string | null>;
   /**
