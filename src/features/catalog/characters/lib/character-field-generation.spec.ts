@@ -89,6 +89,44 @@ describe("buildCharacterFieldGenerationMessages", () => {
     expect(messages[1]?.content).toContain("rain on glass");
     expect(messages[1]?.content).toContain("Return only the requested field");
   });
+
+  it("uses current music taste as a replacement target instead of normal context when regenerating it", () => {
+    const messages = buildCharacterFieldGenerationMessages("music_favorite_artists", {
+      data: characterData({
+        description: "A DIY basement-show booker who trades tapes after late shifts.",
+        extensions: {
+          ...characterData().extensions,
+          musicProfile: {
+            publicListeningEnabled: true,
+            favoriteArtists: ["Portishead"],
+            favoriteGenres: ["trip-hop"],
+            favoriteSongs: [{ title: "Roads", artist: "Portishead" }],
+            vibeNotes: "rain on glass",
+          },
+        },
+      }),
+      comment: "Night-shift archive keeper",
+    });
+
+    expect(messages[1]?.content).not.toContain(`Favorite artists:\nPortishead`);
+    expect(messages[1]?.content).toContain("Previous favorite artists to replace");
+    expect(messages[1]?.content).toContain("Portishead");
+    expect(messages[1]?.content).toContain("substantially different");
+  });
+
+  it("guides music popularity and obscurity from background and listening habits", () => {
+    const messages = buildCharacterFieldGenerationMessages("music_favorite_songs", {
+      data: characterData({
+        description: "A sheltered pop-radio listener from a small-town dance studio.",
+        personality: "Earnest, social, and very current with chart hits.",
+      }),
+      comment: "Weekend playlist maker",
+    });
+
+    expect(messages[1]?.content).toContain("famous, niche, local, archival, online-only, or obscure");
+    expect(messages[1]?.content).toContain("background, era, access, subculture, and listening habits");
+    expect(messages[1]?.content).toContain("Avoid defaulting to the same canonical");
+  });
   it("gives creator notes enough budget to finish complete practical notes", async () => {
     const requests: unknown[] = [];
     const value = await generateCharacterField({
@@ -142,10 +180,9 @@ describe("cleanGeneratedCharacterField", () => {
   });
 
   it("normalizes generated music taste fields", () => {
-    expect(cleanGeneratedCharacterField("music_favorite_artists", '["Portishead", "Akira Yamaoka", "portishead"]')).toEqual([
-      "Portishead",
-      "Akira Yamaoka",
-    ]);
+    expect(
+      cleanGeneratedCharacterField("music_favorite_artists", '["Portishead", "Akira Yamaoka", "portishead"]'),
+    ).toEqual(["Portishead", "Akira Yamaoka"]);
     expect(
       cleanGeneratedCharacterField(
         "music_favorite_artists",
