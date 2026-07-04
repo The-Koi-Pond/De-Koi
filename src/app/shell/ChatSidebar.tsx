@@ -45,7 +45,7 @@ import {
   useReorderFolders,
   useMoveChat,
 } from "../../features/catalog/chats/sidebar";
-import { useCharacterSummariesByIds } from "../../features/catalog/characters/index";
+import { useChatSurfaceCharacterSummariesByIds } from "../../features/catalog/characters/index";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
@@ -201,7 +201,10 @@ export function ChatSidebar({
     }
     return Array.from(ids);
   }, [chats]);
-  const { data: allCharacters } = useCharacterSummariesByIds(sidebarCharacterIds, sidebarCharacterIds.length > 0);
+  const { data: allCharacters } = useChatSurfaceCharacterSummariesByIds(
+    sidebarCharacterIds,
+    sidebarCharacterIds.length > 0,
+  );
   const [resolvedCharacterAvatars, setResolvedCharacterAvatars] = useState<Map<string, string | null>>(() => new Map());
 
   useEffect(() => {
