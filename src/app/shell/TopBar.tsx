@@ -7,7 +7,7 @@ import { useChat } from "../../features/catalog/chats/index";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { getConnectedChatDisplayName, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
-import { useCharacterSummariesByIds, CharacterAvatarImage } from "../../features/catalog/characters/index";
+import { useChatSurfaceCharacterSummariesByIds, CharacterAvatarImage } from "../../features/catalog/characters/index";
 import { useTopBarActions } from "../../shared/components/mobile-shell-actions";
 import { cn } from "../../shared/lib/utils";
 
@@ -33,7 +33,7 @@ export function TopBar({
   const chat = activeChat && activeChat.id === activeChatId ? activeChat : (queriedChat ?? null);
 
   const characterIds = useMemo(() => normalizeChatCharacterIds(chat?.characterIds), [chat?.characterIds]);
-  const { data: characters } = useCharacterSummariesByIds(characterIds, characterIds.length > 0);
+  const { data: characters } = useChatSurfaceCharacterSummariesByIds(characterIds, characterIds.length > 0);
   const firstChar = characters?.[0];
 
   const { rightSlot } = useTopBarActions();
@@ -47,7 +47,8 @@ export function TopBar({
       ? rawStatus
       : undefined
     : undefined;
-  const activity = showStatus && typeof extensions.conversationActivity === "string" ? extensions.conversationActivity : "";
+  const activity =
+    showStatus && typeof extensions.conversationActivity === "string" ? extensions.conversationActivity : "";
 
   const statusColor =
     status === "online"
@@ -65,12 +66,22 @@ export function TopBar({
   const charStatusColor = (ext: Record<string, unknown>) => {
     if (!showStatus) return "";
     const s = ext.conversationStatus;
-    return s === "online" ? "bg-green-500" : s === "idle" ? "bg-yellow-500" : s === "dnd" ? "bg-red-500" : s === "offline" ? "bg-gray-400" : "";
+    return s === "online"
+      ? "bg-green-500"
+      : s === "idle"
+        ? "bg-yellow-500"
+        : s === "dnd"
+          ? "bg-red-500"
+          : s === "offline"
+            ? "bg-gray-400"
+            : "";
   };
 
   useEffect(() => {
     if (charPopup === null) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setCharPopup(null); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCharPopup(null);
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [charPopup]);
@@ -106,18 +117,20 @@ export function TopBar({
         <ArrowLeft size="1.15rem" aria-hidden />
       </button>
 
-      {charPopup !== null && (
-        <div className="fixed inset-0 z-40" onClick={() => setCharPopup(null)} aria-hidden />
-      )}
+      {charPopup !== null && <div className="fixed inset-0 z-40" onClick={() => setCharPopup(null)} aria-hidden />}
 
-      {chat?.mode !== "game" && (
-        characters && characters.length > 1 ? (
+      {chat?.mode !== "game" &&
+        (characters && characters.length > 1 ? (
           // Multi-char: stacked avatars with status dots, each clickable to show activity
-          <div className="relative flex shrink-0 items-center" style={{ width: `${characters.length > 3 ? 92 : 20 * Math.min(characters.length, 3) + 12}px`, height: 32 }}>
+          <div
+            className="relative flex shrink-0 items-center"
+            style={{ width: `${characters.length > 3 ? 92 : 20 * Math.min(characters.length, 3) + 12}px`, height: 32 }}
+          >
             {characters.slice(0, 3).map((c, i) => {
               const ext = (c.data?.extensions ?? {}) as Record<string, unknown>;
               const dotColor = charStatusColor(ext);
-              const cActivity = showStatus && typeof ext.conversationActivity === "string" ? ext.conversationActivity : "";
+              const cActivity =
+                showStatus && typeof ext.conversationActivity === "string" ? ext.conversationActivity : "";
               const isOpen = charPopup === i;
               return (
                 <div key={c.id ?? i} className="absolute top-0" style={{ left: i * 20, zIndex: isOpen ? 10 : 3 - i }}>
@@ -142,13 +155,24 @@ export function TopBar({
                       </div>
                     )}
                     {dotColor && (
-                      <span className={cn("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-[1.5px] ring-[var(--background)]", dotColor)} />
+                      <span
+                        className={cn(
+                          "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-[1.5px] ring-[var(--background)]",
+                          dotColor,
+                        )}
+                      />
                     )}
                   </button>
                   {isOpen && (
                     <div className="absolute left-1/2 top-full mt-1.5 z-50 min-w-[7rem] -translate-x-1/2 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] px-3 py-2 shadow-lg backdrop-blur-xl">
-                      <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">{c.data?.name}</p>
-                      {cActivity && <p className="mt-0.5 text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">{cActivity}</p>}
+                      <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">
+                        {c.data?.name}
+                      </p>
+                      {cActivity && (
+                        <p className="mt-0.5 text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
+                          {cActivity}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -192,8 +216,7 @@ export function TopBar({
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-xs font-bold text-[var(--muted-foreground)]">
             {(chatName || "?")[0]?.toUpperCase()}
           </div>
-        )
-      )}
+        ))}
 
       <div className="min-w-0 flex-1 truncate">
         <span className="block text-sm font-semibold text-[var(--foreground)] leading-tight">{chatName || "Chat"}</span>
@@ -202,11 +225,7 @@ export function TopBar({
         )}
       </div>
 
-      {rightSlot && (
-        <div className="flex items-center gap-0.5">
-          {rightSlot}
-        </div>
-      )}
+      {rightSlot && <div className="flex items-center gap-0.5">{rightSlot}</div>}
     </header>
   );
 }

@@ -79,6 +79,30 @@ export type CharacterLibrarySummary = {
   updatedAt?: string;
 };
 
+export type ChatSurfaceCharacterSummary = {
+  id: string;
+  data?: {
+    name?: string;
+    description?: string;
+    personality?: string;
+    creator?: string;
+    character_version?: string;
+    tags?: unknown[];
+    extensions?: {
+      avatarCrop?: unknown;
+      fav?: unknown;
+      nameColor?: string;
+      publicProfile?: unknown;
+    };
+  };
+  comment?: string | null;
+  avatarPath?: string | null;
+  avatarFilePath?: string | null;
+  avatarFilename?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type CharacterPanelSummary = {
   id: string;
   data?: {
@@ -138,6 +162,7 @@ const CHARACTER_SUMMARY_OPTIONS = {
   },
 };
 const EMPTY_CHARACTER_SUMMARIES: CharacterSummary[] = [];
+const EMPTY_CHAT_SURFACE_CHARACTER_SUMMARIES: ChatSurfaceCharacterSummary[] = [];
 
 const CHARACTER_LIBRARY_SUMMARY_OPTIONS = {
   fields: CHARACTER_LIST_FIELDS,
@@ -151,6 +176,24 @@ const CHARACTER_LIBRARY_SUMMARY_OPTIONS = {
       "tags",
       "extensions.avatarCrop",
       "extensions.fav",
+      "extensions.publicProfile",
+    ],
+  },
+};
+
+const CHAT_SURFACE_CHARACTER_SUMMARY_OPTIONS = {
+  fields: CHARACTER_LIST_FIELDS,
+  fieldSelections: {
+    data: [
+      "name",
+      "description",
+      "personality",
+      "creator",
+      "character_version",
+      "tags",
+      "extensions.avatarCrop",
+      "extensions.fav",
+      "extensions.nameColor",
       "extensions.publicProfile",
     ],
   },
@@ -223,6 +266,18 @@ async function listCharacterSummariesByIds(ids: string[]): Promise<CharacterSumm
   const characters = (
     await storageApi.list<CharacterSummary>("characters", {
       ...CHARACTER_SUMMARY_OPTIONS,
+      whereIn: { field: "id", values: ids },
+    })
+  ).map(normalizeCharacterAvatarFields);
+  const byId = new Map(characters.map((character) => [character.id, character]));
+  return ids.map((id) => byId.get(id)).filter(isPresent);
+}
+
+async function listChatSurfaceCharacterSummariesByIds(ids: string[]): Promise<ChatSurfaceCharacterSummary[]> {
+  if (ids.length === 0) return EMPTY_CHAT_SURFACE_CHARACTER_SUMMARIES;
+  const characters = (
+    await storageApi.list<ChatSurfaceCharacterSummary>("characters", {
+      ...CHAT_SURFACE_CHARACTER_SUMMARY_OPTIONS,
       whereIn: { field: "id", values: ids },
     })
   ).map(normalizeCharacterAvatarFields);
@@ -313,6 +368,36 @@ export function useCharacterSummariesByIds(ids: string[], enabled = true) {
   });
   const data = useMemo(() => {
     if (!shouldRead) return EMPTY_CHARACTER_SUMMARIES;
+    const byId = new Map((query.data ?? []).map((character) => [character.id, character]));
+    return uniqueIds.map((id) => byId.get(id)).filter(isPresent);
+  }, [query.data, shouldRead, uniqueIds]);
+
+  return {
+    data,
+    isLoading: shouldRead ? query.isLoading : false,
+    isFetching: shouldRead ? query.isFetching : false,
+  };
+}
+
+export function useChatSurfaceCharacterSummariesByIds(ids: string[], enabled = true) {
+  const normalizedIdKey = ids
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .join("\0");
+  const uniqueIds = useMemo(
+    () => (normalizedIdKey ? Array.from(new Set(normalizedIdKey.split("\0").filter(Boolean))) : []),
+    [normalizedIdKey],
+  );
+  const shouldRead = enabled && normalizedIdKey.length > 0;
+  const query = useQuery({
+    queryKey: characterKeys.chatSurfaceSummaryByIds(uniqueIds),
+    queryFn: () => listChatSurfaceCharacterSummariesByIds(uniqueIds),
+    enabled: shouldRead,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const data = useMemo(() => {
+    if (!shouldRead) return EMPTY_CHAT_SURFACE_CHARACTER_SUMMARIES;
     const byId = new Map((query.data ?? []).map((character) => [character.id, character]));
     return uniqueIds.map((id) => byId.get(id)).filter(isPresent);
   }, [query.data, shouldRead, uniqueIds]);

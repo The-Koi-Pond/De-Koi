@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { storageApi } from "../../../../shared/api/storage-api";
-import { useCharacterLibrarySummaries } from "./use-characters";
+import { useCharacterLibrarySummaries, useChatSurfaceCharacterSummariesByIds } from "./use-characters";
 
 vi.mock("@tanstack/react-query", () => ({
   useMutation: vi.fn((options) => options),
@@ -14,6 +14,10 @@ vi.mock("@tanstack/react-query", () => ({
     removeQueries: vi.fn(),
     setQueryData: vi.fn(),
   })),
+}));
+
+vi.mock("react", () => ({
+  useMemo: (factory: () => unknown) => factory(),
 }));
 
 vi.mock("../../../../shared/api/storage-api", () => ({
@@ -50,6 +54,10 @@ vi.mock("../../../../shared/api/image-generation-api", () => ({
 vi.mock("../../../../shared/api/local-file-api", () => ({
   resolveGalleryFileUrl: vi.fn(),
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("character library summary query", () => {
   it("uses a lightweight projection for the initial library load", async () => {
@@ -92,6 +100,46 @@ describe("character library summary query", () => {
         "character_book",
         "extensions",
       ]),
+    );
+  });
+});
+
+describe("chat surface character summary query", () => {
+  it("uses a lightweight projection for chat and shell avatar lookups", async () => {
+    vi.mocked(storageApi.list).mockResolvedValue([]);
+
+    useChatSurfaceCharacterSummariesByIds(["character-1"]);
+
+    expect(useQuery).toHaveBeenCalledTimes(1);
+    const queryOptions = vi.mocked(useQuery).mock.calls[0]?.[0] as unknown as
+      | { queryFn: () => Promise<unknown> }
+      | undefined;
+    await queryOptions?.queryFn();
+    expect(storageApi.list).toHaveBeenCalledWith(
+      "characters",
+      expect.objectContaining({
+        fields: ["id", "data", "comment", "avatarPath", "avatarFilePath", "avatarFilename", "createdAt", "updatedAt"],
+        whereIn: { field: "id", values: ["character-1"] },
+        fieldSelections: {
+          data: expect.arrayContaining([
+            "name",
+            "description",
+            "personality",
+            "tags",
+            "extensions.avatarCrop",
+            "extensions.fav",
+            "extensions.nameColor",
+            "extensions.publicProfile",
+          ]),
+        },
+      }),
+    );
+
+    const options = vi.mocked(storageApi.list).mock.calls[0]?.[1] as
+      | { fieldSelections?: { data?: string[] } }
+      | undefined;
+    expect(options?.fieldSelections?.data).not.toEqual(
+      expect.arrayContaining(["first_mes", "alternate_greetings", "character_book"]),
     );
   });
 });

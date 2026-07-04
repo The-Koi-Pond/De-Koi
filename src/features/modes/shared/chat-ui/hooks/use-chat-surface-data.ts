@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useChat, useChatMessageCount, useChatMessages, type ChatMode } from "../../../../catalog/chats/index";
-import { characterAvatarUrl, useCharacterSummariesByIds } from "../../../../catalog/characters/index";
+import { characterAvatarUrl, useChatSurfaceCharacterSummariesByIds } from "../../../../catalog/characters/index";
 import { useActivePersonaSummary, usePersonaSummary } from "../../../../catalog/personas/index";
 import { ApiError } from "../../../../../shared/api/api-errors";
 import {
@@ -252,7 +252,10 @@ export function useChatSurfaceData({
     () => normalizeIds([...chatCharIds, ...extractMessageCharacterIds(messages), ...collectGameCharacterIds(chatMeta)]),
     [chatCharIds, chatMeta, messages],
   );
-  const { data: characterRows } = useCharacterSummariesByIds(neededCharacterIds, neededCharacterIds.length > 0);
+  const { data: characterRows } = useChatSurfaceCharacterSummariesByIds(
+    neededCharacterIds,
+    neededCharacterIds.length > 0,
+  );
   const baseCharacterMap: CharacterMap = useMemo(() => {
     const map: CharacterMap = new Map();
     for (const character of (characterRows ?? []) as CharacterRow[]) {

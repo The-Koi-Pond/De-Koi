@@ -9,6 +9,8 @@ export const characterKeys = {
   panelSummarySearch: (query: string) => [...characterKeys.panelSummaries(), "search", query] as const,
   summaryDetail: (id: string) => [...characterKeys.summaries(), id] as const,
   summaryByIds: (ids: string[]) => [...characterKeys.summaries(), "byIds", ...ids] as const,
+  chatSurfaceSummaryByIds: (ids: string[]) =>
+    [...characterKeys.all, "chat-surface-summaries", "byIds", ...ids] as const,
   detail: (id: string) => [...characterKeys.all, "detail", id] as const,
   versions: (id: string) => [...characterKeys.detail(id), "versions"] as const,
   gallery: (id: string) => [...characterKeys.all, "gallery", id] as const,
