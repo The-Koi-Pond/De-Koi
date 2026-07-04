@@ -160,9 +160,7 @@ function readPositiveNumber(value: unknown, fallback: number): number {
 }
 
 function readStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.map((entry) => readString(entry).trim()).filter((entry) => entry.length > 0)
-    : [];
+  return Array.isArray(value) ? value.map((entry) => readString(entry).trim()).filter((entry) => entry.length > 0) : [];
 }
 
 function readMusicDjIntent(data: Record<string, unknown>): MusicDjIntent {
@@ -1371,10 +1369,19 @@ async function applyAgentResultEffects(
   const data = parseMaybeRecord(result.data);
   if (result.type === "music_control" || result.agentType === "music-dj") {
     const action = readString(data.action).trim().toLowerCase();
-    const volume = typeof data.volume === "number" && Number.isFinite(data.volume) ? Math.max(0, Math.min(100, Math.trunc(data.volume))) : null;
+    const volume =
+      typeof data.volume === "number" && Number.isFinite(data.volume)
+        ? Math.max(0, Math.min(100, Math.trunc(data.volume)))
+        : null;
     const intent = readMusicDjIntent(data);
     if (action === "play") {
-      dispatchMusicPlaybackEvent({ type: "cue", query: musicDjSearchQuery(data, intent), volume, intent, fresh: true });
+      dispatchMusicPlaybackEvent({
+        type: "cue",
+        query: musicDjSearchQuery(data, intent),
+        volume,
+        intent,
+        fresh: false,
+      });
     } else if (action === "volume" && volume !== null) {
       dispatchMusicPlaybackEvent({ type: "volume", volume, intent });
     } else if (action === "pause") {
