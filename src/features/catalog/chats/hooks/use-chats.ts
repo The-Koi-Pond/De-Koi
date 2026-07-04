@@ -569,9 +569,9 @@ export function useDeleteMessage(chatId: string | null) {
       assertDeletedMessages(result, 1);
       return result;
     },
-    onMutate: (messageId: string) => {
+    onMutate: async (messageId: string) => {
       if (!chatId) return;
-      void qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true }).catch(() => undefined);
+      await qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true }).catch(() => undefined);
       const previousMessages = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId));
       const previousCount = qc.getQueryData<MessageCountResult>(chatKeys.messageCount(chatId));
       forgetRecentMessageContentEdit(chatId, messageId);
@@ -614,12 +614,12 @@ export function useDeleteMessages(chatId: string | null) {
       assertDeletedMessages(result, uniqueIds.length);
       return result;
     },
-    onMutate: (messageIds: string[]) => {
+    onMutate: async (messageIds: string[]) => {
       if (!chatId) return;
       const uniqueIds = compactMessageIdList(messageIds);
       if (uniqueIds.length === 0) return;
       const idSet = new Set(uniqueIds);
-      void qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true }).catch(() => undefined);
+      await qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true }).catch(() => undefined);
       const previousMessages = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId));
       const previousCount = qc.getQueryData<MessageCountResult>(chatKeys.messageCount(chatId));
       for (const messageId of uniqueIds) forgetRecentMessageContentEdit(chatId, messageId);
