@@ -21,14 +21,22 @@ const SINGLE_QUOTE_RE = /['\u2018\u2019\u201a\u201b]/g;
 const QUOTE_RE = /["'\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f]/;
 const PROTECTED_TEXT_RE = /```[\s\S]*?```|`[^`\n]*`|<\/?[A-Za-z][^<>]*>/g;
 
-export const DIALOGUE_QUOTE_PATTERN_SOURCE =
+const DIALOGUE_QUOTE_OPEN_BOUNDARY_PATTERN_SOURCE = String.raw`(?<![=\w])`;
+
+const DIALOGUE_QUOTE_PATTERN_BODY_SOURCE =
   '""[^"]+""|"[^"]+"|\u201c[^\u201d]+\u201d|\u00ab[^\u00bb]+\u00bb|\u300c[^\u300d]+\u300d|\u300e[^\u300f]+\u300f';
 
-export const DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE =
+const DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_BODY_SOURCE =
   '""([^"]+)""|"([^"]+)"|\u201c([^\u201d]+)\u201d|\u00ab([^\u00bb]+)\u00bb|\u300c([^\u300d]+)\u300d|\u300e([^\u300f]+)\u300f';
 
-export const HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE =
+const HTML_SAFE_DIALOGUE_QUOTE_PATTERN_BODY_SOURCE =
   '""[^"<>]+""|"[^"<>]+"|\u201c[^\u201d<>]+\u201d|\u00ab[^\u00bb<>]+\u00bb|\u300c[^\u300d<>]+\u300d|\u300e[^\u300f<>]+\u300f';
+
+export const DIALOGUE_QUOTE_PATTERN_SOURCE = `${DIALOGUE_QUOTE_OPEN_BOUNDARY_PATTERN_SOURCE}(?:${DIALOGUE_QUOTE_PATTERN_BODY_SOURCE})`;
+
+export const DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE = `${DIALOGUE_QUOTE_OPEN_BOUNDARY_PATTERN_SOURCE}(?:${DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_BODY_SOURCE})`;
+
+export const HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE = `${DIALOGUE_QUOTE_OPEN_BOUNDARY_PATTERN_SOURCE}(?:${HTML_SAFE_DIALOGUE_QUOTE_PATTERN_BODY_SOURCE})`;
 
 export function normalizeQuoteFormat(value: unknown): QuoteFormat {
   return value === "typographic" ? "typographic" : "straight";

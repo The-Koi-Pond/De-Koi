@@ -82,4 +82,22 @@ describe("speaker dialogue colors", () => {
       { text: '"Sign here."', color: "#00ff66" },
     ]);
   });
+  it("does not treat straight double quotes in height measurements as dialogue delimiters", () => {
+    const colors = createSpeakerColorLookup([
+      ["Doctor", "#00ddff"],
+      ["Jester", "#aa77ff"],
+    ]);
+
+    expect(
+      splitSpeakerDialogueColorSegments(
+        'Doctor stood 6\'9" tall, his hands still. "On time." Doctor observed.',
+        "#ffffff",
+        colors,
+      ),
+    ).toEqual([
+      { text: "Doctor stood 6'9\" tall, his hands still. ", color: "#ffffff" },
+      { text: '"On time."', color: "#00ddff" },
+      { text: " Doctor observed.", color: "#ffffff" },
+    ]);
+  });
 });
