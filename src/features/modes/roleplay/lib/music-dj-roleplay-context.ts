@@ -18,6 +18,15 @@ export type RoleplayMusicContext = {
   intent: MusicDjIntent;
 };
 
+export function shouldDispatchRoleplayMusicContext(
+  chatMode: string | null | undefined,
+  context: RoleplayMusicContext | null | undefined,
+  _enabledAgentTypes?: ReadonlySet<string>,
+): context is RoleplayMusicContext {
+  void context;
+  return chatMode === "roleplay";
+}
+
 const RECENT_MESSAGE_LIMIT = 8;
 const MAX_REASON_LENGTH = 140;
 const DEFAULT_ROLEPLAY_STYLE = "cinematic roleplay instrumental ambience soundtrack";

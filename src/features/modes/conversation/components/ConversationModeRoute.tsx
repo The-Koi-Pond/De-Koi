@@ -107,8 +107,12 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
   );
 
   useEffect(() => {
-    if (data.chatMode !== "conversation" || !musicDjContext) return;
-    dispatchMusicPlaybackEvent({ type: "context", query: musicDjContext.query, intent: musicDjContext.intent });
+    if (data.chatMode !== "conversation") return;
+    dispatchMusicPlaybackEvent({
+      type: "context",
+      query: musicDjContext?.query ?? null,
+      intent: musicDjContext?.intent ?? null,
+    });
   }, [data.chatMode, musicDjContext]);
 
   const connectedChatId = (data.chat as unknown as { connectedChatId?: string | null } | null | undefined)

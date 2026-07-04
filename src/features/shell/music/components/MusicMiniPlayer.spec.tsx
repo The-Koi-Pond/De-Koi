@@ -111,4 +111,49 @@ describe("MusicMiniPlayer", () => {
     });
     expect(musicApiMock.play).toHaveBeenCalledWith({ provider: "youtube", track: candidate, volume: 55 });
   });
+
+  it("uses a mode-neutral cold-start query for Fresh Pick", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<MusicMiniPlayer variant="toolbar" />);
+    });
+
+    const freshPick = container!.querySelector<HTMLButtonElement>('button[aria-label="Fresh Music Player pick"]');
+    expect(freshPick).not.toBeNull();
+    await act(async () => {
+      freshPick!.click();
+    });
+    await flushAsyncWork();
+
+    expect(musicApiMock.freshPick).toHaveBeenCalledWith({
+      query: "instrumental background soundtrack",
+      limit: 8,
+    });
+  });
+
+  it("resets Fresh Pick to the neutral fallback when playback context is cleared", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<MusicMiniPlayer variant="toolbar" />);
+    });
+
+    await act(async () => {
+      dispatchMusicPlaybackEvent({ type: "context", query: "quiet fantasy tavern instrumental ambience" });
+    });
+    await act(async () => {
+      dispatchMusicPlaybackEvent({ type: "context", query: null });
+    });
+
+    const freshPick = container!.querySelector<HTMLButtonElement>('button[aria-label="Fresh Music Player pick"]');
+    expect(freshPick).not.toBeNull();
+    await act(async () => {
+      freshPick!.click();
+    });
+    await flushAsyncWork();
+
+    expect(musicApiMock.freshPick).toHaveBeenCalledWith({
+      query: "instrumental background soundtrack",
+      limit: 8,
+    });
+  });
 });

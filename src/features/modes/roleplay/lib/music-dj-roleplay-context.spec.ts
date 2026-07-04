@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildRoleplayMusicContext } from "./music-dj-roleplay-context";
+import { buildRoleplayMusicContext, shouldDispatchRoleplayMusicContext } from "./music-dj-roleplay-context";
 
 describe("buildRoleplayMusicContext", () => {
   it("uses loaded roleplay messages instead of the generic tavern fallback", () => {
@@ -30,6 +30,15 @@ describe("buildRoleplayMusicContext", () => {
     });
 
     expect(context?.query).toContain("fantasy tavern");
+  });
+
+  it("seeds Fresh Pick context for roleplay independently of Music Player agent activation", () => {
+    const context = buildRoleplayMusicContext({
+      messages: [{ role: "assistant", content: "Rain hisses against the neon station windows." }],
+    });
+
+    expect(shouldDispatchRoleplayMusicContext("roleplay", context, new Set())).toBe(true);
+    expect(shouldDispatchRoleplayMusicContext("roleplay", null, new Set())).toBe(true);
   });
 
   it("returns no context when there is nothing meaningful to seed Fresh Pick", () => {

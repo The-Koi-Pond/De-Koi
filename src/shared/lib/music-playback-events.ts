@@ -37,8 +37,8 @@ export function consumePendingMusicPlaybackCue(): Extract<MusicPlaybackEventDeta
 }
 
 export function dispatchMusicPlaybackEvent(detail: MusicPlaybackEventDetail): void {
-  if (detail.type === "context" && detail.query?.trim()) {
-    lastMusicPlaybackContext = detail;
+  if (detail.type === "context") {
+    lastMusicPlaybackContext = detail.query?.trim() ? detail : null;
   }
   if (detail.type === "cue" && (detail.query?.trim() || detail.track)) {
     pendingMusicPlaybackCue = detail;
