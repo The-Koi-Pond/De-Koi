@@ -28,7 +28,6 @@ import {
 import { getMusicPlayerDisplay } from "../lib/music-player-display";
 import { sendYouTubeIframeCommand } from "../lib/youtube-iframe-player";
 
-const DEFAULT_MUSIC_QUERY = "instrumental background soundtrack";
 const DEFAULT_WIDGET_SIZE: MusicWidgetSize = { width: 352, height: 188 };
 const LEGACY_DEFAULT_POSITION: MusicWidgetPosition = { x: 16, y: 96 };
 
@@ -221,8 +220,8 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
   const resolvedVariant = variant ?? (mobile ? "floating" : "toolbar");
   const visible = useMusicPlayerVisible(resolvedVariant);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const [query, setQuery] = useState(DEFAULT_MUSIC_QUERY);
-  const [lastDiscoveryQuery, setLastDiscoveryQuery] = useState(DEFAULT_MUSIC_QUERY);
+  const [query, setQuery] = useState("");
+  const [lastDiscoveryQuery, setLastDiscoveryQuery] = useState("");
   const [track, setTrack] = useState<MusicCandidate | null>(null);
   const [recentTrackIds, setRecentTrackIds] = useState<string[]>([]);
   const [playing, setPlaying] = useState(false);
@@ -233,6 +232,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
   const videoId = youtubeVideoId(track);
   const src = useMemo(() => embedUrl(videoId, playing), [videoId, playing]);
   const display = getMusicPlayerDisplay(track);
+  const displaySubtitle = message ?? display.subtitle;
 
   async function playTrack(next: MusicCandidate, nextVolume = volume) {
     setTrack(next);
@@ -252,8 +252,11 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     const requestedQuery = (overrideQuery ?? query).trim();
     const requestedVolume = typeof overrideVolume === "number" ? overrideVolume : volume;
     const usedDiscoveryFallback = fresh && isDirectYouTubeTarget(requestedQuery);
-    const searchQuery = usedDiscoveryFallback ? lastDiscoveryQuery.trim() || DEFAULT_MUSIC_QUERY : requestedQuery;
-    if (!searchQuery) return;
+    const searchQuery = usedDiscoveryFallback ? lastDiscoveryQuery.trim() : requestedQuery;
+    if (!searchQuery) {
+      setMessage("Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.");
+      return;
+    }
     if (!isDirectYouTubeTarget(searchQuery)) {
       setLastDiscoveryQuery(searchQuery);
     }
@@ -356,8 +359,8 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           setQuery(contextQuery);
           setLastDiscoveryQuery(contextQuery);
         } else {
-          setQuery(DEFAULT_MUSIC_QUERY);
-          setLastDiscoveryQuery(DEFAULT_MUSIC_QUERY);
+          setQuery("");
+          setLastDiscoveryQuery("");
         }
         if (detail.intent) setMessage(`Music Player ready: ${musicDjIntentLabel(detail.intent)}`);
       } else if (detail.type === "volume") {
@@ -412,7 +415,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           </span>
           <div className="min-w-0">
             <div className="truncate font-medium">{display.title}</div>
-            <div className="truncate text-[var(--muted-foreground)]">{display.subtitle}</div>
+            <div className="truncate text-[var(--muted-foreground)]">{displaySubtitle}</div>
           </div>
         </div>
       </div>
@@ -499,7 +502,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           </span>
           <div className="min-w-0 leading-tight">
             <div className="truncate text-xs font-medium">{display.title}</div>
-            <div className="truncate text-[10px] text-[var(--muted-foreground)]">{display.subtitle}</div>
+            <div className="truncate text-[10px] text-[var(--muted-foreground)]">{displaySubtitle}</div>
           </div>
         </div>
         <button

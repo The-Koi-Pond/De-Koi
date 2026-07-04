@@ -112,7 +112,7 @@ describe("MusicMiniPlayer", () => {
     expect(musicApiMock.play).toHaveBeenCalledWith({ provider: "youtube", track: candidate, volume: 55 });
   });
 
-  it("uses a mode-neutral cold-start query for Fresh Pick", async () => {
+  it("does not search or play when Fresh Pick has no current cue", async () => {
     await act(async () => {
       root = createRoot(container!);
       root.render(<MusicMiniPlayer variant="toolbar" />);
@@ -125,13 +125,15 @@ describe("MusicMiniPlayer", () => {
     });
     await flushAsyncWork();
 
-    expect(musicApiMock.freshPick).toHaveBeenCalledWith({
-      query: "instrumental background soundtrack",
-      limit: 8,
-    });
+    expect(musicApiMock.freshPick).not.toHaveBeenCalled();
+    expect(musicApiMock.searchCandidates).not.toHaveBeenCalled();
+    expect(musicApiMock.play).not.toHaveBeenCalled();
+    expect(container!.textContent).toContain(
+      "Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.",
+    );
   });
 
-  it("resets Fresh Pick to the neutral fallback when playback context is cleared", async () => {
+  it("clears stale context instead of falling back to old fantasy music", async () => {
     await act(async () => {
       root = createRoot(container!);
       root.render(<MusicMiniPlayer variant="toolbar" />);
@@ -151,9 +153,11 @@ describe("MusicMiniPlayer", () => {
     });
     await flushAsyncWork();
 
-    expect(musicApiMock.freshPick).toHaveBeenCalledWith({
-      query: "instrumental background soundtrack",
-      limit: 8,
-    });
+    expect(musicApiMock.freshPick).not.toHaveBeenCalled();
+    expect(musicApiMock.searchCandidates).not.toHaveBeenCalled();
+    expect(musicApiMock.play).not.toHaveBeenCalled();
+    expect(container!.textContent).toContain(
+      "Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.",
+    );
   });
 });
