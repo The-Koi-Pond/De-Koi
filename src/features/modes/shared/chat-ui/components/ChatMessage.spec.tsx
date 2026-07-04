@@ -129,6 +129,32 @@ describe("ChatMessage", () => {
       expect.objectContaining({ width: expect.any(Number) }),
     );
   });
+  it("keeps a visible timestamp at the top of grouped roleplay messages", () => {
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{ ...message, id: "message-grouped-timestamp", content: "Still here." }}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+            isGrouped
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const body = container!.querySelector<HTMLElement>(".mari-message-body");
+    const timestamp = container!.querySelector<HTMLElement>(".mari-message-timestamp");
+    const content = container!.querySelector<HTMLElement>(".mari-message-content");
+
+    expect(timestamp).not.toBeNull();
+    expect(body).not.toBeNull();
+    expect(content).not.toBeNull();
+    expect(body!.contains(timestamp!)).toBe(true);
+    expect(timestamp!.compareDocumentPosition(content!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("renders merged group names as plain text instead of a dead profile button", () => {
     const onOpenCharacterProfile = vi.fn();
     const groupCharacterMap = new Map([

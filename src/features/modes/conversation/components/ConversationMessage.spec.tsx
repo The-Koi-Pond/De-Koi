@@ -537,6 +537,41 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(asterContent?.textContent).toContain("hello there");
     expect(bramContent?.textContent).toContain("pancakes?");
   });
+  it("keeps a visible timestamp at the top of grouped conversation messages", () => {
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={{
+              ...message,
+              id: "message-grouped-timestamp",
+              content: "Still here.",
+              extra: {
+                displayText: null,
+                isGenerated: true,
+                tokenCount: null,
+                generationInfo: null,
+              },
+            }}
+            isGrouped
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const body = container!.querySelector<HTMLElement>(".mari-message-body");
+    const timestamp = container!.querySelector<HTMLElement>(".mari-message-timestamp");
+    const content = container!.querySelector<HTMLElement>(".mari-message-content");
+
+    expect(timestamp).not.toBeNull();
+    expect(body).not.toBeNull();
+    expect(content).not.toBeNull();
+    expect(body!.contains(timestamp!)).toBe(true);
+    expect(timestamp!.compareDocumentPosition(content!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
   it("keeps child button keyboard events isolated from message-level toggles", () => {
     const onRegenerate = vi.fn();
 

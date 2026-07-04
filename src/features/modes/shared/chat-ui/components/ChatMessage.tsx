@@ -2121,28 +2121,29 @@ export const ChatMessage = memo(function ChatMessage({
               editing && "w-[82%]",
             )}
           >
-            {/* Name + time (only if not grouped) */}
-            {!isGrouped && (
-              <div className={cn("flex items-baseline gap-2 px-1", isUser && "flex-row-reverse")}>
-                {hiddenFromAIHeader}
-                {renderCharacterName(
+            {/* Block metadata */}
+            <div className={cn("mari-message-meta flex items-baseline gap-2 px-1", isUser && "flex-row-reverse")}>
+              {hiddenFromAIHeader}
+              {!isGrouped &&
+                renderCharacterName(
                   cn(
                     "mari-message-name text-[0.75rem] font-bold tracking-tight",
                     !msgNameColor && !isMergedGroup && (isUser ? "text-neutral-300" : "rpg-char-name"),
                   ),
                   !isMergedGroup ? nameColorStyle(msgNameColor) : undefined,
                 )}
-                <span className="text-[0.625rem] text-white/30">{formatTime(message.createdAt)}</span>
-                {genLabel && (
-                  <span className="max-w-[15.625rem] truncate text-[0.5625rem] italic text-white/45" title={genLabel}>
-                    {genLabel}
-                  </span>
-                )}
-                {showRoleplayAvatarPanel && (showActions || showMessageNumbers) && messageIndex != null && (
-                  <span className="text-[0.5625rem] font-medium text-white/25 select-none">#{messageIndex}</span>
-                )}
-              </div>
-            )}
+              <span className="mari-message-timestamp text-[0.625rem] text-white/30">
+                {formatTime(message.createdAt)}
+              </span>
+              {genLabel && (
+                <span className="max-w-[15.625rem] truncate text-[0.5625rem] italic text-white/45" title={genLabel}>
+                  {genLabel}
+                </span>
+              )}
+              {showRoleplayAvatarPanel && (showActions || showMessageNumbers) && messageIndex != null && (
+                <span className="text-[0.5625rem] font-medium text-white/25 select-none">#{messageIndex}</span>
+              )}
+            </div>
 
             {/* Conversation start marker */}
             {isConversationStart && (
@@ -2676,19 +2677,30 @@ export const ChatMessage = memo(function ChatMessage({
             editing && "w-full",
           )}
         >
-          {/* Name — only for first in group */}
-          {!isGrouped && !isUser && (
-            <div className="flex items-center gap-2 px-3">
-              {hiddenFromAIHeader}
-              {renderCharacterName(
+          {/* Block metadata */}
+          <div className={cn("mari-message-meta flex items-center gap-2 px-3", isUser && "flex-row-reverse")}>
+            {hiddenFromAIHeader}
+            {!isGrouped &&
+              !isUser &&
+              renderCharacterName(
                 cn(
                   "mari-message-name text-[0.6875rem] font-semibold",
                   !msgNameColor && !isMergedGroup && "text-[var(--muted-foreground)]",
                 ),
                 !isMergedGroup ? nameColorStyle(msgNameColor) : undefined,
               )}
-            </div>
-          )}
+            <span className="mari-message-timestamp text-[0.625rem] text-[var(--muted-foreground)]/50">
+              {formatTime(message.createdAt)}
+            </span>
+            {genLabel && (
+              <span
+                className="text-[0.5625rem] text-[var(--muted-foreground)]/40 italic truncate max-w-[15.625rem]"
+                title={genLabel}
+              >
+                {genLabel}
+              </span>
+            )}
+          </div>
 
           {/* Conversation start marker */}
           {isConversationStart && (
@@ -2796,22 +2808,7 @@ export const ChatMessage = memo(function ChatMessage({
             </div>
           )}
 
-          {/* Timestamp + model — only for last in a group or standalone */}
-          {!isGrouped && (
-            <div className={cn("mari-message-meta flex items-center gap-2 px-3", isUser && "flex-row-reverse")}>
-              <span className="mari-message-timestamp text-[0.625rem] text-[var(--muted-foreground)]/50">
-                {formatTime(message.createdAt)}
-              </span>
-              {genLabel && (
-                <span
-                  className="text-[0.5625rem] text-[var(--muted-foreground)]/40 italic truncate max-w-[15.625rem]"
-                  title={genLabel}
-                >
-                  {genLabel}
-                </span>
-              )}
-            </div>
-          )}
+
 
           {/* Swipes */}
           {hasSwipes && (
