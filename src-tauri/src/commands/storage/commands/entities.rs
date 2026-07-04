@@ -1494,6 +1494,7 @@ mod tests {
                     },
                     {
                         "id": "drop-newer",
+                        "messageIds": ["message-after"],
                         "lastMessageAt": "2026-06-01T10:01:00.000Z"
                     }
                 ]
@@ -4446,8 +4447,8 @@ mod tests {
                     "id": "chat-1",
                     "name": "Created-at memory delete chat",
                     "memories": [
-                        { "id": "keep-created-at-old", "createdAt": "2026-01-01T00:00:00.000Z" },
-                        { "id": "drop-created-at-new", "createdAt": "2026-01-03T00:00:00.000Z" }
+                        { "id": "keep-created-at-old", "messageIds": ["message-before"], "createdAt": "2026-01-01T00:00:00.000Z" },
+                        { "id": "drop-created-at-new", "messageIds": ["message-after"], "createdAt": "2026-01-03T00:00:00.000Z" }
                     ]
                 }),
             )
@@ -4496,16 +4497,19 @@ mod tests {
                     "memories": [
                         {
                             "id": "drop-created-inside-window",
+                            "messageIds": ["message-after"],
                             "createdAt": "2026-01-03T00:00:00.000Z",
                             "firstMessageAt": "2026-01-01T00:00:00.000Z"
                         },
                         {
                             "id": "keep-created-before-window",
+                            "messageIds": ["message-before"],
                             "createdAt": "2026-01-01T00:00:00.000Z",
                             "firstMessageAt": "2026-01-04T00:00:00.000Z"
                         },
                         {
                             "id": "keep-last-message-before-window",
+                            "messageIds": ["message-before-2"],
                             "lastMessageAt": "2026-01-01T00:00:00.000Z",
                             "createdAt": "2026-01-04T00:00:00.000Z"
                         }
