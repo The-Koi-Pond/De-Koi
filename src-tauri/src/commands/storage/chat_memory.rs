@@ -594,6 +594,9 @@ fn memory_overlaps_deleted_messages(
     deleted_ids: &HashSet<String>,
     deleted_start_at: Option<&str>,
 ) -> bool {
+    if !chat_memory_is_refresh_owned(memory) {
+        return false;
+    }
     let chunk_ids = chat_memory_message_ids(memory);
     if !chunk_ids.is_empty() && chunk_ids.iter().any(|id| deleted_ids.contains(id)) {
         return true;
@@ -682,6 +685,9 @@ fn memory_at_or_after_message(
     message_ids: &HashSet<String>,
     created_at: &str,
 ) -> bool {
+    if !chat_memory_is_refresh_owned(memory) {
+        return false;
+    }
     if !message_ids.is_empty() {
         let chunk_ids = chat_memory_message_ids(memory);
         if chunk_ids.iter().any(|id| message_ids.contains(id)) {
@@ -1537,6 +1543,7 @@ mod tests {
     #[test]
     fn chat_memory_timestamp_order_matches_recency_and_pruning() {
         let memory = json!({
+            "messageIds": ["message-1"],
             "lastMessageAt": "   ",
             "createdAt": "2026-01-03T00:00:00.000Z",
             "firstMessageAt": "2026-01-01T00:00:00.000Z"
@@ -1552,6 +1559,105 @@ mod tests {
             &HashSet::new(),
             Some("2026-01-02T00:00:00.000Z")
         ));
+    }
+
+    #[test]
+    fn message_edit_invalidation_preserves_non_transcript_memories() {
+        let chat = json!({
+            "id": "chat-1",
+            "memories": [
+                {
+                    "id": "before-transcript",
+                    "content": "older transcript chunk",
+                    "messageIds": ["message-1", "message-2"],
+                    "lastMessageAt": "2026-06-01T09:00:00.000Z"
+                },
+                {
+                    "id": "after-transcript",
+                    "content": "newer transcript chunk",
+                    "messageIds": ["message-5", "message-6"],
+                    "lastMessageAt": "2026-06-01T11:00:00.000Z"
+                },
+                {
+                    "id": "imported-memory",
+                    "sourceChatId": "source-chat",
+                    "content": "imported row should not be pruned by transcript edit timestamps",
+                    "lastMessageAt": "2026-06-01T12:00:00.000Z"
+                },
+                {
+                    "id": "command-memory",
+                    "source": "connected_command",
+                    "embeddingSource": "command",
+                    "commandMemoryKey": "chat-1::Mira::brass key",
+                    "content": "command row should not be pruned by transcript edit timestamps",
+                    "messageIds": [],
+                    "lastMessageAt": "2026-06-01T13:00:00.000Z"
+                }
+            ]
+        });
+
+        let retained = retained_chat_memories_after_message_change(
+            &chat,
+            "message-5",
+            "2026-06-01T10:00:00.000Z",
+        )
+        .expect("invalidation should succeed")
+        .expect("transcript memory should be pruned");
+        let retained_ids = retained
+            .iter()
+            .filter_map(|memory| memory.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            retained_ids,
+            vec!["before-transcript", "imported-memory", "command-memory"]
+        );
+    }
+
+    #[test]
+    fn message_delete_invalidation_preserves_non_transcript_memories() {
+        let values = vec![
+            json!({
+                "id": "matching-transcript",
+                "content": "transcript chunk with deleted message",
+                "messageIds": ["message-2", "message-3"],
+                "lastMessageAt": "2026-06-01T10:03:00.000Z"
+            }),
+            json!({
+                "id": "later-transcript",
+                "content": "later transcript chunk should be rebuilt after delete",
+                "messageIds": ["message-4", "message-5"],
+                "lastMessageAt": "2026-06-01T10:20:00.000Z"
+            }),
+            json!({
+                "id": "imported-memory",
+                "sourceChatId": "source-chat",
+                "content": "imported row should survive transcript delete",
+                "lastMessageAt": "2026-06-01T10:30:00.000Z"
+            }),
+            json!({
+                "id": "command-memory",
+                "source": "connected_command",
+                "embeddingSource": "command",
+                "commandMemoryKey": "chat-1::Mira::brass key",
+                "content": "command row should survive transcript delete",
+                "messageIds": [],
+                "lastMessageAt": "2026-06-01T10:40:00.000Z"
+            }),
+        ];
+        let deleted_messages = vec![json!({
+            "id": "message-2",
+            "createdAt": "2026-06-01T10:00:00.000Z"
+        })];
+
+        let retained = prune_chat_memory_values_for_deleted_messages(values, &deleted_messages)
+            .expect("transcript memories should be pruned");
+        let retained_ids = retained
+            .iter()
+            .filter_map(|memory| memory.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+
+        assert_eq!(retained_ids, vec!["imported-memory", "command-memory"]);
     }
 
     #[tokio::test]
