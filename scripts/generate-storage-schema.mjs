@@ -253,7 +253,7 @@ const embeddedRows = [
   [
     "`chats.memories[]`",
     "`ChatMemoryChunk`",
-    "Memory Recall chunks with message IDs, content, embedding state, and optional embedding vectors. There is no `chat-memory` collection.",
+    "Memory Recall rows stored on the chat. Transcript-owned chunks have message IDs, content, embedding state, and optional vectors; Phase 1 also preserves imported/manual/`[memory:]` command rows that may lack message IDs or carry `sourceChatId`/`commandMemoryKey`. Refresh rebuilds transcript chunks without deleting those preserved rows. There is no `chat-memory` collection.",
   ],
   [
     "`chats.notes[]`",
