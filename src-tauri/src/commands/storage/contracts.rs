@@ -141,6 +141,14 @@ const PERSONA_FIELDS: &[TypedJsonField] = &[
     nullable_object("personaStats"),
 ];
 const AGENT_FIELDS: &[TypedJsonField] = &[object("settings")];
+const CANONICAL_MEMORY_FIELDS: &[TypedJsonField] = &[
+    object("scope"),
+    object("provenance"),
+    array("tags"),
+    object("payload"),
+];
+const MEMORY_INDEX_FIELDS: &[TypedJsonField] = &[array("vector"), array("lexicalTokens")];
+
 const REGEX_SCRIPT_FIELDS: &[TypedJsonField] = &[
     array("placement"),
     array("trimStrings"),
@@ -405,6 +413,22 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         false,
         EMPTY_DEFAULTS,
         EMPTY_FIELDS,
+        EMPTY_CLEANUP,
+    ),
+    contract(
+        "canonical-memories",
+        true,
+        false,
+        EMPTY_DEFAULTS,
+        CANONICAL_MEMORY_FIELDS,
+        EMPTY_CLEANUP,
+    ),
+    contract(
+        "memory-index-rows",
+        true,
+        false,
+        EMPTY_DEFAULTS,
+        MEMORY_INDEX_FIELDS,
         EMPTY_CLEANUP,
     ),
     contract(

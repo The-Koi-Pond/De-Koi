@@ -18,6 +18,8 @@ pub(crate) mod backgrounds;
 pub(crate) mod backup;
 #[path = "storage/bot_browser.rs"]
 pub(crate) mod bot_browser;
+#[path = "storage/canonical_memory.rs"]
+pub(crate) mod canonical_memory;
 #[path = "storage/characters.rs"]
 pub(crate) mod characters;
 #[path = "storage/chat_memory.rs"]
@@ -121,8 +123,12 @@ pub mod local_file_commands;
 #[path = "storage/commands/media.rs"]
 pub mod media_commands;
 #[cfg(feature = "desktop")]
+#[path = "storage/commands/memory.rs"]
+pub mod memory_commands;
+#[cfg(feature = "desktop")]
 #[path = "storage/commands/profile.rs"]
 pub mod profile_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/updates.rs"]
 pub mod update_commands;
+
