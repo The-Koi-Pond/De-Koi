@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { chatKeys } from "../../../catalog/chats/index";
 import { getRecentClientDiagnostics } from "../../../../shared/lib/client-diagnostics";
+import { MUSIC_PLAYBACK_EVENT, type MusicPlaybackEventDetail } from "../../../../shared/lib/music-playback-events";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
@@ -232,6 +233,65 @@ describe("showAgentWarningToast", () => {
   });
 });
 describe("runGenerationWithUi", () => {
+  it("does not force a fresh Music Player pick for automatic roleplay cues", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-music-cadence";
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "roleplay",
+      metadata: {},
+    } as Chat);
+    const playbackEvents: MusicPlaybackEventDetail[] = [];
+    const onPlaybackEvent = (event: Event) => {
+      playbackEvents.push((event as CustomEvent<MusicPlaybackEventDetail>).detail);
+    };
+    window.addEventListener(MUSIC_PLAYBACK_EVENT, onPlaybackEvent);
+
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield {
+        type: "agent_result",
+        data: {
+          agentId: "music-dj",
+          agentType: "music-dj",
+          type: "music_control",
+          success: true,
+          data: {
+            action: "play",
+            mood: "quiet wounded intimacy",
+            setting: "forest cabin",
+            intensity: "low",
+            constraints: ["instrumental", "ambient", "no vocals"],
+            volume: 35,
+            reason: "The scene remains quiet and intimate.",
+          },
+        },
+      } as StreamEvent;
+      yield {
+        type: "assistant_message",
+        data: { id: "message-1", chatId, role: "assistant", content: "The cabin stays quiet." },
+      } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    try {
+      await runGenerationWithUi(queryClient, { chatId }, stream);
+      await vi.advanceTimersByTimeAsync(20);
+    } finally {
+      window.removeEventListener(MUSIC_PLAYBACK_EVENT, onPlaybackEvent);
+      queryClient.clear();
+    }
+
+    expect(playbackEvents).toContainEqual(
+      expect.objectContaining({
+        type: "cue",
+        query: "quiet wounded intimacy forest cabin low instrumental ambient no vocals instrumental ambience",
+        volume: 35,
+        fresh: false,
+      }),
+    );
+  });
+
   it("keeps the origin conversation active when a character-created scene is ready", () => {
     vi.useFakeTimers();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
