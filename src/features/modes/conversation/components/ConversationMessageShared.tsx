@@ -813,37 +813,39 @@ export function ConversationMessageAvatarColumn({ context }: { context: Conversa
 }
 
 export function ConversationMessageMeta({ context }: { context: ConversationMessageRenderContext }) {
-  if (context.isGrouped || (context.isBubbleStyle && context.isUser && !context.hiddenFromAIHeader)) return null;
+  const showName = !context.isGrouped && !(context.isBubbleStyle && context.isUser && !context.hiddenFromAIHeader);
+  if (!showName && context.hideTimestamp && !context.hiddenFromAIHeader) return null;
   return (
     <div
       className={cn(
         "mari-message-meta flex items-baseline gap-2 mb-0.5",
         context.isBubbleStyle && "px-2",
-        context.isBubbleStyle && context.isUser && "flex-row-reverse",
+        context.isUser && "flex-row-reverse",
       )}
     >
       {context.hiddenFromAIHeader}
-      {context.canOpenCharacterProfile && context.onOpenCharacterProfile && context.message.characterId ? (
-        <button
-          type="button"
-          className="mari-message-name cursor-pointer border-0 bg-transparent p-0 text-left text-[0.9375rem] font-semibold leading-tight hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/60"
-          style={nameColorStyle(context.nameColor)}
-          aria-label={`Open ${context.displayName} profile`}
-          onClick={(event) => {
-            event.stopPropagation();
-            context.onOpenCharacterProfile?.(context.message.characterId!, event.currentTarget.getBoundingClientRect());
-          }}
-        >
-          {context.displayName}
-        </button>
-      ) : (
-        <span
-          className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
-          style={nameColorStyle(context.nameColor)}
-        >
-          {context.displayName}
-        </span>
-      )}
+      {showName &&
+        (context.canOpenCharacterProfile && context.onOpenCharacterProfile && context.message.characterId ? (
+          <button
+            type="button"
+            className="mari-message-name cursor-pointer border-0 bg-transparent p-0 text-left text-[0.9375rem] font-semibold leading-tight hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/60"
+            style={nameColorStyle(context.nameColor)}
+            aria-label={`Open ${context.displayName} profile`}
+            onClick={(event) => {
+              event.stopPropagation();
+              context.onOpenCharacterProfile?.(context.message.characterId!, event.currentTarget.getBoundingClientRect());
+            }}
+          >
+            {context.displayName}
+          </button>
+        ) : (
+          <span
+            className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
+            style={nameColorStyle(context.nameColor)}
+          >
+            {context.displayName}
+          </span>
+        ))}
       {!context.hideTimestamp && (
         <span className="mari-message-timestamp text-[0.6875rem] text-[var(--muted-foreground)]/60">
           {formatTimestamp(context.message.createdAt)}
