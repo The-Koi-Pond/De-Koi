@@ -47,7 +47,7 @@ export const chatCommandApi = {
     invokeTauri<T>("chat_autonomous_unread_mark", { chatId, body }),
   clearAutonomousUnread: <T = unknown>(chatId: string) => invokeTauri<T>("chat_autonomous_unread_clear", { chatId }),
   bulkDeleteMessages: (chatId: string | null, messageIds: string[]) =>
-    invokeTauri("chat_messages_bulk_delete", { chatId, messageIds }),
+    invokeTauri<{ deleted: number }>("chat_messages_bulk_delete", { chatId, messageIds }),
   branch: <T = unknown>(chatId: string, upToMessageId?: string | null) =>
     invokeTauri<T>("chat_branch", { chatId, upToMessageId: upToMessageId ?? null }),
   swipes: <T = unknown>(chatId: string | null, messageId: string | null) =>
