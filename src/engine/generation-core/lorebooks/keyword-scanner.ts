@@ -9,7 +9,12 @@ import type {
   LorebookMatchingSource,
   LorebookSchedule,
 } from "../../contracts/types/lorebook";
-import { testPrimaryKeysAsync, testSecondaryKeysAsync } from "../../shared/regex/lorebook-keyword-matching";
+import {
+  prepareKeywordMatcher,
+  testPreparedPrimaryKeysAsync,
+  testPreparedSecondaryKeysAsync,
+  type PreparedKeywordMatcher,
+} from "../../shared/regex/lorebook-keyword-matching";
 import { vmRegexExecutor } from "./regex-timeout.js";
 
 /** Compute cosine similarity between two vectors. Returns 0 for empty/mismatched vectors. */
@@ -390,6 +395,41 @@ export interface ScanOptions {
   random?: () => number;
 }
 
+interface CachedLorebookEntryMatchers {
+  signature: string;
+  primary: PreparedKeywordMatcher;
+  secondary: PreparedKeywordMatcher;
+}
+
+const lorebookEntryMatcherCache = new WeakMap<LorebookEntry, CachedLorebookEntryMatchers>();
+
+function lorebookEntryMatcherSignature(entry: LorebookEntry): string {
+  return JSON.stringify({
+    keys: entry.keys,
+    secondaryKeys: entry.secondaryKeys,
+    useRegex: entry.useRegex,
+    matchWholeWords: entry.matchWholeWords,
+    caseSensitive: entry.caseSensitive,
+  });
+}
+
+function matchersForLorebookEntry(entry: LorebookEntry): CachedLorebookEntryMatchers {
+  const signature = lorebookEntryMatcherSignature(entry);
+  const cached = lorebookEntryMatcherCache.get(entry);
+  if (cached?.signature === signature) return cached;
+  const matcherOptions = {
+    useRegex: entry.useRegex,
+    matchWholeWords: entry.matchWholeWords,
+    caseSensitive: entry.caseSensitive,
+  };
+  const prepared = {
+    signature,
+    primary: prepareKeywordMatcher(entry.keys, matcherOptions),
+    secondary: prepareKeywordMatcher(entry.secondaryKeys, matcherOptions),
+  };
+  lorebookEntryMatcherCache.set(entry, prepared);
+  return prepared;
+}
 function estimateTraceTokens(entry: LorebookEntry): number {
   return Math.ceil(entry.content.length / 4);
 }
@@ -518,10 +558,7 @@ export async function scanForActivatedEntriesWithTrace(
   const activated: ActivatedEntry[] = [];
   const activatedIds = new Set<string>();
   const traceById = new Map<string, LorebookActivationTraceEntry>();
-  const probabilityDecisions = new Map<
-    string,
-    { configured: number | null; roll: number | null; passed: boolean }
-  >();
+  const probabilityDecisions = new Map<string, { configured: number | null; roll: number | null; passed: boolean }>();
   const recordTrace = (entry: LorebookEntry, trace: LorebookActivationTraceEntry) => {
     traceById.set(entry.id, trace);
   };
@@ -637,23 +674,22 @@ export async function scanForActivatedEntriesWithTrace(
     const extraMatchingText = getAdditionalMatchingText(entry, additionalMatchingSourceText);
     const entryScanText = extraMatchingText ? `${baseEntryScanText}\n${extraMatchingText}` : baseEntryScanText;
 
-    const matchOptions = {
-      useRegex: entry.useRegex,
-      matchWholeWords: entry.matchWholeWords,
-      caseSensitive: entry.caseSensitive,
-      regexExecutor: vmRegexExecutor,
-    };
+    const matchers = matchersForLorebookEntry(entry);
+    const matchOptions = { regexExecutor: vmRegexExecutor };
 
-    const { matched, matchedKeys } = await testPrimaryKeysAsync(entry.keys, entryScanText, matchOptions);
+    const { matched, matchedKeys } = await testPreparedPrimaryKeysAsync(matchers.primary, entryScanText, matchOptions);
     if (!matched) {
       recordTrace(entry, traceEntry(entry, "skipped", "primary_key_miss"));
       continue;
     }
     const matchedLatestUserMessage =
-      latestUserText.length > 0 && (await testPrimaryKeysAsync(entry.keys, latestUserText, matchOptions)).matched;
+      latestUserText.length > 0 &&
+      (await testPreparedPrimaryKeysAsync(matchers.primary, latestUserText, matchOptions)).matched;
 
     if (entry.selective && entry.secondaryKeys.length > 0) {
-      if (!(await testSecondaryKeysAsync(entry.secondaryKeys, entryScanText, entry.selectiveLogic, matchOptions))) {
+      if (
+        !(await testPreparedSecondaryKeysAsync(matchers.secondary, entryScanText, entry.selectiveLogic, matchOptions))
+      ) {
         recordTrace(
           entry,
           traceEntry(entry, "skipped", "secondary_key_miss", {

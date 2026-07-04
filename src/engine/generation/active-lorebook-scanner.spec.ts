@@ -64,29 +64,26 @@ describe("active lorebook scanner", () => {
 
   it("traces entries skipped by lorebook token budget", async () => {
     const result = await scanActiveLorebooks({
-      storage: storageFor(
-        { id: "book-1", name: "Book", enabled: true, isGlobal: true, tokenBudget: 2 },
-        [
-          {
-            id: "entry-1",
-            lorebookId: "book-1",
-            name: "Small",
-            content: "abcd",
-            constant: true,
-            enabled: true,
-            order: 1,
-          },
-          {
-            id: "entry-2",
-            lorebookId: "book-1",
-            name: "Large",
-            content: "abcdefghijkl",
-            constant: true,
-            enabled: true,
-            order: 2,
-          },
-        ],
-      ),
+      storage: storageFor({ id: "book-1", name: "Book", enabled: true, isGlobal: true, tokenBudget: 2 }, [
+        {
+          id: "entry-1",
+          lorebookId: "book-1",
+          name: "Small",
+          content: "abcd",
+          constant: true,
+          enabled: true,
+          order: 1,
+        },
+        {
+          id: "entry-2",
+          lorebookId: "book-1",
+          name: "Large",
+          content: "abcdefghijkl",
+          constant: true,
+          enabled: true,
+          order: 2,
+        },
+      ]),
       chat: { id: "chat-1", mode: "roleplay", metadata: {} },
       characters: [],
       persona: null,
@@ -140,5 +137,104 @@ describe("active lorebook scanner", () => {
       }),
     );
   });
+  it("reuses materialized active entries for unchanged lorebook rows and invalidates on row changes", async () => {
+    const lorebook = {
+      id: "book-1",
+      name: "Book",
+      enabled: true,
+      isGlobal: true,
+      scanDepth: 0,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const row = {
+      id: "entry-1",
+      lorebookId: "book-1",
+      name: "Entry",
+      content: "Lore content",
+      keys: ["ancient gate"],
+      enabled: true,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const storage = storageFor(lorebook, [row]);
+    const input = {
+      storage,
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      characters: [],
+      persona: null,
+      storedMessages: messages,
+      request: {},
+      embeddingSource: null,
+    };
 
+    const first = await scanActiveLorebooks(input);
+    const second = await scanActiveLorebooks(input);
+
+    expect(first.activatedEntries.map((entry) => entry.entry.id)).toEqual(["entry-1"]);
+    expect(second.entriesForTiming[0]).toBe(first.entriesForTiming[0]);
+    expect(second.activationTrace.entries).toEqual(first.activationTrace.entries);
+
+    row.keys = ["silver moon"];
+    row.updatedAt = "2026-01-02T00:00:00.000Z";
+    const third = await scanActiveLorebooks(input);
+
+    expect(third.entriesForTiming[0]).not.toBe(first.entriesForTiming[0]);
+    expect(third.activatedEntries).toEqual([]);
+  });
+  it("preserves large recursive activation results while reusing cached materialized entries", async () => {
+    const lorebook = {
+      id: "book-1",
+      name: "Recursive Book",
+      enabled: true,
+      isGlobal: true,
+      scanDepth: 0,
+      recursiveScanning: true,
+      maxRecursionDepth: 2,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const entries = [
+      {
+        id: "entry-seed",
+        lorebookId: "book-1",
+        name: "Seed",
+        content: "recursive anchor",
+        keys: ["ancient gate"],
+        enabled: true,
+        order: 0,
+      },
+      ...Array.from({ length: 75 }, (_, index) => ({
+        id: `entry-recursive-${index}`,
+        lorebookId: "book-1",
+        name: `Recursive ${index}`,
+        content: `Recursive lore ${index}`,
+        keys: ["recursive anchor"],
+        enabled: true,
+        order: index + 1,
+      })),
+    ];
+    const storage = storageFor(lorebook, entries);
+    const input = {
+      storage,
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      characters: [],
+      persona: null,
+      storedMessages: messages,
+      request: {},
+      embeddingSource: null,
+    };
+
+    const first = await scanActiveLorebooks(input);
+    const second = await scanActiveLorebooks(input);
+
+    expect(first.activatedEntries).toHaveLength(76);
+    expect(second.activatedEntries.map((entry) => entry.entry.id)).toEqual(
+      first.activatedEntries.map((entry) => entry.entry.id),
+    );
+    expect(second.entriesForTiming[0]).toBe(first.entriesForTiming[0]);
+    expect(second.entriesForTiming[75]).toBe(first.entriesForTiming[75]);
+    expect(first.activationTrace.entries.find((entry) => entry.entryId === "entry-recursive-0")).toMatchObject({
+      status: "included",
+      reason: "keyword_match",
+      recursive: { depth: 1, preventedByEntry: false },
+    });
+  });
 });
