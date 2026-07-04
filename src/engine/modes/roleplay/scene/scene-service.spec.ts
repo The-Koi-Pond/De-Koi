@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { LlmGateway } from "../../../capabilities/llm";
-import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
-import { concludeRoleplayScene, createRoleplayScene, reopenRoleplayScene } from "./scene-service";
+import type { ChatMessageListOptions, StorageEntity, StorageGateway } from "../../../capabilities/storage";
+import { concludeRoleplayScene, createRoleplayScene, planRoleplayScene, reopenRoleplayScene } from "./scene-service";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -14,6 +14,7 @@ function storageForScene(args: {
   storage: StorageGateway;
   createdRecords: Array<{ entity: StorageEntity; value: JsonRecord }>;
   createdMessages: Array<{ chatId: string; value: JsonRecord }>;
+  messageReads: Array<{ chatId: string; options?: ChatMessageListOptions }>;
 } {
   const chats = new Map(args.chats.map((chat) => [String(chat.id), { ...chat }]));
   const messages = new Map(
@@ -21,6 +22,7 @@ function storageForScene(args: {
   );
   const createdRecords: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
   const createdMessages: Array<{ chatId: string; value: JsonRecord }> = [];
+  const messageReads: Array<{ chatId: string; options?: ChatMessageListOptions }> = [];
 
   const storage = {
     async get<T>(entity: StorageEntity, id: string) {
@@ -80,8 +82,10 @@ function storageForScene(args: {
     async delete() {
       return { deleted: true };
     },
-    async listChatMessages<T>(chatId: string) {
-      return (messages.get(chatId) ?? []) as T[];
+    async listChatMessages<T>(chatId: string, options?: ChatMessageListOptions) {
+      messageReads.push({ chatId, options });
+      const rows = messages.get(chatId) ?? [];
+      return (typeof options?.limit === "number" ? rows.slice(-options.limit) : rows) as T[];
     },
     async createChatMessage<T>(chatId: string, value: JsonRecord) {
       createdMessages.push({ chatId, value });
@@ -129,8 +133,52 @@ function storageForScene(args: {
     },
   } as unknown as StorageGateway;
 
-  return { storage, createdRecords, createdMessages };
+  return { storage, createdRecords, createdMessages, messageReads };
 }
+
+function llmWithResponse(response: string): LlmGateway {
+  return {
+    complete: async () => response,
+    stream: async function* () {},
+    listModels: async () => [],
+  } as unknown as LlmGateway;
+}
+
+describe("roleplay scene recent history", () => {
+  it("bounds scene planning recent conversation reads", async () => {
+    const plan = {
+      name: "Scene: Mirror Hall",
+      description: "A focused mirror hall scene.",
+      scenario: "The mirror hall answers.",
+      firstMessage: "The reflection moves first.",
+      background: null,
+      characterIds: [],
+      systemPrompt: "Keep continuity.",
+      rating: "sfw",
+      relationshipHistory: "Recent trust.",
+      participationGuide: "Take turns.",
+      presetChoices: {},
+    };
+    const { storage, messageReads } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {} }],
+      messages: {
+        "chat-1": Array.from({ length: 40 }, (_, index) => ({
+          id: `message-${index}`,
+          role: index % 2 === 0 ? "user" : "assistant",
+          content: `line ${index}`,
+        })),
+      },
+      connections: [{ id: "conn-1" }],
+    });
+
+    await planRoleplayScene(
+      { storage, llm: llmWithResponse(JSON.stringify(plan)) },
+      { chatId: "chat-1", prompt: "", connectionId: null },
+    );
+
+    expect(messageReads.map((read) => read.options?.limit)).toEqual([8, 20]);
+  });
+});
 
 const idleLlm: LlmGateway = {
   async complete() {

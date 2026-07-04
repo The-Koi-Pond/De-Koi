@@ -1,5 +1,5 @@
 import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
-import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
+import type { ChatMessageListOptions, StorageEntity, StorageGateway } from "../../../capabilities/storage";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
@@ -50,6 +50,8 @@ type RoleplayEncounterContext = {
 const COMBAT_BLUEPRINT_OUTPUT_TOKENS = 12_000;
 const ACTION_OUTPUT_TOKENS = 8_192;
 const SUMMARY_OUTPUT_TOKENS = 8_192;
+
+const RECENT_HISTORY_EXTRA_FIELDS = ["hiddenFromAI", "hiddenFromAi"];
 
 const DEFAULT_STYLE_NOTES: CombatStyleNotes = {
   environmentType: "plains",
@@ -886,8 +888,12 @@ function renderEncounterLog(entries: EncounterLogEntry[]): string {
 }
 
 async function recentHistory(storage: StorageGateway, chatId: string, depth: number): Promise<LlmMessage[]> {
-  const messages = await messagesForChat(storage, chatId);
   const limit = Math.max(1, depth || 8);
+  const messages = await messagesForChat(storage, chatId, {
+    limit,
+    fields: ["role", "content", "extra"],
+    fieldSelections: { extra: RECENT_HISTORY_EXTRA_FIELDS },
+  });
   return messages
     .filter((message) => !hiddenFromAi(message) && stringValue(message.content).trim())
     .slice(-limit)
@@ -897,8 +903,12 @@ async function recentHistory(storage: StorageGateway, chatId: string, depth: num
     }));
 }
 
-async function messagesForChat(storage: StorageGateway, chatId: string): Promise<Array<JsonRecord & Partial<Message>>> {
-  const rows = await storage.listChatMessages<unknown>(chatId);
+async function messagesForChat(
+  storage: StorageGateway,
+  chatId: string,
+  options: ChatMessageListOptions,
+): Promise<Array<JsonRecord & Partial<Message>>> {
+  const rows = await storage.listChatMessages<unknown>(chatId, options);
   return Array.isArray(rows) ? rows.filter(isRecord) : [];
 }
 

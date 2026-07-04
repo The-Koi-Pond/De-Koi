@@ -1,5 +1,5 @@
 import type { LlmGateway, LlmRequest } from "../../../capabilities/llm";
-import type { StorageGateway } from "../../../capabilities/storage";
+import type { ChatMessageListOptions, StorageGateway } from "../../../capabilities/storage";
 import type {
   BackgroundAssetInfo,
   GameAssetManifestEntry,
@@ -71,6 +71,10 @@ const SCENE_GUIDELINES = [
   "- Continue naturally until the scene concludes or returns to the origin conversation.",
 ].join("\n");
 
+const SCENE_PLAN_HISTORY_LIMIT = 20;
+const SCENE_FALLBACK_HISTORY_LIMIT = 8;
+const SCENE_CONVERSATION_CONTEXT_LIMIT = 24;
+
 const SCENE_SUMMARY_CHUNK_MAX_CHARS = 12000;
 const SCENE_SUMMARY_CHUNK_MAX_TOKENS = 700;
 const SCENE_SUMMARY_CHUNK_RETRY_MAX_TOKENS = 2048;
@@ -102,7 +106,12 @@ export async function planRoleplayScene(
     };
   }
 
-  const history = (await messagesForChat(capabilities.storage, input.chatId))
+  const history = (
+    await messagesForChat(capabilities.storage, input.chatId, {
+      limit: SCENE_PLAN_HISTORY_LIMIT,
+      fields: ["role", "content"],
+    })
+  )
     .slice(-20)
     .map((message) => {
       const role = stringValue(message.role) || "user";
@@ -732,7 +741,9 @@ function formatSceneChunkSummaries(summaries: string[]): string {
 async function fallbackScenePlan(storage: StorageGateway, chatId: string, prompt: string): Promise<SceneFullPlan> {
   const chat = await requireChat(storage, chatId);
   const characterIds = stringArray(chat.characterIds);
-  const history = (await messagesForChat(storage, chatId))
+  const history = (
+    await messagesForChat(storage, chatId, { limit: SCENE_FALLBACK_HISTORY_LIMIT, fields: ["role", "content"] })
+  )
     .slice(-8)
     .map((message) => {
       const role = stringValue(message.role) || "user";
@@ -1033,8 +1044,12 @@ async function requireChat(storage: StorageGateway, chatId: string): Promise<Jso
   return chat;
 }
 
-async function messagesForChat(storage: StorageGateway, chatId: string): Promise<StoredMessage[]> {
-  const rows = await storage.listChatMessages<unknown>(chatId);
+async function messagesForChat(
+  storage: StorageGateway,
+  chatId: string,
+  options?: ChatMessageListOptions,
+): Promise<StoredMessage[]> {
+  const rows = await storage.listChatMessages<unknown>(chatId, options);
   return Array.isArray(rows) ? rows.filter(isRecord) : [];
 }
 
@@ -1056,7 +1071,12 @@ async function patchChatMetadata(storage: StorageGateway, chatId: string, patch:
 }
 
 async function buildSceneConversationContext(storage: StorageGateway, originChatId: string): Promise<string> {
-  return (await messagesForChat(storage, originChatId))
+  return (
+    await messagesForChat(storage, originChatId, {
+      limit: SCENE_CONVERSATION_CONTEXT_LIMIT,
+      fields: ["role", "content"],
+    })
+  )
     .slice(-24)
     .map((message) => {
       const role = stringValue(message.role) || "message";
