@@ -35,7 +35,7 @@ describe("WindowTitleBar web mode", () => {
     vi.restoreAllMocks();
   });
 
-  it("hides desktop window controls while showing a home action before the fish logo", async () => {
+  it("hides desktop window controls while showing only the house home action", async () => {
     await act(async () => {
       root = createRoot(container!);
       root.render(<WindowTitleBar webMode />);
@@ -43,7 +43,8 @@ describe("WindowTitleBar web mode", () => {
 
     expect(container!.querySelector('[aria-label="Window controls"]')).toBeNull();
     expect(container!.querySelector(".mari-titlebar-web-home-button svg")).toBeTruthy();
-    expect(container!.querySelector(".mari-title-home-button img")?.getAttribute("src")).toBe("/favicon.png");
+    expect(container!.querySelectorAll('button[aria-label="Home"]')).toHaveLength(1);
+    expect(container!.querySelector(".mari-title-home-button")).toBeNull();
   });
   it("treats browser-hosted shells without desktop controls as web mode", async () => {
     await act(async () => {
@@ -53,7 +54,8 @@ describe("WindowTitleBar web mode", () => {
 
     expect(container!.querySelector('[aria-label="Window controls"]')).toBeNull();
     expect(container!.querySelector(".mari-titlebar-web-home-button svg")).toBeTruthy();
-    expect(container!.querySelector(".mari-title-home-button img")?.getAttribute("src")).toBe("/favicon.png");
+    expect(container!.querySelectorAll('button[aria-label="Home"]')).toHaveLength(1);
+    expect(container!.querySelector(".mari-title-home-button")).toBeNull();
   });
 
   it("places the titlebar accessory on the left side of the titlebar", async () => {
