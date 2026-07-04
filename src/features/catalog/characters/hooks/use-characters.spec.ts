@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useCharacterLibrarySummaries, useChatSurfaceCharacterSummariesByIds } from "./use-characters";
 
+vi.mock("react", () => ({
+  useMemo: (factory: () => unknown) => factory(),
+}));
+
 vi.mock("@tanstack/react-query", () => ({
   useMutation: vi.fn((options) => options),
   useQueries: vi.fn(() => []),
@@ -14,10 +18,6 @@ vi.mock("@tanstack/react-query", () => ({
     removeQueries: vi.fn(),
     setQueryData: vi.fn(),
   })),
-}));
-
-vi.mock("react", () => ({
-  useMemo: (factory: () => unknown) => factory(),
 }));
 
 vi.mock("../../../../shared/api/storage-api", () => ({
@@ -115,6 +115,7 @@ describe("chat surface character summary query", () => {
       | { queryFn: () => Promise<unknown> }
       | undefined;
     await queryOptions?.queryFn();
+
     expect(storageApi.list).toHaveBeenCalledWith(
       "characters",
       expect.objectContaining({
@@ -125,9 +126,20 @@ describe("chat surface character summary query", () => {
             "name",
             "description",
             "personality",
+            "scenario",
+            "mes_example",
+            "creator",
+            "creator_notes",
+            "character_version",
+            "system_prompt",
+            "post_history_instructions",
             "tags",
+            "extensions.backstory",
+            "extensions.appearance",
             "extensions.avatarCrop",
             "extensions.fav",
+            "extensions.conversationStatus",
+            "extensions.conversationActivity",
             "extensions.nameColor",
             "extensions.publicProfile",
           ]),
