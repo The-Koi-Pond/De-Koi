@@ -39,6 +39,7 @@ function render(element: ReactElement) {
 function expectCompactFolderHeader(container: HTMLElement, folderName: string, count: string) {
   const dragHandle = container.querySelector(".cursor-grab");
   expect(dragHandle?.className).toContain("shrink-0");
+  expect(dragHandle?.className).not.toContain("max-md:opacity-100");
 
   const label = Array.from(container.querySelectorAll("span")).find((element) => element.textContent === folderName);
   expect(label?.className).toContain("min-w-0");

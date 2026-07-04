@@ -1661,7 +1661,7 @@ export function FolderHeaderRow({
             e.preventDefault();
             dragControls.start(e);
           }}
-          className="flex shrink-0 cursor-grab touch-none items-center justify-center opacity-0 transition-opacity active:cursor-grabbing group-hover:opacity-100 max-md:opacity-100"
+          className="flex shrink-0 cursor-grab touch-none items-center justify-center opacity-0 transition-opacity active:cursor-grabbing group-hover:opacity-100"
         >
           <GripVertical size="0.625rem" className="text-[var(--muted-foreground)]" />
         </div>
