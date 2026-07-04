@@ -57,12 +57,12 @@ function messagePages(messages: Message[]): InfiniteData<Message[]> {
   return { pages: [messages], pageParams: [undefined] };
 }
 
-function createDeleteMessageOptions(qc: QueryClient): DeleteMessageOptions {
+function useDeleteMessageOptions(qc: QueryClient): DeleteMessageOptions {
   reactQueryMocks.currentQueryClient = qc;
   return useDeleteMessage("chat-1") as unknown as DeleteMessageOptions;
 }
 
-function createDeleteMessagesOptions(qc: QueryClient): DeleteMessagesOptions {
+function useDeleteMessagesOptions(qc: QueryClient): DeleteMessagesOptions {
   reactQueryMocks.currentQueryClient = qc;
   return useDeleteMessages("chat-1") as unknown as DeleteMessagesOptions;
 }
@@ -85,7 +85,7 @@ describe("message deletion cache behavior", () => {
         resolveCancel = resolve;
       }),
     );
-    const options = createDeleteMessageOptions(qc);
+    const options = useDeleteMessageOptions(qc);
 
     const contextPromise = Promise.resolve(options.onMutate("deleted"));
 
@@ -111,7 +111,7 @@ describe("message deletion cache behavior", () => {
         resolveCancel = resolve;
       }),
     );
-    const options = createDeleteMessagesOptions(qc);
+    const options = useDeleteMessagesOptions(qc);
 
     const contextPromise = Promise.resolve(options.onMutate(["delete-1", "delete-2"]));
 
