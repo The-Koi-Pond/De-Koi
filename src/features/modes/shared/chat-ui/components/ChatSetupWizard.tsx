@@ -696,7 +696,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
           initial={{ opacity: 0, y: 16, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.2, ease: "easeOut" }}
-          className="pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,42rem)]"
+          className="pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]"
         >
           {/* Header */}
           <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
@@ -844,7 +844,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                     autoFocus
                   />
                 </div>
-                <div className="max-h-40 overflow-y-auto border-t border-[var(--border)]">
+                <div className="max-h-[min(42dvh,22rem)] min-h-48 overflow-y-auto border-t border-[var(--border)]">
                   {available.map((c) => {
                     const info = getCharacterInfo(c);
                     const title = getCharacterTitle(info);
@@ -1475,7 +1475,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
               className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
             />
           </div>
-          <div className="max-h-32 overflow-y-auto">
+          <div className="max-h-[min(38dvh,20rem)] min-h-44 overflow-y-auto">
             {available.map((c) => {
               const name = charName(c);
               const title = charTitle(c);
@@ -1637,7 +1637,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -12, scale: 0.97 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,42rem)]"
+              className="pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]"
             >
               {/* Header */}
               <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
@@ -1753,7 +1753,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                         className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
                       />
                     </div>
-                    <div className="max-h-40 overflow-y-auto">
+                    <div className="max-h-[min(42dvh,22rem)] min-h-48 overflow-y-auto">
                       {characters
                         .filter((c) => {
                           if (chatCharIds.includes(c.id)) return false;
@@ -1846,7 +1846,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -12, scale: 0.97 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,42rem)]"
+              className="pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]"
             >
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3 pt-5">
                 {/* Sprite */}
