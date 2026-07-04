@@ -34,7 +34,7 @@ import {
 import { AgentInjectionReviewModal } from "./AgentInjectionReviewModal";
 import { ChatRoleplaySurface } from "./ChatRoleplaySurface";
 import { CreatorNotesCssInjector } from "../../shared/chat-ui/index";
-import { buildRoleplayMusicContext } from "../lib/music-dj-roleplay-context";
+import { buildRoleplayMusicContext, shouldDispatchRoleplayMusicContext } from "../lib/music-dj-roleplay-context";
 
 type RoleplayModeRouteProps = {
   activeChatId: string;
@@ -211,8 +211,12 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   );
 
   useEffect(() => {
-    if (data.chatMode !== "roleplay" || !enabledAgentTypes.has("music-dj") || !musicDjContext) return;
-    dispatchMusicPlaybackEvent({ type: "context", query: musicDjContext.query, intent: musicDjContext.intent });
+    if (!shouldDispatchRoleplayMusicContext(data.chatMode, musicDjContext, enabledAgentTypes)) return;
+    dispatchMusicPlaybackEvent({
+      type: "context",
+      query: musicDjContext?.query ?? null,
+      intent: musicDjContext?.intent ?? null,
+    });
   }, [data.chatMode, enabledAgentTypes, musicDjContext]);
 
   const hasAnimatedRef = useRef(false);

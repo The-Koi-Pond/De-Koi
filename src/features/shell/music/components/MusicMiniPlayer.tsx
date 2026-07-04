@@ -28,7 +28,7 @@ import {
 import { getMusicPlayerDisplay } from "../lib/music-player-display";
 import { sendYouTubeIframeCommand } from "../lib/youtube-iframe-player";
 
-const DEFAULT_MUSIC_QUERY = "quiet fantasy tavern instrumental ambience";
+const DEFAULT_MUSIC_QUERY = "instrumental background soundtrack";
 const DEFAULT_WIDGET_SIZE: MusicWidgetSize = { width: 352, height: 188 };
 const LEGACY_DEFAULT_POSITION: MusicWidgetPosition = { x: 16, y: 96 };
 
@@ -355,6 +355,9 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         if (contextQuery) {
           setQuery(contextQuery);
           setLastDiscoveryQuery(contextQuery);
+        } else {
+          setQuery(DEFAULT_MUSIC_QUERY);
+          setLastDiscoveryQuery(DEFAULT_MUSIC_QUERY);
         }
         if (detail.intent) setMessage(`Music Player ready: ${musicDjIntentLabel(detail.intent)}`);
       } else if (detail.type === "volume") {
