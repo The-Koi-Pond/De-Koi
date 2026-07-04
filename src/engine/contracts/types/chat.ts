@@ -52,6 +52,8 @@ export interface Chat {
   createdAt: string;
   updatedAt: string;
   metadata: ChatMetadata;
+  /** Embedded Memory Recall rows stored on the chat. Includes transcript chunks plus preserved imported/command rows. */
+  memories?: ChatMemoryChunk[];
 }
 
 /** A folder for organising chats in the sidebar. */
@@ -123,9 +125,22 @@ export interface ChatMemoryChunk {
   chatId: string;
   content: string;
   messageCount: number;
+  /** Message ids covered by transcript-owned chunks. Imported and command rows may omit this or store an empty array. */
+  messageIds?: string[];
+  firstMessageId?: string | null;
+  lastMessageId?: string | null;
   firstMessageAt: string;
   lastMessageAt: string;
   createdAt: string;
+  /** Non-transcript source marker, such as connected command memory. */
+  source?: string;
+  /** Original chat for imported recall rows or command memories. */
+  sourceChatId?: string | null;
+  /** Stable dedupe key for `[memory:]` connected command rows. */
+  commandMemoryKey?: string;
+  target?: string;
+  targetCharacterName?: string;
+  targetCharacterId?: string | null;
   /** True when the chunk has either provider semantic embeddings or the local lexical fallback vector. */
   hasEmbedding: boolean;
   /** Recall vector used by the prompt assembler. May be provider semantic embeddings or local lexical fallback. */

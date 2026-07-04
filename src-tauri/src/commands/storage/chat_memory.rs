@@ -453,6 +453,40 @@ fn memory_chunk_key(message_ids: &[String]) -> String {
     message_ids.join("\u{1f}")
 }
 
+fn has_non_transcript_memory_metadata(memory: &Value) -> bool {
+    if memory
+        .get("source")
+        .and_then(Value::as_str)
+        .is_some_and(|source| !source.trim().is_empty())
+    {
+        return true;
+    }
+    if memory
+        .get("embeddingSource")
+        .and_then(Value::as_str)
+        .is_some_and(|source| source.trim() == "command")
+    {
+        return true;
+    }
+    [
+        "commandMemoryKey",
+        "sourceChatId",
+        "target",
+        "targetCharacterId",
+        "targetCharacterName",
+    ]
+    .iter()
+    .any(|field| match memory.get(*field) {
+        Some(Value::Null) | None => false,
+        Some(Value::String(value)) => !value.trim().is_empty(),
+        Some(_) => true,
+    })
+}
+
+fn chat_memory_is_refresh_owned(memory: &Value) -> bool {
+    !memory_message_ids(memory).is_empty() && !has_non_transcript_memory_metadata(memory)
+}
+
 fn reusable_chat_memory<'a>(
     existing: &'a HashMap<String, Value>,
     message_ids: &[String],
@@ -811,15 +845,17 @@ pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> Ap
     let chat = get_required(state, "chats", chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
     let existing_memories = chat_memory_values_for_mutation(&chat)?;
+    let preserved_memories = existing_memories
+        .iter()
+        .filter(|memory| !chat_memory_is_refresh_owned(memory))
+        .cloned()
+        .collect::<Vec<_>>();
     let existing_by_chunk = existing_memories
-        .into_iter()
+        .iter()
+        .filter(|memory| chat_memory_is_refresh_owned(memory))
         .filter_map(|memory| {
-            let ids = memory_message_ids(&memory);
-            if ids.is_empty() {
-                None
-            } else {
-                Some((memory_chunk_key(&ids), memory))
-            }
+            let ids = memory_message_ids(memory);
+            (!ids.is_empty()).then(|| (memory_chunk_key(&ids), memory.clone()))
         })
         .collect::<HashMap<_, _>>();
     let visible_messages = chats::messages_for_chat(state, chat_id)?
@@ -924,6 +960,7 @@ pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> Ap
             chunks[index] = Value::Object(memory);
         }
     }
+    chunks.extend(preserved_memories);
     state
         .storage
         .patch("chats", chat_id, json!({ "memories": chunks }))?;
@@ -1359,6 +1396,42 @@ mod tests {
             .expect("chat should read")
             .expect("chat should exist");
         assert_eq!(memory_ids(&chat["memories"]), vec!["keep-me"]);
+    }
+
+    #[test]
+    fn clear_chat_memories_removes_all_chunks() {
+        let state = test_state("chat-memory-clear-all");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Clear memory chat",
+                    "memories": [
+                        {
+                            "id": "transcript-memory",
+                            "content": "transcript",
+                            "messageIds": ["message-1", "message-2"]
+                        },
+                        {
+                            "id": "command-memory",
+                            "content": "command",
+                            "source": "connected_command",
+                            "messageIds": []
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should be created");
+
+        clear_chat_memories(&state, "chat-1").expect("clear should succeed");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert_eq!(memory_ids(&chat["memories"]), Vec::<String>::new());
     }
 
     #[test]
@@ -2380,12 +2453,10 @@ mod tests {
                 "message-4"
             ])
         );
-        assert!(
-            !memories[0]["content"]
-                .as_str()
-                .expect("content should be a string")
-                .contains("visible memory 5")
-        );
+        assert!(!memories[0]["content"]
+            .as_str()
+            .expect("content should be a string")
+            .contains("visible memory 5"));
     }
 
     #[tokio::test]
@@ -2474,6 +2545,133 @@ mod tests {
                 "message-9"
             ])
         );
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_preserves_connected_command_memories() {
+        let state = test_state("memory-refresh-preserves-command");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        {
+                            "id": "command-memory",
+                            "chatId": "chat-1",
+                            "content": "Memory for Mira: Mira keeps a brass key.",
+                            "commandMemoryKey": "chat-1::Mira::Mira keeps a brass key.",
+                            "messageCount": 0,
+                            "messageIds": [],
+                            "firstMessageAt": "2026-06-01T09:00:00.000Z",
+                            "lastMessageAt": "2026-06-01T09:00:00.000Z",
+                            "createdAt": "2026-06-01T09:00:00.000Z",
+                            "hasEmbedding": false,
+                            "embeddingStatus": "unavailable",
+                            "embeddingSource": "command",
+                            "source": "connected_command",
+                            "sourceChatId": "chat-1",
+                            "target": "Mira",
+                            "targetCharacterName": "Mira",
+                            "targetCharacterId": "character-mira"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+        seed_five_visible_messages(&state, "chat-1");
+
+        refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect("memory refresh should succeed");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should be an array");
+
+        assert_eq!(memories.len(), 2);
+        assert_ne!(memories[0]["id"], json!("command-memory"));
+        assert_eq!(
+            memories[0]["messageIds"],
+            json!([
+                "message-0",
+                "message-1",
+                "message-2",
+                "message-3",
+                "message-4"
+            ])
+        );
+        assert_eq!(memories[1]["id"], json!("command-memory"));
+        assert_eq!(memories[1]["source"], json!("connected_command"));
+        assert_eq!(
+            memories[1]["commandMemoryKey"],
+            json!("chat-1::Mira::Mira keeps a brass key.")
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_preserves_imported_memories_without_message_ids() {
+        let state = test_state("memory-refresh-preserves-import");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        {
+                            "id": "imported-memory",
+                            "chatId": "chat-1",
+                            "sourceChatId": "source-chat",
+                            "content": "Imported detail from another chat.",
+                            "messageCount": 2,
+                            "firstMessageAt": "2026-05-01T10:00:00.000Z",
+                            "lastMessageAt": "2026-05-01T10:05:00.000Z",
+                            "createdAt": "2026-05-01T10:06:00.000Z",
+                            "hasEmbedding": true,
+                            "embeddingStatus": "vectorized",
+                            "embeddingSource": "lexical"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+        seed_five_visible_messages(&state, "chat-1");
+
+        refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect("memory refresh should succeed");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should be an array");
+
+        assert_eq!(memories.len(), 2);
+        assert_ne!(memories[0]["id"], json!("imported-memory"));
+        assert_eq!(
+            memories[0]["messageIds"],
+            json!([
+                "message-0",
+                "message-1",
+                "message-2",
+                "message-3",
+                "message-4"
+            ])
+        );
+        assert_eq!(memories[1]["id"], json!("imported-memory"));
+        assert_eq!(memories[1]["sourceChatId"], json!("source-chat"));
+        assert!(memories[1].get("messageIds").is_none());
     }
 
     #[test]
