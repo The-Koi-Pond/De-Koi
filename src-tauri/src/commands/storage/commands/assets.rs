@@ -82,10 +82,7 @@ pub fn game_assets_list(
     state: State<'_, AppState>,
     path: Option<String>,
 ) -> Result<Value, AppError> {
-    Ok(json!({
-        "items": state.game_assets.list(path.as_deref())?,
-        "root": state.game_assets.root().to_string_lossy()
-    }))
+    game_assets::game_assets_list(&state, path.as_deref())
 }
 
 #[tauri::command]
@@ -140,7 +137,7 @@ pub fn game_assets_delete_file(
 
 #[tauri::command]
 pub fn game_assets_file_path(state: State<'_, AppState>, path: String) -> Result<Value, AppError> {
-    Ok(json!({ "path": state.game_assets.absolute_path_string(&path)? }))
+    game_assets::game_assets_file_path(&state, &path)
 }
 
 #[tauri::command]
@@ -245,7 +242,7 @@ pub fn game_assets_delete_bulk(
 
 #[tauri::command]
 pub fn game_assets_file_info(state: State<'_, AppState>, path: String) -> Result<Value, AppError> {
-    state.game_assets.file_info(&path)
+    game_assets::game_assets_file_info(&state, &path)
 }
 
 #[tauri::command]

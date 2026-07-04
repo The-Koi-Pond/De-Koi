@@ -323,7 +323,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 state, &paths,
             ))
         }
-        "game_assets_file_info" => state.game_assets.file_info(required_string(&args, "path")?),
+        "game_assets_file_info" => {
+            game_assets::game_assets_file_info(state, required_string(&args, "path")?)
+        }
         "game_assets_folder_description" => game_assets::game_assets_folder_description(
             state,
             json!({
@@ -1115,10 +1117,7 @@ async fn bot_browser_post(state: &AppState, args: &Map<String, Value>) -> AppRes
 }
 
 fn game_assets_list(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    Ok(json!({
-        "items": state.game_assets.list(optional_string(args, "path").as_deref())?,
-        "root": state.game_assets.root().to_string_lossy()
-    }))
+    game_assets::game_assets_list(state, optional_string(args, "path").as_deref())
 }
 
 fn game_asset_managed_thumbnail_files(state: &AppState, path: &str) -> Vec<PathBuf> {

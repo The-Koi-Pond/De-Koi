@@ -71,7 +71,7 @@ fn list_backgrounds(state: &AppState) -> AppResult<Value> {
             .unwrap_or_else(|| json!({ "filename": filename, "originalName": filename, "tags": [], "source": "user" }));
         rows.push(background_item(state, &filename, &meta)?);
     }
-    let manifest = state.game_assets.manifest()?;
+    let manifest = super::game_assets::game_assets_manifest(state)?;
     if let Some(game_backgrounds) = manifest
         .get("byCategory")
         .and_then(|by_category| by_category.get("backgrounds"))
@@ -804,6 +804,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn list_backgrounds_includes_bundled_manifest_backgrounds_without_copying_media() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("marinara-backgrounds-default-list-{nonce}"));
+        let defaults = std::env::temp_dir().join(format!("marinara-backgrounds-default-source-{nonce}"));
+        let default_background = defaults.join("backgrounds").join("castle.jpg");
+        std::fs::create_dir_all(default_background.parent().expect("background parent"))
+            .expect("default background folder should be created");
+        std::fs::create_dir_all(defaults.join("game-assets"))
+            .expect("default game asset folder should be created");
+        std::fs::write(&default_background, b"background")
+            .expect("default background should be written");
+        std::fs::write(
+            defaults.join("game-assets").join("manifest.json"),
+            serde_json::to_vec(&json!({
+                "count": 1,
+                "assets": {
+                    "backgrounds:user:castle": {
+                        "tag": "backgrounds:user:castle",
+                        "category": "backgrounds",
+                        "subcategory": "user",
+                        "name": "castle",
+                        "path": "__user_bg__/castle.jpg",
+                        "ext": ".jpg"
+                    }
+                }
+            }))
+            .expect("manifest should encode"),
+        )
+        .expect("default manifest should be written");
+        let state = AppState::from_data_dir(&root, vec![defaults.clone()])
+            .expect("state should initialize");
+
+        let rows = backgrounds_call(&state, "GET", &[], Value::Null)
+            .expect("background list should be returned");
+        let rows = rows.as_array().expect("background rows should be an array");
+        let default_row = rows
+            .iter()
+            .find(|row| row.get("path").and_then(Value::as_str) == Some("__user_bg__/castle.jpg"))
+            .expect("bundled default background should be listed");
+
+        assert_eq!(default_row.get("source").and_then(Value::as_str), Some("game_asset"));
+        assert_eq!(
+            default_row.get("absolutePath").and_then(Value::as_str).map(PathBuf::from),
+            Some(default_background)
+        );
+        assert!(
+            !state.backgrounds.root().join("castle.jpg").exists(),
+            "listing default backgrounds should not copy bundled media into the managed background root"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(defaults);
+    }
     #[test]
     fn background_tag_update_rejects_missing_file_without_metadata() {
         let state = test_state("missing-tags");

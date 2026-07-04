@@ -1,5 +1,6 @@
 use marinara_assets::AssetService;
 use marinara_core::{AppError, AppResult};
+use marinara_security::{assert_inside_dir, assert_relative_safe_path};
 use marinara_storage::FileStorage;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
@@ -32,6 +33,7 @@ pub struct AppState {
     pub backgrounds: AssetService,
     pub data_dir: PathBuf,
     pub resource_dir: Option<PathBuf>,
+    pub default_data_roots: Vec<PathBuf>,
     llm_stream_cancellations: Arc<Mutex<LlmStreamCancellations>>,
 }
 
@@ -51,6 +53,7 @@ const LOCAL_MEDIA_REFERENCES_MIGRATION_KEY: &str = "localMediaReferencesV1";
 const LEGACY_CHAT_GALLERY_FILES_MIGRATION_KEY: &str = "legacyChatGalleryFilesV1";
 const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
+const USER_BACKGROUND_GAME_ASSET_PREFIX: &str = "__user_bg__/";
 
 impl AppState {
     #[cfg(feature = "desktop")]
@@ -81,7 +84,8 @@ impl AppState {
         let storage = FileStorage::new(data_dir.join("data"))?;
         let game_assets = AssetService::new(data_dir.join("game-assets"))?;
         let backgrounds = AssetService::new(data_dir.join("backgrounds"))?;
-        Self::seed_defaults(&storage, &game_assets, &backgrounds, default_data_roots)?;
+        let default_data_roots = existing_default_data_roots(default_data_roots);
+        Self::seed_defaults(&storage, &default_data_roots)?;
         // Default seeding and FileStorage load-time recovery remain always-on. The
         // following gates cover legacy full-collection passes that only need one
         // successful run per normalized data directory.
@@ -126,6 +130,7 @@ impl AppState {
             backgrounds,
             data_dir,
             resource_dir,
+            default_data_roots,
             llm_stream_cancellations: Arc::new(Mutex::new(LlmStreamCancellations::default())),
         })
     }
@@ -178,26 +183,49 @@ impl AppState {
         default_data_roots
     }
 
-    fn seed_defaults(
-        storage: &FileStorage,
-        game_assets: &AssetService,
-        backgrounds: &AssetService,
-        default_data_roots: Vec<PathBuf>,
-    ) -> AppResult<()> {
+    fn seed_defaults(storage: &FileStorage, default_data_roots: &[PathBuf]) -> AppResult<()> {
         let mut seeded_database_defaults = false;
         for default_data in default_data_roots {
-            if !default_data.exists() {
-                continue;
-            }
-            seed_bundled_defaults(storage, &default_data)?;
+            seed_bundled_defaults(storage, default_data)?;
             seeded_database_defaults = true;
-            game_assets.seed_missing_from(&default_data.join("game-assets"))?;
-            backgrounds.seed_missing_from(&default_data.join("backgrounds"))?;
         }
         if !seeded_database_defaults {
             seed_bundled_defaults(storage, Path::new(""))?;
         }
         Ok(())
+    }
+
+    pub fn game_asset_path(&self, path: &str) -> AppResult<PathBuf> {
+        if let Some(background) = path.strip_prefix(USER_BACKGROUND_GAME_ASSET_PREFIX) {
+            return self.background_path(background);
+        }
+        let managed = PathBuf::from(self.game_assets.absolute_path_string(path)?);
+        if managed.exists() {
+            return Ok(managed);
+        }
+        if let Some(default_path) = self.bundled_game_asset_path(path)? {
+            return Ok(default_path);
+        }
+        Ok(managed)
+    }
+
+    pub fn background_path(&self, path: &str) -> AppResult<PathBuf> {
+        let managed = PathBuf::from(self.backgrounds.absolute_path_string(path)?);
+        if managed.exists() {
+            return Ok(managed);
+        }
+        if let Some(default_path) = self.bundled_background_path(path)? {
+            return Ok(default_path);
+        }
+        Ok(managed)
+    }
+
+    pub fn bundled_game_asset_path(&self, path: &str) -> AppResult<Option<PathBuf>> {
+        bundled_default_file_path(&self.default_data_roots, "game-assets", path)
+    }
+
+    pub fn bundled_background_path(&self, path: &str) -> AppResult<Option<PathBuf>> {
+        bundled_default_file_path(&self.default_data_roots, "backgrounds", path)
     }
 
     pub fn register_llm_stream(&self, stream_id: &str) -> AppResult<watch::Receiver<bool>> {
@@ -241,6 +269,31 @@ impl AppState {
     }
 }
 
+fn existing_default_data_roots(default_data_roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    default_data_roots
+        .into_iter()
+        .filter(|root| root.exists())
+        .collect()
+}
+
+fn bundled_default_file_path(
+    default_data_roots: &[PathBuf],
+    folder: &str,
+    path: &str,
+) -> AppResult<Option<PathBuf>> {
+    let relative = assert_relative_safe_path(path)?;
+    for default_data in default_data_roots {
+        let root = default_data.join(folder);
+        if !root.exists() {
+            continue;
+        }
+        let candidate = assert_inside_dir(&root, &relative)?;
+        if candidate.is_file() {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
+}
 fn prune_expired_llm_stream_cancellations(cancellations: &mut LlmStreamCancellations) {
     prune_expired_llm_stream_cancellations_with_now(cancellations, Instant::now());
 }
@@ -1042,6 +1095,37 @@ mod tests {
         );
     }
 
+    #[test]
+    fn app_state_startup_does_not_copy_bundled_media_defaults() {
+        let root = temp_root("lazy-default-media");
+        let defaults = temp_root("lazy-default-media-source");
+        let default_game_asset = defaults
+            .0
+            .join("game-assets")
+            .join("music")
+            .join("theme.mp3");
+        let default_background = defaults.0.join("backgrounds").join("lake.jpg");
+        std::fs::create_dir_all(default_game_asset.parent().expect("asset parent"))
+            .expect("default game asset folder should be created");
+        std::fs::create_dir_all(default_background.parent().expect("background parent"))
+            .expect("default background folder should be created");
+        std::fs::write(&default_game_asset, b"music")
+            .expect("default game asset should be written");
+        std::fs::write(&default_background, b"background")
+            .expect("default background should be written");
+
+        let state = AppState::from_data_dir(&root.0, vec![defaults.0.clone()])
+            .expect("state should initialize");
+
+        assert!(
+            !state.game_assets.root().join("music/theme.mp3").exists(),
+            "startup should not copy bundled game media into the managed user asset root"
+        );
+        assert!(
+            !state.backgrounds.root().join("lake.jpg").exists(),
+            "startup should not copy bundled backgrounds into the managed user background root"
+        );
+    }
     #[test]
     fn startup_migration_once_marks_completion_and_skips_later_runs() {
         let root = temp_root("startup-migration-once");
