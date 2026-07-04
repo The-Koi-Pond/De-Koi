@@ -227,26 +227,28 @@ export function WindowTitleBar({
           onMouseDown={startWindowDrag}
           onDoubleClick={toggleMaximizeFromDragRegion}
         >
-          <button
-            type="button"
-            className={cn(
-              "mari-titlebar-action mari-title-home-button relative rounded-md p-1.5 transition-all duration-200",
-              isHomeSurface
-                ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
-                : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
-            )}
-            onClick={goHome}
-            onMouseDown={(event) => event.stopPropagation()}
-            onDoubleClick={(event) => event.stopPropagation()}
-            title="Home"
-            aria-label="Home"
-            aria-current={isHomeSurface ? "page" : undefined}
-          >
-            <img className="mari-title-icon" src="/favicon.png" alt="" draggable={false} />
-            {isHomeSurface && (
-              <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
-            )}
-          </button>
+          {!effectiveWebMode && (
+            <button
+              type="button"
+              className={cn(
+                "mari-titlebar-action mari-title-home-button relative rounded-md p-1.5 transition-all duration-200",
+                isHomeSurface
+                  ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
+                  : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
+              )}
+              onClick={goHome}
+              onMouseDown={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              title="Home"
+              aria-label="Home"
+              aria-current={isHomeSurface ? "page" : undefined}
+            >
+              <img className="mari-title-icon" src="/favicon.png" alt="" draggable={false} />
+              {isHomeSurface && (
+                <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
+              )}
+            </button>
+          )}
           {titlebarAccessory ? <div className="ml-2 hidden min-w-0 md:flex">{titlebarAccessory}</div> : null}
         </div>
         <div
