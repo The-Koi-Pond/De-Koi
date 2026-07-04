@@ -71,6 +71,22 @@ const STORAGE_COLLECTIONS = {
   themes: { genericApi: true },
   extensions: { genericApi: true },
   "plugin-memory": { genericApi: true },
+  "canonical-memories": {
+    genericApi: true,
+    readJsonFields: [
+      { name: "scope", kind: "object", fallback: "empty-object" },
+      { name: "provenance", kind: "object", fallback: "empty-object" },
+      { name: "tags", kind: "array" },
+      { name: "payload", kind: "object", fallback: "empty-object" },
+    ],
+  },
+  "memory-index-rows": {
+    genericApi: true,
+    readJsonFields: [
+      { name: "vector", kind: "array" },
+      { name: "lexicalTokens", kind: "array" },
+    ],
+  },
   "music-dj-playlists": {
     genericApi: true,
     readJsonFields: [{ name: "tracks", kind: "array" }],

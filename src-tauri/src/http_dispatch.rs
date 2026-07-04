@@ -1,7 +1,7 @@
 use crate::http_storage_dispatch;
 use crate::state::AppState;
 use crate::storage_commands::{
-    admin, agents, avatars, backgrounds, backup, bot_browser, characters, chat_memory, chats,
+    admin, agents, avatars, backgrounds, backup, bot_browser, canonical_memory, characters, chat_memory, chats,
     connection_secrets, custom_tools, deki, entity_images, exports, fonts, game_assets, generation,
     http, images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails,
     personas, profile, prompts, shared, sidecar, sprites, translation, updates,
@@ -775,6 +775,67 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
+        "memory_create" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::create_memory(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_get" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::get_memory(state, required_string(args, "memoryId")?)
+            })
+            .await
+        }
+        "memory_update" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::update_memory(
+                    state,
+                    required_string(args, "memoryId")?,
+                    optional_value(args, "patch"),
+                )
+            })
+            .await
+        }
+        "memory_delete" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::delete_memory(state, required_string(args, "memoryId")?)
+            })
+            .await
+        }
+        "memory_query" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::query_memories(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_index_upsert" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::upsert_memory_index_row(state, optional_value(args, "row"))
+            })
+            .await
+        }
+        "memory_index_delete_for_memory" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::delete_memory_index_rows_for_memory(
+                    state,
+                    required_string(args, "memoryId")?,
+                )
+            })
+            .await
+        }
+        "memory_index_rebuild_lexical" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::rebuild_memory_lexical_index(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_index_query" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::query_memory_index(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "chat_notes_list" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 chats::list_chat_notes(state, required_string(args, "chatId")?)
@@ -1460,6 +1521,15 @@ mod tests {
         "connection_move",
         "connection_save_default_parameters",
         "lorebook_entries_list_by_lorebook_ids",
+        "memory_create",
+        "memory_delete",
+        "memory_get",
+        "memory_index_delete_for_memory",
+        "memory_index_query",
+        "memory_index_rebuild_lexical",
+        "memory_index_upsert",
+        "memory_query",
+        "memory_update",
         "lorebook_folder_reorder",
         "storage_create",
         "storage_delete",
@@ -2784,3 +2854,4 @@ mod tests {
         );
     }
 }
+

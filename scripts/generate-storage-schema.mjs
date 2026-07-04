@@ -141,6 +141,18 @@ const collectionMetadata = {
     confidence: "Type-backed",
     notes: "Namespaced plugin KV storage with `pluginId`, `key`, arbitrary `value`, and `schemaVersion`.",
   },
+  "canonical-memories": {
+    model: "`CanonicalMemoryRecord`",
+    confidence: "Type-backed",
+    notes:
+      "Authoritative memory source of truth. Records have kind, status, scope, confidence, provenance, content, tags, supersession links, and kind-specific payloads. Legacy `chats.memories[]` rows are not backfilled in Phase 2.",
+  },
+  "memory-index-rows": {
+    model: "`MemoryIndexRow`",
+    confidence: "Type-backed",
+    notes:
+      "Rebuildable retrieval projection keyed by `memoryId`. Rows store provider/model/dimensions/hash metadata plus vector or lexical payloads; canonical memory status and timestamps win over index hits.",
+  },
   "music-dj-playlists": {
     model: "`MusicDjPlaylist`",
     confidence: "Type-backed",
