@@ -85,14 +85,29 @@ export type ChatSurfaceCharacterSummary = {
     name?: string;
     description?: string;
     personality?: string;
+    scenario?: string;
+    mes_example?: string;
     creator?: string;
+    creator_notes?: string;
     character_version?: string;
+    system_prompt?: string;
+    post_history_instructions?: string;
     tags?: unknown[];
     extensions?: {
+      backstory?: string;
+      appearance?: string;
       avatarCrop?: unknown;
       fav?: unknown;
+      conversationStatus?: string;
+      conversationStatusMessage?: string;
+      conversationActivity?: string;
+      conversationAvailabilityExplanation?: string;
+      conversationAvatar?: unknown;
       nameColor?: string;
+      dialogueColor?: string;
+      boxColor?: string;
       publicProfile?: unknown;
+      musicProfile?: unknown;
     };
   };
   comment?: string | null;
@@ -102,7 +117,6 @@ export type ChatSurfaceCharacterSummary = {
   createdAt?: string;
   updatedAt?: string;
 };
-
 export type CharacterPanelSummary = {
   id: string;
   data?: {
@@ -188,17 +202,31 @@ const CHAT_SURFACE_CHARACTER_SUMMARY_OPTIONS = {
       "name",
       "description",
       "personality",
+      "scenario",
+      "mes_example",
       "creator",
+      "creator_notes",
       "character_version",
+      "system_prompt",
+      "post_history_instructions",
       "tags",
+      "extensions.backstory",
+      "extensions.appearance",
       "extensions.avatarCrop",
       "extensions.fav",
+      "extensions.conversationStatus",
+      "extensions.conversationStatusMessage",
+      "extensions.conversationActivity",
+      "extensions.conversationAvailabilityExplanation",
+      "extensions.conversationAvatar",
       "extensions.nameColor",
+      "extensions.dialogueColor",
+      "extensions.boxColor",
       "extensions.publicProfile",
+      "extensions.musicProfile",
     ],
   },
 };
-
 const CHARACTER_PANEL_SUMMARY_OPTIONS = {
   fields: CHARACTER_LIST_FIELDS,
   fieldSelections: {
@@ -286,7 +314,6 @@ async function listChatSurfaceCharacterSummariesByIds(ids: string[]): Promise<Ch
 }
 
 // ── Characters ──
-
 export function useCharacterSummaries(enabled = true, search?: string) {
   const query = normalizeSearchQuery(search);
   return useQuery({
@@ -408,7 +435,6 @@ export function useChatSurfaceCharacterSummariesByIds(ids: string[], enabled = t
     isFetching: shouldRead ? query.isFetching : false,
   };
 }
-
 export function useCreateCharacter() {
   const qc = useQueryClient();
   return useMutation({
