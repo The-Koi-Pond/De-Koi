@@ -1658,7 +1658,7 @@ export function ChatSidebar({
 }
 
 // FolderHeaderRow keeps folder actions and drag-to-reorder while child chats live in the virtual row model.
-function FolderHeaderRow({
+export function FolderHeaderRow({
   folder,
   entriesCount,
   style,
@@ -1704,13 +1704,13 @@ function FolderHeaderRow({
         isDropTarget && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
       )}
     >
-      <div className="group relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-[var(--sidebar-accent)]/40">
+      <div className="group relative flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-[var(--sidebar-accent)]/40">
         <div
           onPointerDown={(e) => {
             e.preventDefault();
             dragControls.start(e);
           }}
-          className="cursor-grab touch-none opacity-0 transition-opacity active:cursor-grabbing group-hover:opacity-100 max-md:opacity-100"
+          className="flex shrink-0 cursor-grab touch-none items-center justify-center opacity-0 transition-opacity active:cursor-grabbing group-hover:opacity-100 max-md:opacity-100"
         >
           <GripVertical size="0.625rem" className="text-[var(--muted-foreground)]" />
         </div>
@@ -1730,7 +1730,7 @@ function FolderHeaderRow({
               onToggleCollapse(folder);
             }
           }}
-          className="flex flex-1 items-center gap-1.5 min-w-0"
+          className="flex min-w-0 flex-1 items-center gap-1.5"
         >
           <ChevronRight
             size="0.75rem"
@@ -1740,7 +1740,7 @@ function FolderHeaderRow({
             )}
           />
           <div
-            className="h-2 w-2 rounded-full flex-shrink-0 cursor-pointer"
+            className="h-2 w-2 flex-shrink-0 cursor-pointer rounded-full"
             style={{ backgroundColor: folder.color || "#6b7280" }}
             title={folder.name}
           />
@@ -1766,16 +1766,16 @@ function FolderHeaderRow({
                 onRename(folder.id, renameValue);
                 setRenaming(false);
               }}
-              className="flex-1 bg-transparent text-xs font-medium text-[var(--foreground)] outline-none min-w-0"
+              className="min-w-0 flex-1 bg-transparent text-xs font-medium text-[var(--foreground)] outline-none"
             />
           ) : (
-            <span className="flex-1 cursor-pointer truncate text-xs font-medium text-[var(--muted-foreground)] min-w-0">
+            <span className="min-w-0 flex-1 cursor-pointer truncate text-xs font-medium text-[var(--muted-foreground)]">
               {folder.name}
             </span>
           )}
         </div>
         {entriesCount > 0 && (
-          <span className="text-[0.5625rem] text-[var(--muted-foreground)] shrink-0">{entriesCount}</span>
+          <span className="shrink-0 text-[0.5625rem] text-[var(--muted-foreground)]">{entriesCount}</span>
         )}
         <button
           onClick={(e) => {

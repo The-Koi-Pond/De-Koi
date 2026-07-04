@@ -332,7 +332,7 @@ function ConnectionRow({
   );
 }
 
-function ConnectionFolderRow({
+export function ConnectionFolderRow({
   folder,
   entries,
   renderConnectionRow,
@@ -389,17 +389,17 @@ function ConnectionFolderRow({
       {/* Folder header */}
       <div
         onClick={() => onToggleCollapse(folder)}
-        className="group relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-[var(--sidebar-accent)]/40"
+        className="group relative flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-[var(--sidebar-accent)]/40"
       >
         <div
           onPointerDown={(e) => dragControls.start(e)}
-          className="cursor-grab touch-none opacity-0 transition-opacity active:cursor-grabbing group-hover:opacity-100 max-md:opacity-100"
+          className="flex shrink-0 cursor-grab touch-none items-center justify-center opacity-0 transition-opacity active:cursor-grabbing group-hover:opacity-100 max-md:opacity-100"
         >
           <GripVertical size="0.625rem" className="text-[var(--muted-foreground)]" />
         </div>
         <ChevronRight
           size="0.75rem"
-          className={cn("text-[var(--muted-foreground)] transition-transform", !folder.collapsed && "rotate-90")}
+          className={cn("shrink-0 text-[var(--muted-foreground)] transition-transform", !folder.collapsed && "rotate-90")}
         />
         <div
           className="h-2 w-2 rounded-full flex-shrink-0"
@@ -426,15 +426,15 @@ function ConnectionFolderRow({
               onRename(folder.id, renameValue);
               setRenaming(false);
             }}
-            className="flex-1 bg-transparent text-xs font-medium text-[var(--foreground)] outline-none"
+            className="min-w-0 flex-1 bg-transparent text-xs font-medium text-[var(--foreground)] outline-none"
           />
         ) : (
-          <span className="flex-1 cursor-pointer truncate text-xs font-medium text-[var(--muted-foreground)]">
+          <span className="min-w-0 flex-1 cursor-pointer truncate text-xs font-medium text-[var(--muted-foreground)]">
             {folder.name}
           </span>
         )}
         {entries.length > 0 && (
-          <span className="text-[0.5625rem] text-[var(--muted-foreground)]">{entries.length}</span>
+          <span className="shrink-0 text-[0.5625rem] text-[var(--muted-foreground)]">{entries.length}</span>
         )}
         <button
           onClick={(e) => {
