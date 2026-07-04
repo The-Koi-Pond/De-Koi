@@ -45,12 +45,11 @@ import {
   useReorderFolders,
   useMoveChat,
 } from "../../features/catalog/chats/sidebar";
-import { useCharacterSummariesByIds } from "../../features/catalog/characters/index";
+import { useChatSurfaceCharacterSummariesByIds } from "../../features/catalog/characters/index";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
-import { cn, type AvatarCropValue } from "../../shared/lib/utils";
-import { avatarFileUrlFromPath, resolveAvatarFileUrl } from "../../shared/api/local-file-api";
+import { cn } from "../../shared/lib/utils";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
 import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties, type DragEvent } from "react";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
@@ -71,6 +70,7 @@ import {
   type ChatSidebarRow as DerivedChatSidebarRow,
   type ChatSidebarSortOption,
 } from "./chat-sidebar-rows";
+import { buildChatSidebarCharacterLookup, type ChatSidebarCharacterAvatar } from "./chat-sidebar-character-avatars";
 type ChatSortOption = ChatSidebarSortOption;
 export type ChatSidebarTab = "conversation" | "roleplay" | "game";
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
@@ -201,66 +201,11 @@ export function ChatSidebar({
     }
     return Array.from(ids);
   }, [chats]);
-  const { data: allCharacters } = useCharacterSummariesByIds(sidebarCharacterIds, sidebarCharacterIds.length > 0);
-  const [resolvedCharacterAvatars, setResolvedCharacterAvatars] = useState<Map<string, string | null>>(() => new Map());
-
-  useEffect(() => {
-    let cancelled = false;
-    const characters = allCharacters ?? [];
-    if (characters.length === 0) {
-      setResolvedCharacterAvatars(new Map());
-      return;
-    }
-    Promise.all(
-      characters.map(async (char) => {
-        const resolved =
-          (await resolveAvatarFileUrl(char.avatarFilename, char.avatarFilePath).catch(() => null)) ??
-          char.avatarPath ??
-          null;
-        return [char.id, resolved] as const;
-      }),
-    ).then((entries) => {
-      if (!cancelled) setResolvedCharacterAvatars(new Map(entries));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [allCharacters]);
-
-  // Build character lookup: id → { name, avatarUrl, avatarCrop, conversationStatus }
-  const charLookup = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        name: string;
-        avatarUrl: string | null;
-        avatarCrop?: AvatarCropValue | null;
-        conversationStatus?: string;
-      }
-    >();
-    if (!allCharacters) return map;
-    for (const char of allCharacters) {
-      const record = char.data && typeof char.data === "object" ? (char.data as Record<string, unknown>) : {};
-      const extensions =
-        record.extensions && typeof record.extensions === "object"
-          ? (record.extensions as Record<string, unknown>)
-          : {};
-      const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : "Unknown";
-      const conversationStatus =
-        typeof extensions.conversationStatus === "string" ? extensions.conversationStatus : undefined;
-      map.set(char.id, {
-        name,
-        avatarUrl:
-          resolvedCharacterAvatars.get(char.id) ??
-          avatarFileUrlFromPath(char.avatarFilename, char.avatarFilePath) ??
-          char.avatarPath ??
-          null,
-        avatarCrop: (extensions.avatarCrop as AvatarCropValue | undefined) ?? null,
-        conversationStatus,
-      });
-    }
-    return map;
-  }, [allCharacters, resolvedCharacterAvatars]);
+  const { data: allCharacters } = useChatSurfaceCharacterSummariesByIds(
+    sidebarCharacterIds,
+    sidebarCharacterIds.length > 0,
+  );
+  const charLookup = useMemo(() => buildChatSidebarCharacterLookup(allCharacters), [allCharacters]);
   const [searchQuery, setSearchQuery] = useState("");
   const [sort, setSort] = useState<ChatSortOption>("newest");
   const [activeTag, setActiveTag] = useState<string | null>(null);
@@ -842,12 +787,7 @@ export function ChatSidebar({
             const avatars = charIds
               .slice(0, 3)
               .map((id) => charLookup.get(id))
-              .filter(Boolean) as {
-              name: string;
-              avatarUrl: string | null;
-              avatarCrop?: AvatarCropValue | null;
-              conversationStatus?: string;
-            }[];
+              .filter((avatar): avatar is ChatSidebarCharacterAvatar => Boolean(avatar));
 
             const isConvoMode = chat.mode === "conversation";
             const statusDot = (status?: string) => {
@@ -884,10 +824,17 @@ export function ChatSidebar({
 
             if (avatars.length === 1) {
               const a = avatars[0]!;
-              return a.avatarUrl ? (
+              return a.hasAvatarSource ? (
                 <div className="relative h-7 w-7 flex-shrink-0 transition-transform group-active:scale-90">
                   <span className="relative block h-7 w-7 overflow-hidden rounded-full">
-                    <AvatarImage src={a.avatarUrl} alt={a.name} crop={a.avatarCrop} />
+                    <AvatarImage
+                      src={a.avatarUrl}
+                      avatarFilePath={a.avatarFilePath}
+                      avatarFilename={a.avatarFilename}
+                      alt={a.name}
+                      crop={a.avatarCrop}
+                      thumbnailSize={64}
+                    />
                   </span>
                   {statusDot(a.conversationStatus)}
                 </div>
@@ -905,7 +852,7 @@ export function ChatSidebar({
             return (
               <div className="relative h-7 w-7 flex-shrink-0 transition-transform group-active:scale-90">
                 {avatars.slice(0, 2).map((a, i) =>
-                  a.avatarUrl ? (
+                  a.hasAvatarSource ? (
                     <span
                       key={i}
                       className={cn(
@@ -913,7 +860,14 @@ export function ChatSidebar({
                         i === 0 ? "top-0 left-0 z-10" : "bottom-0 right-0",
                       )}
                     >
-                      <AvatarImage src={a.avatarUrl} alt={a.name} crop={a.avatarCrop} />
+                      <AvatarImage
+                        src={a.avatarUrl}
+                        avatarFilePath={a.avatarFilePath}
+                        avatarFilename={a.avatarFilename}
+                        alt={a.name}
+                        crop={a.avatarCrop}
+                        thumbnailSize={64}
+                      />
                     </span>
                   ) : (
                     <div
