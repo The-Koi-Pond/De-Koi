@@ -612,7 +612,7 @@ describe("retryGenerationAgents lorebook keeper backfill", () => {
           },
         } as never,
         llm: {
-          async *stream() {
+          stream() {
             throw new Error("no lorebook keeper run should execute for processed candidates");
           },
           async listModels() {
