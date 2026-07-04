@@ -13,6 +13,7 @@ import { musicApi, type MusicCandidate } from "../../../../shared/api/music-api"
 import { musicDjIntentLabel, type MusicDjIntent } from "../../../../shared/lib/music-dj-intent";
 import { rankMusicCandidates } from "../../../../shared/lib/music-candidate-ranking";
 import {
+  consumePendingMusicPlaybackCue,
   getLastMusicPlaybackContext,
   MUSIC_PLAYBACK_EVENT,
   type MusicPlaybackEventDetail,
@@ -337,9 +338,8 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
 
   useEffect(() => {
     if (!visible) return;
-    function onMusicEvent(event: Event) {
-      const detail = (event as CustomEvent<MusicPlaybackEventDetail>).detail;
-      if (!detail) return;
+
+    function handleMusicPlaybackDetail(detail: MusicPlaybackEventDetail) {
       if (detail.type === "cue") {
         if (typeof detail.volume === "number") setVolume(Math.max(0, Math.min(100, Math.trunc(detail.volume))));
         if (detail.track) {
@@ -366,7 +366,21 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         void stop();
       }
     }
+
+    function onMusicEvent(event: Event) {
+      const detail = (event as CustomEvent<MusicPlaybackEventDetail>).detail;
+      if (!detail) return;
+      if (detail.type === "cue") {
+        consumePendingMusicPlaybackCue();
+      }
+      handleMusicPlaybackDetail(detail);
+    }
+
     window.addEventListener(MUSIC_PLAYBACK_EVENT, onMusicEvent);
+    const pendingCue = consumePendingMusicPlaybackCue();
+    if (pendingCue) {
+      handleMusicPlaybackDetail(pendingCue);
+    }
     return () => window.removeEventListener(MUSIC_PLAYBACK_EVENT, onMusicEvent);
   }, [query, recentTrackIds, track, visible, volume]);
 
@@ -438,7 +452,9 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           className="rounded border border-[var(--border)] p-1.5"
           onClick={() => (playing ? pause() : resumeOrPick())}
           aria-label={playing ? "Pause Music Player" : "Play Music Player"}
-          title={playing ? "Pause Music Player" : track ? "Resume Music Player" : "Play a YouTube pick from the current mood"}
+          title={
+            playing ? "Pause Music Player" : track ? "Resume Music Player" : "Play a YouTube pick from the current mood"
+          }
         >
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </button>
@@ -488,7 +504,9 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
           onClick={() => (playing ? pause() : resumeOrPick())}
           aria-label={playing ? "Pause Music Player" : "Play Music Player"}
-          title={playing ? "Pause Music Player" : track ? "Resume Music Player" : "Play a YouTube pick from the current mood"}
+          title={
+            playing ? "Pause Music Player" : track ? "Resume Music Player" : "Play a YouTube pick from the current mood"
+          }
         >
           {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
         </button>
@@ -508,7 +526,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           onClick={() => pick(true)}
           disabled={busy}
           aria-label="Fresh Music Player pick"
-          title="Pick a different YouTube result for the same mood."
+          title="Pick a different YouTube result for the same mood"
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
@@ -520,7 +538,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           value={volume}
           onChange={(event) => updateVolume(Number(event.target.value))}
           aria-label="Music Player volume"
-          title="Volume"
+          title="Music Player volume"
         />
       </div>
     );
