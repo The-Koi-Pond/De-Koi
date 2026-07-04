@@ -42,11 +42,30 @@ impl ManagedThumbnailKind {
         }
     }
 
+    fn source_roots(self, state: &AppState) -> AppResult<Vec<PathBuf>> {
+        let mut roots = vec![canonical_root(state, self)?];
+        if matches!(self, Self::Game) {
+            let backgrounds = state.data_dir.join("backgrounds");
+            if backgrounds.exists() {
+                roots.push(fs::canonicalize(backgrounds)?);
+            }
+            for default_data in &state.default_data_roots {
+                for folder in ["game-assets", "backgrounds"] {
+                    let root = default_data.join(folder);
+                    if root.exists() {
+                        roots.push(fs::canonicalize(root)?);
+                    }
+                }
+            }
+        }
+        Ok(roots)
+    }
+
     fn source(self, state: &AppState, path: &str) -> AppResult<PathBuf> {
         match self {
             Self::Background => Ok(PathBuf::from(state.backgrounds.absolute_path_string(path)?)),
             Self::Gallery => Ok(state.data_dir.join("gallery").join(safe_filename(path))),
-            Self::Game => Ok(PathBuf::from(state.game_assets.absolute_path_string(path)?)),
+            Self::Game => state.game_asset_path(path),
             Self::Lorebook => {
                 let response = super::lorebook_images::lorebook_image_file_path(state, path)?;
                 response
@@ -92,7 +111,7 @@ pub(crate) fn managed_thumbnail_path(
         ));
     }
 
-    let root = canonical_root(state, kind)?;
+    let root = source_root_for(state, kind, &source)?;
     let relative = source.strip_prefix(&root).map_err(|_| {
         AppError::invalid_input("Managed thumbnail source is outside managed assets")
     })?;
@@ -116,7 +135,7 @@ pub(crate) fn remove_managed_thumbnail_files(
     let Ok(source) = canonical_source(state, kind, path) else {
         return;
     };
-    let Ok(root) = canonical_root(state, kind) else {
+    let Ok(root) = source_root_for(state, kind, &source) else {
         return;
     };
     let Ok(relative) = source.strip_prefix(&root) else {
@@ -135,6 +154,16 @@ pub(crate) fn remove_managed_thumbnail_files(
     }
 }
 
+fn source_root_for(
+    state: &AppState,
+    kind: ManagedThumbnailKind,
+    source: &Path,
+) -> AppResult<PathBuf> {
+    kind.source_roots(state)?
+        .into_iter()
+        .find(|root| source.starts_with(root))
+        .ok_or_else(|| AppError::invalid_input("Managed thumbnail source is outside managed assets"))
+}
 fn canonical_source(
     state: &AppState,
     kind: ManagedThumbnailKind,
@@ -147,13 +176,16 @@ fn canonical_source(
         }
         _ => AppError::from(error),
     })?;
-    let root = canonical_root(state, kind)?;
-    if !source.starts_with(root) {
-        return Err(AppError::invalid_input(
-            "Managed thumbnail source is outside managed assets",
-        ));
+    if kind
+        .source_roots(state)?
+        .iter()
+        .any(|root| source.starts_with(root))
+    {
+        return Ok(source);
     }
-    Ok(source)
+    Err(AppError::invalid_input(
+        "Managed thumbnail source is outside managed assets",
+    ))
 }
 
 fn canonical_root(state: &AppState, kind: ManagedThumbnailKind) -> AppResult<PathBuf> {
@@ -289,6 +321,41 @@ mod tests {
         assert_ne!(thumbnail, source);
     }
 
+    #[test]
+    fn game_thumbnail_can_use_bundled_default_background_without_copying_media() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("marinara-thumbnails-default-bg-{nonce}"));
+        let defaults = std::env::temp_dir().join(format!("marinara-thumbnails-default-source-{nonce}"));
+        let source = defaults.join("backgrounds").join("castle.png");
+        std::fs::create_dir_all(source.parent().expect("source parent"))
+            .expect("default background directory should be created");
+        write_png(&source, 640, 320);
+        let state = AppState::from_data_dir(&root, vec![defaults.clone()])
+            .expect("test app state should initialize");
+
+        let response = managed_asset_thumbnail_file_path(
+            &state,
+            "game",
+            "__user_bg__/castle.png",
+            Some(128),
+        )
+        .expect("default background thumbnail should be created through game asset URLs");
+        let thumbnail = PathBuf::from(response["path"].as_str().expect("path should be returned"));
+
+        assert!(thumbnail.starts_with(state.data_dir.join(".managed-thumbnails")));
+        assert!(thumbnail.is_file());
+        assert!(source.is_file());
+        assert!(
+            !state.backgrounds.root().join("castle.png").exists(),
+            "thumbnailing bundled defaults should not copy them into managed backgrounds"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(defaults);
+    }
     #[test]
     fn managed_thumbnail_rejects_sources_outside_managed_assets() {
         let state = test_state("outside");
