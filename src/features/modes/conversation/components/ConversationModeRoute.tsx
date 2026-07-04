@@ -107,9 +107,9 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
   );
 
   useEffect(() => {
-    if (data.chatMode !== "conversation" || !enabledAgentTypes.has("music-dj") || !musicDjContext) return;
+    if (data.chatMode !== "conversation" || !musicDjContext) return;
     dispatchMusicPlaybackEvent({ type: "context", query: musicDjContext.query, intent: musicDjContext.intent });
-  }, [data.chatMode, enabledAgentTypes, musicDjContext]);
+  }, [data.chatMode, musicDjContext]);
 
   const connectedChatId = (data.chat as unknown as { connectedChatId?: string | null } | null | undefined)
     ?.connectedChatId;
