@@ -514,6 +514,140 @@ describe("loadMessagesForGenerationTarget", () => {
   });
 });
 
+describe("retryGenerationAgents lorebook keeper backfill", () => {
+  it("uses bounded candidate and keeper-run reads for incremental backfill", async () => {
+    const listChatMessageCalls: unknown[] = [];
+    const agentRunCalls: unknown[] = [];
+    const messages = Array.from({ length: 24 }, (_, index) => ({
+      id: `assistant-${index + 1}`,
+      chatId: "chat-1",
+      role: "assistant",
+      content: `Assistant turn ${index + 1}`,
+      createdAt: `2026-01-01T00:${String(index + 1).padStart(2, "0")}:00.000Z`,
+      extra: {},
+    }));
+
+    const result = await retryGenerationAgents(
+      {
+        storage: {
+          async get(entity: string, id: string) {
+            if (entity === "chats" && id === "chat-1") {
+              return {
+                id: "chat-1",
+                mode: "roleplay",
+                connectionId: "conn-1",
+                characterIds: ["char-1"],
+                metadata: { activeAgentIds: ["lorebook-keeper"] },
+              };
+            }
+            if (entity === "connections" && id === "conn-1") return { id: "conn-1", provider: "test" };
+            return null;
+          },
+          async list(entity: string, options?: Record<string, unknown>) {
+            if (entity === "agents") {
+              return [
+                {
+                  id: "lorebook-keeper",
+                  type: "lorebook-keeper",
+                  enabled: true,
+                  settings: { runInterval: 4 },
+                },
+              ];
+            }
+            if (entity === "agent-runs") {
+              agentRunCalls.push(options);
+              if (!options || !("whereIn" in options)) {
+                throw new Error("lorebook keeper backfill must not list every agent run");
+              }
+              const values = ((options.whereIn as { values?: unknown[] }).values ?? []).filter(
+                (value): value is string => typeof value === "string",
+              );
+              return values.map((messageId) => ({
+                id: `run-${messageId}`,
+                chatId: "chat-1",
+                messageId,
+                agentType: "lorebook-keeper",
+                success: true,
+              }));
+            }
+            return [];
+          },
+          async listChatMessages(_chatId: string, options?: Record<string, unknown>) {
+            listChatMessageCalls.push(options);
+            if (!options?.limit) throw new Error("lorebook keeper backfill must bound candidate message reads");
+            return messages.slice(-Number(options.limit));
+          },
+          async create() {
+            throw new Error("all candidate messages are already processed");
+          },
+          async update() {
+            return {};
+          },
+          async delete() {
+            return { deleted: false };
+          },
+          async createChatMessage() {
+            return {};
+          },
+          async updateChatMessage() {
+            return {};
+          },
+          async deleteChatMessage() {
+            return { deleted: false };
+          },
+          async addChatMessageSwipe() {
+            return {};
+          },
+          async patchChatMetadata() {
+            return {};
+          },
+          async patchChatMessageExtra() {
+            return {};
+          },
+          async getChatMessage() {
+            return null;
+          },
+          async listLorebookEntries() {
+            return [];
+          },
+        } as never,
+        llm: {
+          stream() {
+            throw new Error("no lorebook keeper run should execute for processed candidates");
+          },
+          async listModels() {
+            return [];
+          },
+        } as unknown as LlmGateway,
+        integrations: {} as IntegrationGateway,
+      },
+      {
+        chatId: "chat-1",
+        agentTypes: ["lorebook-keeper"],
+        options: { lorebookKeeperBackfill: true },
+      },
+    );
+
+    expect(result).toEqual({ results: [], events: [] });
+    expect(listChatMessageCalls).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        limit: expect.any(Number),
+        fields: expect.arrayContaining(["id", "chatId", "role", "extra", "createdAt"]),
+      }),
+    ]);
+    expect(agentRunCalls).toEqual([
+      expect.objectContaining({
+        whereIn: expect.objectContaining({
+          field: "messageId",
+          values: expect.any(Array),
+        }),
+        fields: expect.arrayContaining(["chatId", "messageId", "agentType", "success"]),
+      }),
+    ]);
+    expect((agentRunCalls[0] as { whereIn: { values: unknown[] } }).whereIn.values.length).toBeLessThanOrEqual(16);
+  });
+});
 describe("illustrationReferenceImagesForRequest", () => {
   const dataUrl = (encodedLength: number, variant = 0) => {
     const pngHeader = "iVBORw0KGgoA";
