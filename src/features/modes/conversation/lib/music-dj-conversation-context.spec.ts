@@ -21,6 +21,25 @@ describe("buildConversationMusicContext", () => {
     expect(context?.intent.reason).toContain("rain keeps tapping");
   });
 
+  it("uses character profile tone when recent conversation messages are generic", () => {
+    const context = buildConversationMusicContext({
+      chatName: "Daily Check-In",
+      characterProfiles: [
+        {
+          name: "Nyx",
+          description: "A cyberpunk android detective from a rain-slick neon city.",
+          personality: "Dry noir wit, guarded warmth, and precise focus.",
+        },
+      ],
+      personaProfile: { name: "Celia", personality: "Soft-spoken but sharp when solving mysteries." },
+      messages: [{ role: "assistant", content: "How was your day?" }],
+    });
+
+    expect(context?.query).toContain("noir conversation");
+    expect(context?.query).toContain("neon city chat");
+    expect(context?.query).toContain("noir ambient");
+    expect(context?.intent.reason).toContain("cyberpunk android detective");
+  });
   it("returns no context when there is nothing meaningful to seed the Music Player", () => {
     expect(buildConversationMusicContext({ messages: [] })).toBeNull();
   });
