@@ -537,6 +537,213 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(asterContent?.textContent).toContain("hello there");
     expect(bramContent?.textContent).toContain("pancakes?");
   });
+
+  it("colors grouped roleplay dialogue with the speaking character dialogue color", () => {
+    const groupedMessage: Message = {
+      ...message,
+      id: "message-grouped-dialogue-colors",
+      characterId: null,
+      content: 'Aster: "Good morning."\nBram: "After you."',
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+    const groupedCharacterMap = new Map([
+      [
+        "character-1",
+        {
+          name: "Aster",
+          avatarUrl: null,
+          dialogueColor: "#44ccff",
+        },
+      ],
+      [
+        "character-2",
+        {
+          name: "Bram",
+          avatarUrl: null,
+          dialogueColor: "#ff8844",
+        },
+      ],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={groupedMessage}
+            characterMap={groupedCharacterMap}
+            chatCharacterIds={["character-1", "character-2"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const coloredQuotes = Array.from(container!.querySelectorAll<HTMLElement>("strong, span")).filter(
+      (el) => el.textContent?.includes("Good morning.") || el.textContent?.includes("After you."),
+    );
+
+    expect(coloredQuotes.map((el) => [el.textContent, el.style.color])).toEqual([
+      ['"Good morning."', "rgb(68, 204, 255)"],
+      ['"After you."', "rgb(255, 136, 68)"],
+    ]);
+  });
+  it("colors attributed roleplay dialogue with the nearest named character dialogue color", () => {
+    const attributedMessage: Message = {
+      ...message,
+      id: "message-attributed-dialogue-colors",
+      characterId: null,
+      content: 'Mira Vale watched them. "Proceed." Orin bowed. "Yes, Mira." Sable Reed laughed. "Finally."',
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+    const attributedCharacterMap = new Map([
+      [
+        "character-1",
+        {
+          name: "Mira Vale",
+          avatarUrl: null,
+          dialogueColor: "#b58cff",
+        },
+      ],
+      [
+        "character-2",
+        {
+          name: "Orin",
+          avatarUrl: null,
+          dialogueColor: "#f2c14e",
+        },
+      ],
+      [
+        "character-3",
+        {
+          name: "Sable Reed",
+          avatarUrl: null,
+          dialogueColor: "#28f26d",
+        },
+      ],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={attributedMessage}
+            characterMap={attributedCharacterMap}
+            chatCharacterIds={["character-1", "character-2", "character-3"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const coloredQuotes = Array.from(container!.querySelectorAll<HTMLElement>("strong")).filter((el) =>
+      ["Proceed.", "Yes, Mira.", "Finally."].some((text) => el.textContent?.includes(text)),
+    );
+
+    expect(coloredQuotes.map((el) => [el.textContent, el.style.color])).toEqual([
+      ['"Proceed."', "rgb(181, 140, 255)"],
+      ['"Yes, Mira."', "rgb(242, 193, 78)"],
+      ['"Finally."', "rgb(40, 242, 109)"],
+    ]);
+  });
+
+  it("colors configured character aliases without hardcoded scene names in conversation rendering", () => {
+    const aliasMessage: Message = {
+      ...message,
+      id: "message-conversation-alias-dialogue",
+      characterId: null,
+      content: '"Welcome," the archivist said.',
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+    const aliasCharacterMap = new Map([
+      [
+        "character-1",
+        {
+          name: "Mira Vale",
+          avatarUrl: null,
+          dialogueColor: "#b58cff",
+          speakerAliases: ["the archivist"],
+        },
+      ],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={aliasMessage}
+            characterMap={aliasCharacterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
+    expect(quote?.textContent).toBe('"Welcome,"');
+    expect(quote?.style.color).toBe("rgb(181, 140, 255)");
+  });
+
+  it("does not color unconfigured character titles in conversation rendering", () => {
+    const aliasMessage: Message = {
+      ...message,
+      id: "message-conversation-unconfigured-title",
+      characterId: null,
+      content: '"Welcome," the archivist said.',
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+    const aliasCharacterMap = new Map([
+      [
+        "character-1",
+        {
+          name: "Mira Vale",
+          avatarUrl: null,
+          dialogueColor: "#b58cff",
+        },
+      ],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={aliasMessage}
+            characterMap={aliasCharacterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const content = container!.querySelector<HTMLElement>(".mari-message-content");
+    expect(content?.textContent).toContain('"Welcome," the archivist said.');
+    const coloredQuote = Array.from(container!.querySelectorAll<HTMLElement>(".mari-message-content strong")).find(
+      (el) => el.textContent?.includes("Welcome,"),
+    );
+    expect(coloredQuote?.style.color ?? "").toBe("");
+  });
+
   it("keeps a visible timestamp at the top of grouped conversation messages", () => {
     act(() => {
       root = createRoot(container!);
@@ -682,5 +889,35 @@ describe("ConversationMessage memo subscriptions", () => {
       checked: true,
       shiftKey: true,
     });
+  });
+
+  it("does not apply persona dialogue color to user-authored conversation quotes", () => {
+    const userMessage: Message = {
+      ...message,
+      id: "message-user-dialogue-color",
+      role: "user",
+      characterId: null,
+      content: '"I should stay readable."',
+      extra: {
+        displayText: null,
+        isGenerated: false,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage message={userMessage} personaInfo={{ name: "Chai", dialogueColor: "#b58cff" }} />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain(
+      '"I should stay readable."',
+    );
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")?.style.color ?? "").toBe("");
   });
 });

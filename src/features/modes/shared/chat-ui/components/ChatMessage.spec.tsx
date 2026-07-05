@@ -3,8 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DialogueAttributionsExtra, Message } from "../../../../../engine/contracts/types/chat";
-import { createDialogueAttributionTextHash } from "../../../../../engine/shared/text/dialogue-attribution";
+import type { Message } from "../../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import type { CharacterMap } from "../types";
 import { ChatMessage } from "./ChatMessage";
@@ -195,18 +194,18 @@ describe("ChatMessage", () => {
     const avatarCrop = { srcX: 0.2, srcY: 0.1, srcWidth: 0.5, srcHeight: 0.5 };
     const groupCharacterMap: CharacterMap = new Map([
       [
-        "harlequin",
+        "mira",
         {
-          name: "Harlequin",
-          avatarUrl: "asset://harlequin",
+          name: "Mira Vale",
+          avatarUrl: "asset://mira",
           avatarCrop,
         },
       ],
       [
-        "pierrot",
+        "orin",
         {
-          name: "Pierrot",
-          avatarUrl: "asset://pierrot",
+          name: "Orin",
+          avatarUrl: "asset://orin",
           avatarCrop: null,
         },
       ],
@@ -222,7 +221,7 @@ describe("ChatMessage", () => {
             chatMode="roleplay"
             groupChatMode="merged"
             characterMap={groupCharacterMap}
-            chatCharacterIds={["harlequin", "pierrot"]}
+            chatCharacterIds={["mira", "orin"]}
           />
         </QueryClientProvider>,
       );
@@ -234,39 +233,40 @@ describe("ChatMessage", () => {
     expect(avatars[0]?.dataset.crop).toBe(JSON.stringify(avatarCrop));
     expect(avatars[0]?.dataset.className).toContain("object-cover");
   });
-  it("renders active swipe dialogue attribution colors before message-level metadata", () => {
-    const text = 'Alice watched Bob. "Careful."';
-    const aliceAttributions: DialogueAttributionsExtra = {
-      version: 1,
-      textHash: createDialogueAttributionTextHash(text),
-      segments: [
-        {
-          start: 19,
-          end: 29,
-          speakerName: "Alice",
-          speakerId: "alice",
-          source: "postprocess",
-          confidence: "explicit",
-        },
-      ],
+
+  it("does not apply persona dialogue color to user-authored quotes", () => {
+    const userMessage: Message = {
+      ...message,
+      id: "message-user-dialogue-color",
+      role: "user",
+      characterId: null,
+      content: '"I should stay readable."',
     };
-    const bobAttributions: DialogueAttributionsExtra = {
-      version: 1,
-      textHash: createDialogueAttributionTextHash(text),
-      segments: [
-        {
-          start: 19,
-          end: 29,
-          speakerName: "Bob",
-          speakerId: "bob",
-          source: "postprocess",
-          confidence: "explicit",
-        },
-      ],
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={userMessage} personaInfo={{ name: "Chai", dialogueColor: "#b58cff" }} />
+        </QueryClientProvider>,
+      );
+    });
+
+    const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
+    expect(quote?.textContent).toBe('"I should stay readable."');
+    expect(quote?.style.color).toBe("");
+  });
+
+  it("colors roleplay assistant quote-first attribution by the speaking character", () => {
+    const attributedMessage: Message = {
+      ...message,
+      id: "message-roleplay-attributed-dialogue",
+      characterId: null,
+      content: '"Ah. \'Technical specifications,\'" Mira Vale repeated. "Do not move!" Orin cried out.',
     };
-    const speakerMap: CharacterMap = new Map([
-      ["alice", { name: "Alice", avatarUrl: null, dialogueColor: "#ff3366" }],
-      ["bob", { name: "Bob", avatarUrl: null, dialogueColor: "#33aaff" }],
+    const roleplayCharacters: CharacterMap = new Map([
+      ["mira", { name: "Mira Vale", avatarUrl: null, dialogueColor: "#b58cff" }],
+      ["orin", { name: "Orin", avatarUrl: null, dialogueColor: "#f2c14e" }],
     ]);
 
     act(() => {
@@ -274,28 +274,78 @@ describe("ChatMessage", () => {
       root.render(
         <QueryClientProvider client={queryClient!}>
           <ChatMessage
-            message={{
-              ...message,
-              id: "message-dialogue-attribution",
-              characterId: "alice",
-              content: text,
-              extra: { ...message.extra, dialogueAttributions: aliceAttributions },
-              swipes: [
-                { id: "swipe-1", content: text, characterId: "bob", extra: { dialogueAttributions: bobAttributions } },
-              ],
-            }}
-            chatCharacterIds={["alice", "bob"]}
-            characterMap={speakerMap}
+            message={attributedMessage}
+            characterMap={roleplayCharacters}
+            chatCharacterIds={["mira", "orin"]}
+            chatMode="roleplay"
           />
         </QueryClientProvider>,
       );
     });
 
-    const quote = Array.from(container!.querySelectorAll<HTMLElement>("strong")).find(
-      (node) => node.textContent === '"Careful."',
-    );
+    const quotes = Array.from(container!.querySelectorAll<HTMLElement>(".mari-message-content strong"));
+    expect(quotes.map((quote) => [quote.textContent, quote.style.color])).toEqual([
+      ["\"Ah. 'Technical specifications,'\"", "rgb(181, 140, 255)"],
+      ['"Do not move!"', "rgb(242, 193, 78)"],
+    ]);
+  });
+  it("colors configured character aliases without hardcoded scene names", () => {
+    const aliasMessage: Message = {
+      ...message,
+      id: "message-roleplay-alias-dialogue",
+      characterId: null,
+      content: '"Welcome," the archivist said.',
+    };
+    const roleplayCharacters: CharacterMap = new Map([
+      ["mira", { name: "Mira Vale", avatarUrl: null, dialogueColor: "#b58cff", speakerAliases: ["the archivist"] }],
+    ]);
 
-    expect(quote).not.toBeNull();
-    expect(quote!.style.color).toBe("rgb(51, 170, 255)");
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={aliasMessage}
+            characterMap={roleplayCharacters}
+            chatCharacterIds={["mira"]}
+            chatMode="roleplay"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
+    expect(quote?.textContent).toBe('"Welcome,"');
+    expect(quote?.style.color).toBe("rgb(181, 140, 255)");
+  });
+
+  it("does not color unconfigured character titles", () => {
+    const aliasMessage: Message = {
+      ...message,
+      id: "message-roleplay-unconfigured-title",
+      characterId: null,
+      content: '"Welcome," the archivist said.',
+    };
+    const roleplayCharacters: CharacterMap = new Map([
+      ["mira", { name: "Mira Vale", avatarUrl: null, dialogueColor: "#b58cff" }],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={aliasMessage}
+            characterMap={roleplayCharacters}
+            chatCharacterIds={["mira"]}
+            chatMode="roleplay"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
+    expect(quote?.textContent).toBe('"Welcome,"');
+    expect(quote?.style.color).toBe("");
   });
 });

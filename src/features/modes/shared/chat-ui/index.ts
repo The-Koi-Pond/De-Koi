@@ -34,6 +34,7 @@ export * from "./lib/message-attachments";
 export * from "./lib/empty-new-chat";
 export * from "./lib/prompt-snapshot";
 export * from "./lib/save-moment";
+export * from "./lib/speaker-dialogue-colors";
 export * from "./lib/transcript-render-window";
 export * from "./lib/transcript-scroll-geometry";
 export * from "./lib/custom-quick-replies";

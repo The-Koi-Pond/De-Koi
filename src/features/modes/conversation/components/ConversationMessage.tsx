@@ -5,12 +5,14 @@ import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { copyToClipboard, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
+import { speakerIdentityEntries } from "../../../../shared/lib/speaker-identity";
 import { chatKeys } from "../../../catalog/chats/index";
 import { resolveMessageMacros } from "../../../../shared/lib/chat-macros";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
 import { storageApi } from "../../../../shared/api/storage-api";
 import {
   buildSaveMomentSource,
+  createSpeakerColorLookup,
   hasGenerationReplayDetails,
   messageAttachmentsFromExtra,
   readStoredThinking,
@@ -252,6 +254,18 @@ export const ConversationMessage = memo(function ConversationMessage({
       ? undefined
       : (msgPersona?.nameColor ?? personaInfo?.nameColor)
     : charInfo?.nameColor;
+  const dialogueColor = isUser ? undefined : charInfo?.dialogueColor;
+  const speakerColorMap = useMemo(() => {
+    if (!scopedCharacterMap) return undefined;
+    const entries = speakerIdentityEntries(
+      [...scopedCharacterMap.values()].map((info) => ({
+        color: info.dialogueColor,
+        names: [info.name, ...(info.speakerAliases ?? [])],
+      })),
+    );
+    const map = createSpeakerColorLookup(entries);
+    return map.size ? map : undefined;
+  }, [scopedCharacterMap]);
   const conversationAvatar = resolveConversationAvatar(isUser ? null : charInfo, avatarUrl);
   const macroContext = useMemo(
     () => ({
@@ -634,6 +648,8 @@ export const ConversationMessage = memo(function ConversationMessage({
     messageTextStyle,
     displayName,
     nameColor,
+    dialogueColor,
+    speakerColorMap,
     conversationAvatar,
     avatarUrl,
     avatarFilePath,

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import type { DialogueAttributionsExtra } from "../../../../../engine/contracts/types/chat";
-import { createDialogueAttributionTextHash } from "../../../../../engine/shared/text/dialogue-attribution";
 import { createSpeakerColorLookup, splitSpeakerDialogueColorSegments } from "./speaker-dialogue-colors";
 
 describe("speaker dialogue colors", () => {
@@ -54,57 +52,146 @@ describe("speaker dialogue colors", () => {
     ]);
   });
 
-  it("does not let a mentioned non-speaker steal the next quote color", () => {
+  it("colors quote-first attributions by the immediately following speaker", () => {
     const colors = createSpeakerColorLookup([
-      ["Alice", "#ff3366"],
-      ["Bob", "#33aaff"],
+      ["Mira Vale", "#b58cff"],
+      ["Orin", "#44ccff"],
+      ["Sable Reed", "#28f26d"],
     ]);
 
     expect(
-      splitSpeakerDialogueColorSegments('Alice watches Bob cross the room. "Stay close."', "#ffffff", colors),
+      splitSpeakerDialogueColorSegments(
+        '"Yes," Mira Vale whispered. "I did not agree," Orin said. "Now it is funny," Sable Reed\'s voice dropped.',
+        "#ffffff",
+        colors,
+      ),
     ).toEqual([
-      { text: "Alice watches Bob cross the room. ", color: "#ffffff" },
-      { text: '"Stay close."', color: "#ff3366" },
+      { text: '"Yes,"', color: "#b58cff" },
+      { text: " Mira Vale whispered. ", color: "#ffffff" },
+      { text: '"I did not agree,"', color: "#44ccff" },
+      { text: " Orin said. ", color: "#ffffff" },
+      { text: '"Now it is funny,"', color: "#28f26d" },
+      { text: " Sable Reed's voice dropped.", color: "#ffffff" },
+    ]);
+  });
+
+  it("colors quote-first attributions with nested punctuation and adverbs", () => {
+    const colors = createSpeakerColorLookup([
+      ["Mira Vale", "#b58cff"],
+      ["Orin", "#44ccff"],
+    ]);
+
+    expect(
+      splitSpeakerDialogueColorSegments(
+        '"Ah. \'Technical specifications,\'" Mira Vale repeated. "Please, I implore you!" Orin cried out. "Right! Yes! Thank you!" Orin frantically babbled.',
+        "#ffffff",
+        colors,
+      ),
+    ).toEqual([
+      { text: "\"Ah. 'Technical specifications,'\"", color: "#b58cff" },
+      { text: " Mira Vale repeated. ", color: "#ffffff" },
+      { text: '"Please, I implore you!"', color: "#44ccff" },
+      { text: " Orin cried out. ", color: "#ffffff" },
+      { text: '"Right! Yes! Thank you!"', color: "#44ccff" },
+      { text: " Orin frantically babbled.", color: "#ffffff" },
+    ]);
+  });
+
+  it("does not invent title aliases for a character", () => {
+    const colors = createSpeakerColorLookup([["Mira Vale", "#b58cff"]]);
+
+    expect(splitSpeakerDialogueColorSegments('"Welcome," the archivist said.', "#ffffff", colors)).toEqual([
+      { text: '"Welcome," the archivist said.', color: "#ffffff" },
+    ]);
+  });
+
+  it("only colors configured speaker names and aliases", () => {
+    const colors = createSpeakerColorLookup([
+      ["Mira Vale", "#b58cff"],
+      ["The Archivist", "#b58cff"],
+    ]);
+
+    expect(splitSpeakerDialogueColorSegments('"Welcome," the archivist said.', "#ffffff", colors)).toEqual([
+      { text: '"Welcome,"', color: "#b58cff" },
+      { text: " the archivist said.", color: "#ffffff" },
+    ]);
+  });
+
+  it("colors additional roleplay speech verbs in quote-first attribution", () => {
+    const colors = createSpeakerColorLookup([
+      ["Mira Vale", "#b58cff"],
+      ["Orin", "#44ccff"],
+      ["Sable Reed", "#28f26d"],
+    ]);
+
+    expect(
+      splitSpeakerDialogueColorSegments(
+        '"But I cannot argue," Mira Vale noted. "A promise," Orin corrected. "It is for your comfort!" Sable Reed wept.',
+        "#ffffff",
+        colors,
+      ),
+    ).toEqual([
+      { text: '"But I cannot argue,"', color: "#b58cff" },
+      { text: " Mira Vale noted. ", color: "#ffffff" },
+      { text: '"A promise,"', color: "#44ccff" },
+      { text: " Orin corrected. ", color: "#ffffff" },
+      { text: '"It is for your comfort!"', color: "#28f26d" },
+      { text: " Sable Reed wept.", color: "#ffffff" },
     ]);
   });
 
   it("keeps the previous speaker color across same-attribution quote continuations", () => {
     const colors = createSpeakerColorLookup([
-      ["Harlequin", "#00ff66"],
-      ["Jester", "#aa77ff"],
+      ["Mira Vale", "#b58cff"],
+      ["Orin", "#44ccff"],
     ]);
 
     expect(
       splitSpeakerDialogueColorSegments(
-        'Harlequin leans close. "Oh, I want to hear this," he murmurs. "Please make it official." Jester ignores him.',
+        'Mira Vale leans close. "I want to hear this," she murmurs. "Please make it official." Orin ignores her.',
         "#ffffff",
         colors,
       ),
     ).toEqual([
-      { text: "Harlequin leans close. ", color: "#ffffff" },
-      { text: '"Oh, I want to hear this,"', color: "#00ff66" },
-      { text: " he murmurs. ", color: "#ffffff" },
-      { text: '"Please make it official."', color: "#00ff66" },
-      { text: " Jester ignores him.", color: "#ffffff" },
+      { text: "Mira Vale leans close. ", color: "#ffffff" },
+      { text: '"I want to hear this,"', color: "#b58cff" },
+      { text: " she murmurs. ", color: "#ffffff" },
+      { text: '"Please make it official."', color: "#b58cff" },
+      { text: " Orin ignores her.", color: "#ffffff" },
     ]);
   });
 
   it("prefers the speaking subject over a later addressed character name", () => {
     const colors = createSpeakerColorLookup([
-      ["Harlequin", "#00ff66"],
-      ["Jester", "#aa77ff"],
+      ["Mira Vale", "#b58cff"],
+      ["Orin", "#44ccff"],
     ]);
 
-    expect(splitSpeakerDialogueColorSegments('Harlequin tells Jester, "Sign here."', "#ffffff", colors)).toEqual([
-      { text: "Harlequin tells Jester, ", color: "#ffffff" },
-      { text: '"Sign here."', color: "#00ff66" },
+    expect(splitSpeakerDialogueColorSegments('Mira Vale tells Orin, "Sign here."', "#ffffff", colors)).toEqual([
+      { text: "Mira Vale tells Orin, ", color: "#ffffff" },
+      { text: '"Sign here."', color: "#b58cff" },
+    ]);
+  });
+
+  it("does not carry color across paragraph breaks for pronoun-only attribution", () => {
+    const colors = createSpeakerColorLookup([
+      ["Mira Vale", "#b58cff"],
+      ["Orin", "#44ccff"],
+    ]);
+
+    expect(
+      splitSpeakerDialogueColorSegments('Mira Vale smiled. "First."\n\nHe looked away. "Second."', "#ffffff", colors),
+    ).toEqual([
+      { text: "Mira Vale smiled. ", color: "#ffffff" },
+      { text: '"First."', color: "#b58cff" },
+      { text: '\n\nHe looked away. "Second."', color: "#ffffff" },
     ]);
   });
 
   it("does not treat straight double quotes in height measurements as dialogue delimiters", () => {
     const colors = createSpeakerColorLookup([
       ["Doctor", "#00ddff"],
-      ["Jester", "#aa77ff"],
+      ["Mira Vale", "#b58cff"],
     ]);
 
     expect(
@@ -117,97 +204,6 @@ describe("speaker dialogue colors", () => {
       { text: "Doctor stood 6'9\" tall, his hands still. ", color: "#ffffff" },
       { text: '"On time."', color: "#00ddff" },
       { text: " Doctor observed.", color: "#ffffff" },
-    ]);
-  });
-
-  it("uses matching attribution metadata before mention heuristics", () => {
-    const colors = createSpeakerColorLookup([
-      ["Alice", "#ff3366"],
-      ["Bob", "#33aaff"],
-    ]);
-    const text = 'Alice watched Bob. "Careful."';
-    const metadata: DialogueAttributionsExtra = {
-      version: 1,
-      textHash: createDialogueAttributionTextHash(text),
-      segments: [
-        {
-          start: 19,
-          end: 29,
-          speakerName: "Bob",
-          speakerId: "character-bob",
-          source: "postprocess",
-          confidence: "explicit",
-        },
-      ],
-    };
-
-    expect(splitSpeakerDialogueColorSegments(text, "#ffffff", colors, metadata)).toEqual([
-      { text: "Alice watched Bob. ", color: "#ffffff" },
-      { text: '"Careful."', color: "#33aaff" },
-    ]);
-  });
-
-  it("ignores attribution metadata with a stale text hash", () => {
-    const colors = createSpeakerColorLookup([
-      ["Alice", "#ff3366"],
-      ["Bob", "#33aaff"],
-    ]);
-    const text = 'Alice watched Bob. "Careful."';
-    const metadata: DialogueAttributionsExtra = {
-      version: 1,
-      textHash: createDialogueAttributionTextHash(`${text} changed`),
-      segments: [
-        {
-          start: 19,
-          end: 29,
-          speakerName: "Bob",
-          speakerId: "character-bob",
-          source: "postprocess",
-          confidence: "explicit",
-        },
-      ],
-    };
-
-    expect(splitSpeakerDialogueColorSegments(text, "#ffffff", colors, metadata)).toEqual([
-      { text: "Alice watched Bob. ", color: "#ffffff" },
-      { text: '"Careful."', color: "#ff3366" },
-    ]);
-  });
-
-  it("colors only attribution ranges when matching metadata is present", () => {
-    const colors = createSpeakerColorLookup([
-      ["Alice", "#ff3366"],
-      ["Bob", "#33aaff"],
-    ]);
-    const text = 'Narration. "First." More narration. "Second."';
-    const metadata: DialogueAttributionsExtra = {
-      version: 1,
-      textHash: createDialogueAttributionTextHash(text),
-      segments: [
-        {
-          start: 11,
-          end: 19,
-          speakerName: "Alice",
-          speakerId: "character-alice",
-          source: "postprocess",
-          confidence: "explicit",
-        },
-        {
-          start: 36,
-          end: 45,
-          speakerName: "Bob",
-          speakerId: "character-bob",
-          source: "postprocess",
-          confidence: "explicit",
-        },
-      ],
-    };
-
-    expect(splitSpeakerDialogueColorSegments(text, "#ffffff", colors, metadata)).toEqual([
-      { text: "Narration. ", color: "#ffffff" },
-      { text: '"First."', color: "#ff3366" },
-      { text: " More narration. ", color: "#ffffff" },
-      { text: '"Second."', color: "#33aaff" },
     ]);
   });
 });

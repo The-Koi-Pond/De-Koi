@@ -280,6 +280,7 @@ export function useChatSurfaceData({
           avatarFilename: character.avatarFilename ?? null,
           nameColor: readString(extensions.nameColor) || undefined,
           dialogueColor: readString(extensions.dialogueColor) || undefined,
+          speakerAliases: stringArray(extensions.speakerAliases),
           boxColor: readString(extensions.boxColor) || undefined,
           avatarCrop: readAvatarCrop(extensions.avatarCrop),
           conversationStatus:
@@ -347,6 +348,7 @@ export function useChatSurfaceData({
                 avatarCrop: readAvatarCrop(extensions.avatarCrop),
                 nameColor: readString(extensions.nameColor) || undefined,
                 dialogueColor: readString(extensions.dialogueColor) || undefined,
+                speakerAliases: stringArray(extensions.speakerAliases),
                 description: readString(parsed.description),
                 personality: readString(parsed.personality),
                 backstory: readString(extensions.backstory),

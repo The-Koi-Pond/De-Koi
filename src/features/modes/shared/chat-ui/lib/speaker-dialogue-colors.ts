@@ -1,5 +1,3 @@
-import type { DialogueAttributionsExtra } from "../../../../../engine/contracts/types/chat";
-import { validateDialogueAttributionsForText } from "../../../../../engine/shared/text/dialogue-attribution";
 import { DIALOGUE_QUOTE_PATTERN_SOURCE } from "../../../../../shared/lib/dialogue-quotes";
 
 export type SpeakerDialogueColorSegment = {
@@ -11,12 +9,17 @@ const SPEAKER_TAG_RE = /<speaker(?:="([^"]*)")?>([\s\S]*?)<\/speaker>/g;
 const SPEAKER_TAG_STRIP_RE = /<\/?speaker(?:="[^"]*")?>/g;
 const NAME_BOUNDARY_RE = /[\p{L}\p{N}_-]/u;
 const SPEECH_VERB_PATTERN_SOURCE =
-  "said|says|asked|asks|replied|replies|answered|answers|continued|continues|murmured|murmurs|mumbled|mumbles|whispered|whispers|muttered|mutters|snapped|snaps|sighed|sighs|hissed|hisses|growled|growls|breathed|breathes|called|calls|added|adds|told|tells|promised|promises|confessed|confesses|admitted|admits|insisted|insists|cooed|coos|purred|purrs|laughed|laughs|chuckled|chuckles|sobbed|sobs|cried|cries|shouted|shouts|yelled|yells";
+  "said|says|asked|asks|replied|replies|answered|answers|continued|continues|repeated|repeats|warned|warns|observed|observes|noted|notes|corrected|corrects|wept|weeps|gasped|gasps|retorted|retorts|groaned|groans|mocked|mocks|chirped|chirps|murmured|murmurs|mumbled|mumbles|whispered|whispers|muttered|mutters|snapped|snaps|sighed|sighs|hissed|hisses|growled|growls|breathed|breathes|called|calls|added|adds|told|tells|promised|promises|confessed|confesses|admitted|admits|insisted|insists|cooed|coos|purred|purrs|laughed|laughs|chuckled|chuckles|chimed|chimes|sobbed|sobs|cried|cries|babbled|babbles|shouted|shouts|yelled|yells";
 const SAME_SPEAKER_ATTRIBUTION_RE = new RegExp(
   `^\\s*(?:[,.;:!?-]+)?\\s*(?:(?:he|she|they|it)\\s+)?(?:${SPEECH_VERB_PATTERN_SOURCE})(?:[\\s,;:-]+[^"\\n]{0,120})?[.!?,;:-]?\\s*$`,
   "iu",
 );
-const SPEAKER_NAME_ATTRIBUTION_RE = new RegExp(`^\\s+(?:${SPEECH_VERB_PATTERN_SOURCE})\\b`, "iu");
+const SPEAKER_NAME_ATTRIBUTION_RE = new RegExp(
+  `^\\s+(?:(?:[\\p{L}\'-]+ly)\\s+){0,2}(?:${SPEECH_VERB_PATTERN_SOURCE})\\b`,
+  "iu",
+);
+const SPEAKER_POSSESSIVE_ATTRIBUTION_RE =
+  /^\s*['\u2019]s\s+(?:voice|tone|words|reply|answer|laugh|chuckle|whisper|murmur)\b/iu;
 
 function normalizeSpeakerColorKey(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
@@ -69,36 +72,6 @@ function splitSpeakerTags(
 
   if (!found) return null;
   pushSegment(segments, text.slice(lastIndex), defaultDialogueColor);
-  return segments;
-}
-
-function splitDialogueAttributions(
-  text: string,
-  defaultDialogueColor: string | undefined,
-  speakerColorMap: Map<string, string> | undefined,
-  dialogueAttributions: DialogueAttributionsExtra | null | undefined,
-): SpeakerDialogueColorSegment[] | null {
-  const validated = validateDialogueAttributionsForText(text, dialogueAttributions);
-  if (!validated || !speakerColorMap?.size) return null;
-
-  const segments: SpeakerDialogueColorSegment[] = [];
-  let cursor = 0;
-  let applied = false;
-
-  for (const attribution of validated.segments) {
-    if (attribution.end <= cursor) continue;
-    const start = Math.max(cursor, attribution.start);
-    const color = findSpeakerColor(speakerColorMap, attribution.speakerName);
-    if (!color) continue;
-
-    pushSegment(segments, text.slice(cursor, start), defaultDialogueColor);
-    pushSegment(segments, text.slice(start, attribution.end), color);
-    cursor = attribution.end;
-    applied = true;
-  }
-
-  if (!applied) return null;
-  pushSegment(segments, text.slice(cursor), defaultDialogueColor);
   return segments;
 }
 
@@ -155,38 +128,25 @@ function hasNameBoundary(value: string, start: number, end: number) {
 
 type SpeakerColorMatch = { index: number; length: number; color: string };
 
-type AttributionContext = { text: string; offset: number };
-
-function betterExplicitSpeakerColorMatch(best: SpeakerColorMatch | null, next: SpeakerColorMatch) {
+function betterSpeakerColorMatch(best: SpeakerColorMatch | null, next: SpeakerColorMatch) {
   if (!best) return next;
   if (next.index > best.index) return next;
   if (next.index === best.index && next.length > best.length) return next;
   return best;
 }
 
-function betterWeakSpeakerColorMatch(best: SpeakerColorMatch | null, next: SpeakerColorMatch) {
+function betterTrailingSpeakerColorMatch(best: SpeakerColorMatch | null, next: SpeakerColorMatch) {
   if (!best) return next;
   if (next.index < best.index) return next;
   if (next.index === best.index && next.length > best.length) return next;
   return best;
 }
 
-function latestAttributionContext(context: string): AttributionContext {
-  const boundaryIndex = Math.max(
-    context.lastIndexOf("."),
-    context.lastIndexOf("!"),
-    context.lastIndexOf("?"),
-    context.lastIndexOf("\n"),
-  );
-  return boundaryIndex >= 0
-    ? { text: context.slice(boundaryIndex + 1), offset: boundaryIndex + 1 }
-    : { text: context, offset: 0 };
-}
-
-function findSpeakerColorInAttributionContext(context: AttributionContext, speakerColorMap: Map<string, string>) {
-  const lower = context.text.toLowerCase();
+function findSpeakerColorInContext(context: string, speakerColorMap: Map<string, string> | undefined) {
+  if (!speakerColorMap?.size) return undefined;
+  const lower = context.toLowerCase();
   let explicitAttribution: SpeakerColorMatch | null = null;
-  let weakAttribution: SpeakerColorMatch | null = null;
+  let nearestMention: SpeakerColorMatch | null = null;
 
   for (const [speakerName, color] of speakerColorMap) {
     let fromIndex = 0;
@@ -195,28 +155,55 @@ function findSpeakerColorInAttributionContext(context: AttributionContext, speak
       if (index === -1) break;
       const end = index + speakerName.length;
       if (hasNameBoundary(lower, index, end)) {
-        const match = { index: context.offset + index, length: speakerName.length, color };
-        weakAttribution = betterWeakSpeakerColorMatch(weakAttribution, match);
-        if (SPEAKER_NAME_ATTRIBUTION_RE.test(context.text.slice(end))) {
-          explicitAttribution = betterExplicitSpeakerColorMatch(explicitAttribution, match);
+        const match = { index, length: speakerName.length, color };
+        nearestMention = betterSpeakerColorMatch(nearestMention, match);
+        if (SPEAKER_NAME_ATTRIBUTION_RE.test(context.slice(end))) {
+          explicitAttribution = betterSpeakerColorMatch(explicitAttribution, match);
         }
       }
       fromIndex = end;
     }
   }
 
-  return explicitAttribution?.color ?? weakAttribution?.color;
+  return explicitAttribution?.color ?? nearestMention?.color;
 }
 
-function findSpeakerColorInContext(context: string, speakerColorMap: Map<string, string> | undefined) {
+function findSpeakerColorAfterQuote(
+  trailingContext: string,
+  speakerColorMap: Map<string, string> | undefined,
+  quoteText: string,
+) {
   if (!speakerColorMap?.size) return undefined;
-  const latest = latestAttributionContext(context);
-  return (
-    findSpeakerColorInAttributionContext(latest, speakerColorMap) ??
-    (latest.offset > 0
-      ? findSpeakerColorInAttributionContext({ text: context, offset: 0 }, speakerColorMap)
-      : undefined)
-  );
+  const context = trailingContext.slice(0, 180);
+  const lower = context.toLowerCase();
+  const closingCurlyDoubleQuote = String.fromCharCode(0x201d);
+  const closingCurlySingleQuote = String.fromCharCode(0x2019);
+  const quoteBody = quoteText
+    .trimEnd()
+    .replace(new RegExp(`["${closingCurlyDoubleQuote}]$`, "u"), "")
+    .replace(new RegExp(`['${closingCurlySingleQuote}]$`, "u"), "");
+  const allowsSpeechVerbAttribution = [",", ";", ":", "-", "!", "?"].some((mark) => quoteBody.endsWith(mark));
+  let best: SpeakerColorMatch | null = null;
+
+  for (const [speakerName, color] of speakerColorMap) {
+    let fromIndex = 0;
+    while (fromIndex < lower.length) {
+      const index = lower.indexOf(speakerName, fromIndex);
+      if (index === -1 || index > 80) break;
+      const end = index + speakerName.length;
+      if (
+        hasNameBoundary(lower, index, end) &&
+        /^[\s,.;:!?-]*(?:the\s+)?$/iu.test(context.slice(0, index)) &&
+        ((allowsSpeechVerbAttribution && SPEAKER_NAME_ATTRIBUTION_RE.test(context.slice(end))) ||
+          SPEAKER_POSSESSIVE_ATTRIBUTION_RE.test(context.slice(end)))
+      ) {
+        best = betterTrailingSpeakerColorMatch(best, { index, length: speakerName.length, color });
+      }
+      fromIndex = end;
+    }
+  }
+
+  return best?.color;
 }
 
 function isSameSpeakerQuoteContinuation(context: string) {
@@ -240,7 +227,12 @@ function splitAttributedQuotes(
 
   while ((match = quoteRe.exec(text)) !== null) {
     const context = text.slice(lastIndex, match.index);
-    const namedColor = findSpeakerColorInContext(context, speakerColorMap);
+    const trailingColor = findSpeakerColorAfterQuote(
+      text.slice(match.index + match[0].length),
+      speakerColorMap,
+      match[0],
+    );
+    const namedColor = trailingColor ?? findSpeakerColorInContext(context, speakerColorMap);
     const color =
       namedColor ?? (lastQuoteColor && isSameSpeakerQuoteContinuation(context) ? lastQuoteColor : undefined);
     if (!color) continue;
@@ -260,10 +252,8 @@ export function splitSpeakerDialogueColorSegments(
   text: string,
   defaultDialogueColor: string | undefined,
   speakerColorMap: Map<string, string> | undefined,
-  dialogueAttributions?: DialogueAttributionsExtra | null,
 ): SpeakerDialogueColorSegment[] {
   return (
-    splitDialogueAttributions(text, defaultDialogueColor, speakerColorMap, dialogueAttributions) ??
     splitSpeakerTags(text, defaultDialogueColor, speakerColorMap) ??
     splitNamePrefixedLines(text, defaultDialogueColor, speakerColorMap) ??
     splitAttributedQuotes(text, defaultDialogueColor, speakerColorMap) ?? [{ text, color: defaultDialogueColor }]

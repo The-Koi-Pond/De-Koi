@@ -18,6 +18,7 @@ export type CharacterMap = Map<
     avatarFilename?: string | null;
     nameColor?: string;
     dialogueColor?: string;
+    speakerAliases?: string[];
     boxColor?: string;
     avatarCrop?: AvatarCropValue | null;
     conversationStatus?: "online" | "idle" | "dnd" | "offline";

@@ -24,6 +24,7 @@ function ConversationMessageGroupedBubbleContent({ context }: { context: Convers
         const segChar = grp.speaker && context.charByName ? context.charByName.get(grp.speaker.toLowerCase()) : null;
         const segName = segChar?.name ?? grp.speaker ?? "";
         const segColor = segChar?.nameColor;
+        const segDialogueColor = segChar?.dialogueColor;
 
         if (!grp.speaker) {
           return (
@@ -52,6 +53,7 @@ function ConversationMessageGroupedBubbleContent({ context }: { context: Convers
               content={combinedText}
               mentionNames={context.mentionNames}
               onImageOpen={context.onImageOpen}
+              dialogueColor={segDialogueColor}
             />
           </div>
         );
