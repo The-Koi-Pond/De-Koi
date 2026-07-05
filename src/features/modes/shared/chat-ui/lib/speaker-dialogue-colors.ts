@@ -123,18 +123,38 @@ function hasNameBoundary(value: string, start: number, end: number) {
 
 type SpeakerColorMatch = { index: number; length: number; color: string };
 
-function betterSpeakerColorMatch(best: SpeakerColorMatch | null, next: SpeakerColorMatch) {
+type AttributionContext = { text: string; offset: number };
+
+function betterExplicitSpeakerColorMatch(best: SpeakerColorMatch | null, next: SpeakerColorMatch) {
   if (!best) return next;
   if (next.index > best.index) return next;
   if (next.index === best.index && next.length > best.length) return next;
   return best;
 }
 
-function findSpeakerColorInContext(context: string, speakerColorMap: Map<string, string> | undefined) {
-  if (!speakerColorMap?.size) return undefined;
-  const lower = context.toLowerCase();
+function betterWeakSpeakerColorMatch(best: SpeakerColorMatch | null, next: SpeakerColorMatch) {
+  if (!best) return next;
+  if (next.index < best.index) return next;
+  if (next.index === best.index && next.length > best.length) return next;
+  return best;
+}
+
+function latestAttributionContext(context: string): AttributionContext {
+  const boundaryIndex = Math.max(
+    context.lastIndexOf("."),
+    context.lastIndexOf("!"),
+    context.lastIndexOf("?"),
+    context.lastIndexOf("\n"),
+  );
+  return boundaryIndex >= 0
+    ? { text: context.slice(boundaryIndex + 1), offset: boundaryIndex + 1 }
+    : { text: context, offset: 0 };
+}
+
+function findSpeakerColorInAttributionContext(context: AttributionContext, speakerColorMap: Map<string, string>) {
+  const lower = context.text.toLowerCase();
   let explicitAttribution: SpeakerColorMatch | null = null;
-  let nearestMention: SpeakerColorMatch | null = null;
+  let weakAttribution: SpeakerColorMatch | null = null;
 
   for (const [speakerName, color] of speakerColorMap) {
     let fromIndex = 0;
@@ -143,17 +163,28 @@ function findSpeakerColorInContext(context: string, speakerColorMap: Map<string,
       if (index === -1) break;
       const end = index + speakerName.length;
       if (hasNameBoundary(lower, index, end)) {
-        const match = { index, length: speakerName.length, color };
-        nearestMention = betterSpeakerColorMatch(nearestMention, match);
-        if (SPEAKER_NAME_ATTRIBUTION_RE.test(context.slice(end))) {
-          explicitAttribution = betterSpeakerColorMatch(explicitAttribution, match);
+        const match = { index: context.offset + index, length: speakerName.length, color };
+        weakAttribution = betterWeakSpeakerColorMatch(weakAttribution, match);
+        if (SPEAKER_NAME_ATTRIBUTION_RE.test(context.text.slice(end))) {
+          explicitAttribution = betterExplicitSpeakerColorMatch(explicitAttribution, match);
         }
       }
       fromIndex = end;
     }
   }
 
-  return explicitAttribution?.color ?? nearestMention?.color;
+  return explicitAttribution?.color ?? weakAttribution?.color;
+}
+
+function findSpeakerColorInContext(context: string, speakerColorMap: Map<string, string> | undefined) {
+  if (!speakerColorMap?.size) return undefined;
+  const latest = latestAttributionContext(context);
+  return (
+    findSpeakerColorInAttributionContext(latest, speakerColorMap) ??
+    (latest.offset > 0
+      ? findSpeakerColorInAttributionContext({ text: context, offset: 0 }, speakerColorMap)
+      : undefined)
+  );
 }
 
 function isSameSpeakerQuoteContinuation(context: string) {

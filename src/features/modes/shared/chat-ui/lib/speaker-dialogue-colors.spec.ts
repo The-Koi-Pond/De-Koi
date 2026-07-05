@@ -51,6 +51,19 @@ describe("speaker dialogue colors", () => {
       { text: '"Always."', color: "#33aaff" },
     ]);
   });
+  it("does not let a mentioned non-speaker steal the next quote color", () => {
+    const colors = createSpeakerColorLookup([
+      ["Alice", "#ff3366"],
+      ["Bob", "#33aaff"],
+    ]);
+
+    expect(
+      splitSpeakerDialogueColorSegments('Alice watches Bob cross the room. "Stay close."', "#ffffff", colors),
+    ).toEqual([
+      { text: "Alice watches Bob cross the room. ", color: "#ffffff" },
+      { text: '"Stay close."', color: "#ff3366" },
+    ]);
+  });
   it("keeps the previous speaker color across same-attribution quote continuations", () => {
     const colors = createSpeakerColorLookup([
       ["Harlequin", "#00ff66"],
