@@ -28,7 +28,12 @@ import {
   Play,
   Timer,
 } from "lucide-react";
-import type { Message, MessageExtra, MessageSwipe } from "../../../../../engine/contracts/types/chat";
+import type {
+  DialogueAttributionsExtra,
+  Message,
+  MessageExtra,
+  MessageSwipe,
+} from "../../../../../engine/contracts/types/chat";
 import {
   memo,
   useState,
@@ -100,6 +105,12 @@ const MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR =
   "button, a, textarea, input, select, label, [role='button'], [contenteditable='true'], .mari-message-actions";
 type ChatMessageExtra = Partial<MessageExtra> & { hiddenFromAi?: unknown };
 const EMPTY_CHAT_MESSAGE_EXTRA: ChatMessageExtra = {};
+
+function chatMessageExtraFromUnknown(value: unknown): ChatMessageExtra {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as ChatMessageExtra)
+    : EMPTY_CHAT_MESSAGE_EXTRA;
+}
 
 function formatEditableMessageText(value: string, quoteFormat: QuoteFormat): string {
   return formatTextQuotes(value, quoteFormat);
@@ -456,15 +467,14 @@ function renderWithSpeakerTags(
   defaultDialogueColor: string | undefined,
   speakerColorMap: Map<string, string> | undefined,
   boldDialogue = true,
+  dialogueAttributions?: DialogueAttributionsExtra | null,
 ): ReactNode[] {
   const renderLine = (line: string, color = defaultDialogueColor) => highlightDialogue(line, color, boldDialogue);
-  const segments = splitSpeakerDialogueColorSegments(text, defaultDialogueColor, speakerColorMap);
+  const segments = splitSpeakerDialogueColorSegments(text, defaultDialogueColor, speakerColorMap, dialogueAttributions);
   if (segments.length === 1 && segments[0]?.text === text) {
     return renderLine(text, segments[0].color);
   }
-  return segments.map((segment, index) => (
-    <span key={`s${index}`}>{renderLine(segment.text, segment.color)}</span>
-  ));
+  return segments.map((segment, index) => <span key={`s${index}`}>{renderLine(segment.text, segment.color)}</span>);
 }
 
 function collectInlineMarkdownRanges(text: string): Array<[number, number]> {
@@ -831,6 +841,7 @@ function renderContent(
   boldDialogue = true,
   htmlScopeClass = "mari-html-message-content",
   quoteFormat: QuoteFormat = "straight",
+  dialogueAttributions?: DialogueAttributionsExtra | null,
 ): ReactNode {
   const normalized = formatTextQuotes(text, quoteFormat);
 
@@ -841,7 +852,7 @@ function renderContent(
     // renderWithHeadings handles headings, *** and --- horizontal rules,
     // and delegates the rest to speaker-tag / dialogue rendering.
     return renderMarkdownBlocks(normalized, (seg, _kp) =>
-      renderWithSpeakerTags(seg, dialogueColor, speakerColorMap, boldDialogue),
+      renderWithSpeakerTags(seg, dialogueColor, speakerColorMap, boldDialogue, dialogueAttributions),
     );
   }
 
@@ -1202,11 +1213,11 @@ export const ChatMessage = memo(function ChatMessage({
   }, [showActions]);
 
   // Parse message extra for conversation start flag
-  const extra = useMemo<ChatMessageExtra>(() => {
-    return message.extra && typeof message.extra === "object" && !Array.isArray(message.extra)
-      ? (message.extra as ChatMessageExtra)
-      : EMPTY_CHAT_MESSAGE_EXTRA;
-  }, [message.extra]);
+  const extra = useMemo<ChatMessageExtra>(() => chatMessageExtraFromUnknown(message.extra), [message.extra]);
+  const activeSwipeExtra = useMemo<ChatMessageExtra>(() => {
+    return chatMessageExtraFromUnknown(message.swipes?.[message.activeSwipeIndex]?.extra);
+  }, [message.activeSwipeIndex, message.swipes]);
+  const dialogueAttributions = activeSwipeExtra.dialogueAttributions ?? extra.dialogueAttributions ?? null;
   const attachments = useMemo(() => messageAttachmentsFromExtra(extra), [extra]);
   const isConversationStart = !!extra.isConversationStart;
   const isHiddenFromAI = extra.hiddenFromAI === true || extra.hiddenFromAi === true;
@@ -1456,10 +1467,7 @@ export const ChatMessage = memo(function ChatMessage({
   ]);
 
   const isMergedGroup = groupChatMode === "merged" && !isUser && !!chatCharacterIds && chatCharacterIds.length > 1;
-  const mergedNames = useMemo(
-    () => mergedGroupNames(chatCharacterIds, characterMap),
-    [chatCharacterIds, characterMap],
-  );
+  const mergedNames = useMemo(() => mergedGroupNames(chatCharacterIds, characterMap), [chatCharacterIds, characterMap]);
   const mergedDisplayName = mergedGroupDisplayLabel(mergedNames);
   const displayName = isUser ? userName : isMergedGroup ? mergedDisplayName : charName;
   const baseAvatarUrl = isUser
@@ -1702,8 +1710,16 @@ export const ChatMessage = memo(function ChatMessage({
   }, [message.id]);
 
   const renderedContent = useMemo(() => {
-    return renderContent(text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass, quoteFormat);
-  }, [text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass, quoteFormat]);
+    return renderContent(
+      text,
+      dialogueColor,
+      speakerColorMap,
+      boldDialogue,
+      htmlScopeClass,
+      quoteFormat,
+      dialogueAttributions,
+    );
+  }, [text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass, quoteFormat, dialogueAttributions]);
 
   const handleCopy = () => {
     copyToClipboard(message.content);
@@ -1762,7 +1778,10 @@ export const ChatMessage = memo(function ChatMessage({
   const renderCharacterName = (className: string, style?: React.CSSProperties): ReactNode => {
     if (!canOpenCharacterProfile) {
       return (
-        <span className={cn(className, isMergedGroup && "cursor-default no-underline hover:no-underline")} style={style}>
+        <span
+          className={cn(className, isMergedGroup && "cursor-default no-underline hover:no-underline")}
+          style={style}
+        >
           {isMergedGroup ? mergedNameElement : displayName}
         </span>
       );
@@ -2807,8 +2826,6 @@ export const ChatMessage = memo(function ChatMessage({
               })}
             </div>
           )}
-
-
 
           {/* Swipes */}
           {hasSwipes && (
