@@ -156,7 +156,7 @@ const collectionMetadata = {
   "music-dj-playlists": {
     model: "`MusicDjPlaylist`",
     confidence: "Type-backed",
-    notes: "Character, chat, and global Music Player playlist memory. `tracks[]` stores accepted YouTube candidates and feedback-weighted playback history.",
+    notes: "Music Player playlists scoped to characters, chats, or global use. `tracks[]` stores accepted YouTube candidates and feedback-weighted playback history.",
   },
   connections: {
     model: "`APIConnection`",
