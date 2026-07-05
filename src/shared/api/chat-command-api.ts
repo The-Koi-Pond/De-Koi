@@ -31,8 +31,21 @@ export const chatCommandApi = {
   memoriesList: <T = unknown>(chatId: string | null, options?: ListChatMemoriesOptions) =>
     invokeTauri<T>("chat_memories_list", memoryListArgs(chatId, options)),
   memoryDelete: (chatId: string | null, memoryId: string) => invokeTauri("chat_memory_delete", { chatId, memoryId }),
+  memoryUpdate: <T = unknown>(chatId: string | null, memoryId: string, body: { content: string }) =>
+    invokeTauri<T>("chat_memory_update", { chatId, memoryId, body }),
+  memorySoftDelete: (chatId: string | null, memoryId: string) =>
+    invokeTauri("chat_memory_soft_delete", { chatId, memoryId }),
+  memoryRestore: <T = unknown>(chatId: string | null, memoryId: string) =>
+    invokeTauri<T>("chat_memory_restore", { chatId, memoryId }),
+  memoryPin: (chatId: string | null, memoryId: string, pinned: boolean) =>
+    invokeTauri("chat_memory_pin", { chatId, memoryId, pinned }),
+  memoryCorrect: <T = unknown>(chatId: string | null, memoryId: string, body: { replacementContent?: string }) =>
+    invokeTauri<T>("chat_memory_correct", { chatId, memoryId, body }),
   memoriesClear: (chatId: string | null) => invokeTauri("chat_memories_clear", { chatId }),
   memoriesRefresh: <T = unknown>(chatId: string | null) => invokeTauri<T>("chat_memories_refresh", { chatId }),
+  memoriesMigrate: <T = unknown>(chatId: string | null) => invokeTauri<T>("chat_memories_migrate", { chatId }),
+  memoryIndexesRebuild: <T = unknown>(chatId: string | null) =>
+    invokeTauri<T>("chat_memory_indexes_rebuild", { chatId }),
   memoriesExport: <T = unknown>(chatId: string) => invokeTauri<T>("chat_memories_export", { chatId }),
   memoriesImport: <T = unknown>(chatId: string, body: unknown, replace?: boolean) =>
     invokeTauri<T>(

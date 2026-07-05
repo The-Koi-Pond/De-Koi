@@ -34,6 +34,53 @@ pub fn chat_memory_delete(
 }
 
 #[tauri::command]
+pub async fn chat_memory_update(
+    state: State<'_, AppState>,
+    chat_id: String,
+    memory_id: String,
+    body: Value,
+) -> Result<Value, AppError> {
+    chat_memory::update_chat_memory(&state, &chat_id, &memory_id, body).await
+}
+
+#[tauri::command]
+pub fn chat_memory_soft_delete(
+    state: State<'_, AppState>,
+    chat_id: String,
+    memory_id: String,
+) -> Result<Value, AppError> {
+    chat_memory::soft_delete_chat_memory(&state, &chat_id, &memory_id)
+}
+
+#[tauri::command]
+pub async fn chat_memory_restore(
+    state: State<'_, AppState>,
+    chat_id: String,
+    memory_id: String,
+) -> Result<Value, AppError> {
+    chat_memory::restore_chat_memory(&state, &chat_id, &memory_id).await
+}
+
+#[tauri::command]
+pub fn chat_memory_pin(
+    state: State<'_, AppState>,
+    chat_id: String,
+    memory_id: String,
+    pinned: bool,
+) -> Result<Value, AppError> {
+    chat_memory::pin_chat_memory(&state, &chat_id, &memory_id, pinned)
+}
+
+#[tauri::command]
+pub async fn chat_memory_correct(
+    state: State<'_, AppState>,
+    chat_id: String,
+    memory_id: String,
+    body: Value,
+) -> Result<Value, AppError> {
+    chat_memory::correct_chat_memory(&state, &chat_id, &memory_id, body).await
+}
+#[tauri::command]
 pub fn chat_memories_clear(state: State<'_, AppState>, chat_id: String) -> Result<Value, AppError> {
     chat_memory::clear_chat_memories(&state, &chat_id)
 }
@@ -46,6 +93,21 @@ pub async fn chat_memories_refresh(
     chat_memory::refresh_chat_memories(&state, &chat_id).await
 }
 
+#[tauri::command]
+pub async fn chat_memories_migrate(
+    state: State<'_, AppState>,
+    chat_id: String,
+) -> Result<Value, AppError> {
+    chat_memory::migrate_chat_memories(&state, &chat_id).await
+}
+
+#[tauri::command]
+pub async fn chat_memory_indexes_rebuild(
+    state: State<'_, AppState>,
+    chat_id: String,
+) -> Result<Value, AppError> {
+    chat_memory::rebuild_chat_memory_indexes(&state, &chat_id).await
+}
 #[tauri::command]
 pub fn chat_memories_export(
     state: State<'_, AppState>,

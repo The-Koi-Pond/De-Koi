@@ -405,6 +405,81 @@ fn insert_memory_embedding_fields(memory: &mut Map<String, Value>, result: Memor
     }
 }
 
+fn remove_memory_embedding_fields(memory: &mut Map<String, Value>) {
+    // Embedding availability is an index projection signal. Top-level `status`
+    // is owned by lifecycle actions such as delete/correct/supersede only.
+    memory.remove("embedding");
+    memory.insert("hasEmbedding".to_string(), json!(false));
+    memory.insert("embeddingStatus".to_string(), json!("missing"));
+    memory.insert("embeddingSource".to_string(), Value::Null);
+    memory.insert("embeddingConnectionId".to_string(), Value::Null);
+    memory.insert("embeddingModel".to_string(), Value::Null);
+}
+
+fn chat_memory_status(memory: &Value) -> &str {
+    memory
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("active")
+}
+
+fn chat_memory_object_status(memory: &Map<String, Value>) -> &str {
+    memory
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("active")
+}
+
+fn chat_memory_object_is_retrievable(memory: &Map<String, Value>) -> bool {
+    matches!(chat_memory_object_status(memory), "" | "active")
+        && memory.get("deletedAt").is_none()
+        && memory.get("correctedAt").is_none()
+        && memory.get("supersededAt").is_none()
+        && memory.get("supersededByMemoryId").is_none()
+}
+
+pub(crate) fn chat_memory_is_retrievable(memory: &Value) -> bool {
+    memory
+        .as_object()
+        .is_some_and(chat_memory_object_is_retrievable)
+}
+
+fn memory_object_by_id_mut<'a>(
+    memories: &'a mut [Value],
+    memory_id: &str,
+) -> AppResult<&'a mut Map<String, Value>> {
+    memories
+        .iter_mut()
+        .find(|memory| memory.get("id").and_then(Value::as_str) == Some(memory_id))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| AppError::not_found("Chat memory was not found"))
+}
+
+fn string_from_object(memory: &Map<String, Value>, key: &str) -> Option<String> {
+    memory
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+async fn embed_chat_memory_object(
+    memory: &mut Map<String, Value>,
+    embedding_context: Option<&MemoryEmbeddingContext>,
+) -> AppResult<()> {
+    let content = string_from_object(memory, "content")
+        .ok_or_else(|| AppError::invalid_input("Memory content is required"))?;
+    insert_memory_embedding_fields(
+        memory,
+        embed_memory_content(embedding_context, &content).await?,
+    );
+    Ok(())
+}
 fn memory_has_numeric_embedding(memory: &Value) -> bool {
     memory
         .get("embedding")
@@ -454,6 +529,14 @@ fn memory_chunk_key(message_ids: &[String]) -> String {
 }
 
 fn has_non_transcript_memory_metadata(memory: &Value) -> bool {
+    if chat_memory_status(memory) != "active"
+        || memory
+            .get("userEdited")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        return true;
+    }
     if memory
         .get("source")
         .and_then(Value::as_str)
@@ -847,6 +930,162 @@ pub(crate) fn delete_chat_memory(
     set_chat_memory_values(state, chat_id, values)
 }
 
+pub(crate) async fn update_chat_memory(
+    state: &AppState,
+    chat_id: &str,
+    memory_id: &str,
+    body: Value,
+) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let embedding_context = memory_embedding_context(state, &chat).await?;
+    let mut values = chat_memory_values_for_mutation(&chat)?;
+    let now = now_iso();
+    {
+        let memory = memory_object_by_id_mut(&mut values, memory_id)?;
+        if !chat_memory_object_is_retrievable(memory) {
+            return Err(AppError::invalid_input(
+                "Only active memories can be edited",
+            ));
+        }
+        let content = body
+            .get("content")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| AppError::invalid_input("Memory content is required"))?;
+        memory.insert("content".to_string(), Value::String(content.to_string()));
+        memory.insert("userEdited".to_string(), json!(true));
+        memory.insert("updatedAt".to_string(), Value::String(now.clone()));
+        embed_chat_memory_object(memory, embedding_context.as_ref()).await?;
+    }
+    set_chat_memory_values(state, chat_id, values)
+}
+
+pub(crate) fn soft_delete_chat_memory(
+    state: &AppState,
+    chat_id: &str,
+    memory_id: &str,
+) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let mut values = chat_memory_values_for_mutation(&chat)?;
+    {
+        let memory = memory_object_by_id_mut(&mut values, memory_id)?;
+        remove_memory_embedding_fields(memory);
+        memory.insert("status".to_string(), json!("deleted"));
+        memory.insert("deletedAt".to_string(), Value::String(now_iso()));
+    }
+    set_chat_memory_values(state, chat_id, values)
+}
+
+pub(crate) async fn restore_chat_memory(
+    state: &AppState,
+    chat_id: &str,
+    memory_id: &str,
+) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let embedding_context = memory_embedding_context(state, &chat).await?;
+    let mut values = chat_memory_values_for_mutation(&chat)?;
+    {
+        let memory = memory_object_by_id_mut(&mut values, memory_id)?;
+        memory.remove("deletedAt");
+        memory.remove("correctedAt");
+        memory.insert("status".to_string(), json!("active"));
+        memory.insert("restoredAt".to_string(), Value::String(now_iso()));
+        embed_chat_memory_object(memory, embedding_context.as_ref()).await?;
+    }
+    set_chat_memory_values(state, chat_id, values)
+}
+
+pub(crate) fn pin_chat_memory(
+    state: &AppState,
+    chat_id: &str,
+    memory_id: &str,
+    pinned: bool,
+) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let mut values = chat_memory_values_for_mutation(&chat)?;
+    {
+        let memory = memory_object_by_id_mut(&mut values, memory_id)?;
+        memory.insert("pinned".to_string(), json!(pinned));
+        memory.insert("updatedAt".to_string(), Value::String(now_iso()));
+    }
+    set_chat_memory_values(state, chat_id, values)
+}
+
+pub(crate) async fn correct_chat_memory(
+    state: &AppState,
+    chat_id: &str,
+    memory_id: &str,
+    body: Value,
+) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let embedding_context = memory_embedding_context(state, &chat).await?;
+    let mut values = chat_memory_values_for_mutation(&chat)?;
+    let now = now_iso();
+    let mut replacement: Option<Value> = None;
+    {
+        let memory = memory_object_by_id_mut(&mut values, memory_id)?;
+        remove_memory_embedding_fields(memory);
+        memory.insert("status".to_string(), json!("wrong"));
+        memory.insert("correctedAt".to_string(), Value::String(now.clone()));
+
+        let replacement_content = body
+            .get("replacementContent")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let Some(content) = replacement_content {
+            let replacement_id = new_id();
+            memory.insert(
+                "correctedByMemoryId".to_string(),
+                Value::String(replacement_id.clone()),
+            );
+            let mut next = Map::new();
+            next.insert("id".to_string(), Value::String(replacement_id.clone()));
+            next.insert("chatId".to_string(), Value::String(chat_id.to_string()));
+            next.insert("content".to_string(), Value::String(content.to_string()));
+            next.insert("messageCount".to_string(), json!(1));
+            next.insert("source".to_string(), json!("correction"));
+            next.insert(
+                "correctionOfMemoryId".to_string(),
+                Value::String(memory_id.to_string()),
+            );
+            next.insert("canonicalMemoryVersion".to_string(), json!(1));
+            next.insert("memoryKind".to_string(), json!("correction"));
+            next.insert("scopeType".to_string(), json!("chat"));
+            next.insert("scopeId".to_string(), json!(chat_id));
+            next.insert("status".to_string(), json!("active"));
+            next.insert("legacySourceLane".to_string(), json!("chats.memories"));
+            next.insert(
+                "legacySourceId".to_string(),
+                Value::String(replacement_id.clone()),
+            );
+            next.insert("createdAt".to_string(), Value::String(now.clone()));
+            next.insert(
+                "firstMessageAt".to_string(),
+                memory
+                    .get("firstMessageAt")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String(now.clone())),
+            );
+            next.insert(
+                "lastMessageAt".to_string(),
+                memory
+                    .get("lastMessageAt")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String(now.clone())),
+            );
+            next.insert("creationReason".to_string(), json!("User correction"));
+            next.insert("userEdited".to_string(), json!(true));
+            embed_chat_memory_object(&mut next, embedding_context.as_ref()).await?;
+            replacement = Some(Value::Object(next));
+        }
+    }
+    if let Some(replacement) = replacement {
+        values.push(replacement);
+    }
+    set_chat_memory_values(state, chat_id, values)
+}
 pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
     let chat = get_required(state, "chats", chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
@@ -903,13 +1142,17 @@ pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> Ap
             .filter(|id| !id.trim().is_empty())
             .map(str::to_string)
             .collect::<Vec<_>>();
-        if let Some(memory) = reusable_chat_memory(
+        if let Some(existing_memory) = reusable_chat_memory(
             &existing_by_chunk,
             &message_ids,
             &content,
             embedding_context.as_ref(),
         ) {
-            chunks.push(memory.clone());
+            let mut memory = existing_memory.clone();
+            if let Some(object) = memory.as_object_mut() {
+                canonicalize_transcript_capture(object, chat_id);
+            }
+            chunks.push(memory);
             reused += 1;
             continue;
         }
@@ -951,6 +1194,7 @@ pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> Ap
                 .unwrap_or(Value::Null),
         );
         memory.insert("createdAt".to_string(), Value::String(now.clone()));
+        canonicalize_transcript_capture(&mut memory, chat_id);
         pending.push((chunks.len(), content, memory));
         chunks.push(Value::Null);
     }
@@ -1030,7 +1274,49 @@ fn public_memory_recall_embedding(value: Option<&Value>) -> Value {
     }
 }
 
+fn sanctioned_memory_recall_kind(value: &Value) -> Option<&'static str> {
+    match value.as_str().map(str::trim) {
+        Some("episode") => Some("episode"),
+        Some("transcript") => Some("transcript"),
+        Some("manual") => Some("manual"),
+        Some("imported") => Some("imported"),
+        Some("command") => Some("command"),
+        Some("character") => Some("character"),
+        Some("scene_event") => Some("scene_event"),
+        Some("scene_summary") => Some("scene_summary"),
+        Some("summary") => Some("summary"),
+        Some("correction") => Some("correction"),
+        _ => None,
+    }
+}
+
+fn sanctioned_memory_recall_scope_type(value: &Value) -> Option<&'static str> {
+    match value.as_str().map(str::trim) {
+        Some("chat") => Some("chat"),
+        Some("character") => Some("character"),
+        Some("scene") => Some("scene"),
+        _ => None,
+    }
+}
+
+fn optional_sanctioned_memory_recall_kind(value: &Value) -> Option<Option<&'static str>> {
+    match value.get("memoryKind") {
+        Some(raw) if !raw.is_null() => sanctioned_memory_recall_kind(raw).map(Some),
+        _ => Some(None),
+    }
+}
+
+fn optional_sanctioned_memory_recall_scope_type(value: &Value) -> Option<Option<&'static str>> {
+    match value.get("scopeType") {
+        Some(raw) if !raw.is_null() => sanctioned_memory_recall_scope_type(raw).map(Some),
+        _ => Some(None),
+    }
+}
+
 fn public_memory_recall_export_chunk(memory: &Value, fallback_now: &str) -> Option<Value> {
+    if !chat_memory_is_retrievable(memory) {
+        return None;
+    }
     let content = string_field_trimmed(memory, "content")?;
     let created_at =
         string_field_trimmed(memory, "createdAt").unwrap_or_else(|| fallback_now.to_string());
@@ -1040,14 +1326,43 @@ fn public_memory_recall_export_chunk(memory: &Value, fallback_now: &str) -> Opti
         string_field_trimmed(memory, "lastMessageAt").unwrap_or_else(|| first_message_at.clone());
     let message_count = positive_usize_field(memory, "messageCount").unwrap_or(1);
 
-    Some(json!({
-        "content": content,
-        "embedding": public_memory_recall_embedding(memory.get("embedding")),
-        "messageCount": message_count,
-        "firstMessageAt": first_message_at,
-        "lastMessageAt": last_message_at,
-        "createdAt": created_at
-    }))
+    let mut chunk = Map::new();
+    chunk.insert("content".to_string(), Value::String(content));
+    chunk.insert(
+        "embedding".to_string(),
+        public_memory_recall_embedding(memory.get("embedding")),
+    );
+    chunk.insert("messageCount".to_string(), json!(message_count));
+    chunk.insert(
+        "firstMessageAt".to_string(),
+        Value::String(first_message_at),
+    );
+    chunk.insert("lastMessageAt".to_string(), Value::String(last_message_at));
+    chunk.insert("createdAt".to_string(), Value::String(created_at));
+    if let Some(kind) = optional_sanctioned_memory_recall_kind(memory)? {
+        chunk.insert("memoryKind".to_string(), json!(kind));
+    }
+    if let Some(scope_type) = optional_sanctioned_memory_recall_scope_type(memory)? {
+        chunk.insert("scopeType".to_string(), json!(scope_type));
+    }
+    for key in [
+        "canonicalMemoryVersion",
+        "scopeId",
+        "legacySourceLane",
+        "legacySourceId",
+        "creationReason",
+        "source",
+        "target",
+        "targetCharacterId",
+        "targetCharacterName",
+        "commandMemoryKey",
+        "correctionOfMemoryId",
+    ] {
+        if let Some(value) = memory.get(key).filter(|value| !value.is_null()) {
+            chunk.insert(key.to_string(), value.clone());
+        }
+    }
+    Some(Value::Object(chunk))
 }
 
 type MemoryRecallImportKey = (String, String, String);
@@ -1185,10 +1500,449 @@ fn normalize_memory_recall_import_chunk(
     if !embedding.is_null() {
         memory.insert("embedding".to_string(), embedding);
     }
+    if let Some(kind) = optional_sanctioned_memory_recall_kind(value)? {
+        memory.insert("memoryKind".to_string(), json!(kind));
+    }
+    if let Some(scope_type) = optional_sanctioned_memory_recall_scope_type(value)? {
+        memory.insert("scopeType".to_string(), json!(scope_type));
+    }
+    for key in [
+        "canonicalMemoryVersion",
+        "scopeId",
+        "legacySourceLane",
+        "legacySourceId",
+        "creationReason",
+        "source",
+        "target",
+        "targetCharacterId",
+        "targetCharacterName",
+        "commandMemoryKey",
+        "correctionOfMemoryId",
+    ] {
+        if let Some(field_value) = value.get(key).filter(|field_value| !field_value.is_null()) {
+            memory.insert(key.to_string(), field_value.clone());
+        }
+    }
+    if memory.get("canonicalMemoryVersion").and_then(Value::as_u64) == Some(1) {
+        memory.insert("status".to_string(), json!("active"));
+    }
 
     Some((memory, keys, content))
 }
 
+fn canonical_memory_kind(memory: &Map<String, Value>, chat_id: &str) -> &'static str {
+    if string_from_object(memory, "source").as_deref() == Some("correction")
+        || string_from_object(memory, "correctionOfMemoryId").is_some()
+    {
+        return "correction";
+    }
+    if string_from_object(memory, "sourceChatId")
+        .as_deref()
+        .is_some_and(|source_chat_id| source_chat_id != chat_id)
+    {
+        return "imported";
+    }
+    if memory
+        .get("commandMemoryKey")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return "command";
+    }
+    if memory
+        .get("messageIds")
+        .and_then(Value::as_array)
+        .is_some_and(|ids| !ids.is_empty())
+    {
+        return "transcript";
+    }
+    "manual"
+}
+
+fn set_if_absent(memory: &mut Map<String, Value>, key: &str, value: Value) -> bool {
+    if memory.get(key).is_some_and(|existing| !existing.is_null()) {
+        return false;
+    }
+    memory.insert(key.to_string(), value);
+    true
+}
+
+fn canonicalize_memory_projection(
+    memory: &mut Map<String, Value>,
+    chat_id: &str,
+    now: &str,
+) -> bool {
+    let mut changed = false;
+    if memory.get("canonicalMemoryVersion").and_then(Value::as_u64) != Some(1) {
+        memory.insert("canonicalMemoryVersion".to_string(), json!(1));
+        changed = true;
+    }
+    if memory.get("status").is_none() {
+        memory.insert("status".to_string(), json!("active"));
+        changed = true;
+    }
+    let kind = canonical_memory_kind(memory, chat_id);
+    if memory.get("memoryKind").and_then(Value::as_str) != Some(kind) {
+        memory.insert("memoryKind".to_string(), json!(kind));
+        changed = true;
+    }
+    changed |= set_if_absent(memory, "scopeType", json!("chat"));
+    changed |= set_if_absent(memory, "scopeId", json!(chat_id));
+    changed |= set_if_absent(memory, "legacySourceLane", json!("chats.memories"));
+    if let Some(id) = string_from_object(memory, "id") {
+        changed |= set_if_absent(memory, "legacySourceId", json!(id));
+    }
+    changed |= set_if_absent(memory, "creationReason", json!("Migrated chat memory"));
+    changed |= set_if_absent(memory, "migratedAt", json!(now));
+    changed
+}
+
+fn canonicalize_transcript_capture(memory: &mut Map<String, Value>, chat_id: &str) {
+    memory.insert("canonicalMemoryVersion".to_string(), json!(1));
+    memory.insert("status".to_string(), json!("active"));
+    memory.insert("memoryKind".to_string(), json!("transcript"));
+    memory.insert("scopeType".to_string(), json!("chat"));
+    memory.insert("scopeId".to_string(), json!(chat_id));
+    memory.insert("legacySourceLane".to_string(), json!("chats.memories"));
+    if let Some(id) = string_from_object(memory, "id") {
+        memory.insert("legacySourceId".to_string(), json!(id));
+    }
+    memory.insert(
+        "creationReason".to_string(),
+        json!("Automatic transcript chunk capture"),
+    );
+}
+
+fn legacy_source_ids(memories: &[Value]) -> HashSet<String> {
+    memories
+        .iter()
+        .filter_map(|memory| memory.get("legacySourceId").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect()
+}
+
+fn memory_projection_id(prefix: &str, seed: &str) -> String {
+    let mut hash = 2166136261_u32;
+    for byte in seed.as_bytes() {
+        hash ^= *byte as u32;
+        hash = hash.wrapping_mul(16777619);
+    }
+    format!("memory-{prefix}-{:08x}", hash)
+}
+
+struct MigratedMemoryProjection<'a> {
+    chat_id: &'a str,
+    content: &'a str,
+    kind: &'a str,
+    scope_type: &'a str,
+    scope_id: &'a str,
+    source_lane: &'a str,
+    source_id: &'a str,
+    created_at: &'a str,
+    reason: &'a str,
+}
+
+fn migrated_memory_base(projection: MigratedMemoryProjection<'_>) -> Map<String, Value> {
+    let mut memory = Map::new();
+    memory.insert(
+        "id".to_string(),
+        Value::String(memory_projection_id(projection.kind, projection.source_id)),
+    );
+    memory.insert(
+        "chatId".to_string(),
+        Value::String(projection.chat_id.to_string()),
+    );
+    memory.insert(
+        "content".to_string(),
+        Value::String(projection.content.to_string()),
+    );
+    memory.insert("messageCount".to_string(), json!(1));
+    memory.insert(
+        "firstMessageAt".to_string(),
+        Value::String(projection.created_at.to_string()),
+    );
+    memory.insert(
+        "lastMessageAt".to_string(),
+        Value::String(projection.created_at.to_string()),
+    );
+    memory.insert(
+        "createdAt".to_string(),
+        Value::String(projection.created_at.to_string()),
+    );
+    memory.insert("canonicalMemoryVersion".to_string(), json!(1));
+    memory.insert("memoryKind".to_string(), json!(projection.kind));
+    memory.insert("scopeType".to_string(), json!(projection.scope_type));
+    memory.insert("scopeId".to_string(), json!(projection.scope_id));
+    memory.insert(
+        "legacySourceLane".to_string(),
+        json!(projection.source_lane),
+    );
+    memory.insert("legacySourceId".to_string(), json!(projection.source_id));
+    memory.insert("creationReason".to_string(), json!(projection.reason));
+    memory.insert("status".to_string(), json!("active"));
+    memory
+}
+
+fn push_character_memory_projections(
+    state: &AppState,
+    chat: &Value,
+    chat_id: &str,
+    memories: &mut Vec<Value>,
+    seen: &mut HashSet<String>,
+    now: &str,
+) -> AppResult<usize> {
+    let mut created = 0usize;
+    for character_id in string_array_from_value(chat.get("characterIds")) {
+        let Some(character) = state.storage.get("characters", &character_id)? else {
+            continue;
+        };
+        let data = object_or_parse(character.get("data"));
+        let extensions = object_or_parse(data.get("extensions"));
+        let Some(character_memories) = extensions
+            .get("characterMemories")
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+        for (index, value) in character_memories.iter().enumerate() {
+            let record = object_or_parse(Some(value));
+            let Some(summary) = string_field_trimmed(&Value::Object(record.clone()), "summary")
+            else {
+                continue;
+            };
+            let created_at = string_field_trimmed(&Value::Object(record.clone()), "createdAt")
+                .unwrap_or_else(|| now.to_string());
+            let scene_chat_id = string_field_trimmed(&Value::Object(record.clone()), "sceneChatId");
+            let source_id = format!(
+                "character:{character_id}:{}:{}:{index}",
+                scene_chat_id.clone().unwrap_or_default(),
+                created_at
+            );
+            if !seen.insert(source_id.clone()) {
+                continue;
+            }
+            let mut memory = migrated_memory_base(MigratedMemoryProjection {
+                chat_id,
+                content: &summary,
+                kind: "character",
+                scope_type: "character",
+                scope_id: &character_id,
+                source_lane: "characters.data.extensions.characterMemories",
+                source_id: &source_id,
+                created_at: &created_at,
+                reason: "Migrated character memory",
+            });
+            if let Some(scene_chat_id) = scene_chat_id {
+                memory.insert("sceneChatId".to_string(), Value::String(scene_chat_id));
+            }
+            memories.push(Value::Object(memory));
+            created += 1;
+        }
+    }
+    Ok(created)
+}
+
+fn push_scene_summary_projections(
+    chat: &Value,
+    chat_id: &str,
+    memories: &mut Vec<Value>,
+    seen: &mut HashSet<String>,
+    now: &str,
+) -> usize {
+    let metadata = object_or_parse(chat.get("metadata"));
+    let mut created = 0usize;
+    let Some(history) = metadata
+        .get("roleplaySceneHistory")
+        .and_then(Value::as_array)
+    else {
+        return 0;
+    };
+    for (index, value) in history.iter().enumerate() {
+        let record = object_or_parse(Some(value));
+        let Some(summary) = string_field_trimmed(&Value::Object(record.clone()), "summary") else {
+            continue;
+        };
+        let scene_chat_id = string_field_trimmed(&Value::Object(record.clone()), "sceneChatId")
+            .unwrap_or_else(|| chat_id.to_string());
+        let concluded_at = string_field_trimmed(&Value::Object(record.clone()), "concludedAt")
+            .unwrap_or_else(|| now.to_string());
+        let source_id = format!("scene:{scene_chat_id}:{concluded_at}:{index}");
+        if !seen.insert(source_id.clone()) {
+            continue;
+        }
+        let mut memory = migrated_memory_base(MigratedMemoryProjection {
+            chat_id,
+            content: &summary,
+            kind: "scene_summary",
+            scope_type: "scene",
+            scope_id: &scene_chat_id,
+            source_lane: "chats.metadata.roleplaySceneHistory",
+            source_id: &source_id,
+            created_at: &concluded_at,
+            reason: "Migrated roleplay scene summary",
+        });
+        memory.insert("sceneChatId".to_string(), Value::String(scene_chat_id));
+        memories.push(Value::Object(memory));
+        created += 1;
+    }
+    created
+}
+
+fn push_chat_summary_projections(
+    chat: &Value,
+    chat_id: &str,
+    memories: &mut Vec<Value>,
+    seen: &mut HashSet<String>,
+    now: &str,
+) -> usize {
+    let metadata = object_or_parse(chat.get("metadata"));
+    let mut created = 0usize;
+    if let Some(entries) = metadata.get("summaryEntries").and_then(Value::as_array) {
+        for (index, value) in entries.iter().enumerate() {
+            let record = object_or_parse(Some(value));
+            let Some(content) = string_field_trimmed(&Value::Object(record.clone()), "content")
+            else {
+                continue;
+            };
+            let id = string_field_trimmed(&Value::Object(record.clone()), "id")
+                .unwrap_or_else(|| index.to_string());
+            let created_at = string_field_trimmed(&Value::Object(record.clone()), "createdAt")
+                .unwrap_or_else(|| now.to_string());
+            let source_id = format!("summary-entry:{id}");
+            if !seen.insert(source_id.clone()) {
+                continue;
+            }
+            memories.push(Value::Object(migrated_memory_base(
+                MigratedMemoryProjection {
+                    chat_id,
+                    content: &content,
+                    kind: "summary",
+                    scope_type: "chat",
+                    scope_id: chat_id,
+                    source_lane: "chats.metadata.summaryEntries",
+                    source_id: &source_id,
+                    created_at: &created_at,
+                    reason: "Migrated chat summary entry",
+                },
+            )));
+            created += 1;
+        }
+    }
+    if let Some(summary) =
+        string_field_trimmed(chat.get("metadata").unwrap_or(&Value::Null), "summary")
+    {
+        let source_id = "summary:legacy".to_string();
+        if seen.insert(source_id.clone()) {
+            memories.push(Value::Object(migrated_memory_base(
+                MigratedMemoryProjection {
+                    chat_id,
+                    content: &summary,
+                    kind: "summary",
+                    scope_type: "chat",
+                    scope_id: chat_id,
+                    source_lane: "chats.metadata.summary",
+                    source_id: &source_id,
+                    created_at: now,
+                    reason: "Migrated legacy compiled chat summary",
+                },
+            )));
+            created += 1;
+        }
+    }
+    created
+}
+
+fn migration_metadata(
+    mut metadata: Map<String, Value>,
+    now: &str,
+    created: usize,
+    updated: usize,
+) -> Map<String, Value> {
+    metadata.insert(
+        "memoryMigration".to_string(),
+        json!({
+            "version": 1,
+            "migratedAt": now,
+            "created": created,
+            "updated": updated,
+            "strategy": "additive_canonical_projection",
+            "rollback": "Remove rows with canonicalMemoryVersion=1 and migratedAt/legacySourceLane, or ignore them and keep legacy lanes; original character memories, scene history, summaries, agent-memory, and plugin-memory are not deleted.",
+            "separateLanes": {
+                "agent-memory": "separate_runtime_state",
+                "plugin-memory": "separate_extension_state"
+            }
+        }),
+    );
+    metadata
+}
+
+pub(crate) async fn rebuild_chat_memory_indexes(
+    state: &AppState,
+    chat_id: &str,
+) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let embedding_context = memory_embedding_context(state, &chat).await?;
+    let mut values = chat_memory_values_for_mutation(&chat)?;
+    let mut rebuilt = 0usize;
+    for memory in &mut values {
+        if !chat_memory_is_retrievable(memory) {
+            continue;
+        }
+        let Some(object) = memory.as_object_mut() else {
+            continue;
+        };
+        if embed_chat_memory_object(object, embedding_context.as_ref())
+            .await
+            .is_ok()
+        {
+            rebuilt += 1;
+        }
+    }
+    set_chat_memory_values(state, chat_id, values)?;
+    Ok(json!({ "rebuilt": rebuilt }))
+}
+
+pub(crate) async fn migrate_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let embedding_context = memory_embedding_context(state, &chat).await?;
+    let now = now_iso();
+    let mut values = chat_memory_values_for_mutation(&chat)?;
+    let mut updated = 0usize;
+    for memory in &mut values {
+        let Some(object) = memory.as_object_mut() else {
+            continue;
+        };
+        if canonicalize_memory_projection(object, chat_id, &now) {
+            updated += 1;
+        }
+        if chat_memory_is_retrievable(&Value::Object(object.clone())) {
+            embed_chat_memory_object(object, embedding_context.as_ref()).await?;
+        }
+    }
+    let mut seen = legacy_source_ids(&values);
+    let mut created = 0usize;
+    created +=
+        push_character_memory_projections(state, &chat, chat_id, &mut values, &mut seen, &now)?;
+    created += push_scene_summary_projections(&chat, chat_id, &mut values, &mut seen, &now);
+    created += push_chat_summary_projections(&chat, chat_id, &mut values, &mut seen, &now);
+    for memory in values.iter_mut().rev().take(created) {
+        if let Some(object) = memory.as_object_mut() {
+            embed_chat_memory_object(object, embedding_context.as_ref()).await?;
+        }
+    }
+    let metadata = migration_metadata(
+        object_or_parse(chat.get("metadata")),
+        &now,
+        created,
+        updated,
+    );
+    state.storage.patch(
+        "chats",
+        chat_id,
+        json!({ "memories": values, "metadata": metadata }),
+    )?;
+    Ok(json!({ "created": created, "updated": updated, "version": 1 }))
+}
 pub(crate) async fn import_chat_memories(
     state: &AppState,
     chat_id: &str,
@@ -1404,6 +2158,370 @@ mod tests {
         assert_eq!(memory_ids(&chat["memories"]), vec!["keep-me"]);
     }
 
+    #[tokio::test]
+    async fn migration_projects_legacy_memory_lanes_without_trusting_old_vectors() {
+        let state = test_state("chat-memory-migration-lanes");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-1",
+                    "name": "Mira",
+                    "data": {
+                        "name": "Mira",
+                        "extensions": {
+                            "characterMemories": [
+                                {
+                                    "from": "DM",
+                                    "summary": "Mira remembers the user likes jasmine tea.",
+                                    "createdAt": "2026-01-02T00:00:00.000Z"
+                                },
+                                {
+                                    "from": "Moonlit duel",
+                                    "sceneChatId": "scene-1",
+                                    "summary": "Mira and the user survived the moonlit duel.",
+                                    "createdAt": "2026-01-03T00:00:00.000Z"
+                                }
+                            ]
+                        }
+                    }
+                }),
+            )
+            .expect("character should seed");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Migration chat",
+                    "mode": "conversation",
+                    "characterIds": ["char-1"],
+                    "metadata": {
+                        "summary": "Legacy rolling summary says the lantern key matters.",
+                        "summaryEntries": [
+                            {
+                                "id": "summary-1",
+                                "content": "Summary entry says jasmine tea matters.",
+                                "createdAt": "2026-01-04T00:00:00.000Z"
+                            }
+                        ],
+                        "roleplaySceneHistory": [
+                            {
+                                "sceneChatId": "scene-1",
+                                "summary": "The moonlit duel ended peacefully.",
+                                "concludedAt": "2026-01-05T00:00:00.000Z"
+                            }
+                        ]
+                    },
+                    "memories": [
+                        {
+                            "id": "transcript-old-vector",
+                            "chatId": "chat-1",
+                            "content": "User: old transcript memory",
+                            "messageCount": 5,
+                            "messageIds": ["m1", "m2", "m3", "m4", "m5"],
+                            "firstMessageAt": "2026-01-01T00:00:00.000Z",
+                            "lastMessageAt": "2026-01-01T00:05:00.000Z",
+                            "createdAt": "2026-01-01T00:06:00.000Z",
+                            "hasEmbedding": true,
+                            "embedding": [0.42],
+                            "embeddingSource": "legacy"
+                        },
+                        {
+                            "id": "imported-old",
+                            "chatId": "chat-1",
+                            "content": "Imported memory from another chat.",
+                            "messageCount": 1,
+                            "sourceChatId": "other-chat",
+                            "firstMessageAt": "2026-01-01T00:00:00.000Z",
+                            "lastMessageAt": "2026-01-01T00:00:00.000Z",
+                            "createdAt": "2026-01-01T00:00:00.000Z"
+                        },
+                        {
+                            "id": "manual-old",
+                            "chatId": "chat-1",
+                            "content": "Manual memory without messages.",
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-01-01T00:00:00.000Z",
+                            "lastMessageAt": "2026-01-01T00:00:00.000Z",
+                            "createdAt": "2026-01-01T00:00:00.000Z"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+
+        let result = migrate_chat_memories(&state, "chat-1")
+            .await
+            .expect("migration should succeed");
+        assert!(result["created"].as_u64().unwrap_or_default() >= 3);
+        assert!(result["updated"].as_u64().unwrap_or_default() >= 3);
+
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(chat["metadata"]["memoryMigration"]["version"], json!(1));
+        assert_eq!(
+            chat["metadata"]["memoryMigration"]["separateLanes"]["agent-memory"],
+            json!("separate_runtime_state")
+        );
+        assert_eq!(
+            chat["metadata"]["memoryMigration"]["separateLanes"]["plugin-memory"],
+            json!("separate_extension_state")
+        );
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should be an array");
+        let transcript = memories
+            .iter()
+            .find(|memory| memory["id"] == json!("transcript-old-vector"))
+            .expect("transcript memory should remain");
+        assert_eq!(transcript["canonicalMemoryVersion"], json!(1));
+        assert_eq!(transcript["memoryKind"], json!("transcript"));
+        assert_eq!(transcript["embeddingSource"], json!("lexical"));
+        assert!(transcript["embedding"].as_array().unwrap().len() > 8);
+        assert!(memories
+            .iter()
+            .any(|memory| memory["memoryKind"] == json!("imported")));
+        assert!(memories
+            .iter()
+            .any(|memory| memory["memoryKind"] == json!("manual")));
+        assert!(memories.iter().any(|memory| {
+            memory["memoryKind"] == json!("character")
+                && memory["scopeType"] == json!("character")
+                && memory["scopeId"] == json!("char-1")
+        }));
+        assert!(memories.iter().any(|memory| {
+            memory["memoryKind"] == json!("scene_summary")
+                && memory["scopeType"] == json!("scene")
+                && memory["scopeId"] == json!("scene-1")
+        }));
+        assert!(memories
+            .iter()
+            .any(|memory| memory["memoryKind"] == json!("summary")));
+    }
+
+    #[tokio::test]
+    async fn migration_export_import_and_index_rebuild_preserve_canonical_projection() {
+        let state = test_state("chat-memory-migration-export-import");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "source-chat",
+                    "name": "Source chat",
+                    "mode": "conversation",
+                    "memories": [
+                        {
+                            "id": "canonical-missing-index",
+                            "chatId": "source-chat",
+                            "content": "Canonical migrated memory without an index.",
+                            "canonicalMemoryVersion": 1,
+                            "memoryKind": "manual",
+                            "scopeType": "chat",
+                            "scopeId": "source-chat",
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-01-01T00:00:00.000Z",
+                            "lastMessageAt": "2026-01-01T00:00:00.000Z",
+                            "createdAt": "2026-01-01T00:00:00.000Z",
+                            "hasEmbedding": false,
+                            "embeddingStatus": "pending"
+                        }
+                    ]
+                }),
+            )
+            .expect("source chat should seed");
+
+        let rebuild = rebuild_chat_memory_indexes(&state, "source-chat")
+            .await
+            .expect("index rebuild should succeed");
+        assert_eq!(rebuild["rebuilt"], json!(1));
+        let source = state.storage.get("chats", "source-chat").unwrap().unwrap();
+        assert_eq!(source["memories"][0]["hasEmbedding"], json!(true));
+        assert_eq!(source["memories"][0]["embeddingSource"], json!("lexical"));
+
+        let exported = export_chat_memories(&state, "source-chat").expect("export should succeed");
+        assert_eq!(
+            exported["data"]["chunks"][0]["canonicalMemoryVersion"],
+            json!(1)
+        );
+        assert_eq!(exported["data"]["chunks"][0]["memoryKind"], json!("manual"));
+        assert_eq!(exported["data"]["chunks"][0]["scopeType"], json!("chat"));
+
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "target-chat",
+                    "name": "Target chat",
+                    "mode": "conversation",
+                    "memories": []
+                }),
+            )
+            .expect("target chat should seed");
+        import_chat_memories(&state, "target-chat", exported, None)
+            .await
+            .expect("import should preserve canonical metadata");
+        let target = state.storage.get("chats", "target-chat").unwrap().unwrap();
+        assert_eq!(target["memories"][0]["canonicalMemoryVersion"], json!(1));
+        assert_eq!(target["memories"][0]["memoryKind"], json!("manual"));
+        assert_eq!(target["memories"][0]["scopeType"], json!("chat"));
+        assert_eq!(target["memories"][0]["sourceChatId"], json!("source-chat"));
+    }
+    #[tokio::test]
+    async fn memory_console_actions_update_index_state() {
+        let state = test_state("chat-memory-console-actions");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Console memory chat",
+                    "mode": "conversation",
+                    "memories": [
+                        {
+                            "id": "memory-1",
+                            "chatId": "chat-1",
+                            "content": "Mira keeps the blue key under the lantern.",
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-01-01T00:00:00.000Z",
+                            "lastMessageAt": "2026-01-01T00:00:00.000Z",
+                            "createdAt": "2026-01-01T00:00:00.000Z",
+                            "hasEmbedding": true,
+                            "embedding": [1, 0, 0],
+                            "embeddingStatus": "vectorized",
+                            "embeddingSource": "lexical"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should be created");
+
+        pin_chat_memory(&state, "chat-1", "memory-1", true).expect("pin should persist");
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(chat["memories"][0]["pinned"], json!(true));
+
+        update_chat_memory(
+            &state,
+            "chat-1",
+            "memory-1",
+            json!({ "content": "Mira keeps the silver key under the lantern." }),
+        )
+        .await
+        .expect("edit should re-index");
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(chat["memories"][0]["userEdited"], json!(true));
+        assert_eq!(chat["memories"][0]["hasEmbedding"], json!(true));
+        assert!(chat["memories"][0]["embedding"].as_array().unwrap().len() > 8);
+
+        let mut embedding_missing = chat["memories"][0].as_object().unwrap().clone();
+        embedding_missing.insert("status".to_string(), json!("active"));
+        remove_memory_embedding_fields(&mut embedding_missing);
+        assert_eq!(embedding_missing["status"], json!("active"));
+        assert_eq!(chat_memory_object_status(&embedding_missing), "active");
+        assert_ne!(embedding_missing.get("status"), Some(&json!("unavailable")));
+        assert_eq!(embedding_missing["hasEmbedding"], json!(false));
+        assert_eq!(embedding_missing["embeddingStatus"], json!("missing"));
+        assert!(embedding_missing.get("embedding").is_none());
+        assert!(chat_memory_object_is_retrievable(&embedding_missing));
+        let mut deleted_embedding_missing = embedding_missing.clone();
+        deleted_embedding_missing.insert("status".to_string(), json!("deleted"));
+        remove_memory_embedding_fields(&mut deleted_embedding_missing);
+        assert_eq!(deleted_embedding_missing["status"], json!("deleted"));
+        assert!(!chat_memory_object_is_retrievable(
+            &deleted_embedding_missing
+        ));
+        state
+            .storage
+            .patch(
+                "chats",
+                "chat-1",
+                json!({ "memories": [embedding_missing] }),
+            )
+            .expect("embedding-missing memory should seed");
+        update_chat_memory(
+            &state,
+            "chat-1",
+            "memory-1",
+            json!({ "content": "Mira keeps the bronze key under the lantern." }),
+        )
+        .await
+        .expect("embedding-missing active memory should remain editable and re-index");
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(chat["memories"][0]["status"], json!("active"));
+        assert_eq!(chat["memories"][0]["hasEmbedding"], json!(true));
+        assert!(chat["memories"][0]["embedding"].as_array().unwrap().len() > 8);
+
+        soft_delete_chat_memory(&state, "chat-1", "memory-1").expect("delete should deactivate");
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(chat["memories"][0]["status"], json!("deleted"));
+        assert_eq!(chat["memories"][0]["hasEmbedding"], json!(false));
+        assert!(chat["memories"][0].get("embedding").is_none());
+        let rejected_deleted_edit = update_chat_memory(
+            &state,
+            "chat-1",
+            "memory-1",
+            json!({ "content": "Deleted memories must not update." }),
+        )
+        .await;
+        assert!(rejected_deleted_edit.is_err());
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(
+            chat["memories"][0]["content"],
+            json!("Mira keeps the bronze key under the lantern.")
+        );
+
+        restore_chat_memory(&state, "chat-1", "memory-1")
+            .await
+            .expect("restore should rebuild index");
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(chat["memories"][0]["status"], json!("active"));
+        assert_eq!(chat["memories"][0]["hasEmbedding"], json!(true));
+        assert!(chat["memories"][0]["embedding"].as_array().unwrap().len() > 8);
+
+        correct_chat_memory(
+            &state,
+            "chat-1",
+            "memory-1",
+            json!({ "replacementContent": "Mira keeps the gold key under the bridge." }),
+        )
+        .await
+        .expect("correction should deactivate original and index replacement");
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should remain an array");
+        assert_eq!(memories.len(), 2);
+        assert_eq!(memories[0]["status"], json!("wrong"));
+        assert_eq!(memories[0]["hasEmbedding"], json!(false));
+        let rejected_wrong_edit = update_chat_memory(
+            &state,
+            "chat-1",
+            "memory-1",
+            json!({ "content": "Wrong memories must not update." }),
+        )
+        .await;
+        assert!(rejected_wrong_edit.is_err());
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should remain an array");
+        assert_eq!(
+            memories[0]["content"],
+            json!("Mira keeps the bronze key under the lantern.")
+        );
+        assert_eq!(memories[1]["source"], json!("correction"));
+        assert_eq!(memories[1]["correctionOfMemoryId"], json!("memory-1"));
+        assert_eq!(memories[1]["canonicalMemoryVersion"], json!(1));
+        assert_eq!(memories[1]["memoryKind"], json!("correction"));
+        assert_eq!(memories[1]["scopeType"], json!("chat"));
+        assert_eq!(memories[1]["scopeId"], json!("chat-1"));
+        assert_eq!(memories[1]["status"], json!("active"));
+        assert_eq!(memories[1]["hasEmbedding"], json!(true));
+    }
     #[test]
     fn clear_chat_memories_removes_all_chunks() {
         let state = test_state("chat-memory-clear-all");
@@ -1915,6 +3033,57 @@ mod tests {
                 .expect("lexical embedding should be stored")
                 .len(),
             MEMORY_EMBEDDING_DIMS
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_creates_canonical_transcript_rows() {
+        let state = test_state("memory-refresh-canonical-transcript");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "mode": "conversation",
+                    "memories": []
+                }),
+            )
+            .expect("chat should seed");
+        for index in 1..=5 {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": format!("message-{index}"),
+                        "chatId": "chat-1",
+                        "role": if index % 2 == 0 { "assistant" } else { "user" },
+                        "content": format!("Turn {index} remembers the observatory lantern."),
+                        "createdAt": format!("2026-01-01T00:0{index}:00.000Z")
+                    }),
+                )
+                .expect("message should seed");
+        }
+
+        refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect("refresh should succeed");
+
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        let memory = chat["memories"]
+            .as_array()
+            .and_then(|items| items.first())
+            .expect("memory should be created");
+        assert_eq!(memory["canonicalMemoryVersion"], json!(1));
+        assert_eq!(memory["memoryKind"], json!("transcript"));
+        assert_eq!(memory["scopeType"], json!("chat"));
+        assert_eq!(memory["scopeId"], json!("chat-1"));
+        assert_eq!(memory["legacySourceLane"], json!("chats.memories"));
+        assert_eq!(
+            memory["creationReason"],
+            json!("Automatic transcript chunk capture")
         );
     }
 
@@ -2841,6 +4010,66 @@ mod tests {
         assert!(!chunk.contains_key("embeddingStatus"));
     }
 
+    #[test]
+    fn export_chat_memories_skips_unsanctioned_projection_fields() {
+        let state = test_state("memory-export-invalid-kind-scope");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "mode": "conversation",
+                    "memories": [
+                        {
+                            "id": "bad-kind",
+                            "chatId": "chat-1",
+                            "content": "bad kind should not export",
+                            "memoryKind": "foreign",
+                            "scopeType": "chat",
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-06-01T10:00:00.000Z",
+                            "lastMessageAt": "2026-06-01T10:00:00.000Z",
+                            "createdAt": "2026-06-01T10:00:00.000Z"
+                        },
+                        {
+                            "id": "bad-scope",
+                            "chatId": "chat-1",
+                            "content": "bad scope should not export",
+                            "memoryKind": "manual",
+                            "scopeType": "foreign",
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-06-01T11:00:00.000Z",
+                            "lastMessageAt": "2026-06-01T11:00:00.000Z",
+                            "createdAt": "2026-06-01T11:00:00.000Z"
+                        },
+                        {
+                            "id": "valid",
+                            "chatId": "chat-1",
+                            "content": "valid projection exports",
+                            "memoryKind": "manual",
+                            "scopeType": "chat",
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-06-01T12:00:00.000Z",
+                            "lastMessageAt": "2026-06-01T12:00:00.000Z",
+                            "createdAt": "2026-06-01T12:00:00.000Z"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+
+        let exported = export_chat_memories(&state, "chat-1").expect("export should succeed");
+        let chunks = exported["data"]["chunks"]
+            .as_array()
+            .expect("chunks should be an array");
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0]["content"], json!("valid projection exports"));
+        assert_eq!(chunks[0]["memoryKind"], json!("manual"));
+        assert_eq!(chunks[0]["scopeType"], json!("chat"));
+    }
+
     #[tokio::test]
     async fn import_chat_memories_rejects_non_v1_memory_recall_envelopes() {
         let state = test_state("memory-import-envelope-validation");
@@ -2902,6 +4131,77 @@ mod tests {
         .await
         .expect_err("wrong envelope version should be rejected");
         assert_eq!(wrong_version_error.code, "invalid_input");
+    }
+
+    #[tokio::test]
+    async fn import_chat_memories_skips_unsanctioned_projection_fields() {
+        let state = test_state("memory-import-invalid-kind-scope");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "mode": "conversation",
+                    "memories": []
+                }),
+            )
+            .expect("chat should seed");
+
+        let result = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "data": {
+                    "sourceChat": {
+                        "id": "source-chat",
+                        "name": "Source chat",
+                        "mode": "conversation",
+                        "memoryCount": 3
+                    },
+                    "chunks": [
+                        {
+                            "content": "bad kind should skip",
+                            "memoryKind": "foreign",
+                            "scopeType": "chat",
+                            "messageCount": 1,
+                            "createdAt": "2026-06-01T10:00:00.000Z"
+                        },
+                        {
+                            "content": "bad scope should skip",
+                            "memoryKind": "manual",
+                            "scopeType": "foreign",
+                            "messageCount": 1,
+                            "createdAt": "2026-06-01T11:00:00.000Z"
+                        },
+                        {
+                            "content": "valid shape should import",
+                            "memoryKind": "manual",
+                            "scopeType": "chat",
+                            "messageCount": 1,
+                            "createdAt": "2026-06-01T12:00:00.000Z"
+                        }
+                    ]
+                }
+            }),
+            None,
+        )
+        .await
+        .expect("valid neighbor should import");
+
+        assert_eq!(result["imported"], json!(1));
+        assert_eq!(result["skipped"], json!(2));
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should be an array");
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0]["content"], json!("valid shape should import"));
+        assert_eq!(memories[0]["memoryKind"], json!("manual"));
+        assert_eq!(memories[0]["scopeType"], json!("chat"));
     }
 
     #[tokio::test]
@@ -3431,7 +4731,7 @@ mod tests {
         let related =
             lexical_memory_embedding("The Snezhnaya facility stayed frozen while Dottore observed");
         let unrelated = lexical_memory_embedding("Sunny beach playlist for a cheerful picnic");
-        let polish = lexical_memory_embedding("Zażółć gęślą jaźń and Snezhnaya");
+        let polish = lexical_memory_embedding("ZaÅ¼Ã³Å‚Ä‡ gÄ™Å›lÄ… jaÅºÅ„ and Snezhnaya");
 
         assert!(cosine(&query, &related) > cosine(&query, &unrelated));
         assert!(polish.iter().any(|value| value.abs() > 0.0));

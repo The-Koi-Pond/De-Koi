@@ -751,6 +751,53 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             })
             .await
         }
+        "chat_memory_update" => {
+            chat_memory::update_chat_memory(
+                state,
+                required_string(&args, "chatId")?,
+                required_string(&args, "memoryId")?,
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "chat_memory_soft_delete" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chat_memory::soft_delete_chat_memory(
+                    state,
+                    required_string(args, "chatId")?,
+                    required_string(args, "memoryId")?,
+                )
+            })
+            .await
+        }
+        "chat_memory_restore" => {
+            chat_memory::restore_chat_memory(
+                state,
+                required_string(&args, "chatId")?,
+                required_string(&args, "memoryId")?,
+            )
+            .await
+        }
+        "chat_memory_pin" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chat_memory::pin_chat_memory(
+                    state,
+                    required_string(args, "chatId")?,
+                    required_string(args, "memoryId")?,
+                    optional_bool(args, "pinned").unwrap_or(false),
+                )
+            })
+            .await
+        }
+        "chat_memory_correct" => {
+            chat_memory::correct_chat_memory(
+                state,
+                required_string(&args, "chatId")?,
+                required_string(&args, "memoryId")?,
+                optional_value(&args, "body"),
+            )
+            .await
+        }
         "chat_memories_clear" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 chat_memory::clear_chat_memories(state, required_string(args, "chatId")?)
@@ -759,6 +806,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         }
         "chat_memories_refresh" => {
             chat_memory::refresh_chat_memories(state, required_string(&args, "chatId")?).await
+        }
+        "chat_memories_migrate" => {
+            chat_memory::migrate_chat_memories(state, required_string(&args, "chatId")?).await
+        }
+        "chat_memory_indexes_rebuild" => {
+            chat_memory::rebuild_chat_memory_indexes(state, required_string(&args, "chatId")?).await
         }
         "chat_memories_export" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
@@ -1507,6 +1560,8 @@ mod tests {
         "chat_memories_export",
         "chat_memories_list",
         "chat_memory_delete",
+        "chat_memory_soft_delete",
+        "chat_memory_pin",
         "chat_message_add_swipe",
         "chat_message_count",
         "chat_message_delete_swipe",
