@@ -163,6 +163,32 @@ describe("buildCharacterFieldGenerationMessages", () => {
     expect(messages[1]?.content).toContain("background, era, access, subculture, and listening habits");
     expect(messages[1]?.content).toContain("Avoid defaulting to the same canonical");
   });
+
+  it("asks for concrete playable field details instead of broad trait inventories", () => {
+    const fields: CharacterFieldGenerationField[] = [
+      "description",
+      "personality",
+      "appearance",
+      "system_prompt",
+      "post_history_instructions",
+    ];
+
+    for (const field of fields) {
+      const messages = buildCharacterFieldGenerationMessages(field, {
+        data: characterData(),
+        comment: "Night-shift archive keeper",
+      });
+      const prompt = messages[1]?.content ?? "";
+
+      expect(prompt).toContain("concrete behavioral tells");
+      expect(prompt).toContain("contradictions and limits");
+      expect(prompt).toContain("voice evidence");
+      expect(prompt).toContain("avoid generic AI-card wording");
+      expect(prompt).not.toContain("identity, role, motivations");
+      expect(prompt).not.toContain("core traits, temperament");
+      expect(prompt).not.toContain("height, build, hair, eyes");
+    }
+  });
   it("gives creator notes enough budget to finish complete practical notes", async () => {
     const requests: unknown[] = [];
     const value = await generateCharacterField({

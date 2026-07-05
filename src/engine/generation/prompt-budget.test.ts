@@ -108,7 +108,7 @@ describe("prompt budget estimates", () => {
 
     const warning = budget.warnings.find((entry) => entry.kind === "context_overlap");
 
-    expect(warning?.message).toContain("Mira has silver eyes");
+    expect(warning?.message).toContain("silver eyes that glow");
     expect(warning?.message).toContain("Character Info");
     expect(warning?.message).toContain("Memory Recall");
     expect(warning?.message).toContain("Agent Context");

@@ -25,9 +25,9 @@ type PromptBudgetWarningKind =
   | "near_limit"
   | "over_budget"
   | "large_section"
-  | "context_overlap"
   | "lorebook_skipped"
-  | "history_trim";
+  | "history_trim"
+  | "context_overlap";
 
 interface PromptBudgetSection {
   kind: PromptBudgetSectionKind;
@@ -43,8 +43,8 @@ interface PromptBudgetWarning {
   sectionKind?: PromptBudgetSectionKind;
   sectionLabel?: string;
   tokens?: number;
-  overlapPhrase?: string;
-  sourceLabels?: string[];
+  phrase?: string;
+  sources?: string[];
 }
 
 export interface PromptBudgetEstimate {
@@ -166,117 +166,182 @@ function buildSections(
   return sections;
 }
 
-interface PromptContextOverlap {
-  phrase: string;
-  sourceLabels: string[];
-}
-
-const OVERLAP_SOURCE_KINDS = new Set<PromptBudgetSectionKind>([
-  "character",
-  "lorebook",
-  "memory",
-  "injection",
-  "persona",
-]);
-
-const OVERLAP_STOPWORDS = new Set([
-  "about",
-  "after",
-  "again",
-  "also",
-  "and",
-  "because",
-  "been",
-  "before",
-  "being",
-  "between",
-  "from",
-  "have",
-  "into",
-  "that",
-  "their",
-  "them",
-  "then",
-  "there",
-  "these",
-  "they",
-  "this",
-  "through",
-  "with",
-  "would",
-]);
-
-function promptOverlapSourceLabel(message: PromptBudgetMessage, kind: PromptBudgetSectionKind): string {
-  return normalizedLabel(message) || sectionLabel(kind);
-}
-
-function promptOverlapChunks(content: string): string[] {
-  return content
-    .replace(/<[^>]+>/g, " ")
-    .split(/(?:\r?\n|(?<=[.!?])\s+)/g)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean);
-}
-
-function normalizedOverlapPhrase(chunk: string): string | null {
-  const normalized = chunk
-    .toLowerCase()
-    .replace(/['\u2019]/g, "")
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (normalized.length < 28) return null;
-  const words = normalized.split(" ").filter(Boolean);
-  if (words.length < 6) return null;
-  const signalWords = words.filter((word) => word.length >= 4 && !OVERLAP_STOPWORDS.has(word));
-  if (signalWords.length < 4) return null;
-  return normalized;
-}
-
-function displayOverlapPhrase(normalizedPhrase: string): string {
-  const phrase = normalizedPhrase.length > 96 ? `${normalizedPhrase.slice(0, 93).trim()}...` : normalizedPhrase;
-  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
-}
-
-function detectPromptContextOverlaps(messages: LlmMessage[]): PromptContextOverlap[] {
-  const phraseSources = new Map<string, Set<string>>();
-
-  for (const rawMessage of messages) {
-    const message = rawMessage as PromptBudgetMessage;
-    const kind = classifyPromptMessage(message);
-    if (!OVERLAP_SOURCE_KINDS.has(kind)) continue;
-    const sourceLabel = promptOverlapSourceLabel(message, kind);
-    const seenInMessage = new Set<string>();
-
-    for (const chunk of promptOverlapChunks(message.content ?? "")) {
-      const phrase = normalizedOverlapPhrase(chunk);
-      if (!phrase || seenInMessage.has(phrase)) continue;
-      seenInMessage.add(phrase);
-      const sources = phraseSources.get(phrase) ?? new Set<string>();
-      sources.add(sourceLabel);
-      phraseSources.set(phrase, sources);
-    }
-  }
-
-  return [...phraseSources.entries()]
-    .map(([phrase, sources]) => ({ phrase, sourceLabels: [...sources] }))
-    .filter((overlap) => overlap.sourceLabels.length >= 2)
-    .sort(
-      (left, right) => right.sourceLabels.length - left.sourceLabels.length || right.phrase.length - left.phrase.length,
-    )
-    .slice(0, 3);
-}
-
-function overlapSourceList(sourceLabels: string[]): string {
-  if (sourceLabels.length <= 2) return sourceLabels.join(" and ");
-  return `${sourceLabels.slice(0, -1).join(", ")}, and ${sourceLabels[sourceLabels.length - 1]}`;
-}
 function skippedLorebookName(entry: { name?: unknown; id?: unknown; lorebookId?: unknown }): string {
   return readString(entry.name).trim() || readString(entry.id).trim() || readString(entry.lorebookId).trim() || "entry";
 }
 
 function formatBudgetTokens(tokens: number): string {
   return Math.max(0, Math.round(tokens)).toLocaleString("en-US");
+}
+
+interface PromptOverlapSource {
+  label: string;
+  kind: PromptBudgetSectionKind;
+  text: string;
+}
+
+const MAX_CONTEXT_OVERLAP_WARNINGS = 3;
+const OVERLAP_STOP_WORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "before",
+  "being",
+  "their",
+  "there",
+  "these",
+  "those",
+  "through",
+  "under",
+  "where",
+  "which",
+  "while",
+  "would",
+  "should",
+  "could",
+  "character",
+  "persona",
+  "summary",
+  "memory",
+  "memories",
+  "profile",
+  "appearance",
+  "description",
+  "known",
+  "wants",
+  "user",
+]);
+
+function overlapLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "context";
+}
+
+function overlapSourceKind(label: string, fallbackMessage: PromptBudgetMessage): PromptBudgetSectionKind {
+  const normalized = overlapLabel(label);
+  if (/\b(public_profile|appearance|personality|character|character_info|backstory|scenario|example)\b/.test(normalized)) {
+    return "character";
+  }
+  if (/\b(persona|user_profile)\b/.test(normalized)) return "persona";
+  if (/\b(memory|memories|summary|chat_summary|recall|notes)\b/.test(normalized)) return "memory";
+  if (/\b(lorebook|world_info|world_facts)\b/.test(normalized)) return "lorebook";
+  return classifyPromptMessage(fallbackMessage);
+}
+
+function isStandaloneXmlTag(line: string): RegExpMatchArray | null {
+  return line.match(/^<\/?([a-zA-Z][\w:-]*)\s*>$/);
+}
+
+function promptOverlapSources(messages: LlmMessage[]): PromptOverlapSource[] {
+  const sources: PromptOverlapSource[] = [];
+  for (const rawMessage of messages) {
+    const message = rawMessage as PromptBudgetMessage;
+    const fallbackLabel = overlapLabel(normalizedLabel(message) || classifyPromptMessage(message));
+    const stack: string[] = [];
+    const sourceText = new Map<string, string[]>();
+
+    for (const line of (message.content ?? "").split(/\r?\n/)) {
+      const trimmed = line.trim();
+      const tagMatch = isStandaloneXmlTag(trimmed);
+      if (tagMatch) {
+        if (trimmed.startsWith("</")) {
+          stack.pop();
+        } else {
+          stack.push(overlapLabel(tagMatch[1] ?? ""));
+        }
+        continue;
+      }
+
+      const label = stack.length > 0 ? stack[stack.length - 1]! : fallbackLabel;
+      const existing = sourceText.get(label) ?? [];
+      existing.push(line);
+      sourceText.set(label, existing);
+    }
+
+    for (const [label, lines] of sourceText) {
+      const sourceTextValue = lines.join("\n").trim();
+      if (sourceTextValue.length >= 24) {
+        sources.push({
+          label,
+          kind: overlapSourceKind(label, message),
+          text: sourceTextValue,
+        });
+      }
+    }
+  }
+  return sources;
+}
+
+function overlapTokens(text: string): string[] {
+  return (
+    text
+      .toLowerCase()
+      .replace(/['’]s\b/g, "")
+      .match(/[a-z0-9]+/g) ?? []
+  );
+}
+
+function isSignificantOverlapPhrase(phrase: string): boolean {
+  const words = phrase.split(" ");
+  const significantWords = words.filter((word) => word.length >= 4 && !OVERLAP_STOP_WORDS.has(word));
+  return significantWords.length >= 3;
+}
+
+function overlapPhraseCandidates(text: string): string[] {
+  const tokens = overlapTokens(text);
+  const phrases = new Set<string>();
+  for (const length of [3, 4, 5]) {
+    for (let index = 0; index <= tokens.length - length; index += 1) {
+      const phrase = tokens.slice(index, index + length).join(" ");
+      if (isSignificantOverlapPhrase(phrase)) {
+        phrases.add(phrase);
+      }
+    }
+  }
+  return [...phrases];
+}
+
+function overlapWarningSectionKind(sources: PromptOverlapSource[]): PromptBudgetSectionKind {
+  if (sources.some((source) => source.kind === "character")) return "character";
+  if (sources.some((source) => source.kind === "persona")) return "persona";
+  if (sources.some((source) => source.kind === "memory")) return "memory";
+  return sources[0]?.kind ?? "other";
+}
+function displayOverlapSourceLabel(label: string): string {
+  return label
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function buildContextOverlapWarnings(messages: LlmMessage[]): PromptBudgetWarning[] {
+  const phraseSources = new Map<string, PromptOverlapSource[]>();
+  for (const source of promptOverlapSources(messages)) {
+    for (const phrase of overlapPhraseCandidates(source.text)) {
+      const existing = phraseSources.get(phrase) ?? [];
+      if (!existing.some((existingSource) => existingSource.label === source.label)) {
+        existing.push(source);
+      }
+      phraseSources.set(phrase, existing);
+    }
+  }
+
+  return [...phraseSources]
+    .filter(([, sources]) => sources.length >= 2)
+    .sort(([phraseA, sourcesA], [phraseB, sourcesB]) => sourcesB.length - sourcesA.length || phraseB.length - phraseA.length)
+    .slice(0, MAX_CONTEXT_OVERLAP_WARNINGS)
+    .map(([phrase, sources]) => {
+      const sectionKind = overlapWarningSectionKind(sources);
+      const labels = sources.map((source) => source.label);
+      return {
+        kind: "context_overlap",
+        sectionKind,
+        sectionLabel: sectionLabel(sectionKind),
+        phrase,
+        sources: labels,
+        message: `Repeated cue "${phrase}" appears in ${labels.map(displayOverlapSourceLabel).join(", ")}. Consider keeping this detail in one canonical context source.`,
+      };
+    });
 }
 
 export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudgetEstimate {
@@ -346,16 +411,8 @@ export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudge
     }
   }
 
-  for (const overlap of detectPromptContextOverlaps(input.messages)) {
-    warnings.push({
-      kind: "context_overlap",
-      message: `Repeated context cue "${displayOverlapPhrase(overlap.phrase)}" appears in ${overlapSourceList(
-        overlap.sourceLabels,
-      )}. Check overlapping character, memory, summary, lorebook, or injected context before changing prompt selection.`,
-      overlapPhrase: overlap.phrase,
-      sourceLabels: overlap.sourceLabels,
-    });
-  }
+  warnings.push(...buildContextOverlapWarnings(input.messages));
+
   const skippedLorebookEntries = input.budgetSkippedLorebookEntries ?? [];
   if (skippedLorebookEntries.length > 0) {
     const first = skippedLorebookName(skippedLorebookEntries[0]!);

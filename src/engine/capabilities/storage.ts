@@ -109,6 +109,8 @@ export interface ChatMetadataPort {
 export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPort, ChatMetadataPort {
   createMemory?(body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
   updateMemory?(memoryId: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord>;
+  queryMemories?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
+  queryMemoryIndex?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
   rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
   listChatMemories<T = unknown>(chatId: string, options?: ListChatMemoriesOptions): Promise<T[]>;
   refreshChatMemories?<T = unknown>(chatId: string): Promise<T>;

@@ -425,6 +425,8 @@ async function resolveImageAttachmentDataUrl(attachment: StorageImageAttachmentR
 export const storageApi: StorageGateway = {
   createMemory: (body) => canonicalMemoryApi.create(body),
   updateMemory: (memoryId, patch) => canonicalMemoryApi.update(memoryId, patch),
+  queryMemories: (body) => canonicalMemoryApi.query(body),
+  queryMemoryIndex: (body) => canonicalMemoryApi.index.query(body),
   rebuildMemoryIndex: (body) => canonicalMemoryApi.index.rebuildLexical(body),
   list: async (entity: StorageEntity, options?: StorageListOptions) =>
     normalizeStorageReadResult(
