@@ -441,6 +441,29 @@ export interface MessageAttachment {
   [key: string]: MessageAttachmentExtraValue;
 }
 
+export type DialogueAttributionSource =
+  | "speaker-tag"
+  | "name-prefix"
+  | "explicit-attribution"
+  | "model-annotation"
+  | "postprocess";
+
+export type DialogueAttributionConfidence = "explicit" | "derived";
+
+export interface DialogueAttributionSegment {
+  start: number;
+  end: number;
+  speakerName: string;
+  speakerId?: string | null;
+  source: DialogueAttributionSource;
+  confidence: DialogueAttributionConfidence;
+}
+
+export interface DialogueAttributionsExtra {
+  version: 1;
+  textHash: string;
+  segments: DialogueAttributionSegment[];
+}
 /** Additional data attached to a message. */
 export interface MessageExtra {
   /** Display-formatted text (may differ from raw content) */
@@ -461,6 +484,8 @@ export interface MessageExtra {
   reasoning_content?: string | null;
   /** User-provided or generated attachments rendered with the message. */
   attachments?: MessageAttachment[] | null;
+  /** Structured dialogue ownership ranges for deterministic speaker coloring. */
+  dialogueAttributions?: DialogueAttributionsExtra | null;
   /** Per-swipe sprite expressions from the Expression Engine agent */
   spriteExpressions?: Record<string, string> | null;
   /** Per-swipe CYOA choices from the CYOA Choices agent */
