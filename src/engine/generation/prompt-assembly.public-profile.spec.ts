@@ -338,6 +338,36 @@ describe("merged roleplay prompt compaction", () => {
     expect(promptText).not.toContain("PIERROT_GREETING_SHOULD_NOT_BE_SENT");
     expect(promptText).not.toContain("PIERROT_EXAMPLES_SHOULD_NOT_BE_SENT");
   });
+
+  it("guides merged multi-character roleplay prompts to use internal speaker ownership tags", async () => {
+    const result = await assembleGenerationPrompt(
+      promptStorage(
+        [
+          { id: "harlequin", data: { name: "Harlequin", description: "Harlequin core description." } },
+          { id: "jester", data: { name: "Jester", description: "Jester core description." } },
+        ],
+        { preset: { id: "default-roleplay-preset", isDefault: true }, sections: [] },
+      ),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["harlequin", "jester"],
+          metadata: { groupChatMode: "merged" },
+        },
+        storedMessages: [{ role: "user", content: "Continue." }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "Continue.",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+
+    expect(promptText).toContain('<speaker name="Harlequin">');
+    expect(promptText).toContain("</speaker>");
+    expect(promptText).toContain("internal speaker tags");
+  });
 });
 describe("single-character roleplay prompt cards", () => {
   it("keeps greeting and example fields for ordinary one-character roleplay prompts", async () => {
@@ -393,5 +423,7 @@ describe("single-character roleplay prompt cards", () => {
     expect(promptText).toContain("Mira core description.");
     expect(promptText).toContain("MIRA_GREETING_SHOULD_STAY");
     expect(promptText).toContain("MIRA_EXAMPLES_SHOULD_STAY");
+    expect(promptText).not.toContain("internal speaker tags");
+    expect(promptText).not.toContain("<speaker");
   });
 });

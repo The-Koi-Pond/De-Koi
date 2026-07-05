@@ -1945,11 +1945,15 @@ function buildMergedRoleplayEnsemblePromptBlock(
     return null;
   }
 
+  const speakerTagExampleName = characters[0]?.name.trim() || "Character";
+
   return wrapContent(
     [
       "Keep the merged Game Master style: you may weave multiple participating characters into one response instead of forcing a single targeted speaker.",
       "Avoid echoing the same signature phrase, pet name, physical description, gesture, sentence rhythm, or sensory beat across consecutive turns.",
       "Rotate attention among participating characters when they are present, and make each character's diction, motives, and body language distinct instead of reusing one character's stock motifs.",
+      `For text owned by a specific participating character, use compact internal speaker tags like <speaker name="${speakerTagExampleName}">their dialogue or action</speaker>.`,
+      "Use internal speaker tags only around character-owned dialogue, action, or close narration; leave neutral scene narration outside the tags.",
     ].join("\n"),
     "ensemble_style",
     wrapFormat,
