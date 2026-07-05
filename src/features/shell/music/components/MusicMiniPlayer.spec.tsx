@@ -112,6 +112,26 @@ describe("MusicMiniPlayer", () => {
     expect(musicApiMock.play).toHaveBeenCalledWith({ provider: "youtube", track: candidate, volume: 55 });
   });
 
+  it("explains the music choice on hover", async () => {
+    dispatchMusicPlaybackEvent({
+      type: "cue",
+      query: "ominous industrial ritual",
+      intent: { mood: "ominous", setting: "industrial ritual", reason: "The scene is tense and mechanical." },
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<MusicMiniPlayer variant="toolbar" />);
+    });
+    await flushAsyncWork();
+
+    const player = container!.querySelector<HTMLElement>('[data-component="MusicToolbarPlayer"]');
+    expect(player).not.toBeNull();
+    expect(player!.getAttribute("title")).toBe(
+      'Picked "Disciple" for ominous - industrial ritual. Cue: "ominous industrial ritual". Reason: The scene is tense and mechanical.',
+    );
+  });
+
   it("does not search or play when Fresh Pick has no current cue", async () => {
     await act(async () => {
       root = createRoot(container!);
@@ -130,6 +150,10 @@ describe("MusicMiniPlayer", () => {
     expect(musicApiMock.play).not.toHaveBeenCalled();
     expect(container!.textContent).toContain(
       "Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.",
+    );
+    const player = container!.querySelector<HTMLElement>('[data-component="MusicToolbarPlayer"]');
+    expect(player?.getAttribute("title")).toBe(
+      "Nothing played: Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.",
     );
   });
 
@@ -158,6 +182,10 @@ describe("MusicMiniPlayer", () => {
     expect(musicApiMock.play).not.toHaveBeenCalled();
     expect(container!.textContent).toContain(
       "Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.",
+    );
+    const player = container!.querySelector<HTMLElement>('[data-component="MusicToolbarPlayer"]');
+    expect(player?.getAttribute("title")).toBe(
+      "Nothing played: Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.",
     );
   });
 });

@@ -30,6 +30,8 @@ import { sendYouTubeIframeCommand } from "../lib/youtube-iframe-player";
 
 const DEFAULT_WIDGET_SIZE: MusicWidgetSize = { width: 352, height: 188 };
 const LEGACY_DEFAULT_POSITION: MusicWidgetPosition = { x: 16, y: 96 };
+const NO_MUSIC_CUE_MESSAGE = "Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.";
+const NO_MUSIC_CUE_EXPLANATION = `Nothing played: ${NO_MUSIC_CUE_MESSAGE}`;
 
 function youtubeVideoIdFromText(raw: string): string | null {
   const text = raw.trim();
@@ -69,6 +71,36 @@ function embedUrl(videoId: string | null, playing: boolean): string | null {
   if (!videoId) return null;
   const autoplay = playing ? "1" : "0";
   return `https://www.youtube.com/embed/${videoId}?autoplay=${autoplay}&loop=1&playlist=${videoId}&enablejsapi=1`;
+}
+
+function musicChoiceExplanation({
+  track,
+  searchQuery,
+  intent,
+  fresh,
+  usedDiscoveryFallback,
+}: {
+  track: MusicCandidate;
+  searchQuery: string;
+  intent?: MusicDjIntent | null;
+  fresh: boolean;
+  usedDiscoveryFallback: boolean;
+}): string {
+  const title = track.title.trim() || "selected track";
+  const label = intent ? musicDjIntentLabel(intent) : fresh ? "a fresh pick" : "the current cue";
+  const parts = [`Picked "${title}" for ${label}.`];
+  if (searchQuery.trim()) parts.push(`Cue: "${searchQuery.trim()}".`);
+  const reason = intent?.reason?.trim();
+  if (reason) {
+    parts.push(`Reason: ${reason}`);
+  } else if (usedDiscoveryFallback) {
+    parts.push("Reason: Fresh Pick reused the last mood text instead of the current YouTube URL.");
+  } else if (fresh) {
+    parts.push("Reason: Fresh Pick avoided the current and recent tracks when possible.");
+  } else {
+    parts.push("Reason: This was the top ranked YouTube result for the cue.");
+  }
+  return parts.join(" ");
 }
 
 function viewportSize(): MusicWidgetSize {
@@ -228,14 +260,16 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
   const [volume, setVolume] = useState(55);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [choiceExplanation, setChoiceExplanation] = useState("No music has been picked yet.");
 
   const videoId = youtubeVideoId(track);
   const src = useMemo(() => embedUrl(videoId, playing), [videoId, playing]);
   const display = getMusicPlayerDisplay(track);
   const displaySubtitle = message ?? display.subtitle;
 
-  async function playTrack(next: MusicCandidate, nextVolume = volume) {
+  async function playTrack(next: MusicCandidate, nextVolume = volume, nextChoiceExplanation?: string) {
     setTrack(next);
+    if (nextChoiceExplanation) setChoiceExplanation(nextChoiceExplanation);
     const key = musicTrackKey(next);
     if (key) setRecentTrackIds((current) => [key, ...current.filter((entry) => entry !== key)].slice(0, 8));
     await musicApi.play({ provider: next.provider, track: next, volume: nextVolume });
@@ -254,7 +288,8 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     const usedDiscoveryFallback = fresh && isDirectYouTubeTarget(requestedQuery);
     const searchQuery = usedDiscoveryFallback ? lastDiscoveryQuery.trim() : requestedQuery;
     if (!searchQuery) {
-      setMessage("Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.");
+      setMessage(NO_MUSIC_CUE_MESSAGE);
+      setChoiceExplanation(NO_MUSIC_CUE_EXPLANATION);
       return;
     }
     if (!isDirectYouTubeTarget(searchQuery)) {
@@ -280,7 +315,14 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
       const next = ranked[0] ?? null;
       setTrack(next);
       if (next) {
-        await playTrack(next, requestedVolume);
+        const explanation = musicChoiceExplanation({
+          track: next,
+          searchQuery,
+          intent,
+          fresh,
+          usedDiscoveryFallback,
+        });
+        await playTrack(next, requestedVolume, explanation);
         if (intent) {
           setMessage(`Music Player: ${musicDjIntentLabel(intent)}${intent.reason ? ` - ${intent.reason}` : ""}`);
         } else if (usedDiscoveryFallback) {
@@ -288,6 +330,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         }
       } else {
         setPlaying(false);
+        setChoiceExplanation(`Nothing played: no YouTube result was found for "${searchQuery}".`);
         setMessage(
           "No YouTube result found. Search needs yt-dlp on this machine; pasted YouTube URLs can still play directly.",
         );
@@ -347,7 +390,18 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         if (typeof detail.volume === "number") setVolume(Math.max(0, Math.min(100, Math.trunc(detail.volume))));
         if (detail.track) {
           if (detail.query) setQuery(detail.query);
-          void playTrack(detail.track, typeof detail.volume === "number" ? detail.volume : volume);
+          const searchQuery = detail.query?.trim() ?? "";
+          void playTrack(
+            detail.track,
+            typeof detail.volume === "number" ? detail.volume : volume,
+            musicChoiceExplanation({
+              track: detail.track,
+              searchQuery,
+              intent: detail.intent ?? null,
+              fresh: detail.fresh === true,
+              usedDiscoveryFallback: false,
+            }),
+          );
           if (detail.intent) setMessage(`Music Player: ${musicDjIntentLabel(detail.intent)}`);
         } else if (detail.query) {
           setQuery(detail.query);
@@ -358,9 +412,11 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         if (contextQuery) {
           setQuery(contextQuery);
           setLastDiscoveryQuery(contextQuery);
+          setChoiceExplanation(`Ready to pick music for cue: "${contextQuery}".`);
         } else {
           setQuery("");
           setLastDiscoveryQuery("");
+          setChoiceExplanation(NO_MUSIC_CUE_EXPLANATION);
         }
         if (detail.intent) setMessage(`Music Player ready: ${musicDjIntentLabel(detail.intent)}`);
       } else if (detail.type === "volume") {
@@ -407,7 +463,10 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
   ) : null;
 
   const player = (
-    <section className="overflow-hidden rounded-lg border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[color-mix(in_srgb,var(--surface)_90%,transparent)] p-2.5 text-[var(--foreground)] shadow-[0_18px_60px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
+    <section
+      className="overflow-hidden rounded-lg border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[color-mix(in_srgb,var(--surface)_90%,transparent)] p-2.5 text-[var(--foreground)] shadow-[0_18px_60px_rgba(0,0,0,0.38)] backdrop-blur-2xl"
+      title={choiceExplanation}
+    >
       <div className="mb-2 flex items-center justify-between gap-2 text-xs">
         <div className="flex min-w-0 items-center gap-2">
           <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-[var(--muted)]">
@@ -494,6 +553,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
       <div
         data-component="MusicToolbarPlayer"
         className="relative flex h-9 w-[clamp(16rem,34vw,34rem)] shrink-0 items-center gap-2 overflow-hidden rounded-md border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[color-mix(in_srgb,var(--surface)_82%,transparent)] px-2 text-[var(--foreground)] shadow-sm backdrop-blur-xl"
+        title={choiceExplanation}
       >
         {youtubeFrame}
         <div className="flex min-w-0 flex-1 items-center gap-2">
