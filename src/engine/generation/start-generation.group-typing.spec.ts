@@ -246,6 +246,51 @@ describe("startGeneration group typing", () => {
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-a", "char-b"]);
   });
 
+
+  it("automatically captures canonical memories after saving a conversation assistant message", async () => {
+    const { storage } = groupTypingStorage({}, { characterIds: ["char-a"] });
+    const createMemory = vi.fn(async (input: Record<string, unknown>) => ({
+      id: "memory-1",
+      status: "active",
+      tags: [],
+      payload: {},
+      createdAt: "2026-07-04T12:00:00.000Z",
+      updatedAt: "2026-07-04T12:00:00.000Z",
+      ...input,
+    }));
+    const rebuildMemoryIndex = vi.fn(async () => ({ rebuilt: 1 }));
+    Object.assign(storage, { createMemory, rebuildMemoryIndex });
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm: groupTypingLlm(JSON.stringify({
+            memories: [{ category: "stable_fact", content: "Aki likes the koi pond.", confidence: 0.9 }],
+          })),
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "hello",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(createMemory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "fact",
+        content: "Aki likes the koi pond.",
+        provenance: expect.objectContaining({ sourceChatId: "chat-1", messageIds: ["message-2"] }),
+      }),
+    );
+    expect(rebuildMemoryIndex).toHaveBeenCalledWith({ scope: { kind: "chat", id: "chat-1" } });
+  });
+
   it("emits debug timing diagnostics for merged roleplay group generation", async () => {
     const { storage, messages } = groupTypingStorage(
       { groupChatMode: "merged" },

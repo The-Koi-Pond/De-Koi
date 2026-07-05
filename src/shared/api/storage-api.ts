@@ -23,6 +23,7 @@ import {
 } from "./local-file-api";
 import { blobToDataUrl } from "../lib/url-blob";
 import { chatCommandApi } from "./chat-command-api";
+import { canonicalMemoryApi } from "./canonical-memory-api";
 import { invokeTauri } from "./tauri-client";
 import { trackerSnapshotApi, type TrackerSnapshotInput } from "./tracker-snapshot-api";
 import { urlBinaryApi } from "./url-binary-api";
@@ -422,6 +423,9 @@ async function resolveImageAttachmentDataUrl(attachment: StorageImageAttachmentR
 }
 
 export const storageApi: StorageGateway = {
+  createMemory: (body) => canonicalMemoryApi.create(body),
+  updateMemory: (memoryId, patch) => canonicalMemoryApi.update(memoryId, patch),
+  rebuildMemoryIndex: (body) => canonicalMemoryApi.index.rebuildLexical(body),
   list: async (entity: StorageEntity, options?: StorageListOptions) =>
     normalizeStorageReadResult(
       entity,

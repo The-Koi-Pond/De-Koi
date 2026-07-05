@@ -98,6 +98,7 @@ import { assembleGenerationPrompt, chatSummaryForGeneration } from "./prompt-ass
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { applyRuntimeRegexScripts } from "./regex-runtime";
+import { captureAutomaticMemoriesSafely } from "./automatic-memory-capture";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationSubjectMatches } from "../generation-core/images/illustration-reference-matching";
 import {
@@ -2368,6 +2369,23 @@ function scheduleMemoryRecallRefresh(storage: StorageGateway, chat: JsonRecord):
   void refreshMemoryRecallSafely(storage, chat);
 }
 
+function scheduleAutomaticMemoryCapture(args: {
+  deps: GenerationEngineDeps;
+  chat: JsonRecord;
+  connection: JsonRecord;
+  saved: unknown;
+}): void {
+  if (!isRecord(args.saved)) return;
+  void captureAutomaticMemoriesSafely({
+    storage: args.deps.storage,
+    llm: args.deps.llm,
+    chat: args.chat,
+    message: args.saved,
+    connectionId: readString(args.connection.id).trim() || null,
+    model: readString(args.connection.model).trim() || null,
+  });
+}
+
 async function persistLorebookTimingStatesSafely(
   storage: StorageGateway,
   chatId: string,
@@ -4605,6 +4623,7 @@ export async function* startGeneration(
       }
     }
     if (savedAssistantGeneration) {
+      scheduleAutomaticMemoryCapture({ deps, chat, connection, saved: latestSaved });
       scheduleMemoryRecallRefresh(deps.storage, chat);
     }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
@@ -4797,6 +4816,7 @@ export async function* startGeneration(
     }
   }
   if (savedAssistantGeneration) {
+    scheduleAutomaticMemoryCapture({ deps, chat, connection, saved });
     scheduleMemoryRecallRefresh(deps.storage, chat);
   }
   yield { type: "done" };

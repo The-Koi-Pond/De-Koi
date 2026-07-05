@@ -1,4 +1,5 @@
 use super::agents;
+use super::canonical_memory;
 use super::chat_memory;
 use super::game_state_snapshots;
 use super::media_uploads::remove_managed_record_file;
@@ -355,6 +356,13 @@ fn replace_message_with_swipes_and_chat_cleanup(
         message_swipe_storage::replace_message_with_swipes(state, message, swipes)?
     };
     message_swipe_storage::materialize_message(state, &mut updated, true)?;
+    if prune_memories {
+        canonical_memory::mark_memories_for_source_messages(
+            state,
+            &[message_id.to_string()],
+            "stale",
+        )?;
+    }
     Ok(updated)
 }
 
@@ -742,7 +750,7 @@ pub(crate) fn delete_message_rows_with_memory_prune(
     }
 
     let now = now_iso();
-    state.storage.update_collections_atomically(
+    let result = state.storage.update_collections_atomically(
         vec![
             "messages",
             message_swipe_storage::COLLECTION,
@@ -830,7 +838,9 @@ pub(crate) fn delete_message_rows_with_memory_prune(
             ids.sort();
             Ok((deleted_messages.len(), ids))
         },
-    )
+    )?;
+    canonical_memory::mark_memories_for_source_messages(&state, &result.1, "deleted")?;
+    Ok(result)
 }
 
 pub(crate) fn bulk_delete_messages(
@@ -5296,5 +5306,127 @@ mod tests {
                 .and_then(Value::as_str),
             Some("other-scene")
         );
+    }
+    #[test]
+    fn canonical_memories_from_edited_message_are_marked_stale() {
+        let state = test_state("canonical-memory-edit-stale");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "chat-1", "name": "Memory chat", "mode": "conversation" }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "Mira keeps the brass key.",
+                    "createdAt": "2026-07-04T12:00:00.000Z"
+                }),
+            )
+            .unwrap();
+        super::super::canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "memory-1",
+                "kind": "fact",
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "Mira keeps the brass key.",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] }
+            }),
+        )
+        .unwrap();
+        super::super::canonical_memory::upsert_memory_index_row(
+            &state,
+            json!({
+                "id": "index-1",
+                "memoryId": "memory-1",
+                "provider": "lexical",
+                "model": "de-koi-lexical-v1",
+                "dimensions": 64,
+                "contentHash": "old-content",
+                "projectionHash": "old-projection",
+                "canonicalUpdatedAt": super::super::canonical_memory::get_memory(&state, "memory-1").unwrap()["updatedAt"],
+                "vector": [0.1, 0.2]
+            }),
+        )
+        .unwrap();
+
+        patch_message_update_with_memory_prune(
+            &state,
+            "message-1",
+            json!({ "content": "Mira keeps the silver key." }),
+        )
+        .unwrap();
+
+        let memory = super::super::canonical_memory::get_memory(&state, "memory-1").unwrap();
+        assert_eq!(memory["status"], json!("stale"));
+        assert!(state.storage.list("memory-index-rows").unwrap().is_empty());
+    }
+
+    #[test]
+    fn canonical_memories_from_deleted_message_are_marked_deleted() {
+        let state = test_state("canonical-memory-delete-stale");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "chat-1", "name": "Memory chat", "mode": "conversation" }),
+            )
+            .unwrap();
+        let message = state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "Mira keeps the brass key.",
+                    "createdAt": "2026-07-04T12:00:00.000Z"
+                }),
+            )
+            .unwrap();
+        super::super::canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "memory-1",
+                "kind": "fact",
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "Mira keeps the brass key.",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] }
+            }),
+        )
+        .unwrap();
+        super::super::canonical_memory::upsert_memory_index_row(
+            &state,
+            json!({
+                "id": "index-1",
+                "memoryId": "memory-1",
+                "provider": "lexical",
+                "model": "de-koi-lexical-v1",
+                "dimensions": 64,
+                "contentHash": "old-content",
+                "projectionHash": "old-projection",
+                "canonicalUpdatedAt": super::super::canonical_memory::get_memory(&state, "memory-1").unwrap()["updatedAt"],
+                "vector": [0.1, 0.2]
+            }),
+        )
+        .unwrap();
+
+        delete_message_rows_with_memory_prune(&state, "chat-1", &[message]).unwrap();
+
+        let memory = super::super::canonical_memory::get_memory(&state, "memory-1").unwrap();
+        assert_eq!(memory["status"], json!("deleted"));
+        assert!(state.storage.list("memory-index-rows").unwrap().is_empty());
     }
 }

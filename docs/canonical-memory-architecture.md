@@ -13,6 +13,9 @@ Memory kinds:
 - `scene_event`: an event tied to a scene or moment in play.
 - `relationship_state`: relationship state between user, characters, agents, or world actors.
 - `preference`: user, character, chat, scene, world, or agent preference.
+- `promise`: a commitment made by the user, character, or agent.
+- `plot_state`: current plot or scene state that should survive later turns.
+- `contradiction`: a memory that explicitly corrects or supersedes an earlier memory.
 - `lore`: durable world or setting information that is memory-shaped rather than lorebook-authored.
 - `summary`: a compact summary memory produced or curated from a larger context.
 
@@ -44,4 +47,8 @@ When no embedding provider is configured, explicit lexical rebuild can create pr
 
 ## Phase 2 Migration Note
 
-Phase 2 does not migrate or backfill `chats.memories[]`. Existing Memory Recall rows remain in place and continue to be protected by Phase 1 invalidation behavior. Future phases may add extraction, migration, prompt assembly, or provider embedding workflows, but those are intentionally out of scope here.
+Phase 2 does not migrate or backfill `chats.memories[]`. Existing Memory Recall rows remain in place and continue to be protected by Phase 1 invalidation behavior.
+
+## Phase 3 Automatic Capture Note
+
+Phase 3 captures candidate memories asynchronously after saved assistant generation for conversation, roleplay, and agent chats. Captured records are written to `canonical-memories`, never to `chats.memories[]`. Low-confidence or uncertain candidates are stored as `stale`; contradiction candidates can supersede older canonical records through supersession links. When source messages are edited, source-derived canonical memories become `stale`; when source messages are deleted, they become `deleted`. Projection rows are rebuilt or invalidated from canonical records and remain non-authoritative.

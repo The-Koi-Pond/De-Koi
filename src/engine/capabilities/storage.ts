@@ -1,4 +1,11 @@
 import type { StorageEntity } from "./storage-collections";
+import type {
+  CanonicalMemoryInput,
+  CanonicalMemoryPatch,
+  CanonicalMemoryQuery,
+  CanonicalMemoryRecord,
+  MemoryLexicalRebuildResult,
+} from "../contracts/types/memory";
 
 export type { StorageEntity } from "./storage-collections";
 
@@ -100,6 +107,9 @@ export interface ChatMetadataPort {
 }
 
 export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPort, ChatMetadataPort {
+  createMemory?(body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
+  updateMemory?(memoryId: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord>;
+  rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
   listChatMemories<T = unknown>(chatId: string, options?: ListChatMemoriesOptions): Promise<T[]>;
   refreshChatMemories?<T = unknown>(chatId: string): Promise<T>;
   getWorldState<T = unknown>(chatId: string): Promise<T | null>;

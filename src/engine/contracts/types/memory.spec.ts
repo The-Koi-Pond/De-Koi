@@ -2,7 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import type { CanonicalMemoryRecord, MemoryKind, MemoryScopeKind, MemoryStatus } from "./memory";
 
-const kinds: MemoryKind[] = ["episode", "fact", "scene_event", "relationship_state", "preference", "lore", "summary"];
+const kinds: MemoryKind[] = [
+  "episode",
+  "fact",
+  "scene_event",
+  "relationship_state",
+  "preference",
+  "promise",
+  "plot_state",
+  "contradiction",
+  "lore",
+  "summary",
+];
 const statuses: MemoryStatus[] = ["active", "superseded", "stale", "pinned", "deleted"];
 const scopes: MemoryScopeKind[] = ["user", "character", "chat", "scene", "world", "agent"];
 
