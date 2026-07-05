@@ -839,7 +839,7 @@ pub(crate) fn delete_message_rows_with_memory_prune(
             Ok((deleted_messages.len(), ids))
         },
     )?;
-    canonical_memory::mark_memories_for_source_messages(&state, &result.1, "deleted")?;
+    canonical_memory::mark_memories_for_source_messages(state, &result.1, "deleted")?;
     Ok(result)
 }
 
