@@ -1,4 +1,14 @@
-export type MemoryKind = "episode" | "fact" | "scene_event" | "relationship_state" | "preference" | "lore" | "summary";
+export type MemoryKind =
+  | "episode"
+  | "fact"
+  | "scene_event"
+  | "relationship_state"
+  | "preference"
+  | "promise"
+  | "plot_state"
+  | "contradiction"
+  | "lore"
+  | "summary";
 export type MemoryStatus = "active" | "superseded" | "stale" | "pinned" | "deleted";
 export type MemoryScopeKind = "user" | "character" | "chat" | "scene" | "world" | "agent";
 
