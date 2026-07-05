@@ -118,4 +118,39 @@ describe("chat sidebar virtual list", () => {
     expect(container!.querySelector('[data-chat-id="chat-999"]')).toBeNull();
     expect(scrollToIndex).toHaveBeenCalledWith(901, { align: "auto" });
   });
+
+  it("keeps folder rows vertically offset when reorder items own transform", () => {
+    const folderA: TestFolder = { id: "folder-a", name: "DBD", collapsed: true };
+    const folderB: TestFolder = { id: "folder-b", name: "Freak Circus", collapsed: true };
+    const rows: ChatSidebarVirtualRow<TestFolder, ReturnType<typeof chat>>[] = buildChatSidebarListRows({
+      pinnedChats: [],
+      localFolderOrder: [folderA.id, folderB.id],
+      modeFolders: [folderA, folderB],
+      folderChatsMap: new Map(),
+      unfiledChats: [],
+      includeUnfiledDropZone: false,
+    });
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <ChatSidebarVirtualList
+          rows={rows}
+          activeChatId={null}
+          activeGroupId={null}
+          localFolderOrder={[folderA.id, folderB.id]}
+          onFolderReorder={() => undefined}
+          renderChatRow={(entry) => <div data-chat-row data-chat-id={entry.chat.id} />}
+          renderFolderHeader={(row, style) => (
+            <div data-folder-row={row.folder.name} style={{ ...style, transform: "none" }} />
+          )}
+          renderSectionHeader={(row) => <div data-section-row>{row.label}</div>}
+        />,
+      );
+    });
+
+    const folderRows = Array.from(container!.querySelectorAll<HTMLElement>("[data-folder-row]"));
+    expect(folderRows).toHaveLength(2);
+    expect(folderRows.map((row) => row.style.top)).toEqual(["0px", "44px"]);
+  });
 });
