@@ -94,6 +94,26 @@ describe("prompt budget estimates", () => {
     expect(budget.warnings.some((warning) => warning.kind === "lorebook_skipped")).toBe(true);
   });
 
+  it("warns when high-signal character cues repeat across prompt context sources", () => {
+    const repeatedCue = "Mira has silver eyes that glow whenever she lies.";
+    const budget = buildPromptBudgetEstimate({
+      messages: [
+        message({ role: "system", content: repeatedCue, contextKind: "prompt", displayName: "Character Info" }),
+        message({ role: "system", content: repeatedCue, contextKind: "prompt", displayName: "Memory Recall" }),
+        message({ role: "system", content: repeatedCue, contextKind: "injection", displayName: "Agent Context" }),
+      ],
+      connection: { maxContext: 4096 },
+      parameters: { maxTokens: 512 },
+    });
+
+    const warning = budget.warnings.find((entry) => entry.kind === "context_overlap");
+
+    expect(warning?.message).toContain("Mira has silver eyes");
+    expect(warning?.message).toContain("Character Info");
+    expect(warning?.message).toContain("Memory Recall");
+    expect(warning?.message).toContain("Agent Context");
+  });
+
   it("clamps the input budget when reserves exceed a tiny context limit", () => {
     const budget = buildPromptBudgetEstimate({
       messages: [message({ role: "user", content: "Tiny window prompt." })],
