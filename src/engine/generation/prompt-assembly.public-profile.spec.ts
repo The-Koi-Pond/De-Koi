@@ -200,7 +200,7 @@ describe("prompt context overlap suppression", () => {
         expect.objectContaining({
           status: "skipped",
           snippet: "Mira keeps a brass key under her glove.",
-          metadata: expect.objectContaining({ reason: "context_overlap", overlapSource: "same_day_character_memory" }),
+          metadata: expect.objectContaining({ reason: "overlaps_character_memory", overlappingSource: "Character memory 1" }),
         }),
       ]),
     );

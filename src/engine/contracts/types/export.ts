@@ -1,8 +1,8 @@
-// ──────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Export/Import Envelope Types
-// ──────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
-import type { ChatMode } from "./chat.js";
+import type { ChatMemoryKind, ChatMemoryScopeType, ChatMode } from "./chat.js";
 
 /** Supported export entity types. */
 export type ExportType =
@@ -29,6 +29,19 @@ export interface ChatMemoryRecallExportChunk {
   firstMessageAt: string;
   lastMessageAt: string;
   createdAt: string;
+  canonicalMemoryVersion?: number;
+  memoryKind?: ChatMemoryKind;
+  scopeType?: ChatMemoryScopeType;
+  scopeId?: string | null;
+  legacySourceLane?: string | null;
+  legacySourceId?: string | null;
+  creationReason?: string | null;
+  source?: string | null;
+  target?: string | null;
+  targetCharacterId?: string | null;
+  targetCharacterName?: string | null;
+  commandMemoryKey?: string | null;
+  correctionOfMemoryId?: string | null;
 }
 
 export interface ChatMemoryRecallExportPayload {

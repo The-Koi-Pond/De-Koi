@@ -337,13 +337,65 @@ export function useChatMemories(chatId: string | null, enabled = true) {
   });
 }
 
+function invalidateChatMemoryQueries(qc: QueryClient, chatId: string | null) {
+  if (!chatId) return;
+  qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
+  qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+  qc.invalidateQueries({ queryKey: chatKeys.notes(chatId) });
+  qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+  qc.invalidateQueries({ queryKey: chatKeys.messageCount(chatId) });
+  qc.invalidateQueries({ queryKey: chatKeys.list() });
+  qc.invalidateQueries({ queryKey: chatKeys.summaries() });
+}
+
 export function useDeleteChatMemory(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (memoryId: string) => chatCommandApi.memoryDelete(chatId, memoryId),
-    onSuccess: () => {
-      if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
-    },
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
+  });
+}
+
+export function useUpdateChatMemory(chatId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memoryId, content }: { memoryId: string; content: string }) =>
+      chatCommandApi.memoryUpdate(chatId, memoryId, { content }),
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
+  });
+}
+
+export function useSoftDeleteChatMemory(chatId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (memoryId: string) => chatCommandApi.memorySoftDelete(chatId, memoryId),
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
+  });
+}
+
+export function useRestoreChatMemory(chatId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (memoryId: string) => chatCommandApi.memoryRestore(chatId, memoryId),
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
+  });
+}
+
+export function usePinChatMemory(chatId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memoryId, pinned }: { memoryId: string; pinned: boolean }) =>
+      chatCommandApi.memoryPin(chatId, memoryId, pinned),
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
+  });
+}
+
+export function useCorrectChatMemory(chatId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memoryId, replacementContent }: { memoryId: string; replacementContent?: string }) =>
+      chatCommandApi.memoryCorrect(chatId, memoryId, { replacementContent }),
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
   });
 }
 
@@ -351,9 +403,7 @@ export function useClearChatMemories(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => chatCommandApi.memoriesClear(chatId),
-    onSuccess: () => {
-      if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
-    },
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
   });
 }
 
@@ -361,13 +411,28 @@ export function useRefreshChatMemories(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => chatCommandApi.memoriesRefresh<{ rebuilt: number }>(chatId),
-    onSuccess: () => {
-      if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
-    },
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
+  });
+}
+
+export function useMigrateChatMemories(chatId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => chatCommandApi.memoriesMigrate<{ created: number; updated: number; version: number }>(chatId),
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
+  });
+}
+
+export function useRebuildChatMemoryIndexes(chatId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => chatCommandApi.memoryIndexesRebuild<{ rebuilt: number }>(chatId),
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
   });
 }
 
 export function useExportChatMemories(chatId: string | null) {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
       if (!chatId) throw new Error("No chat selected.");
@@ -378,6 +443,7 @@ export function useExportChatMemories(chatId: string | null) {
         "application/json;charset=utf-8",
       );
     },
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
   });
 }
 
@@ -389,9 +455,7 @@ export function useImportChatMemories(chatId: string | null) {
       const payload = await readChatMemoryRecallImportFile(file);
       return chatCommandApi.memoriesImport<ChatMemoryRecallImportResult>(chatId, payload);
     },
-    onSuccess: () => {
-      if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
-    },
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
   });
 }
 

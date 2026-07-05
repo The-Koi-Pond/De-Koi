@@ -2095,16 +2095,16 @@ function suppressOverlappingSummaryChunks(
 }
 
 const MEMORY_EMBEDDING_DIMS = 512;
-const DEFAULT_MEMORY_RECALL_BUDGET_TOKENS = 1024;
+const DEFAULT_MEMORY_RECALL_BUDGET_TOKENS = 768;
 const MIN_MEMORY_RECALL_BUDGET_TOKENS = 256;
-const MAX_MEMORY_RECALL_BUDGET_TOKENS = 2048;
+const MAX_MEMORY_RECALL_BUDGET_TOKENS = 1536;
 const MAX_RECALLED_MEMORY_TOKENS = 384;
 const MIN_RECALLED_MEMORY_TOKENS = 96;
-const MEMORY_RECALL_CONTEXT_SHARE = 0.15;
-const MEMORY_RECALL_SIMILARITY_THRESHOLD = 0.25;
+const MEMORY_RECALL_CONTEXT_SHARE = 0.1;
+const MEMORY_RECALL_SIMILARITY_THRESHOLD = 0.28;
 const MAX_MEMORY_RECALL_SCORING_CHUNKS = 500;
 const MIN_MEMORY_RECALL_MULTI_TOKEN_STRONG_LEXICAL_TOKENS = 2;
-const MIN_MEMORY_RECALL_STRONG_LEXICAL_COVERAGE = 0.75;
+const MIN_MEMORY_RECALL_STRONG_LEXICAL_COVERAGE = 0.66;
 const DEFAULT_MEMORY_RECALL_READ_BEHIND_MESSAGES = 1;
 const MAX_MEMORY_RECALL_READ_BEHIND_MESSAGES = 100;
 const RECALL_TRUNCATION_MARKER = "\n...[recalled memory truncated]...\n";
@@ -2126,6 +2126,7 @@ const MEMORY_RECALL_QUERY_STOPWORDS = new Set([
   "him",
   "his",
   "how",
+  "is",
   "its",
   "know",
   "our",
@@ -2422,8 +2423,7 @@ function attributionForSkippedMemoryRecall(
     sourceId: readString(skip.candidate.id).trim() || null,
     snippet: skip.candidate.content,
     metadata: {
-      reason: "context_overlap",
-      overlapSource: "same_day_character_memory",
+      reason: skip.reason,
       overlappingSource: skip.overlappingSourceLabel,
       consideredCount,
     },
@@ -2431,6 +2431,20 @@ function attributionForSkippedMemoryRecall(
 }
 function memoryRecallRows(value: unknown): JsonRecord[] {
   return parseArray(value).filter(isRecord);
+}
+
+function memoryRecallRowStatus(memory: JsonRecord): string {
+  return readString(memory.status).trim() || "active";
+}
+
+function memoryRecallRetrievable(memory: JsonRecord): boolean {
+  return (
+    memoryRecallRowStatus(memory) === "active" &&
+    !readString(memory.deletedAt).trim() &&
+    !readString(memory.correctedAt).trim() &&
+    !readString(memory.supersededAt).trim() &&
+    !readString(memory.supersededByMemoryId).trim()
+  );
 }
 
 async function buildMemoryRecallBlock(
@@ -2470,6 +2484,7 @@ async function buildMemoryRecallBlock(
   const queryVector = lexicalMemoryEmbedding(latestUserInput);
   const queryTokens = memoryRecallQueryTokens(latestUserInput);
   const recalled = memories
+    .filter(memoryRecallRetrievable)
     .map((memory) => {
       const content = readString(memory.content).trim();
       if (!content) return null;
@@ -2477,7 +2492,8 @@ async function buildMemoryRecallBlock(
       const vector = providerVector ?? memoryVector(memory, MEMORY_EMBEDDING_DIMS) ?? lexicalMemoryEmbedding(content);
       const baseQueryVector = providerVector && semanticQueryVector ? semanticQueryVector : queryVector;
       const lexicalScore = memoryRecallLexicalOverlap(queryTokens, memoryRecallTokenSet(content));
-      const similarity = cosineSimilarity(baseQueryVector, vector) + Math.min(0.2, lexicalScore * 0.025);
+      const pinBoost = boolish(memory.pinned, false) ? 0.15 : 0;
+      const similarity = cosineSimilarity(baseQueryVector, vector) + Math.min(0.2, lexicalScore * 0.025) + pinBoost;
       return { id: memory.id, content, similarity, lexicalScore };
     })
     .filter(
@@ -2503,7 +2519,7 @@ async function buildMemoryRecallBlock(
   return {
     block: [
       "<memories>",
-      "The following are recalled fragments from earlier in this chat. Use them to maintain continuity, remember past events, and stay in character. Do not explicitly reference memory recall unless it is natural.",
+      "The following are recalled fragments from earlier in this chat. Treat them as context, not immutable canon; prefer newer visible chat when it clearly contradicts a recalled fragment. Use them to maintain continuity, remember past events, and stay in character. Do not explicitly reference memory recall unless it is natural.",
       ...attribution.promptLines.map((line, index) => `--- Memory ${index + 1} ---\n${line}`),
       "</memories>",
     ].join("\n"),
