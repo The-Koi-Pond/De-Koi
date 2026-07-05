@@ -42,7 +42,7 @@ function recordList<T = JsonRecord>(records: JsonRecord[], options?: StorageList
   return rows as T[];
 }
 
-function llmThatStreams(onStream: () => void, text = "rewrite"): LlmGateway {
+function llmThatStreams(onStream: (request?: Parameters<LlmGateway["stream"]>[0]) => void, text = "rewrite"): LlmGateway {
   return {
     async complete() {
       return "";
@@ -50,8 +50,8 @@ function llmThatStreams(onStream: () => void, text = "rewrite"): LlmGateway {
     async listModels() {
       return [];
     },
-    async *stream() {
-      onStream();
+    async *stream(request) {
+      onStream(request);
       yield { type: "token", text };
     },
   };
@@ -143,7 +143,9 @@ function baseGenerationRecords() {
 
 function generationStorage(args: {
   getTarget: (call: number, target: JsonRecord) => JsonRecord | null | Promise<JsonRecord | null>;
+  chatMode?: string;
   chatMetadata?: JsonRecord;
+  messages?: JsonRecord[];
   agentRows?: JsonRecord[];
   onCreate?: (chatId: string, value: Record<string, unknown>) => unknown;
   onSwipe?: (content: string, options: unknown) => void;
@@ -151,6 +153,7 @@ function generationStorage(args: {
   onPatchChatMetadata?: (patch: Record<string, unknown>) => void;
 }): StorageGateway {
   const records = baseGenerationRecords();
+  if (args.chatMode) records.chat.mode = args.chatMode;
   const chatMetadata =
     records.chat.metadata && typeof records.chat.metadata === "object" && !Array.isArray(records.chat.metadata)
       ? (records.chat.metadata as JsonRecord)
@@ -190,7 +193,7 @@ function generationStorage(args: {
       options?: Parameters<StorageGateway["listChatMessages"]>[1],
     ): Promise<T[]> {
       if (options?.before) return asStorageValue<T[]>([records.previous]);
-      return asStorageValue<T[]>([records.previous, records.target]);
+      return asStorageValue<T[]>(args.messages ?? [records.previous, records.target]);
     },
     async getChatMessage<T = unknown>(messageId: string): Promise<T | null> {
       if (messageId === records.target.id) {
@@ -655,6 +658,55 @@ describe("user-message regeneration review guards", () => {
       ],
     });
     expect(extraPatches[0]?.dialogueAttributions).toMatchObject(savedSwipeExtra.dialogueAttributions as object);
+  });
+  it("adds conversation freshness guidance to generation prompt messages", async () => {
+    let modelCalls = 0;
+    const llmRequests: Array<{ messages: Array<{ content: string }> }> = [];
+    const storage = generationStorage({
+      chatMode: "conversation",
+      messages: [
+        {
+          id: "message-a1",
+          chatId: "chat-1",
+          role: "assistant",
+          content: "That sounds exhausting. How are you feeling about it?",
+          extra: {},
+        },
+        { id: "message-u1", chatId: "chat-1", role: "user", content: "A little stuck.", extra: {} },
+        {
+          id: "message-a2",
+          chatId: "chat-1",
+          role: "assistant",
+          content: "I hear you. Does that make sense?",
+          extra: {},
+        },
+      ],
+      getTarget: (_call, target) => target,
+      onCreate: (chatId, value) => ({ id: "message-assistant", chatId, ...value }),
+    });
+
+    await collect(
+      startGeneration(
+        {
+          storage,
+          llm: llmThatStreams((request) => {
+            modelCalls += 1;
+            llmRequests.push({ messages: request?.messages.map((message) => ({ content: message.content })) ?? [] });
+          }, "Fresh answer."),
+          integrations: noopIntegrations,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          messages: [{ role: "user", content: "Tell me what you think." }],
+        },
+      ),
+    );
+
+    expect(modelCalls).toBe(1);
+    expect(llmRequests[0]?.messages.some((message) => message.content.includes("Conversation freshness guide"))).toBe(
+      true,
+    );
   });
   it("dry-runs generation with prompt output and no chat-state writes", async () => {
     let modelCalls = 0;
