@@ -159,9 +159,8 @@ export function ChatSidebarVirtualList<TFolder extends FolderLike, TEntry extend
           const style: CSSProperties = {
             position: "absolute",
             left: 0,
-            top: 0,
+            top: virtualRow.start,
             width: "100%",
-            transform: `translateY(${virtualRow.start}px)`,
           };
 
           if (row.type === "folder") {
