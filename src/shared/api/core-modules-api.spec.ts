@@ -3,7 +3,7 @@ import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants
 import { settingsFromLegacyUiStorageValue } from "./core-modules-api";
 
 describe("coreModulesApi legacy settings migration", () => {
-  it("enables the Music DJ mini player when the legacy Spotify UI setting was enabled", () => {
+  it("enables the Music Player mini player when the legacy Spotify UI setting was enabled", () => {
     const migrated = settingsFromLegacyUiStorageValue(
       JSON.stringify({
         state: {

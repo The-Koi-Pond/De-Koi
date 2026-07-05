@@ -148,7 +148,7 @@ const BUILT_IN_AGENT_DEFINITIONS: &[BuiltInAgentDefinition] = &[
     },
     BuiltInAgentDefinition {
         agent_type: "music-dj",
-        name: "Music DJ",
+        name: "Music Player",
         description: "Analyzes scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
         phase: "post_processing",
         enabled_by_default: false,
@@ -407,7 +407,7 @@ pub(crate) fn normalize_agent_record_for_read(value: &mut Value) {
     if object.get("type").and_then(Value::as_str) == Some("music-dj")
         && object.get("name").and_then(Value::as_str) == Some("Assistant DJ")
     {
-        object.insert("name".to_string(), Value::String("Music DJ".to_string()));
+        object.insert("name".to_string(), Value::String("Music Player".to_string()));
     }
 }
 
@@ -1278,11 +1278,11 @@ mod tests {
     fn music_dj_builtin_uses_music_label_and_normalizes_legacy_assistant_dj() {
         let created_state = test_state("music-dj-default-label");
         let created = patch_agent_type(&created_state, "music-dj", json!({ "enabled": true }))
-            .expect("music dj patch should create built-in config row");
+            .expect("music player patch should create built-in config row");
 
         assert_eq!(
             created.get("name").and_then(Value::as_str),
-            Some("Music DJ")
+            Some("Music Player")
         );
         assert_eq!(
             created["settings"]["enabledTools"],
@@ -1309,21 +1309,21 @@ mod tests {
                     "settings": {}
                 }),
             )
-            .expect("legacy music dj config should write");
+            .expect("legacy music player config should write");
 
         let hydrated = get_or_create_agent_config(&legacy_state, "music-dj")
-            .expect("music dj get-or-create should normalize legacy label");
+            .expect("music player get-or-create should normalize legacy label");
 
         assert_eq!(
             hydrated.get("name").and_then(Value::as_str),
-            Some("Music DJ")
+            Some("Music Player")
         );
         let stored = legacy_state
             .storage
             .get("agents", "legacy-music-dj")
             .expect("agent lookup should succeed")
-            .expect("hydrated music dj should still exist");
-        assert_eq!(stored.get("name").and_then(Value::as_str), Some("Music DJ"));
+            .expect("hydrated music player should still exist");
+        assert_eq!(stored.get("name").and_then(Value::as_str), Some("Music Player"));
     }
 
     #[test]

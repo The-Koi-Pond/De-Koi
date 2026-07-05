@@ -121,7 +121,7 @@ export const GAME_SCENE_ANALYSIS_SCHEMA_DESCRIPTION = JSON.stringify({
   musicGenre:
     "fantasy | horror | romance | mystery | scifi | modern | slice_of_life | adventure | drama | custom | null",
   musicIntensity: "calm | tense | intense | null",
-  musicTrack: "one offered Music DJ id string/object or null",
+  musicTrack: "one offered Music Player id string/object or null",
   spotifyTrack: "one offered Spotify URI string/object or null",
   reputationChanges: [{ npcName: "non-empty string", action: "non-empty string" }],
   segmentEffects: [

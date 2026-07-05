@@ -27,7 +27,7 @@ describe("postProcessSceneResult music contracts", () => {
     vi.restoreAllMocks();
   });
 
-  it("throws when Music DJ and legacy Spotify scene music are both enabled", () => {
+  it("throws when Music Player and legacy Spotify scene music are both enabled", () => {
     expect(() =>
       postProcessSceneResult(rawScene(), {
         availableBackgrounds: [],
@@ -37,10 +37,10 @@ describe("postProcessSceneResult music contracts", () => {
         useMusicDj: true,
         useSpotifyMusic: true,
       }),
-    ).toThrow("Music DJ and legacy Spotify scene music cannot both be enabled");
+    ).toThrow("Music Player and legacy Spotify scene music cannot both be enabled");
   });
 
-  it("warns and drops invented Music DJ track ids", () => {
+  it("warns and drops invented Music Player track ids", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const result = postProcessSceneResult(rawScene({ musicTrack: "yt:invented" }), {

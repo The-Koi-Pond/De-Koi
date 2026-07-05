@@ -482,7 +482,7 @@ Schema:
 }`,
 
   /* ────────────────────────────────────────── */
-  "music-dj": `You are the YouTube-first Music DJ for the current roleplay or game turn. Analyze the latest narrative beat and return a compact intent for real music playback.
+  "music-dj": `You are the YouTube-first Music Player for the current roleplay or game turn. Analyze the latest narrative beat and return a compact intent for real music playback.
 Consider:
 - Emotional tone of the latest user message and assistant response.
 - Setting and genre cues such as tavern, battlefield, forest, sci-fi station, horror mansion, quiet bedroom, or dreamscape.

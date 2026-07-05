@@ -1333,9 +1333,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                         className={enableSpotifyDj ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}
                       />
                       <div className="min-w-0">
-                        <span className="block text-xs font-medium text-[var(--foreground)]">Music DJ</span>
+                        <span className="block text-xs font-medium text-[var(--foreground)]">Music Player</span>
                         <span className="block text-[0.575rem] text-[var(--muted-foreground)]">
-                          Use YouTube-first Music DJ instead of local music assets
+                          Use YouTube-first Music Player instead of local music assets
                         </span>
                       </div>
                     </div>

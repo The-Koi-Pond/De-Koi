@@ -7724,7 +7724,7 @@ export function GameSurface({
                             ) : (
                               <Volume2 size={13} />
                             )}
-                            <span>Retry Music DJ Generation</span>
+                            <span>Retry Music Player Generation</span>
                           </button>
                         )}
                         <button
@@ -8111,7 +8111,7 @@ export function GameSurface({
                         ) : (
                           <Volume2 size={13} />
                         )}
-                        <span>Retry Music DJ Generation</span>
+                        <span>Retry Music Player Generation</span>
                       </button>
                     )}
                     <button

@@ -370,7 +370,7 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
   result.music = null;
   result.ambient = null;
   if (ctx.useMusicDj && ctx.useSpotifyMusic) {
-    throw new Error("Music DJ and legacy Spotify scene music cannot both be enabled.");
+    throw new Error("Music Player and legacy Spotify scene music cannot both be enabled.");
   }
   if (ctx.useMusicDj || ctx.useSpotifyMusic) {
     result.musicGenre = null;

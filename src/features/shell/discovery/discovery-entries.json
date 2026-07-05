@@ -314,7 +314,7 @@
     "id": "music-dj",
     "title": "Music Player",
     "category": "Media",
-    "summary": "Use the YouTube-first Music Player agent for automatic scene-aware picks, the Music Player module for visible playback controls, and character Music Taste for profile/manual character cues.",
+    "summary": "Use the YouTube-first Music Player agent for automatic scene-aware picks, Game Mode scene-music retries, the Music Player module for visible playback controls, and character Music Taste for profile/manual character cues.",
     "keywords": ["youtube", "spotify legacy", "music", "dj", "playlist", "player", "playback", "scene music", "roleplay music", "character music", "profile music", "fresh pick", "mini player", "toolbar", "draggable"],
     "audience": "Users who want music controls, smarter roleplay cues, or mood-matched playlists inside chats and games.",
     "where": "Chat or Game settings > Agents for automatic Music Player picks, Settings > Modules for visible controls, and Character editor > Metadata > Music Taste for profile cues.",

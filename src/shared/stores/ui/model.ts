@@ -505,9 +505,9 @@ export interface UIState {
   spotifyPlayerEnabled: boolean;
   /** Optional remote Rust runtime URL. Blank uses the embedded Tauri backend. */
   remoteRuntimeUrl: string;
-  /** Floating Music DJ widget collapsed state. */
+  /** Floating Music Player widget collapsed state. */
   spotifyMobileWidgetCollapsed: boolean;
-  /** Floating Music DJ widget position in viewport pixels. */
+  /** Floating Music Player widget position in viewport pixels. */
   spotifyMobileWidgetPosition: FloatingWidgetPosition;
   /** When true, Roleplay and Conversation modes support arrow-key and touch-swipe navigation between message swipes. */
   intuitiveSwipeNavigation: boolean;

@@ -189,7 +189,7 @@ export interface GameSetupConfig {
   activeLorebookIds?: string[];
   /** Enable custom HUD widgets (model designs them at game start and updates during play) */
   enableCustomWidgets?: boolean;
-  /** Enable YouTube-first Music DJ for this game and use external music instead of local game music assets. */
+  /** Enable YouTube-first Music Player for this game and use external music instead of local game music assets. */
   enableMusicDj?: boolean;
   /** Legacy: Enable Spotify DJ for this game and use Spotify music instead of local game music assets. */
   enableSpotifyDj?: boolean;
