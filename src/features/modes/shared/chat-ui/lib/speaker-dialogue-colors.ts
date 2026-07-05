@@ -1,3 +1,5 @@
+import type { DialogueAttributionsExtra } from "../../../../../engine/contracts/types/chat";
+import { validateDialogueAttributionsForText } from "../../../../../engine/shared/text/dialogue-attribution";
 import { DIALOGUE_QUOTE_PATTERN_SOURCE } from "../../../../../shared/lib/dialogue-quotes";
 
 export type SpeakerDialogueColorSegment = {
@@ -67,6 +69,36 @@ function splitSpeakerTags(
 
   if (!found) return null;
   pushSegment(segments, text.slice(lastIndex), defaultDialogueColor);
+  return segments;
+}
+
+function splitDialogueAttributions(
+  text: string,
+  defaultDialogueColor: string | undefined,
+  speakerColorMap: Map<string, string> | undefined,
+  dialogueAttributions: DialogueAttributionsExtra | null | undefined,
+): SpeakerDialogueColorSegment[] | null {
+  const validated = validateDialogueAttributionsForText(text, dialogueAttributions);
+  if (!validated || !speakerColorMap?.size) return null;
+
+  const segments: SpeakerDialogueColorSegment[] = [];
+  let cursor = 0;
+  let applied = false;
+
+  for (const attribution of validated.segments) {
+    if (attribution.end <= cursor) continue;
+    const start = Math.max(cursor, attribution.start);
+    const color = findSpeakerColor(speakerColorMap, attribution.speakerName);
+    if (!color) continue;
+
+    pushSegment(segments, text.slice(cursor, start), defaultDialogueColor);
+    pushSegment(segments, text.slice(start, attribution.end), color);
+    cursor = attribution.end;
+    applied = true;
+  }
+
+  if (!applied) return null;
+  pushSegment(segments, text.slice(cursor), defaultDialogueColor);
   return segments;
 }
 
@@ -228,8 +260,10 @@ export function splitSpeakerDialogueColorSegments(
   text: string,
   defaultDialogueColor: string | undefined,
   speakerColorMap: Map<string, string> | undefined,
+  dialogueAttributions?: DialogueAttributionsExtra | null,
 ): SpeakerDialogueColorSegment[] {
   return (
+    splitDialogueAttributions(text, defaultDialogueColor, speakerColorMap, dialogueAttributions) ??
     splitSpeakerTags(text, defaultDialogueColor, speakerColorMap) ??
     splitNamePrefixedLines(text, defaultDialogueColor, speakerColorMap) ??
     splitAttributedQuotes(text, defaultDialogueColor, speakerColorMap) ?? [{ text, color: defaultDialogueColor }]

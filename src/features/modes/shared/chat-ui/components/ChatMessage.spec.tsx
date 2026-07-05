@@ -3,7 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Message } from "../../../../../engine/contracts/types/chat";
+import type { DialogueAttributionsExtra, Message } from "../../../../../engine/contracts/types/chat";
+import { createDialogueAttributionTextHash } from "../../../../../engine/shared/text/dialogue-attribution";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import type { CharacterMap } from "../types";
 import { ChatMessage } from "./ChatMessage";
@@ -232,5 +233,69 @@ describe("ChatMessage", () => {
     expect(avatars).toHaveLength(2);
     expect(avatars[0]?.dataset.crop).toBe(JSON.stringify(avatarCrop));
     expect(avatars[0]?.dataset.className).toContain("object-cover");
+  });
+  it("renders active swipe dialogue attribution colors before message-level metadata", () => {
+    const text = 'Alice watched Bob. "Careful."';
+    const aliceAttributions: DialogueAttributionsExtra = {
+      version: 1,
+      textHash: createDialogueAttributionTextHash(text),
+      segments: [
+        {
+          start: 19,
+          end: 29,
+          speakerName: "Alice",
+          speakerId: "alice",
+          source: "postprocess",
+          confidence: "explicit",
+        },
+      ],
+    };
+    const bobAttributions: DialogueAttributionsExtra = {
+      version: 1,
+      textHash: createDialogueAttributionTextHash(text),
+      segments: [
+        {
+          start: 19,
+          end: 29,
+          speakerName: "Bob",
+          speakerId: "bob",
+          source: "postprocess",
+          confidence: "explicit",
+        },
+      ],
+    };
+    const speakerMap: CharacterMap = new Map([
+      ["alice", { name: "Alice", avatarUrl: null, dialogueColor: "#ff3366" }],
+      ["bob", { name: "Bob", avatarUrl: null, dialogueColor: "#33aaff" }],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{
+              ...message,
+              id: "message-dialogue-attribution",
+              characterId: "alice",
+              content: text,
+              extra: { ...message.extra, dialogueAttributions: aliceAttributions },
+              swipes: [
+                { id: "swipe-1", content: text, characterId: "bob", extra: { dialogueAttributions: bobAttributions } },
+              ],
+            }}
+            chatCharacterIds={["alice", "bob"]}
+            characterMap={speakerMap}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const quote = Array.from(container!.querySelectorAll<HTMLElement>("strong")).find(
+      (node) => node.textContent === '"Careful."',
+    );
+
+    expect(quote).not.toBeNull();
+    expect(quote!.style.color).toBe("rgb(51, 170, 255)");
   });
 });
