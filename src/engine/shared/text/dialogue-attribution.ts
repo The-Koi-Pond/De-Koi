@@ -9,6 +9,7 @@ export interface DialogueAttributionSpeaker {
 export interface BuildDialogueAttributionsOptions {
   stripSpeakerTags?: boolean;
   includeDerivedProse?: boolean;
+  stripLeadingSpeakerPrefix?: boolean;
 }
 
 export interface BuildDialogueAttributionsResult {
@@ -76,15 +77,19 @@ export function buildDialogueAttributions(
   const explicitSegments = [...tagResult.segments, ...namePrefixSegments];
   const proseSegments =
     options.includeDerivedProse === true ? collectExplicitProseSegments(tagResult.text, lookup, explicitSegments) : [];
-  const normalized = normalizeSegments(tagResult.text, [...explicitSegments, ...proseSegments], lookup);
+  const output =
+    options.stripLeadingSpeakerPrefix === true
+      ? stripLeadingSpeakerPrefixSegment(tagResult.text, [...explicitSegments, ...proseSegments])
+      : { text: tagResult.text, segments: [...explicitSegments, ...proseSegments] };
+  const normalized = normalizeSegments(output.text, output.segments, lookup);
 
   return {
-    text: tagResult.text,
+    text: output.text,
     attributions:
       normalized.length > 0
         ? {
             version: 1,
-            textHash: createDialogueAttributionTextHash(tagResult.text),
+            textHash: createDialogueAttributionTextHash(output.text),
             segments: normalized,
           }
         : null,
@@ -224,6 +229,47 @@ function collectNamePrefixSegments(
   return segments;
 }
 
+function stripLeadingSpeakerPrefixSegment(
+  text: string,
+  segments: DialogueAttributionSegment[],
+): { text: string; segments: DialogueAttributionSegment[] } {
+  const candidate = segments
+    .filter((segment) => segment.source === "name-prefix" && segment.start > 0 && segment.end > segment.start)
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+    .find((segment) => isLeadingSpeakerPrefixSegment(text, segment));
+
+  if (!candidate) {
+    return { text, segments };
+  }
+
+  const removedLength = candidate.start;
+  return {
+    text: text.slice(removedLength),
+    segments: segments
+      .filter((segment) => segment.end > removedLength)
+      .map((segment) => ({
+        ...segment,
+        start: Math.max(0, segment.start - removedLength),
+        end: Math.max(0, segment.end - removedLength),
+      }))
+      .filter((segment) => segment.end > segment.start),
+  };
+}
+
+function isLeadingSpeakerPrefixSegment(text: string, segment: DialogueAttributionSegment): boolean {
+  const prefix = text.slice(0, segment.start);
+  if (prefix.includes("\n")) {
+    return false;
+  }
+
+  const trimmed = prefix.trim();
+  if (!trimmed.endsWith(":")) {
+    return false;
+  }
+
+  const prefixName = trimmed.slice(0, -1).trim().toLowerCase();
+  return prefixName.length > 0 && prefixName === segment.speakerName.trim().toLowerCase();
+}
 function collectExplicitProseSegments(
   text: string,
   lookup: SpeakerLookup,

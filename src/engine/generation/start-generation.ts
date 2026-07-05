@@ -6,6 +6,7 @@ import {
 } from "../contracts/types/agent";
 import type {
   DaySummaryEntry,
+  DialogueAttributionsExtra,
   GenerationContextAttribution,
   GenerationPromptSnapshot,
   GenerationPromptSnapshotMessage,
@@ -20,6 +21,7 @@ import type { SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual
 import { buildProseGuardianAvoidanceGuide } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
+import { buildDialogueAttributions, type DialogueAttributionSpeaker } from "../shared/text/dialogue-attribution";
 import { normalizeUserTimeZone } from "../shared/time/timezone";
 import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-prompt";
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
@@ -2975,9 +2977,69 @@ function assistantMessageCharacterId(chat: JsonRecord, input: StartGenerationInp
       : null;
 }
 
+function roleplayAssistantDialogueAttributionContent(args: {
+  chat: JsonRecord;
+  characters: GenerationCharacterContext[];
+  content: string;
+}): { content: string; dialogueAttributions: DialogueAttributionsExtra | null } {
+  if (!isRoleplayChat(args.chat)) {
+    return { content: args.content, dialogueAttributions: null };
+  }
+
+  const speakers = roleplayDialogueAttributionSpeakers(args.characters);
+  if (speakers.length === 0) {
+    return { content: args.content, dialogueAttributions: null };
+  }
+
+  const result = buildDialogueAttributions(args.content, speakers, {
+    stripSpeakerTags: true,
+    stripLeadingSpeakerPrefix: true,
+    includeDerivedProse: true,
+  });
+
+  return { content: result.text, dialogueAttributions: result.attributions };
+}
+
+function isRoleplayChat(chat: JsonRecord): boolean {
+  const mode = readString(chat.mode || chat.chatMode).trim();
+  return mode === "roleplay" || mode === "rp";
+}
+
+function roleplayDialogueAttributionSpeakers(characters: GenerationCharacterContext[]): DialogueAttributionSpeaker[] {
+  return characters
+    .map((character): DialogueAttributionSpeaker | null => {
+      const name = readString(character.name).trim();
+      if (!name) return null;
+      return {
+        id: readString(character.id).trim() || null,
+        name,
+        aliases: roleplayDialogueAttributionAliases(character, name),
+      };
+    })
+    .filter((speaker): speaker is DialogueAttributionSpeaker => speaker !== null);
+}
+
+function roleplayDialogueAttributionAliases(character: GenerationCharacterContext, name: string): string[] {
+  const profile = character.publicProfile;
+  const handle = readString(profile?.handle).trim();
+  const aliases = [
+    readString(profile?.displayName).trim(),
+    handle,
+    handle.startsWith("@") ? handle.slice(1).trim() : "",
+  ];
+  const seen = new Set([name.toLowerCase()]);
+  return aliases.filter((alias) => {
+    const key = alias.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function saveAssistantMessage(args: {
   storage: StorageGateway;
   chat: JsonRecord;
+  characters: GenerationCharacterContext[];
   input: StartGenerationInput;
   connection: JsonRecord;
   content: string;
@@ -3070,11 +3132,17 @@ async function saveAssistantMessage(args: {
 
   if (regenerateMessageId) {
     const characterId = assistantMessageCharacterId(args.chat, args.input);
+    const attributedContent = roleplayAssistantDialogueAttributionContent({
+      chat: args.chat,
+      characters: args.characters,
+      content,
+    });
+    assertVisibleGeneratedContent(attributedContent.content, args.attachments);
     return saveRegeneratedMessage({
       storage: args.storage,
       chatId: args.input.chatId,
       messageId: regenerateMessageId,
-      content,
+      content: attributedContent.content,
       ...(characterId ? { characterId } : {}),
       thinking: thinking || undefined,
       generationReplay,
@@ -3083,21 +3151,31 @@ async function saveAssistantMessage(args: {
       providerMetadata,
       spriteExpressions: args.spriteExpressions,
       agentExtra,
+      dialogueAttributions: attributedContent.dialogueAttributions,
     });
   }
 
   const characterId = assistantMessageCharacterId(args.chat, args.input);
+  const attributedContent = roleplayAssistantDialogueAttributionContent({
+    chat: args.chat,
+    characters: args.characters,
+    content,
+  });
+  assertVisibleGeneratedContent(attributedContent.content, args.attachments);
 
   return args.storage.createChatMessage(args.input.chatId, {
     role: "assistant",
     characterId,
-    content,
+    content: attributedContent.content,
     extra: {
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
       ...(thinking ? { thinking } : {}),
       ...(providerMetadata ? { providerMetadata } : {}),
       ...(generationReplay ? { generationReplay } : {}),
       ...(args.spriteExpressions ? { spriteExpressions: args.spriteExpressions } : {}),
+      ...(attributedContent.dialogueAttributions
+        ? { dialogueAttributions: attributedContent.dialogueAttributions }
+        : {}),
       ...agentExtra,
       ...(promptSnapshot
         ? {
@@ -3129,6 +3207,7 @@ async function saveRegeneratedMessage(args: {
   providerMetadata?: Record<string, unknown> | null;
   spriteExpressions?: Record<string, string> | null;
   agentExtra?: Record<string, unknown> | null;
+  dialogueAttributions?: DialogueAttributionsExtra | null;
 }): Promise<unknown | null> {
   const swipeExtra = swipeScopedGenerationExtra({
     generationReplay: args.generationReplay,
@@ -3138,6 +3217,7 @@ async function saveRegeneratedMessage(args: {
     providerMetadata: args.providerMetadata,
     spriteExpressions: args.spriteExpressions,
     agentExtra: args.agentExtra,
+    dialogueAttributions: args.dialogueAttributions,
   });
   await args.storage.addChatMessageSwipe(
     args.chatId,
@@ -3153,6 +3233,7 @@ async function saveRegeneratedMessage(args: {
     providerMetadata: args.providerMetadata,
     spriteExpressions: args.spriteExpressions,
     agentExtra: args.agentExtra,
+    dialogueAttributions: args.dialogueAttributions,
   });
   return args.storage.patchChatMessageExtra(args.messageId, extraPatch);
 }
@@ -3176,6 +3257,7 @@ function swipeScopedGenerationExtra(args: {
   providerMetadata?: Record<string, unknown> | null;
   spriteExpressions?: Record<string, string> | null;
   agentExtra?: Record<string, unknown> | null;
+  dialogueAttributions?: DialogueAttributionsExtra | null;
 }): Record<string, unknown> {
   const extra: Record<string, unknown> = {};
   if (args.generationReplay) extra.generationReplay = args.generationReplay;
@@ -3188,6 +3270,7 @@ function swipeScopedGenerationExtra(args: {
   if (args.spriteExpressions && Object.keys(args.spriteExpressions).length > 0) {
     extra.spriteExpressions = args.spriteExpressions;
   }
+  if (args.dialogueAttributions) extra.dialogueAttributions = args.dialogueAttributions;
   if (args.agentExtra) Object.assign(extra, args.agentExtra);
   if (args.promptSnapshot) extra.generationPromptSnapshot = args.promptSnapshot;
   return extra;
@@ -3201,6 +3284,7 @@ function generationReplayExtraPatch(args: {
   providerMetadata?: Record<string, unknown> | null;
   spriteExpressions?: Record<string, string> | null;
   agentExtra?: Record<string, unknown> | null;
+  dialogueAttributions?: DialogueAttributionsExtra | null;
 }): Record<string, unknown> {
   const extraPatch: Record<string, unknown> = {};
   if (args.generationReplay) extraPatch.generationReplay = args.generationReplay;
@@ -3213,6 +3297,7 @@ function generationReplayExtraPatch(args: {
   if (args.spriteExpressions && Object.keys(args.spriteExpressions).length > 0) {
     extraPatch.spriteExpressions = args.spriteExpressions;
   }
+  if (args.dialogueAttributions) extraPatch.dialogueAttributions = args.dialogueAttributions;
   if (args.agentExtra) Object.assign(extraPatch, args.agentExtra);
   if (args.promptSnapshot) {
     extraPatch.generationPromptSnapshot = args.promptSnapshot;
@@ -3261,6 +3346,7 @@ interface StreamPartialSink {
 async function persistPartialOnAbort(args: {
   deps: GenerationEngineDeps;
   chat: JsonRecord;
+  characters: GenerationCharacterContext[];
   input: StartGenerationInput;
   connection: JsonRecord;
   partial: StreamPartialSink;
@@ -3275,6 +3361,7 @@ async function persistPartialOnAbort(args: {
     return await saveAssistantMessage({
       storage: args.deps.storage,
       chat: args.chat,
+      characters: args.characters,
       input: args.input,
       connection: args.connection,
       content: args.partial.content,
@@ -4408,6 +4495,7 @@ export async function* startGeneration(
       const savedPartial = await persistPartialOnAbort({
         deps,
         chat,
+        characters: assembly.characters,
         input,
         connection,
         partial: mainPartial,
@@ -4478,6 +4566,7 @@ export async function* startGeneration(
       : await saveAssistantMessage({
           storage: deps.storage,
           chat,
+          characters: assembly.characters,
           input,
           connection,
           content: displayContent,
@@ -4709,6 +4798,7 @@ export async function* startGeneration(
     const savedPartial = await persistPartialOnAbort({
       deps,
       chat,
+      characters: assembly.characters,
       input,
       connection,
       partial: directPartial,
@@ -4758,6 +4848,7 @@ export async function* startGeneration(
     : await saveAssistantMessage({
         storage: deps.storage,
         chat,
+        characters: assembly.characters,
         input,
         connection,
         content: displayContentDirect,
