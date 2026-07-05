@@ -206,6 +206,84 @@ describe("prompt context overlap suppression", () => {
     );
   });
 
+  it("skips chat summary chunks already present in recent history", async () => {
+    const result = await assembleGenerationPrompt(
+      promptStorage({
+        id: "mira",
+        data: {
+          name: "Mira",
+          description: "Mira core description.",
+        },
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "conversation",
+          characterIds: ["mira"],
+          metadata: {
+            conversationSummary: "Mira already found the brass key under her glove.",
+          },
+        },
+        storedMessages: [
+          { id: "message-1", role: "assistant", content: "Mira already found the brass key under her glove." },
+          { id: "message-2", role: "user", content: "What about the key?" },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "What about the key?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+    const summaryItems = result.contextAttributionItems.filter((item) => item.kind === "chat_summary");
+
+    expect(promptText.match(/Mira already found the brass key under her glove\./g)).toHaveLength(1);
+    expect(summaryItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "skipped",
+          snippet: "Mira already found the brass key under her glove.",
+          metadata: expect.objectContaining({ reason: "context_overlap", overlapSource: "recent_history" }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps distinct chat summary chunks beside recent history", async () => {
+    const result = await assembleGenerationPrompt(
+      promptStorage({
+        id: "mira",
+        data: {
+          name: "Mira",
+          description: "Mira core description.",
+        },
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "conversation",
+          characterIds: ["mira"],
+          metadata: {
+            conversationSummary: "Mira distrusts station clocks and keeps train schedules by hand.",
+          },
+        },
+        storedMessages: [
+          { id: "message-1", role: "assistant", content: "Mira already found the brass key under her glove." },
+          { id: "message-2", role: "user", content: "What about the key and clocks?" },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "What about the key and clocks?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+    const summaryItems = result.contextAttributionItems.filter((item) => item.kind === "chat_summary");
+
+    expect(promptText).toContain("Mira distrusts station clocks and keeps train schedules by hand.");
+    expect(summaryItems).toEqual(expect.arrayContaining([expect.objectContaining({ status: "injected" })]));
+    expect(summaryItems).not.toEqual(expect.arrayContaining([expect.objectContaining({ status: "skipped" })]));
+  });
   it("keeps distinct recalled memories when same-day character memory only overlaps the query", async () => {
     const today = new Date().toISOString().slice(0, 10);
     const result = await assembleGenerationPrompt(

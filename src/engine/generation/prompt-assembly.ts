@@ -2050,6 +2050,43 @@ function compactedHistoryLimit(meta: JsonRecord, fallbackLimit: number, shouldCo
   return Math.min(fallbackLimit, tail);
 }
 
+function summaryOverlapChunks(summary: string): string[] {
+  return summary
+    .split(/\n{2,}/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+}
+
+function suppressOverlappingSummaryChunks(
+  summary: string | null,
+  history: readonly ChatMLMessage[],
+): { summary: string | null; skippedAttributionItems: GenerationContextAttributionItem[] } {
+  if (!summary?.trim()) return { summary: null, skippedAttributionItems: [] };
+  const historyTexts = history.map((message) => readString(message.content).trim()).filter(Boolean);
+  if (historyTexts.length === 0) return { summary, skippedAttributionItems: [] };
+
+  const retainedChunks: string[] = [];
+  const skippedAttributionItems: GenerationContextAttributionItem[] = [];
+  for (const chunk of summaryOverlapChunks(summary)) {
+    if (isSuppressibleContextOverlap(chunk, historyTexts)) {
+      skippedAttributionItems.push({
+        kind: "chat_summary",
+        label: "Chat Summary skipped by overlap",
+        status: "skipped",
+        snippet: chunk,
+        metadata: { reason: "context_overlap", overlapSource: "recent_history" },
+      });
+    } else {
+      retainedChunks.push(chunk);
+    }
+  }
+
+  return {
+    summary: retainedChunks.length > 0 ? retainedChunks.join("\n\n") : null,
+    skippedAttributionItems,
+  };
+}
+
 const MEMORY_EMBEDDING_DIMS = 512;
 const DEFAULT_MEMORY_RECALL_BUDGET_TOKENS = 1024;
 const MIN_MEMORY_RECALL_BUDGET_TOKENS = 256;
@@ -3929,7 +3966,7 @@ export async function assembleGenerationPrompt(
       : await scanLorebooksForPositions(baseLorebookIncludedPositions);
   let processedLore =
     canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
-  const summary = reusableContext?.summary ?? chatSummaryForGeneration(input.chat);
+  let summary = reusableContext?.summary ?? chatSummaryForGeneration(input.chat);
   const memoryRecallContext =
     canReuseSourceSensitiveContext && reusableContext
       ? {
@@ -3964,10 +4001,15 @@ export async function assembleGenerationPrompt(
       }
     : historyMessageSelection(input.storedMessages, selectedHistoryLimit, chatMeta.excludePastReasoning === false);
   const history = historySelection.messages;
+  const summaryOverlap = reusableContext
+    ? { summary, skippedAttributionItems: [] as GenerationContextAttributionItem[] }
+    : suppressOverlappingSummaryChunks(summary, history);
+  summary = summaryOverlap.summary;
   const historyAndSummaryAttributionItems = reusableContext
     ? reusableContext.contextAttributionItems.filter((item) => historyAttributionKinds.has(item.kind))
     : [
         ...attributionForChatSummary(summary),
+        ...summaryOverlap.skippedAttributionItems,
         ...attributionForChatHistory({
           included: history,
           hiddenFromAiCount: historySelection.hiddenFromAiCount,
