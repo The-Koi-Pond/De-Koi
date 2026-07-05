@@ -66,15 +66,18 @@ export const CHARACTER_FIELD_LABELS: Record<CharacterFieldGenerationField, strin
 const MUSIC_FIELD_INSTRUCTION =
   "For music taste, decide whether picks should be famous, niche, local, archival, online-only, or obscure from the character's background, era, access, subculture, and listening habits. Avoid defaulting to the same canonical moody/alternative picks unless the card context specifically points there.";
 
+const CHARACTER_DETAIL_INSTRUCTION =
+  "Prefer concrete behavioral tells, contradictions and limits, voice evidence from opening/example dialogue, and details that change how the character acts, notices, avoids, desires, or reacts; avoid generic AI-card wording families such as trait taxonomies, archetype labels, complex-and-multifaceted phrasing, speaks-with-a-mix-of formulas, and repeated signature-feature summaries.";
+
 const FIELD_INSTRUCTIONS: Record<CharacterFieldGenerationField, string> = {
   description:
-    "Write a rich character description in 2-4 compact paragraphs. Include identity, role, motivations, mannerisms, and speech patterns. Return only the description text.",
+    "Write a rich character description in 2-4 compact paragraphs. Build from specific choices, frictions, habits, and social tells rather than a role summary. Return only the description text.",
   personality:
-    "Write a concise personality summary with core traits, temperament, quirks, and behavioral patterns. Return only the personality text.",
+    "Write a concise personality field as playable pressures: habits under stress, social defaults, exceptions, contradictions, and what the character refuses to admit. Return only the personality text.",
   backstory:
     "Write the character's history, origin, and formative events in 2-3 compact paragraphs. Return only the backstory text.",
   appearance:
-    "Write a detailed physical description: height, build, hair, eyes, clothing, posture, and distinguishing features. Return only the appearance text.",
+    "Write appearance as usable scene detail: what changes under light, motion, stress, weather, intimacy, work, or concealment. Include physical inventory only when it changes how others read or interact with the character. Return only the appearance text.",
   scenario:
     "Write the default setting or situation where interactions with this character begin. Return only the scenario text.",
   first_mes:
@@ -82,9 +85,9 @@ const FIELD_INSTRUCTIONS: Record<CharacterFieldGenerationField, string> = {
   mes_example:
     "Write 2-3 example dialogue exchanges. Use this format exactly: <START>\\n{{user}}: message\\n{{char}}: reply. Return only the example dialogue.",
   system_prompt:
-    "Write character-specific system instructions that help an AI roleplay this character accurately. Do not include generic app instructions. Return only the system prompt text.",
+    "Write character-specific system instructions that preserve this character's voice, boundaries, blind spots, recurring choices, and scene priorities. Do not include generic app instructions or broad trait summaries. Return only the system prompt text.",
   post_history_instructions:
-    "Write a short reminder inserted after chat history and before generation. Focus on in-character behavior, response style, or continuity. Return only the instruction text.",
+    "Write a short reminder inserted after chat history and before generation. Focus on one or two concrete response habits, continuity pressures, or things the character should avoid repeating. Return only the instruction text.",
   creator_notes:
     "Write complete private creator notes in a few simple sentences. Keep them practical: intended use, strengths, notable quirks, and any handling tips needed to use the card well. Do not write as the character. Do not stop mid-thought. Return only the creator notes.",
   tags: "Write 4-8 short organization tags. Return either a JSON array of strings or comma-separated tag names.",
@@ -134,6 +137,15 @@ function replacementLine(
   return `${label}:\n${text}`;
 }
 
+function isPlayableDetailField(field: CharacterFieldGenerationField): boolean {
+  return (
+    field === "description" ||
+    field === "personality" ||
+    field === "appearance" ||
+    field === "system_prompt" ||
+    field === "post_history_instructions"
+  );
+}
 function stripMarkdownFence(value: string): string {
   const trimmed = value.trim();
   const match = /^```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
@@ -369,6 +381,7 @@ export function buildCharacterFieldGenerationMessages(
         isMusicField(field)
           ? "When previous values are listed for the requested music field, use them only as an avoid-list. Generate substantially different picks instead of copying, reordering, or swapping in near-neighbor defaults."
           : "",
+        isPlayableDetailField(field) ? CHARACTER_DETAIL_INSTRUCTION : "",
         "",
         "Character context:",
         context || "No additional character context was provided.",

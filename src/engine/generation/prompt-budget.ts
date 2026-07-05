@@ -26,7 +26,8 @@ type PromptBudgetWarningKind =
   | "over_budget"
   | "large_section"
   | "lorebook_skipped"
-  | "history_trim";
+  | "history_trim"
+  | "context_overlap";
 
 interface PromptBudgetSection {
   kind: PromptBudgetSectionKind;
@@ -42,6 +43,8 @@ interface PromptBudgetWarning {
   sectionKind?: PromptBudgetSectionKind;
   sectionLabel?: string;
   tokens?: number;
+  phrase?: string;
+  sources?: string[];
 }
 
 export interface PromptBudgetEstimate {
@@ -171,6 +174,169 @@ function formatBudgetTokens(tokens: number): string {
   return Math.max(0, Math.round(tokens)).toLocaleString("en-US");
 }
 
+interface PromptOverlapSource {
+  label: string;
+  kind: PromptBudgetSectionKind;
+  text: string;
+}
+
+const MAX_CONTEXT_OVERLAP_WARNINGS = 3;
+const OVERLAP_STOP_WORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "before",
+  "being",
+  "their",
+  "there",
+  "these",
+  "those",
+  "through",
+  "under",
+  "where",
+  "which",
+  "while",
+  "would",
+  "should",
+  "could",
+  "character",
+  "persona",
+  "summary",
+  "memory",
+  "memories",
+  "profile",
+  "appearance",
+  "description",
+  "known",
+  "wants",
+  "user",
+]);
+
+function overlapLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "context";
+}
+
+function overlapSourceKind(label: string, fallbackMessage: PromptBudgetMessage): PromptBudgetSectionKind {
+  const normalized = overlapLabel(label);
+  if (/\b(public_profile|appearance|personality|character|character_info|backstory|scenario|example)\b/.test(normalized)) {
+    return "character";
+  }
+  if (/\b(persona|user_profile)\b/.test(normalized)) return "persona";
+  if (/\b(memory|memories|summary|chat_summary|recall|notes)\b/.test(normalized)) return "memory";
+  if (/\b(lorebook|world_info|world_facts)\b/.test(normalized)) return "lorebook";
+  return classifyPromptMessage(fallbackMessage);
+}
+
+function isStandaloneXmlTag(line: string): RegExpMatchArray | null {
+  return line.match(/^<\/?([a-zA-Z][\w:-]*)\s*>$/);
+}
+
+function promptOverlapSources(messages: LlmMessage[]): PromptOverlapSource[] {
+  const sources: PromptOverlapSource[] = [];
+  for (const rawMessage of messages) {
+    const message = rawMessage as PromptBudgetMessage;
+    const fallbackLabel = overlapLabel(normalizedLabel(message) || classifyPromptMessage(message));
+    const stack: string[] = [];
+    const sourceText = new Map<string, string[]>();
+
+    for (const line of (message.content ?? "").split(/\r?\n/)) {
+      const trimmed = line.trim();
+      const tagMatch = isStandaloneXmlTag(trimmed);
+      if (tagMatch) {
+        if (trimmed.startsWith("</")) {
+          stack.pop();
+        } else {
+          stack.push(overlapLabel(tagMatch[1] ?? ""));
+        }
+        continue;
+      }
+
+      const label = stack.length > 0 ? stack[stack.length - 1]! : fallbackLabel;
+      const existing = sourceText.get(label) ?? [];
+      existing.push(line);
+      sourceText.set(label, existing);
+    }
+
+    for (const [label, lines] of sourceText) {
+      const sourceTextValue = lines.join("\n").trim();
+      if (sourceTextValue.length >= 24) {
+        sources.push({
+          label,
+          kind: overlapSourceKind(label, message),
+          text: sourceTextValue,
+        });
+      }
+    }
+  }
+  return sources;
+}
+
+function overlapTokens(text: string): string[] {
+  return (
+    text
+      .toLowerCase()
+      .replace(/['’]s\b/g, "")
+      .match(/[a-z0-9]+/g) ?? []
+  );
+}
+
+function isSignificantOverlapPhrase(phrase: string): boolean {
+  const words = phrase.split(" ");
+  const significantWords = words.filter((word) => word.length >= 4 && !OVERLAP_STOP_WORDS.has(word));
+  return significantWords.length >= 3;
+}
+
+function overlapPhraseCandidates(text: string): string[] {
+  const tokens = overlapTokens(text);
+  const phrases = new Set<string>();
+  for (const length of [3, 4, 5]) {
+    for (let index = 0; index <= tokens.length - length; index += 1) {
+      const phrase = tokens.slice(index, index + length).join(" ");
+      if (isSignificantOverlapPhrase(phrase)) {
+        phrases.add(phrase);
+      }
+    }
+  }
+  return [...phrases];
+}
+
+function overlapWarningSectionKind(sources: PromptOverlapSource[]): PromptBudgetSectionKind {
+  if (sources.some((source) => source.kind === "character")) return "character";
+  if (sources.some((source) => source.kind === "persona")) return "persona";
+  if (sources.some((source) => source.kind === "memory")) return "memory";
+  return sources[0]?.kind ?? "other";
+}
+
+function buildContextOverlapWarnings(messages: LlmMessage[]): PromptBudgetWarning[] {
+  const phraseSources = new Map<string, PromptOverlapSource[]>();
+  for (const source of promptOverlapSources(messages)) {
+    for (const phrase of overlapPhraseCandidates(source.text)) {
+      const existing = phraseSources.get(phrase) ?? [];
+      if (!existing.some((existingSource) => existingSource.label === source.label)) {
+        existing.push(source);
+      }
+      phraseSources.set(phrase, existing);
+    }
+  }
+
+  return [...phraseSources]
+    .filter(([, sources]) => sources.length >= 2)
+    .sort(([phraseA, sourcesA], [phraseB, sourcesB]) => sourcesB.length - sourcesA.length || phraseA.length - phraseB.length)
+    .slice(0, MAX_CONTEXT_OVERLAP_WARNINGS)
+    .map(([phrase, sources]) => {
+      const sectionKind = overlapWarningSectionKind(sources);
+      const labels = sources.map((source) => source.label);
+      return {
+        kind: "context_overlap",
+        sectionKind,
+        sectionLabel: sectionLabel(sectionKind),
+        phrase,
+        sources: labels,
+        message: `Repeated cue "${phrase}" appears in ${labels.join(", ")}. Consider keeping this detail in one canonical context source.`,
+      };
+    });
+}
+
 export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudgetEstimate {
   const parameters = input.parameters ?? {};
   const contextLimit = effectiveMaxContext(input.connection, parameters) || null;
@@ -251,6 +417,8 @@ export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudge
           : `${skippedLorebookEntries.length} lorebook entries were skipped by lorebook budget rules.`,
     });
   }
+
+  warnings.push(...buildContextOverlapWarnings(input.messages));
 
   return {
     contextLimit,
