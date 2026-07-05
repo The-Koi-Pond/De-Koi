@@ -1,6 +1,6 @@
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Character Card V2 Types (compatible with ST / Chub)
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Full Character Card V2 envelope. */
 export interface CharacterCardV2 {
@@ -46,6 +46,8 @@ export interface CharacterExtensions {
   nameColor?: string;
   /** De-Koi: Dialogue highlight color - text in quotation marks is bold + colored with this */
   dialogueColor?: string;
+  /** De-Koi: explicit names, titles, handles, or nicknames that may identify this character as a dialogue speaker */
+  speakerAliases?: string[];
   /** De-Koi: Chat bubble / dialogue box background color */
   boxColor?: string;
   /** De-Koi: RPG stats toggle + custom attributes */
@@ -101,7 +103,7 @@ export interface ConversationAvatarOverride {
 export interface RPGStatsConfig {
   /** Whether RPG stats are enabled for this character */
   enabled: boolean;
-  /** Custom attribute list (e.g. STR, DEX, CHA — user can rename/add/remove) */
+  /** Custom attribute list (e.g. STR, DEX, CHA â€” user can rename/add/remove) */
   attributes: Array<{ name: string; value: number }>;
   /** Hit Points */
   hp: { value: number; max: number };
@@ -173,7 +175,7 @@ export interface CharacterCardVersion {
   createdAt: string;
 }
 
-/** A group of characters (e.g. "Fatui Harbingers") — acts as a preset that adds all members to a chat. */
+/** A group of characters (e.g. "Fatui Harbingers") â€” acts as a preset that adds all members to a chat. */
 export interface CharacterGroup {
   id: string;
   name: string;
@@ -185,7 +187,7 @@ export interface CharacterGroup {
   updatedAt: string;
 }
 
-/** A group of personas — for organising user personas. */
+/** A group of personas â€” for organising user personas. */
 export interface PersonaGroup {
   id: string;
   name: string;
@@ -195,4 +197,3 @@ export interface PersonaGroup {
   createdAt: string;
   updatedAt: string;
 }
-

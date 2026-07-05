@@ -25,6 +25,7 @@ function ConversationGroupedSegments({ context }: { context: ConversationMessage
         const segAvatar = segChar?.avatarUrl ?? null;
         const segName = segChar?.name ?? grp.speaker ?? "";
         const segColor = segChar?.nameColor;
+        const segDialogueColor = segChar?.dialogueColor;
         const segAvatarOverride = resolveConversationAvatar(segChar, segAvatar);
         const isFirst = i === 0;
         const combinedText = grp.lines.join("\n");
@@ -44,10 +45,7 @@ function ConversationGroupedSegments({ context }: { context: ConversationMessage
         return (
           <div
             key={i}
-            className={cn(
-              "mari-message mari-message-assistant animate-[fadeSlideIn_0.4s_ease-out]",
-              i > 0 && "mt-3",
-            )}
+            className={cn("mari-message mari-message-assistant animate-[fadeSlideIn_0.4s_ease-out]", i > 0 && "mt-3")}
             data-card-css={segCardCssId}
           >
             {(() => {
@@ -114,7 +112,7 @@ function ConversationGroupedSegments({ context }: { context: ConversationMessage
                         )}
                         style={context.messageTextStyle}
                       >
-                        {renderInlineMessageText(para, context.mentionNames, `gs${i}_${pi}`)}
+                        {renderInlineMessageText(para, context.mentionNames, `gs${i}_${pi}`, segDialogueColor)}
                       </div>
                     ))}
                   </div>

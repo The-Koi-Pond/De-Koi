@@ -55,11 +55,7 @@ import { formatPerceptionHints, generatePerceptionHints } from "../modes/game/me
 import { applyAllSegmentEdits } from "../modes/game/state/segment-edits";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { activeCharacterIds } from "./active-characters";
-import { buildCanonicalMemoryContext } from "./canonical-memory-context";
-import {
-  prioritizeMemoryRecallAgainstCharacterMemories,
-  type MemoryRecallPrioritySkipped,
-} from "./context-priority";
+import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPrioritySkipped } from "./context-priority";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
 import {
   generationParameterSources,
@@ -68,7 +64,6 @@ import {
 } from "./generate-route-utils";
 import { effectiveMaxContext } from "./context-window";
 import { buildGenerationPromptPresetCandidates } from "./prompt-preset-selection";
-import { isSuppressibleContextOverlap } from "./prompt-context-overlap";
 import {
   bySortOrder,
   boolish,
@@ -209,7 +204,6 @@ interface PromptAssemblyReusableContext {
   processedLore: ActiveLorebookScannerResult["processedLore"];
   summary: string | null;
   memoryRecallBlock: string | null;
-  canonicalMemoryBlock: string | null;
   contextAttributionItems: GenerationContextAttributionItem[];
   history: ChatMLMessage[];
   greetingPromptVariables: Record<string, string>;
@@ -1232,7 +1226,7 @@ function resolveLiveHostTimeZone(): string | undefined {
 }
 
 function resolvePromptTimeZone(chat: JsonRecord, request: JsonRecord): string | undefined {
-  // Preference order: persisted per-chat override → caller-supplied input →
+  // Preference order: persisted per-chat override Ã¢â€ â€™ caller-supplied input Ã¢â€ â€™
   // live host resolution. The live fallback guarantees that every
   // startGeneration entry point (chat hook, game-turn service, background
   // autonomous chats, prompt-preview UI, future callers) resolves prompt-time
@@ -1937,6 +1931,31 @@ function buildRoleplayNarratorStylePromptBlock(chat: JsonRecord, wrapFormat: Wra
   );
 }
 
+function buildRoleplaySpeakerTagPromptBlock(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+  wrapFormat: WrapFormat,
+): string | null {
+  const chatMode = readString(input.chat.mode || input.chat.chatMode, "conversation");
+  const metadata = parseRecord(input.chat.metadata);
+  if ((chatMode !== "roleplay" && readString(metadata.sceneStatus) !== "active") || characters.length <= 1) return null;
+
+  const names = conversationCharacterNames(characters);
+  if (names.length <= 1) return null;
+  const examples = names.slice(0, 2).map((name) => `<speaker="${name}">"Example dialogue."</speaker>`);
+
+  return wrapContent(
+    [
+      "When one assistant response includes quoted dialogue from more than one known character, wrap each spoken quote in a speaker tag using the exact character name.",
+      "Do not use speaker tags for narration or for the user's own words.",
+      "If the speaker is ambiguous, leave the quote untagged instead of guessing.",
+      `Examples: ${examples.join(" ")}`,
+    ].join("\n"),
+    "speaker_tags",
+    wrapFormat,
+  );
+}
+
 function buildMergedRoleplayEnsemblePromptBlock(
   input: PromptAssemblyInput,
   characters: GenerationCharacterContext[],
@@ -1953,15 +1972,11 @@ function buildMergedRoleplayEnsemblePromptBlock(
     return null;
   }
 
-  const speakerTagExampleName = characters[0]?.name.trim() || "Character";
-
   return wrapContent(
     [
       "Keep the merged Game Master style: you may weave multiple participating characters into one response instead of forcing a single targeted speaker.",
       "Avoid echoing the same signature phrase, pet name, physical description, gesture, sentence rhythm, or sensory beat across consecutive turns.",
       "Rotate attention among participating characters when they are present, and make each character's diction, motives, and body language distinct instead of reusing one character's stock motifs.",
-      `For text owned by a specific participating character, use compact internal speaker tags like <speaker name="${speakerTagExampleName}">their dialogue or action</speaker>.`,
-      "Use internal speaker tags only around character-owned dialogue, action, or close narration; leave neutral scene narration outside the tags.",
     ].join("\n"),
     "ensemble_style",
     wrapFormat,
@@ -2055,43 +2070,6 @@ function compactedHistoryLimit(meta: JsonRecord, fallbackLimit: number, shouldCo
   if (!shouldCompact) return fallbackLimit;
   const tail = Math.max(0, Math.min(50, Math.floor(readNumber(meta.summaryTailMessages, 10))));
   return Math.min(fallbackLimit, tail);
-}
-
-function summaryOverlapChunks(summary: string): string[] {
-  return summary
-    .split(/\n{2,}/)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean);
-}
-
-function suppressOverlappingSummaryChunks(
-  summary: string | null,
-  history: readonly ChatMLMessage[],
-): { summary: string | null; skippedAttributionItems: GenerationContextAttributionItem[] } {
-  if (!summary?.trim()) return { summary: null, skippedAttributionItems: [] };
-  const historyTexts = history.map((message) => readString(message.content).trim()).filter(Boolean);
-  if (historyTexts.length === 0) return { summary, skippedAttributionItems: [] };
-
-  const retainedChunks: string[] = [];
-  const skippedAttributionItems: GenerationContextAttributionItem[] = [];
-  for (const chunk of summaryOverlapChunks(summary)) {
-    if (isSuppressibleContextOverlap(chunk, historyTexts)) {
-      skippedAttributionItems.push({
-        kind: "chat_summary",
-        label: "Chat Summary skipped by overlap",
-        status: "skipped",
-        snippet: chunk,
-        metadata: { reason: "context_overlap", overlapSource: "recent_history" },
-      });
-    } else {
-      retainedChunks.push(chunk);
-    }
-  }
-
-  return {
-    summary: retainedChunks.length > 0 ? retainedChunks.join("\n\n") : null,
-    skippedAttributionItems,
-  };
 }
 
 const MEMORY_EMBEDDING_DIMS = 512;
@@ -2513,13 +2491,12 @@ async function buildMemoryRecallBlock(
   const attribution = attributionForMemoryRecall({
     packedLines: packed.lines,
     recalled: prioritizedRecall.retained,
-
     consideredCount: memories.length,
   });
   return {
     block: [
       "<memories>",
-      "The following are recalled fragments from earlier in this chat. Treat them as context, not immutable canon; prefer newer visible chat when it clearly contradicts a recalled fragment. Use them to maintain continuity, remember past events, and stay in character. Do not explicitly reference memory recall unless it is natural.",
+      "The following are recalled fragments from earlier in this chat. Use them to maintain continuity, remember past events, and stay in character. Treat them as context, not immutable canon; prefer newer visible chat when it clearly contradicts a recalled fragment. Do not explicitly reference memory recall unless it is natural.",
       ...attribution.promptLines.map((line, index) => `--- Memory ${index + 1} ---\n${line}`),
       "</memories>",
     ].join("\n"),
@@ -2764,21 +2741,6 @@ function sharesConversationCharacter(source: JsonRecord, candidate: JsonRecord):
 }
 
 const CROSS_CHAT_SIBLING_SCAN_LIMIT = 24;
-const CROSS_CHAT_CONTEXT_SECTION_LIMIT = 6;
-const CROSS_CHAT_SIBLING_READ_CONCURRENCY = 4;
-const CROSS_CHAT_AWARENESS_CHAT_FIELDS = [
-  "id",
-  "name",
-  "mode",
-  "chatMode",
-  "characterIds",
-  "metadata",
-  "lastActivityAt",
-  "updatedAt",
-  "lastMessageAt",
-  "createdAt",
-];
-const CROSS_CHAT_AWARENESS_MESSAGE_FIELDS = ["role", "content", "characterId", "hiddenFromAi", "extra"];
 
 function chatRecencyMs(chat: JsonRecord): number {
   const raw =
@@ -2788,49 +2750,6 @@ function chatRecencyMs(chat: JsonRecord): number {
     readString(chat.createdAt).trim();
   const time = raw ? Date.parse(raw) : Number.NaN;
   return Number.isFinite(time) ? time : 0;
-}
-
-async function crossChatSiblingSection(
-  storage: StorageGateway,
-  sibling: JsonRecord,
-  characterNames: Map<string, string>,
-): Promise<string | null> {
-  const siblingId = readString(sibling.id).trim();
-  if (!siblingId) return null;
-  const lines = recentVisibleMessageLines(
-    await storage
-      .listChatMessages<JsonRecord>(siblingId, { limit: 8, fields: CROSS_CHAT_AWARENESS_MESSAGE_FIELDS })
-      .catch(() => []),
-    characterNames,
-    4,
-  );
-  if (lines.length === 0) return null;
-  const title = readString(sibling.name).trim() || siblingId;
-  return [`Chat: ${title}`, ...lines.map((line) => `- ${line}`)].join("\n");
-}
-
-async function crossChatSiblingSections(
-  storage: StorageGateway,
-  siblings: JsonRecord[],
-  characterNames: Map<string, string>,
-): Promise<string[]> {
-  const sections: string[] = [];
-  for (
-    let index = 0;
-    index < siblings.length && sections.length < CROSS_CHAT_CONTEXT_SECTION_LIMIT;
-    index += CROSS_CHAT_SIBLING_READ_CONCURRENCY
-  ) {
-    const batch = siblings.slice(index, index + CROSS_CHAT_SIBLING_READ_CONCURRENCY);
-    const batchSections = await Promise.all(
-      batch.map((sibling) => crossChatSiblingSection(storage, sibling, characterNames)),
-    );
-    for (const section of batchSections) {
-      if (!section) continue;
-      sections.push(section);
-      if (sections.length >= CROSS_CHAT_CONTEXT_SECTION_LIMIT) break;
-    }
-  }
-  return sections;
 }
 
 async function buildCrossChatAwarenessBlock(
@@ -2845,14 +2764,27 @@ async function buildCrossChatAwarenessBlock(
   const chatId = readString(chat.id).trim();
   if (!chatId) return null;
   const characterNames = characterNameLookup(characters);
-  const chats = await storage.list<JsonRecord>("chats", { fields: CROSS_CHAT_AWARENESS_CHAT_FIELDS }).catch(() => []);
+  const chats = await storage.list<JsonRecord>("chats").catch(() => []);
   const siblingChats = chats
     .filter((candidate) => readString(candidate.id).trim() !== chatId)
     .filter((candidate) => modeOf(candidate) === "conversation")
     .filter((candidate) => sharesConversationCharacter(chat, candidate))
     .sort((left, right) => chatRecencyMs(right) - chatRecencyMs(left))
     .slice(0, CROSS_CHAT_SIBLING_SCAN_LIMIT);
-  const sections = await crossChatSiblingSections(storage, siblingChats, characterNames);
+  const sections: string[] = [];
+  for (const sibling of siblingChats) {
+    if (sections.length >= 6) break;
+    const siblingId = readString(sibling.id).trim();
+    if (!siblingId) continue;
+    const lines = recentVisibleMessageLines(
+      await storage.listChatMessages<JsonRecord>(siblingId, { limit: 8 }).catch(() => []),
+      characterNames,
+      4,
+    );
+    if (lines.length === 0) continue;
+    const title = readString(sibling.name).trim() || siblingId;
+    sections.push([`Chat: ${title}`, ...lines.map((line) => `- ${line}`)].join("\n"));
+  }
   if (sections.length === 0) return null;
   return {
     role: "system",
@@ -4014,14 +3946,12 @@ export async function assembleGenerationPrompt(
       : await scanLorebooksForPositions(baseLorebookIncludedPositions);
   let processedLore =
     canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
-  let summary = reusableContext?.summary ?? chatSummaryForGeneration(input.chat);
+  const summary = reusableContext?.summary ?? chatSummaryForGeneration(input.chat);
   const memoryRecallContext =
     canReuseSourceSensitiveContext && reusableContext
       ? {
           block: reusableContext.memoryRecallBlock,
-          attributionItems: reusableContext.contextAttributionItems.filter(
-            (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source !== "canonical_memory",
-          ),
+          attributionItems: reusableContext.contextAttributionItems.filter((item) => item.kind === "memory_recall"),
         }
       : await buildMemoryRecallBlock(
           storage,
@@ -4030,25 +3960,9 @@ export async function assembleGenerationPrompt(
           input.latestUserInput,
           maxContext || undefined,
           embeddingSource,
-          promptCharacters.flatMap((character) => character.memories ?? []),
+          characters.flatMap((character) => character.memories ?? []),
         );
   const memoryRecallBlock = memoryRecallContext?.block ?? null;
-  const canonicalMemoryContext =
-    canReuseSourceSensitiveContext && reusableContext
-      ? {
-          block: reusableContext.canonicalMemoryBlock,
-          attributionItems: reusableContext.contextAttributionItems.filter(
-            (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source === "canonical_memory",
-          ),
-        }
-      : await buildCanonicalMemoryContext(storage, {
-          chat: input.chat,
-          storedMessages: input.storedMessages,
-          latestUserInput: input.latestUserInput,
-          characters: promptCharacters,
-          maxContext,
-        });
-  const canonicalMemoryBlock = canonicalMemoryContext?.block ?? null;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
@@ -4067,15 +3981,10 @@ export async function assembleGenerationPrompt(
       }
     : historyMessageSelection(input.storedMessages, selectedHistoryLimit, chatMeta.excludePastReasoning === false);
   const history = historySelection.messages;
-  const summaryOverlap = reusableContext
-    ? { summary, skippedAttributionItems: [] as GenerationContextAttributionItem[] }
-    : suppressOverlappingSummaryChunks(summary, history);
-  summary = summaryOverlap.summary;
   const historyAndSummaryAttributionItems = reusableContext
     ? reusableContext.contextAttributionItems.filter((item) => historyAttributionKinds.has(item.kind))
     : [
         ...attributionForChatSummary(summary),
-        ...summaryOverlap.skippedAttributionItems,
         ...attributionForChatHistory({
           included: history,
           hiddenFromAiCount: historySelection.hiddenFromAiCount,
@@ -4242,8 +4151,11 @@ export async function assembleGenerationPrompt(
   } else {
     const narratorStyleBlock = buildRoleplayNarratorStylePromptBlock(input.chat, wrapFormat);
     const sceneBlock = buildRoleplayScenePromptBlock(input.chat, wrapFormat);
+    const speakerTagBlock = buildRoleplaySpeakerTagPromptBlock(input, promptCharacters, wrapFormat);
     const ensembleBlock = buildMergedRoleplayEnsemblePromptBlock(input, promptCharacters, wrapFormat);
-    const roleplayBlocks = [narratorStyleBlock, sceneBlock, ensembleBlock].filter((block): block is string => !!block);
+    const roleplayBlocks = [narratorStyleBlock, sceneBlock, speakerTagBlock, ensembleBlock].filter(
+      (block): block is string => !!block,
+    );
     if (roleplayBlocks.length > 0) {
       const firstSystemIndex = messages.findIndex((message) => message.role === "system");
       messages.splice(firstSystemIndex >= 0 ? firstSystemIndex + 1 : 0, 0, {
@@ -4259,15 +4171,6 @@ export async function assembleGenerationPrompt(
     messages.splice(insertAt >= 0 ? insertAt : messages.length, 0, {
       role: "system",
       content: memoryRecallBlock,
-      contextKind: "prompt",
-    });
-  }
-
-  if (canonicalMemoryBlock) {
-    const insertAt = messages.findIndex((message) => message.role === "user" || message.role === "assistant");
-    messages.splice(insertAt >= 0 ? insertAt : messages.length, 0, {
-      role: "system",
-      content: canonicalMemoryBlock,
       contextKind: "prompt",
     });
   }
@@ -4333,7 +4236,6 @@ export async function assembleGenerationPrompt(
   const contextAttributionItems = [
     ...historyAndSummaryAttributionItems,
     ...(memoryRecallContext?.attributionItems ?? []),
-    ...(canonicalMemoryContext?.attributionItems ?? []),
     ...attributionForLorebookEntries(processedLore.includedEntries.map(lorebookActivatedEntryForEvent)),
   ];
 
@@ -4355,7 +4257,6 @@ export async function assembleGenerationPrompt(
     processedLore,
     summary,
     memoryRecallBlock,
-    canonicalMemoryBlock,
     contextAttributionItems,
     history,
     greetingPromptVariables,

@@ -1,7 +1,8 @@
-// ──────────────────────────────────────────────
-// Chat: Message — mode-aware rendering
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Chat: Message â€” mode-aware rendering
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { cn, copyToClipboard, normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
+import { speakerIdentityEntries } from "../../../../../shared/lib/speaker-identity";
 import { applyInlineMarkdown, renderMarkdownBlocks, applyInlineMarkdownHTML } from "../../../../../shared/lib/markdown";
 import {
   User,
@@ -28,12 +29,7 @@ import {
   Play,
   Timer,
 } from "lucide-react";
-import type {
-  DialogueAttributionsExtra,
-  Message,
-  MessageExtra,
-  MessageSwipe,
-} from "../../../../../engine/contracts/types/chat";
+import type { Message, MessageExtra, MessageSwipe } from "../../../../../engine/contracts/types/chat";
 import {
   memo,
   useState,
@@ -105,12 +101,6 @@ const MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR =
   "button, a, textarea, input, select, label, [role='button'], [contenteditable='true'], .mari-message-actions";
 type ChatMessageExtra = Partial<MessageExtra> & { hiddenFromAi?: unknown };
 const EMPTY_CHAT_MESSAGE_EXTRA: ChatMessageExtra = {};
-
-function chatMessageExtraFromUnknown(value: unknown): ChatMessageExtra {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as ChatMessageExtra)
-    : EMPTY_CHAT_MESSAGE_EXTRA;
-}
 
 function formatEditableMessageText(value: string, quoteFormat: QuoteFormat): string {
   return formatTextQuotes(value, quoteFormat);
@@ -296,7 +286,7 @@ function HiddenFromAIBadge({
   );
 }
 
-/** Isolated edit textarea — uncontrolled to avoid React re-renders on every keystroke. */
+/** Isolated edit textarea â€” uncontrolled to avoid React re-renders on every keystroke. */
 const EditTextarea = memo(function EditTextarea({
   initialContent,
   fontSize,
@@ -467,10 +457,9 @@ function renderWithSpeakerTags(
   defaultDialogueColor: string | undefined,
   speakerColorMap: Map<string, string> | undefined,
   boldDialogue = true,
-  dialogueAttributions?: DialogueAttributionsExtra | null,
 ): ReactNode[] {
   const renderLine = (line: string, color = defaultDialogueColor) => highlightDialogue(line, color, boldDialogue);
-  const segments = splitSpeakerDialogueColorSegments(text, defaultDialogueColor, speakerColorMap, dialogueAttributions);
+  const segments = splitSpeakerDialogueColorSegments(text, defaultDialogueColor, speakerColorMap);
   if (segments.length === 1 && segments[0]?.text === text) {
     return renderLine(text, segments[0].color);
   }
@@ -488,11 +477,11 @@ function collectInlineMarkdownRanges(text: string): Array<[number, number]> {
 }
 
 /**
- * Highlight quoted dialogue — text in supported dialogue quote pairs
- * like "", «», 「」, and 『』 gets bold + colored.
+ * Highlight quoted dialogue â€” text in supported dialogue quote pairs
+ * like "", Â«Â», ã€Œã€, and ã€Žã€ gets bold + colored.
  *
  * Single quotes ('') are intentionally excluded because after curly-quote
- * normalization (' → ') they are indistinguishable from apostrophes,
+ * normalization (' â†’ ') they are indistinguishable from apostrophes,
  * causing false positives like "it's nice, isn't it" being partially bolded.
  *
  * Detects quote pairs on the RAW text first, then applies inline markdown
@@ -500,8 +489,8 @@ function collectInlineMarkdownRanges(text: string): Array<[number, number]> {
  * (e.g. "A *long* day") doesn't split the quote across multiple nodes
  * and prevent dialogue bolding.
  *
- * Code spans (`…`), images (![…](…)), and links ([…](…)) are treated as
- * protected zones — quotes inside them are not matched as dialogue.
+ * Code spans (`â€¦`), images (![â€¦](â€¦)), and links ([â€¦](â€¦)) are treated as
+ * protected zones â€” quotes inside them are not matched as dialogue.
  */
 function highlightDialogue(text: string, dialogueColor?: string, boldDialogue = true): ReactNode[] {
   // Step 1: Find protected zones where quotes should NOT trigger dialogue detection.
@@ -528,7 +517,7 @@ function highlightDialogue(text: string, dialogueColor?: string, boldDialogue = 
     }
   }
 
-  // No dialogue quotes found — just apply markdown and return.
+  // No dialogue quotes found â€” just apply markdown and return.
   if (quotePairs.length === 0) {
     return applyInlineMarkdown(text, "m");
   }
@@ -539,7 +528,7 @@ function highlightDialogue(text: string, dialogueColor?: string, boldDialogue = 
   let key = 0;
 
   for (const q of quotePairs) {
-    // Non-quoted text before this pair — apply markdown only
+    // Non-quoted text before this pair â€” apply markdown only
     if (q.start > lastIndex) {
       result.push(...applyInlineMarkdown(text.slice(lastIndex, q.start), `m${key}`));
     }
@@ -841,7 +830,6 @@ function renderContent(
   boldDialogue = true,
   htmlScopeClass = "mari-html-message-content",
   quoteFormat: QuoteFormat = "straight",
-  dialogueAttributions?: DialogueAttributionsExtra | null,
 ): ReactNode {
   const normalized = formatTextQuotes(text, quoteFormat);
 
@@ -852,7 +840,7 @@ function renderContent(
     // renderWithHeadings handles headings, *** and --- horizontal rules,
     // and delegates the rest to speaker-tag / dialogue rendering.
     return renderMarkdownBlocks(normalized, (seg, _kp) =>
-      renderWithSpeakerTags(seg, dialogueColor, speakerColorMap, boldDialogue, dialogueAttributions),
+      renderWithSpeakerTags(seg, dialogueColor, speakerColorMap, boldDialogue),
     );
   }
 
@@ -862,7 +850,7 @@ function renderContent(
   const { html: strippedWithoutStyleBlocks, css: rawStyleBlocks } = extractChatStyleBlocks(stripped);
 
   // Convert newlines to <br> with compact spacing for HTML content,
-  // but preserve newlines inside <svg> blocks — injecting <br> into SVG
+  // but preserve newlines inside <svg> blocks â€” injecting <br> into SVG
   // foreign content breaks the HTML parser's namespace handling.
   // Also skip newlines that sit between HTML tags (source formatting only).
   // First, protect newlines inside attribute values (e.g. multi-line style="")
@@ -879,7 +867,7 @@ function renderContent(
     .replace(new RegExp(ATTR_NL_PLACEHOLDER, "g"), "\n");
 
   // Convert markdown images to <img> before sanitization so DOMPurify validates them.
-  // Keep tags minimal (no class/loading) — styling is via .mari-message-content img in CSS
+  // Keep tags minimal (no class/loading) â€” styling is via .mari-message-content img in CSS
   // to avoid the dialogue-bolding regex mangling attribute quotes.
   const withImages = withBreaks.replace(
     /!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g,
@@ -890,7 +878,7 @@ function renderContent(
 
   // Apply dialogue bolding inside sanitised HTML with per-speaker color support.
   const withDialogue = (() => {
-    // Sanitize a CSS color value — only allow safe color formats
+    // Sanitize a CSS color value â€” only allow safe color formats
     const safeColor = (c: string) =>
       /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|rgba?\([\d,.\s%]+\)|hsla?\([\d,.\s%]+\))$/.test(c) ? c : "inherit";
     // Helper: check if an offset is inside an HTML tag (attribute context)
@@ -1073,7 +1061,7 @@ export const ChatMessage = memo(function ChatMessage({
   );
 
   // Compute message bubble background with user-controlled opacity.
-  // Dark theme: neutral-900 (23,23,23) on dark bg → translucent dark bubble.
+  // Dark theme: neutral-900 (23,23,23) on dark bg â†’ translucent dark bubble.
   // Light theme: slightly grayer than --background (#faf8ff) so bubbles stay visible on light bg.
   const { userBubbleBg, assistantBubbleBg } = useMemo(() => {
     const o = chatFontOpacity / 100;
@@ -1213,11 +1201,11 @@ export const ChatMessage = memo(function ChatMessage({
   }, [showActions]);
 
   // Parse message extra for conversation start flag
-  const extra = useMemo<ChatMessageExtra>(() => chatMessageExtraFromUnknown(message.extra), [message.extra]);
-  const activeSwipeExtra = useMemo<ChatMessageExtra>(() => {
-    return chatMessageExtraFromUnknown(message.swipes?.[message.activeSwipeIndex]?.extra);
-  }, [message.activeSwipeIndex, message.swipes]);
-  const dialogueAttributions = activeSwipeExtra.dialogueAttributions ?? extra.dialogueAttributions ?? null;
+  const extra = useMemo<ChatMessageExtra>(() => {
+    return message.extra && typeof message.extra === "object" && !Array.isArray(message.extra)
+      ? (message.extra as ChatMessageExtra)
+      : EMPTY_CHAT_MESSAGE_EXTRA;
+  }, [message.extra]);
   const attachments = useMemo(() => messageAttachmentsFromExtra(extra), [extra]);
   const isConversationStart = !!extra.isConversationStart;
   const isHiddenFromAI = extra.hiddenFromAI === true || extra.hiddenFromAi === true;
@@ -1285,7 +1273,7 @@ export const ChatMessage = memo(function ChatMessage({
   const generationDurationTitle = generationDurationLabel
     ? `Response generated in ${generationDurationLabel}`
     : "Response generation time";
-  // useLayoutEffect runs after DOM mutation but before browser paint — prevents visible scroll jump
+  // useLayoutEffect runs after DOM mutation but before browser paint â€” prevents visible scroll jump
   useLayoutEffect(() => {
     // Restore scroll position saved before the state change
     if (scrollRestoreRef.current) {
@@ -1534,37 +1522,33 @@ export const ChatMessage = memo(function ChatMessage({
       ? (personaAvatarCrop ?? null)
       : (charInfo?.avatarCrop ?? null);
 
-  // Resolve colors: character colors for assistant, persona colors for user
-  // Prefer per-message persona snapshot colors over current persona
+  // Resolve colors: character colors for assistant, persona name/box colors for user.
+  // User/persona dialogue color is intentionally not applied to transcript quotes.
   const msgColors = isUser
     ? msgPersona
       ? {
           nameColor: msgPersona.nameColor,
-          dialogueColor: msgPersona.dialogueColor,
           boxColor: msgPersona.boxColor,
         }
       : personaInfo
     : charInfo;
-  const dialogueColor = msgColors?.dialogueColor ?? undefined;
+  const dialogueColor = isUser ? undefined : (charInfo?.dialogueColor ?? undefined);
   const boxBgColor = msgColors?.boxColor ?? undefined;
   const msgNameColor = msgColors?.nameColor ?? undefined;
   const roleplayBubbleBg = boxBgColor ? boxBgColor : isUser ? userBubbleBg : assistantBubbleBg;
 
-  // Build speaker → dialogueColor map for group chat speaker tag coloring
+  // Build speaker -> dialogueColor map from explicit character identities only.
   const speakerColorMap = useMemo(() => {
     if (!scopedCharacterMap) return undefined;
-    const entries: Array<[string | undefined, string | undefined]> = [];
-    for (const [, info] of scopedCharacterMap) {
-      if (info.name && info.dialogueColor) {
-        entries.push([info.name, info.dialogueColor]);
-      }
-    }
-    if (personaInfo?.name && personaInfo.dialogueColor) {
-      entries.push([personaInfo.name, personaInfo.dialogueColor]);
-    }
+    const entries = speakerIdentityEntries(
+      [...scopedCharacterMap.values()].map((info) => ({
+        color: info.dialogueColor,
+        names: [info.name, ...(info.speakerAliases ?? [])],
+      })),
+    );
     const map = createSpeakerColorLookup(entries);
     return map.size > 0 ? map : undefined;
-  }, [personaInfo?.dialogueColor, personaInfo?.name, scopedCharacterMap]);
+  }, [scopedCharacterMap]);
   // Merged group chat: cycling avatars + cycling name color
   const mergedAvatars = useMemo<MergedAvatar[]>(() => {
     if (!isMergedGroup || !characterMap || !chatCharacterIds) return [];
@@ -1592,7 +1576,7 @@ export const ChatMessage = memo(function ChatMessage({
       return raw || fallbackPalette[i % fallbackPalette.length]!;
     });
   }, [isMergedGroup, characterMap, chatCharacterIds]);
-  // Cycle index for merged group avatars/names — driven by a ref + RAF to avoid re-renders
+  // Cycle index for merged group avatars/names â€” driven by a ref + RAF to avoid re-renders
   const cycleIndexRef = useRef(0);
   const cycleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mergedNameRef = useRef<HTMLSpanElement>(null);
@@ -1710,16 +1694,8 @@ export const ChatMessage = memo(function ChatMessage({
   }, [message.id]);
 
   const renderedContent = useMemo(() => {
-    return renderContent(
-      text,
-      dialogueColor,
-      speakerColorMap,
-      boldDialogue,
-      htmlScopeClass,
-      quoteFormat,
-      dialogueAttributions,
-    );
-  }, [text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass, quoteFormat, dialogueAttributions]);
+    return renderContent(text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass, quoteFormat);
+  }, [text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass, quoteFormat]);
 
   const handleCopy = () => {
     copyToClipboard(message.content);
@@ -1748,7 +1724,7 @@ export const ChatMessage = memo(function ChatMessage({
     [handleRemoveAttachment, onIllustrateMoment, saveMomentSource],
   );
 
-  // ─── Swipe navigation ───
+  // â”€â”€â”€ Swipe navigation â”€â”€â”€
   const swipeCount = message.swipeCount ?? 0;
   const hasSwipes = swipeCount > 1;
 
@@ -1879,7 +1855,7 @@ export const ChatMessage = memo(function ChatMessage({
       {(translatedText || isTranslating) && (
         <div className="mt-2 border-t border-white/10 pt-2">
           {isTranslating ? (
-            <span className="text-[0.75rem] italic text-white/40">Translating…</span>
+            <span className="text-[0.75rem] italic text-white/40">Translatingâ€¦</span>
           ) : (
             <div className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-blue-200/70">
               {translatedText}
@@ -1890,7 +1866,7 @@ export const ChatMessage = memo(function ChatMessage({
     </>
   );
 
-  // ─── System messages (shared across modes) ───
+  // â”€â”€â”€ System messages (shared across modes) â”€â”€â”€
   if (isSystem) {
     return (
       <div
@@ -1928,9 +1904,9 @@ export const ChatMessage = memo(function ChatMessage({
     );
   }
 
-  // ═══════════════════════════════════════════════
-  // Roleplay Mode — immersive narrative
-  // ═══════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // Roleplay Mode â€” immersive narrative
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   if (isRoleplay) {
     // Narrator messages
     if (isNarrator) {
@@ -1960,7 +1936,7 @@ export const ChatMessage = memo(function ChatMessage({
                       : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)]",
                   )}
                 >
-                  {isSelected && <span className="text-xs font-bold text-white">✓</span>}
+                  {isSelected && <span className="text-xs font-bold text-white">âœ“</span>}
                 </button>
               </div>
             )}
@@ -2040,7 +2016,7 @@ export const ChatMessage = memo(function ChatMessage({
                     : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)]",
                 )}
               >
-                {isSelected && <span className="text-white text-xs font-bold">✓</span>}
+                {isSelected && <span className="text-white text-xs font-bold">âœ“</span>}
               </button>
             </div>
           )}
@@ -2536,7 +2512,7 @@ export const ChatMessage = memo(function ChatMessage({
                         : !hasTTSContent
                           ? "No dialogue to speak"
                           : isLoadingThis
-                            ? "Loading…"
+                            ? "Loadingâ€¦"
                             : isSpeakingThis
                               ? "Stop speaking"
                               : "Speak"
@@ -2597,9 +2573,9 @@ export const ChatMessage = memo(function ChatMessage({
     );
   }
 
-  // ═══════════════════════════════════════════════
-  // Conversation Mode — iMessage / texting style
-  // ═══════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // Conversation Mode â€” iMessage / texting style
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   return (
     <div
       ref={msgRef}
@@ -2619,7 +2595,7 @@ export const ChatMessage = memo(function ChatMessage({
       <div
         className={cn("flex min-w-0 max-w-[72%] gap-2", isUser && "flex-row-reverse", editing && "w-[85%] max-w-[85%]")}
       >
-        {/* Avatar — only show for first in group */}
+        {/* Avatar â€” only show for first in group */}
         {(!isUser || avatarUrl) && (
           <div
             className={cn(
@@ -2776,7 +2752,7 @@ export const ChatMessage = memo(function ChatMessage({
                 {(translatedText || isTranslating) && (
                   <div className="mt-2 border-t border-[var(--border)] pt-2">
                     {isTranslating ? (
-                      <span className="text-[0.75rem] italic text-[var(--muted-foreground)]">Translating…</span>
+                      <span className="text-[0.75rem] italic text-[var(--muted-foreground)]">Translatingâ€¦</span>
                     ) : (
                       <div className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--muted-foreground)]">
                         {translatedText}
@@ -2997,7 +2973,7 @@ export const ChatMessage = memo(function ChatMessage({
                       : !hasTTSContent
                         ? "No dialogue to speak"
                         : isLoadingThis
-                          ? "Loading…"
+                          ? "Loadingâ€¦"
                           : isSpeakingThis
                             ? "Stop speaking"
                             : "Speak"
@@ -3057,7 +3033,7 @@ export const ChatMessage = memo(function ChatMessage({
   );
 });
 
-// ── Thinking modal ──
+// â”€â”€ Thinking modal â”€â”€
 function ThinkingModal({ thinking, onClose }: { thinking: string; onClose: () => void }) {
   return createPortal(
     <div
@@ -3093,7 +3069,7 @@ function ThinkingModal({ thinking, onClose }: { thinking: string; onClose: () =>
   );
 }
 
-// ── Action button ──
+// â”€â”€ Action button â”€â”€
 function ActionBtn({
   icon,
   onClick,

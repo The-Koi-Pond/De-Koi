@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Brain, ChevronRight, EyeOff, RefreshCw, Trash2, User, X } from "lucide-react";
 import type { Message, MessageAttachment, MessageExtra } from "../../../../engine/contracts/types/chat";
 import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
-import type { QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
+import { DIALOGUE_QUOTE_PATTERN_SOURCE, type QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
 import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
@@ -12,6 +12,7 @@ import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaIn
 import type { SaveMomentSource } from "../../shared/chat-ui/index";
 import {
   GenerationReplayDetailsModal,
+  splitSpeakerDialogueColorSegments,
   ImagePromptPanel,
   isImageMessageAttachment,
   MessageAttachmentImagePreview,
@@ -121,6 +122,8 @@ export interface ConversationMessageRenderContext {
   messageTextStyle: CSSProperties;
   displayName: string;
   nameColor?: string;
+  dialogueColor?: string;
+  speakerColorMap?: Map<string, string>;
   conversationAvatar: ConversationAvatarRender;
   avatarUrl: string | null;
   avatarFilePath: string | null;
@@ -280,19 +283,82 @@ function highlightMentions(nodes: ReactNode[], names: string[], keyPrefix: strin
   });
 }
 
-export function renderInlineMessageText(content: string, mentionNames: string[], keyPrefix: string): ReactNode[] {
+function renderInlineMessageTextSegment(content: string, mentionNames: string[], keyPrefix: string): ReactNode[] {
   return mentionNames.length
     ? highlightMentions(applyInlineMarkdown(content, keyPrefix), mentionNames, keyPrefix)
     : applyInlineMarkdown(content, keyPrefix);
 }
 
+function renderInlineQuotedDialogue(
+  content: string,
+  mentionNames: string[],
+  keyPrefix: string,
+  dialogueColor?: string,
+): ReactNode[] {
+  if (!dialogueColor) return renderInlineMessageTextSegment(content, mentionNames, keyPrefix);
+
+  const quoteRe = new RegExp(DIALOGUE_QUOTE_PATTERN_SOURCE, "g");
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let quoteIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = quoteRe.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(
+        ...renderInlineMessageTextSegment(
+          content.slice(lastIndex, match.index),
+          mentionNames,
+          `${keyPrefix}t${quoteIndex}`,
+        ),
+      );
+    }
+    nodes.push(
+      <strong key={`${keyPrefix}dq${quoteIndex}`} style={{ color: dialogueColor }}>
+        {match[0]}
+      </strong>,
+    );
+    lastIndex = match.index + match[0].length;
+    quoteIndex++;
+  }
+
+  if (lastIndex < content.length) {
+    nodes.push(...renderInlineMessageTextSegment(content.slice(lastIndex), mentionNames, `${keyPrefix}tail`));
+  }
+
+  return nodes.length ? nodes : renderInlineMessageTextSegment(content, mentionNames, keyPrefix);
+}
+
+export function renderInlineMessageText(
+  content: string,
+  mentionNames: string[],
+  keyPrefix: string,
+  dialogueColor?: string,
+  speakerColorMap?: Map<string, string>,
+): ReactNode[] {
+  if (!speakerColorMap?.size) return renderInlineQuotedDialogue(content, mentionNames, keyPrefix, dialogueColor);
+
+  const segments = splitSpeakerDialogueColorSegments(content, dialogueColor, speakerColorMap);
+  if (segments.length === 1 && segments[0]?.text === content && segments[0]?.color === dialogueColor) {
+    return renderInlineQuotedDialogue(content, mentionNames, keyPrefix, dialogueColor);
+  }
+
+  return segments.flatMap((segment, index) =>
+    renderInlineQuotedDialogue(segment.text, mentionNames, `${keyPrefix}s${index}`, segment.color),
+  );
+}
+
 export const MessageContent = memo(function MessageContent({
   content,
   mentionNames,
+  dialogueColor,
+  speakerColorMap,
   onImageOpen,
 }: {
   content: string;
   mentionNames?: string[];
+  dialogueColor?: string;
+  speakerColorMap?: Map<string, string>;
   onImageOpen: (url: string) => void;
 }) {
   const trimmed = content.trim();
@@ -301,11 +367,10 @@ export const MessageContent = memo(function MessageContent({
   const rendered = useMemo(() => {
     if (isImage) return null;
     const compacted = content.replace(/\n{3,}/g, "\n\n");
-    const renderInline = mentionNames?.length
-      ? (text: string, kp: string) => highlightMentions(applyInlineMarkdown(text, kp), mentionNames, kp)
-      : applyInlineMarkdown;
+    const renderInline = (text: string, kp: string) =>
+      renderInlineMessageText(text, mentionNames ?? [], kp, dialogueColor, speakerColorMap);
     return renderMarkdownBlocks(compacted, renderInline);
-  }, [content, isImage, mentionNames]);
+  }, [content, dialogueColor, isImage, mentionNames, speakerColorMap]);
 
   if (isImage) {
     return (
@@ -598,6 +663,8 @@ export function ConversationMessageBodyContent({
                         content={part}
                         mentionNames={context.mentionNames}
                         onImageOpen={context.onImageOpen}
+                        dialogueColor={context.dialogueColor}
+                        speakerColorMap={context.speakerColorMap}
                       />
                     </div>
                   ))}
@@ -607,6 +674,8 @@ export function ConversationMessageBodyContent({
                   content={context.renderedContent}
                   mentionNames={context.mentionNames}
                   onImageOpen={context.onImageOpen}
+                  dialogueColor={context.dialogueColor}
+                  speakerColorMap={context.speakerColorMap}
                 />
               )}
             </StreamingReveal>
@@ -620,6 +689,8 @@ export function ConversationMessageBodyContent({
                     content={part}
                     mentionNames={context.mentionNames}
                     onImageOpen={context.onImageOpen}
+                    dialogueColor={context.dialogueColor}
+                    speakerColorMap={context.speakerColorMap}
                   />
                 </div>
               ))}
@@ -629,6 +700,8 @@ export function ConversationMessageBodyContent({
               content={context.renderedContent}
               mentionNames={context.mentionNames}
               onImageOpen={context.onImageOpen}
+              dialogueColor={context.dialogueColor}
+              speakerColorMap={context.speakerColorMap}
             />
           )}
         </>
@@ -833,7 +906,10 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
             aria-label={`Open ${context.displayName} profile`}
             onClick={(event) => {
               event.stopPropagation();
-              context.onOpenCharacterProfile?.(context.message.characterId!, event.currentTarget.getBoundingClientRect());
+              context.onOpenCharacterProfile?.(
+                context.message.characterId!,
+                event.currentTarget.getBoundingClientRect(),
+              );
             }}
           >
             {context.displayName}
