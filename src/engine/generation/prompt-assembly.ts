@@ -56,6 +56,11 @@ import { applyAllSegmentEdits } from "../modes/game/state/segment-edits";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { activeCharacterIds } from "./active-characters";
 import {
+  prioritizeMemoryRecallAgainstCharacterMemories,
+  type MemoryRecallPrioritySkipped,
+} from "./context-priority";
+import { buildConversationFreshnessGuidance } from "./conversation-freshness";
+import {
   generationParameterSources,
   mergeStoredGenerationParameters,
   type StoredGenerationParameters,
@@ -2350,9 +2355,34 @@ function recentMemoryRecallScoringSet(memories: JsonRecord[]): JsonRecord[] {
     .slice(0, MAX_MEMORY_RECALL_SCORING_CHUNKS);
 }
 
+interface RecalledMemoryForPrompt {
+  id: unknown;
+  content: string;
+  similarity: number;
+  lexicalScore: number;
+}
+
 interface MemoryRecallPromptContext {
-  block: string;
+  block: string | null;
   attributionItems: GenerationContextAttributionItem[];
+}
+
+function attributionForSkippedMemoryRecall(
+  skipped: Array<MemoryRecallPrioritySkipped<RecalledMemoryForPrompt>>,
+  consideredCount: number,
+): GenerationContextAttributionItem[] {
+  return skipped.map((skip, index) => ({
+    kind: "memory_recall",
+    label: `Skipped memory ${index + 1}`,
+    status: "skipped",
+    sourceId: readString(skip.candidate.id).trim() || null,
+    snippet: skip.candidate.content,
+    metadata: {
+      reason: skip.reason,
+      overlappingSource: skip.overlappingSourceLabel,
+      consideredCount,
+    },
+  }));
 }
 function memoryRecallRows(value: unknown): JsonRecord[] {
   return parseArray(value).filter(isRecord);
@@ -2365,6 +2395,7 @@ async function buildMemoryRecallBlock(
   latestUserInput: string,
   maxContext?: number,
   embeddingSource?: { embed(texts: string[]): Promise<number[][] | null> } | null,
+  characterMemoryLines: string[] = [],
 ): Promise<MemoryRecallPromptContext | null> {
   if (!memoryRecallEnabled(chat) || !latestUserInput.trim()) return null;
   const chatId = readString(chat.id).trim();
@@ -2402,21 +2433,25 @@ async function buildMemoryRecallBlock(
       const baseQueryVector = providerVector && semanticQueryVector ? semanticQueryVector : queryVector;
       const lexicalScore = memoryRecallLexicalOverlap(queryTokens, memoryRecallTokenSet(content));
       const similarity = cosineSimilarity(baseQueryVector, vector) + Math.min(0.2, lexicalScore * 0.025);
-      return { content, similarity, lexicalScore };
+      return { id: memory.id, content, similarity, lexicalScore };
     })
     .filter(
-      (memory): memory is { content: string; similarity: number; lexicalScore: number } =>
+      (memory): memory is RecalledMemoryForPrompt =>
         !!memory && passesMemoryRecallRelevanceFloor(memory.similarity, queryTokens.length, memory.lexicalScore),
     )
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, 8);
   if (recalled.length === 0) return null;
 
-  const packed = packRecalledMemories(recalled, maxContext);
-  if (packed.lines.length === 0) return null;
+  const prioritizedRecall = prioritizeMemoryRecallAgainstCharacterMemories(recalled, characterMemoryLines);
+  const skippedAttributionItems = attributionForSkippedMemoryRecall(prioritizedRecall.skipped, memories.length);
+  const packed = packRecalledMemories(prioritizedRecall.retained, maxContext);
+  if (packed.lines.length === 0) {
+    return skippedAttributionItems.length > 0 ? { block: null, attributionItems: skippedAttributionItems } : null;
+  }
   const attribution = attributionForMemoryRecall({
     packedLines: packed.lines,
-    recalled,
+    recalled: prioritizedRecall.retained,
     consideredCount: memories.length,
   });
   return {
@@ -2426,7 +2461,7 @@ async function buildMemoryRecallBlock(
       ...attribution.promptLines.map((line, index) => `--- Memory ${index + 1} ---\n${line}`),
       "</memories>",
     ].join("\n"),
-    attributionItems: attribution.items,
+    attributionItems: [...attribution.items, ...skippedAttributionItems],
   };
 }
 
@@ -2598,6 +2633,27 @@ function scheduleLine(block: JsonRecord): string {
   const prefix = [time, status].filter(Boolean).join(" ");
   if (!prefix) return activity;
   return activity ? `${prefix} - ${activity}` : prefix;
+}
+
+function buildConversationFreshnessBlock(input: PromptAssemblyInput, wrapFormat: WrapFormat): ChatMLMessage | null {
+  if (modeOf(input.chat) !== "conversation") return null;
+  const guidance = buildConversationFreshnessGuidance({
+    messages: input.storedMessages,
+    latestUserInput: input.latestUserInput,
+  });
+  if (!guidance) return null;
+  return {
+    role: "system",
+    contextKind: "prompt",
+    content: wrapContent(
+      [
+        "Use this compact freshness note only to vary the next reply. Do not mention the note, and do not ignore explicit user steering.",
+        guidance,
+      ].join("\n"),
+      "conversation_freshness",
+      wrapFormat,
+    ),
+  };
 }
 
 function buildConversationScheduleBlock(
@@ -2886,6 +2942,7 @@ async function buildConversationContextBlocks(
   const linked = await buildConversationLinkedChatBlock(storage, input.chat, characters, wrapFormat);
   return [
     buildConversationPresenceBlock(input, wrapFormat),
+    buildConversationFreshnessBlock(input, wrapFormat),
     buildConversationScheduleBlock(input.chat, characters, wrapFormat),
     await buildCrossChatAwarenessBlock(storage, input.chat, characters, wrapFormat),
     linked.block,
@@ -3909,6 +3966,7 @@ export async function assembleGenerationPrompt(
           input.latestUserInput,
           maxContext || undefined,
           embeddingSource,
+          characters.flatMap((character) => character.memories ?? []),
         );
   const memoryRecallBlock = memoryRecallContext?.block ?? null;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);

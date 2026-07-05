@@ -17,7 +17,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { AddChatMessageSwipeOptions, ChatMessageListOptions, StorageGateway } from "../capabilities/storage";
 import type { SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual-assets";
-import { buildProseGuardianAvoidanceGuide } from "../shared/text/generation-guide";
+import { buildGenerationGuideMessages } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { normalizeUserTimeZone } from "../shared/time/timezone";
@@ -3959,7 +3959,7 @@ export async function* dryRunGeneration(
     preparedUserInput.images,
   );
   const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-    [...prompt, generationGuide(input)].filter((message): message is LlmMessage => !!message),
+    [...prompt, ...generationGuideMessages(input)].filter((message): message is LlmMessage => !!message),
     assembly.userRegenerationSourceMessage,
   );
   const dryRunPartial: StreamPartialSink = {
@@ -3990,7 +3990,9 @@ export async function* dryRunGeneration(
     parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
     baseMessages,
     previewMessages: withUserMessageRegenerationRewritePrompt(
-      [...promptPreviewMessages, generationGuide(input)].filter((message): message is LlmMessage => !!message),
+      [...promptPreviewMessages, ...generationGuideMessages(input)].filter(
+        (message): message is LlmMessage => !!message,
+      ),
       assembly.userRegenerationSourceMessage,
     ),
     promptPresetId: assembly.promptPresetId,
@@ -4359,7 +4361,9 @@ export async function* startGeneration(
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
     };
     const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-      [...prompt, generationGuide(input, runtime?.preInjections)].filter((message): message is LlmMessage => !!message),
+      [...prompt, ...generationGuideMessages(input, runtime?.preInjections)].filter(
+        (message): message is LlmMessage => !!message,
+      ),
       assembly.userRegenerationSourceMessage,
     );
     const mainPartial: StreamPartialSink = {
@@ -4390,7 +4394,7 @@ export async function* startGeneration(
         parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
         baseMessages,
         previewMessages: withUserMessageRegenerationRewritePrompt(
-          [...promptPreviewMessages, generationGuide(input, runtime?.preInjections)].filter(
+          [...promptPreviewMessages, ...generationGuideMessages(input, runtime?.preInjections)].filter(
             (message): message is LlmMessage => !!message,
           ),
           assembly.userRegenerationSourceMessage,
@@ -4661,7 +4665,7 @@ export async function* startGeneration(
     hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
   };
   const baseMessagesDirect: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-    [...(prompt ?? []), generationGuide(input)].filter((message): message is LlmMessage => !!message),
+    [...(prompt ?? []), ...generationGuideMessages(input)].filter((message): message is LlmMessage => !!message),
     assembly.userRegenerationSourceMessage,
   );
   const directPartial: StreamPartialSink = {
@@ -4691,7 +4695,7 @@ export async function* startGeneration(
       parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
       baseMessages: baseMessagesDirect,
       previewMessages: withUserMessageRegenerationRewritePrompt(
-        [...(promptPreviewMessagesDirect ?? []), generationGuide(input)].filter(
+        [...(promptPreviewMessagesDirect ?? []), ...generationGuideMessages(input)].filter(
           (message): message is LlmMessage => !!message,
         ),
         assembly.userRegenerationSourceMessage,
@@ -4822,15 +4826,15 @@ export async function* startGeneration(
   yield { type: "done" };
 }
 
-function generationGuide(
+function generationGuideMessages(
   input: StartGenerationInput,
   contextInjections: readonly AgentInjectionOverride[] | null | undefined = null,
-): LlmMessage | null {
-  const guides = [
-    readString(input.generationGuide).trim(),
-    buildProseGuardianAvoidanceGuide(contextInjections) ?? "",
-  ].filter((guide) => guide.length > 0);
-  return guides.length > 0 ? { role: "user", content: guides.join("\n\n") } : null;
+): LlmMessage[] {
+  return buildGenerationGuideMessages({
+    generationGuide: input.generationGuide,
+    generationGuideSource: input.generationGuideSource,
+    contextInjections,
+  });
 }
 
 function runtimeLlmParameters(

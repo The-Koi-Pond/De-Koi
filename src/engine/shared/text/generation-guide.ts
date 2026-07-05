@@ -1,3 +1,5 @@
+import type { LlmMessage } from "../../capabilities/llm";
+
 export const GENERATION_GUIDE_SOURCES = ["narrator", "guide", "amend", "game_start", "game_turn", "game_retry"] as const;
 
 export type GenerationGuideSource = (typeof GENERATION_GUIDE_SOURCES)[number];
@@ -6,6 +8,26 @@ export interface ProseGuardianAvoidanceSource {
   agentType?: string | null;
   text?: string | null;
 }
+
+export interface GenerationGuideMessage extends LlmMessage {
+  contextKind: "prompt" | "injection";
+  displayName: string;
+}
+
+export interface BuildGenerationGuideMessagesInput {
+  generationGuide?: string | null;
+  generationGuideSource?: GenerationGuideSource | null;
+  contextInjections?: readonly ProseGuardianAvoidanceSource[] | null;
+}
+
+const GUIDE_SOURCE_LABELS: Record<GenerationGuideSource, string> = {
+  narrator: "Narrator Guide",
+  guide: "Generation Guide",
+  amend: "Amend Guide",
+  game_start: "Game Start Guide",
+  game_turn: "Game Turn Guide",
+  game_retry: "Game Retry Guide",
+};
 
 const PROSE_GUARDIAN_AGENT_TYPE = "prose-guardian";
 
@@ -64,6 +86,31 @@ export function buildAmendGenerationInstructionMessage(direction: string, previo
     direction.trim(),
     "]",
   ].join("\n");
+}
+
+export function buildGenerationGuideMessages(input: BuildGenerationGuideMessagesInput): GenerationGuideMessage[] {
+  const messages: GenerationGuideMessage[] = [];
+  const userGuide = input.generationGuide?.trim();
+  if (userGuide) {
+    messages.push({
+      role: "user",
+      content: userGuide,
+      contextKind: "prompt",
+      displayName: input.generationGuideSource ? GUIDE_SOURCE_LABELS[input.generationGuideSource] : "Generation Guide",
+    });
+  }
+
+  const avoidanceGuide = buildProseGuardianAvoidanceGuide(input.contextInjections);
+  if (avoidanceGuide) {
+    messages.push({
+      role: "system",
+      content: avoidanceGuide,
+      contextKind: "injection",
+      displayName: "Prose Guardian Avoidance",
+    });
+  }
+
+  return messages;
 }
 
 export function stripGenerationGuideInstruction(value: string): string {
