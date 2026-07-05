@@ -54,6 +54,42 @@ describe("buildCharacterFieldGenerationMessages", () => {
     expect(messages[1]?.content).toContain("Return only the requested field");
   });
 
+  it("guides character prose fields toward concrete playable details instead of trait lists", () => {
+    const fields: CharacterFieldGenerationField[] = [
+      "description",
+      "personality",
+      "appearance",
+      "system_prompt",
+      "post_history_instructions",
+    ];
+
+    for (const field of fields) {
+      const messages = buildCharacterFieldGenerationMessages(field, {
+        data: characterData(),
+        comment: "Night-shift archive keeper",
+      });
+      const prompt = messages[1]?.content ?? "";
+
+      expect(prompt).toContain("concrete behavioral tells");
+      expect(prompt).toContain("contradictions and limits");
+      expect(prompt).toContain("voice evidence");
+      expect(prompt).toContain("Avoid taxonomy-style trait lists");
+    }
+  });
+
+  it("does not ask description, personality, or appearance generation for broad inventory summaries", () => {
+    const descriptionPrompt = buildCharacterFieldGenerationMessages("description", { data: characterData() })[1]
+      ?.content;
+    const personalityPrompt = buildCharacterFieldGenerationMessages("personality", { data: characterData() })[1]
+      ?.content;
+    const appearancePrompt = buildCharacterFieldGenerationMessages("appearance", { data: characterData() })[1]
+      ?.content;
+
+    expect(descriptionPrompt).not.toContain("identity, role, motivations, mannerisms, and speech patterns");
+    expect(personalityPrompt).not.toContain("core traits, temperament, quirks, and behavioral patterns");
+    expect(appearancePrompt).not.toContain("height, build, hair, eyes, clothing, posture");
+  });
+
   it("uses depth prompt settings instructions for the depth prompt field", () => {
     const messages = buildCharacterFieldGenerationMessages("depth_prompt", {
       data: characterData(),

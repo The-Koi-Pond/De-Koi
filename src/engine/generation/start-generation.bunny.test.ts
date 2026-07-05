@@ -9,6 +9,7 @@ import {
 import { assembleGenerationPrompt } from "./prompt-assembly";
 import { dryRunGeneration, startGeneration } from "./start-generation";
 import type { JsonRecord } from "./runtime-records";
+import { createDialogueAttributionTextHash } from "../shared/text/dialogue-attribution";
 
 async function drain(generator: AsyncGenerator<unknown>): Promise<void> {
   for await (const _event of generator) {
@@ -41,7 +42,7 @@ function recordList<T = JsonRecord>(records: JsonRecord[], options?: StorageList
   return rows as T[];
 }
 
-function llmThatStreams(onStream: () => void, text = "rewrite"): LlmGateway {
+function llmThatStreams(onStream: (request?: Parameters<LlmGateway["stream"]>[0]) => void, text = "rewrite"): LlmGateway {
   return {
     async complete() {
       return "";
@@ -49,8 +50,8 @@ function llmThatStreams(onStream: () => void, text = "rewrite"): LlmGateway {
     async listModels() {
       return [];
     },
-    async *stream() {
-      onStream();
+    async *stream(request) {
+      onStream(request);
       yield { type: "token", text };
     },
   };
@@ -142,13 +143,17 @@ function baseGenerationRecords() {
 
 function generationStorage(args: {
   getTarget: (call: number, target: JsonRecord) => JsonRecord | null | Promise<JsonRecord | null>;
+  chatMode?: string;
   chatMetadata?: JsonRecord;
+  messages?: JsonRecord[];
   agentRows?: JsonRecord[];
+  onCreate?: (chatId: string, value: Record<string, unknown>) => unknown;
   onSwipe?: (content: string, options: unknown) => void;
   onPatchExtra?: (messageId: string, patch: Record<string, unknown>) => void;
   onPatchChatMetadata?: (patch: Record<string, unknown>) => void;
 }): StorageGateway {
   const records = baseGenerationRecords();
+  if (args.chatMode) records.chat.mode = args.chatMode;
   const chatMetadata =
     records.chat.metadata && typeof records.chat.metadata === "object" && !Array.isArray(records.chat.metadata)
       ? (records.chat.metadata as JsonRecord)
@@ -188,7 +193,7 @@ function generationStorage(args: {
       options?: Parameters<StorageGateway["listChatMessages"]>[1],
     ): Promise<T[]> {
       if (options?.before) return asStorageValue<T[]>([records.previous]);
-      return asStorageValue<T[]>([records.previous, records.target]);
+      return asStorageValue<T[]>(args.messages ?? [records.previous, records.target]);
     },
     async getChatMessage<T = unknown>(messageId: string): Promise<T | null> {
       if (messageId === records.target.id) {
@@ -197,7 +202,8 @@ function generationStorage(args: {
       }
       return null;
     },
-    async createChatMessage() {
+    async createChatMessage<T = unknown>(chatId: string, value: Record<string, unknown>) {
+      if (args.onCreate) return asStorageValue<T>(args.onCreate(chatId, value));
       throw new Error("createChatMessage should not be called");
     },
     async updateChatMessage() {
@@ -510,10 +516,153 @@ describe("user-message regeneration review guards", () => {
     expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "assistant_action" })]));
   });
 
+  it("saves roleplay dialogue attribution metadata on fresh assistant messages", async () => {
+    let modelCalls = 0;
+    const createdMessages: Array<{ chatId: string; value: Record<string, unknown> }> = [];
+    const savedText = '"Ready."';
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      onCreate: (chatId, value) => {
+        createdMessages.push({ chatId, value });
+        return { id: "message-assistant", chatId, ...value };
+      },
+    });
+
+    const events = await collect(
+      startGeneration(
+        {
+          storage,
+          llm: llmThatStreams(() => {
+            modelCalls += 1;
+          }, '<speaker name="QA Character">"Ready."</speaker>'),
+          integrations: noopIntegrations,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          messages: [{ role: "user", content: "Give a short reply." }],
+        },
+      ),
+    );
+
+    const savedMessage = createdMessages[0]?.value ?? {};
+    const extra = (savedMessage.extra ?? {}) as Record<string, unknown>;
+
+    expect(modelCalls).toBe(1);
+    expect(createdMessages).toHaveLength(1);
+    expect(savedMessage).toMatchObject({ role: "assistant", characterId: "char-1", content: savedText });
+    expect(extra.dialogueAttributions).toMatchObject({
+      version: 1,
+      textHash: createDialogueAttributionTextHash(savedText),
+      segments: [
+        {
+          start: 0,
+          end: savedText.length,
+          speakerId: "char-1",
+          speakerName: "QA Character",
+          source: "speaker-tag",
+          confidence: "explicit",
+        },
+      ],
+    });
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "assistant_message" })]));
+  });
+
+  it("does not save roleplay dialogue attribution metadata for mention-only assistant prose", async () => {
+    let modelCalls = 0;
+    const createdMessages: Array<{ chatId: string; value: Record<string, unknown> }> = [];
+    const savedText = "QA Character waits near the door.";
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      onCreate: (chatId, value) => {
+        createdMessages.push({ chatId, value });
+        return { id: "message-assistant", chatId, ...value };
+      },
+    });
+
+    await collect(
+      startGeneration(
+        {
+          storage,
+          llm: llmThatStreams(() => {
+            modelCalls += 1;
+          }, savedText),
+          integrations: noopIntegrations,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          messages: [{ role: "user", content: "Describe the room." }],
+        },
+      ),
+    );
+
+    const savedMessage = createdMessages[0]?.value ?? {};
+    const extra = (savedMessage.extra ?? {}) as Record<string, unknown>;
+
+    expect(modelCalls).toBe(1);
+    expect(createdMessages).toHaveLength(1);
+    expect(savedMessage).toMatchObject({ role: "assistant", characterId: "char-1", content: savedText });
+    expect(extra).not.toHaveProperty("dialogueAttributions");
+  });
+
+  it("saves roleplay dialogue attribution metadata on regenerated assistant swipes", async () => {
+    let modelCalls = 0;
+    const savedSwipes: string[] = [];
+    const swipeOptions: unknown[] = [];
+    const extraPatches: Array<Record<string, unknown>> = [];
+    const savedText = '"Again."';
+    const storage = generationStorage({
+      getTarget: (_call, target) => ({ ...target, role: "assistant", characterId: "char-1" }),
+      onSwipe: (content, options) => {
+        savedSwipes.push(content);
+        swipeOptions.push(options);
+      },
+      onPatchExtra: (_messageId, patch) => {
+        extraPatches.push(patch);
+      },
+    });
+
+    await collect(
+      startGeneration(
+        {
+          storage,
+          llm: llmThatStreams(() => {
+            modelCalls += 1;
+          }, 'QA Character: "Again."'),
+          integrations: noopIntegrations,
+        },
+        { chatId: "chat-1", regenerateMessageId: "message-target", connectionId: "conn-1" },
+      ),
+    );
+
+    const savedSwipeExtra = ((swipeOptions[0] as { extra?: Record<string, unknown> } | undefined)?.extra ?? {}) as Record<
+      string,
+      unknown
+    >;
+
+    expect(modelCalls).toBe(1);
+    expect(savedSwipes).toEqual([savedText]);
+    expect(savedSwipeExtra.dialogueAttributions).toMatchObject({
+      version: 1,
+      textHash: createDialogueAttributionTextHash(savedText),
+      segments: [
+        {
+          start: 0,
+          end: savedText.length,
+          speakerId: "char-1",
+          speakerName: "QA Character",
+          source: "name-prefix",
+          confidence: "explicit",
+        },
+      ],
+    });
+    expect(extraPatches[0]?.dialogueAttributions).toMatchObject(savedSwipeExtra.dialogueAttributions as object);
+  });
   it("dry-runs generation with prompt output and no chat-state writes", async () => {
     let modelCalls = 0;
     const writeCalls: string[] = [];
-    const llmRequests: Array<{ messages: Array<{ content: string }> }> = [];
+    const llmRequests: Array<{ messages: Array<{ role: string; content: string; contextKind?: unknown; displayName?: unknown }> }> = [];
     const storage = generationStorage({
       getTarget: (_call, target) => target,
       onSwipe: () => {
@@ -535,7 +684,7 @@ describe("user-message regeneration review guards", () => {
       },
       async *stream(request) {
         modelCalls += 1;
-        llmRequests.push({ messages: request.messages.map((message) => ({ content: message.content })) });
+        llmRequests.push({ messages: request.messages.map((message) => ({ role: message.role, content: message.content })) });
         yield { type: "token", text: "dry response" };
         yield { type: "usage", data: { promptTokens: 12, completionTokens: 2 } };
       },

@@ -149,7 +149,7 @@ describe("prompt context priority", () => {
           kind: "memory_recall",
           status: "skipped",
           sourceId: "duplicate-memory",
-          metadata: expect.objectContaining({ reason: "overlaps_character_memory" }),
+          metadata: expect.objectContaining({ reason: "context_overlap", overlapSource: "same_day_character_memory" }),
         }),
       ]),
     );

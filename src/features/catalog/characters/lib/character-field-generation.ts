@@ -67,7 +67,7 @@ const MUSIC_FIELD_INSTRUCTION =
   "For music taste, decide whether picks should be famous, niche, local, archival, online-only, or obscure from the character's background, era, access, subculture, and listening habits. Avoid defaulting to the same canonical moody/alternative picks unless the card context specifically points there.";
 
 const CHARACTER_DETAIL_INSTRUCTION =
-  "Prefer concrete behavioral tells, contradictions and limits, voice evidence from opening/example dialogue, and details that change how the character acts, notices, avoids, desires, or reacts; avoid generic AI-card wording families such as trait taxonomies, archetype labels, complex-and-multifaceted phrasing, speaks-with-a-mix-of formulas, and repeated signature-feature summaries.";
+  "Prefer concrete behavioral tells, contradictions and limits, voice evidence from opening/example dialogue, and details that change how the character acts, notices, avoids, desires, or reacts. Avoid taxonomy-style trait lists, generic archetype labels, broad inventories of traits or features, and avoid generic AI-card wording families such as complex-and-multifaceted phrasing, speaks-with-a-mix-of formulas, and repeated signature-feature summaries.";
 
 const FIELD_INSTRUCTIONS: Record<CharacterFieldGenerationField, string> = {
   description:

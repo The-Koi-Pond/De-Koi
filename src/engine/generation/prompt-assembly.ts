@@ -68,6 +68,7 @@ import {
 } from "./generate-route-utils";
 import { effectiveMaxContext } from "./context-window";
 import { buildGenerationPromptPresetCandidates } from "./prompt-preset-selection";
+import { isSuppressibleContextOverlap } from "./prompt-context-overlap";
 import {
   bySortOrder,
   boolish,
@@ -1952,11 +1953,15 @@ function buildMergedRoleplayEnsemblePromptBlock(
     return null;
   }
 
+  const speakerTagExampleName = characters[0]?.name.trim() || "Character";
+
   return wrapContent(
     [
       "Keep the merged Game Master style: you may weave multiple participating characters into one response instead of forcing a single targeted speaker.",
       "Avoid echoing the same signature phrase, pet name, physical description, gesture, sentence rhythm, or sensory beat across consecutive turns.",
       "Rotate attention among participating characters when they are present, and make each character's diction, motives, and body language distinct instead of reusing one character's stock motifs.",
+      `For text owned by a specific participating character, use compact internal speaker tags like <speaker name="${speakerTagExampleName}">their dialogue or action</speaker>.`,
+      "Use internal speaker tags only around character-owned dialogue, action, or close narration; leave neutral scene narration outside the tags.",
     ].join("\n"),
     "ensemble_style",
     wrapFormat,
@@ -2050,6 +2055,43 @@ function compactedHistoryLimit(meta: JsonRecord, fallbackLimit: number, shouldCo
   if (!shouldCompact) return fallbackLimit;
   const tail = Math.max(0, Math.min(50, Math.floor(readNumber(meta.summaryTailMessages, 10))));
   return Math.min(fallbackLimit, tail);
+}
+
+function summaryOverlapChunks(summary: string): string[] {
+  return summary
+    .split(/\n{2,}/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+}
+
+function suppressOverlappingSummaryChunks(
+  summary: string | null,
+  history: readonly ChatMLMessage[],
+): { summary: string | null; skippedAttributionItems: GenerationContextAttributionItem[] } {
+  if (!summary?.trim()) return { summary: null, skippedAttributionItems: [] };
+  const historyTexts = history.map((message) => readString(message.content).trim()).filter(Boolean);
+  if (historyTexts.length === 0) return { summary, skippedAttributionItems: [] };
+
+  const retainedChunks: string[] = [];
+  const skippedAttributionItems: GenerationContextAttributionItem[] = [];
+  for (const chunk of summaryOverlapChunks(summary)) {
+    if (isSuppressibleContextOverlap(chunk, historyTexts)) {
+      skippedAttributionItems.push({
+        kind: "chat_summary",
+        label: "Chat Summary skipped by overlap",
+        status: "skipped",
+        snippet: chunk,
+        metadata: { reason: "context_overlap", overlapSource: "recent_history" },
+      });
+    } else {
+      retainedChunks.push(chunk);
+    }
+  }
+
+  return {
+    summary: retainedChunks.length > 0 ? retainedChunks.join("\n\n") : null,
+    skippedAttributionItems,
+  };
 }
 
 const MEMORY_EMBEDDING_DIMS = 512;
@@ -2380,7 +2422,8 @@ function attributionForSkippedMemoryRecall(
     sourceId: readString(skip.candidate.id).trim() || null,
     snippet: skip.candidate.content,
     metadata: {
-      reason: skip.reason,
+      reason: "context_overlap",
+      overlapSource: "same_day_character_memory",
       overlappingSource: skip.overlappingSourceLabel,
       consideredCount,
     },
@@ -2454,6 +2497,7 @@ async function buildMemoryRecallBlock(
   const attribution = attributionForMemoryRecall({
     packedLines: packed.lines,
     recalled: prioritizedRecall.retained,
+
     consideredCount: memories.length,
   });
   return {
@@ -3954,7 +3998,7 @@ export async function assembleGenerationPrompt(
       : await scanLorebooksForPositions(baseLorebookIncludedPositions);
   let processedLore =
     canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
-  const summary = reusableContext?.summary ?? chatSummaryForGeneration(input.chat);
+  let summary = reusableContext?.summary ?? chatSummaryForGeneration(input.chat);
   const memoryRecallContext =
     canReuseSourceSensitiveContext && reusableContext
       ? {
@@ -3970,7 +4014,7 @@ export async function assembleGenerationPrompt(
           input.latestUserInput,
           maxContext || undefined,
           embeddingSource,
-          characters.flatMap((character) => character.memories ?? []),
+          promptCharacters.flatMap((character) => character.memories ?? []),
         );
   const memoryRecallBlock = memoryRecallContext?.block ?? null;
   const canonicalMemoryContext =
@@ -4007,10 +4051,15 @@ export async function assembleGenerationPrompt(
       }
     : historyMessageSelection(input.storedMessages, selectedHistoryLimit, chatMeta.excludePastReasoning === false);
   const history = historySelection.messages;
+  const summaryOverlap = reusableContext
+    ? { summary, skippedAttributionItems: [] as GenerationContextAttributionItem[] }
+    : suppressOverlappingSummaryChunks(summary, history);
+  summary = summaryOverlap.summary;
   const historyAndSummaryAttributionItems = reusableContext
     ? reusableContext.contextAttributionItems.filter((item) => historyAttributionKinds.has(item.kind))
     : [
         ...attributionForChatSummary(summary),
+        ...summaryOverlap.skippedAttributionItems,
         ...attributionForChatHistory({
           included: history,
           hiddenFromAiCount: historySelection.hiddenFromAiCount,

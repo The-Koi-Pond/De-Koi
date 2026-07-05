@@ -1,24 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { buildGenerationGuideMessages } from "./generation-guide";
+import { buildGenerationGuideMessages, buildProseGuardianAvoidanceGuide } from "./generation-guide";
 
 describe("buildGenerationGuideMessages", () => {
-  it("places Prose Guardian avoidance as an internal system guide instead of a user turn", () => {
-    const messages = buildGenerationGuideMessages({
-      contextInjections: [{ agentType: "prose-guardian", text: "Avoid repeating moonlit silver hair." }],
-    });
-
-    expect(messages).toEqual([
-      expect.objectContaining({
-        role: "system",
-        contextKind: "injection",
-        displayName: "Prose Guardian Avoidance",
-        content: expect.stringContaining("prose_guardian_avoidance"),
-      }),
-    ]);
-    expect(messages.at(-1)?.role).not.toBe("user");
-  });
-
   it("keeps user-authored guided generation as a user guide", () => {
     const messages = buildGenerationGuideMessages({
       generationGuide: "Make the reply colder and shorter.",
@@ -35,7 +19,7 @@ describe("buildGenerationGuideMessages", () => {
     ]);
   });
 
-  it("keeps user steering separate from internal avoidance when both are present", () => {
+  it("labels amend steering separately from internal avoidance", () => {
     const messages = buildGenerationGuideMessages({
       generationGuide: "Keep the same scene beat.",
       generationGuideSource: "amend",
@@ -44,6 +28,29 @@ describe("buildGenerationGuideMessages", () => {
 
     expect(messages.map((message) => message.role)).toEqual(["user", "system"]);
     expect(messages[0]).toEqual(expect.objectContaining({ displayName: "Amend Guide" }));
-    expect(messages[1]).toEqual(expect.objectContaining({ displayName: "Prose Guardian Avoidance" }));
+    expect(messages[1]).toEqual(expect.objectContaining({ displayName: "Internal Avoidance Guidance" }));
+    expect(messages[1]?.content).toContain("prose_guardian_avoidance");
+  });
+
+  it("combines explicit internal guides with Prose Guardian avoidance as system injection", () => {
+    const proseGuardianGuide = buildProseGuardianAvoidanceGuide([
+      { agentType: "prose-guardian", text: "Avoid repeating moonlit smile." },
+    ]);
+    const messages = buildGenerationGuideMessages({
+      generationGuide: "Keep going.",
+      generationGuideSource: "guide",
+      internalGuides: [proseGuardianGuide, "[Conversation freshness guide]"],
+    });
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({ role: "user", contextKind: "prompt", displayName: "Generation Guide" });
+    expect(messages[1]).toMatchObject({
+      role: "system",
+      contextKind: "injection",
+      displayName: "Internal Avoidance Guidance",
+    });
+    expect(messages[1]?.content).toContain("Prose Guardian avoidance instruction");
+    expect(messages[1]?.content).toContain("Conversation freshness guide");
+    expect(messages.at(-1)?.role).not.toBe("user");
   });
 });

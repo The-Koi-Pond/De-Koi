@@ -306,6 +306,13 @@ function overlapWarningSectionKind(sources: PromptOverlapSource[]): PromptBudget
   if (sources.some((source) => source.kind === "memory")) return "memory";
   return sources[0]?.kind ?? "other";
 }
+function displayOverlapSourceLabel(label: string): string {
+  return label
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 function buildContextOverlapWarnings(messages: LlmMessage[]): PromptBudgetWarning[] {
   const phraseSources = new Map<string, PromptOverlapSource[]>();
@@ -321,7 +328,7 @@ function buildContextOverlapWarnings(messages: LlmMessage[]): PromptBudgetWarnin
 
   return [...phraseSources]
     .filter(([, sources]) => sources.length >= 2)
-    .sort(([phraseA, sourcesA], [phraseB, sourcesB]) => sourcesB.length - sourcesA.length || phraseA.length - phraseB.length)
+    .sort(([phraseA, sourcesA], [phraseB, sourcesB]) => sourcesB.length - sourcesA.length || phraseB.length - phraseA.length)
     .slice(0, MAX_CONTEXT_OVERLAP_WARNINGS)
     .map(([phrase, sources]) => {
       const sectionKind = overlapWarningSectionKind(sources);
@@ -332,7 +339,7 @@ function buildContextOverlapWarnings(messages: LlmMessage[]): PromptBudgetWarnin
         sectionLabel: sectionLabel(sectionKind),
         phrase,
         sources: labels,
-        message: `Repeated cue "${phrase}" appears in ${labels.join(", ")}. Consider keeping this detail in one canonical context source.`,
+        message: `Repeated cue "${phrase}" appears in ${labels.map(displayOverlapSourceLabel).join(", ")}. Consider keeping this detail in one canonical context source.`,
       };
     });
 }
@@ -404,6 +411,8 @@ export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudge
     }
   }
 
+  warnings.push(...buildContextOverlapWarnings(input.messages));
+
   const skippedLorebookEntries = input.budgetSkippedLorebookEntries ?? [];
   if (skippedLorebookEntries.length > 0) {
     const first = skippedLorebookName(skippedLorebookEntries[0]!);
@@ -417,8 +426,6 @@ export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudge
           : `${skippedLorebookEntries.length} lorebook entries were skipped by lorebook budget rules.`,
     });
   }
-
-  warnings.push(...buildContextOverlapWarnings(input.messages));
 
   return {
     contextLimit,

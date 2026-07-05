@@ -18,6 +18,7 @@ export interface BuildGenerationGuideMessagesInput {
   generationGuide?: string | null;
   generationGuideSource?: GenerationGuideSource | null;
   contextInjections?: readonly ProseGuardianAvoidanceSource[] | null;
+  internalGuides?: readonly (string | null | undefined)[] | null;
 }
 
 const GUIDE_SOURCE_LABELS: Record<GenerationGuideSource, string> = {
@@ -100,13 +101,16 @@ export function buildGenerationGuideMessages(input: BuildGenerationGuideMessages
     });
   }
 
-  const avoidanceGuide = buildProseGuardianAvoidanceGuide(input.contextInjections);
-  if (avoidanceGuide) {
+  const internalContent = [buildProseGuardianAvoidanceGuide(input.contextInjections), ...(input.internalGuides ?? [])]
+    .map((guide) => (guide ?? "").trim())
+    .filter((guide) => guide.length > 0)
+    .join("\n\n");
+  if (internalContent) {
     messages.push({
       role: "system",
-      content: avoidanceGuide,
+      content: internalContent,
       contextKind: "injection",
-      displayName: "Prose Guardian Avoidance",
+      displayName: "Internal Avoidance Guidance",
     });
   }
 

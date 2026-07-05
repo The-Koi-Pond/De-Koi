@@ -159,6 +159,28 @@ describe("dialogue attribution metadata", () => {
     ]);
   });
 
+  it("strips a leading speaker prefix while preserving attribution on cleaned text", () => {
+    const result = buildDialogueAttributions('Alice: "Ready."', speakers, {
+      stripLeadingSpeakerPrefix: true,
+    });
+
+    expect(result.text).toBe('"Ready."');
+    expect(result.attributions).toMatchObject({
+      version: 1,
+      textHash: createDialogueAttributionTextHash(result.text),
+      segments: [
+        {
+          start: 0,
+          end: result.text.length,
+          speakerName: "Alice",
+          speakerId: "char-alice",
+          source: "name-prefix",
+          confidence: "explicit",
+        },
+      ],
+    });
+  });
+
   it("does not record name-prefix ranges inside fenced or indented code", () => {
     const text = ["```text", "Alice: not dialogue", "```", "    Clara: also code", "Bob: Real."].join("\n");
     const result = buildDialogueAttributions(text, speakers);
