@@ -25,6 +25,12 @@ describe("dialogue attribution metadata", () => {
     expect(extra).not.toHaveProperty("dialogueAttributions");
   });
 
+  it("uses a SHA-256 text hash for stale-range detection", () => {
+    expect(createDialogueAttributionTextHash("abc")).toBe(
+      "dk1:3:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
+  });
+
   it("rejects attribution metadata when the text hash no longer matches", () => {
     const text = '"Careful," Alice said.';
     const metadata: DialogueAttributionsExtra = {
@@ -44,6 +50,47 @@ describe("dialogue attribution metadata", () => {
 
     expect(validateDialogueAttributionsForText(text, metadata)).not.toBeNull();
     expect(validateDialogueAttributionsForText(`${text} Edited.`, metadata)).toBeNull();
+  });
+
+  it("rejects restored segments that do not match the current speaker list", () => {
+    const text = '"Careful," Alice said. "No," Mallory said.';
+    const metadata = validateDialogueAttributionsForText(
+      text,
+      {
+        version: 1,
+        textHash: createDialogueAttributionTextHash(text),
+        segments: [
+          {
+            start: 0,
+            end: 10,
+            speakerName: "Alice",
+            speakerId: "char-alice",
+            source: "explicit-attribution",
+            confidence: "derived",
+          },
+          {
+            start: 24,
+            end: 29,
+            speakerName: "Mallory",
+            speakerId: "char-mallory",
+            source: "explicit-attribution",
+            confidence: "derived",
+          },
+        ],
+      },
+      speakers,
+    );
+
+    expect(metadata?.segments).toEqual([
+      {
+        start: 0,
+        end: 10,
+        speakerName: "Alice",
+        speakerId: "char-alice",
+        source: "explicit-attribution",
+        confidence: "derived",
+      },
+    ]);
   });
 
   it("strips explicit speaker tags and records cleaned text ranges", () => {
@@ -111,6 +158,23 @@ describe("dialogue attribution metadata", () => {
       },
     ]);
   });
+
+  it("does not record name-prefix ranges inside fenced or indented code", () => {
+    const text = ["```text", "Alice: not dialogue", "```", "    Clara: also code", "Bob: Real."].join("\n");
+    const result = buildDialogueAttributions(text, speakers);
+
+    expect(result.attributions?.segments).toEqual([
+      {
+        start: text.indexOf("Real."),
+        end: text.indexOf("Real.") + "Real.".length,
+        speakerName: "Bob",
+        speakerId: "char-bob",
+        source: "name-prefix",
+        confidence: "explicit",
+      },
+    ]);
+  });
+
   it("does not duplicate derived attribution inside explicit name-prefix ranges", () => {
     const result = buildDialogueAttributions('Alice: "Ready," Alice said.', speakers, {
       includeDerivedProse: true,
@@ -127,6 +191,7 @@ describe("dialogue attribution metadata", () => {
       },
     ]);
   });
+
   it("does not derive attribution for ambiguous mention-only prose", () => {
     const result = buildDialogueAttributions('Alice looked at Bob. "Careful."', speakers, {
       includeDerivedProse: true,
