@@ -11,11 +11,11 @@ const NAME_BOUNDARY_RE = /[\p{L}\p{N}_-]/u;
 const SPEECH_VERB_PATTERN_SOURCE =
   "said|says|asked|asks|replied|replies|answered|answers|continued|continues|repeated|repeats|warned|warns|observed|observes|noted|notes|corrected|corrects|wept|weeps|gasped|gasps|retorted|retorts|groaned|groans|mocked|mocks|chirped|chirps|murmured|murmurs|mumbled|mumbles|whispered|whispers|muttered|mutters|snapped|snaps|sighed|sighs|hissed|hisses|growled|growls|breathed|breathes|called|calls|added|adds|told|tells|promised|promises|confessed|confesses|admitted|admits|insisted|insists|cooed|coos|purred|purrs|laughed|laughs|chuckled|chuckles|chimed|chimes|sobbed|sobs|cried|cries|babbled|babbles|shouted|shouts|yelled|yells";
 const SAME_SPEAKER_ATTRIBUTION_RE = new RegExp(
-  `^\\s*(?:[,.;:!?-]+)?\\s*(?:(?:he|she|they|it)\\s+)?(?:${SPEECH_VERB_PATTERN_SOURCE})(?:[\\s,;:-]+[^"\\n]{0,120})?[.!?,;:-]?\\s*$`,
+  `^\\s*(?:[,.;:!?-]+)?\\s*(?:(?:he|she|they|it)\\s+)?(?:${SPEECH_VERB_PATTERN_SOURCE})(?:[\\s,;:-]+[^\\u0022\\n]{0,120})?[.!?,;:-]?\\s*$`,
   "iu",
 );
 const SPEAKER_NAME_ATTRIBUTION_RE = new RegExp(
-  `^\\s+(?:(?:[\\p{L}\'-]+ly)\\s+){0,2}(?:${SPEECH_VERB_PATTERN_SOURCE})\\b`,
+  `^\\s+(?:(?:[\\p{L}'-]+ly)\\s+){0,2}(?:${SPEECH_VERB_PATTERN_SOURCE})\\b`,
   "iu",
 );
 const SPEAKER_POSSESSIVE_ATTRIBUTION_RE =
