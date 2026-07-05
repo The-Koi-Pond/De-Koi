@@ -5,11 +5,22 @@ type RoleplayMusicMessage = {
   content?: string | null;
 };
 
+type RoleplayMusicProfile = {
+  name?: string | null;
+  description?: string | null;
+  personality?: string | null;
+  scenario?: string | null;
+  backstory?: string | null;
+  appearance?: string | null;
+};
+
 export type RoleplayMusicContextInput = {
   chatName?: string | null;
   chatMeta?: Record<string, unknown> | null;
   characterNames?: readonly string[] | null;
+  characterProfiles?: readonly RoleplayMusicProfile[] | null;
   personaName?: string | null;
+  personaProfile?: RoleplayMusicProfile | null;
   messages?: readonly RoleplayMusicMessage[] | null;
 };
 
@@ -65,6 +76,22 @@ function recentVisibleMessageText(messages: readonly RoleplayMusicMessage[]): st
     .join(" ");
 }
 
+function profileCue(profile: RoleplayMusicProfile | null | undefined): string {
+  if (!profile) return "";
+  return normalizeWhitespace(
+    [
+      readString(profile.name),
+      readString(profile.description),
+      readString(profile.personality),
+      readString(profile.scenario),
+      readString(profile.backstory),
+      readString(profile.appearance),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
 function inferMood(source: string): { mood: string; intensity: string } {
   if (includesAny(source, ["battle", "combat", "attack", "sword", "gunfire", "chase", "fight"])) {
     return { mood: "urgent tense", intensity: "high" };
@@ -72,14 +99,14 @@ function inferMood(source: string): { mood: string; intensity: string } {
   if (includesAny(source, ["blood", "wound", "wounded", "injured", "pain", "copper", "limp", "dying"])) {
     return { mood: "somber wounded", intensity: "low" };
   }
+  if (includesAny(source, ["horror", "terror", "dread", "monster", "haunted", "scream"])) {
+    return { mood: "dark suspense", intensity: "medium" };
+  }
   if (includesAny(source, ["sleep", "tired", "exhausted", "quiet", "whisper", "gentle", "morning"])) {
     return { mood: "quiet intimate", intensity: "low" };
   }
   if (includesAny(source, ["kiss", "embrace", "romance", "tender", "heart", "love"])) {
     return { mood: "tender romantic", intensity: "low" };
-  }
-  if (includesAny(source, ["horror", "terror", "dread", "monster", "haunted", "scream"])) {
-    return { mood: "dark suspense", intensity: "medium" };
   }
   if (includesAny(source, ["grief", "cry", "tears", "lonely", "loss", "mourning"])) {
     return { mood: "melancholy emotional", intensity: "low" };
@@ -90,8 +117,8 @@ function inferMood(source: string): { mood: string; intensity: string } {
 function inferSetting(source: string): string {
   if (includesAny(source, ["tavern", "inn", "ale", "hearth", "barmaid"])) return "fantasy tavern";
   if (includesAny(source, ["forest", "woods", "pine", "moss", "cabin", "campfire"])) return "forest cabin";
-  if (includesAny(source, ["rain", "storm", "thunder", "window"])) return "rainy night";
   if (includesAny(source, ["castle", "king", "queen", "throne", "court"])) return "royal fantasy";
+  if (includesAny(source, ["rain", "storm", "thunder", "window"])) return "rainy night";
   if (includesAny(source, ["temple", "ruins", "ancient", "altar"])) return "ancient ruins";
   if (includesAny(source, ["ship", "sea", "sail", "harbor", "ocean"])) return "seafaring";
   if (includesAny(source, ["space", "ship", "neon", "cyber", "station", "android"])) return "sci fi";
@@ -101,9 +128,9 @@ function inferSetting(source: string): string {
 
 function inferGenre(source: string): string {
   if (includesAny(source, ["magic", "spell", "dragon", "kingdom", "elf", "fae", "fantasy"])) return "fantasy";
+  if (includesAny(source, ["horror", "haunted", "monster", "dread"])) return "horror";
   if (includesAny(source, ["neon", "cyber", "space", "station", "android"])) return "sci fi";
   if (includesAny(source, ["detective", "case", "noir", "city", "rain"])) return "noir";
-  if (includesAny(source, ["horror", "haunted", "monster", "dread"])) return "horror";
   return "cinematic";
 }
 
@@ -116,15 +143,20 @@ export function buildRoleplayMusicContext(input: RoleplayMusicContextInput): Rol
     recentVisibleMessageText(input.messages ?? []),
   ].filter(Boolean);
   const characterNames = unique([...(input.characterNames ?? []), readString(input.personaName)]).slice(0, 4);
+  const profilePieces = [
+    ...(input.characterProfiles ?? []).map(profileCue),
+    profileCue(input.personaProfile),
+  ].filter(Boolean);
 
-  if (contextPieces.length === 0 && characterNames.length === 0 && !readString(input.chatName)) return null;
+  if (contextPieces.length === 0 && profilePieces.length === 0 && characterNames.length === 0 && !readString(input.chatName)) return null;
 
-  const source = normalizeWhitespace([...contextPieces, readString(input.chatName), ...characterNames].join(" "));
+  const source = normalizeWhitespace([...contextPieces, ...profilePieces, readString(input.chatName), ...characterNames].join(" "));
   const sourceLower = source.toLowerCase();
   const mood = inferMood(sourceLower);
   const setting = inferSetting(sourceLower);
   const genre = inferGenre(sourceLower);
   const query = unique([mood.mood, setting, genre, DEFAULT_ROLEPLAY_STYLE]).join(" ");
+  const reasonSource = unique([contextPieces[contextPieces.length - 1] ?? "", ...profilePieces]).join(" ") || source;
 
   return {
     query,
@@ -133,7 +165,7 @@ export function buildRoleplayMusicContext(input: RoleplayMusicContextInput): Rol
       setting,
       intensity: mood.intensity,
       constraints: [genre, "instrumental", "avoid vocals"],
-      reason: bounded(contextPieces[contextPieces.length - 1] ?? source, MAX_REASON_LENGTH),
+      reason: bounded(reasonSource, MAX_REASON_LENGTH),
     },
   };
 }

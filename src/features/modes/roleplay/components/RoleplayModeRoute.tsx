@@ -198,16 +198,27 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     isStreaming: timeline.isStreaming,
   });
 
+  const musicCharacterProfiles = useMemo(
+    () =>
+      data.chatCharIds.flatMap((id) => {
+        const profile = data.characterMap.get(id);
+        return profile ? [profile] : [];
+      }),
+    [data.characterMap, data.chatCharIds],
+  );
+
   const musicDjContext = useMemo(
     () =>
       buildRoleplayMusicContext({
         chatName: data.chat?.name,
         chatMeta: data.chatMeta,
         characterNames: data.characterNames,
+        characterProfiles: musicCharacterProfiles,
         personaName: data.personaInfo?.name,
+        personaProfile: data.personaInfo,
         messages: renderMessages,
       }),
-    [data.chat?.name, data.chatMeta, data.characterNames, data.personaInfo?.name, renderMessages],
+    [data.chat?.name, data.chatMeta, data.characterNames, musicCharacterProfiles, data.personaInfo, renderMessages],
   );
 
   useEffect(() => {

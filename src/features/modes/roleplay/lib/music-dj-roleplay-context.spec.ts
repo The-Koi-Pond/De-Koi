@@ -32,6 +32,25 @@ describe("buildRoleplayMusicContext", () => {
     expect(context?.query).toContain("fantasy tavern");
   });
 
+  it("uses character profile tone when recent roleplay messages are generic", () => {
+    const context = buildRoleplayMusicContext({
+      chatName: "Midnight Court",
+      characterProfiles: [
+        {
+          name: "Mira",
+          personality: "A gothic vampire noble with eerie restraint.",
+          scenario: "A haunted moonlit castle where every quiet exchange feels dangerous.",
+        },
+      ],
+      personaProfile: { name: "Celia", personality: "Careful, curious, and drawn to old mysteries." },
+      messages: [{ role: "assistant", content: "She nods once and waits for your answer." }],
+    });
+
+    expect(context?.query).toContain("dark suspense");
+    expect(context?.query).toContain("royal fantasy");
+    expect(context?.query).toContain("horror");
+    expect(context?.intent.reason).toContain("gothic vampire noble");
+  });
   it("seeds Fresh Pick context for roleplay independently of Music Player agent activation", () => {
     const context = buildRoleplayMusicContext({
       messages: [{ role: "assistant", content: "Rain hisses against the neon station windows." }],

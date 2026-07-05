@@ -94,16 +94,27 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
     isStreaming: timeline.isStreaming,
   });
 
+  const musicCharacterProfiles = useMemo(
+    () =>
+      data.chatCharIds.flatMap((id) => {
+        const profile = data.characterMap.get(id);
+        return profile ? [profile] : [];
+      }),
+    [data.characterMap, data.chatCharIds],
+  );
+
   const musicDjContext = useMemo(
     () =>
       buildConversationMusicContext({
         chatName: data.chat?.name,
         chatMeta: data.chatMeta,
         characterNames: data.characterNames,
+        characterProfiles: musicCharacterProfiles,
         personaName: data.personaInfo?.name,
+        personaProfile: data.personaInfo,
         messages: data.messages,
       }),
-    [data.chat?.name, data.chatMeta, data.characterNames, data.personaInfo?.name, data.messages],
+    [data.chat?.name, data.chatMeta, data.characterNames, musicCharacterProfiles, data.personaInfo, data.messages],
   );
 
   useEffect(() => {
