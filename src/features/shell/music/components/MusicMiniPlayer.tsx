@@ -16,6 +16,7 @@ import {
   consumePendingMusicPlaybackCue,
   getLastMusicPlaybackContext,
   MUSIC_PLAYBACK_EVENT,
+  requestMusicAiPick,
   type MusicPlaybackEventDetail,
 } from "../../../../shared/lib/music-playback-events";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -342,6 +343,14 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     }
   }
 
+  async function freshPick() {
+    if (requestMusicAiPick({ fresh: true })) {
+      setMessage("Music Player is choosing from this scene...");
+      return;
+    }
+    await pick(true);
+  }
+
   async function resumeOrPick() {
     if (track) {
       await playTrack(track);
@@ -502,7 +511,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         <button
           type="button"
           className="rounded border border-[var(--border)] p-1.5"
-          onClick={() => pick(true)}
+          onClick={() => freshPick()}
           disabled={busy}
           aria-label="Fresh Music Player pick"
           title="Pick a different YouTube result for the same mood."
@@ -589,7 +598,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         <button
           type="button"
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
-          onClick={() => pick(true)}
+          onClick={() => freshPick()}
           disabled={busy}
           aria-label="Fresh Music Player pick"
           title="Pick a different YouTube result for the same mood"

@@ -8,12 +8,14 @@ const {
   deleteChatMock,
   dispatchMusicPlaybackEventMock,
   enabledChatAgentIdsMock,
+  handleRetryAgentMock,
   setActiveChatIdMock,
   useChatSurfaceDataMock,
 } = vi.hoisted(() => ({
   deleteChatMock: { mutateAsync: vi.fn() },
   dispatchMusicPlaybackEventMock: vi.fn(),
   enabledChatAgentIdsMock: vi.fn(),
+  handleRetryAgentMock: vi.fn(),
   setActiveChatIdMock: vi.fn(),
   useChatSurfaceDataMock: vi.fn(),
 }));
@@ -23,6 +25,7 @@ vi.mock("../../../../engine/contracts/types/agent", () => ({
 }));
 
 vi.mock("../../../../shared/lib/music-playback-events", () => ({
+  MUSIC_AI_PICK_REQUEST_EVENT: "de-koi:music-ai-pick-request",
   dispatchMusicPlaybackEvent: dispatchMusicPlaybackEventMock,
 }));
 
@@ -88,6 +91,7 @@ vi.mock("../../shared/chat-ui/index", () => ({
     selectedMessageIds: new Set(),
     handleSetActiveSwipe: vi.fn(),
     handleRegenerate: vi.fn(),
+    handleRetryAgent: handleRetryAgentMock,
     handleEdit: vi.fn(),
     handleDelete: vi.fn(),
     handleToggleHiddenFromAI: vi.fn(),
@@ -168,7 +172,7 @@ describe("ConversationModeRoute music context", () => {
     vi.clearAllMocks();
   });
 
-  it("publishes conversation music context for the mini-player even when the Music Player agent is disabled", async () => {
+  it("clears conversation music context for the mini-player instead of inferring keywords", async () => {
     await act(async () => {
       root = createRoot(container!);
       root.render(<ConversationModeRoute activeChatId="chat-1" />);
@@ -177,8 +181,21 @@ describe("ConversationModeRoute music context", () => {
     expect(dispatchMusicPlaybackEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "context",
-        query: expect.stringContaining("cozy reflective"),
+        query: null,
       }),
     );
+  });
+
+  it("routes Fresh Music Player requests through the AI Music Player agent", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ConversationModeRoute activeChatId="chat-1" />);
+    });
+
+    const event = new Event("de-koi:music-ai-pick-request", { cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(handleRetryAgentMock).toHaveBeenCalledWith("music-dj");
   });
 });
