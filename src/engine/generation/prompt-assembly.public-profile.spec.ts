@@ -13,6 +13,7 @@ function promptStorage(
   seed: {
     chats?: Record<string, unknown>[];
     messages?: Record<string, Record<string, unknown>[]>;
+    memories?: Record<string, unknown>[];
     onListChatsOptions?: (options: unknown) => void;
     onListChatMessagesOptions?: (chatId: string, options: unknown) => Promise<void> | void;
   } = {},
@@ -70,8 +71,8 @@ function promptStorage(
     async patchChatSummaries<T = unknown>() {
       return asStorageValue<T>({});
     },
-    async listChatMemories() {
-      return [];
+    async listChatMemories<T = unknown>() {
+      return asStorageValue<T[]>(seed.memories ?? []);
     },
     async getWorldState() {
       return null;
@@ -142,6 +143,120 @@ describe("character public profiles in prompt assembly", () => {
     expect(promptText).toContain("A cheerful bard who remembers every song half-wrong.");
     expect(promptText).not.toContain("music, sunny");
     expect(promptText).not.toContain("Private setup notes");
+  });
+});
+describe("prompt context overlap suppression", () => {
+  it("skips recalled memories already present in same-day character memories", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await assembleGenerationPrompt(
+      promptStorage(
+        {
+          id: "mira",
+          data: {
+            name: "Mira",
+            description: "Mira core description.",
+            extensions: {
+              characterMemories: [
+                {
+                  createdAt: `${today}T09:00:00.000Z`,
+                  from: "chat",
+                  summary: "Mira keeps a brass key under her glove.",
+                },
+              ],
+            },
+          },
+        },
+        null,
+        {
+          memories: [
+            {
+              content: "Mira keeps a brass key under her glove.",
+              lastMessageAt: `${today}T08:55:00.000Z`,
+            },
+          ],
+        },
+      ),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "conversation",
+          characterIds: ["mira"],
+          metadata: { enableMemoryRecall: true },
+        },
+        storedMessages: [{ id: "message-1", role: "user", content: "Where is Mira's brass key?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "Where is Mira's brass key?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+    const memoryItems = result.contextAttributionItems.filter((item) => item.kind === "memory_recall");
+
+    expect(promptText).toContain("Mira keeps a brass key under her glove.");
+    expect(promptText).not.toContain("--- Memory 1 ---");
+    expect(memoryItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "skipped",
+          snippet: "Mira keeps a brass key under her glove.",
+          metadata: expect.objectContaining({ reason: "context_overlap", overlapSource: "same_day_character_memory" }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps distinct recalled memories when same-day character memory only overlaps the query", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await assembleGenerationPrompt(
+      promptStorage(
+        {
+          id: "mira",
+          data: {
+            name: "Mira",
+            description: "Mira core description.",
+            extensions: {
+              characterMemories: [
+                {
+                  createdAt: `${today}T09:00:00.000Z`,
+                  from: "chat",
+                  summary: "Mira keeps a brass key under her glove.",
+                },
+              ],
+            },
+          },
+        },
+        null,
+        {
+          memories: [
+            {
+              content: "Mira distrusts station clocks and keeps train schedules by hand.",
+              lastMessageAt: `${today}T08:55:00.000Z`,
+            },
+          ],
+        },
+      ),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "conversation",
+          characterIds: ["mira"],
+          metadata: { enableMemoryRecall: true },
+        },
+        storedMessages: [{ id: "message-1", role: "user", content: "What about Mira's brass key, station clocks, and train schedules by hand?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "What about Mira's brass key, station clocks, and train schedules by hand?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+    const memoryItems = result.contextAttributionItems.filter((item) => item.kind === "memory_recall");
+
+    expect(promptText).toContain("--- Memory 1 ---");
+    expect(promptText).toContain("Mira distrusts station clocks and keeps train schedules by hand.");
+    expect(memoryItems).toEqual(expect.arrayContaining([expect.objectContaining({ status: "injected" })]));
+    expect(memoryItems).not.toEqual(expect.arrayContaining([expect.objectContaining({ status: "skipped" })]));
   });
 });
 describe("cross-chat awareness prompt assembly", () => {

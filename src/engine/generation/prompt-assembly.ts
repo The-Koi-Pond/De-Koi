@@ -62,6 +62,7 @@ import {
 } from "./generate-route-utils";
 import { effectiveMaxContext } from "./context-window";
 import { buildGenerationPromptPresetCandidates } from "./prompt-preset-selection";
+import { isSuppressibleContextOverlap } from "./prompt-context-overlap";
 import {
   bySortOrder,
   boolish,
@@ -2355,7 +2356,7 @@ function recentMemoryRecallScoringSet(memories: JsonRecord[]): JsonRecord[] {
 }
 
 interface MemoryRecallPromptContext {
-  block: string;
+  block: string | null;
   attributionItems: GenerationContextAttributionItem[];
 }
 function memoryRecallRows(value: unknown): JsonRecord[] {
@@ -2369,6 +2370,7 @@ async function buildMemoryRecallBlock(
   latestUserInput: string,
   maxContext?: number,
   embeddingSource?: { embed(texts: string[]): Promise<number[][] | null> } | null,
+  fresherMemoryTexts: readonly string[] = [],
 ): Promise<MemoryRecallPromptContext | null> {
   if (!memoryRecallEnabled(chat) || !latestUserInput.trim()) return null;
   const chatId = readString(chat.id).trim();
@@ -2416,11 +2418,39 @@ async function buildMemoryRecallBlock(
     .slice(0, 8);
   if (recalled.length === 0) return null;
 
-  const packed = packRecalledMemories(recalled, maxContext);
-  if (packed.lines.length === 0) return null;
+  const recallable: typeof recalled = [];
+  const skippedOverlapItems: GenerationContextAttributionItem[] = [];
+  for (const memory of recalled) {
+    if (isSuppressibleContextOverlap(memory.content, fresherMemoryTexts)) {
+      skippedOverlapItems.push({
+        kind: "memory_recall",
+        label: "Memory skipped by overlap",
+        status: "skipped",
+        snippet: memory.content,
+        metadata: {
+          reason: "context_overlap",
+          overlapSource: "same_day_character_memory",
+          consideredCount: memories.length,
+          similarity: memory.similarity,
+          lexicalScore: memory.lexicalScore,
+        },
+      });
+    } else {
+      recallable.push(memory);
+    }
+  }
+
+  if (recallable.length === 0) {
+    return skippedOverlapItems.length > 0 ? { block: null, attributionItems: skippedOverlapItems } : null;
+  }
+
+  const packed = packRecalledMemories(recallable, maxContext);
+  if (packed.lines.length === 0) {
+    return skippedOverlapItems.length > 0 ? { block: null, attributionItems: skippedOverlapItems } : null;
+  }
   const attribution = attributionForMemoryRecall({
     packedLines: packed.lines,
-    recalled,
+    recalled: recallable,
     consideredCount: memories.length,
   });
   return {
@@ -2430,7 +2460,7 @@ async function buildMemoryRecallBlock(
       ...attribution.promptLines.map((line, index) => `--- Memory ${index + 1} ---\n${line}`),
       "</memories>",
     ].join("\n"),
-    attributionItems: attribution.items,
+    attributionItems: [...attribution.items, ...skippedOverlapItems],
   };
 }
 
@@ -3913,6 +3943,7 @@ export async function assembleGenerationPrompt(
           input.latestUserInput,
           maxContext || undefined,
           embeddingSource,
+          promptCharacters.flatMap((character) => character.memories ?? []),
         );
   const memoryRecallBlock = memoryRecallContext?.block ?? null;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
