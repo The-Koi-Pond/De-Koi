@@ -661,7 +661,7 @@ describe("user-message regeneration review guards", () => {
   });
   it("adds conversation freshness guidance to generation prompt messages", async () => {
     let modelCalls = 0;
-    const llmRequests: Array<{ messages: Array<{ content: string }> }> = [];
+    const llmRequests: Array<{ messages: Array<{ role: string; content: string; contextKind?: unknown; displayName?: unknown }> }> = [];
     const storage = generationStorage({
       chatMode: "conversation",
       messages: [
@@ -691,7 +691,15 @@ describe("user-message regeneration review guards", () => {
           storage,
           llm: llmThatStreams((request) => {
             modelCalls += 1;
-            llmRequests.push({ messages: request?.messages.map((message) => ({ content: message.content })) ?? [] });
+            llmRequests.push({
+              messages:
+                request?.messages.map((message) => ({
+                  role: message.role,
+                  content: message.content,
+                  contextKind: (message as { contextKind?: unknown }).contextKind,
+                  displayName: (message as { displayName?: unknown }).displayName,
+                })) ?? [],
+            });
           }, "Fresh answer."),
           integrations: noopIntegrations,
         },
@@ -703,15 +711,25 @@ describe("user-message regeneration review guards", () => {
       ),
     );
 
-    expect(modelCalls).toBe(1);
-    expect(llmRequests[0]?.messages.some((message) => message.content.includes("Conversation freshness guide"))).toBe(
-      true,
+    const guideMessage = llmRequests[0]?.messages.find((message) =>
+      message.content.includes("Conversation freshness guide"),
     );
+    const finalUserMessage = [...(llmRequests[0]?.messages ?? [])]
+      .reverse()
+      .find((message) => message.role === "user");
+
+    expect(modelCalls).toBe(1);
+    expect(guideMessage).toMatchObject({
+      role: "system",
+      contextKind: "injection",
+      displayName: "Internal Avoidance Guidance",
+    });
+    expect(finalUserMessage?.content).not.toContain("Conversation freshness guide");
   });
   it("dry-runs generation with prompt output and no chat-state writes", async () => {
     let modelCalls = 0;
     const writeCalls: string[] = [];
-    const llmRequests: Array<{ messages: Array<{ content: string }> }> = [];
+    const llmRequests: Array<{ messages: Array<{ role: string; content: string; contextKind?: unknown; displayName?: unknown }> }> = [];
     const storage = generationStorage({
       getTarget: (_call, target) => target,
       onSwipe: () => {
@@ -733,7 +751,7 @@ describe("user-message regeneration review guards", () => {
       },
       async *stream(request) {
         modelCalls += 1;
-        llmRequests.push({ messages: request.messages.map((message) => ({ content: message.content })) });
+        llmRequests.push({ messages: request.messages.map((message) => ({ role: message.role, content: message.content })) });
         yield { type: "token", text: "dry response" };
         yield { type: "usage", data: { promptTokens: 12, completionTokens: 2 } };
       },

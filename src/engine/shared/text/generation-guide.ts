@@ -21,6 +21,49 @@ function uniqueTrimmedLines(values: string[]): string[] {
   return result;
 }
 
+export interface GenerationGuideMessage {
+  role: "system" | "user";
+  content: string;
+  contextKind: "prompt" | "injection";
+  displayName: string;
+}
+
+export interface BuildGenerationGuideMessagesOptions {
+  userGuide?: string | null;
+  internalGuides?: readonly (string | null | undefined)[] | null;
+}
+
+export function buildGenerationGuideMessages({
+  userGuide,
+  internalGuides,
+}: BuildGenerationGuideMessagesOptions): GenerationGuideMessage[] {
+  const messages: GenerationGuideMessage[] = [];
+  const userContent = (userGuide ?? "").trim();
+  if (userContent) {
+    messages.push({
+      role: "user",
+      content: userContent,
+      contextKind: "prompt",
+      displayName: "Generation Guide",
+    });
+  }
+
+  const internalContent = (internalGuides ?? [])
+    .map((guide) => (guide ?? "").trim())
+    .filter((guide) => guide.length > 0)
+    .join("\n\n");
+  if (internalContent) {
+    messages.push({
+      role: "system",
+      content: internalContent,
+      contextKind: "injection",
+      displayName: "Internal Avoidance Guidance",
+    });
+  }
+
+  return messages;
+}
+
 export function buildProseGuardianAvoidanceGuide(
   injections: readonly ProseGuardianAvoidanceSource[] | null | undefined,
 ): string | null {
