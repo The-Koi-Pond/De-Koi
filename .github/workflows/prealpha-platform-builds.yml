@@ -19,6 +19,8 @@ env:
   PREALPHA_PRODUCT_NAME: De-Koi Pre-Alpha
   PREALPHA_ANDROID_APPLICATION_ID: com.de_koi.prealpha
   PREALPHA_ANDROID_APP_NAME: De-Koi Pre-Alpha
+  PREALPHA_ANDROID_RUST_TARGET: aarch64-linux-android
+  PREALPHA_ANDROID_TAURI_TARGET: aarch64
 
 jobs:
   main-only:
@@ -95,7 +97,7 @@ jobs:
               '',
               '- Windows x64 desktop Tauri bundles, unsigned, using the pre-alpha app identity.',
               '- Linux x64 desktop Tauri bundles, unsigned, using the pre-alpha app identity.',
-              '- Android universal debug APK, debug-signed by Android tooling, using `com.de_koi.prealpha` as the test application id.',
+              '- Android arm64 debug APK, debug-signed by Android tooling, using `com.de_koi.prealpha` as the test application id.',
               '- Raspberry Pi OS Lite ARM64 bare-metal web/runtime tarball for Caddy or nginx deployment.',
               '',
               '## Build identity',
@@ -224,7 +226,7 @@ jobs:
           args: "--ci --no-sign --config ${{ env.PREALPHA_CONFIG }} --target ${{ matrix.rust_target }}"
 
   build-android:
-    name: Android universal debug APK
+    name: Android arm64 debug APK
     runs-on: ubuntu-22.04
     needs: create-prealpha-release
     permissions:
@@ -257,10 +259,10 @@ jobs:
         with:
           ndk-version: r27
 
-      - name: Install Rust stable with Android targets
+      - name: Install Rust stable with Android target
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: ${{ env.PREALPHA_ANDROID_RUST_TARGET }}
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -277,7 +279,7 @@ jobs:
           DE_KOI_ANDROID_APPLICATION_ID: ${{ env.PREALPHA_ANDROID_APPLICATION_ID }}
           DE_KOI_ANDROID_APP_NAME: ${{ env.PREALPHA_ANDROID_APP_NAME }}
         # Keep Android on the generated source package from tauri.conf.json; Gradle applies the pre-alpha app id/name.
-        run: pnpm tauri android build --debug --apk --ci
+        run: pnpm tauri android build --debug --apk --ci --target "${PREALPHA_ANDROID_TAURI_TARGET}"
 
       - name: Collect Android release assets
         shell: bash
@@ -286,7 +288,7 @@ jobs:
           mkdir -p release-assets
           while IFS= read -r -d '' file; do
             base="$(basename "${file}" | tr ' ' '-' | tr -cd '[:alnum:]._+-')"
-            cp "${file}" "release-assets/De-Koi-PreAlpha-android-universal-debug-${base}"
+            cp "${file}" "release-assets/De-Koi-PreAlpha-android-arm64-debug-${base}"
           done < <(find src-tauri/gen/android/app/build/outputs -type f \( -name '*.apk' -o -name '*.aab' \) -print0)
 
           echo "Collected assets:"
@@ -300,7 +302,7 @@ jobs:
       - name: Upload Android workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: prealpha-android-universal-debug-release-assets
+          name: prealpha-android-arm64-debug-release-assets
           path: release-assets/
           if-no-files-found: error
           retention-days: 14
