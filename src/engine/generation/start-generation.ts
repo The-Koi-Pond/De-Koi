@@ -3045,7 +3045,7 @@ function roleplayDeterministicDialogueAttributions(args: {
   }).attributions;
 }
 
-function useSelectedSidecarForDialogueAttribution(connection: JsonRecord): boolean {
+function shouldUseSelectedSidecarForDialogueAttribution(connection: JsonRecord): boolean {
   return readString(connection.provider).trim() === "sidecar" || readString(connection.id).trim() === "sidecar:local";
 }
 
@@ -3162,7 +3162,7 @@ async function roleplayCanonicalDialogueAttributions(args: {
   const deterministic = roleplayDeterministicDialogueAttributions(args);
   if (deterministic) return deterministic;
   const speakers = roleplayDialogueAttributionSpeakers(args.characters);
-  if (useSelectedSidecarForDialogueAttribution(args.connection)) {
+  if (shouldUseSelectedSidecarForDialogueAttribution(args.connection)) {
     const sidecar = await roleplaySidecarDialogueAttributions({
       llm: args.llm,
       connection: args.connection,

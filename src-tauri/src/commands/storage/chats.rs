@@ -1730,6 +1730,7 @@ mod tests {
                         },
                         {
                             "id": "drop-newer",
+                            "messageIds": ["message-newer"],
                             "lastMessageAt": "2026-06-01T10:01:00.000Z"
                         }
                     ]
@@ -1799,6 +1800,7 @@ mod tests {
                         },
                         {
                             "id": "newer",
+                            "messageIds": ["message-newer"],
                             "lastMessageAt": "2026-06-01T10:02:00.000Z"
                         },
                         {
@@ -1836,7 +1838,7 @@ mod tests {
             .expect("chat should read")
             .expect("chat should exist");
 
-        assert_eq!(memory_ids(&chat["memories"]), vec!["old"]);
+        assert_eq!(memory_ids(&chat["memories"]), vec!["old", "created-only-newer"]);
     }
 
     #[test]
@@ -4613,6 +4615,7 @@ mod tests {
                         },
                         {
                             "id": "drop-newer",
+                            "messageIds": ["message-newer"],
                             "lastMessageAt": "2026-06-01T10:01:00.000Z"
                         }
                     ]
