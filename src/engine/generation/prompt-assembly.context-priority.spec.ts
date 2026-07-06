@@ -269,4 +269,39 @@ describe("prompt context priority", () => {
     expect(promptText).toContain("fox mask is locked in the cedar cabinet");
     expect(promptText).not.toContain("hidden beneath the pier");
   });
+  it("uses the shared roleplay Memory Recall default when metadata omits the explicit flag", async () => {
+    const result = await assembleGenerationPrompt(
+      contextPriorityStorage({
+        character: {
+          id: "mira",
+          data: { name: "Mira", description: "Mira remembers careful roleplay continuity." },
+        },
+        memories: [
+          {
+            id: "roleplay-memory",
+            content: "Mira hid the archive key under the blue lantern.",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            firstMessageAt: "2026-01-01T00:00:00.000Z",
+            lastMessageAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["mira"],
+          metadata: { memoryRecallReadBehindMessages: 0 },
+        },
+        storedMessages: [{ id: "latest", role: "user", content: "Where is the archive key?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "Where did Mira hide the archive key and blue lantern?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+    expect(promptText).toContain("<memories>");
+    expect(promptText).toContain("Mira hid the archive key under the blue lantern.");
+  });
 });

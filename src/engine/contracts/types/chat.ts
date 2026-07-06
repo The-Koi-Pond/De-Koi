@@ -193,6 +193,18 @@ export interface ChatMemoryChunk {
   embeddingModel?: string | null;
 }
 
+type MemoryRecallMetadata = Partial<Pick<ChatMetadata, "enableMemoryRecall" | "sceneStatus">>;
+
+/** Shared default for chat-local Memory Recall across UI, prompt assembly, and capture. */
+export function getEffectiveMemoryRecallEnabled(
+  chatMode: ChatMode | LegacyChatMode | string | null | undefined,
+  metadata: MemoryRecallMetadata | null | undefined,
+): boolean {
+  if (typeof metadata?.enableMemoryRecall === "boolean") return metadata.enableMemoryRecall;
+  if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "visual_novel") return true;
+  return metadata?.sceneStatus === "active";
+}
+
 /** Extra metadata stored on a chat. */
 export interface ChatMetadata {
   /** Compiled enabled rolling summary text for context injection. */
@@ -263,7 +275,7 @@ export interface ChatMetadata {
   showInjectionsPanel?: boolean;
   /** When true, tracker agents only run when the user manually triggers them (not after every generation) */
   manualTrackers?: boolean;
-  /** Whether to recall memories from this chat during generation. Default: true for conversation/scenes, false for roleplay. */
+  /** Whether to recall memories from this chat during generation. Default: true for conversation/roleplay/active scenes. */
   enableMemoryRecall?: boolean;
   /** Whether canonical durable memories are retrieved into generation prompts. Default: false. */
   enableCanonicalMemoryRecall?: boolean;

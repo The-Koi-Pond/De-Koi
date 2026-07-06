@@ -4,13 +4,14 @@ import {
   enabledChatAgentIdSet,
   type AgentResult,
 } from "../contracts/types/agent";
-import type {
-  DaySummaryEntry,
-  DialogueAttributionsExtra,
-  GenerationContextAttribution,
-  GenerationPromptSnapshot,
-  GenerationPromptSnapshotMessage,
-  WeekSummaryEntry,
+import {
+  getEffectiveMemoryRecallEnabled,
+  type DaySummaryEntry,
+  type DialogueAttributionsExtra,
+  type GenerationContextAttribution,
+  type GenerationPromptSnapshot,
+  type GenerationPromptSnapshotMessage,
+  type WeekSummaryEntry,
 } from "../contracts/types/chat";
 import type { GameState } from "../contracts/types/game-state";
 import type { EventGateway } from "../capabilities/events";
@@ -2360,10 +2361,7 @@ async function evictStalePromptSnapshotsSafely(storage: StorageGateway, chatId: 
 }
 
 function shouldRefreshMemoryRecall(chat: JsonRecord): boolean {
-  const meta = parseRecord(chat.metadata);
-  if (typeof meta.enableMemoryRecall === "boolean") return meta.enableMemoryRecall;
-  const mode = readString(chat.mode || chat.chatMode);
-  return mode === "conversation" || mode === "roleplay" || meta.sceneStatus === "active";
+  return getEffectiveMemoryRecallEnabled(readString(chat.mode || chat.chatMode), parseRecord(chat.metadata));
 }
 
 async function enqueueAutomaticMemoryCaptureSafely(

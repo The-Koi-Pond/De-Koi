@@ -1,4 +1,4 @@
-import type { GenerationContextAttributionItem } from "../contracts/types/chat";
+import { getEffectiveMemoryRecallEnabled, type GenerationContextAttributionItem } from "../contracts/types/chat";
 import type { LorebookActivationTrace, LorebookEntryTimingState } from "../contracts/types/lorebook";
 import type { ChatMLMessage, MarkerConfig, WrapFormat } from "../contracts/types/prompt";
 import { BUILT_IN_AGENTS, enabledChatAgentIds } from "../contracts/types/agent";
@@ -2284,10 +2284,7 @@ function packRecalledMemories(recalled: Array<{ content: string }>, maxContext?:
 }
 
 function memoryRecallEnabled(chat: JsonRecord): boolean {
-  const meta = parseRecord(chat.metadata);
-  if (typeof meta.enableMemoryRecall === "boolean") return meta.enableMemoryRecall;
-  const mode = readString(chat.mode || chat.chatMode);
-  return mode === "conversation" || mode === "roleplay" || meta.sceneStatus === "active";
+  return getEffectiveMemoryRecallEnabled(readString(chat.mode || chat.chatMode), parseRecord(chat.metadata));
 }
 
 function memoryRecallReadBehind(chat: JsonRecord): number {

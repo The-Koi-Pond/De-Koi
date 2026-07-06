@@ -1,5 +1,9 @@
 import { BUILT_IN_AGENTS } from "../../../../../engine/contracts/types/agent";
-import type { ChatMetadata, ChatMode } from "../../../../../engine/contracts/types/chat";
+import {
+  getEffectiveMemoryRecallEnabled,
+  type ChatMetadata,
+  type ChatMode,
+} from "../../../../../engine/contracts/types/chat";
 
 export type ContinuityOverviewAction =
   | "open_memories"
@@ -46,12 +50,6 @@ function enabledSummaryEntryCount(metadata: Partial<ChatMetadata>): number {
   return typeof metadata.summary === "string" && metadata.summary.trim().length > 0 ? 1 : 0;
 }
 
-function memoryRecallEnabled(chatMode: ChatMode, metadata: Partial<ChatMetadata>): boolean {
-  if (typeof metadata.enableMemoryRecall === "boolean") return metadata.enableMemoryRecall;
-  if (chatMode === "conversation") return true;
-  return metadata.sceneStatus === "active";
-}
-
 function readBehindMessages(metadata: Partial<ChatMetadata>): number {
   const value = metadata.memoryRecallReadBehindMessages;
   if (typeof value !== "number" || !Number.isFinite(value)) return 1;
@@ -93,7 +91,7 @@ function trackerPresentation(names: string[], chatMode: ChatMode): Pick<Continui
 
 export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput): ContinuityOverviewViewModel {
   const summaryCount = enabledSummaryEntryCount(input.metadata);
-  const memoryEnabled = memoryRecallEnabled(input.chatMode, input.metadata);
+  const memoryEnabled = getEffectiveMemoryRecallEnabled(input.chatMode, input.metadata);
   const trackerNames = activeTrackerAgentNames(input.metadata.activeAgentIds);
   const trackerCopy = trackerPresentation(trackerNames, input.chatMode);
   const automaticSummaryEnabled = input.metadata.activeAgentIds?.includes("chat-summary") === true;
