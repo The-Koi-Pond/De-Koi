@@ -57,7 +57,9 @@ export function markPerformanceMilestone(name: string, details?: Record<string, 
   if (!isPerformanceDiagnosticsEnabled()) return;
   try {
     performance.mark(`de-koi:${name}`);
-  } catch {}
+  } catch {
+    // Browser performance markers are optional; diagnostics logging still helps.
+  }
   console.info("[de-koi:perf] mark", {
     name,
     ...diagnosticDetails(details),

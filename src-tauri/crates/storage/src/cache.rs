@@ -78,7 +78,7 @@ pub(crate) struct ProjectionShape {
 pub(crate) struct CollectionFastStamp {
     pub(crate) len: u64,
     pub(crate) modified_nanos: u128,
-    pub(crate) accessed_nanos: u128,
+    pub(crate) changed_nanos: u128,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -535,7 +535,7 @@ pub(crate) fn collection_fast_stamp(path: &Path) -> AppResult<Option<CollectionF
     Ok(Some(CollectionFastStamp {
         len: metadata.len(),
         modified_nanos: metadata_modified_nanos(&metadata),
-        accessed_nanos: metadata_accessed_nanos(&metadata),
+        changed_nanos: metadata_changed_nanos(&metadata),
     }))
 }
 
@@ -568,7 +568,25 @@ pub(crate) fn metadata_modified_nanos(metadata: &fs::Metadata) -> u128 {
     metadata_time_nanos(metadata.modified().ok())
 }
 
-pub(crate) fn metadata_accessed_nanos(metadata: &fs::Metadata) -> u128 {
+#[cfg(unix)]
+pub(crate) fn metadata_changed_nanos(metadata: &fs::Metadata) -> u128 {
+    use std::os::unix::fs::MetadataExt;
+
+    let seconds = metadata.ctime();
+    if seconds < 0 {
+        return 0;
+    }
+
+    let nanos = metadata.ctime_nsec();
+    if nanos < 0 {
+        return seconds as u128 * 1_000_000_000;
+    }
+
+    seconds as u128 * 1_000_000_000 + nanos as u128
+}
+
+#[cfg(not(unix))]
+pub(crate) fn metadata_changed_nanos(metadata: &fs::Metadata) -> u128 {
     metadata_time_nanos(metadata.accessed().ok())
 }
 
