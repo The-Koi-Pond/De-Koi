@@ -188,6 +188,9 @@ const GENERATION_MESSAGE_LOAD_MARGIN = 20;
 const MIN_GENERATION_MESSAGE_LOAD_LIMIT = 40;
 const MAX_GENERATION_MESSAGE_LOAD_LIMIT = DEFAULT_GENERATION_HISTORY_LIMIT + GENERATION_MESSAGE_LOAD_MARGIN;
 const LOREBOOK_KEEPER_BACKFILL_TARGET_SCAN_FIELDS = ["id", "chatId", "role", "extra", "createdAt"];
+const LOREBOOK_KEEPER_RUN_SCAN_FIELDS = ["chatId", "messageId", "agentType", "agentConfigId", "success"];
+const MAX_LOREBOOK_KEEPER_BACKFILL_RUNS = 4;
+const MAX_LOREBOOK_KEEPER_BACKFILL_CANDIDATES = 16;
 
 const LOREBOOK_KEEPER_AGENT_TYPE = "lorebook-keeper";
 const DEFAULT_LOREBOOK_KEEPER_RUN_INTERVAL = BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS[LOREBOOK_KEEPER_AGENT_TYPE] ?? 8;
@@ -3009,7 +3012,7 @@ function roleplayAssistantSaveContent(args: {
   if (speakers.length === 0) return args.content;
   return buildDialogueAttributions(args.content, speakers, {
     stripSpeakerTags: true,
-    stripLeadingSpeakerPrefix: false,
+    stripLeadingSpeakerPrefix: true,
     includeDerivedProse: false,
   }).text;
 }
@@ -3026,7 +3029,7 @@ function roleplayDeterministicDialogueAttributions(args: {
 
   const sourceResult = buildDialogueAttributions(args.sourceContent, speakers, {
     stripSpeakerTags: true,
-    stripLeadingSpeakerPrefix: false,
+    stripLeadingSpeakerPrefix: true,
     includeDerivedProse: false,
   });
   const canonicalFromSource = collapseExcessBlankLines(sourceResult.text);
@@ -3392,6 +3395,16 @@ async function saveRegeneratedMessage(args: {
     spriteExpressions: args.spriteExpressions,
     agentExtra: args.agentExtra,
   });
+  if (args.chat && args.characters && args.sourceContent) {
+    const canonicalContent = collapseExcessBlankLines(args.content);
+    const deterministicAttributions = roleplayDeterministicDialogueAttributions({
+      chat: args.chat,
+      characters: args.characters,
+      sourceContent: args.sourceContent,
+      canonicalContent,
+    });
+    if (deterministicAttributions) swipeExtra.dialogueAttributions = deterministicAttributions;
+  }
   await args.storage.addChatMessageSwipe(
     args.chatId,
     args.messageId,
@@ -3743,8 +3756,19 @@ async function lorebookKeeperAgent(storage: StorageGateway, chat: JsonRecord): P
   return null;
 }
 
-async function successfulLorebookKeeperMessageIds(storage: StorageGateway, chatId: string): Promise<Set<string>> {
-  const runs = await storage.list<JsonRecord>("agent-runs").catch(() => []);
+async function successfulLorebookKeeperMessageIds(
+  storage: StorageGateway,
+  chatId: string,
+  candidateMessageIds: string[],
+): Promise<Set<string>> {
+  const messageIds = Array.from(new Set(candidateMessageIds.map((id) => id.trim()).filter(Boolean)));
+  if (messageIds.length === 0) return new Set();
+  const runs = await storage
+    .list<JsonRecord>("agent-runs", {
+      whereIn: { field: "messageId", values: messageIds },
+      fields: LOREBOOK_KEEPER_RUN_SCAN_FIELDS,
+    })
+    .catch(() => []);
   return new Set(
     runs
       .filter((run) => readString(run.chatId || run.chat_id).trim() === chatId)
@@ -3757,6 +3781,10 @@ async function successfulLorebookKeeperMessageIds(storage: StorageGateway, chatI
       .map((run) => readString(run.messageId || run.message_id).trim())
       .filter(Boolean),
   );
+}
+
+function lorebookKeeperBackfillMessageScanLimit(options: { readBehind: number; runInterval: number }): number {
+  return options.readBehind + options.runInterval * MAX_LOREBOOK_KEEPER_BACKFILL_CANDIDATES;
 }
 
 interface LorebookKeeperTarget {
@@ -4033,19 +4061,32 @@ async function runLorebookKeeperBackfill(
   const agent = await lorebookKeeperAgent(deps.storage, args.chat);
   if (!agent) return { results: [], events: [] };
 
+  const backfillOptions = {
+    readBehind: lorebookKeeperReadBehind(args.chat),
+    runInterval: lorebookKeeperRunInterval(agent),
+  };
   const storedMessages =
     args.storedMessages ??
     (
       await deps.storage.listChatMessages<unknown>(chatId, {
+        role: "assistant",
+        limit: lorebookKeeperBackfillMessageScanLimit(backfillOptions),
         fields: LOREBOOK_KEEPER_BACKFILL_TARGET_SCAN_FIELDS,
         fieldSelections: { extra: ["hiddenFromAI", "hiddenFromAi"] },
       })
     ).filter(isRecord);
-  const processedMessageIds = await successfulLorebookKeeperMessageIds(deps.storage, chatId);
-  const targets = lorebookKeeperBackfillTargets(storedMessages, processedMessageIds, {
-    readBehind: lorebookKeeperReadBehind(args.chat),
-    runInterval: lorebookKeeperRunInterval(agent),
-  });
+  const candidateTargets = lorebookKeeperBackfillTargets(storedMessages, new Set(), backfillOptions).slice(
+    0,
+    MAX_LOREBOOK_KEEPER_BACKFILL_CANDIDATES,
+  );
+  const processedMessageIds = await successfulLorebookKeeperMessageIds(
+    deps.storage,
+    chatId,
+    candidateTargets.map((target) => readString(target.message.id).trim()),
+  );
+  const targets = candidateTargets
+    .filter((target) => !processedMessageIds.has(readString(target.message.id).trim()))
+    .slice(0, MAX_LOREBOOK_KEEPER_BACKFILL_RUNS);
   const agentTypes = new Set([LOREBOOK_KEEPER_AGENT_TYPE]);
   const allResults: AgentResult[] = [];
   const allEvents: GenerationEvent[] = [];
