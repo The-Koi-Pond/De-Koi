@@ -288,6 +288,7 @@ jobs:
           mkdir -p release-assets
           while IFS= read -r -d '' file; do
             base="$(basename "${file}" | tr ' ' '-' | tr -cd '[:alnum:]._+-')"
+            base="${base//universal-/}"
             cp "${file}" "release-assets/De-Koi-PreAlpha-android-arm64-debug-${base}"
           done < <(find src-tauri/gen/android/app/build/outputs -type f \( -name '*.apk' -o -name '*.aab' \) -print0)
 
