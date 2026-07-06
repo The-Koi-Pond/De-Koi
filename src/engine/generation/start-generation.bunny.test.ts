@@ -160,6 +160,7 @@ function generationStorage(args: {
       : {};
   records.chat.metadata = { ...chatMetadata, ...args.chatMetadata };
   let targetGetCalls = 0;
+  const createdMessageValues = new Map<string, Record<string, unknown>>();
   return {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
       if (entity === "connections") return asStorageValue<T[]>([records.connection]);
@@ -177,6 +178,8 @@ function generationStorage(args: {
         targetGetCalls += 1;
         return asStorageValue<T | null>(await args.getTarget(targetGetCalls, records.target));
       }
+      const created = createdMessageValues.get(id);
+      if (entity === "messages" && created) return asStorageValue<T>({ id, chatId: records.chat.id, ...created });
       return null;
     },
     async create() {
@@ -200,11 +203,17 @@ function generationStorage(args: {
         targetGetCalls += 1;
         return asStorageValue<T | null>(await args.getTarget(targetGetCalls, records.target));
       }
+      const created = createdMessageValues.get(messageId);
+      if (created) return asStorageValue<T>({ id: messageId, chatId: records.chat.id, ...created });
       return null;
     },
     async createChatMessage<T = unknown>(chatId: string, value: Record<string, unknown>) {
-      if (args.onCreate) return asStorageValue<T>(args.onCreate(chatId, value));
-      throw new Error("createChatMessage should not be called");
+      if (!args.onCreate) throw new Error("createChatMessage should not be called");
+      const saved = args.onCreate(chatId, value);
+      const savedId =
+        saved && typeof saved === "object" && !Array.isArray(saved) ? String((saved as Record<string, unknown>).id ?? "") : "";
+      if (savedId) createdMessageValues.set(savedId, value);
+      return asStorageValue<T>(saved);
     },
     async updateChatMessage() {
       throw new Error("updateChatMessage should not be called");
@@ -213,8 +222,16 @@ function generationStorage(args: {
       return { deleted: false };
     },
     async patchChatMessageExtra<T = unknown>(messageId: string, patch: Record<string, unknown>) {
+      const created = createdMessageValues.get(messageId);
+      if (created) {
+        const extra =
+          created.extra && typeof created.extra === "object" && !Array.isArray(created.extra)
+            ? (created.extra as Record<string, unknown>)
+            : {};
+        created.extra = { ...extra, ...patch };
+      }
       args.onPatchExtra?.(messageId, patch);
-      return asStorageValue<T>(records.target);
+      return asStorageValue<T>(created ? { id: messageId, chatId: records.chat.id, ...created } : records.target);
     },
     async addChatMessageSwipe<T = unknown>(
       _chatId: string,
@@ -222,6 +239,10 @@ function generationStorage(args: {
       content: string,
       options?: unknown,
     ) {
+      records.target.content = content;
+      const optionRecord = options && typeof options === "object" && !Array.isArray(options) ? options as Record<string, unknown> : {};
+      const extra = optionRecord.extra && typeof optionRecord.extra === "object" && !Array.isArray(optionRecord.extra) ? optionRecord.extra as Record<string, unknown> : {};
+      records.target.extra = { ...(records.target.extra as Record<string, unknown>), ...extra };
       args.onSwipe?.(content, options);
       return asStorageValue<T>(records.target);
     },

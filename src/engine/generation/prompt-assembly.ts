@@ -1228,7 +1228,7 @@ function resolveLiveHostTimeZone(): string | undefined {
 }
 
 function resolvePromptTimeZone(chat: JsonRecord, request: JsonRecord): string | undefined {
-  // Preference order: persisted per-chat override -> caller-supplied input ->
+  // Preference order: persisted per-chat override, caller-supplied input, then
   // live host resolution. The live fallback guarantees that every
   // startGeneration entry point (chat hook, game-turn service, background
   // autonomous chats, prompt-preview UI, future callers) resolves prompt-time

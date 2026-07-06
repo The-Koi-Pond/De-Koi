@@ -1,9 +1,19 @@
 import { memo, useMemo, type CSSProperties, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Brain, ChevronRight, EyeOff, RefreshCw, Trash2, User, X } from "lucide-react";
-import type { Message, MessageAttachment, MessageExtra } from "../../../../engine/contracts/types/chat";
+import type {
+  DialogueAttributionsExtra,
+  Message,
+  MessageAttachment,
+  MessageExtra,
+  MessageSwipe,
+} from "../../../../engine/contracts/types/chat";
 import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
-import { DIALOGUE_QUOTE_PATTERN_SOURCE, type QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
+import {
+  DIALOGUE_QUOTE_PATTERN_SOURCE,
+  formatTextQuotes,
+  type QuoteFormat,
+} from "../../../../shared/lib/dialogue-quotes";
 import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
@@ -26,7 +36,23 @@ export const MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR =
 
 export type ConversationMessageExtra = Partial<MessageExtra> & { hiddenFromAI?: unknown; hiddenFromAi?: unknown };
 export const EMPTY_MESSAGE_EXTRA: ConversationMessageExtra = {};
-type ConversationMessageData = Omit<Message, "extra"> & { extra: ConversationMessageExtra | string };
+export function readDialogueAttributionsFromExtra(extra: unknown): DialogueAttributionsExtra | null {
+  if (!extra || typeof extra !== "object" || Array.isArray(extra)) return null;
+  const value = (extra as { dialogueAttributions?: unknown }).dialogueAttributions;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as DialogueAttributionsExtra) : null;
+}
+
+export function resolveDialogueAttributionsForConversationMessage(
+  message: ConversationMessageData,
+  extra: ConversationMessageExtra,
+): DialogueAttributionsExtra | null {
+  const activeSwipe = message.swipes?.[message.activeSwipeIndex ?? 0];
+  return readDialogueAttributionsFromExtra(activeSwipe?.extra) ?? readDialogueAttributionsFromExtra(extra);
+}
+export type ConversationMessageData = Omit<Message, "extra"> & {
+  extra: ConversationMessageExtra | string;
+  swipes?: Array<Pick<MessageSwipe, "content" | "extra" | "characterId"> & { id?: string }>;
+};
 export type ConversationCharacterInfo = NonNullable<ReturnType<CharacterMap["get"]>>;
 
 export interface ConversationMessageProps {
@@ -124,6 +150,7 @@ export interface ConversationMessageRenderContext {
   nameColor?: string;
   dialogueColor?: string;
   speakerColorMap?: Map<string, string>;
+  dialogueAttributions?: DialogueAttributionsExtra | null;
   conversationAvatar: ConversationAvatarRender;
   avatarUrl: string | null;
   avatarFilePath: string | null;
@@ -315,18 +342,18 @@ function renderInlineQuotedDialogue(
     }
     nodes.push(
       <strong key={`${keyPrefix}dq${quoteIndex}`} style={{ color: dialogueColor }}>
-        {match[0]}
+        {renderInlineMessageTextSegment(match[0], mentionNames, `${keyPrefix}dq${quoteIndex}`)}
       </strong>,
     );
+    quoteIndex += 1;
     lastIndex = match.index + match[0].length;
-    quoteIndex++;
   }
 
+  if (quoteIndex === 0) return renderInlineMessageTextSegment(content, mentionNames, keyPrefix);
   if (lastIndex < content.length) {
     nodes.push(...renderInlineMessageTextSegment(content.slice(lastIndex), mentionNames, `${keyPrefix}tail`));
   }
-
-  return nodes.length ? nodes : renderInlineMessageTextSegment(content, mentionNames, keyPrefix);
+  return nodes;
 }
 
 export function renderInlineMessageText(
@@ -335,31 +362,40 @@ export function renderInlineMessageText(
   keyPrefix: string,
   dialogueColor?: string,
   speakerColorMap?: Map<string, string>,
+  quoteFormat: QuoteFormat = "straight",
+  dialogueAttributions?: DialogueAttributionsExtra | null,
 ): ReactNode[] {
-  if (!speakerColorMap?.size) return renderInlineQuotedDialogue(content, mentionNames, keyPrefix, dialogueColor);
-
-  const segments = splitSpeakerDialogueColorSegments(content, dialogueColor, speakerColorMap);
-  if (segments.length === 1 && segments[0]?.text === content && segments[0]?.color === dialogueColor) {
-    return renderInlineQuotedDialogue(content, mentionNames, keyPrefix, dialogueColor);
+  if (!speakerColorMap?.size) {
+    return renderInlineQuotedDialogue(formatTextQuotes(content, quoteFormat), mentionNames, keyPrefix, dialogueColor);
   }
 
+  const segments = splitSpeakerDialogueColorSegments(content, undefined, speakerColorMap, dialogueAttributions);
   return segments.flatMap((segment, index) =>
-    renderInlineQuotedDialogue(segment.text, mentionNames, `${keyPrefix}s${index}`, segment.color),
+    renderInlineQuotedDialogue(
+      formatTextQuotes(segment.text, quoteFormat),
+      mentionNames,
+      `${keyPrefix}s${index}`,
+      segment.color,
+    ),
   );
 }
 
 export const MessageContent = memo(function MessageContent({
   content,
   mentionNames,
+  onImageOpen,
   dialogueColor,
   speakerColorMap,
-  onImageOpen,
+  quoteFormat,
+  dialogueAttributions,
 }: {
   content: string;
   mentionNames?: string[];
+  onImageOpen: (url: string) => void;
   dialogueColor?: string;
   speakerColorMap?: Map<string, string>;
-  onImageOpen: (url: string) => void;
+  quoteFormat: QuoteFormat;
+  dialogueAttributions?: DialogueAttributionsExtra | null;
 }) {
   const trimmed = content.trim();
   const isImage = IMAGE_URL_RE.test(trimmed);
@@ -368,9 +404,17 @@ export const MessageContent = memo(function MessageContent({
     if (isImage) return null;
     const compacted = content.replace(/\n{3,}/g, "\n\n");
     const renderInline = (text: string, kp: string) =>
-      renderInlineMessageText(text, mentionNames ?? [], kp, dialogueColor, speakerColorMap);
+      renderInlineMessageText(
+        text,
+        mentionNames ?? [],
+        kp,
+        dialogueColor,
+        speakerColorMap,
+        quoteFormat,
+        dialogueAttributions,
+      );
     return renderMarkdownBlocks(compacted, renderInline);
-  }, [content, dialogueColor, isImage, mentionNames, speakerColorMap]);
+  }, [content, dialogueAttributions, dialogueColor, isImage, mentionNames, quoteFormat, speakerColorMap]);
 
   if (isImage) {
     return (
@@ -665,6 +709,7 @@ export function ConversationMessageBodyContent({
                         onImageOpen={context.onImageOpen}
                         dialogueColor={context.dialogueColor}
                         speakerColorMap={context.speakerColorMap}
+                        quoteFormat={context.quoteFormat}
                       />
                     </div>
                   ))}
@@ -676,6 +721,8 @@ export function ConversationMessageBodyContent({
                   onImageOpen={context.onImageOpen}
                   dialogueColor={context.dialogueColor}
                   speakerColorMap={context.speakerColorMap}
+                  quoteFormat={context.quoteFormat}
+                  dialogueAttributions={context.dialogueAttributions}
                 />
               )}
             </StreamingReveal>
@@ -691,6 +738,7 @@ export function ConversationMessageBodyContent({
                     onImageOpen={context.onImageOpen}
                     dialogueColor={context.dialogueColor}
                     speakerColorMap={context.speakerColorMap}
+                    quoteFormat={context.quoteFormat}
                   />
                 </div>
               ))}
@@ -702,6 +750,8 @@ export function ConversationMessageBodyContent({
               onImageOpen={context.onImageOpen}
               dialogueColor={context.dialogueColor}
               speakerColorMap={context.speakerColorMap}
+              quoteFormat={context.quoteFormat}
+              dialogueAttributions={context.dialogueAttributions}
             />
           )}
         </>

@@ -17,6 +17,7 @@ import {
   messageAttachmentsFromExtra,
   readStoredThinking,
   resolvePromptSnapshotFromExtra,
+  useLazyDialogueAttributionBackfill,
 } from "../../shared/chat-ui/index";
 import { ConversationMessageBubble } from "./ConversationMessageBubble";
 import { ConversationMessageGrouped } from "./ConversationMessageGrouped";
@@ -32,6 +33,7 @@ import {
   parseSpeakerTags,
   readGenerationDurationMs,
   resolveConversationAvatar,
+  resolveDialogueAttributionsForConversationMessage,
   type ConversationCharacterInfo,
   type ConversationMessageExtra,
   type ConversationMessageProps,
@@ -172,6 +174,10 @@ export const ConversationMessage = memo(function ConversationMessage({
   }, [message.extra]);
   const attachments = useMemo(() => messageAttachmentsFromExtra(extra), [extra]);
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
+  const dialogueAttributions = useMemo(
+    () => resolveDialogueAttributionsForConversationMessage(message, extra),
+    [extra, message],
+  );
   const activePromptSnapshot = useMemo(
     () => resolvePromptSnapshotFromExtra(extra, message.activeSwipeIndex),
     [extra, message.activeSwipeIndex],
@@ -266,6 +272,13 @@ export const ConversationMessage = memo(function ConversationMessage({
     const map = createSpeakerColorLookup(entries);
     return map.size ? map : undefined;
   }, [scopedCharacterMap]);
+  useLazyDialogueAttributionBackfill({
+    message,
+    extra,
+    characterMap: scopedCharacterMap ?? undefined,
+    chatCharacterIds,
+    enabled: !isStreaming,
+  });
   const conversationAvatar = resolveConversationAvatar(isUser ? null : charInfo, avatarUrl);
   const macroContext = useMemo(
     () => ({
@@ -305,16 +318,15 @@ export const ConversationMessage = memo(function ConversationMessage({
     ],
   );
   const renderedContent = useMemo(
-    () => formatTextQuotes(resolveMessageMacros(message.content, macroContext), quoteFormat),
-    [macroContext, message.content, quoteFormat],
+    () => resolveMessageMacros(message.content, macroContext),
+    [macroContext, message.content],
   );
+  const copiedContent = useMemo(() => formatTextQuotes(renderedContent, quoteFormat), [quoteFormat, renderedContent]);
   const renderedContentParts = useMemo(() => {
     if (!contentParts?.length) return null;
     const count = Math.max(1, Math.min(visiblePartCount ?? contentParts.length, contentParts.length));
-    return contentParts
-      .slice(0, count)
-      .map((part) => formatTextQuotes(resolveMessageMacros(part, macroContext), quoteFormat));
-  }, [contentParts, macroContext, quoteFormat, visiblePartCount]);
+    return contentParts.slice(0, count).map((part) => resolveMessageMacros(part, macroContext));
+  }, [contentParts, macroContext, visiblePartCount]);
 
   const qc = useQueryClient();
   const handleRemoveAttachment = useCallback(
@@ -358,7 +370,7 @@ export const ConversationMessage = memo(function ConversationMessage({
           role: message.role,
           speakerName: displayName,
           createdAt: message.createdAt,
-          content: renderedContent || message.content,
+          content: copiedContent || message.content,
         }),
       );
     },
@@ -371,7 +383,7 @@ export const ConversationMessage = memo(function ConversationMessage({
       message.id,
       message.role,
       onIllustrateMoment,
-      renderedContent,
+      copiedContent,
     ],
   );
 
@@ -474,10 +486,10 @@ export const ConversationMessage = memo(function ConversationMessage({
           : "rounded-2xl rounded-tl-md";
 
   const handleCopy = useCallback(() => {
-    copyToClipboard(renderedContent);
+    copyToClipboard(copiedContent);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  }, [renderedContent]);
+  }, [copiedContent]);
 
   const startEditing = useCallback(() => {
     setEditError(null);
@@ -650,6 +662,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     nameColor,
     dialogueColor,
     speakerColorMap,
+    dialogueAttributions,
     conversationAvatar,
     avatarUrl,
     avatarFilePath,

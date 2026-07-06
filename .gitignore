@@ -69,3 +69,6 @@ src-tauri/gen/android/**/*.keystore
 *.njsproj
 *.sln
 *.sw?
+# Codex local build/proof artifacts
+/.codex-cargo*/
+*~[0-9]*

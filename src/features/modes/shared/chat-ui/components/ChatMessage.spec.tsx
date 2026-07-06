@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Message } from "../../../../../engine/contracts/types/chat";
+import { createDialogueAttributionTextHash } from "../../../../../engine/shared/text/dialogue-attribution";
+import { storageApi } from "../../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import type { CharacterMap } from "../types";
 import { ChatMessage } from "./ChatMessage";
@@ -56,6 +58,12 @@ const characterMap = new Map([
   ],
 ]);
 
+async function flushLegacyBackfill() {
+  await act(async () => {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
 function resetChatMessageUiState() {
   useUIStore.setState({
     roleplayAvatarStyle: "circles",
@@ -128,6 +136,119 @@ describe("ChatMessage", () => {
       "character-1",
       expect.objectContaining({ width: expect.any(Number) }),
     );
+  });
+  it("does not use the character dialogue color when attribution is missing", () => {
+    const coloredCharacterMap = new Map([
+      [
+        "character-1",
+        {
+          name: "Aster",
+          avatarUrl: null,
+          dialogueColor: "#ff3366",
+        },
+      ],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{ ...message, id: "message-missing-attribution", content: 'Aster smiled. "Ready."' }}
+            characterMap={coloredCharacterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const dialogue = container!.querySelector<HTMLElement>(".mari-message-content strong");
+    expect(dialogue).not.toBeNull();
+    expect(dialogue!.style.color).toBe("");
+  });
+  it("lazily backfills legacy roleplay attribution from Name-prefix text", async () => {
+    const patchExtra = vi.spyOn(storageApi, "patchChatMessageExtra").mockResolvedValue({} as Message);
+    const content = 'Aster: "Ready."';
+    const coloredCharacterMap = new Map([
+      [
+        "character-1",
+        {
+          name: "Aster",
+          avatarUrl: null,
+          dialogueColor: "#ff3366",
+        },
+      ],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{ ...message, id: "message-legacy-backfill", content, swipes: [{ content, extra: {} }] }}
+            characterMap={coloredCharacterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")?.style.color ?? "").toBe("");
+    await flushLegacyBackfill();
+
+    expect(patchExtra).toHaveBeenCalledWith("message-legacy-backfill", {
+      dialogueAttributions: {
+        version: 1,
+        textHash: createDialogueAttributionTextHash(content),
+        segments: [
+          {
+            start: 7,
+            end: 15,
+            speakerName: "Aster",
+            speakerId: "character-1",
+            source: "name-prefix",
+            confidence: "explicit",
+          },
+        ],
+      },
+    });
+  });
+  it("does not retry legacy backfill when an empty attribution marker already exists", async () => {
+    const patchExtra = vi.spyOn(storageApi, "patchChatMessageExtra").mockResolvedValue({} as Message);
+    const content = '"Still ambiguous."';
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{
+              ...message,
+              id: "message-backfill-attempted",
+              content,
+              swipes: [
+                {
+                  content,
+                  extra: {
+                    dialogueAttributions: {
+                      version: 1,
+                      textHash: createDialogueAttributionTextHash(content),
+                      segments: [],
+                    },
+                  },
+                },
+              ],
+            }}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await flushLegacyBackfill();
+
+    expect(patchExtra).not.toHaveBeenCalled();
   });
   it("keeps a visible timestamp at the top of grouped roleplay messages", () => {
     act(() => {
@@ -257,7 +378,7 @@ describe("ChatMessage", () => {
     expect(quote?.style.color).toBe("");
   });
 
-  it("colors roleplay assistant quote-first attribution by the speaking character", () => {
+  it("does not infer roleplay assistant quote colors on first render without stored attribution", () => {
     const attributedMessage: Message = {
       ...message,
       id: "message-roleplay-attributed-dialogue",
@@ -285,11 +406,11 @@ describe("ChatMessage", () => {
 
     const quotes = Array.from(container!.querySelectorAll<HTMLElement>(".mari-message-content strong"));
     expect(quotes.map((quote) => [quote.textContent, quote.style.color])).toEqual([
-      ["\"Ah. 'Technical specifications,'\"", "rgb(181, 140, 255)"],
-      ['"Do not move!"', "rgb(242, 193, 78)"],
+      ["\"Ah. 'Technical specifications,'\"", ""],
+      ['"Do not move!"', ""],
     ]);
   });
-  it("colors configured character aliases without hardcoded scene names", () => {
+  it("does not infer configured character aliases on first render without stored attribution", () => {
     const aliasMessage: Message = {
       ...message,
       id: "message-roleplay-alias-dialogue",
@@ -316,7 +437,7 @@ describe("ChatMessage", () => {
 
     const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
     expect(quote?.textContent).toBe('"Welcome,"');
-    expect(quote?.style.color).toBe("rgb(181, 140, 255)");
+    expect(quote?.style.color).toBe("");
   });
 
   it("does not color unconfigured character titles", () => {
