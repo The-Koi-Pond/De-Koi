@@ -25,6 +25,15 @@ pub(crate) type IndexBuildTestHook = Box<dyn FnMut(&Path) + Send + 'static>;
 pub(crate) static INDEX_BUILD_TEST_HOOK: std::sync::Mutex<Option<IndexBuildTestHook>> =
     std::sync::Mutex::new(None);
 
+#[cfg(test)]
+pub(crate) type ContentSignatureTestHook = Box<dyn FnMut(&Path) + Send + 'static>;
+
+#[cfg(test)]
+pub(crate) static CONTENT_SIGNATURE_TEST_HOOK: std::sync::Mutex<Option<ContentSignatureTestHook>> =
+    std::sync::Mutex::new(None);
+
+const COLLECTION_FAST_STAMP_SAMPLE_BYTES: u64 = 4 * 1024;
+
 #[derive(Default)]
 pub(crate) struct StorageCache {
     pub(crate) collections: HashMap<String, CachedCollection>,
@@ -68,6 +77,14 @@ pub(crate) struct ProjectionShape {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CollectionFastStamp {
+    pub(crate) len: u64,
+    pub(crate) modified_nanos: u128,
+    pub(crate) changed_nanos: u128,
+    pub(crate) sample_signature: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CollectionContentStamp {
     pub(crate) len: u64,
     pub(crate) modified_nanos: u128,
@@ -76,7 +93,7 @@ pub(crate) struct CollectionContentStamp {
 
 pub(crate) struct CachedProjectedList {
     pub(crate) rows: Vec<Value>,
-    pub(crate) stamp: Option<CollectionContentStamp>,
+    pub(crate) stamp: Option<CollectionFastStamp>,
 }
 
 pub(crate) struct AtomicUpdateGuard {
@@ -512,6 +529,34 @@ pub(crate) fn row_indices_by_id(rows: &[Value]) -> HashMap<String, usize> {
     index
 }
 
+pub(crate) fn collection_fast_stamp(path: &Path) -> AppResult<Option<CollectionFastStamp>> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    Ok(Some(CollectionFastStamp {
+        len: metadata.len(),
+        modified_nanos: metadata_modified_nanos(&metadata),
+        changed_nanos: metadata_changed_nanos(&metadata),
+        sample_signature: collection_sample_signature(path, metadata.len())?,
+    }))
+}
+
+pub(crate) fn collection_fast_stamps_share_content_window(
+    before: Option<CollectionFastStamp>,
+    after: Option<CollectionFastStamp>,
+) -> bool {
+    match (before, after) {
+        (Some(before), Some(after)) => {
+            before.len == after.len
+                && before.modified_nanos == after.modified_nanos
+                && before.sample_signature == after.sample_signature
+        }
+        (None, None) => true,
+        _ => false,
+    }
+}
 pub(crate) fn collection_content_stamp(path: &Path) -> AppResult<Option<CollectionContentStamp>> {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
@@ -526,15 +571,74 @@ pub(crate) fn collection_content_stamp(path: &Path) -> AppResult<Option<Collecti
 }
 
 pub(crate) fn metadata_modified_nanos(metadata: &fs::Metadata) -> u128 {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+    metadata_time_nanos(metadata.modified().ok())
+}
+
+#[cfg(unix)]
+pub(crate) fn metadata_changed_nanos(metadata: &fs::Metadata) -> u128 {
+    use std::os::unix::fs::MetadataExt;
+
+    let seconds = metadata.ctime();
+    if seconds < 0 {
+        return 0;
+    }
+
+    let nanos = metadata.ctime_nsec();
+    if nanos < 0 {
+        return seconds as u128 * 1_000_000_000;
+    }
+
+    seconds as u128 * 1_000_000_000 + nanos as u128
+}
+
+#[cfg(not(unix))]
+pub(crate) fn metadata_changed_nanos(metadata: &fs::Metadata) -> u128 {
+    metadata_time_nanos(metadata.accessed().ok())
+}
+
+fn metadata_time_nanos(time: Option<std::time::SystemTime>) -> u128 {
+    time.and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_nanos())
         .unwrap_or(0)
 }
 
+fn collection_sample_signature(path: &Path, len: u64) -> AppResult<u64> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    len.hash(&mut hasher);
+
+    if len == 0 {
+        return Ok(hasher.finish());
+    }
+
+    let sample_len = len.min(COLLECTION_FAST_STAMP_SAMPLE_BYTES);
+    let middle_offset = len.saturating_sub(sample_len) / 2;
+    let end_offset = len.saturating_sub(sample_len);
+    let mut offsets = HashSet::new();
+    let mut buffer = vec![0_u8; sample_len as usize];
+    let mut file = fs::File::open(path)?;
+
+    for offset in [0, middle_offset, end_offset] {
+        if !offsets.insert(offset) {
+            continue;
+        }
+
+        file.seek(SeekFrom::Start(offset))?;
+        let bytes_read = file.read(&mut buffer)?;
+        offset.hash(&mut hasher);
+        hasher.write(&buffer[..bytes_read]);
+    }
+
+    Ok(hasher.finish())
+}
+
 pub(crate) fn collection_content_signature(path: &Path, len: u64) -> AppResult<u64> {
+    #[cfg(test)]
+    if let Ok(mut hook) = CONTENT_SIGNATURE_TEST_HOOK.lock() {
+        if let Some(hook) = hook.as_mut() {
+            hook(path);
+        }
+    }
+
     let mut file = fs::File::open(path)?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     len.hash(&mut hasher);

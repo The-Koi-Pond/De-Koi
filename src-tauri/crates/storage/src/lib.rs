@@ -1158,7 +1158,7 @@ impl FileStorage {
             shape: projection_shape(fields, &nested_field_sets),
         };
         let path = self.collection_path(collection)?;
-        let stamp = collection_content_stamp(&path)?;
+        let stamp = collection_fast_stamp(&path)?;
         if let Some(rows) = self.cached_projected_list_rows(&cache_key, stamp)? {
             return Ok(rows);
         }
@@ -1175,8 +1175,9 @@ impl FileStorage {
             field_selections: &nested_field_sets,
         }) {
             Ok(rows) => {
-                if collection_content_stamp(&path)? == stamp {
-                    self.cache_projected_list(&cache_key, &rows, stamp)?;
+                let refreshed_stamp = collection_fast_stamp(&path)?;
+                if collection_fast_stamps_share_content_window(stamp, refreshed_stamp) {
+                    self.cache_projected_list(&cache_key, &rows, refreshed_stamp)?;
                 }
                 Ok(rows)
             }
@@ -1190,8 +1191,9 @@ impl FileStorage {
                     .into_iter()
                     .map(|row| project_row(row, &field_set, &nested_field_sets))
                     .collect::<Vec<_>>();
-                if collection_content_stamp(&path)? == stamp {
-                    self.cache_projected_list(&cache_key, &projected, stamp)?;
+                let refreshed_stamp = collection_fast_stamp(&path)?;
+                if collection_fast_stamps_share_content_window(stamp, refreshed_stamp) {
+                    self.cache_projected_list(&cache_key, &projected, refreshed_stamp)?;
                 }
                 Ok(projected)
             }
@@ -1870,7 +1872,7 @@ impl FileStorage {
     fn cached_projected_list_rows(
         &self,
         key: &ProjectionCacheKey,
-        stamp: Option<CollectionContentStamp>,
+        stamp: Option<CollectionFastStamp>,
     ) -> AppResult<Option<Vec<Value>>> {
         let cache = self
             .cache
@@ -1887,7 +1889,7 @@ impl FileStorage {
         &self,
         key: &ProjectionCacheKey,
         rows: &[Value],
-        stamp: Option<CollectionContentStamp>,
+        stamp: Option<CollectionFastStamp>,
     ) -> AppResult<()> {
         let mut cache = self
             .cache
@@ -2436,6 +2438,10 @@ pub fn merge_object_field(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
+        Arc as TestArc,
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_storage_root(test_name: &str) -> PathBuf {
@@ -2471,6 +2477,138 @@ mod tests {
             .unwrap();
     }
 
+    fn set_content_signature_count_hook(target_path: PathBuf, counter: TestArc<AtomicUsize>) {
+        *CONTENT_SIGNATURE_TEST_HOOK.lock().unwrap() = Some(Box::new(move |path| {
+            if path == target_path {
+                counter.fetch_add(1, AtomicOrdering::SeqCst);
+            }
+        }));
+    }
+
+    fn clear_content_signature_test_hook() {
+        *CONTENT_SIGNATURE_TEST_HOOK.lock().unwrap() = None;
+    }
+
+    #[test]
+    fn projected_list_cache_hit_does_not_rehash_collection_file() {
+        let root = temp_storage_root("projected-cache-hit-no-rehash");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({
+                    "id": "character-1",
+                    "name": "Cached",
+                    "description": "large payload should not be rehashed on hit"
+                })],
+            )
+            .unwrap();
+        let fields = vec!["id".to_string(), "name".to_string()];
+
+        let first = storage
+            .list_projected("characters", &fields, &Map::new())
+            .unwrap();
+        assert_eq!(
+            first,
+            vec![json!({ "id": "character-1", "name": "Cached" })]
+        );
+
+        let signature_count = TestArc::new(AtomicUsize::new(0));
+        set_content_signature_count_hook(
+            root.join("collections").join("characters.json"),
+            TestArc::clone(&signature_count),
+        );
+        let second = storage
+            .list_projected("characters", &fields, &Map::new())
+            .unwrap();
+        clear_content_signature_test_hook();
+
+        assert_eq!(second, first);
+        assert_eq!(
+            signature_count.load(AtomicOrdering::SeqCst),
+            0,
+            "projected-list cache hits should not hash the full collection file"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn projected_list_cache_invalidates_after_storage_write() {
+        let root = temp_storage_root("projected-cache-internal-write");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let fields = vec!["id".to_string(), "name".to_string()];
+        assert_eq!(
+            storage
+                .list_projected("characters", &fields, &Map::new())
+                .unwrap(),
+            vec![json!({ "id": "character-1", "name": "Before" })]
+        );
+
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "After" })],
+            )
+            .unwrap();
+
+        assert_eq!(
+            storage
+                .list_projected("characters", &fields, &Map::new())
+                .unwrap(),
+            vec![json!({ "id": "character-1", "name": "After" })]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn projected_list_cache_refreshes_after_external_file_change() {
+        let root = temp_storage_root("projected-cache-external-change");
+        let storage = FileStorage::new(&root).unwrap();
+        let collection_path = root.join("collections").join("characters.json");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let fields = vec!["id".to_string(), "name".to_string()];
+        assert_eq!(
+            storage
+                .list_projected("characters", &fields, &Map::new())
+                .unwrap(),
+            vec![json!({ "id": "character-1", "name": "Before" })]
+        );
+
+        rewrite_with_modified_time(
+            &collection_path,
+            &serde_json::to_vec_pretty(&json!([
+                { "id": "character-1", "name": "Externally changed" },
+                { "id": "character-2", "name": "New external row" }
+            ]))
+            .unwrap(),
+            SystemTime::now() + Duration::from_secs(5),
+        );
+
+        assert_eq!(
+            storage
+                .list_projected("characters", &fields, &Map::new())
+                .unwrap(),
+            vec![
+                json!({ "id": "character-1", "name": "Externally changed" }),
+                json!({ "id": "character-2", "name": "New external row" })
+            ]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn replace_all_many_updates_multiple_collections() {
         let root = temp_storage_root("replace-many");

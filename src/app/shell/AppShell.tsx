@@ -32,6 +32,7 @@ import { ImagePromptReviewHost } from "../../shared/components/ui/ImagePromptRev
 import { cn } from "../../shared/lib/utils";
 import { parseChatMetadata } from "../../shared/lib/chat-display";
 import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
+import { markPerformanceMilestoneOnce } from "../../shared/lib/performance-diagnostics";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
 import { shouldUseLowPowerShellMode } from "./shell-performance";
@@ -244,6 +245,10 @@ export function AppShell() {
 
   // Auto idle detection (10 min inactivity → idle, activity → active)
   useIdleDetection();
+
+  useEffect(() => {
+    markPerformanceMilestoneOnce("shell.ready");
+  }, []);
 
   const queryClient = useQueryClient();
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);

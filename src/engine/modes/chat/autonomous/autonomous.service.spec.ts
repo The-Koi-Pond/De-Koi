@@ -1,28 +1,44 @@
 import { describe, expect, it } from "vitest";
 
-import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
+import type { StorageEntity, StorageGateway, StorageListOptions } from "../../../capabilities/storage";
 import { getMonday, type ConversationRoutine, type WeekSchedule } from "../schedules/schedule.service";
 import { getConversationStatus } from "./autonomous.service";
 
 type JsonRecord = Record<string, unknown>;
+type StorageCallLog = {
+  gets: Array<{ entity: StorageEntity; id: string }>;
+  lists: Array<{ entity: StorageEntity; options?: StorageListOptions }>;
+  updates: Array<{ entity: StorageEntity; id: string; patch: Record<string, unknown> }>;
+};
+type TestStorageGateway = StorageGateway & { calls: StorageCallLog };
 
-function storageGateway(records: { chats: JsonRecord[]; characters: JsonRecord[] }): StorageGateway {
+function storageGateway(records: { chats: JsonRecord[]; characters: JsonRecord[] }): TestStorageGateway {
   const rows: Partial<Record<StorageEntity, JsonRecord[]>> = {
     chats: records.chats,
     characters: records.characters,
   };
+  const calls: StorageCallLog = { gets: [], lists: [], updates: [] };
 
   return {
-    async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+    calls,
+    async list<T = unknown>(entity: StorageEntity, options?: StorageListOptions): Promise<T[]> {
+      calls.lists.push({ entity, options });
+      if (options?.whereIn) {
+        const { field, values } = options.whereIn;
+        const selected = new Set(values);
+        return (rows[entity] ?? []).filter((record) => selected.has(String(record[field]))) as T[];
+      }
       return (rows[entity] ?? []) as T[];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+      calls.gets.push({ entity, id });
       return ((rows[entity] ?? []).find((record) => record.id === id) ?? null) as T | null;
     },
     async create<T = unknown>(_entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
       return value as T;
     },
     async update<T = unknown>(entity: StorageEntity, id: string, patch: Record<string, unknown>): Promise<T> {
+      calls.updates.push({ entity, id, patch });
       const record = (rows[entity] ?? []).find((item) => item.id === id);
       if (record) Object.assign(record, patch);
       return { id, ...record, ...patch } as T;
@@ -277,5 +293,101 @@ describe("getConversationStatus", () => {
         },
       },
     });
+  });
+  it("batch-loads character rows before syncing status for single-character and group chats", async () => {
+    const singleSchedule = allDaySchedule("reading", "online");
+    const groupSchedule = allDaySchedule("commuting", "idle");
+    const groupRoutine = alwaysBusyRoutine();
+    const storage = storageGateway({
+      chats: [
+        {
+          id: "single-chat",
+          mode: "conversation",
+          characterIds: ["single-char"],
+          metadata: {
+            conversationSchedulesEnabled: true,
+            characterSchedules: { "single-char": singleSchedule },
+          },
+        },
+        {
+          id: "group-chat",
+          mode: "conversation",
+          characterIds: ["group-char-1", "group-char-2", "group-char-1"],
+          metadata: {
+            conversationSchedulesEnabled: true,
+            characterSchedules: { "group-char-1": groupSchedule },
+            characterRoutines: { "group-char-2": groupRoutine },
+          },
+        },
+      ],
+      characters: [
+        { id: "single-char", data: { extensions: {} } },
+        { id: "group-char-1", data: { extensions: {} } },
+        { id: "group-char-2", data: { extensions: {} } },
+      ],
+    });
+
+    const singleResult = await getConversationStatus(storage, "single-chat");
+    const groupResult = await getConversationStatus(storage, "group-chat");
+
+    expect(singleResult.persistedCharacterIds).toEqual(["single-char"]);
+    expect(groupResult.persistedCharacterIds).toEqual(["group-char-1", "group-char-2"]);
+
+    expect(storage.calls.lists.filter((call) => call.entity === "characters")).toEqual([
+      {
+        entity: "characters",
+        options: { whereIn: { field: "id", values: ["single-char"] } },
+      },
+      {
+        entity: "characters",
+        options: { whereIn: { field: "id", values: ["group-char-1", "group-char-2"] } },
+      },
+    ]);
+    expect(storage.calls.gets.filter((call) => call.entity === "characters")).toEqual([]);
+    expect(storage.calls.updates.filter((call) => call.entity === "characters").map((call) => call.id)).toEqual([
+      "single-char",
+      "group-char-1",
+      "group-char-2",
+    ]);
+  });
+
+  it("coalesces concurrent status refreshes for the same chat", async () => {
+    const schedule = allDaySchedule("reading logs", "online");
+    const routine = alwaysBusyRoutine();
+    const storage = storageGateway({
+      chats: [
+        {
+          id: "group-chat",
+          mode: "conversation",
+          characterIds: ["char-a", "char-b", "char-a"],
+          metadata: {
+            conversationSchedulesEnabled: true,
+            characterSchedules: { "char-a": schedule },
+            characterRoutines: { "char-b": routine },
+          },
+        },
+      ],
+      characters: [
+        { id: "char-a", data: { extensions: {} } },
+        { id: "char-b", data: { extensions: {} } },
+      ],
+    });
+
+    const [first, second] = await Promise.all([
+      getConversationStatus(storage, "group-chat"),
+      getConversationStatus(storage, "group-chat"),
+    ]);
+
+    expect(second).toBe(first);
+    expect(storage.calls.lists.filter((call) => call.entity === "characters")).toEqual([
+      {
+        entity: "characters",
+        options: { whereIn: { field: "id", values: ["char-a", "char-b"] } },
+      },
+    ]);
+    expect(storage.calls.updates.filter((call) => call.entity === "characters").map((call) => call.id)).toEqual([
+      "char-a",
+      "char-b",
+    ]);
   });
 });

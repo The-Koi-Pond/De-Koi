@@ -5,6 +5,7 @@ import { App } from "./App";
 import { GlobalErrorBoundary, installGlobalErrorDiagnostics, reportReactRootError } from "./GlobalErrorBoundary";
 import "../styles/globals.css";
 import { apiQueryRetryDelay, shouldRetryApiQuery } from "../shared/api/query-retry";
+import { markPerformanceMilestone } from "../shared/lib/performance-diagnostics";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -18,6 +19,7 @@ const queryClient = new QueryClient({
 });
 
 installGlobalErrorDiagnostics();
+markPerformanceMilestone("app.boot");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement, {
   onCaughtError: (error, errorInfo) => reportReactRootError("caught", error, errorInfo),

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { apiQueryRetryDelay, shouldRetryApiQuery } from "../../../../shared/api/query-retry";
+import { markPerformanceMilestoneOnce } from "../../../../shared/lib/performance-diagnostics";
 import { chatKeys } from "../query-keys";
 
 export const CHAT_SUMMARY_FIELDS = [
@@ -59,10 +60,15 @@ export function useChatSummaries() {
   return useQuery({
     queryKey: chatKeys.summaries(),
     queryFn: () =>
-      storageApi.list<ChatListItem>("chats", {
-        fields: [...CHAT_SUMMARY_FIELDS],
-        fieldSelections: { metadata: [...CHAT_SUMMARY_METADATA_FIELDS] },
-      }),
+      storageApi
+        .list<ChatListItem>("chats", {
+          fields: [...CHAT_SUMMARY_FIELDS],
+          fieldSelections: { metadata: [...CHAT_SUMMARY_METADATA_FIELDS] },
+        })
+        .then((rows) => {
+          markPerformanceMilestoneOnce("chat.summary-list.ready", { rowCount: rows.length });
+          return rows;
+        }),
     ...CHAT_SUMMARY_SESSION_QUERY_POLICY,
     refetchInterval: (query) =>
       query.state.status === "error" ? chatSummaryWakeupRefetchInterval(query.state.error) : false,
