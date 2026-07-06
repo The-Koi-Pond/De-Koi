@@ -37,7 +37,14 @@ function ConversationGroupedSegments({ context }: { context: ConversationMessage
               className="pl-14 py-0.5 text-[0.875rem] leading-relaxed break-words whitespace-pre-wrap text-[var(--muted-foreground)] italic animate-[fadeSlideIn_0.4s_ease-out]"
               style={context.messageTextStyle}
             >
-              {renderInlineMessageText(combinedText, context.mentionNames, `ns${i}`)}
+              {renderInlineMessageText(
+                combinedText,
+                context.mentionNames,
+                `ns${i}`,
+                undefined,
+                undefined,
+                context.quoteFormat,
+              )}
             </div>
           );
         }
@@ -112,7 +119,14 @@ function ConversationGroupedSegments({ context }: { context: ConversationMessage
                         )}
                         style={context.messageTextStyle}
                       >
-                        {renderInlineMessageText(para, context.mentionNames, `gs${i}_${pi}`, segDialogueColor)}
+                        {renderInlineMessageText(
+                          para,
+                          context.mentionNames,
+                          `gs${i}_${pi}`,
+                          segDialogueColor,
+                          undefined,
+                          context.quoteFormat,
+                        )}
                       </div>
                     ))}
                   </div>

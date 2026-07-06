@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import { assembleGenerationPrompt } from "./prompt-assembly";

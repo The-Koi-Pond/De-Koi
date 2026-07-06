@@ -348,7 +348,7 @@ const TIMELINE_MESSAGE_FIELDS: [&str; 14] = [
     "createdAt",
 ];
 
-const TIMELINE_MESSAGE_EXTRA_FIELDS: [&str; 21] = [
+const TIMELINE_MESSAGE_EXTRA_FIELDS: [&str; 22] = [
     "displayText",
     "isGenerated",
     "tokenCount",
@@ -362,6 +362,7 @@ const TIMELINE_MESSAGE_EXTRA_FIELDS: [&str; 21] = [
     "chatSummaryFingerprint",
     "generationReplay",
     "generationPromptSnapshot",
+    "dialogueAttributions",
     "attachments",
     "personaSnapshot",
     "hiddenFromUser",
@@ -450,7 +451,7 @@ pub(crate) fn synthesize_legacy_prompt_snapshot(message: &mut Value) {
     }
 }
 
-const SWIPE_SCOPED_EXTRA_KEYS: [&str; 15] = [
+const SWIPE_SCOPED_EXTRA_KEYS: [&str; 16] = [
     "displayText",
     "isGenerated",
     "tokenCount",
@@ -463,6 +464,7 @@ const SWIPE_SCOPED_EXTRA_KEYS: [&str; 15] = [
     "cachedPrompt",
     "generationReplay",
     "generationPromptSnapshot",
+    "dialogueAttributions",
     "attachments",
     "reasoning",
     "reasoning_content",
@@ -653,9 +655,7 @@ fn validate_message_create_swipes(object: &Map<String, Value>) -> AppResult<()> 
             ));
         };
         if !matches!(swipe.get("content"), Some(Value::String(_))) {
-            return Err(AppError::invalid_input(
-                "Message swipe content is required",
-            ));
+            return Err(AppError::invalid_input("Message swipe content is required"));
         }
     }
     Ok(())
@@ -912,14 +912,19 @@ fn normalize_extension_manifest_metadata(
                 "Extension packageId must be a stable id using letters, numbers, dots, dashes, or underscores",
             ));
         }
-        normalized.insert("packageId".to_string(), Value::String(package_id.to_string()));
+        normalized.insert(
+            "packageId".to_string(),
+            Value::String(package_id.to_string()),
+        );
     }
     if let Some(package_version) = optional_extension_string(object, "packageVersion", 80)? {
         normalized.insert("packageVersion".to_string(), Value::String(package_version));
     }
     if let Some(manifest_version) = optional_extension_number(object, "manifestVersion")? {
         if manifest_version != 1 {
-            return Err(AppError::invalid_input("Extension manifestVersion must be 1"));
+            return Err(AppError::invalid_input(
+                "Extension manifestVersion must be 1",
+            ));
         }
         normalized.insert("manifestVersion".to_string(), json!(manifest_version));
     }
@@ -1360,9 +1365,8 @@ fn message_extra_object_for_create(value: Option<&Value>) -> AppResult<Map<Strin
         return Ok(object.clone());
     }
     if let Some(raw) = value.as_str() {
-        let parsed: Value = serde_json::from_str(raw).map_err(|_| {
-            AppError::invalid_input("extra must be a JSON object or null")
-        })?;
+        let parsed: Value = serde_json::from_str(raw)
+            .map_err(|_| AppError::invalid_input("extra must be a JSON object or null"))?;
         if let Some(object) = parsed.as_object() {
             return Ok(object.clone());
         }
@@ -2393,7 +2397,13 @@ mod tests {
 
     #[test]
     fn message_entity_defaults_reject_present_malformed_extra() {
-        for extra in [json!([]), json!(""), json!("   "), json!("not-json"), json!(true)] {
+        for extra in [
+            json!([]),
+            json!(""),
+            json!("   "),
+            json!("not-json"),
+            json!(true),
+        ] {
             let error = with_entity_defaults(
                 "messages",
                 json!({
@@ -3542,7 +3552,10 @@ pub(crate) fn upload_global_gallery_image(
     record.insert("width".to_string(), Value::Null);
     record.insert("height".to_string(), Value::Null);
     let record = Value::Object(record);
-    match state.storage.create_immediate("global-gallery", record.clone()) {
+    match state
+        .storage
+        .create_immediate("global-gallery", record.clone())
+    {
         Ok(created) => Ok(created),
         Err(error) => {
             media_uploads::remove_managed_record_file(

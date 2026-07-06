@@ -39,6 +39,7 @@ function ConversationMessageGroupedBubbleContent({ context }: { context: Convers
                 content={combinedText}
                 mentionNames={context.mentionNames}
                 onImageOpen={context.onImageOpen}
+                quoteFormat={context.quoteFormat}
               />
             </div>
           );
@@ -54,6 +55,7 @@ function ConversationMessageGroupedBubbleContent({ context }: { context: Convers
               mentionNames={context.mentionNames}
               onImageOpen={context.onImageOpen}
               dialogueColor={segDialogueColor}
+              quoteFormat={context.quoteFormat}
             />
           </div>
         );

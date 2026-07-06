@@ -1,5 +1,4 @@
 use super::agents;
-use super::canonical_memory;
 use super::chat_memory;
 use super::game_state_snapshots;
 use super::media_uploads::remove_managed_record_file;
@@ -356,13 +355,6 @@ fn replace_message_with_swipes_and_chat_cleanup(
         message_swipe_storage::replace_message_with_swipes(state, message, swipes)?
     };
     message_swipe_storage::materialize_message(state, &mut updated, true)?;
-    if prune_memories {
-        canonical_memory::mark_memories_for_source_messages(
-            state,
-            &[message_id.to_string()],
-            "stale",
-        )?;
-    }
     Ok(updated)
 }
 
@@ -750,7 +742,7 @@ pub(crate) fn delete_message_rows_with_memory_prune(
     }
 
     let now = now_iso();
-    let result = state.storage.update_collections_atomically(
+    state.storage.update_collections_atomically(
         vec![
             "messages",
             message_swipe_storage::COLLECTION,
@@ -838,9 +830,7 @@ pub(crate) fn delete_message_rows_with_memory_prune(
             ids.sort();
             Ok((deleted_messages.len(), ids))
         },
-    )?;
-    canonical_memory::mark_memories_for_source_messages(state, &result.1, "deleted")?;
-    Ok(result)
+    )
 }
 
 pub(crate) fn bulk_delete_messages(
@@ -1740,7 +1730,6 @@ mod tests {
                         },
                         {
                             "id": "drop-newer",
-                            "messageIds": ["message-after"],
                             "lastMessageAt": "2026-06-01T10:01:00.000Z"
                         }
                     ]
@@ -1810,12 +1799,10 @@ mod tests {
                         },
                         {
                             "id": "newer",
-                            "messageIds": ["message-newer"],
                             "lastMessageAt": "2026-06-01T10:02:00.000Z"
                         },
                         {
                             "id": "created-only-newer",
-                            "messageIds": ["message-created-newer"],
                             "createdAt": "2026-06-01T10:03:00.000Z"
                         }
                     ]
@@ -3413,6 +3400,87 @@ mod tests {
     }
 
     #[test]
+    fn message_swipes_projects_dialogue_attributions_from_active_swipe() {
+        let state = test_state("swipe-dialogue-attributions");
+        let dialogue_attributions = json!({
+            "version": 1,
+            "textHash": "dk1:9:examplehash",
+            "segments": [
+                {
+                    "start": 0,
+                    "end": 9,
+                    "speakerName": "Mira",
+                    "speakerId": "char-mira",
+                    "source": "speaker-tag",
+                    "confidence": "explicit"
+                }
+            ]
+        });
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "first",
+                    "activeSwipeIndex": 0,
+                    "extra": {
+                        "hiddenFromAI": true
+                    },
+                    "swipes": [{ "content": "first" }]
+                }),
+            )
+            .expect("message should be created");
+
+        let updated = message_swipes(
+            &state,
+            "POST",
+            "chat-1",
+            "message-1",
+            json!({
+                "content": "\"Second.\"",
+                "extra": {
+                    "dialogueAttributions": dialogue_attributions.clone()
+                }
+            }),
+        )
+        .expect("swipe should be added");
+
+        assert_eq!(updated["activeSwipeIndex"], json!(1));
+        assert_eq!(
+            updated["extra"]["dialogueAttributions"],
+            dialogue_attributions
+        );
+        assert_eq!(
+            updated["swipes"][1]["extra"]["dialogueAttributions"],
+            dialogue_attributions
+        );
+
+        let persisted = state
+            .storage
+            .get("messages", "message-1")
+            .expect("message lookup should succeed")
+            .expect("message should exist");
+        assert!(persisted.get("swipes").is_none());
+
+        let persisted_swipes = message_swipe_storage::swipes_for_message(&state, "message-1")
+            .expect("message sidecar swipes should read");
+        assert_eq!(
+            persisted_swipes[1]["extra"]["dialogueAttributions"],
+            dialogue_attributions
+        );
+
+        let mut materialized = persisted.clone();
+        message_swipe_storage::materialize_message(&state, &mut materialized, true)
+            .expect("message should materialize from sidecar swipes");
+        assert_eq!(
+            materialized["extra"]["dialogueAttributions"],
+            dialogue_attributions
+        );
+    }
+    #[test]
     fn message_swipes_read_rejects_message_from_another_chat() {
         let state = test_state("swipe-read-cross-chat-owner");
         message_swipe_storage::create_message(
@@ -4082,8 +4150,8 @@ mod tests {
                     "id": "chat-1",
                     "name": "Created-at memory prune chat",
                     "memories": [
-                        { "id": "keep-created-at-old", "messageIds": ["message-before"], "createdAt": "2026-01-01T00:00:00.000Z" },
-                        { "id": "drop-created-at-new", "messageIds": ["message-after"], "createdAt": "2026-01-03T00:00:00.000Z" }
+                        { "id": "keep-created-at-old", "createdAt": "2026-01-01T00:00:00.000Z" },
+                        { "id": "drop-created-at-new", "createdAt": "2026-01-03T00:00:00.000Z" }
                     ]
                 }),
             )
@@ -4130,19 +4198,16 @@ mod tests {
                     "memories": [
                         {
                             "id": "drop-created-inside-window",
-                            "messageIds": ["message-after"],
                             "createdAt": "2026-01-03T00:00:00.000Z",
                             "firstMessageAt": "2026-01-01T00:00:00.000Z"
                         },
                         {
                             "id": "keep-created-before-window",
-                            "messageIds": ["message-before"],
                             "createdAt": "2026-01-01T00:00:00.000Z",
                             "firstMessageAt": "2026-01-04T00:00:00.000Z"
                         },
                         {
                             "id": "keep-last-message-before-window",
-                            "messageIds": ["message-before-2"],
                             "lastMessageAt": "2026-01-01T00:00:00.000Z",
                             "createdAt": "2026-01-04T00:00:00.000Z"
                         }
@@ -4548,7 +4613,6 @@ mod tests {
                         },
                         {
                             "id": "drop-newer",
-                            "messageIds": ["message-after"],
                             "lastMessageAt": "2026-06-01T10:01:00.000Z"
                         }
                     ]
@@ -5306,127 +5370,5 @@ mod tests {
                 .and_then(Value::as_str),
             Some("other-scene")
         );
-    }
-    #[test]
-    fn canonical_memories_from_edited_message_are_marked_stale() {
-        let state = test_state("canonical-memory-edit-stale");
-        state
-            .storage
-            .create(
-                "chats",
-                json!({ "id": "chat-1", "name": "Memory chat", "mode": "conversation" }),
-            )
-            .unwrap();
-        state
-            .storage
-            .create(
-                "messages",
-                json!({
-                    "id": "message-1",
-                    "chatId": "chat-1",
-                    "role": "assistant",
-                    "content": "Mira keeps the brass key.",
-                    "createdAt": "2026-07-04T12:00:00.000Z"
-                }),
-            )
-            .unwrap();
-        super::super::canonical_memory::create_memory(
-            &state,
-            json!({
-                "id": "memory-1",
-                "kind": "fact",
-                "status": "active",
-                "scope": { "kind": "chat", "id": "chat-1" },
-                "content": "Mira keeps the brass key.",
-                "confidence": 0.9,
-                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] }
-            }),
-        )
-        .unwrap();
-        super::super::canonical_memory::upsert_memory_index_row(
-            &state,
-            json!({
-                "id": "index-1",
-                "memoryId": "memory-1",
-                "provider": "lexical",
-                "model": "de-koi-lexical-v1",
-                "dimensions": 64,
-                "contentHash": "old-content",
-                "projectionHash": "old-projection",
-                "canonicalUpdatedAt": super::super::canonical_memory::get_memory(&state, "memory-1").unwrap()["updatedAt"],
-                "vector": [0.1, 0.2]
-            }),
-        )
-        .unwrap();
-
-        patch_message_update_with_memory_prune(
-            &state,
-            "message-1",
-            json!({ "content": "Mira keeps the silver key." }),
-        )
-        .unwrap();
-
-        let memory = super::super::canonical_memory::get_memory(&state, "memory-1").unwrap();
-        assert_eq!(memory["status"], json!("stale"));
-        assert!(state.storage.list("memory-index-rows").unwrap().is_empty());
-    }
-
-    #[test]
-    fn canonical_memories_from_deleted_message_are_marked_deleted() {
-        let state = test_state("canonical-memory-delete-stale");
-        state
-            .storage
-            .create(
-                "chats",
-                json!({ "id": "chat-1", "name": "Memory chat", "mode": "conversation" }),
-            )
-            .unwrap();
-        let message = state
-            .storage
-            .create(
-                "messages",
-                json!({
-                    "id": "message-1",
-                    "chatId": "chat-1",
-                    "role": "assistant",
-                    "content": "Mira keeps the brass key.",
-                    "createdAt": "2026-07-04T12:00:00.000Z"
-                }),
-            )
-            .unwrap();
-        super::super::canonical_memory::create_memory(
-            &state,
-            json!({
-                "id": "memory-1",
-                "kind": "fact",
-                "status": "active",
-                "scope": { "kind": "chat", "id": "chat-1" },
-                "content": "Mira keeps the brass key.",
-                "confidence": 0.9,
-                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] }
-            }),
-        )
-        .unwrap();
-        super::super::canonical_memory::upsert_memory_index_row(
-            &state,
-            json!({
-                "id": "index-1",
-                "memoryId": "memory-1",
-                "provider": "lexical",
-                "model": "de-koi-lexical-v1",
-                "dimensions": 64,
-                "contentHash": "old-content",
-                "projectionHash": "old-projection",
-                "canonicalUpdatedAt": super::super::canonical_memory::get_memory(&state, "memory-1").unwrap()["updatedAt"],
-                "vector": [0.1, 0.2]
-            }),
-        )
-        .unwrap();
-
-        delete_message_rows_with_memory_prune(&state, "chat-1", &[message]).unwrap();
-
-        let memory = super::super::canonical_memory::get_memory(&state, "memory-1").unwrap();
-        assert_eq!(memory["status"], json!("deleted"));
-        assert!(state.storage.list("memory-index-rows").unwrap().is_empty());
     }
 }

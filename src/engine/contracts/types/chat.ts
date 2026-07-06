@@ -489,6 +489,8 @@ export type DialogueAttributionSource =
   | "speaker-tag"
   | "name-prefix"
   | "explicit-attribution"
+  | "sidecar-model"
+  | "heuristic"
   | "model-annotation"
   | "postprocess";
 
