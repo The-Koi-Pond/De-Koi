@@ -71,7 +71,7 @@ describe("automatic memory capture", () => {
       }),
     );
 
-    await captureAutomaticMemoriesAfterAssistantTurn({
+    const result = await captureAutomaticMemoriesAfterAssistantTurn({
       storage,
       llm,
       chat: {
@@ -90,6 +90,7 @@ describe("automatic memory capture", () => {
       connectionId: "conn-1",
     });
 
+    expect(result).toMatchObject({ status: "captured", candidateCount: 5, createdCount: 5, skippedCount: 0 });
     expect(created.map((memory) => memory.kind)).toEqual([
       "fact",
       "preference",
@@ -121,7 +122,7 @@ describe("automatic memory capture", () => {
       }),
     );
 
-    await captureAutomaticMemoriesAfterAssistantTurn({
+    const result = await captureAutomaticMemoriesAfterAssistantTurn({
       storage,
       llm,
       chat: { id: "chat-1", mode: "conversation", metadata: {} },
@@ -134,11 +135,56 @@ describe("automatic memory capture", () => {
       },
     });
 
+    expect(result).toMatchObject({
+      status: "captured",
+      candidateCount: 1,
+      createdCount: 1,
+      skippedCount: 0,
+      indexRefreshFailedCount: 1,
+    });
     expect(created).toHaveLength(1);
     expect(created[0]?.kind).toBe("relationship_state");
     expect(created[0]?.status).toBe("stale");
   });
 
+  it("captures provider schema drift with description and missing confidence", async () => {
+    const { storage, created, rebuilds } = memoryStorage();
+    const llm = llmWithExtraction(
+      JSON.stringify({
+        memories: [{ category: "plot_state", description: "The silver koi keeps a moonlit ledger." }],
+      }),
+    );
+
+    const result = await captureAutomaticMemoriesAfterAssistantTurn({
+      storage,
+      llm,
+      chat: { id: "chat-1", mode: "conversation", metadata: {} },
+      message: {
+        id: "message-1",
+        chatId: "chat-1",
+        role: "assistant",
+        content: "silver koi keeps a moonlit ledger under the archive stairs",
+        createdAt: "2026-07-04T12:00:00.000Z",
+      },
+    });
+
+    expect(result).toMatchObject({ status: "captured", candidateCount: 1, createdCount: 1, skippedCount: 0 });
+    expect(created).toHaveLength(1);
+    expect(created[0]?.content).toBe("The silver koi keeps a moonlit ledger.");
+    expect(created[0]?.confidence).toBe(0.7);
+    expect(created[0]?.status).toBe("active");
+    expect(rebuilds).toEqual([{ scope: { kind: "chat", id: "chat-1" } }]);
+    expect(llm.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            content: expect.stringContaining("Each memory object MUST include: category, content, confidence."),
+          }),
+        ]),
+      }),
+      undefined,
+    );
+  });
   it("supports agent chat provenance", async () => {
     const { storage, created, rebuilds } = memoryStorage();
     const llm = llmWithExtraction(
@@ -147,7 +193,7 @@ describe("automatic memory capture", () => {
       }),
     );
 
-    await captureAutomaticMemoriesAfterAssistantTurn({
+    const result = await captureAutomaticMemoriesAfterAssistantTurn({
       storage,
       llm,
       chat: { id: "agent-chat", mode: "agent", metadata: { agentType: "researcher" } },
@@ -160,32 +206,99 @@ describe("automatic memory capture", () => {
       },
     });
 
+    expect(result).toMatchObject({ status: "captured", candidateCount: 1, createdCount: 1, skippedCount: 0 });
     expect(created[0]?.kind).toBe("promise");
     expect(created[0]?.scope).toEqual({ kind: "agent", id: "researcher" });
     expect(created[0]?.provenance.sourceChatId).toBe("agent-chat");
     expect(rebuilds).toEqual([{ scope: { kind: "agent", id: "researcher" } }]);
   });
 
-  it("swallows extraction failures", async () => {
+  it("accepts provider category aliases and text-like content aliases", async () => {
+    const { storage, created } = memoryStorage();
+    const llm = llmWithExtraction(
+      JSON.stringify({
+        memories: [
+          { type: "plot_state", text: "The violet bridge is locked." },
+          { kind: "fact", fact: "The sapphire moth carries a copper astrolabe." },
+        ],
+      }),
+    );
+
+    const result = await captureAutomaticMemoriesAfterAssistantTurn({
+      storage,
+      llm,
+      chat: { id: "chat-1", mode: "conversation", metadata: {} },
+      message: {
+        id: "message-1",
+        chatId: "chat-1",
+        role: "assistant",
+        content: "The violet bridge is locked. The sapphire moth carries a copper astrolabe.",
+        createdAt: "2026-07-04T12:00:00.000Z",
+      },
+    });
+
+    expect(result).toMatchObject({ status: "captured", candidateCount: 2, createdCount: 2, skippedCount: 0 });
+    expect(created.map((memory) => memory.kind)).toEqual(["plot_state", "fact"]);
+  });
+
+  it("reports empty extraction output instead of silently succeeding", async () => {
+    const { storage } = memoryStorage();
+    const llm = llmWithExtraction(
+      JSON.stringify({
+        memories: [
+          { category: "plot_state", description: "   " },
+          { content: "Missing category should be skipped." },
+        ],
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await captureAutomaticMemoriesSafely({
+      storage,
+      llm,
+      chat: { id: "chat-1", mode: "conversation", metadata: {} },
+      message: {
+        id: "message-1",
+        chatId: "chat-1",
+        role: "assistant",
+        content: "Nothing usable came back from extraction.",
+        createdAt: "2026-07-04T12:00:00.000Z",
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "empty",
+      candidateCount: 2,
+      createdCount: 0,
+      skippedCount: 2,
+      reason: "all_candidates_skipped",
+    });
+    expect(warn).toHaveBeenCalledWith("[generation] automatic memory capture produced no memories", result);
+    expect(storage.createMemory).not.toHaveBeenCalled();
+  });
+  it("returns diagnostics for extraction failures without throwing", async () => {
     const { storage } = memoryStorage();
     const llm = llmWithExtraction("{not json");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    await expect(
-      captureAutomaticMemoriesSafely({
-        storage,
-        llm,
-        chat: { id: "agent-chat", mode: "agent", metadata: { agentType: "researcher" } },
-        message: {
-          id: "message-1",
-          chatId: "agent-chat",
-          role: "assistant",
-          content: "I will check the source tomorrow.",
-          createdAt: "2026-07-04T12:00:00.000Z",
-        },
-      }),
-    ).resolves.toBeUndefined();
+    const result = await captureAutomaticMemoriesSafely({
+      storage,
+      llm,
+      chat: { id: "agent-chat", mode: "agent", metadata: { agentType: "researcher" } },
+      message: {
+        id: "message-1",
+        chatId: "agent-chat",
+        role: "assistant",
+        content: "I will check the source tomorrow.",
+        createdAt: "2026-07-04T12:00:00.000Z",
+      },
+    });
 
+    expect(result).toMatchObject({
+      status: "failed",
+      createdCount: 0,
+      errorMessage: expect.stringContaining("Automatic memory extraction"),
+    });
     expect(warn).toHaveBeenCalledWith("[generation] automatic memory capture failed", expect.any(Error));
     expect(storage.createMemory).not.toHaveBeenCalled();
   });

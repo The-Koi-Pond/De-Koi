@@ -29,7 +29,14 @@ type SavedAssistantMessage = {
 
 type AutomaticMemoryCandidate = {
   category?: unknown;
+  type?: unknown;
+  kind?: unknown;
   content?: unknown;
+  description?: unknown;
+  fact?: unknown;
+  memory?: unknown;
+  summary?: unknown;
+  text?: unknown;
   confidence?: unknown;
   uncertain?: unknown;
   title?: unknown;
@@ -50,9 +57,35 @@ export type AutomaticMemoryCaptureInput = {
   signal?: AbortSignal;
 };
 
+export type AutomaticMemoryCaptureOutcome = {
+  status: "captured" | "empty" | "skipped" | "failed";
+  candidateCount: number;
+  createdCount: number;
+  skippedCount: number;
+  indexRefreshFailedCount: number;
+  reason?:
+    | "all_candidates_skipped"
+    | "empty_content"
+    | "memory_storage_unavailable"
+    | "missing_ids"
+    | "no_candidates"
+    | "not_assistant";
+  errorMessage?: string;
+};
+
 const CATEGORY_TO_KIND: Record<AutomaticMemoryCategory, MemoryKind> = {
   stable_fact: "fact",
   relationship_change: "relationship_state",
+  scene_event: "scene_event",
+  preference: "preference",
+  promise: "promise",
+  plot_state: "plot_state",
+  contradiction: "contradiction",
+};
+
+const KIND_TO_CATEGORY: Partial<Record<MemoryKind, AutomaticMemoryCategory>> = {
+  fact: "stable_fact",
+  relationship_state: "relationship_change",
   scene_event: "scene_event",
   preference: "preference",
   promise: "promise",
@@ -71,11 +104,20 @@ function readStringArray(value: unknown): string[] {
 }
 
 function normalizedCategory(value: unknown): AutomaticMemoryCategory | null {
-  const category = readString(value).trim();
-  return CAPTURE_CATEGORIES.includes(category as AutomaticMemoryCategory) ? (category as AutomaticMemoryCategory) : null;
+  const category = readString(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (CAPTURE_CATEGORIES.includes(category as AutomaticMemoryCategory)) return category as AutomaticMemoryCategory;
+  return KIND_TO_CATEGORY[category as MemoryKind] ?? null;
+}
+
+function candidateCategory(candidate: AutomaticMemoryCandidate): AutomaticMemoryCategory | null {
+  return normalizedCategory(candidate.category) || normalizedCategory(candidate.type) || normalizedCategory(candidate.kind);
 }
 
 function normalizedConfidence(value: unknown): number {
+  if (value === undefined || value === null || value === "") return ACTIVE_CONFIDENCE_THRESHOLD;
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0.5;
 }
 
@@ -112,6 +154,8 @@ function extractionPrompt(args: {
   return [
     "Extract durable memory candidates from this saved assistant turn for De-Koi.",
     'Return JSON only: {"memories":[...]}',
+    "Each memory object MUST include: category, content, confidence.",
+    "Use the field name content for the extracted memory text; do not use description, text, fact, memory, or summary.",
     "Allowed categories: stable_fact, relationship_change, scene_event, preference, promise, plot_state, contradiction.",
     "Use confidence 0..1. Mark uncertain memories with low confidence or uncertain:true.",
     "If a contradiction supersedes a known memory, include supersedesMemoryId when available.",
@@ -152,6 +196,17 @@ function scopeForCandidate(args: {
   return { kind: "chat", id: args.chatId };
 }
 
+function candidateContent(candidate: AutomaticMemoryCandidate): string {
+  return (
+    readString(candidate.content).trim() ||
+    readString(candidate.description).trim() ||
+    readString(candidate.text).trim() ||
+    readString(candidate.fact).trim() ||
+    readString(candidate.memory).trim() ||
+    readString(candidate.summary).trim()
+  );
+}
+
 function automaticMemoryInput(args: {
   chat: Record<string, unknown>;
   message: SavedAssistantMessage;
@@ -160,7 +215,7 @@ function automaticMemoryInput(args: {
   sceneId: string | null;
   mode: string;
 }): CanonicalMemoryInput | null {
-  const content = readString(args.candidate.content).trim();
+  const content = candidateContent(args.candidate);
   const messageId = readString(args.message.id).trim();
   const chatId = readString(args.message.chatId).trim() || readString(args.chat.id).trim();
   if (!content || !messageId || !chatId) return null;
@@ -198,25 +253,54 @@ function automaticMemoryInput(args: {
   };
 }
 
-async function rebuildTouchedIndexes(storage: StorageGateway, scopes: Map<string, MemoryScope>): Promise<void> {
-  if (!storage.rebuildMemoryIndex) return;
+function captureOutcome(
+  status: AutomaticMemoryCaptureOutcome["status"],
+  data: Omit<AutomaticMemoryCaptureOutcome, "status">,
+): AutomaticMemoryCaptureOutcome {
+  return { status, ...data };
+}
+
+function skippedCaptureOutcome(reason: AutomaticMemoryCaptureOutcome["reason"]): AutomaticMemoryCaptureOutcome {
+  return captureOutcome("skipped", {
+    reason,
+    candidateCount: 0,
+    createdCount: 0,
+    skippedCount: 0,
+    indexRefreshFailedCount: 0,
+  });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? "Unknown automatic memory capture error");
+}
+
+async function rebuildTouchedIndexes(storage: StorageGateway, scopes: Map<string, MemoryScope>): Promise<number> {
+  if (!storage.rebuildMemoryIndex) return 0;
+  let failedCount = 0;
   await Promise.all(
     [...scopes.values()].map(async (scope) => {
       try {
         await storage.rebuildMemoryIndex?.({ scope });
       } catch (error) {
+        failedCount += 1;
         console.warn("[generation] automatic memory index refresh failed", error);
       }
     }),
   );
+  return failedCount;
 }
 
-export async function captureAutomaticMemoriesAfterAssistantTurn(input: AutomaticMemoryCaptureInput): Promise<void> {
+export async function captureAutomaticMemoriesAfterAssistantTurn(
+  input: AutomaticMemoryCaptureInput,
+): Promise<AutomaticMemoryCaptureOutcome> {
   const chatId = readString(input.chat.id).trim() || readString(input.message.chatId).trim();
   const messageId = readString(input.message.id).trim();
   const role = readString(input.message.role).trim();
   const content = readString(input.message.content).trim();
-  if (!chatId || !messageId || role !== "assistant" || !content || !input.storage.createMemory) return;
+  if (!chatId || !messageId) return skippedCaptureOutcome("missing_ids");
+  if (role !== "assistant") return skippedCaptureOutcome("not_assistant");
+  if (!content) return skippedCaptureOutcome("empty_content");
+  if (!input.storage.createMemory) return skippedCaptureOutcome("memory_storage_unavailable");
 
   const mode = readString(input.chat.mode || input.chat.chatMode).trim() || "conversation";
   const sceneId = sceneIdForChat(input.chat, chatId);
@@ -245,10 +329,15 @@ export async function captureAutomaticMemoriesAfterAssistantTurn(input: Automati
     ? parsed.memories.filter(isRecord).slice(0, MAX_CAPTURED_MEMORIES)
     : [];
   const touchedScopes = new Map<string, MemoryScope>();
+  let createdCount = 0;
+  let skippedCount = 0;
 
   for (const candidate of candidates as AutomaticMemoryCandidate[]) {
-    const category = normalizedCategory(candidate.category);
-    if (!category) continue;
+    const category = candidateCategory(candidate);
+    if (!category) {
+      skippedCount += 1;
+      continue;
+    }
     const memoryInput = automaticMemoryInput({
       chat: input.chat,
       message: input.message,
@@ -257,8 +346,12 @@ export async function captureAutomaticMemoriesAfterAssistantTurn(input: Automati
       sceneId,
       mode,
     });
-    if (!memoryInput) continue;
+    if (!memoryInput) {
+      skippedCount += 1;
+      continue;
+    }
     const created = await input.storage.createMemory(memoryInput);
+    createdCount += 1;
     touchedScopes.set(`${created.scope.kind}:${created.scope.id}`, created.scope);
     const supersedesMemoryId = readString(memoryInput.supersedesMemoryId).trim();
     if (supersedesMemoryId && input.storage.updateMemory) {
@@ -270,13 +363,41 @@ export async function captureAutomaticMemoriesAfterAssistantTurn(input: Automati
     }
   }
 
-  await rebuildTouchedIndexes(input.storage, touchedScopes);
+  const indexRefreshFailedCount = await rebuildTouchedIndexes(input.storage, touchedScopes);
+  if (createdCount > 0) {
+    return captureOutcome("captured", {
+      candidateCount: candidates.length,
+      createdCount,
+      skippedCount,
+      indexRefreshFailedCount,
+    });
+  }
+  return captureOutcome("empty", {
+    reason: candidates.length === 0 ? "no_candidates" : "all_candidates_skipped",
+    candidateCount: candidates.length,
+    createdCount,
+    skippedCount,
+    indexRefreshFailedCount,
+  });
 }
 
-export async function captureAutomaticMemoriesSafely(input: AutomaticMemoryCaptureInput): Promise<void> {
+export async function captureAutomaticMemoriesSafely(
+  input: AutomaticMemoryCaptureInput,
+): Promise<AutomaticMemoryCaptureOutcome> {
   try {
-    await captureAutomaticMemoriesAfterAssistantTurn(input);
+    const result = await captureAutomaticMemoriesAfterAssistantTurn(input);
+    if (result.status === "empty") {
+      console.warn("[generation] automatic memory capture produced no memories", result);
+    }
+    return result;
   } catch (error) {
     console.warn("[generation] automatic memory capture failed", error);
+    return captureOutcome("failed", {
+      candidateCount: 0,
+      createdCount: 0,
+      skippedCount: 0,
+      indexRefreshFailedCount: 0,
+      errorMessage: errorMessage(error),
+    });
   }
 }
