@@ -1,3 +1,4 @@
+import "../../../../styles/globals/06-chat-mode-themes.css";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";

@@ -56,7 +56,6 @@ import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import type { ChatFolder } from "../../engine/contracts/types/chat";
 import type { DekiSession } from "../../engine/deki/deki-history";
 import { Modal } from "../../shared/components/ui/Modal";
-import { Reorder, useDragControls } from "framer-motion";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { useStartNewChat } from "./useStartNewChat";
 import {
@@ -90,6 +89,11 @@ type ChatSidebarProps = {
 };
 
 const CHAT_DRAG_MIME = "application/x-de-koi-chat-id";
+const FOLDER_DRAG_MIME = "application/x-de-koi-folder-id";
+
+function hasDataTransferType(event: DragEvent<HTMLElement>, type: string) {
+  return Array.from(event.dataTransfer.types).includes(type);
+}
 
 function getChatTags(chat: { metadata?: { tags?: unknown } | null }): string[] {
   return Array.isArray(chat.metadata?.tags)
@@ -220,6 +224,8 @@ export function ChatSidebar({
   const [movingChatId, setMovingChatId] = useState<string | null>(null);
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
   const [chatDropTarget, setChatDropTarget] = useState<ChatDropTarget>(null);
+  const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
+  const [folderDropTargetId, setFolderDropTargetId] = useState<string | null>(null);
 
   // Multi-select state
   const [multiSelectMode, setMultiSelectMode] = useState(false);
@@ -594,6 +600,59 @@ export function ChatSidebar({
     [reorderFoldersMut],
   );
 
+
+  const clearFolderDragState = useCallback(() => {
+    setDraggedFolderId(null);
+    setFolderDropTargetId(null);
+  }, []);
+
+  const handleFolderDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, folderId: string) => {
+      if (modeFolders.length < 2) {
+        event.preventDefault();
+        return;
+      }
+      setDraggedFolderId(folderId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(FOLDER_DRAG_MIME, folderId);
+      event.dataTransfer.setData("text/plain", folderId);
+    },
+    [modeFolders.length],
+  );
+
+  const handleFolderDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>, targetFolderId: string) => {
+      if (!draggedFolderId || draggedFolderId === targetFolderId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      setFolderDropTargetId((current) => (current === targetFolderId ? current : targetFolderId));
+    },
+    [draggedFolderId],
+  );
+
+  const handleFolderDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>, targetFolderId: string) => {
+      const folderId = draggedFolderId || event.dataTransfer.getData(FOLDER_DRAG_MIME);
+      if (!folderId || folderId === targetFolderId) {
+        clearFolderDragState();
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const withoutDragged = localFolderOrder.filter((id) => id !== folderId);
+      const targetIndex = withoutDragged.indexOf(targetFolderId);
+      if (targetIndex < 0 || withoutDragged.length === localFolderOrder.length) {
+        clearFolderDragState();
+        return;
+      }
+      const nextOrder = [...withoutDragged];
+      nextOrder.splice(targetIndex, 0, folderId);
+      handleFolderReorder(nextOrder);
+      clearFolderDragState();
+    },
+    [clearFolderDragState, draggedFolderId, handleFolderReorder, localFolderOrder],
+  );
   const handleMoveToFolder = useCallback(
     (chatId: string, folderId: string | null) => {
       moveChatMut.mutate({ chatId, folderId });
@@ -1367,8 +1426,6 @@ export function ChatSidebar({
             rows={sidebarRows}
             activeChatId={activeChatId}
             activeGroupId={activeGroupId}
-            localFolderOrder={localFolderOrder}
-            onFolderReorder={handleFolderReorder}
             renderChatRow={(entry, row) => (
               <div
                 data-chat-folder-root={row.folderId === null ? "" : undefined}
@@ -1395,13 +1452,19 @@ export function ChatSidebar({
                 entriesCount={row.entriesCount}
                 style={style}
                 isDropTarget={chatDropTarget?.folderId === row.folder.id}
+                isFolderDropTarget={folderDropTargetId === row.folder.id}
                 draggedChatId={draggedChatId}
+                draggedFolderId={draggedFolderId}
                 onToggleCollapse={handleToggleCollapse}
                 onRename={handleRenameFolder}
                 onDelete={handleDeleteFolder}
                 onChatDragOver={handleChatDragOver}
                 onChatDragLeave={handleChatDragLeave}
                 onChatDrop={handleChatDrop}
+                onFolderDragStart={handleFolderDragStart}
+                onFolderDragOver={handleFolderDragOver}
+                onFolderDrop={handleFolderDrop}
+                onFolderDragEnd={clearFolderDragState}
               />
             )}
             renderSectionHeader={(row, style) =>
@@ -1614,53 +1677,72 @@ export function FolderHeaderRow({
   entriesCount,
   style,
   isDropTarget,
+  isFolderDropTarget,
   draggedChatId,
+  draggedFolderId,
   onToggleCollapse,
   onRename,
   onDelete,
   onChatDragOver,
   onChatDragLeave,
   onChatDrop,
+  onFolderDragStart,
+  onFolderDragOver,
+  onFolderDrop,
+  onFolderDragEnd,
 }: {
   folder: ChatFolder;
   entriesCount: number;
   style: CSSProperties;
   isDropTarget: boolean;
+  isFolderDropTarget: boolean;
   draggedChatId: string | null;
+  draggedFolderId: string | null;
   onToggleCollapse: (folder: ChatFolder) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onChatDragOver: (event: DragEvent<HTMLDivElement>, folderId: string | null) => void;
   onChatDragLeave: (event: DragEvent<HTMLDivElement>) => void;
   onChatDrop: (event: DragEvent<HTMLDivElement>, folderId: string | null) => void;
+  onFolderDragStart: (event: DragEvent<HTMLDivElement>, folderId: string) => void;
+  onFolderDragOver: (event: DragEvent<HTMLDivElement>, folderId: string) => void;
+  onFolderDrop: (event: DragEvent<HTMLDivElement>, folderId: string) => void;
+  onFolderDragEnd: () => void;
 }) {
-  const dragControls = useDragControls();
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(folder.name);
 
   return (
-    <Reorder.Item
+    <div
       key={folder.id}
-      value={folder.id}
-      dragListener={false}
-      dragControls={dragControls}
-      as="div"
       style={style}
-      onDragOver={(event) => onChatDragOver(event, folder.id)}
+      onDragOver={(event) => {
+        if (draggedFolderId || hasDataTransferType(event, FOLDER_DRAG_MIME)) {
+          onFolderDragOver(event, folder.id);
+          return;
+        }
+        onChatDragOver(event, folder.id);
+      }}
       onDragLeave={onChatDragLeave}
-      onDrop={(event) => onChatDrop(event, folder.id)}
+      onDrop={(event) => {
+        if (draggedFolderId || hasDataTransferType(event, FOLDER_DRAG_MIME)) {
+          onFolderDrop(event, folder.id);
+          return;
+        }
+        onChatDrop(event, folder.id);
+      }}
       className={cn(
         "rounded-lg transition-colors",
         draggedChatId && "ring-inset",
-        isDropTarget && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+        draggedFolderId === folder.id && "opacity-60",
+        (isDropTarget || isFolderDropTarget) && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
       )}
     >
       <div className="group relative flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-[var(--sidebar-accent)]/40">
         <div
-          onPointerDown={(e) => {
-            e.preventDefault();
-            dragControls.start(e);
-          }}
+          draggable={!renaming}
+          onDragStart={(event) => onFolderDragStart(event, folder.id)}
+          onDragEnd={onFolderDragEnd}
           className="flex shrink-0 cursor-grab touch-none items-center justify-center opacity-0 transition-opacity active:cursor-grabbing group-hover:opacity-100"
         >
           <GripVertical size="0.625rem" className="text-[var(--muted-foreground)]" />
@@ -1749,7 +1831,7 @@ export function FolderHeaderRow({
           <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
         </button>
       </div>
-    </Reorder.Item>
+    </div>
   );
 }
 // ── Status config ──

@@ -1,29 +1,10 @@
 import { act } from "react";
-import type { ComponentType, ElementType, ReactElement, ReactNode } from "react";
+import type { ComponentType, ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { FolderHeaderRow } from "./ChatSidebar";
 
-vi.mock("framer-motion", () => ({
-  Reorder: {
-    Item: ({
-      as: Component = "div",
-      children,
-      dragControls,
-      dragListener,
-      value,
-      ...props
-    }: {
-      as?: ElementType;
-      children: ReactNode;
-      dragControls?: unknown;
-      dragListener?: boolean;
-      value?: unknown;
-    }) => <Component {...props}>{children}</Component>,
-  },
-  useDragControls: () => ({ start: vi.fn() }),
-}));
 
 function render(element: ReactElement) {
   const container = document.createElement("div");
@@ -77,13 +58,19 @@ describe("chat folder row layout", () => {
         entriesCount={6}
         style={{}}
         isDropTarget={false}
+        isFolderDropTarget={false}
         draggedChatId={null}
+        draggedFolderId={null}
         onToggleCollapse={() => undefined}
         onRename={() => undefined}
         onDelete={() => undefined}
         onChatDragOver={() => undefined}
         onChatDragLeave={() => undefined}
         onChatDrop={() => undefined}
+        onFolderDragStart={() => undefined}
+        onFolderDragOver={() => undefined}
+        onFolderDrop={() => undefined}
+        onFolderDragEnd={() => undefined}
       />,
     );
     root = rendered.root;

@@ -1,3 +1,4 @@
+import "../../../../styles/globals/06-chat-mode-themes.css";
 import { useCallback, useEffect, useMemo } from "react";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import { getChatDisplayName, parseChatMetadata } from "../../../../shared/lib/chat-display";

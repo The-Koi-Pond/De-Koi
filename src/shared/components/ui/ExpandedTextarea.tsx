@@ -3,7 +3,6 @@
 // ──────────────────────────────────────────────
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { Minimize2, Sparkles } from "lucide-react";
 import { MagicRewritePanel } from "./MagicRewritePanel";
 
@@ -69,16 +68,10 @@ export function ExpandedTextarea({ open, onClose, title, value, onChange, placeh
     setMagicRewriteResult("");
   };
 
+  if (!open) return null;
+
   return createPortal(
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-[100] flex flex-col bg-[var(--background)] max-md:pt-[env(safe-area-inset-top)]"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-        >
+    <div className="fixed inset-0 z-[100] flex flex-col bg-[var(--background)] opacity-100 transition-opacity duration-150 max-md:pt-[env(safe-area-inset-top)]">
           {/* Header */}
           <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-3">
             <h2 className="text-sm font-semibold">{magicRewriteMode ? "Magic Rewrite" : title}</h2>
@@ -134,9 +127,7 @@ export function ExpandedTextarea({ open, onClose, title, value, onChange, placeh
               />
             )}
           </div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
+    </div>,
     document.body,
   );
 }
