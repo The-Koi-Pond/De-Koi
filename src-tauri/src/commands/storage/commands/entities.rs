@@ -719,6 +719,8 @@ fn log_storage_operation(
     started_at: Instant,
     result: &Result<Value, AppError>,
 ) {
+    // Keep diagnostics metadata-only. Do not add raw options, filters, IDs,
+    // request bodies, row payloads, secrets, or full paths to this log.
     let mut fields = Map::new();
     fields.insert("collection".to_string(), json!(collection));
     fields.insert("operation".to_string(), json!(operation));

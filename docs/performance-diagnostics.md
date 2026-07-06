@@ -43,6 +43,8 @@ Milestones currently include:
 
 IPC spans include the command name, runtime (`embedded` or `remote`), status, elapsed milliseconds, and failure name/message when a call fails. Arguments and request bodies are intentionally omitted.
 
+Diagnostics are opt-in, but treat exported logs as local troubleshooting material. They intentionally omit raw command arguments, request bodies, filters, row payloads, IDs, secrets, and full file paths. They can still include collection names, operation names, row counts, approximate byte sizes, cache status, timing, and error names/messages, which may reveal local workflow context. Review and redact logs before sharing them publicly.
+
 Storage spans include:
 
 - `collection`
@@ -56,4 +58,4 @@ Storage spans include:
 
 Startup migration spans include `migrationKey`, `migrationStatus` (`run` or `skipped`), `elapsedMs`, and `status`.
 
-Do not paste diagnostics that include private local paths into public issues without reviewing them first.
+Do not paste diagnostics into public issues without reviewing them first.
