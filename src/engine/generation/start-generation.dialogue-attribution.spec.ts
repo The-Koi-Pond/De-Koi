@@ -224,15 +224,15 @@ describe("startGeneration dialogue attribution", () => {
 
     const assistant = messages.find((item) => item.role === "assistant");
     expect(assistant).toBeDefined();
-    expect(assistant!.content).toBe('Aki: "Hi."');
+    expect(assistant!.content).toBe('"Hi."');
     expect(calls).toEqual(
       expect.arrayContaining([`getChatMessage:${assistant!.id}`, `patchChatMessageExtra:${assistant!.id}`]),
     );
     expect(assistant!.extra.dialogueAttributions).toEqual({
       version: 1,
-      textHash: createDialogueAttributionTextHash('Aki: "Hi."'),
+      textHash: createDialogueAttributionTextHash('"Hi."'),
       segments: [
-        { start: 5, end: 10, speakerName: "Aki", speakerId: "char-a", source: "name-prefix", confidence: "explicit" },
+        { start: 0, end: 5, speakerName: "Aki", speakerId: "char-a", source: "name-prefix", confidence: "explicit" },
       ],
     });
     expect(assistant!.swipes[0]?.extra?.dialogueAttributions).toEqual(assistant!.extra.dialogueAttributions);

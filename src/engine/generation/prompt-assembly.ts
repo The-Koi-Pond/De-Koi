@@ -1,4 +1,4 @@
-﻿import type { GenerationContextAttributionItem } from "../contracts/types/chat";
+import type { GenerationContextAttributionItem } from "../contracts/types/chat";
 import type { LorebookActivationTrace, LorebookEntryTimingState } from "../contracts/types/lorebook";
 import type { ChatMLMessage, MarkerConfig, WrapFormat } from "../contracts/types/prompt";
 import { BUILT_IN_AGENTS, enabledChatAgentIds } from "../contracts/types/agent";
@@ -55,6 +55,7 @@ import { formatPerceptionHints, generatePerceptionHints } from "../modes/game/me
 import { applyAllSegmentEdits } from "../modes/game/state/segment-edits";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { activeCharacterIds } from "./active-characters";
+import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPrioritySkipped } from "./context-priority";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
 import {
@@ -204,6 +205,7 @@ interface PromptAssemblyReusableContext {
   processedLore: ActiveLorebookScannerResult["processedLore"];
   summary: string | null;
   memoryRecallBlock: string | null;
+  canonicalMemoryBlock: string | null;
   contextAttributionItems: GenerationContextAttributionItem[];
   history: ChatMLMessage[];
   greetingPromptVariables: Record<string, string>;
@@ -3951,7 +3953,9 @@ export async function assembleGenerationPrompt(
     canReuseSourceSensitiveContext && reusableContext
       ? {
           block: reusableContext.memoryRecallBlock,
-          attributionItems: reusableContext.contextAttributionItems.filter((item) => item.kind === "memory_recall"),
+          attributionItems: reusableContext.contextAttributionItems.filter(
+            (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source !== "canonical_memory",
+          ),
         }
       : await buildMemoryRecallBlock(
           storage,
@@ -3963,6 +3967,27 @@ export async function assembleGenerationPrompt(
           characters.flatMap((character) => character.memories ?? []),
         );
   const memoryRecallBlock = memoryRecallContext?.block ?? null;
+  const canonicalMemoryContext =
+    canReuseSourceSensitiveContext && reusableContext
+      ? {
+          block: reusableContext.canonicalMemoryBlock,
+          attributionItems: reusableContext.contextAttributionItems.filter(
+            (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source === "canonical_memory",
+          ),
+        }
+      : await buildCanonicalMemoryContext(storage, {
+          chat: input.chat,
+          storedMessages: input.storedMessages,
+          latestUserInput: input.latestUserInput,
+          characters: characters.map((character) => ({
+            id: character.id,
+            name: character.name,
+            description: character.description,
+            tags: character.tags,
+          })),
+          maxContext,
+        });
+  const canonicalMemoryBlock = canonicalMemoryContext?.block ?? null;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
@@ -4175,6 +4200,15 @@ export async function assembleGenerationPrompt(
     });
   }
 
+  if (canonicalMemoryBlock) {
+    const insertAt = messages.findIndex((message) => message.role === "user" || message.role === "assistant");
+    messages.splice(insertAt >= 0 ? insertAt : messages.length, 0, {
+      role: "system",
+      content: canonicalMemoryBlock,
+      contextKind: "prompt",
+    });
+  }
+
   insertBeforeLastUser(messages, [
     ...(await buildConversationContextBlocks(storage, input, characters, wrapFormat)),
     ...buildConnectedConversationBlocks(input.chat),
@@ -4236,6 +4270,7 @@ export async function assembleGenerationPrompt(
   const contextAttributionItems = [
     ...historyAndSummaryAttributionItems,
     ...(memoryRecallContext?.attributionItems ?? []),
+    ...(canonicalMemoryContext?.attributionItems ?? []),
     ...attributionForLorebookEntries(processedLore.includedEntries.map(lorebookActivatedEntryForEvent)),
   ];
 
@@ -4257,6 +4292,7 @@ export async function assembleGenerationPrompt(
     processedLore,
     summary,
     memoryRecallBlock,
+    canonicalMemoryBlock,
     contextAttributionItems,
     history,
     greetingPromptVariables,
