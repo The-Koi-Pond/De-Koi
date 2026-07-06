@@ -105,8 +105,6 @@ describe("chat sidebar virtual list", () => {
           rows={rows}
           activeChatId="chat-900"
           activeGroupId={null}
-          localFolderOrder={[]}
-          onFolderReorder={() => undefined}
           renderChatRow={(entry) => <div data-chat-row data-chat-id={entry.chat.id} />}
           renderFolderHeader={() => <div data-folder-row />}
           renderSectionHeader={(row) => <div data-section-row>{row.label}</div>}
@@ -138,8 +136,6 @@ describe("chat sidebar virtual list", () => {
           rows={rows}
           activeChatId={null}
           activeGroupId={null}
-          localFolderOrder={[folderA.id, folderB.id]}
-          onFolderReorder={() => undefined}
           renderChatRow={(entry) => <div data-chat-row data-chat-id={entry.chat.id} />}
           renderFolderHeader={(row, style) => (
             <div data-folder-row={row.folder.name} style={{ ...style, transform: "none" }} />

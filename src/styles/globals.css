@@ -15,9 +15,9 @@
   - globals/03-base-shell.css: reset, body, cursors, scrollbars, app chrome, titlebar.
   - globals/04-surfaces-components.css: panels, home surface, quick-start cards, discovery, settings.
   - globals/05-effects-utilities.css: shared keyframes, button effects, dividers, utility animations.
-  - globals/06-chat-mode-themes.css: conversation, roleplay, RPG, sprites, HUD, function-call cards.
+  - globals/06-chat-mode-themes.css: lazy-loaded by conversation and roleplay mode routes.
   - globals/07-responsive-accessibility.css: breakpoints, touch targets, reduced motion, performance hints.
-  - globals/08-game-cinematic-effects.css: game effects, animated text, cinematic direction, Mari scene.
+  - globals/08-game-cinematic-effects.css: lazy-loaded by the game mode route.
 
   Keep imports ordered. Later modules intentionally override earlier ones.
 */
@@ -27,6 +27,4 @@
 @import "./globals/03-base-shell.css";
 @import "./globals/04-surfaces-components.css";
 @import "./globals/05-effects-utilities.css";
-@import "./globals/06-chat-mode-themes.css";
 @import "./globals/07-responsive-accessibility.css";
-@import "./globals/08-game-cinematic-effects.css";

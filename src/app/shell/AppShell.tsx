@@ -35,7 +35,6 @@ import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
 import { shouldUseLowPowerShellMode } from "./shell-performance";
-import { motion, AnimatePresence } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -115,10 +114,6 @@ const SHARED_PANEL_WIDTH_MAX = Math.min(SIDEBAR_WIDTH_MAX, RIGHT_PANEL_WIDTH_MAX
 const RESIZER_HITBOX = 10;
 const TRACKER_PANEL_EDGE_OFFSET = 8;
 const TRACKER_PANEL_HUD_GAP = 6;
-const TRACKER_PANEL_DESKTOP_MOTION_MS = 260;
-const TRACKER_PANEL_DESKTOP_EXIT_MS = 240;
-const TRACKER_PANEL_DESKTOP_EASE = [0.16, 1, 0.3, 1] as const;
-const TRACKER_PANEL_DESKTOP_EXIT_EASE = [0.4, 0, 1, 1] as const;
 const TRACKER_PANEL_TOGGLE_SELECTOR = '[data-tracker-panel-toggle="roleplay-hud"]';
 const TRACKER_PANEL_ANCHOR_SELECTOR = '[data-tracker-panel-anchor="roleplay-hud"]';
 const TOP_BAR_SELECTOR = '[data-component="TopBar"]';
@@ -191,7 +186,7 @@ function MainPaneFallback() {
   return <ShellLoadingFallback />;
 }
 /** Mounts children once `open` becomes true, then keeps them mounted so state persists.
- *  `overlay` mode uses framer-motion slide-in and never unmounts. */
+ *  `overlay` mode uses CSS slide-in and never unmounts. */
 function MountOnceWhenOpened({
   open,
   children,
@@ -211,20 +206,17 @@ function MountOnceWhenOpened({
   }, [open, everOpened]);
   if (!everOpened) return null;
   if (overlay) {
-    const closedPosition = slideFromBottom ? { opacity: 0, x: 0, y: 30 } : { opacity: 0, x: 30, y: 0 };
     return (
-      <motion.div
-        initial={closedPosition}
-        animate={open ? { opacity: 1, x: 0, y: 0 } : closedPosition}
-        transition={{ duration: 0.2 }}
+      <div
         className={cn(
-          "absolute inset-0 flex flex-col overflow-hidden bg-[var(--background)]",
-          open ? "z-20" : "z-10 pointer-events-none",
+          "absolute inset-0 flex flex-col overflow-hidden bg-[var(--background)] transition-[opacity,transform] duration-200 ease-out",
+          open ? "z-20 translate-x-0 translate-y-0 opacity-100" : "z-10 pointer-events-none opacity-0",
+          !open && (slideFromBottom ? "translate-y-8" : "translate-x-8"),
         )}
         style={hideOverlayWhenClosed && !open ? { display: "none" } : undefined}
       >
         <Suspense fallback={<MainPaneFallback />}>{children}</Suspense>
-      </motion.div>
+      </div>
     );
   }
   return (
@@ -434,9 +426,7 @@ export function AppShell() {
   const clearUnread = useChatStore((s) => s.clearUnread);
   const { mutate: clearAutonomousUnread, isPending: isClearingAutonomousUnread } = useClearAutonomousUnread();
   const [trackerPanelTop, setTrackerPanelTop] = useState(TRACKER_PANEL_EDGE_OFFSET);
-  const [trackerPanelExitLayoutHold, setTrackerPanelExitLayoutHold] = useState(false);
   const [trackerPanelToggleAnchorY, setTrackerPanelToggleAnchorY] = useState<number | null>(null);
-  const trackerPanelWasActiveRef = useRef(false);
   const lastAutonomousUnreadClearRef = useRef<string | null>(null);
 
   const syncDekiSessionState = useCallback((state: DekiSessionsState) => {
@@ -783,23 +773,9 @@ export function AppShell() {
   const trackerPanelSurfaceAvailable =
     trackerPanelModeAvailable && !botBrowserOpen && !gameAssetsBrowserOpen && !hasDetailView && !dekiOpen;
   const trackerPanelVisible = trackerPanelActive && trackerPanelSurfaceAvailable;
-  useEffect(() => {
-    if (trackerPanelVisible) {
-      trackerPanelWasActiveRef.current = true;
-      setTrackerPanelExitLayoutHold(false);
-      return;
-    }
-    if (!trackerPanelWasActiveRef.current) return;
 
-    trackerPanelWasActiveRef.current = false;
-    setTrackerPanelExitLayoutHold(true);
-    const timeout = window.setTimeout(() => setTrackerPanelExitLayoutHold(false), TRACKER_PANEL_DESKTOP_EXIT_MS);
-    return () => window.clearTimeout(timeout);
-  }, [trackerPanelVisible]);
-
-  const trackerPanelPendingExit = !trackerPanelVisible && trackerPanelWasActiveRef.current;
-  const trackerPanelAnchoredForMotion = trackerPanelVisible || trackerPanelExitLayoutHold || trackerPanelPendingExit;
-  const trackerPanelDockToEdge = trackerPanelAnchoredForMotion && trackerPanelHideHudWidgets;
+  const trackerPanelAnchoredForMotion = trackerPanelVisible;
+  const trackerPanelDockToEdge = trackerPanelVisible && trackerPanelHideHudWidgets;
   const updateTrackerPanelToggleAnchor = useCallback(() => {
     const root = mainRef.current;
     const toggle =
@@ -1162,40 +1138,13 @@ export function AppShell() {
 
   const trackerPanelDesktop = (side: "left" | "right") =>
     trackerPanelVisible && trackerPanelSide === side ? (
-      <motion.aside
+      <aside
         key={`tracker-${side}`}
-        initial={{
-          x: side === "left" ? -22 : 22,
-          y: Math.max(-18, Math.min(10, ((trackerPanelToggleAnchorY ?? trackerPanelTop) - trackerPanelTop) * 0.25)),
-          scaleX: 0.86,
-          scaleY: 0.12,
-          opacity: 0,
-        }}
-        animate={{
-          x: 0,
-          y: 0,
-          scaleX: 1,
-          scaleY: 1,
-          opacity: 1,
-          transition: { duration: TRACKER_PANEL_DESKTOP_MOTION_MS / 1000, ease: TRACKER_PANEL_DESKTOP_EASE },
-        }}
-        exit={{
-          x: side === "left" ? -14 : 14,
-          y: Math.max(-16, Math.min(8, ((trackerPanelToggleAnchorY ?? trackerPanelTop) - trackerPanelTop) * 0.2)),
-          scaleX: 0.9,
-          scaleY: 0.14,
-          opacity: 0,
-          transition: {
-            duration: TRACKER_PANEL_DESKTOP_EXIT_MS / 1000,
-            ease: TRACKER_PANEL_DESKTOP_EXIT_EASE,
-            opacity: { duration: 0.08, delay: TRACKER_PANEL_DESKTOP_EXIT_MS / 1000 - 0.08, ease: "linear" },
-          },
-        }}
         data-component={`TrackerDataSidebarDesktop.${side}`}
         data-tracker-size-profile={trackerPanelSizeProfile}
         aria-label="Tracker data panel"
         className={cn(
-          "mari-tracker-panel fixed z-30 hidden overflow-hidden bg-[var(--background)]/20 shadow-2xl ring-1 ring-[var(--border)]/35 backdrop-blur-2xl transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] md:block",
+          "mari-tracker-panel fixed z-30 hidden overflow-hidden bg-[var(--background)]/20 shadow-2xl ring-1 ring-[var(--border)]/35 backdrop-blur-2xl transition-[width,transform,opacity] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[transform,opacity] md:block",
           side === "left" ? "rounded-r-xl" : "rounded-l-xl",
         )}
         style={{
@@ -1216,7 +1165,7 @@ export function AppShell() {
             <TrackerDataSidebar />
           </Suspense>
         </div>
-      </motion.aside>
+      </aside>
     ) : null;
 
   return (
@@ -1332,10 +1281,7 @@ export function AppShell() {
               />
             </>
           )}
-
-          <AnimatePresence initial={false}>
-            {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("left")}
-          </AnimatePresence>
+          {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("left")}
 
           {/* Center content */}
           <main
@@ -1407,42 +1353,30 @@ export function AppShell() {
               </Suspense>
             )}
           </main>
-
-          <AnimatePresence initial={false}>
-            {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("right")}
-          </AnimatePresence>
+          {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("right")}
 
           {/* Mobile tracker panel */}
-          {isMobile && (
-            <AnimatePresence mode="wait">
-              {trackerPanelVisible && (
-                <motion.aside
-                  ref={mobileTrackerPanelRef}
-                  key="mobile-tracker"
-                  initial={{ x: trackerPanelSide === "left" ? "-100%" : "100%" }}
-                  animate={{ x: 0 }}
-                  exit={{ x: trackerPanelSide === "left" ? "-100%" : "100%" }}
-                  transition={{ type: "spring", damping: 28, stiffness: 350 }}
-                  data-component="TrackerDataSidebarMobile"
-                  aria-label="Tracker data panel"
-                  role="dialog"
-                  aria-modal="true"
-                  className={cn(
-                    "mari-tracker-panel fixed! top-0 z-[70] overflow-y-auto bg-[var(--background)]/65 shadow-2xl backdrop-blur-xl",
-                    trackerPanelSide === "left" ? "left-0" : "right-0",
-                  )}
-                  style={{
-                    width: mobileTrackerPanelWidth,
-                    paddingTop: "calc(3.25rem + env(safe-area-inset-top))",
-                    bottom: "calc(3.5rem + env(safe-area-inset-bottom))",
-                  }}
-                >
-                  <Suspense fallback={<SidePanelFallback />}>
-                    <TrackerDataSidebar fillHeight />
-                  </Suspense>
-                </motion.aside>
+          {isMobile && trackerPanelVisible && (
+            <aside
+              ref={mobileTrackerPanelRef}
+              data-component="TrackerDataSidebarMobile"
+              aria-label="Tracker data panel"
+              role="dialog"
+              aria-modal="true"
+              className={cn(
+                "mari-tracker-panel fixed! top-0 z-[70] overflow-y-auto bg-[var(--background)]/65 shadow-2xl backdrop-blur-xl transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
+                trackerPanelSide === "left" ? "left-0" : "right-0",
               )}
-            </AnimatePresence>
+              style={{
+                width: mobileTrackerPanelWidth,
+                paddingTop: "calc(3.25rem + env(safe-area-inset-top))",
+                bottom: "calc(3.5rem + env(safe-area-inset-bottom))",
+              }}
+            >
+              <Suspense fallback={<SidePanelFallback />}>
+                <TrackerDataSidebar fillHeight />
+              </Suspense>
+            </aside>
           )}
 
           {/* Mobile tracker panel backdrop */}
@@ -1463,29 +1397,22 @@ export function AppShell() {
 
           {/* Right panel - Context / Settings */}
           {isMobile ? (
-            <AnimatePresence mode="wait">
-              {rightPanelOpen && (
-                <motion.aside
-                  ref={mobileRightPanelRef}
-                  key="mobile"
-                  initial={{ x: "100%" }}
-                  animate={{ x: 0 }}
-                  exit={{ x: "100%" }}
-                  transition={{ type: "spring", damping: 28, stiffness: 350 }}
-                  data-component="RightPanelMobile"
-                  aria-label="Settings and tools panel"
-                  aria-modal="true"
-                  role="dialog"
-                  tabIndex={-1}
-                  className="mari-right-panel fixed! top-0 right-0 z-[70] w-full! shadow-2xl overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl pt-[env(safe-area-inset-top)]"
-                  style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
-                >
-                  <Suspense fallback={<SidePanelFallback />}>
-                    <RightPanel />
-                  </Suspense>
-                </motion.aside>
-              )}
-            </AnimatePresence>
+            rightPanelOpen && (
+              <aside
+                ref={mobileRightPanelRef}
+                data-component="RightPanelMobile"
+                aria-label="Settings and tools panel"
+                aria-modal="true"
+                role="dialog"
+                tabIndex={-1}
+                className="mari-right-panel fixed! top-0 right-0 z-[70] w-full! shadow-2xl overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl pt-[env(safe-area-inset-top)] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
+              >
+                <Suspense fallback={<SidePanelFallback />}>
+                  <RightPanel />
+                </Suspense>
+              </aside>
+            )
           ) : (
             <aside
               data-component="RightPanelDesktop"

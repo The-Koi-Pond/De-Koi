@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Reorder } from "framer-motion";
 
 type ChatEntryLike = {
   chat: {
@@ -98,8 +97,6 @@ export function ChatSidebarVirtualList<TFolder extends FolderLike, TEntry extend
   rows,
   activeChatId,
   activeGroupId,
-  localFolderOrder,
-  onFolderReorder,
   renderChatRow,
   renderFolderHeader,
   renderSectionHeader,
@@ -107,8 +104,6 @@ export function ChatSidebarVirtualList<TFolder extends FolderLike, TEntry extend
   rows: ChatSidebarVirtualRow<TFolder, TEntry>[];
   activeChatId: string | null;
   activeGroupId: string | null;
-  localFolderOrder: string[];
-  onFolderReorder: (folderIds: string[]) => void;
   renderChatRow: (entry: TEntry, row: Extract<ChatSidebarVirtualRow<TFolder, TEntry>, { type: "chat" }>) => ReactNode;
   renderFolderHeader: (
     row: Extract<ChatSidebarVirtualRow<TFolder, TEntry>, { type: "folder" }>,
@@ -145,14 +140,7 @@ export function ChatSidebarVirtualList<TFolder extends FolderLike, TEntry extend
 
   return (
     <div ref={scrollRef} className="stagger-children min-h-0 flex-1 overflow-y-auto pr-1">
-      <Reorder.Group
-        axis="y"
-        values={localFolderOrder}
-        onReorder={onFolderReorder}
-        as="div"
-        className="relative"
-        style={{ height: rowVirtualizer.getTotalSize() }}
-      >
+      <div className="relative" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const row = rows[virtualRow.index];
           if (!row) return null;
@@ -177,7 +165,7 @@ export function ChatSidebarVirtualList<TFolder extends FolderLike, TEntry extend
             </div>
           );
         })}
-      </Reorder.Group>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { MoreHorizontal } from "lucide-react";
 import { cn } from "../../../../../shared/lib/utils";
 import {
@@ -189,81 +188,45 @@ export function QuickReplyMenu({ actions, disabled = false }: QuickReplyMenuProp
         <MoreHorizontal size="1rem" />
       </button>
 
-      <AnimatePresence>
-        {open && (
-          <div className="absolute bottom-full left-1/2 z-[60] mb-2 -translate-x-1/2">
-            <motion.div
-              key="quick-replies-rail"
-              role="menu"
-              aria-label="Quick replies"
-              aria-orientation="vertical"
-              className="flex flex-col items-center gap-1.5"
-              initial="closed"
-              animate="open"
-              exit="closed"
-              variants={{
-                open: { transition: { staggerChildren: 0.045, delayChildren: 0.02 } },
-                closed: { transition: { staggerChildren: 0.025, staggerDirection: -1 } },
-              }}
-            >
-              {visibleActions.map((action, index) => (
-                <motion.button
-                  ref={(element) => {
-                    itemRefs.current[index] = element;
-                  }}
-                  key={action.id}
-                  type="button"
-                  role="menuitem"
-                  disabled={action.disabled}
-                  onClick={() => void handleSelect(action)}
-                  onKeyDown={(event) => handleItemKeyDown(event, index)}
-                  aria-label={`${action.label}: ${action.description}`}
+      {open && (
+        <div className="absolute bottom-full left-1/2 z-[60] mb-2 -translate-x-1/2">
+          <div role="menu" aria-label="Quick replies" aria-orientation="vertical" className="flex flex-col items-center gap-1.5">
+            {visibleActions.map((action, index) => (
+              <button
+                ref={(element) => {
+                  itemRefs.current[index] = element;
+                }}
+                key={action.id}
+                type="button"
+                role="menuitem"
+                disabled={action.disabled}
+                onClick={() => void handleSelect(action)}
+                onKeyDown={(event) => handleItemKeyDown(event, index)}
+                aria-label={`${action.label}: ${action.description}`}
+                className={cn(
+                  "group relative flex h-10 w-10 items-center justify-center rounded-full border shadow-xl outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-[var(--primary)] animate-message-in",
+                  action.disabled
+                    ? "cursor-not-allowed border-[var(--border)] bg-[var(--card)]/75 opacity-45"
+                    : "border-foreground/15 bg-[var(--card)] text-foreground/60 hover:border-foreground/25 hover:bg-foreground/10 hover:text-foreground/80 active:scale-95",
+                )}
+                style={{ transitionDelay: `${index * 15}ms` }}
+                title={formatActionTitle(action)}
+              >
+                <span
                   className={cn(
-                    "group relative flex h-10 w-10 items-center justify-center rounded-full border shadow-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--primary)]",
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-1 transition-colors",
                     action.disabled
-                      ? "cursor-not-allowed border-[var(--border)] bg-[var(--card)]/75 opacity-45"
-                      : "border-foreground/15 bg-[var(--card)] text-foreground/60 hover:border-foreground/25 hover:bg-foreground/10 hover:text-foreground/80 active:scale-95",
+                      ? "bg-foreground/5 text-foreground/40 ring-transparent"
+                      : "bg-foreground/10 ring-foreground/15 group-hover:bg-transparent group-hover:ring-transparent",
                   )}
-                  title={formatActionTitle(action)}
-                  variants={{
-                    open: {
-                      opacity: 1,
-                      scale: 1,
-                      y: 0,
-                      filter: "blur(0px)",
-                      transition: {
-                        type: "spring",
-                        stiffness: 520,
-                        damping: 28,
-                        mass: 0.75,
-                        delay: index * 0.015,
-                      },
-                    },
-                    closed: {
-                      opacity: 0,
-                      scale: 0.55,
-                      y: 36 + index * 10,
-                      filter: "blur(2px)",
-                      transition: { duration: 0.12, ease: "easeOut" },
-                    },
-                  }}
                 >
-                  <span
-                    className={cn(
-                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-1 transition-colors",
-                      action.disabled
-                        ? "bg-foreground/5 text-foreground/40 ring-transparent"
-                        : "bg-foreground/10 ring-foreground/15 group-hover:bg-transparent group-hover:ring-transparent",
-                    )}
-                  >
-                    {action.icon}
-                  </span>
-                </motion.button>
-              ))}
-            </motion.div>
+                  {action.icon}
+                </span>
+              </button>
+            ))}
           </div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
     </div>
   );
 }
