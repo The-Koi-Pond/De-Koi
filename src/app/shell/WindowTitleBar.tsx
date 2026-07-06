@@ -201,17 +201,28 @@ export function WindowTitleBar({
     >
       {platform === "darwin" && showWindowControls && controls}
       {effectiveWebMode ? (
-        <button
-          type="button"
-          className="mari-titlebar-action mari-titlebar-web-home-button ml-2.5 rounded-md p-1.5 text-[var(--muted-foreground)] transition-all duration-200 hover:text-[var(--primary)]"
-          onClick={goHome}
-          onMouseDown={(event) => event.stopPropagation()}
-          onDoubleClick={(event) => event.stopPropagation()}
-          title="Home"
-          aria-label="Home"
-        >
-          <Home size="0.9rem" aria-hidden />
-        </button>
+        <>
+          <ChatTitleControls
+            className="pl-2.5 pr-0"
+            dekiOpen={dekiOpen}
+            onOpenDeki={onOpenDeki}
+            onGoHome={onGoHome}
+            hideHome
+            hideDeki
+            showDivider={false}
+          />
+          <button
+            type="button"
+            className="mari-titlebar-action mari-titlebar-web-home-button rounded-md p-1.5 text-[var(--muted-foreground)] transition-all duration-200 hover:text-[var(--primary)]"
+            onClick={goHome}
+            onMouseDown={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title="Home"
+            aria-label="Home"
+          >
+            <Home size="0.9rem" aria-hidden />
+          </button>
+        </>
       ) : (
         <ChatTitleControls
           className="pl-2.5 pr-0"

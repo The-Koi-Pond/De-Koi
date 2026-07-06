@@ -46,6 +46,25 @@ describe("WindowTitleBar web mode", () => {
     expect(container!.querySelectorAll('button[aria-label="Home"]')).toHaveLength(1);
     expect(container!.querySelector(".mari-title-home-button")).toBeNull();
   });
+
+  it("keeps the sidebar collapse control available in web mode", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<WindowTitleBar webMode />);
+    });
+
+    const sidebarToggle = container!.querySelector<HTMLButtonElement>('[data-tour="sidebar-toggle"]');
+
+    expect(sidebarToggle).toBeTruthy();
+    expect(sidebarToggle?.getAttribute("aria-label")).toBe("Close chats");
+
+    await act(async () => {
+      sidebarToggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useUIStore.getState().sidebarOpen).toBe(false);
+  });
+
   it("treats browser-hosted shells without desktop controls as web mode", async () => {
     await act(async () => {
       root = createRoot(container!);

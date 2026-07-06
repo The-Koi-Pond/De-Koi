@@ -15,6 +15,7 @@ export function ChatTitleControls({
   className,
   hideDekiOnNarrow = false,
   hideHome = false,
+  hideDeki = false,
   showDivider = true,
 }: {
   dekiOpen?: boolean;
@@ -23,6 +24,7 @@ export function ChatTitleControls({
   className?: string;
   hideDekiOnNarrow?: boolean;
   hideHome?: boolean;
+  hideDeki?: boolean;
   showDivider?: boolean;
 }) {
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
@@ -83,27 +85,29 @@ export function ChatTitleControls({
           />
         </button>
       )}
-      <button
-        type="button"
-        onClick={openDeki}
-        onMouseDown={stopChromeDrag}
-        onDoubleClick={stopChromeDrag}
-        className={cn(
-          "mari-titlebar-action relative rounded-md p-1 transition-all duration-200",
-          hideDekiOnNarrow && "mari-titlebar-action-mobile-optional",
-          dekiOpen
-            ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
-            : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
-        )}
-        title="Deki-senpai"
-        aria-label="Deki-senpai"
-        aria-pressed={dekiOpen}
-      >
-        <MessageCircleHeart size="0.95rem" aria-hidden />
-        {dekiOpen && (
-          <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
-        )}
-      </button>
+      {!hideDeki && (
+        <button
+          type="button"
+          onClick={openDeki}
+          onMouseDown={stopChromeDrag}
+          onDoubleClick={stopChromeDrag}
+          className={cn(
+            "mari-titlebar-action relative rounded-md p-1 transition-all duration-200",
+            hideDekiOnNarrow && "mari-titlebar-action-mobile-optional",
+            dekiOpen
+              ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
+              : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
+          )}
+          title="Deki-senpai"
+          aria-label="Deki-senpai"
+          aria-pressed={dekiOpen}
+        >
+          <MessageCircleHeart size="0.95rem" aria-hidden />
+          {dekiOpen && (
+            <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
+          )}
+        </button>
+      )}
       {showDivider && <span className="mari-chat-title-divider" aria-hidden />}
     </div>
   );
