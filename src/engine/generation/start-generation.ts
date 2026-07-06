@@ -947,7 +947,11 @@ export function illustratorPromptData(result: AgentResult): IllustrationPromptDa
     reason: readString(data.reason ?? data.rationale ?? data.why).trim(),
     negativePrompt: readString(data.negativePrompt ?? data.negative_prompt ?? data.negative).trim(),
     characterNames: stringArray(
-      data.characters ?? data.characterNames ?? data.character_names ?? data.visibleCharacters ?? data.visible_characters,
+      data.characters ??
+        data.characterNames ??
+        data.character_names ??
+        data.visibleCharacters ??
+        data.visible_characters,
     ),
   };
 }
@@ -959,10 +963,7 @@ function isIllustratorResult(result: AgentResult): boolean {
 function manualIllustratorFallbackPrompt(target: JsonRecord | null): string {
   const content = readString(target?.content).replace(/\s+/g, " ").trim();
   if (!content) return "";
-  return [
-    "Illustrate the selected roleplay message as a visual scene.",
-    `Selected message: ${content}`,
-  ].join("\n\n");
+  return ["Illustrate the selected roleplay message as a visual scene.", `Selected message: ${content}`].join("\n\n");
 }
 
 function manualIllustratorFallbackResult(args: {
@@ -3735,8 +3736,8 @@ async function runGenerationAgentsForTarget(args: {
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
       signal,
       regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
-      spotifyDjManualRetry: agentTypes.has("spotify"),
-      spotifyDjForceFreshPick: agentTypes.has("spotify"),
+      spotifyDjManualRetry: agentTypes.has("spotify") || agentTypes.has("music-dj"),
+      spotifyDjForceFreshPick: agentTypes.has("spotify") || agentTypes.has("music-dj"),
     },
     (result) => results.push(result),
   );
@@ -3756,7 +3757,10 @@ async function runGenerationAgentsForTarget(args: {
     results: speculativeResults,
   });
   if (manualIllustratorFallback) {
-    speculativeResults = [...speculativeResults.filter((result) => !isIllustratorResult(result)), manualIllustratorFallback];
+    speculativeResults = [
+      ...speculativeResults.filter((result) => !isIllustratorResult(result)),
+      manualIllustratorFallback,
+    ];
   }
   const isManualIllustratorRetryWithoutPrompt =
     target !== null &&

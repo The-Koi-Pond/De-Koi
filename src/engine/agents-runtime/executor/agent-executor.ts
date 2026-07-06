@@ -211,7 +211,7 @@ export async function executeAgent(
               ? buildMusicDjAgentMessages(config, template, context)
               : config.type === "spotify"
                 ? buildSpotifyAgentMessages(config, template, context)
-              : buildStandardAgentMessages(config, template, context);
+                : buildStandardAgentMessages(config, template, context);
 
     const temperature = agentTemperature(config);
     const maxTokens = applyProviderMaxTokensOverride(provider, normalizeAgentMaxTokens(config.settings.maxTokens));
@@ -1830,7 +1830,6 @@ function illustratorReferenceEntries(context: AgentContext): Array<{ name: strin
     .filter((entry) => entry.name && entry.image);
 }
 
-
 function buildStandardAgentMessages(config: AgentExecConfig, template: string, context: AgentContext): ChatMessage[] {
   // Build the agent's system prompt with <role> + <lore> + <agents> + extras
   const systemParts: string[] = [];
@@ -2491,6 +2490,12 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
     parts.push(`<spotify_dj_constraints>`);
     parts.push(JSON.stringify(context.memory._spotifyDjConstraints));
     parts.push(`</spotify_dj_constraints>`);
+  }
+
+  if (agentTypes.includes("music-dj") && context.memory._musicDjConstraints) {
+    parts.push(`<music_dj_constraints>`);
+    parts.push(JSON.stringify(context.memory._musicDjConstraints));
+    parts.push(`</music_dj_constraints>`);
   }
 
   if (agentTypes.includes("lorebook-keeper") && context.memory._existingLorebookEntries) {

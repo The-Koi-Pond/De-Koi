@@ -14,7 +14,6 @@ import {
   spriteExpressionPatchesForTarget,
 } from "./start-generation";
 
-
 function retryIllustrationStorage() {
   const chat = {
     id: "chat-1",
@@ -54,8 +53,10 @@ function retryIllustrationStorage() {
         return null;
       },
       async list(entity: string) {
-        if (entity === "agents") return [{ id: "illustrator", type: "illustrator", name: "Illustrator", enabled: true }];
-        if (entity === "connections") return [connection, { id: "image-conn", provider: "image_generation", defaultForAgents: true }];
+        if (entity === "agents")
+          return [{ id: "illustrator", type: "illustrator", name: "Illustrator", enabled: true }];
+        if (entity === "connections")
+          return [connection, { id: "image-conn", provider: "image_generation", defaultForAgents: true }];
         return [];
       },
       async listChatMessages(_chatId: string, options?: { before?: unknown }) {
@@ -77,6 +78,108 @@ function retryIllustrationStorage() {
       async create(entity: string, value?: Record<string, unknown>) {
         writes.push({ type: "create", entity });
         return { id: `${entity}-1`, url: value?.url, ...(value ?? {}) };
+      },
+      async update(entity?: string) {
+        writes.push({ type: "update", entity });
+        return {};
+      },
+      async delete(entity?: string) {
+        writes.push({ type: "delete", entity });
+        return { deleted: false };
+      },
+      async createChatMessage() {
+        writes.push({ type: "createChatMessage" });
+        return {};
+      },
+      async updateChatMessage() {
+        writes.push({ type: "updateChatMessage" });
+        return {};
+      },
+      async deleteChatMessage() {
+        writes.push({ type: "deleteChatMessage" });
+        return { deleted: false };
+      },
+      async addChatMessageSwipe() {
+        writes.push({ type: "addChatMessageSwipe" });
+        return {};
+      },
+      async patchChatMetadata() {
+        writes.push({ type: "patchChatMetadata" });
+        return {};
+      },
+      async listLorebookEntries() {
+        return [];
+      },
+    },
+  };
+}
+function retryMusicDjStorage(
+  agentRows: Array<Record<string, unknown>> = [
+    { id: "music-dj", type: "music-dj", name: "Music Player", enabled: true },
+  ],
+) {
+  const chat = {
+    id: "chat-1",
+    mode: "roleplay",
+    connectionId: "conn-1",
+    metadata: {},
+    characterIds: [],
+  };
+  const connection = { id: "conn-1", provider: "openai", model: "chat-model" };
+  const target = {
+    id: "assistant-1",
+    chatId: "chat-1",
+    role: "assistant",
+    content: "Mira reviews the contract across a polished office table.",
+    createdAt: "2026-01-01T00:01:00.000Z",
+    updatedAt: "2026-01-01T00:01:00.000Z",
+    extra: {},
+  };
+  const user = {
+    id: "user-1",
+    chatId: "chat-1",
+    role: "user",
+    content: "I ask what the professional understanding really costs.",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    extra: {},
+  };
+  const state = new Map<string, Record<string, unknown>>([[target.id, { ...target }]]);
+  const writes: Array<{ type: string; entity?: string; messageId?: string }> = [];
+  return {
+    writes,
+    storage: {
+      async get(entity: string, id: string) {
+        if (entity === "chats" && id === chat.id) return chat;
+        if (entity === "connections" && id === connection.id) return connection;
+        if (entity === "messages" && id === target.id) return state.get(target.id)!;
+        if (entity === "messages" && id === user.id) return user;
+        return null;
+      },
+      async list(entity: string) {
+        if (entity === "agents") return agentRows;
+        if (entity === "connections") return [connection];
+        return [];
+      },
+      async listChatMessages(_chatId: string, options?: { before?: unknown }) {
+        return options?.before ? [user] : [user, state.get(target.id)!];
+      },
+      async getChatMessage(messageId: string) {
+        if (messageId === target.id) return state.get(target.id)!;
+        if (messageId === user.id) return user;
+        return null;
+      },
+      async patchChatMessageExtra(messageId: string, patch: Record<string, unknown>) {
+        writes.push({ type: "patchChatMessageExtra", messageId });
+        const current = state.get(messageId);
+        if (!current) throw new Error("missing message");
+        const next = { ...current, extra: { ...(current.extra as Record<string, unknown>), ...patch } };
+        state.set(messageId, next);
+        return next;
+      },
+      async create(entity: string, value?: Record<string, unknown>) {
+        writes.push({ type: "create", entity });
+        return { id: `${entity}-1`, ...(value ?? {}) };
       },
       async update(entity?: string) {
         writes.push({ type: "update", entity });
@@ -657,7 +760,6 @@ describe("illustrationReferenceImagesForRequest", () => {
     return `data:image/png;base64,${pngHeader}${"A".repeat(fillerLength)}${marker}`;
   };
 
-
   it("drops oversized and excess image references before image generation requests", () => {
     const nearLimitImage = dataUrl(8 * 1024 * 1024);
     const tooLargeImage = dataUrl(8 * 1024 * 1024 + 4);
@@ -713,9 +815,9 @@ describe("illustrationReferenceImagesForRequest", () => {
     const malformedDataUrl = `data:image/png;base64,${"A".repeat(84)}!`;
     const decodedButNotImage = `data:image/png;base64,${"A".repeat(84)}`;
 
-    expect(illustrationReferenceImagesForRequest([malformedDataUrl, rawBase64Image, decodedButNotImage, valid])).toEqual([
-      valid,
-    ]);
+    expect(
+      illustrationReferenceImagesForRequest([malformedDataUrl, rawBase64Image, decodedButNotImage, valid]),
+    ).toEqual([valid]);
     expect(illustrationReferenceImagesForRequest([rawBase64Image])).toEqual([valid]);
   });
 
@@ -730,6 +832,88 @@ describe("illustrationReferenceImagesForRequest", () => {
   });
 });
 
+describe("retryGenerationAgents Music Player retries", () => {
+  it("marks music-dj retries as force fresh picks for the AI agent", async () => {
+    const { storage } = retryMusicDjStorage();
+    const prompts: string[] = [];
+    const llm = {
+      async *stream(request: LlmRequest) {
+        prompts.push(request.messages.map((message) => message.content).join("\n"));
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            action: "play",
+            mood: "professional tension",
+            searchQuery: "professional corporate tension instrumental",
+            trackNames: [],
+            trackUris: [],
+            volume: 45,
+          }),
+        };
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    } as unknown as LlmGateway;
+
+    const result = await retryGenerationAgents(
+      { storage: storage as never, llm, integrations: {} as IntegrationGateway },
+      {
+        chatId: "chat-1",
+        agentTypes: ["music-dj"],
+        options: { forMessageId: "assistant-1", bypassActivation: true },
+      },
+    );
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]?.agentType).toBe("music-dj");
+    expect(prompts.join("\n")).toContain("<music_dj_constraints>");
+    expect(prompts.join("\n")).toContain('"manualRetry":true');
+    expect(prompts.join("\n")).toContain('"forceFreshPick":true');
+  });
+
+  it("runs one Music Player retry when duplicate music-dj configs exist", async () => {
+    const { storage } = retryMusicDjStorage([
+      { id: "music-dj", type: "music-dj", name: "Music Player", enabled: true },
+      { id: "music-dj-duplicate", type: "music-dj", name: "Music Player duplicate", enabled: true },
+    ]);
+    let streamCalls = 0;
+    const llm = {
+      async *stream() {
+        streamCalls += 1;
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            action: "play",
+            mood: "professional tension",
+            searchQuery: "professional corporate tension instrumental",
+            trackNames: [],
+            trackUris: [],
+            volume: 45,
+          }),
+        };
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    } as unknown as LlmGateway;
+
+    const result = await retryGenerationAgents(
+      { storage: storage as never, llm, integrations: {} as IntegrationGateway },
+      {
+        chatId: "chat-1",
+        agentTypes: ["music-dj"],
+        options: { forMessageId: "assistant-1", bypassActivation: true },
+      },
+    );
+
+    expect(streamCalls).toBe(1);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]?.agentType).toBe("music-dj");
+  });
+});
 describe("retryGenerationAgents manual Illustrator retries", () => {
   it("only short-circuits no-prompt manual paintbrush retries when results are Illustrator-only", () => {
     const illustratorNoPrompt = {
@@ -825,7 +1009,11 @@ describe("retryGenerationAgents manual Illustrator retries", () => {
       async *stream(_request: LlmRequest) {
         yield {
           type: "token",
-          text: JSON.stringify({ shouldGenerate: true, prompt: "Mira catches a candle in warm light.", reason: "Scene moment" }),
+          text: JSON.stringify({
+            shouldGenerate: true,
+            prompt: "Mira catches a candle in warm light.",
+            reason: "Scene moment",
+          }),
         };
         yield { type: "done" };
       },

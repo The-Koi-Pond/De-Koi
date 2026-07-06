@@ -2,6 +2,11 @@ import type { MusicCandidate } from "../api/music-api";
 import type { MusicDjIntent } from "./music-dj-intent";
 
 export const MUSIC_PLAYBACK_EVENT = "de-koi:music-playback";
+export const MUSIC_AI_PICK_REQUEST_EVENT = "de-koi:music-ai-pick-request";
+
+export type MusicAiPickRequestDetail = {
+  fresh?: boolean | null;
+};
 
 export type MusicPlaybackContextEventDetail = {
   type: "context";
@@ -34,6 +39,15 @@ export function consumePendingMusicPlaybackCue(): Extract<MusicPlaybackEventDeta
   const cue = pendingMusicPlaybackCue;
   pendingMusicPlaybackCue = null;
   return cue;
+}
+
+export function requestMusicAiPick(detail: MusicAiPickRequestDetail = { fresh: true }): boolean {
+  if (typeof window === "undefined") return false;
+  const event = new CustomEvent<MusicAiPickRequestDetail>(MUSIC_AI_PICK_REQUEST_EVENT, {
+    cancelable: true,
+    detail,
+  });
+  return window.dispatchEvent(event) === false;
 }
 
 export function dispatchMusicPlaybackEvent(detail: MusicPlaybackEventDetail): void {

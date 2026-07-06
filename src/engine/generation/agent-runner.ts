@@ -1124,6 +1124,21 @@ function hydrateBuiltInAgentRow(agent: JsonRecord): JsonRecord {
   };
 }
 
+function dedupeExplicitBuiltInAgentRows(
+  rows: JsonRecord[],
+  requestedAgentTypes: ReadonlySet<string> | null,
+): JsonRecord[] {
+  if (!requestedAgentTypes || requestedAgentTypes.size === 0) return rows;
+  const seenBuiltInTypes = new Set<string>();
+  return rows.filter((agent) => {
+    const type = builtInAgentType(agent);
+    if (!BUILT_IN_AGENT_TYPES.has(type) || !requestedAgentTypes.has(type)) return true;
+    if (seenBuiltInTypes.has(type)) return false;
+    seenBuiltInTypes.add(type);
+    return true;
+  });
+}
+
 async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput): Promise<ResolvedAgentsResult> {
   const scopedAgentIds = chatActiveAgentIds(input);
   const hasExplicitAgentTypes = !!input.agentTypes && input.agentTypes.size > 0;
@@ -1169,13 +1184,14 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     .map((type) => buildBuiltInAgentFallback(type, { allowDisabled: true }))
     .filter((agent): agent is JsonRecord => !!agent);
   rows.push(...fallbackRows);
+  const runnableRows = hasExplicitAgentTypes ? dedupeExplicitBuiltInAgentRows(rows, requestedAgentTypes) : rows;
   let customTools: Map<string, CustomToolRecord> | null = null;
   const resolved: ResolvedAgent[] = [];
   const skippedResults: AgentResult[] = [];
   const staticInjections: AgentInjection[] = [];
   const defaultConnectionWarnings = new Map<string, AgentConnectionWarning>();
   let defaultAgentConnection: JsonRecord | null | undefined;
-  for (const agent of rows) {
+  for (const agent of runnableRows) {
     const type = readString(agent.type || agent.agentType) || "agent";
     if (suppressAgentForTurn(input, type)) continue;
     const id = readString(agent.id) || type;
@@ -1304,8 +1320,8 @@ function buildSpotifyDjConstraints(
 
   if (options.manualRetry || options.forceFreshPick) {
     constraints.retryNote = isGame
-      ? "This is a manual Spotify DJ retry from game mode. Pick a fresh fitting track now and call spotify_play unless Spotify playback is unavailable; do not keep the current track merely because it still fits."
-      : "This is a manual Spotify DJ retry from roleplay. Pick a fresh fitting queue now and call spotify_play unless Spotify playback is unavailable.";
+      ? "This is a manual Music Player retry from game mode. Pick a fresh fitting track now and call spotify_play unless Spotify playback is unavailable; do not keep the current track merely because it still fits."
+      : "This is a manual Music Player retry from roleplay. Pick a fresh fitting queue now and call spotify_play unless Spotify playback is unavailable.";
   }
 
   return constraints;
@@ -1605,10 +1621,12 @@ async function buildAgentContext(
   const personaId = readString(input.chat.personaId).trim();
   if (personaId) memory._personaId = personaId;
   if (input.illustratorManualRequest === true) memory._illustratorManualRequest = true;
-  memory._spotifyDjConstraints = buildSpotifyDjConstraints(chatMode, chatMeta, {
+  const musicDjConstraints = buildSpotifyDjConstraints(chatMode, chatMeta, {
     manualRetry: input.spotifyDjManualRetry === true,
     forceFreshPick: input.spotifyDjForceFreshPick === true,
   });
+  memory._spotifyDjConstraints = musicDjConstraints;
+  memory._musicDjConstraints = musicDjConstraints;
   if (lorebookKeeperActiveForContext(input)) {
     const existingLorebookEntries = await loadLorebookKeeperEntries(deps.storage, input);
     if (existingLorebookEntries) memory._existingLorebookEntries = existingLorebookEntries;

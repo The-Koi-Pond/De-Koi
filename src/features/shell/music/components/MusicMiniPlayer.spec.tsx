@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
+import { dispatchMusicPlaybackEvent, MUSIC_AI_PICK_REQUEST_EVENT } from "../../../../shared/lib/music-playback-events";
 import { MusicMiniPlayer } from "./MusicMiniPlayer";
 
 const { musicApiMock, sendYouTubeIframeCommandMock } = vi.hoisted(() => ({
@@ -157,6 +157,36 @@ describe("MusicMiniPlayer", () => {
     );
   });
 
+  it("requests an AI scene pick before using the direct Fresh Pick fallback", async () => {
+    const events: Event[] = [];
+    function onAiPick(event: Event) {
+      events.push(event);
+      event.preventDefault();
+    }
+    window.addEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onAiPick);
+
+    try {
+      await act(async () => {
+        root = createRoot(container!);
+        root.render(<MusicMiniPlayer variant="toolbar" />);
+      });
+
+      const freshPick = container!.querySelector<HTMLButtonElement>('button[aria-label="Fresh Music Player pick"]');
+      expect(freshPick).not.toBeNull();
+      await act(async () => {
+        freshPick!.click();
+      });
+      await flushAsyncWork();
+
+      expect(events).toHaveLength(1);
+      expect(musicApiMock.freshPick).not.toHaveBeenCalled();
+      expect(musicApiMock.searchCandidates).not.toHaveBeenCalled();
+      expect(musicApiMock.play).not.toHaveBeenCalled();
+      expect(container!.textContent).toContain("Music Player is choosing from this scene...");
+    } finally {
+      window.removeEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onAiPick);
+    }
+  });
   it("clears stale context instead of falling back to old fantasy music", async () => {
     await act(async () => {
       root = createRoot(container!);
