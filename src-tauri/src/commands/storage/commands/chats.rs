@@ -89,8 +89,14 @@ pub fn chat_memories_clear(state: State<'_, AppState>, chat_id: String) -> Resul
 pub async fn chat_memories_refresh(
     state: State<'_, AppState>,
     chat_id: String,
+    source_message_ids: Option<Vec<String>>,
 ) -> Result<Value, AppError> {
-    chat_memory::refresh_chat_memories(&state, &chat_id).await
+    chat_memory::refresh_chat_memories_for_source_messages(
+        &state,
+        &chat_id,
+        source_message_ids.unwrap_or_default(),
+    )
+    .await
 }
 
 #[tauri::command]

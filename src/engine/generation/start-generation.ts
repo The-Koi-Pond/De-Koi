@@ -93,6 +93,10 @@ import {
 } from "../shared/attachments/image-attachments";
 import type { GenerationEvent } from "./generation-events";
 import {
+  enqueueAndScheduleAutomaticMemoryCapture,
+  scheduleAutomaticMemoryCaptureQueueProcessing,
+} from "./automatic-memory-capture-queue";
+import {
   applyCachedContextInjectionsToRegenerateInput,
   applyGenerationReplayToRegenerateInput,
   buildGenerationReplay,
@@ -104,7 +108,6 @@ import { assembleGenerationPrompt, chatSummaryForGeneration } from "./prompt-ass
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { applyRuntimeRegexScripts } from "./regex-runtime";
-import { captureAutomaticMemoriesSafely } from "./automatic-memory-capture";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationSubjectMatches } from "../generation-core/images/illustration-reference-matching";
 import {
@@ -2360,41 +2363,22 @@ function shouldRefreshMemoryRecall(chat: JsonRecord): boolean {
   const meta = parseRecord(chat.metadata);
   if (typeof meta.enableMemoryRecall === "boolean") return meta.enableMemoryRecall;
   const mode = readString(chat.mode || chat.chatMode);
-  return mode === "conversation" || meta.sceneStatus === "active";
+  return mode === "conversation" || mode === "roleplay" || meta.sceneStatus === "active";
 }
 
-async function refreshMemoryRecallSafely(storage: StorageGateway, chat: JsonRecord): Promise<void> {
+async function enqueueAutomaticMemoryCaptureSafely(
+  storage: StorageGateway,
+  chat: JsonRecord,
+  savedUserMessage: unknown,
+  savedAssistantMessage: unknown,
+): Promise<void> {
   if (!storage.refreshChatMemories || !shouldRefreshMemoryRecall(chat)) return;
-  const chatId = readString(chat.id).trim();
-  if (!chatId) return;
   try {
-    await storage.refreshChatMemories(chatId);
+    await enqueueAndScheduleAutomaticMemoryCapture(storage, { chat, savedUserMessage, savedAssistantMessage });
   } catch (error) {
-    console.warn("[generation] memory recall refresh failed", error);
+    console.warn("[generation] automatic memory capture enqueue failed", error);
   }
 }
-
-function scheduleMemoryRecallRefresh(storage: StorageGateway, chat: JsonRecord): void {
-  void refreshMemoryRecallSafely(storage, chat);
-}
-
-function scheduleAutomaticMemoryCapture(args: {
-  deps: GenerationEngineDeps;
-  chat: JsonRecord;
-  connection: JsonRecord;
-  saved: unknown;
-}): void {
-  if (!isRecord(args.saved)) return;
-  void captureAutomaticMemoriesSafely({
-    storage: args.deps.storage,
-    llm: args.deps.llm,
-    chat: args.chat,
-    message: args.saved,
-    connectionId: readString(args.connection.id).trim() || null,
-    model: readString(args.connection.model).trim() || null,
-  });
-}
-
 async function persistLorebookTimingStatesSafely(
   storage: StorageGateway,
   chatId: string,
@@ -4349,6 +4333,7 @@ export async function* startGeneration(
   throwIfAborted(signal);
   let chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
+  scheduleAutomaticMemoryCaptureQueueProcessing(deps.storage);
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
@@ -4938,8 +4923,7 @@ export async function* startGeneration(
       }
     }
     if (savedAssistantGeneration) {
-      scheduleAutomaticMemoryCapture({ deps, chat, connection, saved: latestSaved });
-      scheduleMemoryRecallRefresh(deps.storage, chat);
+      await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, savedUserMessage, latestSaved);
     }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
     return;
@@ -5135,8 +5119,7 @@ export async function* startGeneration(
     }
   }
   if (savedAssistantGeneration) {
-    scheduleAutomaticMemoryCapture({ deps, chat, connection, saved });
-    scheduleMemoryRecallRefresh(deps.storage, chat);
+    await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, savedUserMessage, saved);
   }
   yield { type: "done" };
 }

@@ -40,6 +40,7 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
                     "gallery",
                     "agent-runs",
                     "agent-memory",
+                    "memory-capture-jobs",
                     "game-checkpoints",
                     "game-state-snapshots",
                 ],
@@ -133,8 +134,8 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
 /// Gallery collections whose rows reference managed image files in the shared
 /// `gallery` asset folder. Their files must be removed when the rows are cleared,
 /// or expunge/clear-all leaves orphaned files behind. Per-row removal (rather
-/// than nuking the whole folder) is what lets a per-scope expunge — e.g.
-/// "personas" — drop only its own gallery's files without touching the others.
+/// than nuking the whole folder) is what lets a per-scope expunge, for example
+/// "personas", drop only its own gallery's files without touching the others.
 const GALLERY_FILE_COLLECTIONS: &[&str] = &[
     "gallery",
     "character-gallery",
@@ -336,6 +337,7 @@ mod tests {
             ("gallery", "gallery-1"),
             ("agent-runs", "run-1"),
             ("agent-memory", "memory-1"),
+            ("memory-capture-jobs", "memory-job-1"),
             ("game-checkpoints", "checkpoint-1"),
             ("game-state-snapshots", "snapshot-1"),
             ("knowledge-sources", "knowledge-1"),
@@ -363,6 +365,7 @@ mod tests {
                 "gallery",
                 "game-checkpoints",
                 "game-state-snapshots",
+                "memory-capture-jobs",
                 "message-swipes",
                 "messages"
             ])
@@ -375,6 +378,7 @@ mod tests {
             "gallery",
             "agent-runs",
             "agent-memory",
+            "memory-capture-jobs",
             "game-checkpoints",
             "game-state-snapshots",
         ] {

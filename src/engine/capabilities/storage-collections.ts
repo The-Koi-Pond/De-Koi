@@ -71,6 +71,13 @@ const STORAGE_COLLECTIONS = {
   themes: { genericApi: true },
   extensions: { genericApi: true },
   "plugin-memory": { genericApi: true },
+  "memory-capture-jobs": {
+    genericApi: true,
+    readJsonFields: [
+      { name: "sourceMessageIds", kind: "array" },
+      { name: "sourceMessages", kind: "array" },
+    ],
+  },
   "canonical-memories": {
     genericApi: true,
     readJsonFields: [

@@ -141,6 +141,12 @@ const collectionMetadata = {
     confidence: "Type-backed",
     notes: "Namespaced plugin KV storage with `pluginId`, `key`, arbitrary `value`, and `schemaVersion`.",
   },
+  "memory-capture-jobs": {
+    model: "`MemoryCaptureJob`",
+    confidence: "Type-backed",
+    notes:
+      "Durable automatic memory-capture queue rows keyed by source chat/message evidence. Jobs record source snapshots, retry status, attempts, backoff timestamps, capture version, and terminal stale/completed/failed outcomes.",
+  },
   "canonical-memories": {
     model: "`CanonicalMemoryRecord`",
     confidence: "Type-backed",

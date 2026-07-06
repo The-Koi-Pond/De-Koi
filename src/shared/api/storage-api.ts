@@ -3,6 +3,7 @@ import type {
   ChatMetadataPort,
   ChatTranscriptPort,
   ListChatMemoriesOptions,
+  RefreshChatMemoriesOptions,
   StorageImageAttachmentReference,
   StorageEntity,
   StorageGateway,
@@ -523,7 +524,8 @@ export const storageApi: StorageGateway = {
   patchChatSummaries: (chatId, patch) => patchChatSummariesField(chatId, patch),
   listChatMemories: <T = unknown>(chatId: string, options?: ListChatMemoriesOptions) =>
     chatCommandApi.memoriesList<T[]>(chatId, options),
-  refreshChatMemories: (chatId) => invokeTauri("chat_memories_refresh", { chatId }),
+  refreshChatMemories: (chatId, options?: RefreshChatMemoriesOptions) =>
+    invokeTauri("chat_memories_refresh", { chatId, sourceMessageIds: options?.sourceMessageIds }),
   getWorldState: async (chatId) => {
     const chat = await storageApi.get<Record<string, unknown>>("chats", chatId);
     return (chat?.gameState as never) ?? null;

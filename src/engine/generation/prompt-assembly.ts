@@ -2287,7 +2287,7 @@ function memoryRecallEnabled(chat: JsonRecord): boolean {
   const meta = parseRecord(chat.metadata);
   if (typeof meta.enableMemoryRecall === "boolean") return meta.enableMemoryRecall;
   const mode = readString(chat.mode || chat.chatMode);
-  return mode === "conversation" || meta.sceneStatus === "active";
+  return mode === "conversation" || mode === "roleplay" || meta.sceneStatus === "active";
 }
 
 function memoryRecallReadBehind(chat: JsonRecord): number {
