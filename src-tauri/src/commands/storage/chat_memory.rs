@@ -1,3 +1,4 @@
+use super::canonical_memory;
 use super::chats;
 use super::prompts;
 use super::shared::*;
@@ -922,7 +923,9 @@ fn set_chat_memory_values(state: &AppState, chat_id: &str, values: Vec<Value>) -
 }
 
 pub(crate) fn clear_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
-    set_chat_memory_values(state, chat_id, Vec::new())
+    let result = set_chat_memory_values(state, chat_id, Vec::new())?;
+    canonical_memory::delete_memory_index_rows_for_chat(state, chat_id)?;
+    Ok(result)
 }
 
 pub(crate) fn delete_chat_memory(
@@ -2136,6 +2139,9 @@ pub(crate) async fn import_chat_memories(
         ));
     }
     set_chat_memory_values(state, chat_id, memories)?;
+    if replace {
+        canonical_memory::delete_memory_index_rows_for_chat(state, chat_id)?;
+    }
     Ok(json!({ "imported": imported, "skipped": skipped, "replaced": replace }))
 }
 
@@ -2172,6 +2178,58 @@ mod tests {
             .collect()
     }
 
+    fn memory_index_ids(state: &AppState) -> Vec<String> {
+        let mut ids = state
+            .storage
+            .list("memory-index-rows")
+            .expect("memory indexes should list")
+            .iter()
+            .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToOwned::to_owned))
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids
+    }
+
+    fn seed_chat_scoped_memory_index(
+        state: &AppState,
+        chat_id: &str,
+        memory_id: &str,
+        index_id: &str,
+    ) {
+        let memory = super::super::canonical_memory::create_memory(
+            state,
+            json!({
+                "id": memory_id,
+                "kind": "fact",
+                "status": "active",
+                "scope": { "kind": "chat", "id": chat_id },
+                "content": format!("{memory_id} remembers the archive key."),
+                "confidence": 0.9,
+                "provenance": {
+                    "sourceChatId": chat_id,
+                    "messageIds": ["message-1"],
+                    "timestamp": "2026-07-06T12:00:00.000Z"
+                },
+                "tags": []
+            }),
+        )
+        .expect("canonical memory should seed");
+        super::super::canonical_memory::upsert_memory_index_row(
+            state,
+            json!({
+                "id": index_id,
+                "memoryId": memory_id,
+                "provider": "lexical",
+                "model": "de-koi-lexical-v1",
+                "dimensions": 64,
+                "contentHash": format!("{index_id}-content"),
+                "projectionHash": format!("{index_id}-projection"),
+                "canonicalUpdatedAt": memory["updatedAt"],
+                "vector": [0.1, 0.2]
+            }),
+        )
+        .expect("memory index should seed");
+    }
     fn seed_five_visible_messages(state: &AppState, chat_id: &str) -> (Vec<String>, String) {
         let mut message_ids = Vec::new();
         let mut content_lines = Vec::new();
@@ -2690,6 +2748,37 @@ mod tests {
         assert_eq!(memory_ids(&chat["memories"]), Vec::<String>::new());
     }
 
+    #[test]
+    fn clear_chat_memories_removes_chat_scoped_memory_index_rows() {
+        let state = test_state("chat-memory-clear-index-rows");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Clear memory index chat",
+                    "memories": [
+                        { "id": "memory-one", "content": "first memory" },
+                        { "id": "memory-two", "content": "second memory" }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+        seed_chat_scoped_memory_index(&state, "chat-1", "canonical-one", "index-one");
+        seed_chat_scoped_memory_index(&state, "chat-1", "canonical-two", "index-two");
+        seed_chat_scoped_memory_index(&state, "other-chat", "canonical-other", "index-other");
+
+        clear_chat_memories(&state, "chat-1").expect("clear should succeed");
+
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert_eq!(memory_ids(&chat["memories"]), Vec::<String>::new());
+        assert_eq!(memory_index_ids(&state), vec!["index-other".to_string()]);
+    }
     #[test]
     fn delete_chat_memory_rejects_malformed_serialized_chunks() {
         let state = test_state("chat-memory-delete-malformed");
@@ -4508,6 +4597,118 @@ mod tests {
         assert!(memories[0].get("sourceChatId").is_none());
     }
 
+    #[tokio::test]
+    async fn import_chat_memories_replace_removes_replaced_chat_scoped_memory_index_rows() {
+        let state = test_state("memory-import-replace-index-rows");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        {
+                            "id": "existing",
+                            "chatId": "chat-1",
+                            "content": "replace me",
+                            "messageCount": 5,
+                            "createdAt": "2026-06-01T10:05:00.000Z"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+        seed_chat_scoped_memory_index(&state, "chat-1", "canonical-old", "index-old");
+        seed_chat_scoped_memory_index(&state, "other-chat", "canonical-other", "index-other");
+
+        let result = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "data": {
+                    "sourceChat": {
+                        "id": "chat-1",
+                        "name": "Memory chat",
+                        "mode": "conversation",
+                        "memoryCount": 1
+                    },
+                    "chunks": [
+                        {
+                            "content": "replacement memory",
+                            "embedding": null,
+                            "messageCount": 1,
+                            "createdAt": "2026-06-02T10:00:00.000Z"
+                        }
+                    ]
+                }
+            }),
+            Some(true),
+        )
+        .await
+        .expect("memory import should succeed");
+
+        assert_eq!(result["replaced"], json!(true));
+        assert_eq!(memory_index_ids(&state), vec!["index-other".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn import_chat_memories_append_preserves_existing_chat_scoped_memory_index_rows() {
+        let state = test_state("memory-import-append-keeps-index-rows");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        {
+                            "id": "existing",
+                            "chatId": "chat-1",
+                            "content": "keep me",
+                            "messageCount": 5,
+                            "createdAt": "2026-06-01T10:05:00.000Z"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+        seed_chat_scoped_memory_index(&state, "chat-1", "canonical-existing", "index-existing");
+
+        let result = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "data": {
+                    "sourceChat": {
+                        "id": "chat-1",
+                        "name": "Memory chat",
+                        "mode": "conversation",
+                        "memoryCount": 1
+                    },
+                    "chunks": [
+                        {
+                            "content": "append me",
+                            "embedding": null,
+                            "messageCount": 1,
+                            "createdAt": "2026-06-02T10:00:00.000Z"
+                        }
+                    ]
+                }
+            }),
+            None,
+        )
+        .await
+        .expect("append import should succeed");
+
+        assert_eq!(result["replaced"], json!(false));
+        assert_eq!(memory_index_ids(&state), vec!["index-existing".to_string()]);
+    }
     #[tokio::test]
     async fn import_chat_memories_ignores_payload_replace_without_explicit_option() {
         let state = test_state("memory-import-payload-replace-ignored");

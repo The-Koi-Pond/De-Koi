@@ -82,7 +82,7 @@ describe("continuity overview view model", () => {
     ]);
   });
 
-  it("uses the roleplay memory default and missing-state labels when nothing is configured", () => {
+  it("uses the shared roleplay memory default and missing-state labels when nothing is configured", () => {
     const model = buildContinuityOverviewViewModel({
       chatMode: "roleplay",
       metadata: { summary: null, activeAgentIds: [] },
@@ -90,9 +90,9 @@ describe("continuity overview view model", () => {
       totalMessageCount: 0,
     });
 
-    expect(model.headline).toBe("No continuity sources active yet");
+    expect(model.headline).toBe("1 continuity source active");
     expect(model.sections.map((section) => [section.id, section.status, section.value])).toEqual([
-      ["memory", "idle", "Off"],
+      ["memory", "active", "On"],
       ["summary", "idle", "Missing"],
       ["lorebooks", "idle", "None"],
       ["trackers", "idle", "None"],

@@ -34,13 +34,13 @@ function tokenVector(text: string): number[] {
   ];
 }
 
-function memoryRecallStorage() {
+function memoryRecallStorage(options: { mode?: string; metadata?: Record<string, unknown> } = {}) {
   const chat: StoredChat = {
     id: "chat-1",
-    mode: "conversation",
+    mode: options.mode ?? "conversation",
     connectionId: "conn-1",
     characterIds: ["char-1"],
-    metadata: { enableMemoryRecall: true, memoryRecallReadBehindMessages: 1 },
+    metadata: options.metadata ?? { enableMemoryRecall: true, memoryRecallReadBehindMessages: 1 },
     memories: [],
   };
   const records: Record<string, Record<string, unknown>> = {
@@ -331,6 +331,34 @@ describe("startGeneration Memory Recall preflight", () => {
     ]);
   });
 
+  it("uses the shared roleplay Memory Recall default for automatic capture when metadata omits the explicit flag", async () => {
+    const calls: LlmRequest[] = [];
+    const harness = memoryRecallStorage({ mode: "roleplay", metadata: { memoryRecallReadBehindMessages: 1 } });
+    const deps = {
+      storage: harness.storage,
+      llm: memoryAwareLlm(calls),
+      integrations: {} as IntegrationGateway,
+    };
+
+    await collectEvents(
+      startGeneration(deps, {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        userMessage: "I hid the key under the blue lantern.",
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(Array.from(harness.memoryCaptureJobs.values()).at(-1)).toEqual(
+        expect.objectContaining({ status: "completed" }),
+      ),
+    );
+
+    expect(harness.refreshCalls.at(-1)).toEqual({
+      chatId: "chat-1",
+      options: { sourceMessageIds: ["message-1", "message-2"] },
+    });
+  });
   it("extracts a memory after generation and injects it into the next generation", async () => {
     const calls: LlmRequest[] = [];
     const harness = memoryRecallStorage();

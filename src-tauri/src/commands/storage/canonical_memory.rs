@@ -383,6 +383,43 @@ pub(crate) fn upsert_memory_index_row(state: &AppState, row: Value) -> AppResult
         .upsert_with_id(INDEX_COLLECTION, &id, normalized)
 }
 
+fn memory_scope_matches_chat(memory: &Value, chat_id: &str) -> bool {
+    let Some(scope) = memory.get("scope").and_then(Value::as_object) else {
+        return false;
+    };
+    read_string(scope.get("kind")) == "chat" && read_string(scope.get("id")) == chat_id
+}
+
+pub(crate) fn delete_memory_index_rows_for_chat(
+    state: &AppState,
+    chat_id: &str,
+) -> AppResult<Value> {
+    let chat_id = chat_id.trim();
+    if chat_id.is_empty() {
+        return Ok(json!({ "deleted": 0 }));
+    }
+    let memory_ids = state
+        .storage
+        .list(MEMORY_COLLECTION)?
+        .into_iter()
+        .filter(|memory| memory_scope_matches_chat(memory, chat_id))
+        .filter_map(|memory| {
+            let memory_id = read_string(memory.get("id"));
+            (!memory_id.is_empty()).then_some(memory_id)
+        })
+        .collect::<HashSet<_>>();
+    if memory_ids.is_empty() {
+        return Ok(json!({ "deleted": 0 }));
+    }
+    let deleted = state
+        .storage
+        .delete_where_matching(INDEX_COLLECTION, |row| {
+            row.get("memoryId")
+                .and_then(Value::as_str)
+                .is_some_and(|memory_id| memory_ids.contains(memory_id))
+        })?;
+    Ok(json!({ "deleted": deleted }))
+}
 pub(crate) fn delete_memory_index_rows_for_memory(
     state: &AppState,
     memory_id: &str,

@@ -148,7 +148,12 @@ import {
   createChatPresetExportEnvelope,
 } from "../../../../catalog/chat-presets/index";
 import type { AgentPhase } from "../../../../../engine/contracts/types/agent";
-import type { Chat, ChatMetadata, ChatMode } from "../../../../../engine/contracts/types/chat";
+import {
+  getEffectiveMemoryRecallEnabled,
+  type Chat,
+  type ChatMetadata,
+  type ChatMode,
+} from "../../../../../engine/contracts/types/chat";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
 import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
@@ -1953,8 +1958,8 @@ function ChatSettingsDrawerInner({
     setEditingName(false);
   };
 
-  const renderMemoryRecallControls = (defaultOn: boolean) => {
-    const effectiveValue = metadata.enableMemoryRecall !== undefined ? metadata.enableMemoryRecall === true : defaultOn;
+  const renderMemoryRecallControls = () => {
+    const effectiveValue = getEffectiveMemoryRecallEnabled(chat.mode, metadata);
     return (
       <div className="space-y-2">
         <button
@@ -5241,7 +5246,7 @@ function ChatSettingsDrawerInner({
               icon={<Brain size="0.875rem" />}
               help="When enabled, relevant fragments from this chat are recalled with provider embeddings when configured, otherwise local lexical matching, then injected into the prompt as memories."
             >
-              {renderMemoryRecallControls(true)}
+              {renderMemoryRecallControls()}
             </Section>
           )}
 
@@ -5544,7 +5549,7 @@ function ChatSettingsDrawerInner({
               icon={<Brain size="0.875rem" />}
               help="When enabled, relevant fragments from this chat are recalled with provider embeddings when configured, otherwise local lexical matching, then injected into the prompt as memories."
             >
-              {renderMemoryRecallControls(metadata.sceneStatus === "active")}
+              {renderMemoryRecallControls()}
             </Section>
           )}
 

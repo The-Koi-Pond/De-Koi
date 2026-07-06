@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { AgentResult } from "../../src/engine/contracts/types/agent";
 import type { StorageGateway } from "../../src/engine/capabilities/storage";
 import {
+  loadAgentMemory,
   persistSecretPlotAgentMemory,
   secretPlotPromptGuidanceFromData,
+  secretPlotStateFromMemory,
 } from "../../src/engine/generation/agent-memory-runtime";
 
 function memoryStorage(rows: Array<Record<string, unknown>>): StorageGateway {
@@ -30,6 +32,15 @@ function memoryStorage(rows: Array<Record<string, unknown>>): StorageGateway {
   } as StorageGateway;
 }
 
+function storedMemoryValue(rows: Array<Record<string, unknown>>, key: string): unknown {
+  const value = rows.find((row) => row.key === key)?.value;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
 function secretPlotResult(data: Record<string, unknown>): AgentResult {
   return {
     agentId: "secret-plot-config",
@@ -101,5 +112,83 @@ describe("secret plot memory runtime", () => {
     );
 
     expect(rows[0]?.value).toBe(JSON.stringify({ description: "Existing arc" }));
+  });
+  it("rolls fulfilled scene directions into recently fulfilled memory", async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const storage = memoryStorage(rows);
+
+    await persistSecretPlotAgentMemory(storage, "chat-1", [
+      secretPlotResult({
+        sceneDirections: [
+          { direction: "Let the clue surface quietly.", fulfilled: false },
+          { direction: "Resolve the old detour.", fulfilled: true },
+        ],
+      }),
+    ]);
+
+    expect(storedMemoryValue(rows, "sceneDirections")).toEqual([
+      { direction: "Let the clue surface quietly.", fulfilled: false },
+    ]);
+    expect(storedMemoryValue(rows, "recentlyFulfilled")).toEqual(["Resolve the old detour."]);
+  });
+
+  it("keeps only the last ten recently fulfilled directions", async () => {
+    const rows: Array<Record<string, unknown>> = [
+      {
+        id: "fulfilled-row",
+        agentConfigId: "secret-plot-config",
+        chatId: "chat-1",
+        key: "recentlyFulfilled",
+        value: JSON.stringify(Array.from({ length: 10 }, (_, index) => `fulfilled-${index + 1}`)),
+      },
+    ];
+    const storage = memoryStorage(rows);
+
+    await persistSecretPlotAgentMemory(storage, "chat-1", [
+      secretPlotResult({ sceneDirections: [{ direction: "fulfilled-11", fulfilled: true }] }),
+    ]);
+
+    expect(storedMemoryValue(rows, "recentlyFulfilled")).toEqual([
+      "fulfilled-2",
+      "fulfilled-3",
+      "fulfilled-4",
+      "fulfilled-5",
+      "fulfilled-6",
+      "fulfilled-7",
+      "fulfilled-8",
+      "fulfilled-9",
+      "fulfilled-10",
+      "fulfilled-11",
+    ]);
+  });
+
+  it("persists pacing across multiple memory updates", async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const storage = memoryStorage(rows);
+
+    await persistSecretPlotAgentMemory(storage, "chat-1", [
+      secretPlotResult({ pacing: { mode: "slow-burn", pressure: 0.35 }, sceneDirections: [] }),
+    ]);
+    await persistSecretPlotAgentMemory(storage, "chat-1", [
+      secretPlotResult({ sceneDirections: [{ direction: "Hold the reveal.", fulfilled: false }] }),
+    ]);
+
+    expect(storedMemoryValue(rows, "pacing")).toEqual({ mode: "slow-burn", pressure: 0.35 });
+    expect(await loadAgentMemory(storage, "secret-plot-config", "chat-1")).toMatchObject({
+      pacing: { mode: "slow-burn", pressure: 0.35 },
+    });
+  });
+
+  it("persists stale detection and exposes it in secret plot state", async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const storage = memoryStorage(rows);
+
+    await persistSecretPlotAgentMemory(storage, "chat-1", [
+      secretPlotResult({ sceneDirections: [], staleDetected: true }),
+    ]);
+
+    const memory = await loadAgentMemory(storage, "secret-plot-config", "chat-1");
+    expect(memory.staleDetected).toBe(true);
+    expect(secretPlotStateFromMemory(memory)).toEqual({ staleDetected: true });
   });
 });
