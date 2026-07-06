@@ -1,4 +1,4 @@
-import { MessageCircleHeart, PanelLeft, PanelLeftClose } from "lucide-react";
+import { MessageCircleHeart, MessageSquare } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "../../shared/lib/utils";
 import { useChatStore } from "../../shared/stores/chat.store";
@@ -62,7 +62,7 @@ export function ChatTitleControls({
         aria-label={sidebarOpen ? "Close chats" : "Open chats"}
         aria-pressed={sidebarOpen}
       >
-        {sidebarOpen ? <PanelLeftClose size="0.875rem" /> : <PanelLeft size="0.875rem" />}
+        <MessageSquare size="0.875rem" />
         {sidebarOpen && (
           <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
         )}

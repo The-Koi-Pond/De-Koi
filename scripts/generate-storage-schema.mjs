@@ -134,7 +134,8 @@ const collectionMetadata = {
   extensions: {
     model: "`InstalledExtension`",
     confidence: "Schema-backed",
-    notes: "User-installed extension CSS/JS payloads; imported rows are disabled on profile import. Optional package metadata fields include `packageId`, `packageVersion`, `manifestVersion`, `compatibility`, `permissions`, `uiContributions`, and `source`.",
+    notes:
+      "User-installed extension CSS/JS payloads; imported rows are disabled on profile import. Optional package metadata fields include `packageId`, `packageVersion`, `manifestVersion`, `compatibility`, `permissions`, `uiContributions`, and `source`.",
   },
   "plugin-memory": {
     model: "`PluginMemoryRecord`",
@@ -162,7 +163,8 @@ const collectionMetadata = {
   "music-dj-playlists": {
     model: "`MusicDjPlaylist`",
     confidence: "Type-backed",
-    notes: "Music Player playlists scoped to characters, chats, or global use. `tracks[]` stores accepted YouTube candidates and feedback-weighted playback history.",
+    notes:
+      "Music Player playlists scoped to characters, chats, or global use. `tracks[]` stores accepted YouTube candidates and feedback-weighted playback history.",
   },
   connections: {
     model: "`APIConnection`",
@@ -190,6 +192,17 @@ const collectionMetadata = {
     confidence: "Schema-backed",
     notes:
       "`chatId` points to `chats.id`; `characterId` may point to `characters.id`; current swipe fields are materialized from sidecars.",
+  },
+  "deki-sessions": {
+    model: "`DekiSession`",
+    confidence: "Type-backed",
+    notes: "First-class Deki-senpai chat session rows; `deki-messages.sessionId` points here.",
+  },
+  "deki-messages": {
+    model: "`DekiMessage`",
+    confidence: "Type-backed",
+    notes:
+      "First-class Deki-senpai message rows with optional action, application, workspace trace, and workspace history payloads.",
   },
   "message-swipes": {
     model: "`MessageSwipe`",

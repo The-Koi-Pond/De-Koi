@@ -18,9 +18,40 @@ const remoteRuntimeTargetMock = vi.mocked(remoteRuntimeTarget);
 
 describe("dekiApi settings persistence", () => {
   let appSettings: Map<string, Record<string, unknown>>;
+  let recordsByEntity: Map<string, Map<string, Record<string, unknown>>>;
+
+  const recordsFor = (entity: string) => {
+    let records = recordsByEntity.get(entity);
+    if (!records) {
+      records = new Map<string, Record<string, unknown>>();
+      recordsByEntity.set(entity, records);
+    }
+    return records;
+  };
+
+  const listRecords = (
+    entity: string,
+    options?: { filters?: Record<string, unknown>; orderBy?: string; descending?: boolean },
+  ) => {
+    let records = [...recordsFor(entity).values()];
+    const filters = options?.filters ?? {};
+    for (const [key, value] of Object.entries(filters)) {
+      records = records.filter((record) => record[key] === value);
+    }
+    if (options?.orderBy) {
+      const key = options.orderBy;
+      records = records.sort((left, right) => {
+        const leftValue = String(left[key] ?? "");
+        const rightValue = String(right[key] ?? "");
+        return options.descending ? rightValue.localeCompare(leftValue) : leftValue.localeCompare(rightValue);
+      });
+    }
+    return records.map((record) => ({ ...record }));
+  };
 
   beforeEach(() => {
-    appSettings = new Map<string, Record<string, unknown>>();
+    recordsByEntity = new Map<string, Map<string, Record<string, unknown>>>();
+    appSettings = recordsFor("app-settings");
     embeddedMock.mockReset();
     invokeMock.mockReset();
     remoteRuntimeTargetMock.mockReset();
@@ -32,37 +63,44 @@ describe("dekiApi settings persistence", () => {
         id?: string;
         value?: Record<string, unknown>;
         patch?: Record<string, unknown>;
+        options?: { filters?: Record<string, unknown>; orderBy?: string; descending?: boolean };
       };
 
-      if (request.entity !== "app-settings") {
-        throw new Error(`Unexpected entity ${request.entity ?? "<missing>"}`);
+      if (command === "storage_get") {
+        return request.entity && request.id ? (recordsFor(request.entity).get(request.id) ?? null) : null;
       }
 
-      if (command === "storage_get") {
-        return (request.id ? appSettings.get(request.id) : null) ?? null;
+      if (command === "storage_list") {
+        if (!request.entity) throw new Error("Missing list entity");
+        return listRecords(request.entity, request.options);
       }
 
       if (command === "storage_create") {
         const id = request.value?.id;
-        if (typeof id !== "string") throw new Error("Missing fixed settings id");
-        if (appSettings.has(id)) throw new Error(`Duplicate fixed id ${id}`);
-        appSettings.set(id, { ...request.value });
-        return appSettings.get(id);
+        if (!request.entity) throw new Error("Missing create entity");
+        if (typeof id !== "string") throw new Error("Missing fixed id");
+        const records = recordsFor(request.entity);
+        if (records.has(id)) throw new Error(`Duplicate fixed id ${id}`);
+        records.set(id, { ...request.value });
+        return records.get(id);
       }
 
       if (command === "storage_update") {
         const id = request.id;
+        if (!request.entity) throw new Error("Missing update entity");
         if (typeof id !== "string") throw new Error("Missing update id");
-        if (!appSettings.has(id)) throw new Error(`Missing fixed id ${id}`);
-        const next = { ...appSettings.get(id), ...request.patch };
-        appSettings.set(id, next);
+        const records = recordsFor(request.entity);
+        if (!records.has(id)) throw new Error(`Missing fixed id ${id}`);
+        const next = { ...records.get(id), ...request.patch };
+        records.set(id, next);
         return next;
       }
 
       if (command === "storage_delete") {
         const id = request.id;
+        if (!request.entity) throw new Error("Missing delete entity");
         if (typeof id !== "string") throw new Error("Missing delete id");
-        appSettings.delete(id);
+        recordsFor(request.entity).delete(id);
         return null;
       }
 
@@ -74,32 +112,27 @@ describe("dekiApi settings persistence", () => {
     await dekiApi.preferences.save({ selectedConnectionId: "conn-1", selectedPersonaId: null });
     await dekiApi.history.appendMessage({ role: "user", content: "Hello, Deki." });
 
-    const createCalls = invokeMock.mock.calls.filter(([command]) => command === "storage_create");
-    const updateCalls = invokeMock.mock.calls.filter(([command]) => command === "storage_update");
-
-    expect(createCalls).toHaveLength(1);
-    expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]?.[1]).toMatchObject({
-      entity: "app-settings",
+    expect(appSettings.get("deki")).toMatchObject({
       id: "deki",
-      patch: {
-        value: expect.objectContaining({
-          selectedConnectionId: "conn-1",
-          selectedPersonaId: null,
-          activeSessionId: expect.any(String),
-          sessions: [
-            expect.objectContaining({
-              messages: [
-                expect.objectContaining({
-                  role: "user",
-                  content: "Hello, Deki.",
-                }),
-              ],
-            }),
-          ],
-        }),
-      },
+      value: expect.objectContaining({
+        selectedConnectionId: "conn-1",
+        selectedPersonaId: null,
+        activeSessionId: expect.any(String),
+      }),
     });
+    expect(appSettings.get("deki")?.value).not.toHaveProperty("sessions");
+    expect([...recordsFor("deki-sessions").values()]).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        title: "Hello, Deki.",
+      }),
+    ]);
+    expect([...recordsFor("deki-messages").values()]).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: "Hello, Deki.",
+      }),
+    ]);
   });
 
   it("reads legacy settings once and writes the next update into the Deki row", async () => {
@@ -136,27 +169,25 @@ describe("dekiApi settings persistence", () => {
         selectedConnectionId: "legacy-conn",
         selectedPersonaId: null,
         layoutDensity: "compact",
-        compactedSummary: "Earlier Deki summary",
-        compactedAt: "2026-01-01T00:05:00.000Z",
-        compactedThroughMessageId: "legacy-message",
         activeSessionId: "deki-session-default",
-        sessions: [
-          expect.objectContaining({
-            id: "deki-session-default",
-            compaction: {
-              compactedSummary: "Earlier Deki summary",
-              compactedAt: "2026-01-01T00:05:00.000Z",
-              compactedThroughMessageId: "legacy-message",
-            },
-            messages: [
-              expect.objectContaining({ id: "legacy-message", content: "Old hello" }),
-              expect.objectContaining({ role: "assistant", content: "Migrated hello" }),
-            ],
-          }),
-        ],
       }),
     });
     expect(appSettings.get("deki")?.value).not.toHaveProperty("messages");
+    expect(appSettings.get("deki")?.value).not.toHaveProperty("sessions");
+    expect([...recordsFor("deki-sessions").values()]).toEqual([
+      expect.objectContaining({
+        id: "deki-session-default",
+        compaction: {
+          compactedSummary: "Earlier Deki summary",
+          compactedAt: "2026-01-01T00:05:00.000Z",
+          compactedThroughMessageId: "legacy-message",
+        },
+      }),
+    ]);
+    expect([...recordsFor("deki-messages").values()]).toEqual([
+      expect.objectContaining({ id: "legacy-message", content: "Old hello", sortOrder: 0 }),
+      expect.objectContaining({ role: "assistant", content: "Migrated hello", sortOrder: 1 }),
+    ]);
     expect(appSettings.has("professor-mari")).toBe(false);
   });
 
@@ -193,19 +224,22 @@ describe("dekiApi settings persistence", () => {
         selectedPersonaId: "persona-2",
         layoutDensity: "comfortable",
         activeSessionId: "session-1",
-        sessions: [
-          expect.objectContaining({
-            id: "session-1",
-            compaction: {
-              compactedSummary: "Existing summary",
-              compactedAt: "2026-01-02T00:01:00.000Z",
-              compactedThroughMessageId: "message-0",
-            },
-            messages: [expect.objectContaining({ role: "user", content: "Keep the rest." })],
-          }),
-        ],
       }),
     );
+    expect(appSettings.get("deki")?.value).not.toHaveProperty("sessions");
+    expect(recordsFor("deki-sessions").get("session-1")).toEqual(
+      expect.objectContaining({
+        id: "session-1",
+        compaction: {
+          compactedSummary: "Existing summary",
+          compactedAt: "2026-01-02T00:01:00.000Z",
+          compactedThroughMessageId: "message-0",
+        },
+      }),
+    );
+    expect([...recordsFor("deki-messages").values()]).toEqual([
+      expect.objectContaining({ sessionId: "session-1", role: "user", content: "Keep the rest." }),
+    ]);
   });
 
   it("preserves Deki workspace trace and history on stored messages", async () => {

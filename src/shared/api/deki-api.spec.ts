@@ -7,6 +7,7 @@ const { storageApiMock } = vi.hoisted(() => ({
     create: vi.fn(),
     delete: vi.fn(),
     get: vi.fn(),
+    list: vi.fn(),
     update: vi.fn(),
   },
 }));
@@ -150,6 +151,8 @@ describe("dekiApi.actions.apply", () => {
     storageApiMock.create.mockReset();
     storageApiMock.delete.mockReset();
     storageApiMock.get.mockReset();
+    storageApiMock.list.mockReset();
+    storageApiMock.list.mockResolvedValue([]);
     storageApiMock.update.mockReset();
   });
 
@@ -469,27 +472,22 @@ describe("dekiApi.actions.apply", () => {
 
     const result = await dekiApi.actions.apply(action, { actionId: "message-1", messageId: "message-1" });
 
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "deki-messages",
+      expect.objectContaining({
+        id: "message-1",
+        sessionId: "deki-session-default",
+        actionApplication: expect.objectContaining({
+          status: "applied",
+          resultId: "deki-personas-message-1",
+        }),
+      }),
+    );
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "app-settings",
       "deki",
       expect.objectContaining({
-        value: expect.objectContaining({
-          activeSessionId: "deki-session-default",
-          sessions: [
-            expect.objectContaining({
-              id: "deki-session-default",
-              messages: [
-                expect.objectContaining({
-                  id: "message-1",
-                  actionApplication: expect.objectContaining({
-                    status: "applied",
-                    resultId: "deki-personas-message-1",
-                  }),
-                }),
-              ],
-            }),
-          ],
-        }),
+        value: expect.objectContaining({ activeSessionId: "deki-session-default" }),
       }),
     );
     expect(result).toMatchObject({
@@ -555,28 +553,23 @@ describe("dekiApi.actions.apply", () => {
 
     const result = await dekiApi.actions.apply(action, { actionId: "message-1", messageId: "message-1" });
 
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "deki-messages",
+      expect.objectContaining({
+        id: "message-1",
+        sessionId: "deki-session-default",
+        actionApplication: {
+          status: "applied",
+          appliedAt: "2026-06-24T00:00:01.000Z",
+          resultId: "deki-personas-message-1",
+        },
+      }),
+    );
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "app-settings",
       "deki",
       expect.objectContaining({
-        value: expect.objectContaining({
-          activeSessionId: "deki-session-default",
-          sessions: [
-            expect.objectContaining({
-              id: "deki-session-default",
-              messages: [
-                expect.objectContaining({
-                  id: "message-1",
-                  actionApplication: {
-                    status: "applied",
-                    appliedAt: "2026-06-24T00:00:01.000Z",
-                    resultId: "deki-personas-message-1",
-                  },
-                }),
-              ],
-            }),
-          ],
-        }),
+        value: expect.objectContaining({ activeSessionId: "deki-session-default" }),
       }),
     );
     expect(result.application).toEqual({
@@ -644,6 +637,8 @@ describe("dekiApi.actions.currentRecord", () => {
     storageApiMock.create.mockReset();
     storageApiMock.delete.mockReset();
     storageApiMock.get.mockReset();
+    storageApiMock.list.mockReset();
+    storageApiMock.list.mockResolvedValue([]);
     storageApiMock.update.mockReset();
   });
 
@@ -700,6 +695,8 @@ describe("dekiApi.history session updates", () => {
     storageApiMock.create.mockReset();
     storageApiMock.delete.mockReset();
     storageApiMock.get.mockReset();
+    storageApiMock.list.mockReset();
+    storageApiMock.list.mockResolvedValue([]);
     storageApiMock.update.mockReset();
   });
 
@@ -738,24 +735,19 @@ describe("dekiApi.history session updates", () => {
       content: "Still working in the background.",
     });
 
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "deki-messages",
+      expect.objectContaining({
+        sessionId: "session-generating",
+        role: "assistant",
+        content: "Still working in the background.",
+      }),
+    );
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "app-settings",
       "deki",
       expect.objectContaining({
-        value: expect.objectContaining({
-          activeSessionId: "session-current",
-          sessions: expect.arrayContaining([
-            expect.objectContaining({
-              id: "session-generating",
-              messages: [
-                expect.objectContaining({
-                  role: "assistant",
-                  content: "Still working in the background.",
-                }),
-              ],
-            }),
-          ]),
-        }),
+        value: expect.objectContaining({ activeSessionId: "session-current" }),
       }),
     );
   });
@@ -765,6 +757,8 @@ describe("dekiApi.sessions.deleteMany", () => {
     storageApiMock.create.mockReset();
     storageApiMock.delete.mockReset();
     storageApiMock.get.mockReset();
+    storageApiMock.list.mockReset();
+    storageApiMock.list.mockResolvedValue([]);
     storageApiMock.update.mockReset();
   });
 
@@ -803,15 +797,16 @@ describe("dekiApi.sessions.deleteMany", () => {
 
     expect(state.activeSessionId).toBe("session-keep");
     expect(state.sessions.map((session) => session.id)).toEqual(["session-keep"]);
-    expect(storageApiMock.update).toHaveBeenCalledTimes(1);
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "deki-sessions",
+      "session-keep",
+      expect.objectContaining({ id: "session-keep" }),
+    );
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "app-settings",
       "deki",
       expect.objectContaining({
-        value: expect.objectContaining({
-          activeSessionId: "session-keep",
-          sessions: [expect.objectContaining({ id: "session-keep" })],
-        }),
+        value: expect.objectContaining({ activeSessionId: "session-keep" }),
       }),
     );
   });

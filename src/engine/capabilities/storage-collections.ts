@@ -128,6 +128,19 @@ const STORAGE_COLLECTIONS = {
     ],
     deleteInvalidation: [],
   },
+  "deki-sessions": {
+    genericApi: true,
+    readJsonFields: [{ name: "compaction", kind: "object", fallback: "empty-object" }],
+  },
+  "deki-messages": {
+    genericApi: true,
+    readJsonFields: [
+      { name: "action", kind: "object", fallback: "null" },
+      { name: "actionApplication", kind: "object", fallback: "null" },
+      { name: "workspaceTrace", kind: "array" },
+      { name: "workspaceHistory", kind: "array" },
+    ],
+  },
   "message-swipes": {
     genericApi: false,
     internalOnly: true,
