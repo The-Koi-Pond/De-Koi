@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import { assembleGenerationPrompt } from "./prompt-assembly";
@@ -10,6 +10,7 @@ function asStorageValue<T>(value: unknown): T {
 function promptStorage(
   characters: Record<string, unknown> | Record<string, unknown>[],
   promptBundle: { preset: Record<string, unknown>; sections: Record<string, unknown>[] } | null = null,
+  memories: Record<string, unknown>[] = [],
 ): StorageGateway {
   const characterRows = Array.isArray(characters) ? characters : [characters];
   return {
@@ -59,8 +60,8 @@ function promptStorage(
     async patchChatSummaries<T = unknown>() {
       return asStorageValue<T>({});
     },
-    async listChatMemories() {
-      return [];
+    async listChatMemories<T = unknown>() {
+      return asStorageValue<T[]>(memories);
     },
     async getWorldState() {
       return null;
@@ -315,5 +316,65 @@ describe("single-character roleplay prompt cards", () => {
     expect(promptText).toContain("Mira core description.");
     expect(promptText).toContain("MIRA_GREETING_SHOULD_STAY");
     expect(promptText).toContain("MIRA_EXAMPLES_SHOULD_STAY");
+  });
+  it("retrieves roleplay story-state memory for a semantic bridge question", async () => {
+    const result = await assembleGenerationPrompt(
+      promptStorage(
+        {
+          id: "mira",
+          data: { name: "Mira", description: "Mira keeps track of magical scene state." },
+        },
+        null,
+        [
+          {
+            id: "memory-bridge",
+            chatId: "chat-1",
+            content: "The citrine lantern unlocks the violet bridge.",
+            canonicalMemoryVersion: 1,
+            memoryKind: "summary",
+            scopeType: "chat",
+            scopeId: "chat-1",
+            status: "active",
+            messageCount: 1,
+            firstMessageAt: "2026-01-01T00:00:00.000Z",
+            lastMessageAt: "2026-01-01T00:00:00.000Z",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            hasEmbedding: true,
+            embeddingStatus: "vectorized",
+            embeddingSource: "provider",
+            embeddingConnectionId: "embedding-connection",
+            embeddingModel: "semantic-test-model",
+            embedding: [0, 1],
+          },
+        ],
+      ),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["mira"],
+          metadata: { memoryRecallReadBehindMessages: 0 },
+        },
+        storedMessages: [
+          {
+            id: "message-1",
+            role: "user",
+            content: "We stand before the bridge.",
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "What opened the bridge?",
+        embeddingSource: {
+          embed: async () => [[0, 1]],
+        },
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+
+    expect(promptText).toContain("<memories>");
+    expect(promptText).toContain("The citrine lantern unlocks the violet bridge.");
   });
 });

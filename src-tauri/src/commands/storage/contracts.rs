@@ -147,6 +147,8 @@ const CANONICAL_MEMORY_FIELDS: &[TypedJsonField] = &[
     array("tags"),
     object("payload"),
 ];
+const MEMORY_CAPTURE_JOB_FIELDS: &[TypedJsonField] =
+    &[array("sourceMessageIds"), array("sourceMessages")];
 const MEMORY_INDEX_FIELDS: &[TypedJsonField] = &[array("vector"), array("lexicalTokens")];
 
 const REGEX_SCRIPT_FIELDS: &[TypedJsonField] = &[
@@ -413,6 +415,14 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         false,
         EMPTY_DEFAULTS,
         EMPTY_FIELDS,
+        EMPTY_CLEANUP,
+    ),
+    contract(
+        "memory-capture-jobs",
+        true,
+        false,
+        EMPTY_DEFAULTS,
+        MEMORY_CAPTURE_JOB_FIELDS,
         EMPTY_CLEANUP,
     ),
     contract(

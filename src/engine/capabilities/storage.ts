@@ -42,6 +42,10 @@ export interface ListChatMemoriesOptions {
   excludeRecentStartAt?: string;
 }
 
+export interface RefreshChatMemoriesOptions {
+  sourceMessageIds?: string[];
+}
+
 export interface AddChatMessageSwipeOptions {
   extra?: Record<string, unknown>;
   activate?: boolean;
@@ -113,7 +117,7 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   queryMemoryIndex?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
   rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
   listChatMemories<T = unknown>(chatId: string, options?: ListChatMemoriesOptions): Promise<T[]>;
-  refreshChatMemories?<T = unknown>(chatId: string): Promise<T>;
+  refreshChatMemories?<T = unknown>(chatId: string, options?: RefreshChatMemoriesOptions): Promise<T>;
   getWorldState<T = unknown>(chatId: string): Promise<T | null>;
   saveTrackerSnapshot<T = unknown>(chatId: string, snapshot: Record<string, unknown>): Promise<T>;
   listLorebookEntries<T = unknown>(lorebookId: string): Promise<T[]>;

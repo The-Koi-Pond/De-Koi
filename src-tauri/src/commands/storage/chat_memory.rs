@@ -8,6 +8,14 @@ use std::collections::{HashMap, HashSet};
 const MEMORY_CHUNK_SIZE: usize = 5;
 const MEMORY_EMBEDDING_DIMS: usize = 512;
 
+fn message_role(message: &Value) -> &str {
+    message
+        .get("role")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|role| !role.is_empty())
+        .unwrap_or("")
+}
 fn object_or_parse(value: Option<&Value>) -> Map<String, Value> {
     match value {
         Some(Value::Object(object)) => object.clone(),
@@ -1086,13 +1094,167 @@ pub(crate) async fn correct_chat_memory(
     }
     set_chat_memory_values(state, chat_id, values)
 }
+fn capture_memory_content(
+    messages: &[Value],
+    persona_name: Option<&str>,
+    character_names: &HashMap<String, String>,
+    fallback_character_name: Option<&str>,
+) -> String {
+    messages
+        .iter()
+        .map(|message| {
+            let speaker = message_speaker_label(
+                message,
+                persona_name,
+                character_names,
+                fallback_character_name,
+            );
+            format!("{speaker}: {}", message_content(message))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn capture_message_ids(messages: &[Value]) -> Vec<String> {
+    messages
+        .iter()
+        .filter_map(|message| message.get("id").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>()
+}
+
+struct RefreshMemoryCaptureContext<'a> {
+    existing_by_chunk: &'a HashMap<String, Value>,
+    embedding_context: Option<&'a MemoryEmbeddingContext>,
+    chat_id: &'a str,
+    persona_name: Option<&'a str>,
+    character_names: &'a HashMap<String, String>,
+    fallback_character_name: Option<&'a str>,
+    now: &'a str,
+    creation_reason: &'a str,
+}
+
+fn push_refresh_memory_capture(
+    captures: &mut Vec<Value>,
+    pending: &mut Vec<(usize, String, Map<String, Value>)>,
+    reused: &mut usize,
+    messages: &[Value],
+    context: &RefreshMemoryCaptureContext<'_>,
+) {
+    let message_ids = capture_message_ids(messages);
+    if message_ids.is_empty() {
+        return;
+    }
+    let content = capture_memory_content(
+        messages,
+        context.persona_name,
+        context.character_names,
+        context.fallback_character_name,
+    );
+    if let Some(existing_memory) = reusable_chat_memory(
+        context.existing_by_chunk,
+        &message_ids,
+        &content,
+        context.embedding_context,
+    ) {
+        let mut memory = existing_memory.clone();
+        if let Some(object) = memory.as_object_mut() {
+            canonicalize_transcript_capture(object, context.chat_id);
+            object.insert(
+                "creationReason".to_string(),
+                Value::String(context.creation_reason.to_string()),
+            );
+        }
+        captures.push(memory);
+        *reused += 1;
+        return;
+    }
+
+    let mut memory = Map::new();
+    memory.insert("id".to_string(), Value::String(new_id()));
+    memory.insert(
+        "chatId".to_string(),
+        Value::String(context.chat_id.to_string()),
+    );
+    memory.insert("content".to_string(), Value::String(content.clone()));
+    memory.insert("messageCount".to_string(), json!(messages.len()));
+    memory.insert("messageIds".to_string(), json!(message_ids));
+    memory.insert(
+        "firstMessageId".to_string(),
+        messages
+            .first()
+            .and_then(|message| message.get("id"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    memory.insert(
+        "lastMessageId".to_string(),
+        messages
+            .last()
+            .and_then(|message| message.get("id"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    memory.insert(
+        "firstMessageAt".to_string(),
+        messages
+            .first()
+            .and_then(|message| message.get("createdAt"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    memory.insert(
+        "lastMessageAt".to_string(),
+        messages
+            .last()
+            .and_then(|message| message.get("createdAt"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    memory.insert(
+        "createdAt".to_string(),
+        Value::String(context.now.to_string()),
+    );
+    canonicalize_transcript_capture(&mut memory, context.chat_id);
+    memory.insert(
+        "creationReason".to_string(),
+        Value::String(context.creation_reason.to_string()),
+    );
+    pending.push((captures.len(), content, memory));
+    captures.push(Value::Null);
+}
 pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
+    refresh_chat_memories_for_source_messages(state, chat_id, Vec::new()).await
+}
+
+pub(crate) async fn refresh_chat_memories_for_source_messages(
+    state: &AppState,
+    chat_id: &str,
+    source_message_ids: Vec<String>,
+) -> AppResult<Value> {
     let chat = get_required(state, "chats", chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
     let existing_memories = chat_memory_values_for_mutation(&chat)?;
+    let source_message_id_set = source_message_ids
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<HashSet<_>>();
+    let focused_refresh = !source_message_id_set.is_empty();
     let preserved_memories = existing_memories
         .iter()
-        .filter(|memory| !chat_memory_is_refresh_owned(memory))
+        .filter(|memory| {
+            if !chat_memory_is_refresh_owned(memory) {
+                return true;
+            }
+            focused_refresh
+                && !chat_memory_message_ids(memory)
+                    .iter()
+                    .any(|id| source_message_id_set.contains(id))
+        })
         .cloned()
         .collect::<Vec<_>>();
     let existing_by_chunk = existing_memories
@@ -1118,85 +1280,56 @@ pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> Ap
     let mut chunks: Vec<Value> = Vec::new();
     let mut pending = Vec::new();
     let mut reused = 0usize;
+    if !source_message_id_set.is_empty() {
+        let focused_messages = visible_messages
+            .iter()
+            .filter(|message| {
+                message
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .is_some_and(|id| source_message_id_set.contains(id))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if focused_messages
+            .last()
+            .is_some_and(|message| message_role(message) == "assistant")
+        {
+            let context = RefreshMemoryCaptureContext {
+                existing_by_chunk: &existing_by_chunk,
+                embedding_context: embedding_context.as_ref(),
+                chat_id,
+                persona_name: persona_name.as_deref(),
+                character_names: &character_names,
+                fallback_character_name,
+                now: &now,
+                creation_reason: "Automatic exchange capture",
+            };
+            push_refresh_memory_capture(
+                &mut chunks,
+                &mut pending,
+                &mut reused,
+                &focused_messages,
+                &context,
+            );
+        }
+    }
     for chunk in visible_messages.chunks(MEMORY_CHUNK_SIZE) {
         if chunk.len() < MEMORY_CHUNK_SIZE {
             continue;
         }
-        let content = chunk
-            .iter()
-            .map(|message| {
-                let speaker = message_speaker_label(
-                    message,
-                    persona_name.as_deref(),
-                    &character_names,
-                    fallback_character_name,
-                );
-                format!("{speaker}: {}", message_content(message))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let mut memory = Map::new();
-        let message_ids = chunk
-            .iter()
-            .filter_map(|message| message.get("id").and_then(Value::as_str))
-            .filter(|id| !id.trim().is_empty())
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        if let Some(existing_memory) = reusable_chat_memory(
-            &existing_by_chunk,
-            &message_ids,
-            &content,
-            embedding_context.as_ref(),
-        ) {
-            let mut memory = existing_memory.clone();
-            if let Some(object) = memory.as_object_mut() {
-                canonicalize_transcript_capture(object, chat_id);
-            }
-            chunks.push(memory);
-            reused += 1;
-            continue;
-        }
-        memory.insert("id".to_string(), Value::String(new_id()));
-        memory.insert("chatId".to_string(), Value::String(chat_id.to_string()));
-        memory.insert("content".to_string(), Value::String(content.clone()));
-        memory.insert("messageCount".to_string(), json!(chunk.len()));
-        memory.insert("messageIds".to_string(), json!(message_ids));
-        memory.insert(
-            "firstMessageId".to_string(),
-            chunk
-                .first()
-                .and_then(|message| message.get("id"))
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
-        memory.insert(
-            "lastMessageId".to_string(),
-            chunk
-                .last()
-                .and_then(|message| message.get("id"))
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
-        memory.insert(
-            "firstMessageAt".to_string(),
-            chunk
-                .first()
-                .and_then(|message| message.get("createdAt"))
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
-        memory.insert(
-            "lastMessageAt".to_string(),
-            chunk
-                .last()
-                .and_then(|message| message.get("createdAt"))
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
-        memory.insert("createdAt".to_string(), Value::String(now.clone()));
-        canonicalize_transcript_capture(&mut memory, chat_id);
-        pending.push((chunks.len(), content, memory));
-        chunks.push(Value::Null);
+        let context = RefreshMemoryCaptureContext {
+            existing_by_chunk: &existing_by_chunk,
+            embedding_context: embedding_context.as_ref(),
+            chat_id,
+            persona_name: persona_name.as_deref(),
+            character_names: &character_names,
+            fallback_character_name,
+            now: &now,
+            creation_reason: "Automatic transcript chunk capture",
+        };
+        push_refresh_memory_capture(&mut chunks, &mut pending, &mut reused, chunk, &context);
     }
     let embedded = pending.len();
     if !pending.is_empty() {
@@ -1216,7 +1349,6 @@ pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> Ap
         .patch("chats", chat_id, json!({ "memories": chunks }))?;
     Ok(json!({ "rebuilt": chunks.len(), "embedded": embedded, "reused": reused, "chunks": chunks }))
 }
-
 pub(crate) fn export_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
     let chat = get_required(state, "chats", chat_id)?;
     let now = now_iso();

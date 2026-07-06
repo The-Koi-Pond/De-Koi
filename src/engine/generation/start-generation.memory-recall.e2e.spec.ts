@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
-import type { StorageEntity, StorageGateway } from "../capabilities/storage";
+import type { RefreshChatMemoriesOptions, StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
 import { startGeneration } from "./start-generation";
 
@@ -49,8 +49,10 @@ function memoryRecallStorage() {
     "char-1": { id: "char-1", name: "Mira", data: { name: "Mira", personality: "attentive" } },
   };
   const messages: StoredMessage[] = [];
+  const memoryCaptureJobs = new Map<string, Record<string, unknown>>();
   let nextMessageId = 1;
   let refreshCount = 0;
+  const refreshCalls: Array<{ chatId: string; options?: RefreshChatMemoriesOptions }> = [];
 
   function seedLegacyImportedChat(): void {
     chat.memories = [
@@ -115,18 +117,30 @@ function memoryRecallStorage() {
       if (entity === "prompts") return [] as T[];
       if (entity === "regex-scripts") return [] as T[];
       if (entity === "agents") return [] as T[];
+      if (entity === "memory-capture-jobs") return Array.from(memoryCaptureJobs.values()) as T[];
       return [] as T[];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "chats" && id === chat.id) return records[chat.id] as T;
       if (entity === "connections" && id === "conn-1") return records["conn-1"] as T;
       if (entity === "characters" && id === "char-1") return records["char-1"] as T;
+      if (entity === "memory-capture-jobs") return (memoryCaptureJobs.get(id) ?? null) as T | null;
       return null;
     },
-    async create<T = unknown>(_entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
+    async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
+      if (entity === "memory-capture-jobs") {
+        const row = { ...value, id: String(value.id) };
+        memoryCaptureJobs.set(row.id, row);
+        return row as T;
+      }
       return { id: "created", ...value } as T;
     },
     async update<T = unknown>(entity: StorageEntity, id: string, patch: Record<string, unknown>): Promise<T> {
+      if (entity === "memory-capture-jobs") {
+        const row = { ...(memoryCaptureJobs.get(id) ?? { id }), ...patch };
+        memoryCaptureJobs.set(id, row);
+        return row as T;
+      }
       records[id] = { ...(records[id] ?? { id, entity }), ...patch };
       return records[id] as T;
     },
@@ -179,8 +193,9 @@ function memoryRecallStorage() {
     async listChatMemories<T = unknown>(chatId: string): Promise<T[]> {
       return (chatId === chat.id ? chat.memories : []) as T[];
     },
-    async refreshChatMemories<T = unknown>(chatId: string): Promise<T> {
+    async refreshChatMemories<T = unknown>(chatId: string, options?: RefreshChatMemoriesOptions): Promise<T> {
       refreshCount += 1;
+      refreshCalls.push({ chatId, options });
       const visible = messages.filter((message) => message.chatId === chatId && message.content.trim());
       const hasTranscriptChunk = chat.memories.some(
         (memory) => Array.isArray(memory.messageIds) && memory.memoryKind !== "imported",
@@ -241,6 +256,8 @@ function memoryRecallStorage() {
   return {
     storage,
     messages,
+    memoryCaptureJobs,
+    refreshCalls,
     seedLegacyImportedChat,
     migrateLegacyImportedChat,
     get refreshCount() {
@@ -277,6 +294,43 @@ async function collectEvents(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration Memory Recall preflight", () => {
+  it("passes the saved user and assistant messages to automatic memory refresh", async () => {
+    const calls: LlmRequest[] = [];
+    const harness = memoryRecallStorage();
+    const deps = {
+      storage: harness.storage,
+      llm: memoryAwareLlm(calls),
+      integrations: {} as IntegrationGateway,
+    };
+
+    await collectEvents(
+      startGeneration(deps, {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        userMessage: "My cat's name is Miso.",
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(Array.from(harness.memoryCaptureJobs.values()).at(-1)).toEqual(
+        expect.objectContaining({ status: "completed" }),
+      ),
+    );
+
+    expect(harness.refreshCalls.at(-1)).toEqual({
+      chatId: "chat-1",
+      options: { sourceMessageIds: ["message-1", "message-2"] },
+    });
+    expect(Array.from(harness.memoryCaptureJobs.values())).toEqual([
+      expect.objectContaining({
+        status: "completed",
+        chatId: "chat-1",
+        sourceMessageIds: ["message-1", "message-2"],
+        assistantMessageId: "message-2",
+        userMessageId: "message-1",
+      }),
+    ]);
+  });
+
   it("extracts a memory after generation and injects it into the next generation", async () => {
     const calls: LlmRequest[] = [];
     const harness = memoryRecallStorage();
@@ -293,8 +347,9 @@ describe("startGeneration Memory Recall preflight", () => {
     ]) {
       await collectEvents(startGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", userMessage }));
     }
-    await vi.waitFor(() => expect(harness.refreshCount).toBeGreaterThan(0));
-    expect(await harness.storage.listChatMemories("chat-1")).toHaveLength(1);
+    await vi.waitFor(async () => {
+      expect(await harness.storage.listChatMemories("chat-1")).toHaveLength(1);
+    });
 
     await collectEvents(
       startGeneration(deps, {
@@ -340,9 +395,25 @@ describe("startGeneration Memory Recall preflight", () => {
         userMessage: "What tea does Mira keep for me after patrols?",
       }),
     );
-    await vi.waitFor(() => expect(harness.refreshCount).toBeGreaterThan(0));
+    await vi.waitFor(async () => {
+      expect(await harness.storage.listChatMemories<Record<string, unknown>>("chat-1")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            canonicalMemoryVersion: 1,
+            memoryKind: "transcript",
+            scopeType: "chat",
+            scopeId: "chat-1",
+            legacySourceLane: "chats.memories",
+          }),
+        ]),
+      );
+    });
 
-    const promptText = calls.at(-1)?.messages.map((message) => message.content).join("\n") ?? "";
+    const promptText =
+      calls
+        .at(-1)
+        ?.messages.map((message) => message.content)
+        .join("\n") ?? "";
     expect(promptText).toContain("<memories>");
     expect(promptText).toContain("jasmine tea");
 

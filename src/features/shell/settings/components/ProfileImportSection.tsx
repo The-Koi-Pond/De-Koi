@@ -29,6 +29,7 @@ type ProfileImportStats = {
   agents?: number;
   "agent-runs"?: number;
   "agent-memory"?: number;
+  "memory-capture-jobs"?: number;
   themes?: number;
   extensions?: number;
   chats?: number;
@@ -118,6 +119,7 @@ const PROFILE_IMPORT_STAT_LABELS: Array<{ key: string; aliases?: string[]; singu
   { key: "agents", singular: "agent", plural: "agents" },
   { key: "agent-runs", singular: "agent run", plural: "agent runs" },
   { key: "agent-memory", singular: "agent memory row", plural: "agent memory rows" },
+  { key: "memory-capture-jobs", singular: "memory capture job", plural: "memory capture jobs" },
   { key: "themes", singular: "theme", plural: "themes" },
   { key: "extensions", singular: "extension", plural: "extensions" },
   { key: "connections", singular: "connection", plural: "connections" },
