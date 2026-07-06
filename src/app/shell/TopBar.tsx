@@ -146,8 +146,10 @@ export function TopBar({
                         avatarFilePath={c.avatarFilePath}
                         avatarFilename={c.avatarFilename}
                         alt={c.data?.name ?? ""}
+                        crop={ext.avatarCrop}
                         className="h-8 w-8 rounded-xl object-cover ring-2 ring-[var(--background)]"
-                        thumbnailSize={64}
+                        thumbnailSize={128}
+                        upgradeToFullResolution
                       />
                     ) : (
                       <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)] text-xs font-bold text-[var(--muted-foreground)] ring-2 ring-[var(--background)]">
@@ -195,8 +197,10 @@ export function TopBar({
                 avatarFilePath={firstChar.avatarFilePath}
                 avatarFilename={firstChar.avatarFilename}
                 alt={firstChar.data?.name ?? ""}
+                crop={extensions.avatarCrop}
                 className="h-8 w-8 rounded-xl object-cover ring-1 ring-[var(--border)]/50"
-                thumbnailSize={64}
+                thumbnailSize={128}
+                upgradeToFullResolution
               />
             ) : (
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)] text-xs font-bold text-[var(--muted-foreground)] ring-1 ring-[var(--border)]/50">
