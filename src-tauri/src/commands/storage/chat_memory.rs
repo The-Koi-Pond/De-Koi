@@ -923,8 +923,9 @@ fn set_chat_memory_values(state: &AppState, chat_id: &str, values: Vec<Value>) -
 }
 
 pub(crate) fn clear_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
+    let result = set_chat_memory_values(state, chat_id, Vec::new())?;
     canonical_memory::delete_memory_index_rows_for_chat(state, chat_id)?;
-    set_chat_memory_values(state, chat_id, Vec::new())
+    Ok(result)
 }
 
 pub(crate) fn delete_chat_memory(
@@ -2137,10 +2138,10 @@ pub(crate) async fn import_chat_memories(
             "Memory Recall replace import must contain at least one importable chunk",
         ));
     }
+    set_chat_memory_values(state, chat_id, memories)?;
     if replace {
         canonical_memory::delete_memory_index_rows_for_chat(state, chat_id)?;
     }
-    set_chat_memory_values(state, chat_id, memories)?;
     Ok(json!({ "imported": imported, "skipped": skipped, "replaced": replace }))
 }
 
