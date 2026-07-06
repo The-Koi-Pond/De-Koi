@@ -522,64 +522,13 @@ export function ConversationView({
   useEffect(() => {
     if (!chatId || !isPageActive) return;
     const refreshStatus = async () => {
-      let changed = false;
       try {
         const statusResult = await getConversationStatus(storageApi, chatId);
-        for (const [characterId, info] of Object.entries(statusResult.statuses)) {
-          const row = await storageApi.get<{ data?: { extensions?: Record<string, unknown> } }>(
-            "characters",
-            characterId,
-          );
-          if (row?.data) {
-            const extensions = row.data.extensions ?? {};
-            const currentStatus =
-              typeof extensions.conversationStatus === "string" ? extensions.conversationStatus : "";
-            const currentActivity =
-              typeof extensions.conversationActivity === "string" ? extensions.conversationActivity : "";
-            const currentAvailabilityExplanation =
-              typeof extensions.conversationAvailabilityExplanation === "string"
-                ? extensions.conversationAvailabilityExplanation
-                : "";
-            const nextAvailabilityExplanation =
-              info.availabilityExplanation && typeof info.availabilityExplanation.message === "string"
-                ? info.availabilityExplanation.message
-                : null;
-            const availabilityExplanationChanged =
-              nextAvailabilityExplanation !== null && currentAvailabilityExplanation !== nextAvailabilityExplanation;
-            const staleAvailabilityExplanation =
-              nextAvailabilityExplanation === null && currentAvailabilityExplanation !== "";
-            if (
-              currentStatus !== info.status ||
-              currentActivity !== info.activity ||
-              availabilityExplanationChanged ||
-              staleAvailabilityExplanation
-            ) {
-              const nextExtensions: Record<string, unknown> = {
-                ...extensions,
-                conversationStatus: info.status,
-                conversationActivity: info.activity,
-              };
-              if (nextAvailabilityExplanation !== null) {
-                nextExtensions.conversationAvailabilityExplanation = nextAvailabilityExplanation;
-              } else {
-                delete nextExtensions.conversationAvailabilityExplanation;
-              }
-              await storageApi.update("characters", characterId, {
-                data: {
-                  ...row.data,
-                  extensions: nextExtensions,
-                },
-              });
-              changed = true;
-            }
-          }
+        if (statusResult.persistedCharacterIds.length > 0) {
+          invalidateCharacterCollectionQueries(qc);
         }
       } catch {
         /* non-critical */
-      } finally {
-        if (changed) {
-          invalidateCharacterCollectionQueries(qc);
-        }
       }
     };
     void refreshStatus();

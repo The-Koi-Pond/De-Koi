@@ -37,6 +37,7 @@ export interface ConversationStatusResult {
     }
   >;
   needsRefresh: boolean;
+  persistedCharacterIds: string[];
 }
 
 export interface BusyDelayResult {
@@ -56,6 +57,11 @@ type StoredMessage = {
   role?: unknown;
   createdAt?: unknown;
   characterId?: unknown;
+};
+
+type StoredCharacter = {
+  id?: unknown;
+  data?: unknown;
 };
 
 type UserStatus = "active" | "idle" | "dnd";
@@ -105,11 +111,11 @@ function characterRoutines(meta: Record<string, unknown>): Record<string, Conver
 
 async function syncStoredConversationStatus(
   storage: StorageGateway,
+  character: StoredCharacter | null | undefined,
   characterId: string,
   status: { status: string; activity: string; availabilityExplanation?: string; source?: "routine" | "schedule" } | null,
-): Promise<void> {
-  const character = await storage.get<Record<string, unknown>>("characters", characterId);
-  if (!character) return;
+): Promise<boolean> {
+  if (!character) return false;
   const data = metadataRecord(character.data);
   const extensions = metadataRecord(data.extensions);
   const nextExtensions = { ...extensions };
@@ -134,7 +140,7 @@ async function syncStoredConversationStatus(
     nextExtensions.conversationStatusSource === extensions.conversationStatusSource &&
     nextExtensions.conversationAvailabilityExplanation === extensions.conversationAvailabilityExplanation
   ) {
-    return;
+    return false;
   }
   await storage.update("characters", characterId, {
     data: {
@@ -142,6 +148,7 @@ async function syncStoredConversationStatus(
       extensions: nextExtensions,
     },
   });
+  return true;
 }
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -181,7 +188,47 @@ function stringSet(value: unknown): Set<string> {
   );
 }
 
-export async function getConversationStatus(
+async function loadConversationStatusCharacters(
+  storage: StorageGateway,
+  characterIds: string[],
+): Promise<Map<string, StoredCharacter>> {
+  if (characterIds.length === 0) return new Map();
+  const rows = await storage.list<StoredCharacter>("characters", {
+    whereIn: { field: "id", values: characterIds },
+  });
+  const byId = new Map<string, StoredCharacter>();
+  for (const row of rows) {
+    if (typeof row.id === "string" && row.id.trim().length > 0) {
+      byId.set(row.id, row);
+    }
+  }
+  return byId;
+}
+
+const conversationStatusInFlight = new WeakMap<StorageGateway, Map<string, Promise<ConversationStatusResult>>>();
+
+function conversationStatusRequests(storage: StorageGateway): Map<string, Promise<ConversationStatusResult>> {
+  let requests = conversationStatusInFlight.get(storage);
+  if (!requests) {
+    requests = new Map();
+    conversationStatusInFlight.set(storage, requests);
+  }
+  return requests;
+}
+
+export function getConversationStatus(storage: StorageGateway, chatId: string): Promise<ConversationStatusResult> {
+  const requests = conversationStatusRequests(storage);
+  const existing = requests.get(chatId);
+  if (existing) return existing;
+  const request = computeConversationStatus(storage, chatId).finally(() => {
+    if (requests.get(chatId) === request) {
+      requests.delete(chatId);
+    }
+  });
+  requests.set(chatId, request);
+  return request;
+}
+async function computeConversationStatus(
   storage: StorageGateway,
   chatId: string,
 ): Promise<ConversationStatusResult> {
@@ -196,8 +243,11 @@ export async function getConversationStatus(
   let inheritedFreshAvailability = false;
   let otherConversationRoutines: Promise<Map<string, ConversationRoutine>> | null = null;
   let otherConversationSchedules: Promise<Map<string, WeekSchedule>> | null = null;
+  const characterIds = Array.from(new Set(chatCharacterIds(chat)));
+  const characterRows = await loadConversationStatusCharacters(storage, characterIds);
+  const statusSyncs: Array<Promise<string | null>> = [];
 
-  for (const characterId of chatCharacterIds(chat)) {
+  for (const characterId of characterIds) {
     let routine = statusRoutines[characterId];
     let schedule: WeekSchedule | undefined = statusSchedules[characterId];
     if (routine && scheduleNeedsRefresh(routine)) {
@@ -235,16 +285,24 @@ export async function getConversationStatus(
       availabilityExplanation,
     };
     if (profile) {
-      await syncStoredConversationStatus(storage, characterId, {
-        status: availability.status,
-        activity: availability.activity,
-        availabilityExplanation: availabilityExplanation.message,
-        source: routine ? "routine" : "schedule",
-      });
+      statusSyncs.push(
+        syncStoredConversationStatus(storage, characterRows.get(characterId), characterId, {
+          status: availability.status,
+          activity: availability.activity,
+          availabilityExplanation: availabilityExplanation.message,
+          source: routine ? "routine" : "schedule",
+        }).then((persisted) => (persisted ? characterId : null)),
+      );
     } else {
-      await syncStoredConversationStatus(storage, characterId, null);
+      statusSyncs.push(
+        syncStoredConversationStatus(storage, characterRows.get(characterId), characterId, null).then((persisted) =>
+          persisted ? characterId : null,
+        ),
+      );
     }
   }
+
+  const persistedCharacterIds = (await Promise.all(statusSyncs)).filter((id): id is string => !!id);
 
   if (inheritedFreshAvailability) {
     const nextMeta: Record<string, unknown> = {
@@ -257,7 +315,7 @@ export async function getConversationStatus(
     await storage.patchChatMetadata(chatId, nextMeta);
   }
 
-  return { statuses, needsRefresh };
+  return { statuses, needsRefresh, persistedCharacterIds };
 }
 
 async function loadFreshConversationRoutines(

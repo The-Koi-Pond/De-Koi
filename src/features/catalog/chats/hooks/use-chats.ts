@@ -31,6 +31,7 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { ApiError } from "../../../../shared/api/api-errors";
+import { markPerformanceMilestoneOnce } from "../../../../shared/lib/performance-diagnostics";
 import { getExportErrorMessage } from "../../../shared/lib/export-feedback";
 import { selectChatSummarySourceMessages, type ChatSummarySourceMode } from "../lib/chat-summary-source";
 import {
@@ -295,11 +296,15 @@ export function useChatMessages(
             ...(pageParam ? { before: pageParam } : {}),
           }),
         })
-        .then((messages) =>
-          chatId
+        .then((messages) => {
+          const rows = chatId
             ? messages.map((message) => preserveRecentMessageContentEdit(chatId, sanitizeTimelineMessage(message)))
-            : messages.map(sanitizeTimelineMessage),
-        );
+            : messages.map(sanitizeTimelineMessage);
+          if (!pageParam) {
+            markPerformanceMilestoneOnce("chat.message-page.ready", { rowCount: rows.length, pageSize });
+          }
+          return rows;
+        });
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => {

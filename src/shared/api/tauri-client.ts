@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { measurePerformanceAsync } from "../lib/performance-diagnostics";
 import { ApiError } from "./api-errors";
 import { invokeRemote, isRemoteCommand, remoteRuntimeTarget } from "./remote-runtime";
 
@@ -34,7 +35,9 @@ export async function invokeTauri<T>(command: string, args?: Record<string, unkn
   const runtimeTarget = remoteRuntimeTarget();
   const remoteCommand = isRemoteCommand(command);
   if (runtimeTarget && remoteCommand) {
-    return invokeRemote<T>(command, args);
+    return measurePerformanceAsync({ category: "ipc", name: command, details: { runtime: "remote" } }, () =>
+      invokeRemote<T>(command, args),
+    );
   }
   if (!hasEmbeddedTauriIpc()) {
     throw new ApiError(
@@ -43,7 +46,9 @@ export async function invokeTauri<T>(command: string, args?: Record<string, unkn
     );
   }
   try {
-    return await invoke<T>(command, args);
+    return await measurePerformanceAsync({ category: "ipc", name: command, details: { runtime: "embedded" } }, () =>
+      invoke<T>(command, args),
+    );
   } catch (error) {
     throw normalize(error);
   }

@@ -1,13 +1,15 @@
 use super::{
-    agents, avatars, characters, chats, connection_secrets, contracts, entity_images, game_state_snapshots,
-    integrations, lorebook_images, managed_thumbnails, media_uploads, message_swipes, personas,
-    prompts, shared, sprites,
+    agents, avatars, characters, chats, connection_secrets, contracts, entity_images,
+    game_state_snapshots, integrations, lorebook_images, managed_thumbnails, media_uploads,
+    message_swipes, personas, prompts, shared, sprites,
 };
 use crate::builtins::is_protected_record;
+use crate::performance_diagnostics::{approx_json_bytes, log_span};
 use crate::state::AppState;
 use marinara_core::{ensure_object, new_id, now_iso, AppError};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 #[cfg(feature = "desktop")]
 use tauri::State;
 
@@ -75,6 +77,17 @@ pub async fn storage_list(
 }
 
 pub(crate) fn storage_list_inner(
+    state: &AppState,
+    entity: String,
+    options: Option<Value>,
+) -> Result<Value, AppError> {
+    let started_at = Instant::now();
+    let read_mode = storage_read_mode(options.as_ref());
+    let result = storage_list_inner_impl(state, entity.clone(), options);
+    log_storage_operation(&entity, "list", read_mode, started_at, &result);
+    result
+}
+fn storage_list_inner_impl(
     state: &AppState,
     entity: String,
     options: Option<Value>,
@@ -433,6 +446,18 @@ pub(crate) fn storage_get_inner(
     id: String,
     options: Option<Value>,
 ) -> Result<Value, AppError> {
+    let started_at = Instant::now();
+    let read_mode = storage_read_mode(options.as_ref());
+    let result = storage_get_inner_impl(state, entity.clone(), id, options);
+    log_storage_operation(&entity, "get", read_mode, started_at, &result);
+    result
+}
+fn storage_get_inner_impl(
+    state: &AppState,
+    entity: String,
+    id: String,
+    options: Option<Value>,
+) -> Result<Value, AppError> {
     validate_storage_entity(&entity)?;
     let projection_fields = shared::projection_fields(options.as_ref());
     let mut value = if let Some(fields) = projection_fields
@@ -485,6 +510,16 @@ pub async fn storage_create(
 }
 
 pub(crate) fn storage_create_inner(
+    state: &AppState,
+    entity: String,
+    value: Value,
+) -> Result<Value, AppError> {
+    let started_at = Instant::now();
+    let result = storage_create_inner_impl(state, entity.clone(), value);
+    log_storage_operation(&entity, "create", "write", started_at, &result);
+    result
+}
+fn storage_create_inner_impl(
     state: &AppState,
     entity: String,
     value: Value,
@@ -569,6 +604,17 @@ pub(crate) fn storage_update_inner(
     id: String,
     patch: Value,
 ) -> Result<Value, AppError> {
+    let started_at = Instant::now();
+    let result = storage_update_inner_impl(state, entity.clone(), id, patch);
+    log_storage_operation(&entity, "update", "write", started_at, &result);
+    result
+}
+fn storage_update_inner_impl(
+    state: &AppState,
+    entity: String,
+    id: String,
+    patch: Value,
+) -> Result<Value, AppError> {
     validate_storage_entity(&entity)?;
     reject_message_swipe_mutation(&entity)?;
     if entity == "messages" {
@@ -647,6 +693,50 @@ pub(crate) fn prepare_entity_for_create(
             gallery_defaults_for_create(state, value)
         }
         _ => Ok(value),
+    }
+}
+
+fn storage_read_mode(options: Option<&Value>) -> &'static str {
+    if shared::projection_fields(options).is_some_and(|fields| !fields.is_empty()) {
+        "projected"
+    } else {
+        "full"
+    }
+}
+
+fn storage_result_row_count(value: &Value) -> usize {
+    match value {
+        Value::Array(rows) => rows.len(),
+        Value::Null => 0,
+        _ => 1,
+    }
+}
+
+fn log_storage_operation(
+    collection: &str,
+    operation: &str,
+    read_mode: &str,
+    started_at: Instant,
+    result: &Result<Value, AppError>,
+) {
+    let mut fields = Map::new();
+    fields.insert("collection".to_string(), json!(collection));
+    fields.insert("operation".to_string(), json!(operation));
+    fields.insert("readMode".to_string(), json!(read_mode));
+    fields.insert("cacheHit".to_string(), json!("unknown"));
+    match result {
+        Ok(value) => {
+            fields.insert(
+                "rowCount".to_string(),
+                json!(storage_result_row_count(value)),
+            );
+            fields.insert("approxBytes".to_string(), json!(approx_json_bytes(value)));
+            log_span("storage", "storage.operation", started_at, "ok", fields);
+        }
+        Err(error) => {
+            fields.insert("errorCode".to_string(), json!(&error.code));
+            log_span("storage", "storage.operation", started_at, "error", fields);
+        }
     }
 }
 
@@ -939,8 +1029,14 @@ mod tests {
         assert_eq!(created["packageVersion"], "1.0.0");
         assert_eq!(created["manifestVersion"], 1);
         assert_eq!(created["compatibility"]["deKoi"], ">=1.6.0 <2.0.0");
-        assert_eq!(created["permissions"], json!(["ui:styles", "storage:plugin-memory"]));
-        assert_eq!(created["uiContributions"]["slots"], json!(["settings", "overlay"]));
+        assert_eq!(
+            created["permissions"],
+            json!(["ui:styles", "storage:plugin-memory"])
+        );
+        assert_eq!(
+            created["uiContributions"]["slots"],
+            json!(["settings", "overlay"])
+        );
         assert_eq!(created["source"], "package");
         assert!(created.get("unknownManifestField").is_none());
     }

@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 use tokio::sync::watch;
 
+use crate::performance_diagnostics::log_span;
 use crate::seed_defaults::seed_bundled_defaults;
 use crate::storage_commands::{
     contracts,
@@ -363,13 +364,31 @@ fn run_startup_migration_once<F>(storage: &FileStorage, key: &str, migration: F)
 where
     F: FnOnce(&FileStorage) -> AppResult<()>,
 {
+    let started_at = Instant::now();
     if startup_migration_applied(storage, key)? {
+        let mut fields = Map::new();
+        fields.insert("migrationKey".to_string(), json!(key));
+        fields.insert("migrationStatus".to_string(), json!("skipped"));
+        log_span("startup", "startup.migration", started_at, "ok", fields);
         return Ok(());
     }
-    migration(storage)?;
-    mark_startup_migration_applied(storage, key)
-}
 
+    let result = migration(storage).and_then(|_| mark_startup_migration_applied(storage, key));
+    let mut fields = Map::new();
+    fields.insert("migrationKey".to_string(), json!(key));
+    fields.insert("migrationStatus".to_string(), json!("run"));
+    if let Err(error) = &result {
+        fields.insert("errorCode".to_string(), json!(&error.code));
+    }
+    log_span(
+        "startup",
+        "startup.migration",
+        started_at,
+        if result.is_ok() { "ok" } else { "error" },
+        fields,
+    );
+    result
+}
 fn compact_message_prompt_snapshots(storage: &FileStorage) -> AppResult<()> {
     let rows = storage.list("messages")?;
     let mut changed = false;
