@@ -246,28 +246,47 @@ describe("startGeneration group typing", () => {
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-a", "char-b"]);
   });
 
-
-  it("automatically captures canonical memories after saving a conversation assistant message", async () => {
+  it("queues automatic memory refresh after saving a conversation assistant message", async () => {
     const { storage } = groupTypingStorage({}, { characterIds: ["char-a"] });
-    const createMemory = vi.fn(async (input: Record<string, unknown>) => ({
-      id: "memory-1",
-      status: "active",
-      tags: [],
-      payload: {},
-      createdAt: "2026-07-04T12:00:00.000Z",
-      updatedAt: "2026-07-04T12:00:00.000Z",
-      ...input,
-    }));
-    const rebuildMemoryIndex = vi.fn(async () => ({ rebuilt: 1 }));
-    Object.assign(storage, { createMemory, rebuildMemoryIndex });
+    const jobs = new Map<string, Record<string, unknown>>();
+    const refreshChatMemories = vi.fn(async () => ({ rebuilt: 1 }));
+    const originalList = storage.list.bind(storage);
+    const originalGet = storage.get.bind(storage);
+    const originalCreate = storage.create.bind(storage);
+    const originalUpdate = storage.update.bind(storage);
+    Object.assign(storage, {
+      async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+        if (entity === "memory-capture-jobs") return Array.from(jobs.values()) as T[];
+        return originalList<T>(entity);
+      },
+      async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+        if (entity === "memory-capture-jobs") return (jobs.get(id) ?? null) as T | null;
+        return originalGet<T>(entity, id);
+      },
+      async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
+        if (entity === "memory-capture-jobs") {
+          const row = { id: String(value.id), ...value };
+          jobs.set(String(row.id), row);
+          return row as T;
+        }
+        return originalCreate<T>(entity, value);
+      },
+      async update<T = unknown>(entity: StorageEntity, id: string, patch: Record<string, unknown>): Promise<T> {
+        if (entity === "memory-capture-jobs") {
+          const row = { ...(jobs.get(id) ?? { id }), ...patch };
+          jobs.set(id, row);
+          return row as T;
+        }
+        return originalUpdate<T>(entity, id, patch);
+      },
+      refreshChatMemories,
+    });
 
     await collectEvents(
       startGeneration(
         {
           storage,
-          llm: groupTypingLlm(JSON.stringify({
-            memories: [{ category: "stable_fact", content: "Aki likes the koi pond.", confidence: 0.9 }],
-          })),
+          llm: groupTypingLlm(JSON.stringify({ characterIds: ["char-a"], reason: "test" })),
           integrations: {} as IntegrationGateway,
         },
         {
@@ -278,19 +297,24 @@ describe("startGeneration group typing", () => {
         },
       ),
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    for (
+      let index = 0;
+      index < 20 && !Array.from(jobs.values()).some((job) => job.status === "completed");
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
 
-    expect(createMemory).toHaveBeenCalledWith(
+    expect(refreshChatMemories).toHaveBeenCalledWith("chat-1", { sourceMessageIds: ["message-1", "message-2"] });
+    expect(Array.from(jobs.values())).toEqual([
       expect.objectContaining({
-        kind: "fact",
-        content: "Aki likes the koi pond.",
-        provenance: expect.objectContaining({ sourceChatId: "chat-1", messageIds: ["message-2"] }),
+        status: "completed",
+        sourceMessageIds: ["message-1", "message-2"],
+        userMessageId: "message-1",
+        assistantMessageId: "message-2",
       }),
-    );
-    expect(rebuildMemoryIndex).toHaveBeenCalledWith({ scope: { kind: "chat", id: "chat-1" } });
+    ]);
   });
-
   it("emits debug timing diagnostics for merged roleplay group generation", async () => {
     const { storage, messages } = groupTypingStorage(
       { groupChatMode: "merged" },

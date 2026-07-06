@@ -1125,19 +1125,23 @@ fn capture_message_ids(messages: &[Value]) -> Vec<String> {
         .collect::<Vec<_>>()
 }
 
+struct RefreshMemoryCaptureContext<'a> {
+    existing_by_chunk: &'a HashMap<String, Value>,
+    embedding_context: Option<&'a MemoryEmbeddingContext>,
+    chat_id: &'a str,
+    persona_name: Option<&'a str>,
+    character_names: &'a HashMap<String, String>,
+    fallback_character_name: Option<&'a str>,
+    now: &'a str,
+    creation_reason: &'a str,
+}
+
 fn push_refresh_memory_capture(
     captures: &mut Vec<Value>,
     pending: &mut Vec<(usize, String, Map<String, Value>)>,
     reused: &mut usize,
-    existing_by_chunk: &HashMap<String, Value>,
-    embedding_context: Option<&MemoryEmbeddingContext>,
-    chat_id: &str,
     messages: &[Value],
-    persona_name: Option<&str>,
-    character_names: &HashMap<String, String>,
-    fallback_character_name: Option<&str>,
-    now: &str,
-    creation_reason: &str,
+    context: &RefreshMemoryCaptureContext<'_>,
 ) {
     let message_ids = capture_message_ids(messages);
     if message_ids.is_empty() {
@@ -1145,19 +1149,22 @@ fn push_refresh_memory_capture(
     }
     let content = capture_memory_content(
         messages,
-        persona_name,
-        character_names,
-        fallback_character_name,
+        context.persona_name,
+        context.character_names,
+        context.fallback_character_name,
     );
-    if let Some(existing_memory) =
-        reusable_chat_memory(existing_by_chunk, &message_ids, &content, embedding_context)
-    {
+    if let Some(existing_memory) = reusable_chat_memory(
+        context.existing_by_chunk,
+        &message_ids,
+        &content,
+        context.embedding_context,
+    ) {
         let mut memory = existing_memory.clone();
         if let Some(object) = memory.as_object_mut() {
-            canonicalize_transcript_capture(object, chat_id);
+            canonicalize_transcript_capture(object, context.chat_id);
             object.insert(
                 "creationReason".to_string(),
-                Value::String(creation_reason.to_string()),
+                Value::String(context.creation_reason.to_string()),
             );
         }
         captures.push(memory);
@@ -1167,7 +1174,10 @@ fn push_refresh_memory_capture(
 
     let mut memory = Map::new();
     memory.insert("id".to_string(), Value::String(new_id()));
-    memory.insert("chatId".to_string(), Value::String(chat_id.to_string()));
+    memory.insert(
+        "chatId".to_string(),
+        Value::String(context.chat_id.to_string()),
+    );
     memory.insert("content".to_string(), Value::String(content.clone()));
     memory.insert("messageCount".to_string(), json!(messages.len()));
     memory.insert("messageIds".to_string(), json!(message_ids));
@@ -1203,16 +1213,18 @@ fn push_refresh_memory_capture(
             .cloned()
             .unwrap_or(Value::Null),
     );
-    memory.insert("createdAt".to_string(), Value::String(now.to_string()));
-    canonicalize_transcript_capture(&mut memory, chat_id);
+    memory.insert(
+        "createdAt".to_string(),
+        Value::String(context.now.to_string()),
+    );
+    canonicalize_transcript_capture(&mut memory, context.chat_id);
     memory.insert(
         "creationReason".to_string(),
-        Value::String(creation_reason.to_string()),
+        Value::String(context.creation_reason.to_string()),
     );
     pending.push((captures.len(), content, memory));
     captures.push(Value::Null);
 }
-
 pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
     refresh_chat_memories_for_source_messages(state, chat_id, Vec::new()).await
 }
@@ -1284,19 +1296,22 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
             .last()
             .is_some_and(|message| message_role(message) == "assistant")
         {
+            let context = RefreshMemoryCaptureContext {
+                existing_by_chunk: &existing_by_chunk,
+                embedding_context: embedding_context.as_ref(),
+                chat_id,
+                persona_name: persona_name.as_deref(),
+                character_names: &character_names,
+                fallback_character_name,
+                now: &now,
+                creation_reason: "Automatic exchange capture",
+            };
             push_refresh_memory_capture(
                 &mut chunks,
                 &mut pending,
                 &mut reused,
-                &existing_by_chunk,
-                embedding_context.as_ref(),
-                chat_id,
                 &focused_messages,
-                persona_name.as_deref(),
-                &character_names,
-                fallback_character_name,
-                &now,
-                "Automatic exchange capture",
+                &context,
             );
         }
     }
@@ -1304,20 +1319,17 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
         if chunk.len() < MEMORY_CHUNK_SIZE {
             continue;
         }
-        push_refresh_memory_capture(
-            &mut chunks,
-            &mut pending,
-            &mut reused,
-            &existing_by_chunk,
-            embedding_context.as_ref(),
+        let context = RefreshMemoryCaptureContext {
+            existing_by_chunk: &existing_by_chunk,
+            embedding_context: embedding_context.as_ref(),
             chat_id,
-            chunk,
-            persona_name.as_deref(),
-            &character_names,
+            persona_name: persona_name.as_deref(),
+            character_names: &character_names,
             fallback_character_name,
-            &now,
-            "Automatic transcript chunk capture",
-        );
+            now: &now,
+            creation_reason: "Automatic transcript chunk capture",
+        };
+        push_refresh_memory_capture(&mut chunks, &mut pending, &mut reused, chunk, &context);
     }
     let embedded = pending.len();
     if !pending.is_empty() {
