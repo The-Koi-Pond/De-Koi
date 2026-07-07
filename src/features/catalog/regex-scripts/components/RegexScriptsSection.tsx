@@ -18,6 +18,7 @@ import {
   useUpdateRegexScript,
   type RegexScriptRow,
 } from "../hooks/use-regex-scripts";
+import { CatalogListRow, CatalogListState } from "../../components/CatalogListPrimitives";
 
 type RegexScriptsSectionProps = {
   title?: string;
@@ -122,20 +123,17 @@ export function RegexScriptsSection({
       {importError && <div className="mb-1 text-xs text-red-500">{importError}</div>}
       {importSuccess && <div className="mb-1 text-xs text-green-500">{importSuccess}</div>}
       {sortedRegexScripts.length === 0 ? (
-        <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No regex scripts yet.</p>
+        <CatalogListState state="empty" label="regex scripts" />
       ) : (
         sortedRegexScripts.map((script) => {
           const placements = Array.isArray(script.placement) ? script.placement : [];
           const targetCharacterIds = regexScriptTargetCharacterIds(script);
           const enabled = script.enabled === true || script.enabled === "true" || script.enabled === "1";
           return (
-            <div
+            <CatalogListRow
               key={script.id}
-              className={cn(
-                "flex items-start gap-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--sidebar-accent)]",
-                !enabled && "opacity-50",
-                draggedRegexId === script.id && "opacity-40",
-              )}
+              className={cn("flex items-start gap-2.5 p-2", !enabled && "opacity-50")}
+              dragging={draggedRegexId === script.id}
               draggable={regexDragReadyId === script.id}
               onDragStart={(event) => {
                 setDraggedRegexId(script.id);
@@ -231,7 +229,7 @@ export function RegexScriptsSection({
               >
                 <Trash2 size="0.8125rem" />
               </button>
-            </div>
+            </CatalogListRow>
           );
         })
       )}

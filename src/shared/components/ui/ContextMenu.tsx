@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../lib/utils";
+import { useEscapeOverlay } from "../../hooks/use-escape-overlay";
 
 export interface ContextMenuItem {
   label: string;
@@ -40,24 +41,25 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     setPos({ left, top });
   }, [x, y]);
 
-  // Close on outside click, Escape, scroll, or window resize.
+  useEscapeOverlay(() => {
+    onClose();
+    return true;
+  });
+
+  // Close on outside click, scroll, or window resize.
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
+
     const raf = requestAnimationFrame(() => {
       document.addEventListener("mousedown", onDown);
-      document.addEventListener("keydown", onKey);
       window.addEventListener("scroll", onClose, true);
       window.addEventListener("resize", onClose);
     });
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", onClose, true);
       window.removeEventListener("resize", onClose);
     };

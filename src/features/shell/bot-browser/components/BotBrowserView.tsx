@@ -1458,7 +1458,7 @@ export function BotBrowserView() {
           ? { ...cardDetail, name: card.name, creator: card.creator, tags: card.tags }
           : cardDetail;
         const importJson = mergeCharacterDetailIntoCharacterJson(json as Record<string, unknown>, importDetail);
-        const importEmbeddedLorebook = confirmEmbeddedLorebookImport(
+        const importEmbeddedLorebook = await confirmEmbeddedLorebookImport(
           card.name,
           cardDetail?.embeddedLorebook ?? readEmbeddedLorebookFromCharacterPayload(importJson),
         );
@@ -1477,8 +1477,8 @@ export function BotBrowserView() {
           if (data.character) {
             const characterId = data.characterId || data.character.id;
             if (characterId && data.character.data) {
-              void importRegexScriptsForCharacter({ characterId, character: data.character }).catch(
-                (error) => console.warn("[bot-browser] Failed to import embedded regex scripts.", error),
+              void importRegexScriptsForCharacter({ characterId, character: data.character }).catch((error) =>
+                console.warn("[bot-browser] Failed to import embedded regex scripts.", error),
               );
             }
           }
@@ -1488,7 +1488,7 @@ export function BotBrowserView() {
         // on failure rather than aborting the import (see the chub branch above).
         let cardDetail = detail;
         if (!cardDetail) cardDetail = await provider.fetchDetail(card).catch(() => null);
-        const importEmbeddedLorebook = confirmEmbeddedLorebookImport(card.name, cardDetail?.embeddedLorebook);
+        const importEmbeddedLorebook = await confirmEmbeddedLorebookImport(card.name, cardDetail?.embeddedLorebook);
         // For extracted JanitorAI data, description contains the full personality definition
         const descriptionText = cardDetail?.description || "";
         const personalityText = cardDetail?.personality || "";
@@ -1537,8 +1537,8 @@ export function BotBrowserView() {
           if (data.character) {
             const characterId = data.characterId || data.character.id;
             if (characterId && data.character.data) {
-              void importRegexScriptsForCharacter({ characterId, character: data.character }).catch(
-                (error) => console.warn("[bot-browser] Failed to import embedded regex scripts.", error),
+              void importRegexScriptsForCharacter({ characterId, character: data.character }).catch((error) =>
+                console.warn("[bot-browser] Failed to import embedded regex scripts.", error),
               );
             }
           }

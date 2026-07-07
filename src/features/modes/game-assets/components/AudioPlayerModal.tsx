@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { GAME_ASSET_MIME_MAP } from "../../../../engine/contracts/constants/game-assets";
 import { resolveGameAssetFileUrl } from "../../../../shared/api/local-file-api";
+import { useEscapeOverlay } from "../../../../shared/hooks/use-escape-overlay";
 
 /**
  * Audio player modal with MIME type hinting and download fallback.
@@ -20,13 +21,10 @@ export function AudioPlayerModal({ path, name, onClose }: { path: string; name: 
   const [playError, setPlayError] = useState(false);
   const [src, setSrc] = useState("");
 
-  useEffect(() => {
-    const handle = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handle);
-    return () => document.removeEventListener("keydown", handle);
-  }, [onClose]);
+  useEscapeOverlay(() => {
+    onClose();
+    return true;
+  });
 
   useEffect(() => {
     let cancelled = false;

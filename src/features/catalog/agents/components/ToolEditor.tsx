@@ -11,23 +11,14 @@ import {
   useDeleteCustomTool,
   type CustomToolRow,
 } from "../hooks/use-custom-tools";
-import {
-  ArrowLeft,
-  Save,
-  Wrench,
-  Check,
-  AlertCircle,
-  X,
-  Info,
-  Globe,
-  FileText,
-  Code2,
-  Trash2,
-  Plus,
-  Minus,
-} from "lucide-react";
+import { ArrowLeft, Save, Wrench, Info, Globe, FileText, Code2, Trash2, Plus, Minus } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
+import {
+  EditorSaveStatus,
+  SaveErrorBanner,
+  UnsavedChangesBar,
+} from "../../../../shared/components/ui/ExplicitSaveChrome";
 
 const EXEC_TYPES = [
   { value: "static", label: "Static Result", icon: FileText, description: "Returns a fixed string when called." },
@@ -251,17 +242,7 @@ export function ToolEditor() {
           placeholder="tool_name"
         />
         <div className="flex items-center gap-1.5">
-          {saveError && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-red-400">
-              <AlertCircle size="0.6875rem" /> Error
-            </span>
-          )}
-          {savedFlash && !dirty && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-emerald-400">
-              <Check size="0.6875rem" /> Saved
-            </span>
-          )}
-          {dirty && !saveError && <span className="mr-2 text-[0.625rem] font-medium text-amber-400">Unsaved</span>}
+          <EditorSaveStatus dirty={dirty} saving={isPending} saved={savedFlash} error={saveError} />
           {dbTool && (
             <button
               onClick={handleDelete}
@@ -280,46 +261,19 @@ export function ToolEditor() {
         </div>
       </div>
 
-      {/* Unsaved warning */}
       {showUnsavedWarning && (
-        <div className="flex items-center justify-between bg-amber-500/10 px-4 py-2 text-xs text-amber-400">
-          <span>You have unsaved changes.</span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowUnsavedWarning(false)}
-              className="rounded-lg px-3 py-1 hover:bg-[var(--accent)]"
-            >
-              Keep editing
-            </button>
-            <button
-              onClick={() => closeToolDetail()}
-              className="rounded-lg px-3 py-1 text-[var(--destructive)] hover:bg-[var(--destructive)]/15"
-            >
-              Discard
-            </button>
-            <button
-              onClick={async () => {
-                const saved = await handleSave();
-                if (saved) closeToolDetail();
-              }}
-              className="rounded-lg bg-amber-500/20 px-3 py-1 hover:bg-amber-500/30"
-            >
-              Save & close
-            </button>
-          </div>
-        </div>
+        <UnsavedChangesBar
+          saving={isPending}
+          onKeepEditing={() => setShowUnsavedWarning(false)}
+          onDiscard={() => closeToolDetail()}
+          onSaveAndClose={async () => {
+            const saved = await handleSave();
+            if (saved) closeToolDetail();
+          }}
+        />
       )}
 
-      {/* Save error banner */}
-      {saveError && (
-        <div className="flex items-center gap-2 bg-red-500/10 px-4 py-2 text-xs text-red-400">
-          <AlertCircle size="0.8125rem" />
-          <span className="flex-1">{saveError}</span>
-          <button onClick={() => setSaveError(null)} className="rounded-lg px-2 py-0.5 hover:bg-red-500/20">
-            <X size="0.75rem" />
-          </button>
-        </div>
-      )}
+      <SaveErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
 
       {/* ── Body ── */}
       <div className="flex-1 overflow-y-auto p-6">
@@ -517,7 +471,6 @@ export function ToolEditor() {
               </p>
             </FieldGroup>
           )}
-
         </div>
       </div>
     </div>

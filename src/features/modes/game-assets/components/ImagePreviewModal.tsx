@@ -8,6 +8,7 @@ import { useGameAssetFileInfo } from "../hooks/use-game-assets";
 import { cn } from "../../../../shared/lib/utils";
 import { formatBytes, formatDate } from "../../../../shared/lib/format";
 import { gameAssetFileUrlFromPath, resolveGameAssetFileUrl } from "../../../../shared/api/local-file-api";
+import { useEscapeOverlay } from "../../../../shared/hooks/use-escape-overlay";
 
 /**
  * Full-screen image preview overlay with optional metadata side panel.
@@ -21,13 +22,10 @@ export function ImagePreviewModal({ node, onClose }: { node: TreeNode; onClose: 
   const [imageSrc, setImageSrc] = useState(() => gameAssetFileUrlFromPath(node.path, node.absolutePath));
   const { data: info } = useGameAssetFileInfo(node.path);
 
-  useEffect(() => {
-    const handle = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handle);
-    return () => document.removeEventListener("keydown", handle);
-  }, [onClose]);
+  useEscapeOverlay(() => {
+    onClose();
+    return true;
+  });
 
   useEffect(() => {
     let cancelled = false;
