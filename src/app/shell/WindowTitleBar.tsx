@@ -1,4 +1,4 @@
-import { Home, Maximize2, Minus, Square, X } from "lucide-react";
+import { Maximize2, Minus, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   closeDesktopWindow,
@@ -205,70 +205,41 @@ export function WindowTitleBar({
       onDoubleClick={toggleMaximizeFromDragRegion}
     >
       {platform === "darwin" && showWindowControls && controls}
-      {effectiveWebMode ? (
-        <>
-          <ChatTitleControls
-            className="pl-2.5 pr-0"
-            dekiOpen={dekiOpen}
-            leftSidebarPanel={leftSidebarPanel}
-            onLeftSidebarPanelChange={onLeftSidebarPanelChange}
-            onOpenDeki={onOpenDeki}
-            onGoHome={onGoHome}
-            hideHome
-            hideDeki
-            showDivider={false}
-          />
-          <button
-            type="button"
-            className="mari-titlebar-action mari-titlebar-web-home-button rounded-md p-1.5 text-[var(--muted-foreground)] transition-all duration-200 hover:text-[var(--primary)]"
-            onClick={goHome}
-            onMouseDown={(event) => event.stopPropagation()}
-            onDoubleClick={(event) => event.stopPropagation()}
-            title="Home"
-            aria-label="Home"
-          >
-            <Home size="0.9rem" aria-hidden />
-          </button>
-        </>
-      ) : (
-        <ChatTitleControls
-          className="pl-2.5 pr-0"
-          dekiOpen={dekiOpen}
-          leftSidebarPanel={leftSidebarPanel}
-          onLeftSidebarPanelChange={onLeftSidebarPanelChange}
-          onOpenDeki={onOpenDeki}
-          onGoHome={onGoHome}
-          hideHome
-        />
-      )}
+      <ChatTitleControls
+        className="pl-2.5 pr-0"
+        dekiOpen={dekiOpen}
+        leftSidebarPanel={leftSidebarPanel}
+        onLeftSidebarPanelChange={onLeftSidebarPanelChange}
+        onOpenDeki={onOpenDeki}
+        onGoHome={onGoHome}
+        hideHome
+      />
       <div className="mari-titlebar-content flex h-full min-w-0 flex-1 items-center">
         <div
           className="mari-title-drag-region flex h-full min-w-0 flex-1 items-center justify-start pl-0.5 pr-3"
           onMouseDown={startWindowDrag}
           onDoubleClick={toggleMaximizeFromDragRegion}
         >
-          {!effectiveWebMode && (
-            <button
-              type="button"
-              className={cn(
-                "mari-titlebar-action mari-title-home-button relative rounded-md p-1.5 transition-all duration-200",
-                isHomeSurface
-                  ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
-                  : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
-              )}
-              onClick={goHome}
-              onMouseDown={(event) => event.stopPropagation()}
-              onDoubleClick={(event) => event.stopPropagation()}
-              title="Home"
-              aria-label="Home"
-              aria-current={isHomeSurface ? "page" : undefined}
-            >
-              <img className="mari-title-icon" src="/favicon.png" alt="" draggable={false} />
-              {isHomeSurface && (
-                <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
-              )}
-            </button>
-          )}
+          <button
+            type="button"
+            className={cn(
+              "mari-titlebar-action mari-title-home-button relative rounded-md p-1.5 transition-all duration-200",
+              isHomeSurface
+                ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
+                : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
+            )}
+            onClick={goHome}
+            onMouseDown={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title="Home"
+            aria-label="Home"
+            aria-current={isHomeSurface ? "page" : undefined}
+          >
+            <img className="mari-title-icon" src="/favicon.png" alt="" draggable={false} />
+            {isHomeSurface && (
+              <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
+            )}
+          </button>
           {titlebarAccessory ? <div className="ml-2 hidden min-w-0 md:flex">{titlebarAccessory}</div> : null}
         </div>
         <div

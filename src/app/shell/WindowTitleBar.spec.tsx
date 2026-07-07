@@ -6,6 +6,26 @@ import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { WindowTitleBar } from "./WindowTitleBar";
 
+const windowControls = vi.hoisted(() => ({
+  closeDesktopWindow: vi.fn(() => Promise.resolve()),
+  getDesktopWindowVisualState: vi.fn(() => Promise.resolve({ fullscreen: false, maximized: false })),
+  hasDesktopWindowControls: vi.fn(() => false),
+  minimizeDesktopWindow: vi.fn(() => Promise.resolve()),
+  onDesktopWindowVisualStateChanged: vi.fn(() => Promise.resolve(() => {})),
+  startDesktopWindowDrag: vi.fn(() => Promise.resolve()),
+  toggleDesktopWindowFullscreen: vi.fn(() => Promise.resolve({ fullscreen: true, maximized: false })),
+  toggleDesktopWindowMaximize: vi.fn(() => Promise.resolve({ fullscreen: false, maximized: true })),
+}));
+
+vi.mock("../../shared/api/window-controls-api", () => windowControls);
+
+function shellActionLabels(root: HTMLElement) {
+  const nativeWindowLabels = new Set(["Close window", "Minimize window", "Maximize window", "Restore window"]);
+  return Array.from(root.querySelectorAll<HTMLButtonElement>("button[aria-label]"))
+    .map((button) => button.getAttribute("aria-label") ?? "")
+    .filter((label) => label && !nativeWindowLabels.has(label));
+}
+
 describe("WindowTitleBar web mode", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
@@ -17,6 +37,9 @@ describe("WindowTitleBar web mode", () => {
       botBrowserOpen: true,
       sidebarOpen: true,
     });
+    windowControls.hasDesktopWindowControls.mockReturnValue(false);
+    windowControls.getDesktopWindowVisualState.mockResolvedValue({ fullscreen: false, maximized: false });
+    windowControls.onDesktopWindowVisualStateChanged.mockResolvedValue(() => {});
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -35,25 +58,41 @@ describe("WindowTitleBar web mode", () => {
     vi.restoreAllMocks();
   });
 
-  it("hides desktop window controls while showing only the house home action", async () => {
+  it("keeps web and desktop shell actions in the same order while hiding only native window controls", async () => {
+    const desktopContainer = document.createElement("div");
+    document.body.appendChild(desktopContainer);
+    let desktopRoot: Root | null = null;
+
+    windowControls.hasDesktopWindowControls.mockReturnValue(true);
+    await act(async () => {
+      desktopRoot = createRoot(desktopContainer);
+      desktopRoot.render(<WindowTitleBar />);
+    });
+    const desktopLabels = shellActionLabels(desktopContainer);
+
+    windowControls.hasDesktopWindowControls.mockReturnValue(false);
     await act(async () => {
       root = createRoot(container!);
       root.render(<WindowTitleBar webMode />);
     });
 
+    expect(desktopContainer.querySelector('[aria-label="Window controls"]')).toBeTruthy();
     expect(container!.querySelector('[aria-label="Window controls"]')).toBeNull();
-    expect(container!.querySelector(".mari-titlebar-web-home-button svg")).toBeTruthy();
-    expect(container!.querySelectorAll('button[aria-label="Home"]')).toHaveLength(1);
-    expect(container!.querySelector(".mari-title-home-button")).toBeNull();
+    expect(shellActionLabels(container!)).toEqual(desktopLabels);
+    expect(shellActionLabels(container!)).toContain("Deki-senpai");
+    expect(container!.querySelector(".mari-titlebar-web-home-button")).toBeNull();
+
+    await act(async () => {
+      desktopRoot?.unmount();
+    });
+    desktopContainer.remove();
   });
 
   it("keeps the sidebar collapse control available in web mode", async () => {
     const setLeftSidebarPanel = vi.fn();
     await act(async () => {
       root = createRoot(container!);
-      root.render(
-        <WindowTitleBar webMode leftSidebarPanel="chats" onLeftSidebarPanelChange={setLeftSidebarPanel} />,
-      );
+      root.render(<WindowTitleBar webMode leftSidebarPanel="chats" onLeftSidebarPanelChange={setLeftSidebarPanel} />);
     });
 
     const sidebarToggle = container!.querySelector<HTMLButtonElement>('[data-tour="sidebar-toggle"]');
@@ -75,9 +114,9 @@ describe("WindowTitleBar web mode", () => {
     });
 
     expect(container!.querySelector('[aria-label="Window controls"]')).toBeNull();
-    expect(container!.querySelector(".mari-titlebar-web-home-button svg")).toBeTruthy();
     expect(container!.querySelectorAll('button[aria-label="Home"]')).toHaveLength(1);
-    expect(container!.querySelector(".mari-title-home-button")).toBeNull();
+    expect(container!.querySelector('[aria-label="Deki-senpai"]')).toBeTruthy();
+    expect(container!.querySelector(".mari-titlebar-web-home-button")).toBeNull();
   });
 
   it("places the titlebar accessory on the left side of the titlebar", async () => {
