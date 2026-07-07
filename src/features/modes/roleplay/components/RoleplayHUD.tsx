@@ -1,11 +1,13 @@
-// ──────────────────────────────────────────────
-// Chat: Roleplay HUD — immersive world-state widgets
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Chat: Roleplay HUD â€” immersive world-state widgets
 // Each tracker category gets its own mini widget with
 // a compact preview and expandable editable popover.
 // Supports top (horizontal) and left/right (vertical) layout.
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { cn } from "../../../../shared/lib/utils";
 import { agentApi } from "../../../../shared/api/agent-api";
 import { roleplayTrackerApi } from "../api/roleplay-tracker-api";
@@ -56,11 +58,11 @@ interface RoleplayHUDProps {
   onRerunSingleTracker?: (agentType: string) => void;
   onRetryFailedAgents?: () => void;
   onRetryAgent?: (agentType: string) => void;
-  /** When true, tracker agents are manual — show a trigger button in the widget strip */
+  /** When true, tracker agents are manual â€” show a trigger button in the widget strip */
   manualTrackers?: boolean;
   /** When provided, overrides the globally-computed set so that only per-chat agents show widgets. */
   enabledAgentTypes?: Set<string>;
-  /** Chat messages (chronological) — used to resolve cached prompt injections on the latest assistant reply */
+  /** Chat messages (chronological) â€” used to resolve cached prompt injections on the latest assistant reply */
   injectionSourceMessages?: Message[];
 }
 
@@ -200,10 +202,12 @@ export function RoleplayHUD({
       .then(() => roleplayTrackerApi.clearManualState(chatId, cleared))
       .catch((error) => {
         console.error("[RoleplayHUD] Failed to clear world state:", error);
+        toast.error(toUserMessage(error, "roleplayStateClear"));
       });
     // Clear committed agent runs & memory from DB + reset client state
     agentApi.clearRunsForChat(chatId).catch((error) => {
       console.error("[RoleplayHUD] Failed to clear agent runs:", error);
+      toast.error(toUserMessage(error, "roleplayStateClear"));
     });
     resetAgentStore();
   }, [chatId, setGameState, resetAgentStore]);
@@ -294,7 +298,7 @@ export function RoleplayHUD({
         showSecretPlotTab={showSecretPlotTab}
       />
 
-      {/* ── Mobile: combined widgets, centered ── */}
+      {/* â”€â”€ Mobile: combined widgets, centered â”€â”€ */}
       {showMobileTrackerWidgets && (
         <div className={cn("flex items-center gap-0.5 md:hidden", mobileCompact && "shrink-0")}>
           {enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES.world) && (
@@ -361,7 +365,7 @@ export function RoleplayHUD({
         </div>
       )}
 
-      {/* ── Desktop: separate individual widgets ── */}
+      {/* â”€â”€ Desktop: separate individual widgets â”€â”€ */}
       {showDesktopTrackerWidgets && (
         <div className="hidden md:flex items-center gap-1.5">
           {enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES.world) && (
@@ -437,7 +441,7 @@ export function RoleplayHUD({
               }}
               disabled={isTrackerBusy}
               className={cn(WIDGET, isTrackerBusy ? "text-foreground/75" : "text-[var(--muted-foreground)]")}
-              title={isTrackerBusy ? "Trackers running…" : "Run Trackers"}
+              title={isTrackerBusy ? "Trackers runningâ€¦" : "Run Trackers"}
             >
               <RefreshCw size="0.875rem" className={cn(isTrackerBusy && "animate-spin")} />
             </button>

@@ -36,13 +36,14 @@ function describeError(error: unknown) {
 }
 
 export function describeWindowErrorEvent(event: ErrorEvent) {
-  const details = event.error instanceof Error
-    ? describeError(event.error)
-    : {
-        name: "Error",
-        message: event.message || "Unknown error",
-        stack: "",
-      };
+  const details =
+    event.error instanceof Error
+      ? describeError(event.error)
+      : {
+          name: "Error",
+          message: event.message || "Unknown error",
+          stack: "",
+        };
 
   return {
     ...details,
@@ -186,8 +187,6 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
 
   render() {
     if (this.state.error) {
-      const details = describeError(this.state.error);
-      const debugDetails = buildDebugDetails(this.state.error, this.state.componentStack);
       const buttonStyle = {
         border: "1px solid rgba(255, 255, 255, 0.14)",
         borderRadius: "0.5rem",
@@ -233,58 +232,14 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
                 textTransform: "uppercase",
               }}
             >
-              De-Koi crashed
+              Display problem
             </p>
             <h1 id="global-error-title" style={{ fontSize: "1.25rem", lineHeight: 1.3, margin: "0 0 0.75rem" }}>
-              Something went wrong while rendering the app.
+              De-Koi hit a display problem.
             </h1>
             <p style={{ color: "var(--muted-foreground, #a1a1aa)", lineHeight: 1.6, margin: "0 0 1rem" }}>
-              Reload De-Koi to keep working, or copy the debug details below when reporting the issue.
+              Reload to keep working. If this keeps happening, copy a report and include it with the issue.
             </p>
-
-            <div
-              style={{
-                border: "1px solid var(--border, rgba(255, 255, 255, 0.12))",
-                borderRadius: "0.5rem",
-                marginBottom: "1rem",
-                padding: "0.75rem",
-              }}
-            >
-              <p style={{ fontSize: "0.75rem", fontWeight: 700, margin: "0 0 0.25rem" }}>{details.name}</p>
-              <p
-                style={{
-                  color: "var(--muted-foreground, #a1a1aa)",
-                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                  fontSize: "0.8125rem",
-                  margin: 0,
-                  overflowWrap: "anywhere",
-                }}
-              >
-                {details.message}
-              </p>
-            </div>
-
-            <details style={{ marginBottom: "1rem" }}>
-              <summary style={{ cursor: "pointer", fontSize: "0.875rem", fontWeight: 600 }}>Debug details</summary>
-              <pre
-                style={{
-                  background: "rgba(0, 0, 0, 0.28)",
-                  border: "1px solid var(--border, rgba(255, 255, 255, 0.12))",
-                  borderRadius: "0.5rem",
-                  color: "var(--foreground, #f8fafc)",
-                  fontSize: "0.75rem",
-                  lineHeight: 1.5,
-                  margin: "0.75rem 0 0",
-                  maxHeight: "18rem",
-                  overflow: "auto",
-                  padding: "0.75rem",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {debugDetails}
-              </pre>
-            </details>
-
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
               <button
                 type="button"
@@ -295,7 +250,7 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
                   color: "white",
                 }}
               >
-                Reload app
+                Reload De-Koi
               </button>
               <button
                 type="button"
@@ -307,10 +262,10 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
                 }}
               >
                 {this.state.copyStatus === "copied"
-                  ? "Copied debug details"
+                  ? "Copied report"
                   : this.state.copyStatus === "failed"
                     ? "Copy failed"
-                    : "Copy debug details"}
+                    : "Copy report"}
               </button>
             </div>
           </section>

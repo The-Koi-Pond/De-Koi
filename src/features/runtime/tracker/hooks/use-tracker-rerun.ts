@@ -1,4 +1,6 @@
 import { useCallback } from "react";
+import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useAgentStore } from "../../../../shared/stores/agent.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useGenerate } from "../../generation/index";
@@ -37,6 +39,7 @@ export function useTrackerRerun({
         await retryAgents(activeChatId, [agentType]);
       } catch (error) {
         console.warn("Failed to re-run tracker agents.", error);
+        toast.error(toUserMessage(error, "trackerRerun"));
       }
     },
     [activeChatId, enabledAgentTypes, flushPatch, retryAgents, trackerRetryBusy],

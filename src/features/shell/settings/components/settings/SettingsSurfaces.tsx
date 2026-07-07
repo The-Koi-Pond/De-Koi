@@ -1,6 +1,6 @@
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Panel: Settings (polished)
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import {
   APP_LANGUAGE_OPTIONS,
   CONVERSATION_MESSAGE_STYLE_OPTIONS,
@@ -21,6 +21,7 @@ import {
   type VisualTheme,
 } from "../../../../../shared/stores/ui.store";
 import { cn } from "../../../../../shared/lib/utils";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { stripDangerousCss } from "../../../../../shared/lib/chat-css";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
@@ -262,7 +263,7 @@ const TRACKER_TEMPERATURE_UNIT_OPTIONS: Array<{
   name: string;
 }> = TEMPERATURE_UNITS.map((id) => ({
   id,
-  label: id === "celsius" ? "°C" : "°F",
+  label: id === "celsius" ? "Â°C" : "Â°F",
   name: id === "celsius" ? "Celsius" : "Fahrenheit",
 }));
 
@@ -894,7 +895,7 @@ export function GeneralSettings() {
         const reason = uploads.find((result) => result.status === "rejected");
         toast.error(
           reason?.status === "rejected" && reason.reason instanceof Error
-            ? reason.reason.message
+            ? toUserMessage(reason.reason, { fallback: `${failed} asset upload${failed === 1 ? "" : "s"} failed.` })
             : `${failed} asset upload${failed === 1 ? "" : "s"} failed.`,
         );
       }
@@ -976,7 +977,7 @@ export function GeneralSettings() {
         label="Mouse-wheel + click navigation"
         checked={gameMiddleMouseNav}
         onChange={setGameMiddleMouseNav}
-        help="In Game mode, scroll the mouse wheel up to step back through past assistant turns and down to step forward. Clicking the scene background acts like the Next button. While reviewing the past, Next becomes Return — clicking the background or pressing Return jumps you back to where you were reading."
+        help="In Game mode, scroll the mouse wheel up to step back through past assistant turns and down to step forward. Clicking the scene background acts like the Next button. While reviewing the past, Next becomes Return â€” clicking the background or pressing Return jumps you back to where you were reading."
       />
 
       {/* Game Narration Text Speed */}
@@ -1010,7 +1011,7 @@ export function GeneralSettings() {
           <span className="text-xs tabular-nums text-[var(--muted-foreground)]">
             {(gameAutoPlayDelay / 1000).toFixed(1)}s
           </span>
-          <HelpTooltip text="Pause between each narration segment when auto-play is enabled in Game mode. Enable auto-play via the ▶ button next to Next." />
+          <HelpTooltip text="Pause between each narration segment when auto-play is enabled in Game mode. Enable auto-play via the â–¶ button next to Next." />
         </div>
         <input
           type="range"
@@ -1027,7 +1028,7 @@ export function GeneralSettings() {
         </div>
       </label>
 
-      {/* Send on Enter — inline toggles per mode */}
+      {/* Send on Enter â€” inline toggles per mode */}
       <div className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
         <div className="flex items-center gap-2">
           <span className="text-xs">Send on Enter</span>
@@ -1095,7 +1096,7 @@ export function GeneralSettings() {
         checked={boldDialogue ?? true}
         onChange={setBoldDialogue}
         help={
-          'When on, text inside dialogue quotation marks ("like this", 「like this」, or 『like this』) is bolded in addition to its dialogue highlight color. Turn it off to keep the color without bold.'
+          'When on, text inside dialogue quotation marks ("like this", ã€Œlike thisã€, or ã€Žlike thisã€) is bolded in addition to its dialogue highlight color. Turn it off to keep the color without bold.'
         }
       />
 
@@ -1162,7 +1163,7 @@ export function GeneralSettings() {
         label="Up Arrow edits last message"
         checked={editLastMessageOnArrowUp}
         onChange={setEditLastMessageOnArrowUp}
-        help="In Conversation and Roleplay modes, press Up Arrow while the chat input is empty to open the most recent message in the chat for editing — whether it's yours or the AI's."
+        help="In Conversation and Roleplay modes, press Up Arrow while the chat input is empty to open the most recent message in the chat for editing â€” whether it's yours or the AI's."
       />
 
       <ToggleSetting
@@ -1553,7 +1554,7 @@ export function AppearanceSettings() {
   const [draftChatFontColor, setDraftChatFontColor] = useState(chatFontColor || "#c3c2c2");
   const [draftStrokeColor, setDraftStrokeColor] = useState(textStrokeColor);
 
-  // Custom fonts — query is pre-warmed in App.tsx, no fetch here
+  // Custom fonts â€” query is pre-warmed in App.tsx, no fetch here
   const { data: customFonts } = useQuery<CustomFontFace[]>({
     queryKey: ["custom-fonts"],
     queryFn: () => fontsApi.list<CustomFontFace[]>(),
@@ -1582,13 +1583,13 @@ export function AppearanceSettings() {
       window.dispatchEvent(new Event("marinara-fonts-updated"));
     },
     onError: (err: Error) => {
-      toast.error(err.message || "Failed to download font");
+      toast.error(toUserMessage(err, { fallback: "Couldn't download that font. Check the URL and try again." }));
     },
   });
 
   return (
     <div className="flex flex-col gap-4">
-      {/* ── Visual Style ── */}
+      {/* â”€â”€ Visual Style â”€â”€ */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-1.5">
           <Paintbrush size="0.75rem" className="text-[var(--muted-foreground)]" />
@@ -1606,7 +1607,7 @@ export function AppearanceSettings() {
               {
                 id: "sillytavern" as VisualTheme,
                 label: "SillyTavern",
-                desc: "Classic SillyTavern look — clean & minimal",
+                desc: "Classic SillyTavern look â€” clean & minimal",
               },
             ] as const
           ).map((opt) => (
@@ -1674,7 +1675,7 @@ export function AppearanceSettings() {
         </button>
       </label>
 
-      {/* ── Google Fonts ── */}
+      {/* â”€â”€ Google Fonts â”€â”€ */}
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium inline-flex items-center gap-1">
           Google Fonts{" "}
@@ -1690,7 +1691,7 @@ export function AppearanceSettings() {
                 googleFontMutation.mutate(googleFontName.trim());
               }
             }}
-            placeholder="e.g. Fira Code, Lora, Poppins…"
+            placeholder="e.g. Fira Code, Lora, Poppinsâ€¦"
             className="flex-1 rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-xs outline-none ring-1 ring-transparent transition-shadow placeholder:text-[var(--muted-foreground)]/50 focus:ring-[var(--primary)]"
           />
           <button
@@ -1703,7 +1704,7 @@ export function AppearanceSettings() {
             ) : (
               <Download size="0.75rem" />
             )}
-            {googleFontMutation.isPending ? "Downloading…" : "Add"}
+            {googleFontMutation.isPending ? "Downloadingâ€¦" : "Add"}
           </button>
         </div>
         <a
@@ -1712,7 +1713,7 @@ export function AppearanceSettings() {
           rel="noopener noreferrer"
           className="text-[0.625rem] text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors inline-flex items-center gap-1"
         >
-          Browse fonts at fonts.google.com →
+          Browse fonts at fonts.google.com â†’
         </a>
       </div>
 
@@ -1754,7 +1755,7 @@ export function AppearanceSettings() {
         </div>
       </label>
 
-      {/* ── Text Appearance ── */}
+      {/* â”€â”€ Text Appearance â”€â”€ */}
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-1.5">
           <Paintbrush size="0.75rem" className="text-[var(--muted-foreground)]" />
@@ -2120,7 +2121,7 @@ export function AppearanceSettings() {
         </div>
       </div>
 
-      {/* ── Effects ── */}
+      {/* â”€â”€ Effects â”€â”€ */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-1.5">
           <CloudRain size="0.75rem" className="text-[var(--muted-foreground)]" />
@@ -2139,7 +2140,7 @@ export function AppearanceSettings() {
         </p>
       </div>
 
-      {/* ── Conversation Gradient (per color-scheme) ── */}
+      {/* â”€â”€ Conversation Gradient (per color-scheme) â”€â”€ */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
@@ -2246,10 +2247,10 @@ export function AppearanceSettings() {
         </button>
       </div>
 
-      {/* ── Conversation Sound ── */}
+      {/* â”€â”€ Conversation Sound â”€â”€ */}
       <ConversationSoundSetting />
 
-      {/* ── Chat Background Picker ── */}
+      {/* â”€â”€ Chat Background Picker â”€â”€ */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium inline-flex items-center gap-1">
@@ -2457,12 +2458,14 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
         const rejected = uploads.find((result) => result.status === "rejected");
         toast.error(
           rejected?.status === "rejected" && rejected.reason instanceof Error
-            ? rejected.reason.message
+            ? toUserMessage(rejected.reason, {
+                fallback: `${failed} background import${failed === 1 ? "" : "s"} failed.`,
+              })
             : `${failed} background import${failed === 1 ? "" : "s"} failed.`,
         );
       }
     } catch {
-      toast.error("Background import failed.");
+      toast.error("Couldn't import that background. Choose a PNG, JPG, or WEBP and try again.");
     } finally {
       setUploading(false);
     }
@@ -2554,7 +2557,7 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
                             disabled={!renameInput.trim() || renameBg.isPending}
                             className="shrink-0 rounded bg-[var(--primary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--primary-foreground)] disabled:opacity-40"
                           >
-                            {renameBg.isPending ? "…" : "Save"}
+                            {renameBg.isPending ? "â€¦" : "Save"}
                           </button>
                         </form>
                       ) : (
@@ -2650,7 +2653,7 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
                             }
                             if (e.key === "Escape") setEditingTags(null);
                           }}
-                          placeholder="Add tag…"
+                          placeholder="Add tagâ€¦"
                           className="w-full min-w-0 rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[0.625rem] text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
                           autoFocus
                           list={`tag-suggestions-${itemKey}`}
@@ -2757,7 +2760,7 @@ export function ThemesSettings() {
       setEditorOpen(false);
     } catch (err) {
       console.error("[ThemesSettings] Failed to save theme:", err);
-      toast.error("Failed to save theme. Check the browser console for details.");
+      toast.error("Couldn't save this theme. Fix any CSS or JSON errors, then try Save again.");
     }
   }, [createTheme, editingId, setActiveTheme, themeCss, themeName, updateTheme]);
 
@@ -2787,7 +2790,7 @@ export function ThemesSettings() {
     e.target.value = "";
   };
 
-  // ── CSS Editor View ──
+  // â”€â”€ CSS Editor View â”€â”€
   if (editorOpen) {
     return (
       <div className="flex flex-col gap-3">
@@ -2885,7 +2888,7 @@ export function ThemesSettings() {
     );
   }
 
-  // ── Theme List View ──
+  // â”€â”€ Theme List View â”€â”€
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
@@ -3034,31 +3037,31 @@ export function ThemesSettings() {
   );
 }
 
-const CSS_TEMPLATE = `/* ═══════════════════════════════════════
+const CSS_TEMPLATE = `/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    My Custom Theme
-   ═══════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 :root {
-  /* ── Core Colors ── */
+  /* â”€â”€ Core Colors â”€â”€ */
   /* --background: #0a0a0f; */
   /* --foreground: #e4e4e7; */
   /* --primary: #a78bfa; */
   /* --primary-foreground: #fff; */
 
-  /* ── Surface Colors ── */
+  /* â”€â”€ Surface Colors â”€â”€ */
   /* --card: #111118; */
   /* --secondary: #1a1a24; */
   /* --accent: #252534; */
   /* --popover: #111118; */
 
-  /* ── Borders ── */
+  /* â”€â”€ Borders â”€â”€ */
   /* --border: #27272a; */
   /* --sidebar-border: #27272a; */
 
-  /* ── Text ── */
+  /* â”€â”€ Text â”€â”€ */
   /* --muted-foreground: #71717a; */
 
-  /* ── Sidebar ── */
+  /* â”€â”€ Sidebar â”€â”€ */
   /* --sidebar: #0c0c12; */
 }
 
@@ -3104,7 +3107,11 @@ export function ExtensionsSettings() {
           : `Extension "${result.input.name}" installed`,
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to import extension.");
+      toast.error(
+        toUserMessage(err, {
+          fallback: "Couldn't import that extension. Choose a supported extension file and try again.",
+        }),
+      );
     }
     e.target.value = "";
   };
@@ -3231,13 +3238,13 @@ export function ImportSettings() {
         qc.invalidateQueries();
         toast.success(`Imported ${data.name ?? data.type} successfully!`);
       } else {
-        toast.error(`Import failed: ${data.error ?? "Unknown error"}`);
+        toast.error(toUserMessage(data.error, "importSettings"));
       }
     } catch (err) {
       if (err instanceof Error && err.message === "parse") {
         toast.error("Import failed. Make sure this is a valid .dekoi.json, .marinara, or .json file.");
       } else {
-        toast.error(`Import failed: ${err instanceof Error ? err.message : "local import error"}`);
+        toast.error(toUserMessage(err, "importSettings"));
       }
     }
     e.target.value = "";
@@ -3390,11 +3397,13 @@ function ImportButton({
           toast.success("Imported successfully!");
         }
       } else {
-        toast.error(`Import failed: ${data.error ?? "Unknown error"}`);
+        toast.error(toUserMessage(data.error, "importSettings"));
       }
     } catch (error) {
       toast.error(
-        error instanceof Error && error.message === CHARACTER_IMPORT_SIZE_ERROR ? error.message : "Import failed.",
+        error instanceof Error && error.message === CHARACTER_IMPORT_SIZE_ERROR
+          ? CHARACTER_IMPORT_SIZE_ERROR
+          : "Couldn't import that character. Pick a supported character file and try again.",
       );
     }
     e.target.value = "";
@@ -3529,7 +3538,7 @@ export function AdvancedSettings() {
       queryClient.invalidateQueries({ queryKey: ["backups"] });
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Failed to create backup");
+      toast.error(toUserMessage(err, "createBackup"));
     },
   });
 
@@ -3540,7 +3549,7 @@ export function AdvancedSettings() {
       queryClient.invalidateQueries({ queryKey: ["backups"] });
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Failed to delete backup");
+      toast.error(toUserMessage(err, "deleteBackup"));
     },
   });
 
@@ -3576,10 +3585,7 @@ export function AdvancedSettings() {
       if (format === "native" && profileExportFallbackFormat(err) === "zip") {
         const confirmed = await showConfirmDialog({
           title: "Export profile as ZIP?",
-          message:
-            err instanceof Error
-              ? err.message
-              : "This profile is too large for JSON export. Export it as a profile ZIP instead?",
+          message: "This profile is too large for JSON export. Export it as a profile ZIP instead?",
           confirmLabel: "Export ZIP",
           cancelLabel: "Cancel",
         });
@@ -3588,7 +3594,7 @@ export function AdvancedSettings() {
         }
         return;
       }
-      toast.error(err instanceof Error ? err.message : "Failed to export profile");
+      toast.error(toUserMessage(err, "exportProfile"));
     } finally {
       setExportingProfile(false);
     }
@@ -3610,7 +3616,7 @@ export function AdvancedSettings() {
       });
       if (result) toast.success(result.message);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to download backup");
+      toast.error(toUserMessage(err, "downloadBackup"));
     } finally {
       setDownloadingBackupName(null);
     }
@@ -3628,7 +3634,7 @@ export function AdvancedSettings() {
       window.location.reload();
     } catch (err) {
       setRefreshingSpa(false);
-      toast.error(err instanceof Error ? err.message : "Failed to refresh the app");
+      toast.error(toUserMessage(err, "refreshApp"));
     }
   };
 
@@ -3645,7 +3651,7 @@ export function AdvancedSettings() {
       }
     } catch (err) {
       setUpdateInfo(null);
-      toast.error(err instanceof Error ? err.message : "Failed to check for updates");
+      toast.error(toUserMessage(err, "checkUpdates"));
     } finally {
       setCheckingUpdates(false);
     }
@@ -3660,12 +3666,12 @@ export function AdvancedSettings() {
         await openExternalUrl(result.releaseUrl);
         toast.info(result.message);
       } catch (openErr) {
-        toast.error(openErr instanceof Error ? openErr.message : "Failed to open update", {
+        toast.error(toUserMessage(openErr, "openUpdate"), {
           description: result.message,
         });
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to open update");
+      toast.error(toUserMessage(err, "openUpdate"));
     } finally {
       setOpeningUpdate(false);
     }
@@ -3705,7 +3711,10 @@ export function AdvancedSettings() {
     if (mode === "all") {
       clearAllData.mutate(undefined, {
         onSuccess: () => toast.success("All selected data was cleared. Runtime caches were reset immediately."),
-        onError: () => toast.error("Failed to clear all data."),
+        onError: () =>
+          toast.error(
+            "De-Koi couldn't finish clearing data. Some items may remain. Review the selection and try again.",
+          ),
         onSettled: () => setConfirmAction(null),
       });
       return;
@@ -3713,7 +3722,8 @@ export function AdvancedSettings() {
 
     expungeData.mutate(selectedScopes, {
       onSuccess: () => toast.success("Selected data was cleared. Runtime caches were reset immediately."),
-      onError: () => toast.error("Failed to clear selected data."),
+      onError: () =>
+        toast.error("De-Koi couldn't finish clearing data. Some items may remain. Review the selection and try again."),
       onSettled: () => setConfirmAction(null),
     });
   };
@@ -3756,7 +3766,7 @@ export function AdvancedSettings() {
         </div>
       </div>
 
-      {/* ── Runtime ── */}
+      {/* â”€â”€ Runtime â”€â”€ */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-1.5">
           <RefreshCw size="0.75rem" className="text-[var(--muted-foreground)]" />
@@ -3772,7 +3782,7 @@ export function AdvancedSettings() {
             {refreshingSpa ? (
               <>
                 <Loader2 size="0.8125rem" className="animate-spin" />
-                Refreshing…
+                Refreshingâ€¦
               </>
             ) : (
               <>
@@ -4195,7 +4205,7 @@ export function AdvancedSettings() {
         )}
       </div>
 
-      {/* ── Profile Export ── */}
+      {/* â”€â”€ Profile Export â”€â”€ */}
       <div className="retro-divider" />
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-1.5">
@@ -4211,7 +4221,7 @@ export function AdvancedSettings() {
           {exportingProfile ? (
             <>
               <Loader2 size="0.8125rem" className="animate-spin" />
-              Exporting…
+              Exportingâ€¦
             </>
           ) : (
             <>
@@ -4222,7 +4232,7 @@ export function AdvancedSettings() {
         </button>
       </div>
 
-      {/* ── Danger Zone ── */}
+      {/* â”€â”€ Danger Zone â”€â”€ */}
       <div className="retro-divider" />
       <div className="rounded-xl border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 p-3 flex flex-col gap-2">
         <div className="flex items-center gap-2 text-xs font-semibold text-[var(--destructive)]">

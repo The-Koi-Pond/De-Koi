@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, MicOff } from "lucide-react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../lib/error-message";
 import { cn } from "../../lib/utils";
 
 type SpeechRecognitionAlternativeLike = {
@@ -113,7 +114,7 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
       const error = event.error ?? "unknown";
       setListening(false);
       if (!["aborted", "no-speech"].includes(error)) {
-        toast.error(`Speech recognition failed: ${error}`);
+        toast.error(toUserMessage(event, "speechRecognition"));
       }
     };
     recognition.onend = () => {
@@ -131,7 +132,7 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
     } catch {
       recognitionRef.current = null;
       setListening(false);
-      toast.error("Could not start speech recognition.");
+      toast.error(toUserMessage(null, "speechRecognition"));
     }
   }, [disabled, listening, onTranscript, stopListening]);
 

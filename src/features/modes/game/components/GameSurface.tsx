@@ -1,6 +1,6 @@
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Game: Main Surface (rendered by ChatArea when mode === "game")
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { TOOLS_PANELS, useTopBarActions } from "../../../../shared/components/mobile-shell-actions";
 import { useIsMobile } from "../../../../shared/hooks/use-is-mobile";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useGameModeStore } from "../stores/game-mode.store";
 import { useGameAssetStore } from "../stores/game-asset.store";
 import { gameApi } from "../api/game-api";
@@ -269,8 +270,7 @@ function saveMomentJournalBody(source: SaveMomentSource): string {
 type GameAssetManifestMap = Record<string, { path: string; absolutePath?: string }> | null;
 
 function getGameSetupFailureMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  return message.trim() || "Game setup failed. Check the selected model connection and try again.";
+  return toUserMessage(error, { fallback: "Game setup failed. Check the selected model connection and try again." });
 }
 
 type SceneAssetPresentCharacter = {
@@ -335,7 +335,7 @@ const GENERIC_NPC_NAME_LABELS = new Set([
 
 /**
  * Runtime guard for a deserialized `Combatant`. Used when restoring combat state
- * from chat metadata, which is JSON-roundtripped and crosses version boundaries —
+ * from chat metadata, which is JSON-roundtripped and crosses version boundaries â€”
  * the TypeScript `as Combatant[]` cast is erased at runtime, so a stale snapshot
  * written by an older client version (missing a field added later, or with a
  * renamed field) would otherwise pass silently and crash downstream when render
@@ -608,14 +608,17 @@ function extractNarrationNpcCandidates(
 
   const patterns = [
     /<speaker="([^"]+)">/gi,
-    new RegExp(`(?:^|\\n)\\s*([A-Z][A-Za-z'’-]+(?:\\s+[A-Z][A-Za-z'’-]+)?)\\s*:\\s*["“«「]`, "gm"),
+    new RegExp(`(?:^|\\n)\\s*([A-Z][A-Za-z'â€™-]+(?:\\s+[A-Z][A-Za-z'â€™-]+)?)\\s*:\\s*["â€œÂ«ã€Œ]`, "gm"),
     new RegExp(
-      `"[^"]+"[,.]?\\s+([A-Z][A-Za-z'’-]+(?:\\s+[A-Z][A-Za-z'’-]+)?)\\s+${NARRATION_NPC_SPEECH_VERB_PATTERN}\\b`,
+      `"[^"]+"[,.]?\\s+([A-Z][A-Za-z'â€™-]+(?:\\s+[A-Z][A-Za-z'â€™-]+)?)\\s+${NARRATION_NPC_SPEECH_VERB_PATTERN}\\b`,
       "gi",
     ),
-    new RegExp(`\\b([A-Z][A-Za-z'’-]+(?:\\s+[A-Z][A-Za-z'’-]+)?)\\b\\s+${NARRATION_NPC_SPEECH_VERB_PATTERN}\\b`, "gi"),
-    /\b(?:named|called)\s+([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)?)\b/gi,
-    /\b([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)?),\s+(?:a|an|the)\b/g,
+    new RegExp(
+      `\\b([A-Z][A-Za-z'â€™-]+(?:\\s+[A-Z][A-Za-z'â€™-]+)?)\\b\\s+${NARRATION_NPC_SPEECH_VERB_PATTERN}\\b`,
+      "gi",
+    ),
+    /\b(?:named|called)\s+([A-Z][A-Za-z'â€™-]+(?:\s+[A-Z][A-Za-z'â€™-]+)?)\b/gi,
+    /\b([A-Z][A-Za-z'â€™-]+(?:\s+[A-Z][A-Za-z'â€™-]+)?),\s+(?:a|an|the)\b/g,
   ];
 
   for (const pattern of patterns) {
@@ -771,7 +774,7 @@ function GameOverlayLoadingFallback({ label, zClassName = "z-40" }: { label: str
   );
 }
 
-/** Typewriter component for the intro screen — reveals text character-by-character. */
+/** Typewriter component for the intro screen â€” reveals text character-by-character. */
 function IntroTypewriter({ text, onComplete }: { text: string; onComplete?: () => void }) {
   const [visible, setVisible] = useState(0);
   const endRef = useRef<HTMLSpanElement>(null);
@@ -798,7 +801,7 @@ function IntroTypewriter({ text, onComplete }: { text: string; onComplete?: () =
       <p className="text-sm leading-relaxed text-[var(--foreground)]/70 dark:text-white/70 whitespace-pre-line">
         {text.slice(0, visible)}
         {visible < text.length && (
-          <span className="animate-pulse text-[var(--foreground)]/40 dark:text-white/40">▌</span>
+          <span className="animate-pulse text-[var(--foreground)]/40 dark:text-white/40">â–Œ</span>
         )}
         <span ref={endRef} />
       </p>
@@ -1285,7 +1288,7 @@ export function GameSurface({
   selectedMessageIds,
   isMessagesLoading,
 }: GameSurfaceProps) {
-  // Sync game metadata → store
+  // Sync game metadata â†’ store
   useSyncGameState(activeChatId, chatMeta);
 
   const {
@@ -1408,7 +1411,7 @@ export function GameSurface({
     });
   }, [gameTimeMeta]);
 
-  // ── Fetch game state on mount (WeatherEffects needs weather/time from the DB) ──
+  // â”€â”€ Fetch game state on mount (WeatherEffects needs weather/time from the DB) â”€â”€
   useEffect(() => {
     const requestedChatId = activeChatId;
     const existing = useGameStateStore.getState().current;
@@ -1427,7 +1430,7 @@ export function GameSurface({
     };
   }, [activeChatId]);
 
-  // ── Patch game state snapshot with chatMeta weather/time when the snapshot is missing them ──
+  // â”€â”€ Patch game state snapshot with chatMeta weather/time when the snapshot is missing them â”€â”€
   // This handles: (a) server snapshot has no weather/time, (b) chatMeta loaded after the fetch,
   // (c) no server snapshot at all (creates a minimal one from chatMeta).
   useEffect(() => {
@@ -1435,7 +1438,7 @@ export function GameSurface({
     const current = useGameStateStore.getState().current;
 
     if (current?.chatId === activeChatId) {
-      // Snapshot exists — enrich missing fields
+      // Snapshot exists â€” enrich missing fields
       if ((!current.weather && metaWeather) || (!current.time && metaTime)) {
         useGameStateStore.getState().setGameState({
           ...current,
@@ -1444,7 +1447,7 @@ export function GameSurface({
         });
       }
     } else {
-      // No snapshot at all — create minimal from chatMeta so WeatherEffects renders
+      // No snapshot at all â€” create minimal from chatMeta so WeatherEffects renders
       useGameStateStore.getState().setGameState({
         id: "",
         chatId: activeChatId,
@@ -1882,7 +1885,7 @@ export function GameSurface({
     staleTime: 5 * 60 * 1000,
   });
 
-  // Map: lowercase character name → SpriteInfo[]
+  // Map: lowercase character name â†’ SpriteInfo[]
   const spriteMap = useMemo(() => {
     const map = new Map<string, SpriteInfo[]>();
     characterIds.forEach((id, i) => {
@@ -2265,81 +2268,84 @@ export function GameSurface({
     sceneAnalysisEnabled && !!latestAssistantMsg?.content && !isStreaming && !sceneAnalysis.isPending;
   const canRetryAssets = !!retryableAssetGeneration && (assetGenerationFailed || !pendingAssetGeneration);
 
-  const buildSpotifyRetryRequest = useCallback((recentSpotifyTracks: string[]) => {
-    const msg = latestAssistantMsgRef.current;
-    if (!msg?.content) return null;
+  const buildSpotifyRetryRequest = useCallback(
+    (recentSpotifyTracks: string[]) => {
+      const msg = latestAssistantMsgRef.current;
+      if (!msg?.content) return null;
 
-    const assets = getScopedAssetMap();
-    const tags = parseGmTags(msg.content);
-    const sceneAnalysisState: GameActiveState =
-      tags.combatEncounter || tags.stateChange === "combat"
-        ? "combat"
-        : tags.stateChange === "exploration" || tags.stateChange === "dialogue" || tags.stateChange === "travel_rest"
-          ? tags.stateChange
-          : gameState;
-    const setupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | null;
-    const sceneConnId =
-      (chatMeta.gameSceneConnectionId as string) || (setupConfig?.sceneConnectionId as string) || null;
-    const assetKeys = Object.keys(assets ?? {});
-    return {
-      narration: tags.cleanContent,
-      sceneConnectionId: sceneConnId,
-      context: {
-        currentState: sceneAnalysisState,
-        availableBackgrounds: sampleTags(getSceneBackgroundTags(assetKeys), 50),
-        availableSfx: sampleTags(
-          assetKeys.filter((key) => key.startsWith("sfx:")),
-          50,
-        ),
-        activeWidgets: hudWidgets,
-        trackedNpcs: npcs,
-        characterNames: sceneWrapCharacterNames,
-        currentBackground: currentBackground,
-        currentMusic: useGameAssetStore.getState().currentMusic,
-        recentMusic: recentMusicHistoryRef.current,
-        useSpotifyMusic: useLegacySpotifyGameMusic,
-        availableSpotifyTracks: [] as SceneSpotifyTrackCandidate[],
-        currentSpotifyTrack: recentSpotifyTracks[0] ?? null,
-        recentSpotifyTracks,
-        currentAmbient: useGameAssetStore.getState().currentAmbient,
-        currentLocation: gameSnapshot?.location ?? null,
-        genre: typeof setupConfig?.genre === "string" ? setupConfig.genre : null,
-        setting: typeof setupConfig?.setting === "string" ? setupConfig.setting : null,
-        worldOverview: typeof chatMeta.gameWorldOverview === "string" ? chatMeta.gameWorldOverview : null,
-        currentWeather: gameSnapshot?.weather ?? null,
-        currentTimeOfDay: gameSnapshot?.time ?? null,
-        turnNumber: sceneTurnNumber,
-        canGenerateBackgrounds: !!chatMeta.enableSpriteGeneration && !!chatMeta.gameImageConnectionId,
-        canGenerateIllustrations: gameSceneIllustrationAllowed,
-        artStylePrompt:
-          ((chatMeta.gameSetupConfig as Record<string, unknown> | undefined)?.artStylePrompt as string | undefined) ??
-          null,
-        imagePromptInstructions:
-          typeof chatMeta.gameImagePromptInstructions === "string" ? chatMeta.gameImagePromptInstructions : null,
-      },
-      playerAction: latestPlayerAction ?? undefined,
-    };
-  }, [
-    chatMeta.enableSpriteGeneration,
-    chatMeta.gameImageConnectionId,
-    chatMeta.gameImagePromptInstructions,
-    chatMeta.gameSceneConnectionId,
-    chatMeta.gameSetupConfig,
-    chatMeta.gameWorldOverview,
-    currentBackground,
-    gameSceneIllustrationAllowed,
-    gameSnapshot?.location,
-    gameSnapshot?.time,
-    gameSnapshot?.weather,
-    gameState,
-    getScopedAssetMap,
-    hudWidgets,
-    latestPlayerAction,
-    npcs,
-    sceneTurnNumber,
-    sceneWrapCharacterNames,
-    useLegacySpotifyGameMusic,
-  ]);
+      const assets = getScopedAssetMap();
+      const tags = parseGmTags(msg.content);
+      const sceneAnalysisState: GameActiveState =
+        tags.combatEncounter || tags.stateChange === "combat"
+          ? "combat"
+          : tags.stateChange === "exploration" || tags.stateChange === "dialogue" || tags.stateChange === "travel_rest"
+            ? tags.stateChange
+            : gameState;
+      const setupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | null;
+      const sceneConnId =
+        (chatMeta.gameSceneConnectionId as string) || (setupConfig?.sceneConnectionId as string) || null;
+      const assetKeys = Object.keys(assets ?? {});
+      return {
+        narration: tags.cleanContent,
+        sceneConnectionId: sceneConnId,
+        context: {
+          currentState: sceneAnalysisState,
+          availableBackgrounds: sampleTags(getSceneBackgroundTags(assetKeys), 50),
+          availableSfx: sampleTags(
+            assetKeys.filter((key) => key.startsWith("sfx:")),
+            50,
+          ),
+          activeWidgets: hudWidgets,
+          trackedNpcs: npcs,
+          characterNames: sceneWrapCharacterNames,
+          currentBackground: currentBackground,
+          currentMusic: useGameAssetStore.getState().currentMusic,
+          recentMusic: recentMusicHistoryRef.current,
+          useSpotifyMusic: useLegacySpotifyGameMusic,
+          availableSpotifyTracks: [] as SceneSpotifyTrackCandidate[],
+          currentSpotifyTrack: recentSpotifyTracks[0] ?? null,
+          recentSpotifyTracks,
+          currentAmbient: useGameAssetStore.getState().currentAmbient,
+          currentLocation: gameSnapshot?.location ?? null,
+          genre: typeof setupConfig?.genre === "string" ? setupConfig.genre : null,
+          setting: typeof setupConfig?.setting === "string" ? setupConfig.setting : null,
+          worldOverview: typeof chatMeta.gameWorldOverview === "string" ? chatMeta.gameWorldOverview : null,
+          currentWeather: gameSnapshot?.weather ?? null,
+          currentTimeOfDay: gameSnapshot?.time ?? null,
+          turnNumber: sceneTurnNumber,
+          canGenerateBackgrounds: !!chatMeta.enableSpriteGeneration && !!chatMeta.gameImageConnectionId,
+          canGenerateIllustrations: gameSceneIllustrationAllowed,
+          artStylePrompt:
+            ((chatMeta.gameSetupConfig as Record<string, unknown> | undefined)?.artStylePrompt as string | undefined) ??
+            null,
+          imagePromptInstructions:
+            typeof chatMeta.gameImagePromptInstructions === "string" ? chatMeta.gameImagePromptInstructions : null,
+        },
+        playerAction: latestPlayerAction ?? undefined,
+      };
+    },
+    [
+      chatMeta.enableSpriteGeneration,
+      chatMeta.gameImageConnectionId,
+      chatMeta.gameImagePromptInstructions,
+      chatMeta.gameSceneConnectionId,
+      chatMeta.gameSetupConfig,
+      chatMeta.gameWorldOverview,
+      currentBackground,
+      gameSceneIllustrationAllowed,
+      gameSnapshot?.location,
+      gameSnapshot?.time,
+      gameSnapshot?.weather,
+      gameState,
+      getScopedAssetMap,
+      hudWidgets,
+      latestPlayerAction,
+      npcs,
+      sceneTurnNumber,
+      sceneWrapCharacterNames,
+      useLegacySpotifyGameMusic,
+    ],
+  );
 
   const buildMusicRetryRequest = useCallback(
     (recentMusicTracks: string[]) => {
@@ -2468,7 +2474,7 @@ export function GameSurface({
 
   // Reconnect audio and background on mount if the store was disposed
   // (e.g. user left to home and returned to the same game).
-  // Only reconnect for restored sessions — new games should not replay stale store state.
+  // Only reconnect for restored sessions â€” new games should not replay stale store state.
   useEffect(() => {
     if (!assetManifest || !isRestoredRef.current) return;
     const { currentMusic, currentAmbient, currentBackground: storeBg } = useGameAssetStore.getState();
@@ -2553,13 +2559,13 @@ export function GameSurface({
     );
     resetRecentSpotifyTrackHistory(chatMeta.gameRecentSpotifyTracks);
 
-    // Always overwrite from chatMeta (source of truth on mount) — handles both
+    // Always overwrite from chatMeta (source of truth on mount) â€” handles both
     // same-chat remount (store may already match) and different-chat mount.
     useGameAssetStore.getState().setCurrentBackground(savedBg ?? null);
 
     if (savedMusic && !useExternalGameMusic && assetMap?.[savedMusic]) {
       useGameAssetStore.getState().setCurrentMusic(savedMusic);
-      // Play music — may be blocked by autoplay, audioManager queues retry on gesture
+      // Play music â€” may be blocked by autoplay, audioManager queues retry on gesture
       if (audioManager.getState().musicTag !== savedMusic) {
         audioManager.playMusic(savedMusic, assetMap);
       }
@@ -2621,7 +2627,7 @@ export function GameSurface({
     useExternalGameMusic,
   ]);
 
-  // ── Restore party dialogue from the last separate party-turn message on page load ──
+  // â”€â”€ Restore party dialogue from the last separate party-turn message on page load â”€â”€
   useEffect(() => {
     if (partyDialogueRestoredRef.current || isMessagesLoading) return;
     partyDialogueRestoredRef.current = true;
@@ -2647,7 +2653,7 @@ export function GameSurface({
     }
   }, [isMessagesLoading, messages]);
 
-  // ── Persist scene assets to chat metadata (debounced) ──
+  // â”€â”€ Persist scene assets to chat metadata (debounced) â”€â”€
   const scenePersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     // Subscribe to asset store changes and persist to chat metadata
@@ -2689,12 +2695,12 @@ export function GameSurface({
     };
   }, [activeChatId, persistMetadata, sceneRestoredRef]);
 
-  // ── Restore in-progress combat state from chat metadata on page load ──
+  // â”€â”€ Restore in-progress combat state from chat metadata on page load â”€â”€
   // Without this, refreshing during a fight drops the user back into prose narration even
   // though gameActiveState is still "combat", because the live party/enemy snapshot only
   // lived in component-local React state.
   // Scoped per-chat so switching to another chat in the same mounted GameSurface still
-  // gets a chance to restore that chat's snapshot — a single boolean would permanently
+  // gets a chance to restore that chat's snapshot â€” a single boolean would permanently
   // skip restore after the first chat opened.
   const combatRestoredChatIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -2704,7 +2710,7 @@ export function GameSurface({
     combatRestoredChatIdRef.current = activeChatId;
     if (!snapshot || !snapshot.party?.length || !snapshot.enemies?.length) return;
     if (chatMeta.gameActiveState !== "combat") {
-      // Stale snapshot — combat ended but the metadata write didn't land. Clear it.
+      // Stale snapshot â€” combat ended but the metadata write didn't land. Clear it.
       persistMetadata(activeChatId, { gameCombatState: null }).catch(() => {});
       return;
     }
@@ -2717,7 +2723,7 @@ export function GameSurface({
     const rawEnemies = Array.isArray(snapshot.enemies) ? snapshot.enemies : [];
     if (!rawParty.every(isValidCombatant) || !rawEnemies.every(isValidCombatant)) {
       console.warn(
-        "[game-surface] Discarding combat snapshot — failed Combatant schema validation. " +
+        "[game-surface] Discarding combat snapshot â€” failed Combatant schema validation. " +
           "Likely written by an older client version.",
       );
       persistMetadata(activeChatId, { gameCombatState: null }).catch(() => {});
@@ -2732,13 +2738,13 @@ export function GameSurface({
     useGameModeStore.getState().setGameState("combat");
   }, [activeChatId, chatMeta.gameCombatState, chatMeta.gameActiveState, isMessagesLoading, persistMetadata]);
 
-  // ── Persist live combat snapshot to chat metadata (debounced) ──
+  // â”€â”€ Persist live combat snapshot to chat metadata (debounced) â”€â”€
   // Mirrors the scene-asset persistence above but only fires while combat is active.
-  // The snapshot doesn't include per-round transient state (animations, log entries) —
+  // The snapshot doesn't include per-round transient state (animations, log entries) â€”
   // those reset on restore and combat resumes from the start of the round.
   const combatPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Latest snapshot stored in a ref so the cleanup path can flush it synchronously
-  // when the effect re-runs (chat switch / unmount) — without this, a refresh inside
+  // when the effect re-runs (chat switch / unmount) â€” without this, a refresh inside
   // the 800 ms debounce window would silently drop the most recent state.
   const combatPendingSnapshotRef = useRef<{ chatId: string; snapshot: GameCombatStateSnapshot } | null>(null);
   // Shared helper used by combat-end + return-to-pre-combat-turn so both paths reliably
@@ -2773,7 +2779,7 @@ export function GameSurface({
       // Log on failure: this is the active-gameplay persist path, NOT the unmount
       // keepalive flush below or the lifecycle wipes in `clearCombatSnapshot`. A
       // silent failure here means the user keeps fighting believing state is saved,
-      // then loses progress on refresh — the operator needs to see this in console.
+      // then loses progress on refresh â€” the operator needs to see this in console.
       persistMetadata(activeChatId, { gameCombatState: snapshot }).catch((err: unknown) =>
         console.error("[game-surface] combat snapshot persist failed", err),
       );
@@ -2787,7 +2793,7 @@ export function GameSurface({
       }
       // Flush the latest pending snapshot synchronously so an unmount or chat switch
       // during the 800 ms debounce window doesn't lose the most recent combat state.
-      // `keepalive` lets the request survive a hard refresh / tab close — without it,
+      // `keepalive` lets the request survive a hard refresh / tab close â€” without it,
       // browsers will cancel an in-flight PATCH the moment the page begins unloading,
       // which is exactly the scenario this feature is meant to protect.
       const pending = combatPendingSnapshotRef.current;
@@ -2808,13 +2814,13 @@ export function GameSurface({
     persistMetadata,
   ]);
 
-  // ── Self-heal stale "user" persona name in restored combat state ──
+  // â”€â”€ Self-heal stale "user" persona name in restored combat state â”€â”€
   // Snapshots written before the encounter prompt was taught about chat-scoped personas
   // have the player combatant's name baked in as the literal fallback string "user" /
   // "User" (because `buildPersonaContext` returned that). Once persona resolution is
   // fixed, fresh snapshots are correct, but in-flight battles loaded from old metadata
   // keep showing the wrong name until corrected. Detect that signature and rename the
-  // combatant in place — the existing persist effect then writes the corrected snapshot
+  // combatant in place â€” the existing persist effect then writes the corrected snapshot
   // back, so this only runs once per stale battle.
   useEffect(() => {
     if (!combatParty || !personaInfo?.name) return;
@@ -2837,7 +2843,7 @@ export function GameSurface({
     if (changed) setCombatParty(corrected);
   }, [combatParty, personaInfo?.name, personaInfo?.avatarUrl]);
 
-  // ── Persist narration segment index (localStorage for instant reads + server for durability) ──
+  // â”€â”€ Persist narration segment index (localStorage for instant reads + server for durability) â”€â”€
   const segmentStorageKey = `narration-idx:${activeChatId}`;
   const segmentPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const narrationProgressMessageId = latestAssistantMsg?.id ?? null;
@@ -2881,7 +2887,7 @@ export function GameSurface({
     };
   }, [activeChatId, persistMetadata, segmentStorageKey]);
 
-  // Read the saved narration index for restore — prefer localStorage (fast, survives
+  // Read the saved narration index for restore â€” prefer localStorage (fast, survives
   // browser restarts) for instant restore, fall back to server metadata.
   const restoredNarrationState = useMemo(() => {
     const currentMessageId = latestAssistantMsg?.id ?? null;
@@ -2923,12 +2929,12 @@ export function GameSurface({
     gameSnapshot?.location,
   ]);
 
-  // ── Scene processing: fires once when streaming ends for a new message ──
+  // â”€â”€ Scene processing: fires once when streaming ends for a new message â”€â”€
   // Uses a Zustand subscription to detect isStreaming going false, which is
   // immune to React effect timing / dependency issues.
   // Keep the processing function fresh on every render so it captures current closure values
   processSceneRef.current = () => {
-    // Read from ref, NOT closure — the Zustand subscription fires before React re-renders
+    // Read from ref, NOT closure â€” the Zustand subscription fires before React re-renders
     const sceneProcessOutcome = processLatestSceneAssistantMessage({
       latestMessage: latestAssistantMsgRef.current,
       lastProcessedMessageId: lastProcessedMsgRef.current,
@@ -3030,7 +3036,7 @@ export function GameSurface({
       }
     }
 
-    // Skill checks from GM — prefer inline resolved results, otherwise resolve server-side
+    // Skill checks from GM â€” prefer inline resolved results, otherwise resolve server-side
     if (tags.skillChecks.length > 0) {
       const sc = tags.skillChecks[0]!;
       if (sc.resolvedResult) {
@@ -3053,7 +3059,7 @@ export function GameSurface({
       }
     }
 
-    // Element attacks — show reaction popup for first element_attack tag
+    // Element attacks â€” show reaction popup for first element_attack tag
     if (tags.elementAttacks.length > 0) {
       const ea = tags.elementAttacks[0]!;
       setPendingReaction({
@@ -3115,7 +3121,7 @@ export function GameSurface({
       syncHudWidgetsToChatCache(nextWidgetState);
     }
 
-    // State change tags always come from the GM model — transition via server so
+    // State change tags always come from the GM model â€” transition via server so
     // the new state is validated, persisted to chatMeta (survives refetch/refresh),
     // and triggers side effects (combat checkpoint, OOC influence).
     if (tags.stateChange) {
@@ -3140,7 +3146,7 @@ export function GameSurface({
       _updateReputation.mutate({ chatId: activeChatId, actions: repActions });
     }
 
-    // Inventory updates — apply when the relevant segment is reached, not at turn start.
+    // Inventory updates â€” apply when the relevant segment is reached, not at turn start.
     if (tags.inventoryUpdates.length > 0) {
       const timedInventoryUpdates = parseSegmentInventoryUpdates(msg.content);
       if (timedInventoryUpdates.length > 0) {
@@ -3168,7 +3174,7 @@ export function GameSurface({
       console.debug("[scene-wrapup] path:", sceneConnId ? "connection" : "inline-only");
     }
     // Only send assets the LLM actually picks from: backgrounds (capped 50) and SFX (capped 50).
-    // Music and ambient are handled by deterministic server-side scoring — not sent.
+    // Music and ambient are handled by deterministic server-side scoring â€” not sent.
     const assetKeys = Object.keys(assets ?? {});
     const bgTags = sampleTags(getSceneBackgroundTags(assetKeys), 50);
     const sfxTags = sampleTags(
@@ -3380,7 +3386,7 @@ export function GameSurface({
         useGameAssetStore.getState().setCurrentBackground(pick);
       }
     }
-    // Scene effects are applied — ungate narration
+    // Scene effects are applied â€” ungate narration
     markSceneReady(msg.id);
   }
 
@@ -3554,7 +3560,7 @@ export function GameSurface({
         return !latestAssetMap[resolved];
       });
       // Pre-cache portraits for any tracked named NPC with a description, even if not
-      // met yet — by the time the party encounters them their avatar is ready, and the
+      // met yet â€” by the time the party encounters them their avatar is ready, and the
       // /generate-assets schema already caps this at 10 per turn so cost stays bounded.
       const pendingIllustration = result.generatedIllustration ? null : result.illustration;
       if (gameImageGenerationEnabled && (unresolvedBg || pendingIllustration || npcsNeedingAvatars.length > 0)) {
@@ -3577,12 +3583,12 @@ export function GameSurface({
         void requestAssetGeneration(assetPayload, { allowPromptReview: true, blocksScene }).finally(() => {
           if (blocksScene) markSceneReady(msg.id);
         });
-        // Don't fall through — this async branch owns scene readiness.
+        // Don't fall through â€” this async branch owns scene readiness.
         return;
       }
     }
 
-    // Scene effects are applied — ungate narration (no pending assets)
+    // Scene effects are applied â€” ungate narration (no pending assets)
     markSceneReady(msg.id);
   }
 
@@ -3643,7 +3649,7 @@ export function GameSurface({
       if (import.meta.env.DEV && useUIStore.getState().debugMode) {
         console.debug("[scene-process] generation-complete event received");
       }
-      // Wait one animation frame so React commits the new messages → ref is fresh
+      // Wait one animation frame so React commits the new messages â†’ ref is fresh
       scheduleSceneAssistantProcessing({
         getLatestMessage: () => latestAssistantMsgRef.current,
         getLastProcessedMessageId: () => lastProcessedMsgRef.current,
@@ -3863,7 +3869,7 @@ export function GameSurface({
             : null,
         };
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to prepare image attachments.");
+        toast.error(toUserMessage(error, { fallback: "Failed to prepare image attachments." }));
         return null;
       }
     },
@@ -4006,7 +4012,7 @@ export function GameSurface({
       {
         onSuccess: (res) => {
           // Race recovery (#821): if the server detected an existing GM turn,
-          // it has already restored status to "active" — skip the duplicate
+          // it has already restored status to "active" â€” skip the duplicate
           // generation and let the UI move past the Start Game screen on the
           // next chat refetch.
           if (res?.alreadyStarted) {
@@ -4017,7 +4023,7 @@ export function GameSurface({
         onError: (err) => {
           startGameGuardRef.current = false;
           setStartGameRequested(false);
-          toast.error(err instanceof Error ? err.message : "Failed to start game.");
+          toast.error(toUserMessage(err, "gameStart"));
           console.error("[GameSurface] startGame failed:", err);
         },
       },
@@ -4069,7 +4075,7 @@ export function GameSurface({
             console.warn("Failed to rollback visible game time patch", rollbackError);
           });
         }
-        toast.error(error instanceof Error ? error.message : "Failed to update game day.");
+        toast.error(toUserMessage(error, { fallback: "Failed to update game day." }));
       }
     },
     [
@@ -4165,7 +4171,7 @@ export function GameSurface({
           : ({
               id: buildPartyNpcId(displayName),
               name: displayName,
-              emoji: "👤",
+              emoji: "ðŸ‘¤",
               description: "",
               descriptionSource: "user",
               gender: null,
@@ -4195,7 +4201,7 @@ export function GameSurface({
         clearFailedNpcAvatars([targetNpc.name]);
         toast.success(`${targetNpc.name} portrait updated.`);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : `Failed to update ${npcName} portrait.`);
+        toast.error(toUserMessage(error, { fallback: `Failed to update ${npcName} portrait.` }));
       }
     },
     [activeChatId, clearFailedNpcAvatars, updateChatMetadata],
@@ -4220,7 +4226,7 @@ export function GameSurface({
         ({
           id: buildPartyNpcId(displayName),
           name: displayName,
-          emoji: "👤",
+          emoji: "ðŸ‘¤",
           description: "",
           descriptionSource: "user",
           gender: null,
@@ -4263,7 +4269,7 @@ export function GameSurface({
           toast.error(`No portrait was generated for ${targetNpc.name}.`);
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : `Failed to generate ${displayName} portrait.`);
+        toast.error(toUserMessage(error, { fallback: `Failed to generate ${displayName} portrait.` }));
       } finally {
         setGeneratingNpcPortraitNames((current) => {
           const next = new Set(current);
@@ -4302,7 +4308,7 @@ export function GameSurface({
         useGameModeStore.getState().setNpcs(nextNpcs);
         toast.success(`${cleanGameNpcDisplayName(npcName)} removed from the NPC journal.`);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : `Failed to remove ${npcName} from the NPC journal.`);
+        toast.error(toUserMessage(error, { fallback: `Failed to remove ${npcName} from the NPC journal.` }));
         throw error;
       }
     },
@@ -4362,7 +4368,7 @@ export function GameSurface({
       if (patchedGameState && currentPlayerStats) {
         await patchVisibleGameState("playerStats", currentPlayerStats).catch(() => {});
       }
-      const message = error instanceof Error ? error.message : `Failed to add ${addedItemName} to inventory.`;
+      const message = toUserMessage(error, { fallback: `Failed to add ${addedItemName} to inventory.` });
       toast.error(message);
       return null;
     }
@@ -4425,7 +4431,7 @@ export function GameSurface({
         if (patchedGameState && currentPlayerStats) {
           await patchVisibleGameState("playerStats", currentPlayerStats).catch(() => {});
         }
-        const message = error instanceof Error ? error.message : `Failed to increase ${normalizedItemName}.`;
+        const message = toUserMessage(error, { fallback: `Failed to increase ${normalizedItemName}.` });
         toast.error(message);
       }
     },
@@ -4499,7 +4505,7 @@ export function GameSurface({
         if (patchedGameState && currentPlayerStats) {
           await patchVisibleGameState("playerStats", currentPlayerStats).catch(() => {});
         }
-        const message = error instanceof Error ? error.message : `Failed to remove ${itemName} from inventory.`;
+        const message = toUserMessage(error, { fallback: `Failed to remove ${itemName} from inventory.` });
         toast.error(message);
       }
     },
@@ -4576,7 +4582,7 @@ export function GameSurface({
         if (patchedGameState && currentPlayerStats) {
           await patchVisibleGameState("playerStats", currentPlayerStats).catch(() => {});
         }
-        const message = error instanceof Error ? error.message : `Failed to remove ${itemName} from inventory.`;
+        const message = toUserMessage(error, { fallback: `Failed to remove ${itemName} from inventory.` });
         toast.error(message);
       }
     },
@@ -4652,7 +4658,7 @@ export function GameSurface({
         if (patchedGameState && currentPlayerStats) {
           await patchVisibleGameState("playerStats", currentPlayerStats).catch(() => {});
         }
-        const message = error instanceof Error ? error.message : `Failed to use ${normalizedItemName}.`;
+        const message = toUserMessage(error, { fallback: `Failed to use ${normalizedItemName}.` });
         toast.error(message);
       }
     },
@@ -4717,7 +4723,7 @@ export function GameSurface({
         if (patchedGameState && currentPlayerStats) {
           await patchVisibleGameState("playerStats", currentPlayerStats).catch(() => {});
         }
-        const message = error instanceof Error ? error.message : `Failed to rename ${currentName} to ${resolvedName}.`;
+        const message = toUserMessage(error, { fallback: `Failed to rename ${currentName} to ${resolvedName}.` });
         toast.error(message);
         return null;
       }
@@ -4740,7 +4746,7 @@ export function GameSurface({
       ];
 
       // Optimistic local update so the swap feels instant; rollback on error.
-      // Only the visible gameInventory order is persisted — playerStats.inventory
+      // Only the visible gameInventory order is persisted â€” playerStats.inventory
       // is name-indexed by the agent, so its array order is not observable.
       setInventoryItems(updatedInventory);
 
@@ -4750,10 +4756,10 @@ export function GameSurface({
           gameInventory: updatedInventory,
         });
       } catch (error) {
-        // Rollback only if no newer reorder superseded this one — otherwise
+        // Rollback only if no newer reorder superseded this one â€” otherwise
         // a late failure from an older request would clobber newer state.
         setInventoryItems((current) => (current === updatedInventory ? previousInventory : current));
-        const message = error instanceof Error ? error.message : "Failed to reorder inventory.";
+        const message = toUserMessage(error, { fallback: "Failed to reorder inventory." });
         toast.error(message);
       }
     },
@@ -4822,7 +4828,11 @@ export function GameSurface({
             toast.success("Game branch created.");
           },
           onError: (error) => {
-            toast.error(error instanceof Error ? error.message : "Could not create branch.");
+            toast.error(
+              toUserMessage(error, {
+                fallback: "Couldn't create a branch. Your current game is unchanged. Try again.",
+              }),
+            );
           },
         },
       );
@@ -4867,7 +4877,7 @@ export function GameSurface({
           return;
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to save moment.");
+        toast.error(toUserMessage(error, { fallback: "Failed to save moment." }));
       }
     },
     [publishSessionChat, queryClient],
@@ -4886,7 +4896,7 @@ export function GameSurface({
     setNextActionToken(0);
   }, [activeChatId]);
 
-  // The actual wheel-nav clamp comes from GameNarration — it knows how many flat
+  // The actual wheel-nav clamp comes from GameNarration â€” it knows how many flat
   // log entries exist. Until it reports, we conservatively cap at 0 (wheel-up no-op).
   const [wheelNavMaxOffset, setWheelNavMaxOffset] = useState(0);
   const handleMaxNavOffsetChange = useCallback((max: number) => setWheelNavMaxOffset(max), []);
@@ -4903,7 +4913,7 @@ export function GameSurface({
   // Document-level wheel + click listener for game-mode wheel navigation.
   // Window-level wheel + click listener for game-mode wheel navigation. Capture phase
   // so nothing can stopPropagation us out of the loop. We skip events that originate
-  // inside any interactive UI element or overlay panel — buttons, links, inputs, ARIA
+  // inside any interactive UI element or overlay panel â€” buttons, links, inputs, ARIA
   // roles, and any container marked `[data-game-skip-bg-nav="true"]`. Everything else
   // (the chat card body, sprites, the bg image, empty space) navs.
   const lastWheelAtRef = useRef(0);
@@ -4968,7 +4978,7 @@ export function GameSurface({
   }, [gameMiddleMouseNav, wheelNavMaxOffset]);
 
   // Two-stage interrupt:
-  //   1. Player clicks Interrupt → narration pauses (modal pre-empts further reading)
+  //   1. Player clicks Interrupt â†’ narration pauses (modal pre-empts further reading)
   //      and we stash a *candidate* with the truncation we'd apply on commit.
   //   2. Modal confirms via Yes ("risky") or Force Interrupt ("force"). On commit
   //      we move the candidate into `pendingInterrupt` with a mode tag. Risky mode
@@ -5025,7 +5035,7 @@ export function GameSurface({
   );
 
   // If the assistant message changes (new GM turn arrived) or the player switches chats,
-  // any pending anchor is stale — drop it.
+  // any pending anchor is stale â€” drop it.
   const pendingInterruptMessageId = pendingInterrupt?.messageId ?? null;
   const pendingInterruptChatId = pendingInterrupt?.chatId ?? null;
   useEffect(() => {
@@ -5069,7 +5079,7 @@ export function GameSurface({
 
   // The narration pauses while the modal is open (pre-confirm) OR while a
   // pending interrupt is in flight (post-confirm, awaiting send/Resume).
-  // `interruptCommitted` is the post-confirm subset — it gates the Resume button
+  // `interruptCommitted` is the post-confirm subset â€” it gates the Resume button
   // and the early input reveal so neither shows behind the confirmation modal.
   const interruptPending =
     (interruptModalOpen || !!pendingInterrupt) && (pendingInterrupt?.chatId ?? activeChatId) === activeChatId;
@@ -5123,7 +5133,7 @@ export function GameSurface({
         });
       }
     } else {
-      // No persona selected — add a default "Player" entry
+      // No persona selected â€” add a default "Player" entry
       if (!baseMembers.some((m) => m.id === "persona:default")) {
         baseMembers.unshift({
           id: "persona:default",
@@ -5380,7 +5390,7 @@ export function GameSurface({
         transitionGameState.mutate({ chatId: activeChatId, newState: "combat" });
       })
       .catch((err) => {
-        const message = err instanceof Error ? err.message : "Combat generation failed.";
+        const message = toUserMessage(err, { fallback: "Combat generation failed." });
         console.warn("[game-combat] Failed to generate combat state", err);
         toast.error(message);
         setQueuedCombatGeneration(null);
@@ -5728,7 +5738,7 @@ export function GameSurface({
     const findGameCard = (name: string) =>
       findNamedEntry(gameCharCards, name, (card) => (typeof card.name === "string" ? card.name : null));
 
-    // Build base cards from character data — name and avatar only.
+    // Build base cards from character data â€” name and avatar only.
     // Subtitle, status, stats, etc. come exclusively from the game snapshot.
     const config = chatMeta.gameSetupConfig as Record<string, unknown> | undefined;
     const partyIds = mergeUniqueIds(getActivePartyIds(chatMeta), chatCharacterIds);
@@ -5828,7 +5838,7 @@ export function GameSurface({
           : undefined,
       };
     } else {
-      // No persona selected — default player card
+      // No persona selected â€” default player card
       cards["persona:default"] = {
         title: "Player",
         subtitle: "Player Character",
@@ -5923,7 +5933,7 @@ export function GameSurface({
         await updateChatMetadata.mutateAsync({ id: activeChatId, gameCharacterCards: updatedCards });
         toast.success(`${normalizedTitle} sheet updated.`);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to save character sheet.");
+        toast.error(toUserMessage(error, { fallback: "Failed to save character sheet." }));
         throw error;
       }
     },
@@ -6011,7 +6021,7 @@ export function GameSurface({
       const trimmedSummary = nextSummary.summary.trim();
       if (!trimmedSummary) {
         const error = new Error("Session summary cannot be empty.");
-        toast.error(error.message);
+        toast.error(toUserMessage(error, { fallback: "Add a short session summary before saving." }));
         throw error;
       }
 
@@ -6021,7 +6031,7 @@ export function GameSurface({
       const targetIndex = sessionNumber - 1;
       if (targetIndex < 0 || targetIndex >= rawSummaries.length) {
         const error = new Error("Session summary not found.");
-        toast.error(error.message);
+        toast.error(toUserMessage(error, { fallback: "Add a short session summary before saving." }));
         throw error;
       }
 
@@ -6053,7 +6063,7 @@ export function GameSurface({
         });
         toast.success(`Session ${sessionNumber} details updated.`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to update session details.";
+        const message = toUserMessage(error, { fallback: "Failed to update session details." });
         toast.error(message);
         throw error instanceof Error ? error : new Error(message);
       } finally {
@@ -6089,7 +6099,7 @@ export function GameSurface({
         useGameModeStore.getState().setMaps(nextSecrets.maps, nextActiveMapId);
         toast.success("Current session spoilers updated.");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to update current session spoilers.";
+        const message = toUserMessage(error, { fallback: "Failed to update current session spoilers." });
         toast.error(message);
         throw error instanceof Error ? error : new Error(message);
       } finally {
@@ -6161,7 +6171,7 @@ export function GameSurface({
         const response = await rollDice.mutateAsync({ chatId: activeChatId, notation });
         return response.result;
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to roll dice.");
+        toast.error(toUserMessage(err, { fallback: "Couldn't roll dice. Try again." }));
         return null;
       }
     },
@@ -6219,7 +6229,11 @@ export function GameSurface({
         onError: (error) => {
           if (useChatStore.getState().activeChatId !== activeChatId) return;
           if (handleJsonRepairError(error)) return;
-          toast.error(error instanceof Error ? error.message : "Failed to generate map.");
+          toast.error(
+            toUserMessage(error, {
+              fallback: "Couldn't generate the map. Your current scene is unchanged. Try again.",
+            }),
+          );
         },
       },
     );
@@ -6282,11 +6296,7 @@ export function GameSurface({
   );
 
   const handleSendGameTurn = useCallback(
-    async (
-      message: string,
-      attachments?: PromptAttachment[],
-      options?: { commitPendingMove?: boolean },
-    ) => {
+    async (message: string, attachments?: PromptAttachment[], options?: { commitPendingMove?: boolean }) => {
       if (!sessionInteractive) return false;
       audioManager.unlock();
       const shouldCommitPendingMove = !!(options?.commitPendingMove && pendingMapMove);
@@ -6333,14 +6343,14 @@ export function GameSurface({
         }
       }
       // Risky mode tells the GM about the interrupt via a one-line system message.
-      // Force mode skips this on purpose — the GM only sees a shorter prior turn and
+      // Force mode skips this on purpose â€” the GM only sees a shorter prior turn and
       // the player's new input, so it has no idea anything was cut.
       if (activeInterrupt && activeInterrupt.mode === "risky") {
         try {
           await createMessage.mutateAsync({
             role: "system",
             content:
-              "[Interrupt] The player attempts to interrupt the Game Master mid-action. Their following turn cuts in before the GM's planned events could occur. Treat their interjection as an in-fiction interruption — the situation may resist them, and the attempt can fail depending on context. If the player includes a dice roll, let the result determine whether the interruption succeeds or how it lands.",
+              "[Interrupt] The player attempts to interrupt the Game Master mid-action. Their following turn cuts in before the GM's planned events could occur. Treat their interjection as an in-fiction interruption â€” the situation may resist them, and the attempt can fail depending on context. If the player includes a dice roll, let the result determine whether the interruption succeeds or how it lands.",
           });
         } catch {
           await cleanupPreparedTurn();
@@ -6383,7 +6393,7 @@ export function GameSurface({
             setPartyDialogue([]);
             setPartyChatMessageId(null);
             setPartyChatInput(null);
-            toast.error(error instanceof Error ? error.message : "The party did not respond.");
+            toast.error(toUserMessage(error, { fallback: "The party did not respond." }));
           }
           return false;
         } finally {
@@ -6589,7 +6599,7 @@ export function GameSurface({
           });
         },
         onError: (error) => {
-          toast.error(error instanceof Error ? error.message : "World tick failed.");
+          toast.error(toUserMessage(error, "worldTick"));
         },
       },
     );
@@ -6705,7 +6715,8 @@ export function GameSurface({
     if (!latestAssistantMsg?.id) return;
     const confirmed = await showConfirmDialog({
       title: "Delete Combat Start Turn",
-      message: "Exit combat and delete the GM turn that started this encounter? This returns you to the previous player turn.",
+      message:
+        "Exit combat and delete the GM turn that started this encounter? This returns you to the previous player turn.",
       confirmLabel: "Delete Turn",
       cancelLabel: "Keep Combat",
       tone: "destructive",
@@ -6738,7 +6749,7 @@ export function GameSurface({
     setCombatEnemies(nextEnemies);
   }, []);
 
-  // Combat end handler — clear combat state and notify GM
+  // Combat end handler â€” clear combat state and notify GM
   const handleCombatEnd = useCallback(
     (outcome: "victory" | "defeat" | "flee", summary: CombatSummary) => {
       setCombatParty(null);
@@ -6775,10 +6786,10 @@ export function GameSurface({
       });
       const lootText =
         summary.loot && summary.loot.length > 0
-          ? summary.loot.map((l) => (l.quantity && l.quantity > 1 ? `${l.name} ×${l.quantity}` : l.name)).join(", ")
+          ? summary.loot.map((l) => (l.quantity && l.quantity > 1 ? `${l.name} Ã—${l.quantity}` : l.name)).join(", ")
           : "";
 
-      // Flee on round 1 means no round actually resolved — phrase it accordingly.
+      // Flee on round 1 means no round actually resolved â€” phrase it accordingly.
       const roundsPhrase =
         outcome === "flee" && summary.rounds <= 1
           ? "before combat began"
@@ -6826,7 +6837,7 @@ export function GameSurface({
           chatId: activeChatId,
           type: "combat",
           data: {
-            description: journalDescLines.join(" — "),
+            description: journalDescLines.join(" â€” "),
             outcome: outcome === "flee" ? "fled" : outcome,
           },
         })
@@ -6848,7 +6859,7 @@ export function GameSurface({
     audioManager.retryPending();
   }, []);
 
-  // Handle master volume change from slider (0–100)
+  // Handle master volume change from slider (0â€“100)
   const handleMasterVolumeChange = useCallback(
     (value: number) => {
       const nextValue = normalizeVolume(value, masterVolume);
@@ -6983,7 +6994,10 @@ export function GameSurface({
             onSuccess(result);
             toast.success("Scene analysis retried.", { duration: 1800 });
           },
-          onError: (err) => console.error("[retry-scene] Failed:", err),
+          onError: (err) => {
+            console.error("[retry-scene] Failed:", err);
+            toast.error(toUserMessage(err, "sceneRetry"));
+          },
         },
       );
     } else {
@@ -6994,7 +7008,10 @@ export function GameSurface({
             onSuccess(result);
             toast.success("Scene analysis retried.", { duration: 1800 });
           },
-          onError: (err) => console.error("[retry-scene] Failed:", err),
+          onError: (err) => {
+            console.error("[retry-scene] Failed:", err);
+            toast.error(toUserMessage(err, "sceneRetry"));
+          },
         },
       );
     }
@@ -7122,7 +7139,7 @@ export function GameSurface({
     };
   }, [combatUiActive, normalizedWidgets.length]);
 
-  // Resolve background image URL — supports exact tag match, partial/fuzzy match, and "black" override
+  // Resolve background image URL â€” supports exact tag match, partial/fuzzy match, and "black" override
   const resolvedBackground = useMemo(() => {
     if (!sceneAnalysisEnabled) {
       return chatBackground ?? undefined;
@@ -7186,7 +7203,7 @@ export function GameSurface({
       ? lastResolvedBackgroundRef.current.url
       : undefined);
 
-  // ONLY gate on the first turn — once a playable GM turn has been received,
+  // ONLY gate on the first turn â€” once a playable GM turn has been received,
   // the game is in-progress and the "adventure begins" screen should never reappear.
   const hasEverHadPlayableContent = useMemo(
     () => messages.some((m) => m.role === "assistant" && m.content),
@@ -7272,7 +7289,9 @@ export function GameSurface({
         </button>
       </>,
     );
-    return () => { setRightSlot(null); };
+    return () => {
+      setRightSlot(null);
+    };
   }, [mainGameUiActive, isMobileViewport, moreSheetOpen, toolsSheetOpen, setRightSlot]);
 
   // While messages are still loading for an existing active game, show a loading
@@ -7288,7 +7307,7 @@ export function GameSurface({
     );
   }
 
-  // Setup wizard — show when explicitly active, when game needs creation, or when status is still "setup" (e.g. previous setup failed)
+  // Setup wizard â€” show when explicitly active, when game needs creation, or when status is still "setup" (e.g. previous setup failed)
   if (setupMainGame) {
     return (
       <>
@@ -7381,7 +7400,7 @@ export function GameSurface({
               </div>
             )}
 
-            {/* World overview — only revealed via typewriter after pressing Start Game */}
+            {/* World overview â€” only revealed via typewriter after pressing Start Game */}
             {worldOverview && introPhase === "intro" && (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <IntroTypewriter text={worldOverview} onComplete={() => setIntroTypewriterDone(true)} />
@@ -7462,7 +7481,7 @@ export function GameSurface({
                           </button>
                         </div>
                       )}
-                      {/* Show skip only after stuck timeout — scene processing hung, not failed */}
+                      {/* Show skip only after stuck timeout â€” scene processing hung, not failed */}
                       {hasEverHadPlayableContent &&
                         !isStreaming &&
                         !sceneProcessed &&
@@ -7534,7 +7553,7 @@ export function GameSurface({
             if (!playing && introCinematicActive) setIntroCinematicActive(false);
           }}
         >
-          {/* Full-body VN sprite — active speaker only */}
+          {/* Full-body VN sprite â€” active speaker only */}
           <div
             className="transition-opacity duration-700 ease-in-out"
             style={{ opacity: spriteVisible ? 1 : 0, pointerEvents: spriteVisible ? "auto" : "none" }}
@@ -7850,12 +7869,17 @@ export function GameSurface({
                         Game Actions
                       </p>
                       <div className="flex flex-col pb-3">
-                        <p className="px-5 pt-1 pb-1 text-[0.6rem] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]/50">Game</p>
+                        <p className="px-5 pt-1 pb-1 text-[0.6rem] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]/50">
+                          Game
+                        </p>
 
                         {/* Tutorial */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); setTutorialOpen(true); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            setTutorialOpen(true);
+                          }}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-sm">
@@ -7867,7 +7891,10 @@ export function GameSurface({
                         {/* History */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); setHistoryOpen(true); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            setHistoryOpen(true);
+                          }}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-sm">
@@ -7879,7 +7906,10 @@ export function GameSurface({
                         {/* Checkpoints */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); setCheckpointsOpen(true); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            setCheckpointsOpen(true);
+                          }}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-sm">
@@ -7891,7 +7921,10 @@ export function GameSurface({
                         {/* Journal */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); setJournalOpen(true); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            setJournalOpen(true);
+                          }}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-yellow-500 text-white shadow-sm">
@@ -7904,7 +7937,10 @@ export function GameSurface({
                         <button
                           type="button"
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
-                          onClick={() => { setMoreSheetOpen(false); setMobileWorldInfoOpen(true); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            setMobileWorldInfoOpen(true);
+                          }}
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-sm">
                             <Globe size="0.9rem" />
@@ -7915,12 +7951,19 @@ export function GameSurface({
                         {/* Advance World */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); handleAdvanceWorld(); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            handleAdvanceWorld();
+                          }}
                           disabled={worldTick.isPending}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20 disabled:opacity-50"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-sm">
-                            {worldTick.isPending ? <Loader2 size="0.9rem" className="animate-spin" /> : <RefreshCw size="0.9rem" />}
+                            {worldTick.isPending ? (
+                              <Loader2 size="0.9rem" className="animate-spin" />
+                            ) : (
+                              <RefreshCw size="0.9rem" />
+                            )}
                           </div>
                           <span className="text-sm font-medium text-[var(--foreground)]">Advance World</span>
                         </button>
@@ -7929,7 +7972,10 @@ export function GameSurface({
                         {sessionStatus !== "concluded" ? (
                           <button
                             type="button"
-                            onClick={() => { setMoreSheetOpen(false); handleRequestEndSession(); }}
+                            onClick={() => {
+                              setMoreSheetOpen(false);
+                              handleRequestEndSession();
+                            }}
                             className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                           >
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-rose-500 text-white shadow-sm">
@@ -7940,24 +7986,36 @@ export function GameSurface({
                         ) : (
                           <button
                             type="button"
-                            onClick={() => { setMoreSheetOpen(false); handleStartNewSession(); }}
+                            onClick={() => {
+                              setMoreSheetOpen(false);
+                              handleStartNewSession();
+                            }}
                             disabled={startSessionLocked}
                             className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20 disabled:opacity-50"
                           >
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-sm">
-                              {startSessionLocked ? <Loader2 size="0.9rem" className="animate-spin" /> : <Play size="0.9rem" />}
+                              {startSessionLocked ? (
+                                <Loader2 size="0.9rem" className="animate-spin" />
+                              ) : (
+                                <Play size="0.9rem" />
+                              )}
                             </div>
                             <span className="text-sm font-medium text-[var(--foreground)]">New Session</span>
                           </button>
                         )}
 
                         <div className="mx-5 my-1 h-px bg-[var(--border)]/30" />
-                        <p className="px-5 pt-1 pb-1 text-[0.6rem] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]/50">Media & Tools</p>
+                        <p className="px-5 pt-1 pb-1 text-[0.6rem] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]/50">
+                          Media & Tools
+                        </p>
 
                         {/* Gallery */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); setGalleryOpen(true); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            setGalleryOpen(true);
+                          }}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 text-white shadow-sm">
@@ -7969,7 +8027,10 @@ export function GameSurface({
                         {/* Game Assets */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); openGameAssetsBrowser(); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            openGameAssetsBrowser();
+                          }}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 text-white shadow-sm">
@@ -7981,7 +8042,12 @@ export function GameSurface({
                         {/* Volume */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); setToolsSheetOpen(false); setRetryMenuOpen(false); setVolumePopoverOpen(true); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            setToolsSheetOpen(false);
+                            setRetryMenuOpen(false);
+                            setVolumePopoverOpen(true);
+                          }}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-sm">
@@ -7995,11 +8061,19 @@ export function GameSurface({
                         {/* Retry */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); setToolsSheetOpen(false); setVolumePopoverOpen(false); setRetryMenuOpen(true); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            setToolsSheetOpen(false);
+                            setVolumePopoverOpen(false);
+                            setRetryMenuOpen(true);
+                          }}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-zinc-500 to-gray-500 text-white shadow-sm">
-                            <RotateCcw size="0.9rem" className={sceneAnalysis.isPending || externalMusicRetryPending ? "animate-spin" : ""} />
+                            <RotateCcw
+                              size="0.9rem"
+                              className={sceneAnalysis.isPending || externalMusicRetryPending ? "animate-spin" : ""}
+                            />
                           </div>
                           <span className="text-sm font-medium text-[var(--foreground)]">Retry</span>
                         </button>
@@ -8007,7 +8081,10 @@ export function GameSurface({
                         {/* Prompt Inspector */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); onPeekPrompt?.(); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            onPeekPrompt?.();
+                          }}
                           disabled={!onPeekPrompt}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20 disabled:opacity-50"
                         >
@@ -8020,7 +8097,10 @@ export function GameSurface({
                         {/* Chat Settings */}
                         <button
                           type="button"
-                          onClick={() => { setMoreSheetOpen(false); onOpenSettings(); }}
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            onOpenSettings();
+                          }}
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-sm">
@@ -8056,9 +8136,7 @@ export function GameSurface({
                     ttsVolume={ttsVolume}
                     ambientVolume={ambientVolume}
                     onMasterVolumeChange={handleMasterVolumeChange}
-                    onMusicVolumeChange={(value) =>
-                      handleChannelVolumeChange("musicVolume", setMusicVolume, value)
-                    }
+                    onMusicVolumeChange={(value) => handleChannelVolumeChange("musicVolume", setMusicVolume, value)}
                     onSfxVolumeChange={(value) => handleChannelVolumeChange("sfxVolume", setSfxVolume, value)}
                     onTtsVolumeChange={(value) => handleChannelVolumeChange("ttsVolume", setTtsVolume, value)}
                     onAmbientVolumeChange={(value) =>
@@ -8189,7 +8267,7 @@ export function GameSurface({
                     />
                   </div>
 
-                  {/* Party portraits — right of map */}
+                  {/* Party portraits â€” right of map */}
                   {partyMembers.length > 0 && (
                     <div data-tour="game-party" className="min-w-0 flex-1 md:flex-none">
                       <GamePartyBar
@@ -8213,7 +8291,7 @@ export function GameSurface({
                   </div>
                 )}
 
-                {/* Image generation failed — retry banner */}
+                {/* Image generation failed â€” retry banner */}
                 {assetGenerationFailed && pendingAssetGeneration && (
                   <div className="pointer-events-auto absolute bottom-32 left-1/2 z-30 -translate-x-1/2">
                     <div className="flex items-center gap-3 rounded-xl bg-black/80 px-4 py-2.5 shadow-lg backdrop-blur-sm">
@@ -8236,7 +8314,7 @@ export function GameSurface({
                   </div>
                 )}
 
-                {/* Scene analysis failed — retry banner (only when narration is still blocked) */}
+                {/* Scene analysis failed â€” retry banner (only when narration is still blocked) */}
                 {sceneAnalysisFailed && introPresented && (
                   <div className="pointer-events-auto absolute bottom-32 left-1/2 z-30 -translate-x-1/2">
                     <div className="flex items-center gap-3 rounded-xl bg-black/80 px-4 py-2.5 shadow-lg backdrop-blur-sm">
@@ -8259,9 +8337,9 @@ export function GameSurface({
                   </div>
                 )}
 
-                {/* Game content — Combat UI / TravelView / Narration */}
+                {/* Game content â€” Combat UI / TravelView / Narration */}
                 {(() => {
-                  // Mobile widget slot — rendered inside GameNarration to sit above the narration box
+                  // Mobile widget slot â€” rendered inside GameNarration to sit above the narration box
                   const mobileWidgetSlot =
                     !combatUiActive && hudWidgets.length > 0 ? (
                       <div
@@ -8275,7 +8353,7 @@ export function GameSurface({
                       </div>
                     ) : undefined;
 
-                  // Choice cards slot — rendered inside GameNarration above the narration box
+                  // Choice cards slot â€” rendered inside GameNarration above the narration box
                   const choicesSlot =
                     activeChoices && narrationDone ? (
                       <div className="pointer-events-auto mb-2 flex justify-center">
@@ -8526,7 +8604,7 @@ export function GameSurface({
                   );
                 })()}
 
-                {/* QTE overlay — absolute, centered */}
+                {/* QTE overlay â€” absolute, centered */}
                 {activeQte && sessionInteractive && (
                   <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center">
                     <GameQteOverlay
@@ -8685,7 +8763,7 @@ export function GameSurface({
                 )}
               </div>
 
-              {/* Journal overlay — positioned on the outer column so it covers state indicator + content */}
+              {/* Journal overlay â€” positioned on the outer column so it covers state indicator + content */}
               <Suspense fallback={<GameOverlayLoadingFallback label="Loading journal..." />}>
                 {journalOpen && (
                   <GameJournal
@@ -8844,7 +8922,7 @@ export function GameSurface({
             </div>
             <p className="text-sm text-[var(--muted-foreground)]">
               Interruption attempts can go badly depending on the situation. Force Interrupt cuts in cleanly without
-              telling the GM it was an interrupt — Yes attempts an in-fiction interruption that the GM may resist.
+              telling the GM it was an interrupt â€” Yes attempts an in-fiction interruption that the GM may resist.
             </p>
           </div>
 
@@ -8871,7 +8949,7 @@ export function GameSurface({
             <button
               onClick={() => confirmInterrupt("risky")}
               className="rounded-lg bg-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-200 ring-1 ring-red-500/40 transition-colors hover:bg-red-500/30"
-              title="Attempt an in-fiction interruption — outcomes can fail"
+              title="Attempt an in-fiction interruption â€” outcomes can fail"
             >
               Yes
             </button>
@@ -8899,7 +8977,9 @@ export function GameSurface({
 
           {concludeSession.isError && !concludeSession.isPending && (
             <p className="rounded-lg border border-[var(--destructive)]/25 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]">
-              {concludeSession.error.message || "Failed to end the session. You can try again."}
+              {toUserMessage(concludeSession.error, {
+                fallback: "Couldn't end the session. Your session is still open. Try again.",
+              })}
             </p>
           )}
 
@@ -8948,4 +9028,3 @@ export function GameSurface({
     </div>
   );
 }
-

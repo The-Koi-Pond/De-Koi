@@ -1,22 +1,8 @@
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // View: File Browser (full-page overlay)
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import {
-  Check,
-  Folder,
-  Upload,
-  Pencil,
-  Info,
-  FileText,
-  Move,
-  Copy,
-  Minus,
-  RotateCcw,
-  Trash2,
-  X,
-  RefreshCw,
-} from "lucide-react";
+import { Check, Folder, Upload, Pencil, Info, FileText, Move, Copy, Minus, RotateCcw, Trash2, X } from "lucide-react";
 import {
   useGameAssetTree,
   useCreateGameAssetFolder,
@@ -36,7 +22,9 @@ import {
   type TreeNode,
 } from "../hooks/use-game-assets";
 import { ContextMenu, type ContextMenuItem } from "../../../../shared/components/ui/ContextMenu";
+import { QueryErrorState } from "../../../../shared/components/ui/QueryErrorState";
 import { cn } from "../../../../shared/lib/utils";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { toast } from "sonner";
 
 import { FolderTree } from "./FolderTree";
@@ -378,7 +366,7 @@ export function GameAssetsBrowserView() {
     if (msg.includes("Invalid category"))
       return `Please navigate to a category folder (music, sfx, ambient, sprites, backgrounds) before uploading.`;
     if (msg.includes("Invalid upload")) return `Upload failed for ${file.name}. Please check the file and try again.`;
-    return `Failed to upload ${file.name}: ${msg || "Unknown error"}`;
+    return `Couldn't upload ${file.name}. Check the file and try again.`;
   }, []);
 
   const handleUpload = useCallback(
@@ -449,7 +437,7 @@ export function GameAssetsBrowserView() {
         await copyAsset.mutateAsync({ path: node.path, targetFolder });
         toast.success("Copied");
       } catch (err) {
-        toast.error(`Copy failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+        toast.error(toUserMessage(err, "gameAssetCopy"));
       }
     },
     [copyAsset, selectedPath],
@@ -586,7 +574,9 @@ export function GameAssetsBrowserView() {
         handleClearSelection();
       }
     } catch (err) {
-      toast.error(`Action failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(
+        toUserMessage(err, { fallback: "Couldn't finish that asset action. Your files are unchanged. Try again." }),
+      );
     }
     setModal(null);
     setModalValue("");
@@ -652,7 +642,9 @@ export function GameAssetsBrowserView() {
       setEditingDescription(false);
       toast.success("Description saved");
     } catch (err) {
-      toast.error(`Failed to save description: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(
+        toUserMessage(err, { fallback: "Couldn't save that description. Your text is still here. Try again." }),
+      );
     }
   }, [updateDescription, selectedPath, descriptionValue]);
 
@@ -829,7 +821,7 @@ export function GameAssetsBrowserView() {
           {isLoading ? (
             <div className="p-4 text-sm text-[var(--muted-foreground)]">Loading...</div>
           ) : isError ? (
-            <div className="p-4 text-xs text-[var(--destructive)]">Failed to load game assets.</div>
+            <div className="p-4 text-xs text-[var(--destructive)]">Couldn't load game assets. Try again.</div>
           ) : tree ? (
             <FolderTree
               node={tree}
@@ -860,17 +852,12 @@ export function GameAssetsBrowserView() {
               Loading assets...
             </div>
           ) : isError ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12">
-              <span className="text-sm text-[var(--destructive)]">
-                {error instanceof Error ? error.message : "Failed to load game assets."}
-              </span>
-              <button
-                onClick={() => refetch()}
-                className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-4 py-2 text-xs font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/25"
-              >
-                <RefreshCw size="0.75rem" /> Retry
-              </button>
-            </div>
+            <QueryErrorState
+              title="Game assets unavailable"
+              message={toUserMessage(error, "gameAssetLoad")}
+              onRetry={() => void refetch()}
+              className="flex-1 border-0 bg-transparent"
+            />
           ) : (
             <div className="flex-1 overflow-y-auto">
               <AssetGrid

@@ -40,6 +40,7 @@ import type { CharacterMap, PersonaInfo } from "../../../modes/shared/chat-ui/ty
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { cn, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { runDetachedDekiSend } from "../lib/deki-send";
@@ -653,7 +654,7 @@ export function DekiSurface({
       })
       .catch((error) => {
         if (!active) return;
-        setSendError(error instanceof Error ? error.message : "Deki-senpai history could not be loaded.");
+        setSendError(toUserMessage(error, "dekiHistoryLoad"));
       })
       .finally(() => {
         if (active) setHistoryLoaded(true);
@@ -682,7 +683,7 @@ export function DekiSurface({
         if (!active) return;
         persistedConnectionIdRef.current = null;
         persistedPersonaIdRef.current = null;
-        setSendError(error instanceof Error ? error.message : "Deki-senpai preferences could not be loaded.");
+        setSendError(toUserMessage(error, "dekiPreferencesLoad"));
       })
       .finally(() => {
         if (active) setPreferencesLoaded(true);
@@ -708,7 +709,7 @@ export function DekiSurface({
       .catch((error) => {
         persistedConnectionIdRef.current = undefined;
         persistedPersonaIdRef.current = undefined;
-        setSendError(error instanceof Error ? error.message : "Deki-senpai preferences could not be saved.");
+        setSendError(toUserMessage(error, "dekiPreferencesSave"));
       });
   }, [preferencesLoaded, selectedConnectionId, selectedPersonaId]);
 
@@ -875,7 +876,7 @@ export function DekiSurface({
       });
     } catch (error) {
       if (mountedRef.current) {
-        setSendError(error instanceof Error ? error.message : "Deki-senpai failed to retry that message.");
+        setSendError(toUserMessage(error, "dekiRetry"));
       }
     } finally {
       if (mountedRef.current) {
@@ -909,7 +910,7 @@ export function DekiSurface({
         setMessages([]);
         setCompaction(EMPTY_DEKI_COMPACTION);
       } catch (error) {
-        setSendError(error instanceof Error ? error.message : "Deki-senpai chat could not be created.");
+        setSendError(toUserMessage(error, "createDekiChat"));
       } finally {
         markSessionSending(sessionId, false);
         requestAnimationFrame(() => inputRef.current?.focus());
@@ -934,6 +935,7 @@ export function DekiSurface({
       requestAnimationFrame(() => inputRef.current?.focus());
       return;
     }
+    const submittedDraft = draft;
     const currentAttachments = attachments;
     setDraft("");
     setAttachments([]);
@@ -974,7 +976,9 @@ export function DekiSurface({
       });
     } catch (error) {
       if (mountedRef.current) {
-        setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
+        setDraft(submittedDraft);
+        setAttachments(currentAttachments);
+        setSendError(toUserMessage(error, "dekiSend"));
         markSessionSending(sessionId, false);
       }
       return;
@@ -1139,16 +1143,13 @@ export function DekiSurface({
       await invalidateDekiActionQueries(queryClient, action).catch((error) => {
         setActionErrors((current) => ({
           ...current,
-          [message.id]:
-            error instanceof Error
-              ? `The action was applied, but catalog refresh failed: ${error.message}`
-              : "The action was applied, but catalog refresh failed.",
+          [message.id]: toUserMessage(error, "catalogRefreshAfterDekiAction"),
         }));
       });
     } catch (error) {
       setActionErrors((current) => ({
         ...current,
-        [message.id]: error instanceof Error ? error.message : "Deki-senpai could not apply that action.",
+        [message.id]: toUserMessage(error, "applyDekiAction"),
       }));
     } finally {
       if (mountedRef.current) {

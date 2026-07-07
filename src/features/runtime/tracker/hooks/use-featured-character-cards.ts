@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { normalizeStringArray } from "../../../../shared/lib/tracker-metadata";
 import { TRACKER_FEATURED_CHARACTER_META_KEY } from "../components/tracker-data-sidebar.constants";
 
@@ -59,7 +61,8 @@ export function useFeaturedCharacterCards({
               id: activeChatId,
               [TRACKER_FEATURED_CHARACTER_META_KEY]: values,
             });
-          } catch {
+          } catch (error) {
+            toast.error(toUserMessage(error, "featuredCardsSave"));
             // Keep the local optimistic selection; the next toggle will retry with the latest set.
           } finally {
             if (

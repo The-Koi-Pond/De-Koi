@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Globe, Loader2, X } from "lucide-react";
-import type { LorebookActivationTraceEntry, LorebookActivationTraceStatus } from "../../../../engine/contracts/types/lorebook";
+import { ChevronDown, ChevronRight, Globe, Loader2, X } from "lucide-react";
+import type {
+  LorebookActivationTraceEntry,
+  LorebookActivationTraceStatus,
+} from "../../../../engine/contracts/types/lorebook";
+import { QueryErrorState } from "../../../../shared/components/ui/QueryErrorState";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useActiveLorebookEntries } from "../../../catalog/lorebooks/index";
 
 type TraceFilter = LorebookActivationTraceStatus | "all";
@@ -83,9 +88,7 @@ function TraceEntryRow({ entry, content }: { entry: LorebookActivationTraceEntry
           {reasonLabel(entry.reason)}
         </span>
       </div>
-      <p className="mt-1 truncate pl-5 text-[0.625rem] text-[var(--muted-foreground)]">
-        {entry.hint}
-      </p>
+      <p className="mt-1 truncate pl-5 text-[0.625rem] text-[var(--muted-foreground)]">{entry.hint}</p>
       {expanded && (
         <div className="mt-2 space-y-1.5 border-t border-[var(--border)] pt-2 pl-5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
           <p>
@@ -136,7 +139,7 @@ export function WorldInfoPanel({
   isMobile: boolean;
   onClose: () => void;
 }) {
-  const { data, isLoading, isError, error } = useActiveLorebookEntries(chatId, true, {
+  const { data, isLoading, isError, error, refetch } = useActiveLorebookEntries(chatId, true, {
     includeTestScanTrigger: true,
   });
   const [filter, setFilter] = useState<TraceFilter>("all");
@@ -154,7 +157,6 @@ export function WorldInfoPanel({
     } satisfies Record<TraceFilter, number>;
   }, [traceEntries]);
   const visibleEntries = filter === "all" ? traceEntries : traceEntries.filter((entry) => entry.status === filter);
-  const errorMessage = error instanceof Error ? error.message : "The lorebook inspector scan could not complete.";
 
   return (
     <>
@@ -176,13 +178,12 @@ export function WorldInfoPanel({
           Scanning entries...
         </div>
       ) : isError ? (
-        <div className="rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 p-2 text-xs text-[var(--destructive)]">
-          <div className="flex items-center gap-1.5 font-medium">
-            <AlertTriangle size="0.75rem" />
-            Lorebook scan failed
-          </div>
-          <p className="mt-1 leading-relaxed text-[var(--destructive)]/80">{errorMessage}</p>
-        </div>
+        <QueryErrorState
+          title="Lorebook scan failed"
+          message={toUserMessage(error, "lorebookScan")}
+          onRetry={() => void refetch()}
+          compact
+        />
       ) : (
         <>
           <p className="mb-2 text-[0.625rem] text-[var(--muted-foreground)]">

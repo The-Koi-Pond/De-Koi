@@ -1,13 +1,14 @@
-// ──────────────────────────────────────────────
-// Chat: Manage Chat Files — switch between branches
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Chat: Manage Chat Files â€” switch between branches
 // Like SillyTavern's "Manage chat files" feature
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { useRef, useState } from "react";
 import { X, Trash2, FileText, MessageSquare, Download, Pencil, Upload, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { showConfirmDialog, showPromptDialog } from "../../../../../shared/lib/app-dialogs";
 import { getChatDisplayName } from "../../../../../shared/lib/chat-display";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { cn } from "../../../../../shared/lib/utils";
 import { importApi } from "../../../../../shared/api/import-api";
 import {
@@ -63,7 +64,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
         chatId?: string;
       }>(chat.id, file);
       if (data?.success === false || data?.error) {
-        toast.error(`Import failed: ${data?.error ?? "Unknown error"}`);
+        toast.error(toUserMessage(data?.error, "importChat"));
         return;
       }
       toast.success(`Imported ${data.messagesImported ?? 0} messages as a new chat file`);
@@ -78,7 +79,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
       await refetchGroupChats();
       if (data.chatId) setActiveChatId(data.chatId);
     } catch (err) {
-      toast.error(err instanceof Error ? `Import failed: ${err.message}` : "Import failed.");
+      toast.error(toUserMessage(err, "importChat"));
     } finally {
       setIsImporting(false);
     }
@@ -129,7 +130,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
       await deleteChat.mutateAsync({ id: chatId, groupId });
       if (nextActiveChatId) setActiveChatId(nextActiveChatId);
     } catch (err) {
-      toast.error(err instanceof Error ? `Delete failed: ${err.message}` : "Delete failed.");
+      toast.error(toUserMessage(err, "deleteChatFile"));
     }
   };
 
@@ -186,7 +187,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
               className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98] disabled:opacity-50"
             >
               <Upload size="0.8125rem" />
-              {isImporting ? "Importing…" : "JSONL"}
+              {isImporting ? "Importingâ€¦" : "JSONL"}
             </button>
             <p className="mt-2 text-center text-[0.625rem] text-[var(--muted-foreground)]/60">
               Adds the file as a new branch in this chat
@@ -269,7 +270,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
             className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-50 disabled:hover:bg-[var(--secondary)]"
           >
             <Upload size="0.8125rem" />
-            {isImporting ? "Importing…" : "JSONL"}
+            {isImporting ? "Importingâ€¦" : "JSONL"}
           </button>
           <p className="mt-2 text-center text-[0.625rem] text-[var(--muted-foreground)]/60">
             Adds the file as a new branch in this chat
