@@ -20,6 +20,18 @@ export interface PreparedManagedImageAttachments {
 
 const IMAGE_ATTACHMENT_PROVIDER_BYTE_LIMIT = 6 * 1024 * 1024;
 
+export interface ImageAttachmentDeliveryWarning {
+  code: "image_attachment_delivery";
+  severity: "warning";
+  message: string;
+  agentNames: string[];
+}
+
+export interface ImageAttachmentDelivery {
+  images: string[];
+  warnings: ImageAttachmentDeliveryWarning[];
+}
+
 export function isImageAttachment(attachment: PromptAttachment): boolean {
   const type = readString(attachment.type).toLowerCase();
   return type === "image" || type.startsWith("image/");
@@ -66,6 +78,19 @@ function utf8ByteLength(value: string): number {
 
 function isProviderSizedImageDataUrl(dataUrl: string): boolean {
   return estimateDataUrlBytes(dataUrl) <= IMAGE_ATTACHMENT_PROVIDER_BYTE_LIMIT;
+}
+
+function providerSizeMegabytes(): number {
+  return IMAGE_ATTACHMENT_PROVIDER_BYTE_LIMIT / (1024 * 1024);
+}
+
+function imageDeliveryWarning(filename: string, reason: string): ImageAttachmentDeliveryWarning {
+  return {
+    code: "image_attachment_delivery",
+    severity: "warning",
+    agentNames: [],
+    message: `${filename} could not be delivered to the model: ${reason}`,
+  };
 }
 
 function galleryStringField(row: unknown, field: string): string {
@@ -187,17 +212,40 @@ export async function resolveImageAttachmentDataUrls(
   storage: StorageGateway,
   attachments: PromptAttachment[] | undefined,
 ): Promise<string[]> {
+  return (await resolveImageAttachmentDelivery(storage, attachments)).images;
+}
+
+export async function resolveImageAttachmentDelivery(
+  storage: StorageGateway,
+  attachments: PromptAttachment[] | undefined,
+): Promise<ImageAttachmentDelivery> {
   const images: string[] = [];
-  for (const attachment of attachments ?? []) {
+  const warnings: ImageAttachmentDeliveryWarning[] = [];
+  const normalizedAttachments = attachments ?? [];
+  for (let index = 0; index < normalizedAttachments.length; index += 1) {
+    const attachment = normalizedAttachments[index]!;
     if (!isImageAttachment(attachment)) continue;
+    const filename = attachmentFilename(attachment, index);
     const inline = attachmentInlineImageDataUrl(attachment);
     if (inline) {
-      if (isProviderSizedImageDataUrl(inline)) images.push(inline);
+      if (isProviderSizedImageDataUrl(inline)) {
+        images.push(inline);
+      } else {
+        warnings.push(imageDeliveryWarning(filename, `it is larger than ${providerSizeMegabytes()} MB after preparation.`));
+      }
       continue;
     }
 
     const resolved = await storage.resolveImageAttachmentDataUrl?.(attachment);
-    if (resolved && isProviderSizedImageDataUrl(resolved)) images.push(resolved);
+    if (resolved) {
+      if (isProviderSizedImageDataUrl(resolved)) {
+        images.push(resolved);
+      } else {
+        warnings.push(imageDeliveryWarning(filename, `it is larger than ${providerSizeMegabytes()} MB after resolution.`));
+      }
+    }
   }
-  return images;
+  return { images, warnings };
 }
+
+

@@ -16,9 +16,14 @@ interface GenerationLocalSidecarUnavailableWarning extends GenerationAgentConnec
   code: "local_sidecar_unavailable";
 }
 
+interface GenerationImageAttachmentDeliveryWarning extends GenerationAgentConnectionWarningBase {
+  code: "image_attachment_delivery";
+}
+
 type GenerationAgentConnectionWarning =
   | GenerationDefaultAgentConnectionWarning
-  | GenerationLocalSidecarUnavailableWarning;
+  | GenerationLocalSidecarUnavailableWarning
+  | GenerationImageAttachmentDeliveryWarning;
 
 export interface GenerationDiagnosticEventData {
   kind: "timing";
@@ -68,3 +73,4 @@ export type GenerationEvent =
   | { type: "illustration_error"; data: unknown }
   | { type: "scene_created"; data: unknown }
   | { type: "done"; data?: unknown };
+

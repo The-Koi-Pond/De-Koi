@@ -199,6 +199,23 @@ describe("isTrackerPatchRetryRequest", () => {
 });
 
 describe("showAgentWarningToast", () => {
+  it("shows image delivery warnings as visible toasts", () => {
+    showAgentWarningToast(
+      {
+        code: "image_attachment_delivery",
+        severity: "warning",
+        message: "large.png could not be delivered to the model.",
+        agentNames: [],
+      },
+      new Set(),
+    );
+
+    expect(vi.mocked(toast.warning)).toHaveBeenCalledWith(
+      "large.png could not be delivered to the model.",
+      expect.objectContaining({ duration: 10_000 }),
+    );
+  });
+
   it("dismisses default agent connection warnings per connection key", () => {
     const firstWarning = {
       code: "default_agent_connection_active",
@@ -351,6 +368,39 @@ describe("runGenerationWithUi", () => {
     expect(toast.error).not.toHaveBeenCalled();
     queryClient.clear();
   });
+  it("labels image provider failures as attachment delivery failures", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-image-failure";
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      throw new Error("Provider API error: Unable to process input image.");
+    }
+
+    await expect(
+      runGenerationWithUi(
+        queryClient,
+        {
+          chatId,
+          userMessage: "describe this",
+          attachments: [{ type: "image/png", data: "data:image/png;base64,abc", filename: "tiny.png" }],
+        },
+        stream,
+      ),
+    ).rejects.toThrow("Unable to process input image");
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Image attachment could not be delivered: Provider API error: Unable to process input image.",
+      expect.objectContaining({
+        description: "Your message was kept. Fix the connection or provider issue, then retry.",
+      }),
+    );
+    queryClient.clear();
+  });
   it("flushes pending typewriter text when the page becomes hidden", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-background-flush";
@@ -443,3 +493,4 @@ describe("runGenerationWithUi", () => {
     queryClient.clear();
   });
 });
+
