@@ -106,6 +106,36 @@ fn storage_list_inner_impl(
         ));
     }
     let has_search = shared::has_storage_search(options.as_ref());
+    if entity == "chats" && where_in.is_none() && empty_filters && !has_search {
+        if let Some(fields) = projection_fields
+            .as_ref()
+            .filter(|fields| !fields.is_empty())
+        {
+            let order_by = options
+                .as_ref()
+                .and_then(|value| value.get("orderBy"))
+                .and_then(Value::as_str)
+                .map(str::trim);
+            let limit = options
+                .as_ref()
+                .and_then(|value| value.get("limit"))
+                .and_then(Value::as_u64)
+                .map(|value| value as usize);
+            if order_by == Some("updatedAt") && limit.is_some() {
+                let descending = options
+                    .as_ref()
+                    .and_then(|value| value.get("descending"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                return Ok(Value::Array(state.storage.list_chat_summaries(
+                    fields,
+                    shared::projection_field_selections(options.as_ref()),
+                    descending,
+                    limit,
+                )?));
+            }
+        }
+    }
     let mut rows = match (entity.as_str(), filters, where_in.as_ref()) {
         (_, _, Some(where_in)) if where_in.values.is_empty() => Vec::new(),
         (_, _, Some(where_in))
@@ -2584,6 +2614,81 @@ mod tests {
         );
     }
 
+    #[test]
+    fn storage_list_recent_chats_uses_sqlite_summary_read_model() {
+        let state = test_state("recent-chat-summaries-sqlite-read-model");
+        state
+            .storage
+            .replace_all(
+                "chats",
+                vec![
+                    json!({
+                        "id": "older",
+                        "name": "Older",
+                        "mode": "chat",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "updatedAt": "2026-01-02T00:00:00Z",
+                        "metadata": { "pinned": false, "tags": ["slow"], "secret": "omit" }
+                    }),
+                    json!({
+                        "id": "newest",
+                        "name": "Newest",
+                        "mode": "roleplay",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "updatedAt": "2026-01-04T00:00:00Z",
+                        "metadata": { "pinned": true, "tags": ["hot"], "secret": "omit" }
+                    }),
+                    json!({
+                        "id": "middle",
+                        "name": "Middle",
+                        "mode": "game",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "updatedAt": "2026-01-03T00:00:00Z",
+                        "metadata": { "pinned": false, "tags": ["warm"], "secret": "omit" }
+                    }),
+                ],
+            )
+            .expect("chats should seed");
+        let sqlite_path = state.storage.root().join("storage.sqlite3");
+        std::fs::remove_file(&sqlite_path).expect("test should remove eager read model");
+
+        let result = storage_list_inner(
+            &state,
+            "chats".to_string(),
+            Some(json!({
+                "fields": ["id", "name", "mode", "updatedAt", "metadata"],
+                "fieldSelections": { "metadata": ["pinned", "tags"] },
+                "orderBy": "updatedAt",
+                "descending": true,
+                "limit": 2
+            })),
+        )
+        .expect("recent chat summary list should succeed");
+
+        assert_eq!(
+            result,
+            json!([
+                {
+                    "id": "newest",
+                    "name": "Newest",
+                    "mode": "roleplay",
+                    "updatedAt": "2026-01-04T00:00:00Z",
+                    "metadata": { "pinned": true, "tags": ["hot"] }
+                },
+                {
+                    "id": "middle",
+                    "name": "Middle",
+                    "mode": "game",
+                    "updatedAt": "2026-01-03T00:00:00Z",
+                    "metadata": { "pinned": false, "tags": ["warm"] }
+                }
+            ])
+        );
+        assert!(
+            sqlite_path.is_file(),
+            "covered recent chat summary command should rebuild the SQLite read model"
+        );
+    }
     #[test]
     fn storage_list_filtered_projected_rows_keep_sort_and_nested_selection() {
         let state = test_state("storage-list-filtered-projected");
