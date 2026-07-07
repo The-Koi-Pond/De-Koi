@@ -50,6 +50,7 @@ import {
 import { persistSecretPlotAgentMemory, type SecretPlotRerollMode } from "./agent-memory-runtime";
 import { createGenerationAgentRuntime } from "./agent-runner";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
+import { generationContextAttribution } from "./context-attribution";
 import {
   consumePendingConnectedInfluences,
   persistConnectedCommandTags,
@@ -4284,6 +4285,7 @@ export async function* dryRunGeneration(
       ),
       assembly.userRegenerationSourceMessage,
     ),
+    contextAttribution: generationContextAttribution(assembly.contextAttributionItems),
     promptPresetId: assembly.promptPresetId,
     mainTools: null,
     toolRuntimeInput: {
@@ -4689,6 +4691,7 @@ export async function* startGeneration(
           ),
           assembly.userRegenerationSourceMessage,
         ),
+        contextAttribution: generationContextAttribution(assembly.contextAttributionItems),
         promptPresetId: assembly.promptPresetId,
         mainTools,
         toolRuntimeInput,
@@ -4993,6 +4996,7 @@ export async function* startGeneration(
         ),
         assembly.userRegenerationSourceMessage,
       ),
+      contextAttribution: generationContextAttribution(assembly.contextAttributionItems),
       promptPresetId: assembly.promptPresetId,
       mainTools: mainToolsDirect,
       toolRuntimeInput: toolRuntimeInputDirect,

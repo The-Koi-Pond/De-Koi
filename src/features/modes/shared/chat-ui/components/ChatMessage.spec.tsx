@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Message } from "../../../../../engine/contracts/types/chat";
+import type { GenerationPromptSnapshot, Message } from "../../../../../engine/contracts/types/chat";
 import { createDialogueAttributionTextHash } from "../../../../../engine/shared/text/dialogue-attribution";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
@@ -468,5 +468,92 @@ describe("ChatMessage", () => {
     const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
     expect(quote?.textContent).toBe('"Welcome,"');
     expect(quote?.style.color).toBe("");
+  });
+  it("shows remembered and recalled memory indicators with recalled details", () => {
+    const onPeekPrompt = vi.fn();
+    const promptSnapshot: GenerationPromptSnapshot = {
+      messages: [],
+      parameters: {},
+      contextAttribution: {
+        source: "saved_snapshot",
+        items: [
+          {
+            kind: "memory_recall",
+            label: "Memory",
+            status: "injected",
+            sourceId: "memory-1",
+            sourceCollection: "chat_memories",
+            snippet: "Aster remembers Celia prefers concise recaps.",
+          },
+          {
+            kind: "memory_recall",
+            label: "Memory",
+            status: "injected",
+            sourceId: "memory-2",
+            sourceCollection: "chat_memories",
+            snippet: "Aster remembers the pond metaphor.",
+          },
+          {
+            kind: "memory_recall",
+            label: "Memory",
+            status: "considered",
+            sourceId: "memory-3",
+            sourceCollection: "chat_memories",
+            snippet: "Skipped memory should not count.",
+          },
+        ],
+      },
+    };
+    const memoryMessage: Message = {
+      ...message,
+      id: "message-memory-indicators",
+      extra: {
+        ...message.extra,
+        memoryCapture: {
+          status: "completed",
+          jobId: "job-1",
+          sourceMessageIds: ["user-1", "message-memory-indicators"],
+          completedAt: "2026-01-01T00:03:00.000Z",
+        },
+        generationPromptSnapshot: promptSnapshot,
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={memoryMessage} characterMap={characterMap} onPeekPrompt={onPeekPrompt} />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector('[role="status"]')?.textContent).toContain("remembered");
+    const recalledChip = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("2 memories recalled"),
+    );
+    expect(recalledChip).toBeTruthy();
+
+    act(() => {
+      recalledChip!.click();
+    });
+
+    expect(container!.textContent).toContain("Recalled memories");
+    expect(container!.textContent).toContain("I remembered: Aster remembers Celia prefers concise recaps.");
+    expect(container!.textContent).not.toContain("Skipped memory should not count.");
+    expect(onPeekPrompt).not.toHaveBeenCalled();
+
+    const peekButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Open Peek Prompt"),
+    );
+    act(() => {
+      peekButton!.click();
+    });
+
+    expect(onPeekPrompt).toHaveBeenCalledWith({
+      forCharacterId: "character-1",
+      messageId: "message-memory-indicators",
+      promptSnapshot,
+    });
   });
 });

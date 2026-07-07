@@ -26,6 +26,7 @@ import {
   ImagePromptPanel,
   isImageMessageAttachment,
   MessageAttachmentImagePreview,
+  MessageMemoryIndicators,
   ResolvedAvatarImage,
   SwipeJumpControl,
 } from "../../shared/chat-ui/index";
@@ -180,6 +181,7 @@ export interface ConversationMessageRenderContext {
   regenerateGuidedClass?: string;
   thinking: string | null;
   generationReplay: MessageExtra["generationReplay"] | null;
+  memoryCapture: MessageExtra["memoryCapture"] | null;
   activePromptSnapshot: Message["extra"]["generationPromptSnapshot"] | null;
   copied: boolean;
   handleMessageClick: (event: MouseEvent) => void;
@@ -977,6 +979,22 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
           {formatTimestamp(context.message.createdAt)}
         </span>
       )}
+      <MessageMemoryIndicators
+        isUser={context.isUser}
+        memoryCapture={context.memoryCapture ?? null}
+        promptSnapshot={context.activePromptSnapshot}
+        onPeekPrompt={
+          context.onPeekPrompt
+            ? () => {
+                context.onPeekPrompt?.({
+                  forCharacterId: context.message.characterId ?? null,
+                  messageId: context.message.id,
+                  promptSnapshot: context.activePromptSnapshot ?? null,
+                });
+              }
+            : null
+        }
+      />
     </div>
   );
 }

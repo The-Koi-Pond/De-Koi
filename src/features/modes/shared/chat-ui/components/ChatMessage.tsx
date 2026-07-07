@@ -92,6 +92,7 @@ import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/me
 import { resolvePromptSnapshotFromExtra } from "../lib/prompt-snapshot";
 import { ResolvedAvatarImage } from "./ResolvedAvatarImage";
 import { MessageAttachmentImagePreview } from "./MessageAttachmentImagePreview";
+import { MessageMemoryIndicators } from "./MessageMemoryIndicators";
 import { resolveAvatarFileUrl } from "../../../../../shared/api/local-file-api";
 import { mergedGroupDisplayLabel, mergedGroupNames } from "../lib/merged-group-label";
 import {
@@ -1232,6 +1233,13 @@ export const ChatMessage = memo(function ChatMessage({
   const thinking = readStoredThinking(extra);
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
   const activePromptSnapshot = resolvePromptSnapshotFromExtra(extra, message.activeSwipeIndex);
+  const openMemoryPeekPrompt = useCallback(() => {
+    onPeekPrompt?.({
+      forCharacterId: message.characterId ?? null,
+      messageId: message.id,
+      promptSnapshot: activePromptSnapshot,
+    });
+  }, [activePromptSnapshot, message.characterId, message.id, onPeekPrompt]);
   const dialogueAttributions = useMemo(() => resolveDialogueAttributionsForMessage(message, extra), [message, extra]);
   const isHiddenExpanded =
     isHiddenFromAI && (!collapseHiddenMessages || manuallyExpandedHidden || editing || !!isStreaming);
@@ -2171,6 +2179,12 @@ export const ChatMessage = memo(function ChatMessage({
                   {genLabel}
                 </span>
               )}
+              <MessageMemoryIndicators
+                isUser={isUser}
+                memoryCapture={extra.memoryCapture ?? null}
+                promptSnapshot={activePromptSnapshot}
+                onPeekPrompt={onPeekPrompt ? openMemoryPeekPrompt : null}
+              />
               {showRoleplayAvatarPanel && (showActions || showMessageNumbers) && messageIndex != null && (
                 <span className="text-[0.5625rem] font-medium text-white/25 select-none">#{messageIndex}</span>
               )}
@@ -2731,6 +2745,12 @@ export const ChatMessage = memo(function ChatMessage({
                 {genLabel}
               </span>
             )}
+            <MessageMemoryIndicators
+              isUser={isUser}
+              memoryCapture={extra.memoryCapture ?? null}
+              promptSnapshot={activePromptSnapshot}
+              onPeekPrompt={onPeekPrompt ? openMemoryPeekPrompt : null}
+            />
           </div>
 
           {/* Conversation start marker */}

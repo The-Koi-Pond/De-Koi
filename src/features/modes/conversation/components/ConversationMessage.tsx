@@ -174,6 +174,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   }, [message.extra]);
   const attachments = useMemo(() => messageAttachmentsFromExtra(extra), [extra]);
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
+  const memoryCapture = extra.memoryCapture ?? null;
   const dialogueAttributions = useMemo(
     () => resolveDialogueAttributionsForConversationMessage(message, extra),
     [extra, message],
@@ -692,6 +693,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     regenerateGuidedClass,
     thinking,
     generationReplay,
+    memoryCapture,
     activePromptSnapshot,
     copied,
     handleMessageClick,

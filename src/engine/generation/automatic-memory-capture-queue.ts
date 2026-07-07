@@ -225,7 +225,19 @@ export async function processAutomaticMemoryCaptureQueue(
     }
 
     try {
-      await storage.refreshChatMemories(readString(job.chatId).trim(), { sourceMessageIds: jobSourceIds(job) });
+      const sourceMessageIds = jobSourceIds(job);
+      await storage.refreshChatMemories(readString(job.chatId).trim(), { sourceMessageIds });
+      const assistantMessageId = readString(job.assistantMessageId).trim();
+      if (assistantMessageId) {
+        await storage.patchChatMessageExtra(assistantMessageId, {
+          memoryCapture: {
+            status: "completed",
+            jobId: id,
+            sourceMessageIds,
+            completedAt: now,
+          },
+        });
+      }
       await updateJob(storage, id, {
         status: "completed",
         completedAt: now,

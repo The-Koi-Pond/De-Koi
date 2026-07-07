@@ -522,6 +522,13 @@ export interface DialogueAttributionsExtra {
   textHash: string;
   segments: DialogueAttributionSegment[];
 }
+
+export interface MessageMemoryCaptureExtra {
+  status: "completed";
+  jobId: string;
+  sourceMessageIds: string[];
+  completedAt: string;
+}
 /** Additional data attached to a message. */
 export interface MessageExtra {
   /** Display-formatted text (may differ from raw content) */
@@ -544,6 +551,7 @@ export interface MessageExtra {
   attachments?: MessageAttachment[] | null;
   /** Structured dialogue ownership ranges for deterministic speaker coloring. */
   dialogueAttributions?: DialogueAttributionsExtra | null;
+  memoryCapture?: MessageMemoryCaptureExtra | null;
   /** Per-swipe sprite expressions from the Expression Engine agent */
   spriteExpressions?: Record<string, string> | null;
   /** Per-swipe CYOA choices from the CYOA Choices agent */
