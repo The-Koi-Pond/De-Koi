@@ -10,6 +10,8 @@ import { cn } from "../../../../shared/lib/utils";
 import { useGenerate } from "../../../runtime/generation";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
+import { QueryErrorState } from "../../../../shared/components/ui/QueryErrorState";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 const AGENT_TYPE = "secret-plot-driver";
 const SECRET_PLOT_HELP =
@@ -228,6 +230,8 @@ export function SecretPlotPanel({
         await retryAgents(chatId, [AGENT_TYPE], { forMessageId: target.id, secretPlotRerollMode: mode });
         await qc.invalidateQueries({ queryKey });
         await refetch();
+      } catch (error) {
+        toast.error(toUserMessage(error, "secretPlotReroll"));
       } finally {
         setRerollingMode(null);
       }
@@ -290,9 +294,12 @@ export function SecretPlotPanel({
             <p className="py-3 text-center text-[0.625rem] text-[var(--muted-foreground)]">Loading plot state...</p>
           )}
           {isError && (
-            <p className="rounded-lg border border-[var(--destructive)]/25 bg-[var(--destructive)]/10 px-3 py-2 text-center text-[0.625rem] text-[var(--destructive)]">
-              Could not load agent memory.
-            </p>
+            <QueryErrorState
+              title="Secret Plot memory unavailable"
+              message={toUserMessage(null, "loadSecretPlotMemory")}
+              onRetry={() => void refetch()}
+              compact
+            />
           )}
 
           {!isLoading && draft && (

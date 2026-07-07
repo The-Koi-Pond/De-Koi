@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { storageApi } from "../api/storage-api";
+import { toUserMessage } from "../lib/error-message";
 import { translationApi } from "../api/translation-api";
 import { useTranslationStore } from "../stores/translation.store";
 
@@ -57,7 +58,7 @@ export function useTranslate() {
           );
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to translate message");
+        toast.error(toUserMessage(error, "translateMessage"));
       } finally {
         setTranslating(messageId, false);
       }
