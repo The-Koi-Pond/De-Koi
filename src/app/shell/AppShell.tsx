@@ -8,7 +8,6 @@ import { TopBarActionsProvider } from "../../shared/components/mobile-shell-acti
 import { WindowTitleBar } from "./WindowTitleBar";
 import { MobileTabBar } from "./MobileTabBar";
 import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../features/shell/discovery/discovery-events";
-import { ensureNoModelGameShowcase } from "../../features/shell/discovery/showcase";
 import {
   getTrackerPanelWidthForProfile,
   RIGHT_PANEL_WIDTH_MAX,
@@ -20,7 +19,6 @@ import {
 import type { TrackerPanelSizeProfile } from "../../shared/stores/ui.store";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useAgentStore } from "../../shared/stores/agent.store";
-import { useBackgroundAutonomousPolling } from "../../features/modes/conversation/background-autonomous";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
 import { chatKeys } from "../../features/catalog/chats/index";
 import { dekiApi } from "../../shared/api/deki-api";
@@ -54,6 +52,11 @@ import {
 
 const ModeSurface = lazy(() =>
   import("../../features/modes/router/shell").then((module) => ({ default: module.ModeSurface })),
+);
+const BackgroundAutonomousPollingHost = lazy(() =>
+  import("../../features/modes/conversation/background-autonomous").then((module) => ({
+    default: module.BackgroundAutonomousPollingHost,
+  })),
 );
 const DiscoverPanel = lazy(() =>
   import("../../features/shell/discovery/shell").then((module) => ({ default: module.DiscoverPanel })),
@@ -232,8 +235,6 @@ function SidePanelFallback() {
 }
 
 export function AppShell() {
-  // Background autonomous polling for inactive conversation chats
-  useBackgroundAutonomousPolling();
 
   // Auto idle detection (10 min inactivity → idle, activity → active)
   useIdleDetection();
@@ -243,6 +244,7 @@ export function AppShell() {
   }, []);
 
   const queryClient = useQueryClient();
+  const [backgroundAutonomousPollingReady, setBackgroundAutonomousPollingReady] = useState(false);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
@@ -291,6 +293,8 @@ export function AppShell() {
       void loadRightPanelShell();
     });
   }, []);
+
+  useEffect(() => requestIdleWork(() => setBackgroundAutonomousPollingReady(true)), []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -567,7 +571,8 @@ export function AppShell() {
   }, [activeDekiSessionId, markDekiSessionRead, openDekiShell, refreshDekiSessions]);
 
   const openNoModelShowcase = useCallback(() => {
-    void ensureNoModelGameShowcase()
+    void import("../../features/shell/discovery/showcase")
+      .then((module) => module.ensureNoModelGameShowcase())
       .then(({ chatId }) => {
         queryClient.invalidateQueries({ queryKey: chatKeys.all });
         useChatStore.getState().setActiveChatId(chatId);
@@ -1184,6 +1189,11 @@ export function AppShell() {
         )}
       >
         {/* Y2K decorative stars */}
+        {backgroundAutonomousPollingReady && (
+          <Suspense fallback={null}>
+            <BackgroundAutonomousPollingHost />
+          </Suspense>
+        )}
         {showAmbientDecor && !lowPowerShellMode && (
           <>
             <div className="y2k-star hidden md:block" style={{ top: "10%", left: "5%", animationDelay: "0s" }} />
