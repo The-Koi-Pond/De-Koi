@@ -90,7 +90,8 @@ import {
   deletePreparedManagedImageAttachments,
   isImageAttachment,
   prepareManagedImageAttachmentBatch,
-  resolveImageAttachmentDataUrls,
+  resolveImageAttachmentDelivery,
+  type ImageAttachmentDeliveryWarning,
   type PreparedManagedImageAttachments,
 } from "../shared/attachments/image-attachments";
 import type { GenerationEvent } from "./generation-events";
@@ -181,6 +182,7 @@ interface PreparedUserInput {
   attachments: PromptAttachment[];
   preparedAttachments: PreparedManagedImageAttachments;
   images: string[];
+  imageWarnings: ImageAttachmentDeliveryWarning[];
   mentionedCharacterNames: string[];
 }
 
@@ -388,7 +390,7 @@ async function prepareUserInput(
 ): Promise<PreparedUserInput> {
   const raw = inputUserMessage(input).trim();
   const attachments = inputAttachments(input);
-  const images = await resolveImageAttachmentDataUrls(storage, attachments);
+  const imageDelivery = await resolveImageAttachmentDelivery(storage, attachments);
   const preparedAttachments = await prepareManagedImageAttachmentBatch(storage, input.chatId, attachments);
   try {
     const managedAttachments = preparedAttachments.attachments;
@@ -404,7 +406,8 @@ async function prepareUserInput(
       ),
       attachments: managedAttachments,
       preparedAttachments,
-      images,
+      images: imageDelivery.images,
+      imageWarnings: imageDelivery.warnings,
       mentionedCharacterNames,
     };
   } catch (error) {
@@ -426,7 +429,7 @@ async function prepareDryRunUserInput(
 ): Promise<PreparedUserInput> {
   const raw = inputUserMessage(input).trim();
   const attachments = inputAttachments(input);
-  const images = await resolveImageAttachmentDataUrls(storage, attachments);
+  const imageDelivery = await resolveImageAttachmentDelivery(storage, attachments);
   const mentionedCharacterNames = stringArray(input.mentionedCharacterNames).filter((name) => name.trim().length > 0);
   const regexed = raw ? await applyRuntimeRegexScripts(storage, "user_input", raw) : "";
   const withReadableAttachments = appendReadableAttachmentsToContent(regexed, attachments);
@@ -437,7 +440,8 @@ async function prepareDryRunUserInput(
     ),
     attachments,
     preparedAttachments: { attachments, createdGalleryIds: [] },
-    images,
+    images: imageDelivery.images,
+    imageWarnings: imageDelivery.warnings,
     mentionedCharacterNames,
   };
 }
@@ -1533,6 +1537,44 @@ export async function loadMessagesForGenerationTarget(args: {
   return [...previousMessages, target];
 }
 
+function imageAttachmentConnectionWarning(message: string): ImageAttachmentDeliveryWarning {
+  return {
+    code: "image_attachment_delivery",
+    severity: "warning",
+    agentNames: [],
+    message,
+  };
+}
+
+function applyImageAttachmentConnectionSupport(
+  prepared: PreparedUserInput,
+  connection: JsonRecord,
+): ImageAttachmentDeliveryWarning[] {
+  if (prepared.images.length === 0) return [];
+  const provider = readString(connection.provider).trim();
+  if (provider === "claude_subscription") {
+    prepared.images = [];
+    return [
+      imageAttachmentConnectionWarning(
+        "Image attachments could not be delivered through the Claude subscription path. Use an image-capable API provider or remove the attachment.",
+      ),
+    ];
+  }
+
+  const capabilities = parseRecord(connection.capabilities);
+  if (capabilities.vision === false) {
+    prepared.images = [];
+    const model = readString(connection.model).trim() || readString(connection.name).trim() || "The selected model";
+    return [
+      imageAttachmentConnectionWarning(
+        `${model} is marked as not vision-capable, so image attachments were not delivered to the character.`,
+      ),
+    ];
+  }
+
+  return [];
+}
+
 function withImageAttachments(messages: LlmMessage[], images: string[]): LlmMessage[] {
   if (images.length === 0 || messages.length === 0) return messages;
   const next = messages.map((message) => ({ ...message }));
@@ -1683,8 +1725,8 @@ async function userMessageRegenerationSourceMessage(
   if (hiddenFromAi(fullTarget)) throw new Error("Cannot regenerate a message hidden from AI");
 
   const attachments = promptAttachmentsFromExtra(fullTarget.extra);
-  const images = await resolveImageAttachmentDataUrls(storage, attachments);
-  const source = buildUserMessageRegenerationSourceMessage(fullTarget, images);
+  const imageDelivery = await resolveImageAttachmentDelivery(storage, attachments);
+  const source = buildUserMessageRegenerationSourceMessage(fullTarget, imageDelivery.images);
   return source.content.trim() || source.images?.length ? source : null;
 }
 
@@ -4192,6 +4234,12 @@ export async function* dryRunGeneration(
   throwIfAborted(signal);
   const connection = await resolveGenerationConnection(deps.storage, chat, input);
   throwIfAborted(signal);
+  for (const warning of [
+    ...preparedUserInput.imageWarnings,
+    ...applyImageAttachmentConnectionSupport(preparedUserInput, connection),
+  ]) {
+    yield { type: "agent_warning", data: warning };
+  }
   let storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
   storedMessages = appendDryRunUserMessage(storedMessages, chatId, preparedUserInput, input);
   const regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
@@ -4397,6 +4445,12 @@ export async function* startGeneration(
   const prepareContextStartedAt = generationTimingStartedAt();
   const connection = await resolveGenerationConnection(deps.storage, chat, input);
   throwIfAborted(signal);
+  for (const warning of [
+    ...preparedUserInput.imageWarnings,
+    ...applyImageAttachmentConnectionSupport(preparedUserInput, connection),
+  ]) {
+    yield { type: "agent_warning", data: warning };
+  }
   if (savesUserMessage) {
     const savedTimelineMessage = savedUserMessageForTimeline(savedUserMessage, chatId);
     storedMessages = savedTimelineMessage
@@ -5526,3 +5580,4 @@ function mergeTurnUsages(usages: unknown[]): unknown {
   }
   return merged;
 }
+

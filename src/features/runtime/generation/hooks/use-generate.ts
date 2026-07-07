@@ -139,6 +139,23 @@ function showGenerationFailureToast(message: string): void {
   });
 }
 
+function argsHaveImageAttachments(args: GenerateArgs): boolean {
+  return (Array.isArray(args.attachments) ? args.attachments : []).some((attachment) => {
+    if (!isRecord(attachment)) return false;
+    const type = readString(attachment.type).toLowerCase();
+    return type === "image" || type.startsWith("image/");
+  });
+}
+
+function isImageDeliveryFailureMessage(message: string): boolean {
+  return /\b(image|vision|attachment|unsupported_capability)\b/i.test(message);
+}
+
+function generationFailureToastMessage(args: GenerateArgs, message: string): string {
+  if (!argsHaveImageAttachments(args) || !isImageDeliveryFailureMessage(message)) return message;
+  return `Image attachment could not be delivered: ${message}`;
+}
+
 function dispatchGenerationFailureEvent(chatId: string, message: string): void {
   window.dispatchEvent(
     new CustomEvent("marinara:generation-error", {
@@ -2053,8 +2070,9 @@ export async function runGenerationWithUi(
   } catch (error) {
     if (!isAbortError(error)) {
       const message = errorMessage(error);
-      dispatchGenerationFailureEvent(chatId, message);
-      showGenerationFailureToast(message);
+      const toastMessage = generationFailureToastMessage(args, message);
+      dispatchGenerationFailureEvent(chatId, toastMessage);
+      showGenerationFailureToast(toastMessage);
     }
     throw error;
   } finally {
@@ -2309,3 +2327,4 @@ export function useGenerate() {
 
   return { generate, retryAgents, dryRun, abortDryRun: abortGenerationDryRun };
 }
+
