@@ -4,32 +4,35 @@ import { TOOLS_PANELS, type MobileToolsPanel } from "../../shared/components/mob
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
+import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { preloadRightPanelPanel } from "./right-panel-loaders";
 
 export function MobileTabBar({
   dekiOpen,
+  leftSidebarPanel,
   toolsSheetOpen,
   toolsSheetRef,
   trackerPanelVisible,
   onToolsSheetOpenChange,
+  onLeftSidebarPanelChange,
   onToggleDeki,
   onGoHome,
 }: {
   dekiOpen: boolean;
+  leftSidebarPanel: AppShellLeftSidebarPanel;
   toolsSheetOpen: boolean;
   toolsSheetRef: RefObject<HTMLDivElement | null>;
   trackerPanelVisible: boolean;
   onToolsSheetOpenChange: (open: boolean | ((open: boolean) => boolean)) => void;
+  onLeftSidebarPanelChange: (panel: AppShellLeftSidebarPanel) => void;
   onToggleDeki: () => void;
   onGoHome: () => void;
 }) {
   const activeChatId = useChatStore((s) => s.activeChatId);
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
-  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const closeRightPanel = useUIStore((s) => s.closeRightPanel);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const openRightPanel = useUIStore((s) => s.openRightPanel);
-  const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
   const rightPanel = useUIStore((s) => s.rightPanel);
 
@@ -37,15 +40,15 @@ export function MobileTabBar({
 
   const closeAll = () => {
     onToolsSheetOpenChange(false);
-    setSidebarOpen(false);
+    onLeftSidebarPanelChange(null);
     closeRightPanel();
     closeAllDetails();
   };
 
   const openChats = () => {
-    const wasOpen = sidebarOpen;
+    const wasOpen = leftSidebarPanel === "chats";
     closeAll();
-    if (!wasOpen) setSidebarOpen(true);
+    if (!wasOpen) onLeftSidebarPanelChange("chats");
   };
 
   const openDeki = () => {
@@ -66,7 +69,7 @@ export function MobileTabBar({
   };
 
   const isTools = rightPanelOpen || toolsSheetOpen;
-  const isChats = sidebarOpen && !rightPanelOpen && !toolsSheetOpen && !trackerPanelVisible;
+  const isChats = leftSidebarPanel === "chats" && !rightPanelOpen && !toolsSheetOpen && !trackerPanelVisible;
   const isDeki = dekiOpen;
 
   return (
@@ -164,7 +167,7 @@ export function MobileTabBar({
             } else if (toolsSheetOpen) {
               onToolsSheetOpenChange(false);
             } else {
-              setSidebarOpen(false);
+              onLeftSidebarPanelChange(null);
               closeAllDetails();
               onToolsSheetOpenChange(true);
             }

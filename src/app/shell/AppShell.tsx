@@ -1,6 +1,6 @@
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --------------------------------------------------------------
 // Layout: Main App Shell (Discord-like three-column)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --------------------------------------------------------------
 import { ChatSidebar, type ChatSidebarTab } from "./ChatSidebar";
 import { DekiSidebar } from "./DekiSidebar";
 import { AppFindOverlay } from "./AppFindOverlay";
@@ -9,7 +9,6 @@ import { TopBarActionsProvider } from "../../shared/components/mobile-shell-acti
 import { WindowTitleBar } from "./WindowTitleBar";
 import { MobileTabBar } from "./MobileTabBar";
 import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../features/shell/discovery/discovery-events";
-import { ensureNoModelGameShowcase } from "../../features/shell/discovery/showcase";
 import {
   getTrackerPanelWidthForProfile,
   RIGHT_PANEL_WIDTH_MAX,
@@ -21,7 +20,6 @@ import {
 import type { TrackerPanelSizeProfile } from "../../shared/stores/ui.store";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useAgentStore } from "../../shared/stores/agent.store";
-import { useBackgroundAutonomousPolling } from "../../features/modes/conversation/background-autonomous";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
 import { chatKeys } from "../../features/catalog/chats/index";
 import { dekiApi } from "../../shared/api/deki-api";
@@ -35,7 +33,7 @@ import { parseChatMetadata } from "../../shared/lib/chat-display";
 import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { markPerformanceMilestoneOnce } from "../../shared/lib/performance-diagnostics";
 import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
-import { getAppShellLeftSidebarState, type AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
+import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
 import { shouldUseLowPowerShellMode } from "./shell-performance";
@@ -57,6 +55,11 @@ import {
 
 const ModeSurface = lazy(() =>
   import("../../features/modes/router/shell").then((module) => ({ default: module.ModeSurface })),
+);
+const BackgroundAutonomousPollingHost = lazy(() =>
+  import("../../features/modes/conversation/background-autonomous").then((module) => ({
+    default: module.BackgroundAutonomousPollingHost,
+  })),
 );
 const DiscoverPanel = lazy(() =>
   import("../../features/shell/discovery/shell").then((module) => ({ default: module.DiscoverPanel })),
@@ -235,10 +238,8 @@ function SidePanelFallback() {
 }
 
 export function AppShell() {
-  // Background autonomous polling for inactive conversation chats
-  useBackgroundAutonomousPolling();
 
-  // Auto idle detection (10 min inactivity â†’ idle, activity â†’ active)
+  // Auto idle detection (10 min inactivity -> idle, activity -> active)
   useIdleDetection();
 
   useEffect(() => {
@@ -246,8 +247,7 @@ export function AppShell() {
   }, []);
 
   const queryClient = useQueryClient();
-  const sidebarOpen = useUIStore((s) => s.sidebarOpen);
-  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
+  const [backgroundAutonomousPollingReady, setBackgroundAutonomousPollingReady] = useState(false);
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
@@ -265,9 +265,7 @@ export function AppShell() {
   const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
   const [activeChatSidebarTab, setActiveChatSidebarTab] = useState<ChatSidebarTab>("conversation");
   const [dekiOpen, setDekiOpen] = useState(false);
-  const [leftSidebarPanel, setLeftSidebarPanelState] = useState<AppShellLeftSidebarPanel>(() =>
-    sidebarOpen ? "chats" : null,
-  );
+  const [leftSidebarPanel, setLeftSidebarPanelState] = useState<AppShellLeftSidebarPanel>("chats");
   const [dekiSessions, setDekiSessions] = useState<DekiSession[]>([]);
   const [activeDekiSessionId, setActiveDekiSessionId] = useState<string | null>(null);
   const [unreadDekiSessionIds, setUnreadDekiSessionIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -284,7 +282,6 @@ export function AppShell() {
   const liveRightPanelWidth = rightPanelDragWidth ?? sidebarDragWidth ?? sharedPanelWidth;
   const chatSidebarVisible = leftSidebarPanel === "chats";
   const dekiSidebarVisible = leftSidebarPanel === "deki";
-  const leftSidebarOpen = leftSidebarPanel !== null;
   const trackerPanelWidth = getTrackerPanelWidthForProfile(trackerPanelSizeProfile);
   const mobileTrackerPanelWidth = getMobileTrackerPanelWidthForProfile(trackerPanelSizeProfile);
   const lowPowerShellMode = shouldUseLowPowerShellMode({
@@ -300,6 +297,8 @@ export function AppShell() {
       void loadRightPanelShell();
     });
   }, []);
+
+  useEffect(() => requestIdleWork(() => setBackgroundAutonomousPollingReady(true)), []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -342,14 +341,13 @@ export function AppShell() {
       rafId = requestAnimationFrame(() => {
         const {
           rightPanelOpen: rp,
-          sidebarOpen: sb,
           sidebarWidth: sw,
           rightPanelWidth: rpw,
           closeRightPanel: close,
         } = useUIStore.getState();
         if (!rp) return;
         const panelWidth = getSharedPanelWidth(sw, rpw);
-        const reserved = (sb || leftSidebarPanel !== null ? panelWidth : 0) + panelWidth;
+        const reserved = (leftSidebarPanel !== null ? panelWidth : 0) + panelWidth;
         if (window.innerWidth - reserved < 400) close();
       });
     };
@@ -360,7 +358,7 @@ export function AppShell() {
     };
   }, [isMobile, leftSidebarPanel]);
 
-  // â”€â”€ Center-area overflow detection â”€â”€
+  // Center-area overflow detection
   // When the center <main> content overflows horizontally, switch to compact
   // layout. Uses hysteresis to prevent toggling back-and-forth.
   const mainRef = useRef<HTMLElement>(null);
@@ -506,26 +504,14 @@ export function AppShell() {
     };
   }, [syncDekiSessionState]);
 
-  const setLeftSidebarPanel = useCallback(
-    (requestedPanel: AppShellLeftSidebarPanel) => {
-      const next = getAppShellLeftSidebarState({ requestedPanel });
-      setLeftSidebarPanelState(requestedPanel);
-      setSidebarOpen(next.chatSidebarOpen);
-    },
-    [setSidebarOpen],
-  );
+  const setLeftSidebarPanel = useCallback((requestedPanel: AppShellLeftSidebarPanel) => {
+    setLeftSidebarPanelState(requestedPanel);
+  }, []);
 
   const closeDekiShell = useCallback(() => {
     setDekiOpen(false);
     setLeftSidebarPanelState((current) => (current === "deki" ? null : current));
   }, []);
-
-  useEffect(() => {
-    setLeftSidebarPanelState((current) => {
-      if (sidebarOpen) return current === "chats" ? current : "chats";
-      return current === "chats" ? null : current;
-    });
-  }, [sidebarOpen]);
 
   const openDekiShell = useCallback(() => {
     useChatStore.getState().setActiveChatId(null);
@@ -599,21 +585,22 @@ export function AppShell() {
   }, [activeDekiSessionId, markDekiSessionRead, openDekiShell, refreshDekiSessions]);
 
   const openNoModelShowcase = useCallback(() => {
-    void ensureNoModelGameShowcase()
+    void import("../../features/shell/discovery/showcase")
+      .then((module) => module.ensureNoModelGameShowcase())
       .then(({ chatId }) => {
         queryClient.invalidateQueries({ queryKey: chatKeys.all });
         useChatStore.getState().setActiveChatId(chatId);
         useUIStore.getState().closeAllDetails();
         closeRightPanel();
         closeDekiShell();
-        setSidebarOpen(false);
+        setLeftSidebarPanel(null);
         setTrackerPanelOpen(false);
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : "Could not create the sample world.";
         toast.error(message);
       });
-  }, [closeDekiShell, closeRightPanel, queryClient, setSidebarOpen, setTrackerPanelOpen]);
+  }, [closeDekiShell, closeRightPanel, queryClient, setLeftSidebarPanel, setTrackerPanelOpen]);
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -635,7 +622,7 @@ export function AppShell() {
 
       if (detail?.type === "go-home") {
         closeDekiShell();
-        setSidebarOpen(false);
+        setLeftSidebarPanel(null);
         setTrackerPanelOpen(false);
         return;
       }
@@ -647,7 +634,7 @@ export function AppShell() {
 
     window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
     return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
-  }, [closeDekiShell, closeRightPanel, openNoModelShowcase, setLeftSidebarPanel, setSidebarOpen, setTrackerPanelOpen]);
+  }, [closeDekiShell, closeRightPanel, openNoModelShowcase, setLeftSidebarPanel, setTrackerPanelOpen]);
 
   useEffect(() => {
     if (!activeChatId || isClearingAutonomousUnread) return;
@@ -1207,7 +1194,7 @@ export function AppShell() {
             Math.min(56, (trackerPanelToggleAnchorY ?? trackerPanelTop) - trackerPanelTop),
           )}px`,
           ...(side === "left"
-            ? { left: leftSidebarOpen ? liveSidebarWidth + RESIZER_HITBOX : 0 }
+            ? { left: leftSidebarPanel !== null ? liveSidebarWidth + RESIZER_HITBOX : 0 }
             : { right: rightPanelOpen ? liveRightPanelWidth + RESIZER_HITBOX : 0 }),
         }}
       >
@@ -1230,6 +1217,11 @@ export function AppShell() {
         )}
       >
         {/* Y2K decorative stars */}
+        {backgroundAutonomousPollingReady && (
+          <Suspense fallback={null}>
+            <BackgroundAutonomousPollingHost />
+          </Suspense>
+        )}
         {showAmbientDecor && !lowPowerShellMode && (
           <>
             <div className="y2k-star hidden md:block" style={{ top: "10%", left: "5%", animationDelay: "0s" }} />
@@ -1251,6 +1243,8 @@ export function AppShell() {
           <WindowTitleBar
             dekiOpen={dekiOpen}
             webMode={botBrowserOpen}
+            leftSidebarPanel={leftSidebarPanel}
+            onLeftSidebarPanelChange={setLeftSidebarPanel}
             onOpenDeki={() => openActiveDeki()}
             onGoHome={closeDekiShell}
             titlebarAccessory={
@@ -1261,12 +1255,17 @@ export function AppShell() {
               ) : null
             }
           />
-          <TopBar dekiOpen={dekiOpen} onOpenDeki={() => openActiveDeki()} onGoHome={closeDekiShell} />
+          <TopBar
+            dekiOpen={dekiOpen}
+            onOpenDeki={() => openActiveDeki()}
+            onGoHome={closeDekiShell}
+            onCloseLeftSidebar={() => setLeftSidebarPanel(null)}
+          />
         </header>
 
         <div data-component="AppShellBody" className="relative flex min-h-0 flex-1 overflow-hidden">
           {/* Mobile sidebar backdrop */}
-          {isMobile && leftSidebarOpen && (
+          {isMobile && leftSidebarPanel !== null && (
             <div
               className="fixed inset-0 z-[65] bg-black/50 backdrop-blur-sm md:hidden"
               onClick={() => setLeftSidebarPanel(null)}
@@ -1332,7 +1331,7 @@ export function AppShell() {
               />
             </div>
           </aside>{" "}
-          {!isMobile && leftSidebarOpen && (
+          {!isMobile && leftSidebarPanel !== null && (
             <>
               <div
                 aria-hidden="true"
@@ -1368,11 +1367,11 @@ export function AppShell() {
             )}
           >
             <div className="relative flex flex-1 flex-col overflow-hidden">
-              {/* Bot Browser â€” kept mounted once opened so state persists across close/reopen */}
+              {/* Bot Browser - kept mounted once opened so state persists across close/reopen */}
               <MountOnceWhenOpened open={botBrowserOpen} overlay>
                 <BotBrowserView />
               </MountOnceWhenOpened>
-              {/* Game Assets Browser â€” kept mounted once opened so state persists across close/reopen */}
+              {/* Game Assets Browser - kept mounted once opened so state persists across close/reopen */}
               <MountOnceWhenOpened open={gameAssetsBrowserOpen} overlay>
                 <GameAssetsBrowserView />
               </MountOnceWhenOpened>
@@ -1538,10 +1537,12 @@ export function AppShell() {
       </div>
       <MobileTabBar
         dekiOpen={dekiOpen}
+        leftSidebarPanel={leftSidebarPanel}
         toolsSheetOpen={mobileToolsSheetOpen}
         toolsSheetRef={mobileToolsPanelRef}
         trackerPanelVisible={trackerPanelVisible}
         onToolsSheetOpenChange={setMobileToolsSheetOpen}
+        onLeftSidebarPanelChange={setLeftSidebarPanel}
         onToggleDeki={() => setDekiOpen((v) => !v)}
         onGoHome={() => setDekiOpen(false)}
       />

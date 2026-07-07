@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "../../shared/lib/utils";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
+import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 
 function stopChromeDrag(event: ReactMouseEvent<HTMLElement>) {
   event.stopPropagation();
@@ -10,6 +11,8 @@ function stopChromeDrag(event: ReactMouseEvent<HTMLElement>) {
 
 export function ChatTitleControls({
   dekiOpen = false,
+  leftSidebarPanel = "chats",
+  onLeftSidebarPanelChange,
   onOpenDeki,
   onGoHome,
   className,
@@ -19,6 +22,8 @@ export function ChatTitleControls({
   showDivider = true,
 }: {
   dekiOpen?: boolean;
+  leftSidebarPanel?: AppShellLeftSidebarPanel;
+  onLeftSidebarPanelChange?: (panel: AppShellLeftSidebarPanel) => void;
   onOpenDeki?: () => void;
   onGoHome?: () => void;
   className?: string;
@@ -28,9 +33,12 @@ export function ChatTitleControls({
   showDivider?: boolean;
 }) {
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
-  const sidebarOpen = useUIStore((s) => s.sidebarOpen);
-  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
+  const chatSidebarOpen = leftSidebarPanel === "chats";
+
+  const toggleChatSidebar = () => {
+    onLeftSidebarPanelChange?.(chatSidebarOpen ? null : "chats");
+  };
 
   const goHome = () => {
     setActiveChatId(null);
@@ -48,22 +56,22 @@ export function ChatTitleControls({
     <div className={cn("mari-chat-title-controls flex h-full shrink-0 items-center gap-1.5", className)}>
       <button
         type="button"
-        onClick={toggleSidebar}
+        onClick={toggleChatSidebar}
         onMouseDown={stopChromeDrag}
         onDoubleClick={stopChromeDrag}
         data-tour="sidebar-toggle"
         className={cn(
           "mari-titlebar-action relative rounded-md p-1.5 transition-all duration-200",
-          sidebarOpen
+          chatSidebarOpen
             ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))] [&>svg]:stroke-[2.3]"
             : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
         )}
-        title={sidebarOpen ? "Close chats" : "Open chats"}
-        aria-label={sidebarOpen ? "Close chats" : "Open chats"}
-        aria-pressed={sidebarOpen}
+        title={chatSidebarOpen ? "Close chats" : "Open chats"}
+        aria-label={chatSidebarOpen ? "Close chats" : "Open chats"}
+        aria-pressed={chatSidebarOpen}
       >
         <MessageSquare size="0.875rem" />
-        {sidebarOpen && (
+        {chatSidebarOpen && (
           <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
         )}
       </button>

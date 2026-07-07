@@ -15,10 +15,12 @@ export function TopBar({
   dekiOpen: _dekiOpen = false,
   onOpenDeki: _onOpenDeki,
   onGoHome,
+  onCloseLeftSidebar,
 }: {
   dekiOpen?: boolean;
   onOpenDeki?: () => void;
   onGoHome?: () => void;
+  onCloseLeftSidebar?: () => void;
 }) {
   const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChat = useChatStore((s) => s.activeChat);
@@ -26,7 +28,6 @@ export function TopBar({
   const closeRightPanel = useUIStore((s) => s.closeRightPanel);
   const setTrackerPanelOpen = useUIStore((s) => s.setTrackerPanelOpen);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
-  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
 
   // Load chat directly so TopBar doesn't have to wait for the chat surface to hydrate the store.
   const { data: queriedChat } = useChat(activeChatId);
@@ -96,7 +97,7 @@ export function TopBar({
     closeAllDetails();
     closeRightPanel();
     setTrackerPanelOpen(false);
-    setSidebarOpen(false);
+    onCloseLeftSidebar?.();
     onGoHome?.();
   };
 

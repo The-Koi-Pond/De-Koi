@@ -215,6 +215,7 @@ describe("dekiApi settings persistence", () => {
             content: "Draft ready.",
             createdAt: "2026-01-01T00:00:00.000Z",
             action,
+            actionApplication: { status: "pending" },
           },
         ],
       },

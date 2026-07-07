@@ -765,6 +765,73 @@ describe("dekiApi.history session updates", () => {
       orderBy: "sortOrder",
     });
   });
+  it("does not patch active session settings when durable session migration fails", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "app-settings" && id === "deki") {
+        return {
+          id: "deki",
+          value: {
+            messages: [
+              {
+                id: "message-1",
+                role: "user",
+                content: "Legacy hello.",
+                createdAt: "2026-06-28T10:00:00.000Z",
+              },
+            ],
+          },
+        };
+      }
+      return null;
+    });
+    storageApiMock.create.mockImplementation(async (entity: string, draft: Record<string, unknown>) => {
+      if (entity === "deki-sessions") throw new Error("session write failed");
+      return draft;
+    });
+
+    await expect(dekiApi.history.appendMessage({ role: "assistant", content: "Still blocked." })).rejects.toThrow(
+      "session write failed",
+    );
+
+    const settingsWrites = [...storageApiMock.create.mock.calls, ...storageApiMock.update.mock.calls].filter(
+      ([entity]) => entity === "app-settings",
+    );
+    expect(settingsWrites).toEqual([]);
+  });
+
+  it("does not patch active session settings when durable message migration fails", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "app-settings" && id === "deki") {
+        return {
+          id: "deki",
+          value: {
+            messages: [
+              {
+                id: "message-1",
+                role: "user",
+                content: "Legacy hello.",
+                createdAt: "2026-06-28T10:00:00.000Z",
+              },
+            ],
+          },
+        };
+      }
+      return null;
+    });
+    storageApiMock.create.mockImplementation(async (entity: string, draft: Record<string, unknown>) => {
+      if (entity === "deki-messages") throw new Error("message write failed");
+      return draft;
+    });
+
+    await expect(dekiApi.history.appendMessage({ role: "assistant", content: "Still blocked." })).rejects.toThrow(
+      "message write failed",
+    );
+
+    const settingsWrites = [...storageApiMock.create.mock.calls, ...storageApiMock.update.mock.calls].filter(
+      ([entity]) => entity === "app-settings",
+    );
+    expect(settingsWrites).toEqual([]);
+  });
   it("updates an inactive session without taking focus from the active session", async () => {
     storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
       if (entity !== "app-settings" || id !== "deki") return null;
