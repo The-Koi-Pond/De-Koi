@@ -378,6 +378,19 @@ describe("runGenerationWithUi", () => {
     } as Chat);
 
     async function* stream(): AsyncGenerator<StreamEvent> {
+      yield {
+        type: "diagnostic",
+        data: {
+          kind: "timing",
+          name: "image-provider-call",
+          durationMs: 1,
+          chatId,
+          chatMode: "conversation",
+          groupChatMode: null,
+          characterCount: 1,
+          targetCharacterId: null,
+        },
+      } as StreamEvent;
       throw new Error("Provider API error: Unable to process input image.");
     }
 
@@ -493,4 +506,5 @@ describe("runGenerationWithUi", () => {
     queryClient.clear();
   });
 });
+
 
