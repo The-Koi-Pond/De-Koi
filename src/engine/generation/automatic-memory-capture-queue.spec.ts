@@ -70,8 +70,12 @@ function queueStorage(options: { refreshFailures?: number } = {}) {
       messages.delete(messageId);
       return { deleted: true };
     },
-    async patchChatMessageExtra<T = unknown>(): Promise<T> {
-      return {} as T;
+    async patchChatMessageExtra<T = unknown>(messageId: string, extraPatch: Record<string, unknown>): Promise<T> {
+      const row = messages.get(messageId) ?? { id: messageId };
+      const currentExtra = row.extra && typeof row.extra === "object" && !Array.isArray(row.extra) ? row.extra : {};
+      const next = { ...row, extra: { ...currentExtra, ...extraPatch } };
+      messages.set(messageId, next);
+      return next as T;
     },
     async patchChatMetadata<T = unknown>(): Promise<T> {
       return {} as T;
@@ -137,6 +141,22 @@ describe("automatic memory capture queue", () => {
       { chatId: "chat-1", options: { sourceMessageIds: ["user-1", "assistant-1"] } },
     ]);
     expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed", attempts: 1 }));
+  });
+
+  it("marks the assistant message extra after capture completes", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+
+    expect(harness.messages.get("assistant-1")?.extra).toEqual({
+      memoryCapture: {
+        status: "completed",
+        jobId: String(job?.id),
+        sourceMessageIds: ["user-1", "assistant-1"],
+        completedAt: "2026-01-01T00:03:00.000Z",
+      },
+    });
   });
 
   it("retries transient failures with bounded backoff before succeeding", async () => {

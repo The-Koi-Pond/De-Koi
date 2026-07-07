@@ -10,6 +10,7 @@ export * from "./components/GenerationReplayDetailsModal";
 export * from "./components/ImagePromptPanel";
 export * from "./components/input-button-styles";
 export * from "./components/MessageAttachmentImagePreview";
+export * from "./components/MessageMemoryIndicators";
 export * from "./components/NewChatConnectionGate";
 export * from "./components/QuickConnectionSwitcher";
 export * from "./components/QuickPersonaSwitcher";

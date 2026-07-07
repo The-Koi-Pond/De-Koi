@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Message } from "../../../../engine/contracts/types/chat";
+import type { GenerationPromptSnapshot, Message } from "../../../../engine/contracts/types/chat";
 import { createDialogueAttributionTextHash } from "../../../../engine/shared/text/dialogue-attribution";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -1018,5 +1018,76 @@ describe("ConversationMessage memo subscriptions", () => {
       '"I should stay readable."',
     );
     expect(container!.querySelector<HTMLElement>(".mari-message-content strong")?.style.color ?? "").toBe("");
+  });
+  it("shows remembered and recalled memory indicators in conversation metadata", () => {
+    const onPeekPrompt = vi.fn();
+    const promptSnapshot: GenerationPromptSnapshot = {
+      messages: [],
+      parameters: {},
+      contextAttribution: {
+        source: "saved_snapshot",
+        items: [
+          {
+            kind: "memory_recall",
+            label: "Memory",
+            status: "injected",
+            sourceId: "memory-1",
+            sourceCollection: "chat_memories",
+            snippet: "Aster remembers the quiet signal.",
+          },
+        ],
+      },
+    };
+    const memoryMessage: Message = {
+      ...message,
+      id: "conversation-memory-indicators",
+      content: "Visible content",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+        memoryCapture: {
+          status: "completed",
+          jobId: "job-1",
+          sourceMessageIds: ["user-1", "conversation-memory-indicators"],
+          completedAt: "2026-01-01T00:03:00.000Z",
+        },
+        generationPromptSnapshot: promptSnapshot,
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage message={memoryMessage} characterMap={characterMap} onPeekPrompt={onPeekPrompt} />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector('[role="status"]')?.textContent).toContain("remembered");
+    const recalledChip = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("1 memory recalled"),
+    );
+    expect(recalledChip).toBeTruthy();
+
+    act(() => {
+      recalledChip!.click();
+    });
+
+    expect(container!.textContent).toContain("I remembered: Aster remembers the quiet signal.");
+    const peekButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Open Peek Prompt"),
+    );
+    act(() => {
+      peekButton!.click();
+    });
+
+    expect(onPeekPrompt).toHaveBeenCalledWith({
+      forCharacterId: "character-1",
+      messageId: "conversation-memory-indicators",
+      promptSnapshot,
+    });
   });
 });
