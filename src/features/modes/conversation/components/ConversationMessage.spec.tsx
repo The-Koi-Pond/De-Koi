@@ -40,7 +40,8 @@ const characterMap = new Map([
 async function flushLegacyBackfill() {
   await act(async () => {
     await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await Promise.resolve();
   });
 }
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {

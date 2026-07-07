@@ -214,13 +214,111 @@ describe("dialogue attribution metadata", () => {
     ]);
   });
 
-  it("does not derive attribution for ambiguous mention-only prose", () => {
+  it("attributes by closest nearby character name without requiring a speech verb", () => {
     const result = buildDialogueAttributions('Alice looked at Bob. "Careful."', speakers, {
       includeDerivedProse: true,
     });
 
     expect(result.text).toBe('Alice looked at Bob. "Careful."');
+    expect(result.attributions?.segments).toEqual([
+      {
+        start: 21,
+        end: 31,
+        speakerName: "Bob",
+        speakerId: "char-bob",
+        source: "explicit-attribution",
+        confidence: "derived",
+      },
+    ]);
+  });
+
+
+  it("carries attribution across consecutive same-speaker quotes in one speech block", () => {
+    const text =
+      '"Jester?" Alice murmured, her voice dropping into genuine caution. "Jester is not an animal."';
+    const result = buildDialogueAttributions(text, speakers, { includeDerivedProse: true });
+
+    expect(result.attributions?.segments.map((segment) => segment.speakerName)).toEqual(["Alice", "Alice"]);
+  });
+
+  it("breaks nearby-name attribution ties by closest character name", () => {
+    const text = [
+      'Alice watches as Bob folds beside the curtain, "The cage was already open."',
+      '"Stay still," Bob turns in place while Alice watches from the ring.',
+    ].join("\n\n");
+    const result = buildDialogueAttributions(text, speakers, { includeDerivedProse: true });
+
+    expect(result.attributions?.segments.map((segment) => segment.speakerName)).toEqual(["Bob", "Bob"]);
+  });
+
+  it("does not guess when closest nearby character names are equidistant", () => {
+    const result = buildDialogueAttributions('Alice "The room is too quiet." Bob', speakers, {
+      includeDerivedProse: true,
+    });
+
     expect(result.attributions).toBeNull();
+  });
+
+  it("uses the prior paragraph for pronoun-attributed quotes when it has one speaker name", () => {
+    const text = [
+      "A sharp, breathy hiss escapes Alice's throat at your invitation, her eyes widening in delight.",
+      '"Oh... you want to look inside the serpent\'s mouth, darling?" she purrs, her voice dropping into a raspy register. "You really do have a death wish."',
+      "With a fluid twist, Alice slides her torso further over Bob's shoulder.",
+    ].join("\n\n");
+    const result = buildDialogueAttributions(text, speakers, { includeDerivedProse: true });
+
+    expect(result.attributions?.segments.map((segment) => segment.speakerName)).toEqual(["Alice", "Alice"]);
+  });
+
+  it("ignores possessive character names for proximity and carry-forward blocking", () => {
+    const text =
+      '"Look at him," Alice mocks, poking the side of Bob\'s rigid cap until the bells jingle. "You\'ve broken his spirit."';
+    const result = buildDialogueAttributions(text, speakers, { includeDerivedProse: true });
+
+    expect(result.attributions?.segments.map((segment) => segment.speakerName)).toEqual(["Alice", "Alice"]);
+  });
+
+  it("can use one following paragraph as speaker evidence when it has one non-possessive name", () => {
+    const text = [
+      '"My... my dear... you call me pretty... even while I hold the steel to your chest..."',
+      "Bob leans his face down, nuzzling back against your forehead.",
+      "But behind him, Alice is looking at you with a chilling intensity.",
+    ].join("\n\n");
+    const result = buildDialogueAttributions(text, speakers, { includeDerivedProse: true });
+
+    expect(result.attributions?.segments.map((segment) => segment.speakerName)).toEqual(["Bob"]);
+  });
+
+  it("does not use surrounding paragraph evidence when multiple non-possessive names qualify", () => {
+    const text = [
+      "Alice watches Bob from the ring.",
+      '"The room is too quiet," she says.',
+      "Bob turns while Alice smiles.",
+    ].join("\n\n");
+    const result = buildDialogueAttributions(text, speakers, { includeDerivedProse: true });
+
+    expect(result.attributions).toBeNull();
+  });
+
+  it("attributes observed roleplay speech verbs and carries through the same paragraph", () => {
+    const text = [
+      '"More..." Alice growls, her voice muffled against your skin. "You really want us to take a piece of you?"',
+      '"Good...?" Alice repeats the word as if trying to recall a foreign language. "You are asking if we are enjoying the meal?"',
+      '"We are forbidden from taking what is not permitted," Bob rumbles, his voice shaking your bones. "The Master keeps us on a very short leash."',
+      '"It is a starvation you cannot possibly comprehend," Bob gasps, his breath hot against your skin. "And you have just opened the cage."',
+    ].join("\n\n");
+    const result = buildDialogueAttributions(text, speakers, { includeDerivedProse: true });
+
+    expect(result.attributions?.segments.map((segment) => segment.speakerName)).toEqual([
+      "Alice",
+      "Alice",
+      "Alice",
+      "Alice",
+      "Bob",
+      "Bob",
+      "Bob",
+      "Bob",
+    ]);
   });
 
   it("normalizes ranges by clamping invalid spans and sorting valid segments", () => {
