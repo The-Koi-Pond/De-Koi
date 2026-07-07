@@ -191,6 +191,64 @@ describe("dekiApi settings persistence", () => {
     expect(appSettings.has("professor-mari")).toBe(false);
   });
 
+  it("migrates legacy history into durable records with required fields and active settings synced", async () => {
+    const action = {
+      type: "create_record",
+      entity: "personas",
+      draft: {
+        name: "Sol",
+        description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+        backstory: "Raised by caravan cooks.",
+        appearance: "Sun-faded cloak and quick hands.",
+      },
+    };
+    appSettings.set("professor-mari", {
+      id: "professor-mari",
+      value: {
+        activeSessionId: "missing-session",
+        messages: [
+          {
+            id: "assistant-action",
+            role: "assistant",
+            content: "Draft ready.",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            action,
+          },
+        ],
+      },
+    });
+
+    const state = await dekiApi.sessions.list();
+
+    expect(state.activeSessionId).toBe("deki-session-default");
+    expect(appSettings.get("deki")).toMatchObject({
+      id: "deki",
+      value: expect.objectContaining({ activeSessionId: "deki-session-default" }),
+    });
+    expect(appSettings.get("deki")?.value).not.toHaveProperty("messages");
+    expect(appSettings.has("professor-mari")).toBe(false);
+    expect(recordsFor("deki-sessions").get("deki-session-default")).toEqual(
+      expect.objectContaining({
+        id: "deki-session-default",
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String),
+      }),
+    );
+    const durableMessage = recordsFor("deki-messages").get("assistant-action");
+    expect(durableMessage).toEqual(
+      expect.objectContaining({
+        id: "assistant-action",
+        sessionId: "deki-session-default",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        sortOrder: 0,
+        action,
+        actionApplication: null,
+      }),
+    );
+    expect(durableMessage).toHaveProperty("actionApplication", null);
+  });
   it("preserves unrelated settings fields when saving session state", async () => {
     appSettings.set("deki", {
       id: "deki",

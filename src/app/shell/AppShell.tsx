@@ -265,7 +265,9 @@ export function AppShell() {
   const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
   const [activeChatSidebarTab, setActiveChatSidebarTab] = useState<ChatSidebarTab>("conversation");
   const [dekiOpen, setDekiOpen] = useState(false);
-  const [dekiSidebarOpen, setDekiSidebarOpen] = useState(false);
+  const [leftSidebarPanel, setLeftSidebarPanelState] = useState<AppShellLeftSidebarPanel>(() =>
+    sidebarOpen ? "chats" : null,
+  );
   const [dekiSessions, setDekiSessions] = useState<DekiSession[]>([]);
   const [activeDekiSessionId, setActiveDekiSessionId] = useState<string | null>(null);
   const [unreadDekiSessionIds, setUnreadDekiSessionIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -280,7 +282,6 @@ export function AppShell() {
   const sharedPanelWidth = getSharedPanelWidth(sidebarWidth, rightPanelWidth);
   const liveSidebarWidth = sidebarDragWidth ?? rightPanelDragWidth ?? sharedPanelWidth;
   const liveRightPanelWidth = rightPanelDragWidth ?? sidebarDragWidth ?? sharedPanelWidth;
-  const leftSidebarPanel: AppShellLeftSidebarPanel = dekiSidebarOpen ? "deki" : sidebarOpen ? "chats" : null;
   const chatSidebarVisible = leftSidebarPanel === "chats";
   const dekiSidebarVisible = leftSidebarPanel === "deki";
   const leftSidebarOpen = leftSidebarPanel !== null;
@@ -348,7 +349,7 @@ export function AppShell() {
         } = useUIStore.getState();
         if (!rp) return;
         const panelWidth = getSharedPanelWidth(sw, rpw);
-        const reserved = (sb || dekiSidebarOpen ? panelWidth : 0) + panelWidth;
+        const reserved = (sb || leftSidebarPanel !== null ? panelWidth : 0) + panelWidth;
         if (window.innerWidth - reserved < 400) close();
       });
     };
@@ -357,7 +358,7 @@ export function AppShell() {
       window.removeEventListener("resize", handleResize);
       cancelAnimationFrame(rafId);
     };
-  }, [dekiSidebarOpen, isMobile]);
+  }, [isMobile, leftSidebarPanel]);
 
   // â”€â”€ Center-area overflow detection â”€â”€
   // When the center <main> content overflows horizontally, switch to compact
@@ -508,19 +509,22 @@ export function AppShell() {
   const setLeftSidebarPanel = useCallback(
     (requestedPanel: AppShellLeftSidebarPanel) => {
       const next = getAppShellLeftSidebarState({ requestedPanel });
+      setLeftSidebarPanelState(requestedPanel);
       setSidebarOpen(next.chatSidebarOpen);
-      setDekiSidebarOpen(next.dekiSidebarOpen);
     },
     [setSidebarOpen],
   );
 
   const closeDekiShell = useCallback(() => {
     setDekiOpen(false);
-    setDekiSidebarOpen(false);
+    setLeftSidebarPanelState((current) => (current === "deki" ? null : current));
   }, []);
 
   useEffect(() => {
-    if (sidebarOpen) setDekiSidebarOpen(false);
+    setLeftSidebarPanelState((current) => {
+      if (sidebarOpen) return current === "chats" ? current : "chats";
+      return current === "chats" ? null : current;
+    });
   }, [sidebarOpen]);
 
   const openDekiShell = useCallback(() => {
