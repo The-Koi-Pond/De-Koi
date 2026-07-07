@@ -8,6 +8,8 @@ import { useGameAssetFileContent, useSaveGameAssetFile } from "../hooks/use-game
 import { cn } from "../../../../shared/lib/utils";
 import { toast } from "sonner";
 import { renderMarkdownBlocks, applyInlineMarkdown } from "../../../../shared/lib/markdown";
+import { confirmAction } from "../../../../shared/lib/action-contracts";
+import { useEscapeOverlay } from "../../../../shared/hooks/use-escape-overlay";
 
 const MAX_TEXT_LENGTH = 10_000_000; // ~10 MB char limit
 
@@ -71,9 +73,13 @@ export function FileEditorModal({ node, onClose, initialMode = "edit" }: FileEdi
     }
   }, [saveFile, node.path, content, onClose]);
 
-  const handleRequestClose = useCallback(() => {
+  const handleRequestClose = useCallback(async () => {
     if (isDirty) {
-      const discard = window.confirm("You have unsaved changes. Discard them?");
+      const discard = await confirmAction({
+        action: "remove",
+        resource: "unsaved changes",
+        message: "Discard unsaved changes?",
+      });
       if (!discard) return;
     }
     onClose();
@@ -104,19 +110,24 @@ export function FileEditorModal({ node, onClose, initialMode = "edit" }: FileEdi
 
       if (e.key === "Escape") {
         e.preventDefault();
-        handleRequestClose();
+        void handleRequestClose();
         return;
       }
     },
     [content, isDirty, handleSave, handleRequestClose],
   );
 
+  useEscapeOverlay(() => {
+    void handleRequestClose();
+    return true;
+  });
+
   const isMd = node.ext === ".md";
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={handleRequestClose}
+      onClick={() => void handleRequestClose()}
     >
       <div
         className="flex h-[85vh] w-full max-w-4xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
@@ -159,7 +170,7 @@ export function FileEditorModal({ node, onClose, initialMode = "edit" }: FileEdi
               </div>
             )}
             <button
-              onClick={handleRequestClose}
+              onClick={() => void handleRequestClose()}
               className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
             >
               <X size="1rem" />
@@ -206,7 +217,7 @@ export function FileEditorModal({ node, onClose, initialMode = "edit" }: FileEdi
           <span className="text-xs text-[var(--muted-foreground)]">{content.length.toLocaleString()} chars</span>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleRequestClose}
+              onClick={() => void handleRequestClose()}
               className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)]"
             >
               Cancel

@@ -5162,11 +5162,11 @@ export function GameSurface({
     async (member: { id: string; name: string; canRemove?: boolean }) => {
       if (!activeChatId || !member.canRemove) return;
       const confirmed = await showConfirmDialog({
-        title: "Remove party member?",
+        title: "Remove Party Member",
         message: `Remove ${member.name} from the active party? Their game character card will be kept in case they rejoin later.`,
         confirmLabel: "Remove",
         cancelLabel: "Keep",
-        tone: "destructive",
+        tone: "default",
       });
       if (!confirmed) return;
 
@@ -6701,11 +6701,15 @@ export function GameSurface({
     setQueuedQte(null);
   }, []);
 
-  const handleReturnToPreCombatTurn = useCallback(() => {
+  const handleReturnToPreCombatTurn = useCallback(async () => {
     if (!latestAssistantMsg?.id) return;
-    const confirmed = window.confirm(
-      "Exit combat and remove the GM turn that started this encounter? This returns you to the previous player turn.",
-    );
+    const confirmed = await showConfirmDialog({
+      title: "Delete Combat Start Turn",
+      message: "Exit combat and delete the GM turn that started this encounter? This returns you to the previous player turn.",
+      confirmLabel: "Delete Turn",
+      cancelLabel: "Keep Combat",
+      tone: "destructive",
+    });
     if (!confirmed) return;
 
     setCombatParty(null);
@@ -8944,3 +8948,4 @@ export function GameSurface({
     </div>
   );
 }
+

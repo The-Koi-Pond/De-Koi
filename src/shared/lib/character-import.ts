@@ -1,4 +1,5 @@
 import { importApi } from "../api/import-api";
+import { confirmAction } from "./action-contracts";
 
 export interface EmbeddedLorebookImportPreview {
   filename: string;
@@ -33,13 +34,19 @@ export function readEmbeddedLorebookFromCharacterPayload(raw: Record<string, unk
   return target.character_book;
 }
 
-export function confirmEmbeddedLorebookImport(characterName: string, embeddedLorebook: unknown): boolean {
+export async function confirmEmbeddedLorebookImport(
+  characterName: string,
+  embeddedLorebook: unknown,
+): Promise<boolean> {
   const entryCount = countLorebookEntries(embeddedLorebook);
   if (entryCount === 0) return true;
 
-  return window.confirm(
-    `${characterName} includes an embedded lorebook with ${entryCount} entr${entryCount === 1 ? "y" : "ies"}.\n\nImport it as a standalone De-Koi lorebook too?`,
-  );
+  return confirmAction({
+    action: "import",
+    resource: "embedded lorebook",
+    name: characterName,
+    message: `${characterName} includes an embedded lorebook with ${entryCount} entr${entryCount === 1 ? "y" : "ies"}.\n\nImport it as a standalone De-Koi lorebook too?`,
+  });
 }
 
 export async function inspectCharacterFilesForEmbeddedLorebooks(

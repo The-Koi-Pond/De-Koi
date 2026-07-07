@@ -30,7 +30,6 @@ import {
   Sparkles,
   Check,
   AlertCircle,
-  X,
   Zap,
   Link2,
   FileText,
@@ -63,6 +62,11 @@ import {
   stepCadenceValue,
 } from "../../../../shared/lib/agent-cadence";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
+import {
+  EditorSaveStatus,
+  SaveErrorBanner,
+  UnsavedChangesBar,
+} from "../../../../shared/components/ui/ExplicitSaveChrome";
 import { spotifyApi } from "../../../../shared/api/integration-utility-api";
 import {
   DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH,
@@ -778,17 +782,7 @@ export function AgentEditor() {
           placeholder="Agent name…"
         />
         <div className="flex items-center gap-1.5 max-md:w-full max-md:justify-end max-md:border-t max-md:border-[var(--border)]/30 max-md:pt-2">
-          {saveError && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-red-400">
-              <AlertCircle size="0.6875rem" /> Save failed
-            </span>
-          )}
-          {savedFlash && !dirty && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-emerald-400">
-              <Check size="0.6875rem" /> Saved
-            </span>
-          )}
-          {dirty && !saveError && <span className="mr-2 text-[0.625rem] font-medium text-amber-400">Unsaved</span>}
+          <EditorSaveStatus dirty={dirty} saving={isPending} saved={savedFlash} error={saveError} />
           {isCustomAgent && dbConfig && (
             <button
               onClick={handleDelete}
@@ -817,46 +811,19 @@ export function AgentEditor() {
         </div>
       </div>
 
-      {/* Unsaved warning */}
       {showUnsavedWarning && (
-        <div className="flex items-center justify-between bg-amber-500/10 px-4 py-2 text-xs text-amber-400">
-          <span>You have unsaved changes.</span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowUnsavedWarning(false)}
-              className="rounded-lg px-3 py-1 hover:bg-[var(--accent)]"
-            >
-              Keep editing
-            </button>
-            <button
-              onClick={() => closeAgentDetail()}
-              className="rounded-lg px-3 py-1 text-[var(--destructive)] hover:bg-[var(--destructive)]/15"
-            >
-              Discard
-            </button>
-            <button
-              onClick={async () => {
-                const saved = await handleSave();
-                if (saved) closeAgentDetail();
-              }}
-              className="rounded-lg bg-amber-500/20 px-3 py-1 hover:bg-amber-500/30"
-            >
-              Save & close
-            </button>
-          </div>
-        </div>
+        <UnsavedChangesBar
+          saving={isPending}
+          onKeepEditing={() => setShowUnsavedWarning(false)}
+          onDiscard={() => closeAgentDetail()}
+          onSaveAndClose={async () => {
+            const saved = await handleSave();
+            if (saved) closeAgentDetail();
+          }}
+        />
       )}
 
-      {/* Save error banner */}
-      {saveError && (
-        <div className="flex items-center gap-2 bg-red-500/10 px-4 py-2 text-xs text-red-400">
-          <AlertCircle size="0.8125rem" />
-          <span className="flex-1">{saveError}</span>
-          <button onClick={() => setSaveError(null)} className="rounded-lg px-2 py-0.5 hover:bg-red-500/20">
-            <X size="0.75rem" />
-          </button>
-        </div>
-      )}
+      <SaveErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
 
       {/* Both knowledge agents run in the same pre-generation pass and may inject overlapping context. */}
       {bothKnowledgeAgentsConfigured && (

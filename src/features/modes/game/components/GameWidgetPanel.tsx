@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import type { HudWidget } from "../../../../engine/contracts/types/game";
 import { useUpdateGameWidgets } from "../hooks/use-game";
 import { cn } from "../../../../shared/lib/utils";
+import { confirmAction } from "../../../../shared/lib/action-contracts";
 import { useGameModeStore } from "../stores/game-mode.store";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { PanelLockButton, useDraggablePanel } from "./DraggablePanel";
@@ -889,10 +890,19 @@ export function GameWidgetSessionPrepModal({
   );
 
   const handleRemoveWidget = useCallback(
-    (widgetId: string) => {
+    async (widgetId: string) => {
       const target = draftWidgets.find((widget) => widget.id === widgetId);
       if (!target) return;
-      if (!window.confirm(copy.removeConfirm.replace("{label}", target.label))) return;
+      if (
+        !(await confirmAction({
+          action: "remove",
+          resource: "widget",
+          name: target.label,
+          message: copy.removeConfirm.replace("{label}", `"${target.label}"`),
+        }))
+      ) {
+        return;
+      }
 
       setDraftWidgets((current) => current.filter((widget) => widget.id !== widgetId));
     },
@@ -966,7 +976,7 @@ export function GameWidgetSessionPrepModal({
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleRemoveWidget(widget.id)}
+                      onClick={() => void handleRemoveWidget(widget.id)}
                       disabled={interactionsLocked}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--destructive)]/25 px-3 py-1.5 text-xs font-medium text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/10 disabled:opacity-50"
                     >

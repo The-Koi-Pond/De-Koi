@@ -3346,11 +3346,13 @@ function ImportButton({
         const previews = await inspectCharacterFilesForEmbeddedLorebooks([file]);
         const preview = previews[0];
         if (preview) {
-          importEmbeddedLorebook = window.confirm(
-            `${preview.name ?? file.name} includes an embedded lorebook with ${preview.embeddedLorebookEntries} entr${
+          importEmbeddedLorebook = await showConfirmDialog({
+            title: "Import Embedded Lorebook",
+            message: `${preview.name ?? file.name} includes an embedded lorebook with ${preview.embeddedLorebookEntries} entr${
               preview.embeddedLorebookEntries === 1 ? "y" : "ies"
             }.\n\nImport it as a standalone De-Koi lorebook too?`,
-          );
+            confirmLabel: "Import",
+          });
         }
       }
 

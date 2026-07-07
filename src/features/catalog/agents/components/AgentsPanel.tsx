@@ -37,8 +37,13 @@ import { BUILT_IN_AGENTS, type AgentCategory } from "../../../../engine/contract
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { resolveEntityImageUrl } from "../../../../shared/api/local-file-api";
 import { cn } from "../../../../shared/lib/utils";
-import { commitAgentImportBatch, type AgentImportBatchResult, type StagedAgentImportPayload } from "../lib/agent-import-batch";
+import {
+  commitAgentImportBatch,
+  type AgentImportBatchResult,
+  type StagedAgentImportPayload,
+} from "../lib/agent-import-batch";
 import { normalizeAgentImportPayloads } from "../lib/agent-import-export";
+import { CatalogListRow, CatalogListState } from "../../components/CatalogListPrimitives";
 
 function formatImportFailureDescription(failures: string[]): string {
   const visible = failures.slice(0, 4);
@@ -359,7 +364,7 @@ export function AgentsPanel() {
         </div>
       )}
 
-      {isLoading && <div className="py-4 text-center text-xs text-[var(--muted-foreground)]">Loading...</div>}
+      {isLoading && <CatalogListState state="loading" label="agents" />}
 
       {searchActive && !hasVisibleResults && (
         <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--muted-foreground)]">
@@ -409,7 +414,7 @@ export function AgentsPanel() {
             Create your own AI agents with custom instructions and settings.
           </div>
           {!customAgents.length ? (
-            <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No custom agents yet.</p>
+            <CatalogListState state="empty" label="custom agents" />
           ) : (
             visibleCustomAgents.map((agent) => {
               const enabled = agentEnabledFlag(agent.enabled, true);
@@ -449,15 +454,12 @@ export function AgentsPanel() {
           Define custom functions the AI can call during generation (webhook or static).
         </div>
         {!customToolRows.length ? (
-          <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No custom tools yet.</p>
+          <CatalogListState state="empty" label="custom tools" />
         ) : visibleCustomTools.length === 0 ? (
-          <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No custom tools match your search.</p>
+          <CatalogListState state="empty" label="custom tools" message="No custom tools match your search." />
         ) : (
           visibleCustomTools.map((tool) => (
-            <div
-              key={tool.id}
-              className="group relative flex items-center gap-2.5 rounded-xl p-2.5 transition-colors hover:bg-[var(--sidebar-accent)]"
-            >
+            <CatalogListRow key={tool.id} className="group relative flex items-center gap-2.5 p-2.5">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--secondary)] text-[var(--primary)]">
                 <Wrench size="0.875rem" />
               </span>
@@ -497,7 +499,7 @@ export function AgentsPanel() {
                   <Trash2 size="0.8125rem" />
                 </button>
               </div>
-            </div>
+            </CatalogListRow>
           ))
         )}
       </PanelSection>
@@ -544,10 +546,7 @@ function renderAgentCard({
       )}
     >
       <AgentImageButton imagePath={imagePath} imageFilename={imageFilename} onImagePick={onImagePick} />
-      <button
-        className="min-w-0 flex-1 pr-20 text-left"
-        onClick={() => openAgentDetail(custom ? id : type)}
-      >
+      <button className="min-w-0 flex-1 pr-20 text-left" onClick={() => openAgentDetail(custom ? id : type)}>
         <div className="truncate text-xs font-medium font-mono">{name}</div>
         <div className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)] line-clamp-2">
           {description || "No description"}

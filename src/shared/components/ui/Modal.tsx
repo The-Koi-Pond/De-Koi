@@ -5,6 +5,7 @@
 // ──────────────────────────────────────────────
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useEscapeOverlay } from "../../hooks/use-escape-overlay";
 
 interface ModalProps {
   open: boolean;
@@ -51,15 +52,10 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
     };
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  useEscapeOverlay(() => {
+    onClose();
+    return true;
+  }, open);
 
   // Remove from DOM after exit animation completes
   const handleAnimationEnd = () => {

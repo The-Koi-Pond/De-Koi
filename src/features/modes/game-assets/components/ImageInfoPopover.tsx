@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import type { TreeNode } from "../hooks/use-game-assets";
 import { useGameAssetFileInfo } from "../hooks/use-game-assets";
 import { formatBytes, formatDate } from "../../../../shared/lib/format";
+import { useEscapeOverlay } from "../../../../shared/hooks/use-escape-overlay";
 
 /**
  * Popover showing image metadata (dimensions, format, size, modified date).
@@ -19,21 +20,22 @@ export function ImageInfoPopover({ node, onClose }: { node: TreeNode; onClose: (
   const { data: info } = useGameAssetFileInfo(node.path);
   const ref = useRef<HTMLDivElement>(null);
 
+  useEscapeOverlay(() => {
+    onClose();
+    return true;
+  });
+
   useEffect(() => {
     const handle = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
+
     const raf = requestAnimationFrame(() => {
       document.addEventListener("mousedown", handle);
-      document.addEventListener("keydown", handleKey);
     });
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("mousedown", handle);
-      document.removeEventListener("keydown", handleKey);
     };
   }, [onClose]);
 
