@@ -1,9 +1,11 @@
 mod cache;
+mod chat_summaries;
 mod messages;
 mod projection;
 mod transaction;
 
 use cache::*;
+use chat_summaries::*;
 use marinara_core::{ensure_object, new_id, now_iso, AppError, AppResult};
 use marinara_security::validate_collection_name;
 use messages::*;
@@ -137,6 +139,19 @@ impl FileStorage {
             || self.read_collection_projected_where(collection, filters, fields, field_selections),
         )
     }
+    pub fn list_chat_summaries(
+        &self,
+        fields: &[String],
+        field_selections: &Map<String, Value>,
+        descending: bool,
+        limit: Option<usize>,
+    ) -> AppResult<Vec<Value>> {
+        self.read_locked_or_recover(
+            || self.read_chat_summaries_no_recovery(fields, field_selections, descending, limit),
+            || self.read_chat_summaries(fields, field_selections, descending, limit),
+        )
+    }
+
     pub fn list_projected_where_in(
         &self,
         collection: &str,
@@ -945,6 +960,11 @@ impl FileStorage {
         };
         for (collection, rows) in dirty {
             self.write_collection_file(&collection, &rows)?;
+            if collection == "chats" {
+                let path = self.collection_path(&collection)?;
+                let source_stamp = chat_summary_source_stamp(&path)?;
+                rebuild_chat_summary_read_model(&self.root, source_stamp.as_deref(), &rows)?;
+            }
             let mut cache = self
                 .cache
                 .write()
@@ -1367,6 +1387,63 @@ impl FileStorage {
                     .collect())
             }
         }
+    }
+
+    fn read_chat_summaries(
+        &self,
+        fields: &[String],
+        field_selections: &Map<String, Value>,
+        descending: bool,
+        limit: Option<usize>,
+    ) -> AppResult<Vec<Value>> {
+        self.read_chat_summaries_inner(fields, field_selections, descending, limit, true)
+    }
+
+    fn read_chat_summaries_no_recovery(
+        &self,
+        fields: &[String],
+        field_selections: &Map<String, Value>,
+        descending: bool,
+        limit: Option<usize>,
+    ) -> AppResult<Vec<Value>> {
+        self.read_chat_summaries_inner(fields, field_selections, descending, limit, false)
+    }
+
+    fn read_chat_summaries_inner(
+        &self,
+        fields: &[String],
+        field_selections: &Map<String, Value>,
+        descending: bool,
+        limit: Option<usize>,
+        recover_on_fallback: bool,
+    ) -> AppResult<Vec<Value>> {
+        if fields.is_empty() || limit == Some(0) {
+            return Ok(Vec::new());
+        }
+        if let Some(rows) = self.cached_dirty_rows("chats")? {
+            return Ok(project_chat_summary_rows(
+                rows,
+                fields,
+                field_selections,
+                descending,
+                limit,
+            ));
+        }
+        let path = self.collection_path("chats")?;
+        let source_stamp = chat_summary_source_stamp(&path)?;
+        if source_stamp.is_none() {
+            remove_chat_summary_read_model(&self.root)?;
+            return Ok(Vec::new());
+        }
+        if !chat_summary_read_model_current(&self.root, source_stamp.as_deref())? {
+            let rows = if recover_on_fallback {
+                self.read_collection_from_disk("chats")?
+            } else {
+                self.read_collection_from_disk_no_recovery("chats")?
+            };
+            rebuild_chat_summary_read_model(&self.root, source_stamp.as_deref(), &rows)?;
+        }
+        list_chat_summaries_from_read_model(&self.root, fields, field_selections, descending, limit)
     }
 
     fn read_collection_find_by_id(&self, collection: &str, id: &str) -> AppResult<Option<Value>> {
@@ -2036,6 +2113,9 @@ impl FileStorage {
     }
 
     fn write_collection(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
+        if collection == "chats" {
+            remove_chat_summary_read_model(&self.root)?;
+        }
         self.cache_collection(collection, rows, true)?;
         self.schedule_dirty_flush();
         Ok(())
@@ -2043,6 +2123,11 @@ impl FileStorage {
 
     fn write_collection_immediate(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
         self.write_collection_file(collection, rows)?;
+        if collection == "chats" {
+            let path = self.collection_path(collection)?;
+            let source_stamp = chat_summary_source_stamp(&path)?;
+            rebuild_chat_summary_read_model(&self.root, source_stamp.as_deref(), rows)?;
+        }
         self.invalidate_read_indexes_for_collection(collection)?;
         self.cache_collection(collection, rows, false)?;
         Ok(())
@@ -2122,7 +2207,12 @@ impl FileStorage {
             output.write_all(format!(",\n{indented}\n]\n").as_bytes())?;
         }
         output.sync_all()?;
-        fs::rename(tmp, path)?;
+        fs::rename(tmp, &path)?;
+        if collection == "chats" {
+            let rows = self.read_collection_from_disk_no_recovery(collection)?;
+            let source_stamp = chat_summary_source_stamp(&path)?;
+            rebuild_chat_summary_read_model(&self.root, source_stamp.as_deref(), &rows)?;
+        }
         Ok(())
     }
 
@@ -2396,6 +2486,11 @@ impl FileStorage {
 
         cleanup_pending_collection_transaction_files(&pending);
         for (collection, rows) in replacements {
+            if collection == "chats" {
+                let path = self.collection_path(collection)?;
+                let source_stamp = chat_summary_source_stamp(&path)?;
+                rebuild_chat_summary_read_model(&self.root, source_stamp.as_deref(), &rows)?;
+            }
             self.invalidate_read_indexes_for_collection(collection)?;
             self.cache_collection(collection, &rows, false)?;
         }
@@ -2409,6 +2504,37 @@ impl Drop for FileStorage {
             let _ = self.flush();
         }
     }
+}
+
+fn project_chat_summary_rows(
+    mut rows: Vec<Value>,
+    fields: &[String],
+    field_selections: &Map<String, Value>,
+    descending: bool,
+    limit: Option<usize>,
+) -> Vec<Value> {
+    let field_set = fields.iter().cloned().collect::<HashSet<_>>();
+    let nested_field_sets = selected_nested_fields(field_selections);
+    rows.sort_by(|a, b| {
+        let ordering = compare_chat_summary_updated_at(a, b);
+        if descending {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+    });
+    if let Some(limit) = limit {
+        rows.truncate(limit);
+    }
+    rows.into_iter()
+        .map(|row| project_row(row, &field_set, &nested_field_sets))
+        .collect()
+}
+
+fn compare_chat_summary_updated_at(a: &Value, b: &Value) -> std::cmp::Ordering {
+    let a_updated = a.get("updatedAt").and_then(Value::as_str).unwrap_or("");
+    let b_updated = b.get("updatedAt").and_then(Value::as_str).unwrap_or("");
+    a_updated.cmp(b_updated)
 }
 
 pub fn record_id(value: &Value) -> Option<&str> {
@@ -2489,6 +2615,237 @@ mod tests {
         *CONTENT_SIGNATURE_TEST_HOOK.lock().unwrap() = None;
     }
 
+    #[test]
+    fn chat_summary_source_stamp_ignores_access_time_only_changes() {
+        let root = temp_storage_root("chat-summary-source-stamp-access-time");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "chats",
+                vec![json!({
+                    "id": "chat-a",
+                    "name": "Access time should not invalidate",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-01T00:00:00Z"
+                })],
+            )
+            .unwrap();
+        let chats_path = root.join("collections").join("chats.json");
+        let before = chat_summary_source_stamp(&chats_path).unwrap();
+        let modified = fs::metadata(&chats_path).unwrap().modified().unwrap();
+        let file = fs::File::options().write(true).open(&chats_path).unwrap();
+        file.set_times(
+            std::fs::FileTimes::new()
+                .set_accessed(SystemTime::now() + Duration::from_secs(60))
+                .set_modified(modified),
+        )
+        .unwrap();
+
+        assert_eq!(before, chat_summary_source_stamp(&chats_path).unwrap());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn chat_summary_read_model_orders_and_limits_projected_rows() {
+        let root = temp_storage_root("chat-summary-read-model-order-limit");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "chats",
+                vec![
+                    json!({
+                        "id": "older",
+                        "name": "Older",
+                        "mode": "chat",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "updatedAt": "2026-01-02T00:00:00Z",
+                        "metadata": { "pinned": false, "tags": ["slow"], "secret": "omit" }
+                    }),
+                    json!({
+                        "id": "newest",
+                        "name": "Newest",
+                        "mode": "roleplay",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "updatedAt": "2026-01-04T00:00:00Z",
+                        "metadata": { "pinned": true, "tags": ["hot"], "secret": "omit" }
+                    }),
+                    json!({
+                        "id": "middle",
+                        "name": "Middle",
+                        "mode": "game",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "updatedAt": "2026-01-03T00:00:00Z",
+                        "metadata": { "pinned": false, "tags": ["warm"], "secret": "omit" }
+                    }),
+                ],
+            )
+            .unwrap();
+        let fields = vec![
+            "id".to_string(),
+            "name".to_string(),
+            "mode".to_string(),
+            "updatedAt".to_string(),
+            "metadata".to_string(),
+        ];
+        let mut field_selections = Map::new();
+        field_selections.insert("metadata".to_string(), json!(["pinned", "tags"]));
+
+        let rows = storage
+            .list_chat_summaries(&fields, &field_selections, true, Some(2))
+            .unwrap();
+
+        assert_eq!(
+            rows,
+            vec![
+                json!({
+                    "id": "newest",
+                    "name": "Newest",
+                    "mode": "roleplay",
+                    "updatedAt": "2026-01-04T00:00:00Z",
+                    "metadata": { "pinned": true, "tags": ["hot"] }
+                }),
+                json!({
+                    "id": "middle",
+                    "name": "Middle",
+                    "mode": "game",
+                    "updatedAt": "2026-01-03T00:00:00Z",
+                    "metadata": { "pinned": false, "tags": ["warm"] }
+                })
+            ]
+        );
+        assert!(
+            root.join("storage.sqlite3").is_file(),
+            "supported chat summary reads should create the SQLite read model"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn chat_summary_read_model_rebuilds_after_external_json_change() {
+        let root = temp_storage_root("chat-summary-read-model-stale-json");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "chats",
+                vec![json!({
+                    "id": "chat-a",
+                    "name": "Before",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-01T00:00:00Z"
+                })],
+            )
+            .unwrap();
+        let fields = vec![
+            "id".to_string(),
+            "name".to_string(),
+            "updatedAt".to_string(),
+        ];
+        assert_eq!(
+            storage
+                .list_chat_summaries(&fields, &Map::new(), true, Some(1))
+                .unwrap(),
+            vec![json!({
+                "id": "chat-a",
+                "name": "Before",
+                "updatedAt": "2026-01-01T00:00:00Z"
+            })]
+        );
+
+        let chats_path = root.join("collections").join("chats.json");
+        rewrite_with_modified_time(
+            &chats_path,
+            &serde_json::to_vec_pretty(&json!([
+                {
+                    "id": "chat-a",
+                    "name": "Before",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-01T00:00:00Z"
+                },
+                {
+                    "id": "chat-b",
+                    "name": "Externally newer",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-02T00:00:00Z"
+                }
+            ]))
+            .unwrap(),
+            SystemTime::now() + Duration::from_secs(5),
+        );
+
+        assert_eq!(
+            storage
+                .list_chat_summaries(&fields, &Map::new(), true, Some(1))
+                .unwrap(),
+            vec![json!({
+                "id": "chat-b",
+                "name": "Externally newer",
+                "updatedAt": "2026-01-02T00:00:00Z"
+            })]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn chat_summary_read_model_rebuilds_after_corrupt_sqlite_file() {
+        let root = temp_storage_root("chat-summary-read-model-corrupt-sqlite");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "chats",
+                vec![json!({
+                    "id": "chat-a",
+                    "name": "Recoverable",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-01T00:00:00Z"
+                })],
+            )
+            .unwrap();
+        let fields = vec!["id".to_string(), "name".to_string()];
+        fs::write(root.join("storage.sqlite3"), b"not a sqlite database").unwrap();
+
+        assert_eq!(
+            storage
+                .list_chat_summaries(&fields, &Map::new(), true, Some(1))
+                .unwrap(),
+            vec![json!({ "id": "chat-a", "name": "Recoverable" })]
+        );
+        assert!(root.join("storage.sqlite3").is_file());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn chat_summary_read_model_reflects_flushed_chat_patch() {
+        let root = temp_storage_root("chat-summary-read-model-flushed-patch");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "chats",
+                vec![json!({
+                    "id": "chat-a",
+                    "name": "Before",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-01T00:00:00Z"
+                })],
+            )
+            .unwrap();
+        storage
+            .patch("chats", "chat-a", json!({ "name": "After" }))
+            .unwrap();
+        storage.flush().unwrap();
+        let reopened = FileStorage::new(&root).unwrap();
+        let fields = vec!["id".to_string(), "name".to_string()];
+
+        assert_eq!(
+            reopened
+                .list_chat_summaries(&fields, &Map::new(), true, Some(1))
+                .unwrap(),
+            vec![json!({ "id": "chat-a", "name": "After" })]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn projected_list_cache_hit_does_not_rehash_collection_file() {
         let root = temp_storage_root("projected-cache-hit-no-rehash");
