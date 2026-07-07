@@ -62,6 +62,13 @@ const MESSAGE_FIELDS: &[TypedJsonField] = &[
 ];
 const MESSAGE_DEFAULTS: &[&str] = &["extra"];
 const MESSAGE_SWIPE_FIELDS: &[TypedJsonField] = &[nullable_object("extra")];
+const DEKI_SESSION_FIELDS: &[TypedJsonField] = &[nullable_object("compaction")];
+const DEKI_MESSAGE_FIELDS: &[TypedJsonField] = &[
+    nullable_object("action"),
+    nullable_object("actionApplication"),
+    array("workspaceTrace"),
+    array("workspaceHistory"),
+];
 const CHARACTER_GROUP_FIELDS: &[TypedJsonField] = &[array("characterIds")];
 const PERSONA_GROUP_FIELDS: &[TypedJsonField] = &[array("personaIds")];
 const LOREBOOK_FIELDS: &[TypedJsonField] = &[
@@ -488,6 +495,22 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         MESSAGE_DEFAULTS,
         MESSAGE_FIELDS,
         MESSAGE_CLEANUP,
+    ),
+    contract(
+        "deki-sessions",
+        true,
+        true,
+        EMPTY_DEFAULTS,
+        DEKI_SESSION_FIELDS,
+        EMPTY_CLEANUP,
+    ),
+    contract(
+        "deki-messages",
+        true,
+        true,
+        EMPTY_DEFAULTS,
+        DEKI_MESSAGE_FIELDS,
+        EMPTY_CLEANUP,
     ),
     contract(
         "message-swipes",

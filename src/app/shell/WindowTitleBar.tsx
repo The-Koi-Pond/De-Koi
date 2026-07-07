@@ -16,6 +16,7 @@ import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { ChatTitleControls } from "./ChatTitleControls";
 import { PanelNavButtons } from "./PanelNavButtons";
+import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 
 type DesktopPlatform = "darwin" | "windows" | "linux";
 type WindowControlAction = "close" | "minimize" | "maximize" | "fullscreen";
@@ -34,12 +35,16 @@ export function WindowTitleBar({
   dekiOpen = false,
   onOpenDeki,
   onGoHome,
+  leftSidebarPanel = "chats",
+  onLeftSidebarPanelChange,
   titlebarAccessory,
   webMode = false,
 }: {
   dekiOpen?: boolean;
   onOpenDeki?: () => void;
   onGoHome?: () => void;
+  leftSidebarPanel?: AppShellLeftSidebarPanel;
+  onLeftSidebarPanelChange?: (panel: AppShellLeftSidebarPanel) => void;
   titlebarAccessory?: ReactNode;
   webMode?: boolean;
 }) {
@@ -205,6 +210,8 @@ export function WindowTitleBar({
           <ChatTitleControls
             className="pl-2.5 pr-0"
             dekiOpen={dekiOpen}
+            leftSidebarPanel={leftSidebarPanel}
+            onLeftSidebarPanelChange={onLeftSidebarPanelChange}
             onOpenDeki={onOpenDeki}
             onGoHome={onGoHome}
             hideHome
@@ -227,6 +234,8 @@ export function WindowTitleBar({
         <ChatTitleControls
           className="pl-2.5 pr-0"
           dekiOpen={dekiOpen}
+          leftSidebarPanel={leftSidebarPanel}
+          onLeftSidebarPanelChange={onLeftSidebarPanelChange}
           onOpenDeki={onOpenDeki}
           onGoHome={onGoHome}
           hideHome

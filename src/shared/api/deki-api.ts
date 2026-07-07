@@ -90,6 +90,19 @@ type DekiHistorySnapshot = {
   compaction: DekiCompactionState;
 };
 
+type DekiSessionRecord = {
+  id: string;
+  title?: unknown;
+  compaction?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+type DekiMessageRecord = StoredMessageRecord & {
+  sessionId?: unknown;
+  sortOrder?: unknown;
+};
+
 const DEKI_ACTION_STORAGE_ENTITIES: Record<DekiActionEntity, StorageEntity> = {
   characters: "characters",
   "character-groups": "character-groups",
@@ -534,23 +547,162 @@ async function saveSettingsTransform(
   return value;
 }
 
+function normalizeDekiSessionRecord(record: DekiSessionRecord, messages: DekiMessage[]): DekiSession | null {
+  const id = typeof record.id === "string" && record.id.trim() ? record.id : null;
+  if (!id) return null;
+  const createdAt =
+    typeof record.createdAt === "string" && record.createdAt.trim()
+      ? record.createdAt
+      : (messages[0]?.createdAt ?? new Date().toISOString());
+  const updatedAt =
+    typeof record.updatedAt === "string" && record.updatedAt.trim()
+      ? record.updatedAt
+      : (messages.at(-1)?.createdAt ?? createdAt);
+  const title = typeof record.title === "string" && record.title.trim() ? record.title : titleFromMessages(messages);
+  return {
+    id,
+    title,
+    messages,
+    compaction: normalizeDekiCompaction(record.compaction),
+    createdAt,
+    updatedAt,
+  };
+}
+
+function dekiMessageRecord(sessionId: string, message: DekiMessage, index: number): Record<string, unknown> {
+  const action = message.action && message.action.type !== "none" ? message.action : null;
+  return {
+    id: message.id,
+    sessionId,
+    role: message.role,
+    content: message.content,
+    createdAt: readTrimmedString(message.createdAt) ?? new Date().toISOString(),
+    sortOrder: index,
+    ...(action ? { action, actionApplication: message.actionApplication ?? null } : {}),
+    ...(message.workspaceTrace ? { workspaceTrace: message.workspaceTrace } : {}),
+    ...(message.workspaceHistory ? { workspaceHistory: message.workspaceHistory } : {}),
+  };
+}
+
+function dekiSessionRecord(session: DekiSession): Record<string, unknown> {
+  const createdAt = readTrimmedString(session.createdAt) ?? new Date().toISOString();
+  const updatedAt = readTrimmedString(session.updatedAt) ?? createdAt;
+  return {
+    id: session.id,
+    title: readTrimmedString(session.title) ?? titleFromMessages(session.messages),
+    compaction: normalizeDekiCompaction(session.compaction),
+    createdAt,
+    updatedAt,
+  };
+}
+
+async function writeStorageRecord(
+  entity: "deki-sessions" | "deki-messages",
+  id: string,
+  value: Record<string, unknown>,
+): Promise<void> {
+  const existing = await storageApi.get(entity, id).catch(() => null);
+  if (existing) await storageApi.update(entity, id, value);
+  else await storageApi.create(entity, value);
+}
+
+async function readDurableSessionsState(): Promise<DekiSessionsState | null> {
+  const records = await storageApi.list<DekiSessionRecord>("deki-sessions", {
+    orderBy: "updatedAt",
+    descending: true,
+  });
+  if (records.length === 0) return null;
+
+  const settings = await readSettingsValue();
+  const sessions: DekiSession[] = [];
+  const seen = new Set<string>();
+  for (const record of records) {
+    const sessionId = readTrimmedString(record.id);
+    if (!sessionId || seen.has(sessionId)) continue;
+    const messages = (
+      await storageApi.list<DekiMessageRecord>("deki-messages", {
+        filters: { sessionId },
+        orderBy: "sortOrder",
+      })
+    )
+      .map((message) => normalizeDekiMessage(message))
+      .filter((message): message is DekiMessage => !!message);
+    const session = normalizeDekiSessionRecord({ ...record, id: sessionId }, messages);
+    if (session) {
+      seen.add(session.id);
+      sessions.push(session);
+    }
+  }
+  if (sessions.length === 0) return null;
+
+  const requestedActiveId = typeof settings.activeSessionId === "string" ? settings.activeSessionId : null;
+  const activeSessionId = sessions.some((session) => session.id === requestedActiveId)
+    ? requestedActiveId!
+    : sessions[0]!.id;
+  return { activeSessionId, sessions };
+}
+
+async function saveDurableSessionsState(state: DekiSessionsState): Promise<DekiSessionsState> {
+  const normalized = normalizeDekiSessionsState({ activeSessionId: state.activeSessionId, sessions: state.sessions });
+  const sessionIds = new Set(normalized.sessions.map((session) => session.id));
+  const messageIds = new Set<string>();
+
+  for (const session of normalized.sessions) {
+    await writeStorageRecord("deki-sessions", session.id, dekiSessionRecord(session));
+    for (let index = 0; index < session.messages.length; index += 1) {
+      const message = session.messages[index]!;
+      messageIds.add(message.id);
+      await writeStorageRecord("deki-messages", message.id, dekiMessageRecord(session.id, message, index));
+    }
+  }
+
+  const existingSessions = await storageApi.list<DekiSessionRecord>("deki-sessions");
+  await Promise.all(
+    existingSessions
+      .filter((record) => typeof record.id === "string" && !sessionIds.has(record.id))
+      .map((record) => storageApi.delete("deki-sessions", record.id)),
+  );
+
+  const existingMessages = await storageApi.list<DekiMessageRecord>("deki-messages");
+  await Promise.all(
+    existingMessages.flatMap((record) => {
+      const id = typeof record.id === "string" ? record.id : "";
+      return id && !messageIds.has(id) ? [storageApi.delete("deki-messages", id)] : [];
+    }),
+  );
+
+  await saveSettingsPatch({ activeSessionId: normalized.activeSessionId });
+  return normalized;
+}
+
+async function clearLegacyDekiHistorySettings(activeSessionId: string): Promise<void> {
+  await saveSettingsTransform((settings) => {
+    const {
+      sessions: _sessions,
+      messages: _messages,
+      compaction: _compaction,
+      compactedSummary: _compactedSummary,
+      compactedAt: _compactedAt,
+      compactedThroughMessageId: _compactedThroughMessageId,
+      ...rest
+    } = settings;
+    return { ...rest, activeSessionId };
+  });
+}
+
 async function readSessionsState(): Promise<DekiSessionsState> {
-  return normalizeDekiSessionsState(await readSettingsValue());
+  const durable = await readDurableSessionsState();
+  if (durable) return durable;
+
+  const legacy = normalizeDekiSessionsState(await readSettingsValue());
+  await saveDurableSessionsState(legacy);
+  await clearLegacyDekiHistorySettings(legacy.activeSessionId);
+  return legacy;
 }
 
 async function saveSessionsState(state: DekiSessionsState): Promise<DekiSessionsState> {
-  return normalizeDekiSessionsState(
-    await saveSettingsTransform((settings) => {
-      const { messages: _messages, ...rest } = settings;
-      return {
-        ...rest,
-        activeSessionId: state.activeSessionId,
-        sessions: state.sessions,
-      };
-    }),
-  );
+  return saveDurableSessionsState(state);
 }
-
 function updateSession(
   state: DekiSessionsState,
   sessionId: string | null | undefined,

@@ -48,9 +48,12 @@ describe("WindowTitleBar web mode", () => {
   });
 
   it("keeps the sidebar collapse control available in web mode", async () => {
+    const setLeftSidebarPanel = vi.fn();
     await act(async () => {
       root = createRoot(container!);
-      root.render(<WindowTitleBar webMode />);
+      root.render(
+        <WindowTitleBar webMode leftSidebarPanel="chats" onLeftSidebarPanelChange={setLeftSidebarPanel} />,
+      );
     });
 
     const sidebarToggle = container!.querySelector<HTMLButtonElement>('[data-tour="sidebar-toggle"]');
@@ -62,7 +65,7 @@ describe("WindowTitleBar web mode", () => {
       sidebarToggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(useUIStore.getState().sidebarOpen).toBe(false);
+    expect(setLeftSidebarPanel).toHaveBeenCalledWith(null);
   });
 
   it("treats browser-hosted shells without desktop controls as web mode", async () => {

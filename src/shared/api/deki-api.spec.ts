@@ -7,6 +7,7 @@ const { storageApiMock } = vi.hoisted(() => ({
     create: vi.fn(),
     delete: vi.fn(),
     get: vi.fn(),
+    list: vi.fn(),
     update: vi.fn(),
   },
 }));
@@ -150,6 +151,8 @@ describe("dekiApi.actions.apply", () => {
     storageApiMock.create.mockReset();
     storageApiMock.delete.mockReset();
     storageApiMock.get.mockReset();
+    storageApiMock.list.mockReset();
+    storageApiMock.list.mockResolvedValue([]);
     storageApiMock.update.mockReset();
   });
 
@@ -469,27 +472,22 @@ describe("dekiApi.actions.apply", () => {
 
     const result = await dekiApi.actions.apply(action, { actionId: "message-1", messageId: "message-1" });
 
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "deki-messages",
+      expect.objectContaining({
+        id: "message-1",
+        sessionId: "deki-session-default",
+        actionApplication: expect.objectContaining({
+          status: "applied",
+          resultId: "deki-personas-message-1",
+        }),
+      }),
+    );
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "app-settings",
       "deki",
       expect.objectContaining({
-        value: expect.objectContaining({
-          activeSessionId: "deki-session-default",
-          sessions: [
-            expect.objectContaining({
-              id: "deki-session-default",
-              messages: [
-                expect.objectContaining({
-                  id: "message-1",
-                  actionApplication: expect.objectContaining({
-                    status: "applied",
-                    resultId: "deki-personas-message-1",
-                  }),
-                }),
-              ],
-            }),
-          ],
-        }),
+        value: expect.objectContaining({ activeSessionId: "deki-session-default" }),
       }),
     );
     expect(result).toMatchObject({
@@ -555,28 +553,23 @@ describe("dekiApi.actions.apply", () => {
 
     const result = await dekiApi.actions.apply(action, { actionId: "message-1", messageId: "message-1" });
 
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "deki-messages",
+      expect.objectContaining({
+        id: "message-1",
+        sessionId: "deki-session-default",
+        actionApplication: {
+          status: "applied",
+          appliedAt: "2026-06-24T00:00:01.000Z",
+          resultId: "deki-personas-message-1",
+        },
+      }),
+    );
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "app-settings",
       "deki",
       expect.objectContaining({
-        value: expect.objectContaining({
-          activeSessionId: "deki-session-default",
-          sessions: [
-            expect.objectContaining({
-              id: "deki-session-default",
-              messages: [
-                expect.objectContaining({
-                  id: "message-1",
-                  actionApplication: {
-                    status: "applied",
-                    appliedAt: "2026-06-24T00:00:01.000Z",
-                    resultId: "deki-personas-message-1",
-                  },
-                }),
-              ],
-            }),
-          ],
-        }),
+        value: expect.objectContaining({ activeSessionId: "deki-session-default" }),
       }),
     );
     expect(result.application).toEqual({
@@ -644,6 +637,8 @@ describe("dekiApi.actions.currentRecord", () => {
     storageApiMock.create.mockReset();
     storageApiMock.delete.mockReset();
     storageApiMock.get.mockReset();
+    storageApiMock.list.mockReset();
+    storageApiMock.list.mockResolvedValue([]);
     storageApiMock.update.mockReset();
   });
 
@@ -700,9 +695,143 @@ describe("dekiApi.history session updates", () => {
     storageApiMock.create.mockReset();
     storageApiMock.delete.mockReset();
     storageApiMock.get.mockReset();
+    storageApiMock.list.mockReset();
+    storageApiMock.list.mockResolvedValue([]);
     storageApiMock.update.mockReset();
   });
 
+  it("normalizes loose durable session and message rows before returning history", async () => {
+    const action: DekiEntryAction = {
+      type: "create_record",
+      entity: "personas",
+      draft: {
+        name: "Sol",
+        description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+        backstory: "Raised by caravan cooks.",
+        appearance: "Sun-faded cloak and quick hands.",
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "app-settings" && id === "deki") {
+        return { id: "deki", value: { activeSessionId: "missing-session" } };
+      }
+      return null;
+    });
+    storageApiMock.list.mockImplementation(async (entity: string, options?: { filters?: Record<string, unknown> }) => {
+      if (entity === "deki-sessions") {
+        return [
+          { title: "Missing id", createdAt: "2026-06-28T09:00:00.000Z", updatedAt: "2026-06-28T09:00:00.000Z" },
+          { id: "session-valid", title: "", compaction: {} },
+        ];
+      }
+      if (entity === "deki-messages" && options?.filters?.sessionId === "session-valid") {
+        return [
+          { id: "message-missing-created-at", sessionId: "session-valid", role: "user", content: "No stamp." },
+          {
+            id: "message-action",
+            sessionId: "session-valid",
+            role: "assistant",
+            content: "Draft ready.",
+            createdAt: "2026-06-28T10:00:00.000Z",
+            action,
+          },
+        ];
+      }
+      return [];
+    });
+
+    const state = await dekiApi.sessions.list();
+
+    expect(state.activeSessionId).toBe("session-valid");
+    expect(state.sessions).toHaveLength(1);
+    expect(state.sessions[0]).toMatchObject({
+      id: "session-valid",
+      title: "New Deki Chat",
+      createdAt: "2026-06-28T10:00:00.000Z",
+      updatedAt: "2026-06-28T10:00:00.000Z",
+      messages: [
+        expect.objectContaining({
+          id: "message-action",
+          action,
+          actionApplication: null,
+        }),
+      ],
+    });
+    expect(state.sessions[0]!.messages[0]).toHaveProperty("actionApplication", null);
+    expect(storageApiMock.list).toHaveBeenCalledWith("deki-messages", {
+      filters: { sessionId: "session-valid" },
+      orderBy: "sortOrder",
+    });
+  });
+  it("does not patch active session settings when durable session migration fails", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "app-settings" && id === "deki") {
+        return {
+          id: "deki",
+          value: {
+            messages: [
+              {
+                id: "message-1",
+                role: "user",
+                content: "Legacy hello.",
+                createdAt: "2026-06-28T10:00:00.000Z",
+              },
+            ],
+          },
+        };
+      }
+      return null;
+    });
+    storageApiMock.create.mockImplementation(async (entity: string, draft: Record<string, unknown>) => {
+      if (entity === "deki-sessions") throw new Error("session write failed");
+      return draft;
+    });
+
+    await expect(dekiApi.history.appendMessage({ role: "assistant", content: "Still blocked." })).rejects.toThrow(
+      "session write failed",
+    );
+
+    const settingsWrites = [...storageApiMock.create.mock.calls, ...storageApiMock.update.mock.calls].filter(
+      ([entity]) => entity === "app-settings",
+    );
+    expect(settingsWrites).toEqual([]);
+  });
+
+  it("does not patch active session settings when durable message migration fails", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "app-settings" && id === "deki") {
+        return {
+          id: "deki",
+          value: {
+            messages: [
+              {
+                id: "message-1",
+                role: "user",
+                content: "Legacy hello.",
+                createdAt: "2026-06-28T10:00:00.000Z",
+              },
+            ],
+          },
+        };
+      }
+      return null;
+    });
+    storageApiMock.create.mockImplementation(async (entity: string, draft: Record<string, unknown>) => {
+      if (entity === "deki-messages") throw new Error("message write failed");
+      return draft;
+    });
+
+    await expect(dekiApi.history.appendMessage({ role: "assistant", content: "Still blocked." })).rejects.toThrow(
+      "message write failed",
+    );
+
+    const settingsWrites = [...storageApiMock.create.mock.calls, ...storageApiMock.update.mock.calls].filter(
+      ([entity]) => entity === "app-settings",
+    );
+    expect(settingsWrites).toEqual([]);
+  });
   it("updates an inactive session without taking focus from the active session", async () => {
     storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
       if (entity !== "app-settings" || id !== "deki") return null;
@@ -738,24 +867,19 @@ describe("dekiApi.history session updates", () => {
       content: "Still working in the background.",
     });
 
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "deki-messages",
+      expect.objectContaining({
+        sessionId: "session-generating",
+        role: "assistant",
+        content: "Still working in the background.",
+      }),
+    );
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "app-settings",
       "deki",
       expect.objectContaining({
-        value: expect.objectContaining({
-          activeSessionId: "session-current",
-          sessions: expect.arrayContaining([
-            expect.objectContaining({
-              id: "session-generating",
-              messages: [
-                expect.objectContaining({
-                  role: "assistant",
-                  content: "Still working in the background.",
-                }),
-              ],
-            }),
-          ]),
-        }),
+        value: expect.objectContaining({ activeSessionId: "session-current" }),
       }),
     );
   });
@@ -765,6 +889,8 @@ describe("dekiApi.sessions.deleteMany", () => {
     storageApiMock.create.mockReset();
     storageApiMock.delete.mockReset();
     storageApiMock.get.mockReset();
+    storageApiMock.list.mockReset();
+    storageApiMock.list.mockResolvedValue([]);
     storageApiMock.update.mockReset();
   });
 
@@ -803,15 +929,16 @@ describe("dekiApi.sessions.deleteMany", () => {
 
     expect(state.activeSessionId).toBe("session-keep");
     expect(state.sessions.map((session) => session.id)).toEqual(["session-keep"]);
-    expect(storageApiMock.update).toHaveBeenCalledTimes(1);
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "deki-sessions",
+      "session-keep",
+      expect.objectContaining({ id: "session-keep" }),
+    );
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "app-settings",
       "deki",
       expect.objectContaining({
-        value: expect.objectContaining({
-          activeSessionId: "session-keep",
-          sessions: [expect.objectContaining({ id: "session-keep" })],
-        }),
+        value: expect.objectContaining({ activeSessionId: "session-keep" }),
       }),
     );
   });
