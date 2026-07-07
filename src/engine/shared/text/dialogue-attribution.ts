@@ -18,7 +18,7 @@ export interface BuildDialogueAttributionsResult {
 }
 
 const SPEECH_VERBS =
-  "said|says|asked|asks|replied|replies|whispered|whispers|muttered|mutters|called|calls|answered|answers|shouted|shouts";
+  "said|says|asked|asks|replied|replies|repeated|repeats|whispered|whispers|murmured|murmurs|whimpered|whimpers|muttered|mutters|growled|growls|rumbled|rumbles|gasped|gasps|called|calls|answered|answers|shouted|shouts";
 
 const SHA256_INITIAL_HASH = [
   0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
@@ -281,6 +281,7 @@ function collectExplicitProseSegments(
 
   const quotePattern = /"[^"\n]+"/g;
   const segments: DialogueAttributionSegment[] = [];
+  let carriedSpeaker: { speaker: SpeakerLookupEntry; lastEnd: number } | null = null;
   let match: RegExpExecArray | null;
 
   while ((match = quotePattern.exec(text)) !== null) {
@@ -294,13 +295,124 @@ function collectExplicitProseSegments(
     const speaker = findExplicitProseSpeaker(text, start, end, lookup);
     if (speaker) {
       segments.push(createSegment(start, end, speaker, "explicit-attribution", "derived"));
+      carriedSpeaker = { speaker, lastEnd: end };
+      continue;
+    }
+
+    if (
+      carriedSpeaker &&
+      canCarrySpeakerAcross(text.slice(carriedSpeaker.lastEnd, start), carriedSpeaker.speaker, lookup)
+    ) {
+      segments.push(createSegment(start, end, carriedSpeaker.speaker, "explicit-attribution", "derived"));
+      carriedSpeaker = { speaker: carriedSpeaker.speaker, lastEnd: end };
+    } else {
+      carriedSpeaker = null;
     }
   }
 
   return segments;
 }
 
+function canCarrySpeakerAcross(gap: string, speaker: SpeakerLookupEntry, lookup: SpeakerLookup): boolean {
+  if (gap.length > 500) return false;
+  return ![...collectNamedSpeakerEntries(gap, lookup, { includePossessives: false })].some(
+    (entry) => entry.key !== speaker.key,
+  );
+}
+
+const NAME_PROXIMITY_WORD_WINDOW = 12;
+
 function findExplicitProseSpeaker(
+  text: string,
+  quoteStart: number,
+  quoteEnd: number,
+  lookup: SpeakerLookup,
+): SpeakerLookupEntry | null {
+  const nearbyNameSpeaker = findNearbyNameSpeaker(text, quoteStart, quoteEnd, lookup);
+  if (nearbyNameSpeaker) {
+    return nearbyNameSpeaker;
+  }
+
+  const pronounLookbackSpeaker = findPronounLookbackSpeaker(text, quoteStart, quoteEnd, lookup);
+  if (pronounLookbackSpeaker) {
+    return pronounLookbackSpeaker;
+  }
+
+  const nextParagraphSpeaker = findNextParagraphSpeaker(text, quoteEnd, lookup);
+  if (nextParagraphSpeaker) {
+    return nextParagraphSpeaker;
+  }
+
+  return findSpeechVerbSpeaker(text, quoteStart, quoteEnd, lookup);
+}
+
+function findNearbyNameSpeaker(
+  text: string,
+  quoteStart: number,
+  quoteEnd: number,
+  lookup: SpeakerLookup,
+): SpeakerLookupEntry | null {
+  const before = takeTrailingWordWindow(getProseBeforeQuote(text, quoteStart), NAME_PROXIMITY_WORD_WINDOW);
+  const after = takeLeadingWordWindow(getProseAfterQuote(text, quoteEnd), NAME_PROXIMITY_WORD_WINDOW);
+  const distances = new Map<SpeakerLookupEntry, number>();
+  collectNamedSpeakerDistances(before, lookup, "before", distances);
+  collectNamedSpeakerDistances(after, lookup, "after", distances);
+  const ranked = [...distances.entries()].sort((left, right) => left[1] - right[1]);
+  if (ranked.length === 0) {
+    return null;
+  }
+
+  const closest = ranked[0];
+  const nextClosest = ranked[1];
+  if (!closest || (nextClosest && nextClosest[1] === closest[1])) {
+    return null;
+  }
+
+  return closest[0];
+}
+
+function findPronounLookbackSpeaker(
+  text: string,
+  quoteStart: number,
+  quoteEnd: number,
+  lookup: SpeakerLookup,
+): SpeakerLookupEntry | null {
+  const paragraphProse = getQuoteParagraphProse(text, quoteStart, quoteEnd);
+  if (!hasPronounAttribution(paragraphProse)) {
+    return null;
+  }
+
+  const previousParagraph = getPreviousParagraphBefore(text, quoteStart);
+  if (!previousParagraph.trim()) {
+    return null;
+  }
+
+  const nonPossessiveNames = collectNamedSpeakerEntries(previousParagraph, lookup, { includePossessives: false });
+  if (nonPossessiveNames.size === 1) {
+    return [...nonPossessiveNames][0] ?? null;
+  }
+
+  if (nonPossessiveNames.size > 1) {
+    return null;
+  }
+
+  const allNames = collectNamedSpeakerEntries(previousParagraph, lookup, { includePossessives: true });
+  return allNames.size === 1 ? ([...allNames][0] ?? null) : null;
+}
+
+function findNextParagraphSpeaker(text: string, quoteEnd: number, lookup: SpeakerLookup): SpeakerLookupEntry | null {
+  const nextParagraph = getNextParagraphAfter(text, quoteEnd);
+  if (!nextParagraph.trim()) {
+    return null;
+  }
+
+  const names = collectNamedSpeakerEntries(takeLeadingWordWindow(nextParagraph, NAME_PROXIMITY_WORD_WINDOW), lookup, {
+    includePossessives: false,
+  });
+  return names.size === 1 ? ([...names][0] ?? null) : null;
+}
+
+function findSpeechVerbSpeaker(
   text: string,
   quoteStart: number,
   quoteEnd: number,
@@ -322,6 +434,144 @@ function findExplicitProseSpeaker(
   }
 
   return matches.size === 1 ? [...matches][0] : null;
+}
+
+function getProseBeforeQuote(text: string, quoteStart: number): string {
+  const paragraphStart = findParagraphStartBefore(text, quoteStart);
+  const previousQuoteEnd = text.lastIndexOf('"', quoteStart - 1);
+  return text.slice(Math.max(paragraphStart, previousQuoteEnd + 1), quoteStart);
+}
+
+function getProseAfterQuote(text: string, quoteEnd: number): string {
+  const paragraphEnd = findParagraphEndAfter(text, quoteEnd);
+  const nextQuoteStart = text.indexOf('"', quoteEnd);
+  const end = nextQuoteStart === -1 ? paragraphEnd : Math.min(paragraphEnd, nextQuoteStart);
+  return text.slice(quoteEnd, end);
+}
+
+function collectNamedSpeakerDistances(
+  text: string,
+  lookup: SpeakerLookup,
+  side: "before" | "after",
+  distances: Map<SpeakerLookupEntry, number>,
+): void {
+  const normalizedText = text.toLowerCase();
+  for (const [nameKey, entry] of lookup.byName) {
+    const namePattern = new RegExp(`(^|[^A-Za-z0-9_])(${escapeRegExp(nameKey)})(?=$|[^A-Za-z0-9_])`, "gi");
+    let match: RegExpExecArray | null;
+    while ((match = namePattern.exec(normalizedText)) !== null) {
+      const nameStart = match.index + (match[1]?.length ?? 0);
+      const nameEnd = nameStart + (match[2]?.length ?? 0);
+      if (isPossessiveNameUse(normalizedText, nameEnd)) {
+        continue;
+      }
+
+      const distance = side === "before" ? countWords(text.slice(nameEnd)) : countWords(text.slice(0, nameStart));
+      const previousDistance = distances.get(entry);
+      if (previousDistance === undefined || distance < previousDistance) {
+        distances.set(entry, distance);
+      }
+    }
+  }
+}
+
+function collectNamedSpeakerEntries(
+  text: string,
+  lookup: SpeakerLookup,
+  options: { includePossessives: boolean },
+): Set<SpeakerLookupEntry> {
+  const entries = new Set<SpeakerLookupEntry>();
+  const normalizedText = text.toLowerCase();
+  for (const [nameKey, entry] of lookup.byName) {
+    const namePattern = new RegExp(`(^|[^A-Za-z0-9_])(${escapeRegExp(nameKey)})(?=$|[^A-Za-z0-9_])`, "gi");
+    let match: RegExpExecArray | null;
+    while ((match = namePattern.exec(normalizedText)) !== null) {
+      const nameEnd = match.index + (match[1]?.length ?? 0) + (match[2]?.length ?? 0);
+      if (!options.includePossessives && isPossessiveNameUse(normalizedText, nameEnd)) {
+        continue;
+      }
+
+      entries.add(entry);
+    }
+  }
+  return entries;
+}
+
+function isPossessiveNameUse(text: string, nameEnd: number): boolean {
+  const suffix = text.slice(nameEnd, nameEnd + 2);
+  return suffix === "'s" || suffix === "\u2019s";
+}
+
+function getQuoteParagraphProse(text: string, quoteStart: number, quoteEnd: number): string {
+  const paragraphStart = findParagraphStartBefore(text, quoteStart);
+  const paragraphEnd = findParagraphEndAfter(text, quoteEnd);
+  return text.slice(paragraphStart, paragraphEnd).replace(/"[^"\n]+"/g, " ");
+}
+
+function hasPronounAttribution(text: string): boolean {
+  return (
+    /\b(?:he|she)\s+[A-Za-z][A-Za-z'-]*\b/i.test(text) ||
+    /\b(?:his|her)\s+[A-Za-z][A-Za-z'-]*\s+[A-Za-z][A-Za-z'-]*\b/i.test(text)
+  );
+}
+
+function getPreviousParagraphBefore(text: string, index: number): string {
+  const paragraphStart = findParagraphStartBefore(text, index);
+  if (paragraphStart <= 0) {
+    return "";
+  }
+
+  const before = text.slice(0, paragraphStart).replace(/\s+$/, "");
+  const previousStart = findParagraphStartBefore(before, before.length);
+  return before.slice(previousStart);
+}
+
+function getNextParagraphAfter(text: string, index: number): string {
+  const paragraphEnd = findParagraphEndAfter(text, index);
+  const afterBreak = /^\n\s*\n/.exec(text.slice(paragraphEnd));
+  if (!afterBreak) {
+    return "";
+  }
+
+  const nextStart = paragraphEnd + afterBreak[0].length;
+  const nextEnd = findParagraphEndAfter(text, nextStart);
+  return text.slice(nextStart, nextEnd);
+}
+
+function countWords(text: string): number {
+  return [...text.matchAll(/[A-Za-z0-9_'-]+/g)].length;
+}
+
+function takeTrailingWordWindow(text: string, maxWords: number): string {
+  const words = [...text.matchAll(/[A-Za-z0-9_'-]+/g)];
+  if (words.length <= maxWords) {
+    return text;
+  }
+
+  return text.slice(words[words.length - maxWords]?.index ?? 0);
+}
+
+function takeLeadingWordWindow(text: string, maxWords: number): string {
+  const words = [...text.matchAll(/[A-Za-z0-9_'-]+/g)];
+  if (words.length <= maxWords) {
+    return text;
+  }
+
+  const lastWord = words[maxWords - 1];
+  return text.slice(0, (lastWord?.index ?? 0) + (lastWord?.[0].length ?? 0));
+}
+
+function findParagraphStartBefore(text: string, index: number): number {
+  const before = text.slice(0, index);
+  const matches = [...before.matchAll(/\n\s*\n/g)];
+  const lastBreak = matches[matches.length - 1];
+  return lastBreak ? (lastBreak.index ?? 0) + lastBreak[0].length : 0;
+}
+
+function findParagraphEndAfter(text: string, index: number): number {
+  const after = text.slice(index);
+  const match = /\n\s*\n/.exec(after);
+  return match ? index + match.index : text.length;
 }
 
 function normalizeSegments(
