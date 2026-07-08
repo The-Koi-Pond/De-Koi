@@ -379,6 +379,64 @@ describe("ChatMessage", () => {
     expect(quote?.style.color).toBe("");
   });
 
+  it("colors duplicate speaker names by stable attribution id", () => {
+    const content = '"First." "Second."';
+    const duplicateNameMessage: Message = {
+      ...message,
+      id: "message-duplicate-speaker-ids",
+      characterId: null,
+      content,
+      extra: {
+        ...message.extra,
+        dialogueAttributions: {
+          version: 1,
+          textHash: createDialogueAttributionTextHash(content),
+          segments: [
+            {
+              start: 0,
+              end: 8,
+              speakerName: "Twin",
+              speakerId: "char-a",
+              source: "speaker-tag",
+              confidence: "explicit",
+            },
+            {
+              start: 9,
+              end: 18,
+              speakerName: "Twin",
+              speakerId: "char-b",
+              source: "speaker-tag",
+              confidence: "explicit",
+            },
+          ],
+        },
+      },
+    };
+    const twins: CharacterMap = new Map([
+      ["char-a", { name: "Twin", avatarUrl: null, dialogueColor: "#ff3366" }],
+      ["char-b", { name: "Twin", avatarUrl: null, dialogueColor: "#33aaff" }],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={duplicateNameMessage}
+            characterMap={twins}
+            chatCharacterIds={["char-a", "char-b"]}
+            chatMode="roleplay"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const quotes = Array.from(container!.querySelectorAll<HTMLElement>(".mari-message-content strong"));
+    expect(quotes.map((quote) => [quote.textContent, quote.style.color])).toEqual([
+      ['"First."', "rgb(255, 51, 102)"],
+      ['"Second."', "rgb(51, 170, 255)"],
+    ]);
+  });
   it("colors persona-attributed assistant dialogue from persona identity", () => {
     const content = '"I said it."';
     const personaAttributedMessage: Message = {

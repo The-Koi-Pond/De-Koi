@@ -36,6 +36,33 @@ describe("storageApi prompt preset bundles", () => {
 });
 
 describe("storageApi chat message writes", () => {
+  it("preserves generated message blank lines on create and swipe writes", async () => {
+    invokeTauriMock
+      .mockResolvedValueOnce({ id: "message-blank", content: "Line 1\n\n\nLine 2", extra: {}, swipes: [] })
+      .mockResolvedValueOnce({ id: "message-blank", content: "Alt 1\n\n\nAlt 2" });
+
+    const { storageApi } = await import("./storage-api");
+
+    await storageApi.createChatMessage("chat-1", {
+      role: "assistant",
+      content: "Line 1\n\n\nLine 2",
+      extra: {},
+    });
+    await storageApi.addChatMessageSwipe("chat-1", "message-blank", "Alt 1\n\n\nAlt 2", { extra: {} });
+
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(1, "storage_create", {
+      entity: "messages",
+      value: expect.objectContaining({
+        content: "Line 1\n\n\nLine 2",
+        swipes: [expect.objectContaining({ content: "Line 1\n\n\nLine 2" })],
+      }),
+    });
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(2, "chat_message_add_swipe", {
+      chatId: "chat-1",
+      messageId: "message-blank",
+      body: expect.objectContaining({ content: "Alt 1\n\n\nAlt 2" }),
+    });
+  });
   it("clears dialogue attribution metadata after message content edits", async () => {
     invokeTauriMock
       .mockResolvedValueOnce({ id: "message-1", content: "Edited\n\nText", extra: { dialogueAttributions: { version: 1 }, thinking: "kept" } })

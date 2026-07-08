@@ -627,23 +627,6 @@ pub(crate) fn collapse_excess_blank_lines(input: &str) -> String {
     output
 }
 
-fn normalize_message_text_fields(object: &mut Map<String, Value>) {
-    if let Some(Value::String(content)) = object.get_mut("content") {
-        *content = collapse_excess_blank_lines(content);
-    }
-    let Some(swipes) = object.get_mut("swipes").and_then(Value::as_array_mut) else {
-        return;
-    };
-    for swipe in swipes {
-        let Some(swipe) = swipe.as_object_mut() else {
-            continue;
-        };
-        if let Some(Value::String(content)) = swipe.get_mut("content") {
-            *content = collapse_excess_blank_lines(content);
-        }
-    }
-}
-
 fn validate_message_create_swipes(object: &Map<String, Value>) -> AppResult<()> {
     let Some(swipes) = object.get("swipes").and_then(Value::as_array) else {
         return Ok(());
@@ -1159,7 +1142,6 @@ fn normalize_typed_json_fields_with_prompt_default_mode(
         );
     }
     if collection == "messages" {
-        normalize_message_text_fields(object);
         compact_message_swipe_fields_for_storage(object);
     }
     Ok(())
@@ -1542,7 +1524,6 @@ pub(crate) fn with_message_create_defaults(body: Value) -> AppResult<Value> {
     normalize_json_array_fields(&mut object, &["swipes", "images", "attachments"])?;
     validate_message_create_swipes(&object)?;
     insert_message_extra_default(&mut object)?;
-    normalize_message_text_fields(&mut object);
     Ok(Value::Object(object))
 }
 

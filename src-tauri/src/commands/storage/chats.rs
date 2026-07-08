@@ -375,10 +375,7 @@ pub(crate) fn message_swipes(
         .get("content")
         .cloned()
         .unwrap_or_else(|| Value::String(String::new()));
-    let content = match content {
-        Value::String(content) => Value::String(collapse_excess_blank_lines(&content)),
-        value => value,
-    };
+    let content = content;
     let new_extra = object_extra(body.get("extra")).unwrap_or_else(|| json!({}));
     let object = message
         .as_object_mut()
@@ -3404,6 +3401,37 @@ mod tests {
         );
     }
 
+    #[test]
+    fn message_swipes_preserves_blank_lines_in_new_swipe_content() {
+        let state = test_state("swipe-blank-lines");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "first",
+                    "activeSwipeIndex": 0,
+                    "swipes": [{ "content": "first" }]
+                }),
+            )
+            .expect("message should be created");
+        let content = "Alt 1\n\n\nAlt 2";
+
+        let updated = message_swipes(
+            &state,
+            "POST",
+            "chat-1",
+            "message-1",
+            json!({ "content": content }),
+        )
+        .expect("swipe should be added");
+
+        assert_eq!(updated["content"], json!(content));
+        assert_eq!(updated["swipes"][1]["content"], json!(content));
+    }
     #[test]
     fn message_swipes_projects_dialogue_attributions_from_active_swipe() {
         let state = test_state("swipe-dialogue-attributions");

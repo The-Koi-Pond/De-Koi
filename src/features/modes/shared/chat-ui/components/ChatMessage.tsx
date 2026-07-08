@@ -2,7 +2,6 @@
 // Chat: Message — mode-aware rendering
 // ──────────────────────────────────────────────
 import { cn, copyToClipboard, normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
-import { normalizeSpeakerName, speakerIdentityEntries } from "../../../../../shared/lib/speaker-identity";
 import { applyInlineMarkdown, renderMarkdownBlocks, applyInlineMarkdownHTML } from "../../../../../shared/lib/markdown";
 import {
   User,
@@ -98,6 +97,7 @@ import { resolveAvatarFileUrl } from "../../../../../shared/api/local-file-api";
 import { mergedGroupDisplayLabel, mergedGroupNames } from "../lib/merged-group-label";
 import {
   createSpeakerColorLookup,
+  hasSpeakerColor,
   splitSpeakerDialogueColorSegments,
   stripSpeakerTags,
 } from "../lib/speaker-dialogue-colors";
@@ -126,8 +126,8 @@ function missingDialogueColorSpeakers(
   const seen = new Set<string>();
   for (const segment of segments ?? []) {
     const speakerName = segment.speakerName.trim();
-    const key = speakerName ? normalizeSpeakerName(speakerName) : "";
-    if (!speakerName || !key || speakerColorMap?.has(key) || seen.has(key)) continue;
+    const key = segment.speakerId?.trim() ? `id:${segment.speakerId.trim()}` : `name:${speakerName.toLowerCase()}`;
+    if (!speakerName || hasSpeakerColor(speakerColorMap, speakerName, segment.speakerId) || seen.has(key)) continue;
     seen.add(key);
     missing.push(speakerName);
   }
@@ -1589,7 +1589,8 @@ export const ChatMessage = memo(function ChatMessage({
   const speakerColorMap = useMemo(() => {
     const identities = [
       ...(scopedCharacterMap
-        ? [...scopedCharacterMap.values()].map((info) => ({
+        ? [...scopedCharacterMap.entries()].map(([id, info]) => ({
+            id,
             color: info.dialogueColor,
             names: [info.name, ...(info.speakerAliases ?? [])],
           }))
@@ -1597,15 +1598,16 @@ export const ChatMessage = memo(function ChatMessage({
       ...(personaInfo?.name
         ? [
             {
+              id: personaInfo.id,
               color: personaInfo.dialogueColor,
               names: [personaInfo.name],
             },
           ]
         : []),
     ];
-    const map = createSpeakerColorLookup(speakerIdentityEntries(identities));
+    const map = createSpeakerColorLookup(identities);
     return map.size > 0 ? map : undefined;
-  }, [personaInfo?.dialogueColor, personaInfo?.name, scopedCharacterMap]);
+  }, [personaInfo?.dialogueColor, personaInfo?.id, personaInfo?.name, scopedCharacterMap]);
   useLazyDialogueAttributionBackfill({
     message,
     extra,
