@@ -13,6 +13,7 @@ import {
   updateLorebookFolderSchema,
   updateLorebookSchema,
 } from "../../../../engine/contracts/schemas/lorebook.schema";
+import { lorebookEntryApi } from "../../../../shared/api/lorebook-entry-api";
 import { lorebookFolderApi } from "../../../../shared/api/lorebook-folder-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { ApiError } from "../../../../shared/api/api-errors";
@@ -75,16 +76,9 @@ async function transferLorebookEntries(
 async function reorderLorebookEntries(
   lorebookId: string,
   entryIds: string[],
-  folderId?: string | null,
+  folderId: string | null,
 ): Promise<LorebookEntry[]> {
-  await Promise.all(
-    entryIds.map((entryId, index) => {
-      const patch: Record<string, unknown> = { order: index, sortOrder: index };
-      if (folderId !== undefined) patch.folderId = folderId;
-      return storageApi.update("lorebook-entries", entryId, updateLorebookEntrySchema.parse(patch));
-    }),
-  );
-  return storageApi.list<LorebookEntry>("lorebook-entries", { filters: { lorebookId } });
+  return lorebookEntryApi.reorder({ lorebookId, entryIds, folderId });
 }
 
 async function reorderLorebookFolders(
@@ -387,11 +381,10 @@ export function useReorderLorebookEntries() {
       lorebookId: string;
       entryIds: string[];
       /**
-       * Container scope for the reorder. `undefined` renumbers every entry
-       * `null` reorders root-level entries only.
-       * A string ID reorders the entries inside that folder only.
+       * Container scope for the reorder. `null` reorders root-level entries only;
+       * a string ID reorders the entries inside that folder.
        */
-      folderId?: string | null;
+      folderId: string | null;
     }) => reorderLorebookEntries(lorebookId, entryIds, folderId),
     onSuccess: (entries, variables) => {
       qc.setQueryData(lorebookKeys.entries(variables.lorebookId), entries);

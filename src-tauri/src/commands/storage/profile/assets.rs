@@ -680,14 +680,19 @@ fn stream_profile_zip_entry_within_budget<R: Read, W: Write>(
     aggregate_limit: u64,
     total_bytes: &mut u64,
 ) -> AppResult<()> {
-    validate_profile_zip_asset_declared_size_with_limit(entry_name, declared_size, per_entry_limit)?;
+    validate_profile_zip_asset_declared_size_with_limit(
+        entry_name,
+        declared_size,
+        per_entry_limit,
+    )?;
     add_profile_archive_asset_bytes_with_limit(
         total_bytes,
         entry_name,
         declared_size,
         aggregate_limit,
     )?;
-    let remaining_budget = aggregate_limit.saturating_sub(total_bytes.saturating_sub(declared_size));
+    let remaining_budget =
+        aggregate_limit.saturating_sub(total_bytes.saturating_sub(declared_size));
     let copied = copy_limited_profile_zip_asset_with_limit(
         entry_name,
         reader,
@@ -735,7 +740,9 @@ fn copy_limited_profile_zip_asset_with_limit<R: Read, W: Write>(
         let allowed = limit.saturating_sub(written).saturating_add(1);
         let want = (buffer.len() as u64).min(allowed) as usize;
         let read = reader.read(&mut buffer[..want]).map_err(|error| {
-            AppError::invalid_input(format!("Could not read profile asset {entry_name}: {error}"))
+            AppError::invalid_input(format!(
+                "Could not read profile asset {entry_name}: {error}"
+            ))
         })?;
         if read == 0 {
             break;
@@ -748,7 +755,9 @@ fn copy_limited_profile_zip_asset_with_limit<R: Read, W: Write>(
             ));
         }
         writer.write_all(&buffer[..read]).map_err(|error| {
-            AppError::invalid_input(format!("Could not write profile asset {entry_name}: {error}"))
+            AppError::invalid_input(format!(
+                "Could not write profile asset {entry_name}: {error}"
+            ))
         })?;
         written += read as u64;
     }
@@ -1411,11 +1420,9 @@ mod tests {
                 .expect("agent file path should be stored"),
         );
         assert!(agent_file_path.is_file());
-        assert!(agent_file_path.ends_with(
-            Path::new("entity-images")
-                .join("agents")
-                .join("agent.png")
-        ));
+        assert!(
+            agent_file_path.ends_with(Path::new("entity-images").join("agents").join("agent.png"))
+        );
         assert_eq!(agent["imageFilename"], "agent.png");
 
         let connection = &value["connections"][0];
@@ -1763,7 +1770,11 @@ mod tests {
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("too large"));
         // Not one byte past the remaining budget (10) may reach the writer.
-        assert!(second.len() <= 10, "wrote {} bytes past the budget", second.len());
+        assert!(
+            second.len() <= 10,
+            "wrote {} bytes past the budget",
+            second.len()
+        );
     }
 
     #[test]
@@ -1796,7 +1807,11 @@ mod tests {
         )
         .expect_err("no aggregate budget remains");
         assert_eq!(error.code, "invalid_input");
-        assert!(second.is_empty(), "wrote {} bytes with zero budget", second.len());
+        assert!(
+            second.is_empty(),
+            "wrote {} bytes with zero budget",
+            second.len()
+        );
     }
 
     #[test]
@@ -1816,7 +1831,11 @@ mod tests {
         )
         .expect_err("entry exceeds the per-entry cap");
         assert_eq!(error.code, "invalid_input");
-        assert!(out.len() <= 16, "wrote {} bytes past the per-entry cap", out.len());
+        assert!(
+            out.len() <= 16,
+            "wrote {} bytes past the per-entry cap",
+            out.len()
+        );
     }
 
     #[test]

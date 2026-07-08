@@ -34,6 +34,9 @@ import { parseChatMetadata } from "../../shared/lib/chat-display";
 import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { HELP_REQUEST_EVENT } from "../../shared/lib/help-events";
 import { markPerformanceMilestoneOnce } from "../../shared/lib/performance-diagnostics";
+import { onDesktopWindowCloseRequested } from "../../shared/api/window-controls-api";
+import { hasPendingAppCloseWork, requestGuardedAppClose } from "../../shared/lib/app-close-guard";
+import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
 import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { getDetailRouteView } from "./detail-route-registry";
@@ -246,6 +249,32 @@ export function AppShell() {
 
   useEffect(() => {
     markPerformanceMilestoneOnce("shell.ready");
+  }, []);
+  useEffect(() => {
+    return listenDraftPersistenceFailures((detail) => {
+      toast.error(detail.message, { id: "draft-persistence-warning" });
+    });
+  }, []);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+    void onDesktopWindowCloseRequested(
+      () => {
+        void requestGuardedAppClose();
+      },
+      hasPendingAppCloseWork,
+    ).then((unlisten) => {
+      if (cancelled) {
+        unlisten();
+        return;
+      }
+      cleanup = unlisten;
+    });
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
   }, []);
 
 

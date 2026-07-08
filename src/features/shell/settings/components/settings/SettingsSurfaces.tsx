@@ -3449,6 +3449,7 @@ export function AdvancedSettings() {
   const [selectedScopes, setSelectedScopes] = useState<ExpungeScope[]>(["chats"]);
   const [confirmAction, setConfirmAction] = useState<"selected" | "all" | null>(null);
   const [exportingProfile, setExportingProfile] = useState(false);
+  const [exportingLocalState, setExportingLocalState] = useState(false);
   const [exportProfileDialogOpen, setExportProfileDialogOpen] = useState(false);
   const [downloadingBackupName, setDownloadingBackupName] = useState<string | null>(null);
   const [refreshingSpa, setRefreshingSpa] = useState(false);
@@ -3605,6 +3606,42 @@ export function AdvancedSettings() {
     void handleExportProfile(format);
   };
 
+  const readBrowserStorageEntries = (storage: Storage) => {
+    const entries: Record<string, string> = {};
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key) continue;
+      const value = storage.getItem(key);
+      if (value !== null) entries[key] = value;
+    }
+    return entries;
+  };
+
+  const handleExportLocalState = async () => {
+    setExportingLocalState(true);
+    try {
+      const payload = {
+        schema: "de-koi-browser-local-state-v1",
+        exportedAt: new Date().toISOString(),
+        origin: typeof window !== "undefined" ? window.location.origin : null,
+        localStorage: readBrowserStorageEntries(window.localStorage),
+        sessionStorage: readBrowserStorageEntries(window.sessionStorage),
+      };
+      const result = await saveTextFileToUserSelectedLocation({
+        filename: `de-koi-browser-local-state-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+        content: JSON.stringify(payload, null, 2),
+        title: "Export browser-local state",
+        mimeType: "application/json",
+        filters: [{ name: "JSON", extensions: ["json"], mimeType: "application/json" }],
+      });
+      if (result !== "cancelled") toast.success("Browser-local state exported");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't export browser-local state");
+    } finally {
+      setExportingLocalState(false);
+    }
+  };
+
   const handleDownloadBackup = async (name?: string) => {
     const key = name ?? "__current__";
     setDownloadingBackupName(key);
@@ -3620,6 +3657,17 @@ export function AdvancedSettings() {
     } finally {
       setDownloadingBackupName(null);
     }
+  };
+  const handleDeleteBackup = async (name: string) => {
+    const confirmed = await showConfirmDialog({
+      title: "Delete managed backup?",
+      message: `Delete ${name}? This backup cannot be recovered from De-Koi after deletion.`,
+      confirmLabel: "Delete backup",
+      cancelLabel: "Keep backup",
+      tone: "destructive",
+    });
+    if (!confirmed) return;
+    deleteBackupMutation.mutate(name);
   };
 
   const handleForceRefreshSpa = async () => {
@@ -4192,7 +4240,7 @@ export function AdvancedSettings() {
                   <button
                     type="button"
                     aria-label={`Delete ${backup.name}`}
-                    onClick={() => deleteBackupMutation.mutate(backup.name)}
+                    onClick={() => void handleDeleteBackup(backup.name)}
                     disabled={deleteBackupMutation.isPending}
                     className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] disabled:opacity-50"
                   >
@@ -4227,6 +4275,20 @@ export function AdvancedSettings() {
             <>
               <Download size="0.8125rem" />
               Export Profile
+            </>
+          )}
+        </button>
+        <button
+          onClick={() => void handleExportLocalState()}
+          disabled={exportingLocalState}
+          className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] transition-all hover:bg-[var(--accent)] active:scale-95 disabled:opacity-50"
+        >
+          {exportingLocalState ? (
+            <Loader2 size="0.8125rem" className="animate-spin" />
+          ) : (
+            <>
+              <Download size="0.8125rem" />
+              Export Browser State
             </>
           )}
         </button>

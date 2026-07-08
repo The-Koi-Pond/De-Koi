@@ -894,10 +894,7 @@ pub(super) fn library_folder_defaults_for_create(value: Value) -> Result<Value, 
         .and_then(Value::as_i64)
         .is_none_or(|value| value < 0)
     {
-        let order = object
-            .get("sortOrder")
-            .and_then(Value::as_i64)
-            .unwrap_or(0);
+        let order = object.get("sortOrder").and_then(Value::as_i64).unwrap_or(0);
         object.insert("order".to_string(), json!(order));
     }
     Ok(Value::Object(object))

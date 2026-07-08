@@ -1838,7 +1838,10 @@ mod tests {
             .expect("chat should read")
             .expect("chat should exist");
 
-        assert_eq!(memory_ids(&chat["memories"]), vec!["old", "created-only-newer"]);
+        assert_eq!(
+            memory_ids(&chat["memories"]),
+            vec!["old", "created-only-newer"]
+        );
     }
 
     #[test]

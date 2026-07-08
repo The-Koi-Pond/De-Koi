@@ -948,7 +948,8 @@ mod tests {
                 .expect("giphy setting should read")
                 .expect("giphy setting should remain present");
             assert_eq!(
-                raw.get(GIPHY_API_KEY_ENCRYPTED_FIELD).and_then(Value::as_str),
+                raw.get(GIPHY_API_KEY_ENCRYPTED_FIELD)
+                    .and_then(Value::as_str),
                 Some("not-an-encrypted-secret")
             );
         });
@@ -994,7 +995,10 @@ mod tests {
             let cleared = giphy_update_config(&state, json!({ "apiKey": "" }))
                 .expect("giphy key should clear");
 
-            assert_eq!(cleared.get("hasApiKey").and_then(Value::as_bool), Some(true));
+            assert_eq!(
+                cleared.get("hasApiKey").and_then(Value::as_bool),
+                Some(true)
+            );
             assert_eq!(cleared.get("source").and_then(Value::as_str), Some("env"));
             assert_eq!(
                 effective_giphy_api_key(&state).expect("env fallback should be used"),

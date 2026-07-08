@@ -1167,12 +1167,8 @@ fn repair_deki_action_json_strings(input: &str) -> Option<String> {
         }
 
         match character {
-            '{' => stack.push(DekiJsonContainer::Object(
-                DekiJsonObjectState::KeyOrEnd,
-            )),
-            '[' => stack.push(DekiJsonContainer::Array(
-                DekiJsonArrayState::ValueOrEnd,
-            )),
+            '{' => stack.push(DekiJsonContainer::Object(DekiJsonObjectState::KeyOrEnd)),
+            '[' => stack.push(DekiJsonContainer::Array(DekiJsonArrayState::ValueOrEnd)),
             '"' => {
                 string_role = deki_json_next_string_role(&stack);
                 in_string = true;
@@ -1222,9 +1218,7 @@ fn repair_deki_action_json_strings(input: &str) -> Option<String> {
 
 fn deki_json_next_string_role(stack: &[DekiJsonContainer]) -> DekiJsonStringRole {
     match stack.last() {
-        Some(DekiJsonContainer::Object(DekiJsonObjectState::KeyOrEnd)) => {
-            DekiJsonStringRole::Key
-        },
+        Some(DekiJsonContainer::Object(DekiJsonObjectState::KeyOrEnd)) => DekiJsonStringRole::Key,
         _ => DekiJsonStringRole::Value,
     }
 }

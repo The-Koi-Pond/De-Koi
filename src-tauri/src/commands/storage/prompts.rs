@@ -839,7 +839,8 @@ async fn embed_google(connection: &Value, model: &str, text: &str) -> AppResult<
         .post(url)
         .json(&json!({ "content": { "parts": [{ "text": text }] } }));
     if provider == "google_vertex" {
-        for (name, value) in marinara_llm::google_vertex_auth_headers_for_credential(api_key).await?
+        for (name, value) in
+            marinara_llm::google_vertex_auth_headers_for_credential(api_key).await?
         {
             request = request.header(name, value);
         }
@@ -929,16 +930,13 @@ async fn parse_embedding_batch_response(
 /// or truncated provider response can never silently write the wrong vector to
 /// an entry.
 fn order_embeddings_by_index(json: &Value, expected: usize) -> AppResult<Vec<Vec<f64>>> {
-    let items = json
-        .get("data")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            AppError::with_details(
-                "embedding_response_error",
-                "Embedding response did not contain a data array",
-                json.clone(),
-            )
-        })?;
+    let items = json.get("data").and_then(Value::as_array).ok_or_else(|| {
+        AppError::with_details(
+            "embedding_response_error",
+            "Embedding response did not contain a data array",
+            json.clone(),
+        )
+    })?;
     let mut ordered: Vec<Option<Vec<f64>>> = vec![None; expected];
     let mut fallback = Vec::with_capacity(items.len());
     for (position, item) in items.iter().enumerate() {
@@ -953,7 +951,10 @@ fn order_embeddings_by_index(json: &Value, expected: usize) -> AppResult<Vec<Vec
                     json.clone(),
                 )
             })?;
-        let index = item.get("index").and_then(Value::as_u64).map(|n| n as usize);
+        let index = item
+            .get("index")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
         match index {
             // An explicit index is authoritative: an out-of-range or duplicate
             // index is a malformed response, not a positional fallback. Treating

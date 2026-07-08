@@ -53,7 +53,7 @@ mod support;
 use delete::chat_folder_delete_atomic_rows;
 pub(crate) use delete::{
     connection_folder_reorder_inner, connection_move_inner, delete_entity,
-    lorebook_folder_reorder_inner,
+    lorebook_entry_reorder_inner, lorebook_folder_reorder_inner,
 };
 pub(crate) use duplicate::duplicate_entity;
 
@@ -788,6 +788,189 @@ pub async fn storage_delete(
     .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
+pub(crate) fn regex_script_reorder_inner(
+    state: &AppState,
+    ordered_ids: Vec<String>,
+) -> Result<Value, AppError> {
+    let ordered_ids = normalize_ordered_storage_ids(ordered_ids, "Regex script reorder")?;
+    state
+        .storage
+        .update_collections_atomically(vec!["regex-scripts"], move |collections| {
+            let [scripts] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Regex script reorder expected the regex script collection",
+                ));
+            };
+            if scripts.collection() != "regex-scripts" {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Regex script reorder received an unexpected collection",
+                ));
+            }
+            patch_reorder_rows(scripts.rows_mut(), "regex-scripts", &ordered_ids, None)?;
+            Ok(Value::Array(scripts.rows().to_vec()))
+        })
+}
+
+pub(crate) fn prompt_nested_reorder_inner(
+    state: &AppState,
+    preset_id: &str,
+    kind: &str,
+    ordered_ids: Vec<String>,
+) -> Result<Value, AppError> {
+    let preset_id = preset_id.trim().to_string();
+    if preset_id.is_empty() {
+        return Err(AppError::invalid_input("presetId is required"));
+    }
+    let (collection, order_field) = prompt_nested_reorder_contract(kind)?;
+    let ordered_ids = normalize_ordered_storage_ids(ordered_ids, "Prompt nested reorder")?;
+    state
+        .storage
+        .update_collections_atomically(vec![collection, "prompts"], move |collections| {
+            let [children, presets] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Prompt nested reorder expected child and prompt collections",
+                ));
+            };
+            if children.collection() != collection || presets.collection() != "prompts" {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Prompt nested reorder received an unexpected collection",
+                ));
+            }
+            patch_reorder_rows(
+                children.rows_mut(),
+                collection,
+                &ordered_ids,
+                Some((&preset_id, "presetId")),
+            )?;
+            patch_prompt_order_row(presets.rows_mut(), &preset_id, order_field, &ordered_ids)?;
+            Ok(Value::Array(
+                children
+                    .rows()
+                    .iter()
+                    .filter(|row| {
+                        row.get("presetId").and_then(Value::as_str) == Some(preset_id.as_str())
+                    })
+                    .cloned()
+                    .collect(),
+            ))
+        })
+}
+
+fn prompt_nested_reorder_contract(kind: &str) -> Result<(&'static str, &'static str), AppError> {
+    match kind.trim() {
+        "groups" => Ok(("prompt-groups", "groupOrder")),
+        "sections" => Ok(("prompt-sections", "sectionOrder")),
+        "variables" => Ok(("prompt-variables", "variableOrder")),
+        _ => Err(AppError::invalid_input(
+            "Unsupported prompt nested reorder kind",
+        )),
+    }
+}
+
+fn normalize_ordered_storage_ids(ids: Vec<String>, label: &str) -> Result<Vec<String>, AppError> {
+    let mut seen = HashSet::with_capacity(ids.len());
+    let mut normalized = Vec::with_capacity(ids.len());
+    for raw in ids {
+        let id = raw.trim().to_string();
+        if id.is_empty() || !seen.insert(id.clone()) {
+            return Err(AppError::invalid_input(format!(
+                "{label} must include each id exactly once"
+            )));
+        }
+        normalized.push(id);
+    }
+    if normalized.is_empty() {
+        return Err(AppError::invalid_input(format!(
+            "{label} must include at least one id"
+        )));
+    }
+    Ok(normalized)
+}
+
+fn patch_reorder_rows(
+    rows: &mut [Value],
+    collection: &str,
+    ordered_ids: &[String],
+    required_owner: Option<(&str, &str)>,
+) -> Result<(), AppError> {
+    for id in ordered_ids {
+        let row = rows
+            .iter()
+            .find(|row| row.get("id").and_then(Value::as_str) == Some(id.as_str()))
+            .ok_or_else(|| AppError::not_found(format!("{collection}/{id} was not found")))?;
+        if let Some((owner_id, owner_field)) = required_owner {
+            if row.get(owner_field).and_then(Value::as_str) != Some(owner_id) {
+                return Err(AppError::invalid_input(format!(
+                    "{collection}/{id} does not belong to {owner_id}"
+                )));
+            }
+        }
+    }
+    let now = now_iso();
+    for (index, id) in ordered_ids.iter().enumerate() {
+        let row = rows
+            .iter_mut()
+            .find(|row| row.get("id").and_then(Value::as_str) == Some(id.as_str()))
+            .ok_or_else(|| AppError::not_found(format!("{collection}/{id} was not found")))?;
+        let Some(object) = row.as_object_mut() else {
+            return Err(AppError::invalid_input("Stored record is not an object"));
+        };
+        object.insert("order".to_string(), json!(index));
+        object.insert("sortOrder".to_string(), json!(index));
+        object.insert("updatedAt".to_string(), Value::String(now.clone()));
+    }
+    Ok(())
+}
+
+fn patch_prompt_order_row(
+    rows: &mut [Value],
+    preset_id: &str,
+    order_field: &str,
+    ordered_ids: &[String],
+) -> Result<(), AppError> {
+    let row = rows
+        .iter_mut()
+        .find(|row| row.get("id").and_then(Value::as_str) == Some(preset_id))
+        .ok_or_else(|| AppError::not_found(format!("prompts/{preset_id} was not found")))?;
+    let Some(object) = row.as_object_mut() else {
+        return Err(AppError::invalid_input("Stored record is not an object"));
+    };
+    object.insert(
+        order_field.to_string(),
+        Value::Array(
+            ordered_ids
+                .iter()
+                .map(|id| Value::String(id.clone()))
+                .collect(),
+        ),
+    );
+    object.insert("updatedAt".to_string(), Value::String(now_iso()));
+    Ok(())
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn regex_script_reorder(
+    state: State<'_, AppState>,
+    ordered_ids: Vec<String>,
+) -> Result<Value, AppError> {
+    regex_script_reorder_inner(&state, ordered_ids)
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn prompt_nested_reorder(
+    state: State<'_, AppState>,
+    preset_id: String,
+    kind: String,
+    ordered_ids: Vec<String>,
+) -> Result<Value, AppError> {
+    prompt_nested_reorder_inner(&state, &preset_id, &kind, ordered_ids)
+}
 #[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn connection_folder_reorder(
@@ -797,6 +980,16 @@ pub fn connection_folder_reorder(
     connection_folder_reorder_inner(&state, ordered_ids)
 }
 
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn lorebook_entry_reorder(
+    state: State<'_, AppState>,
+    lorebook_id: String,
+    ordered_ids: Vec<String>,
+    folder_id: Option<String>,
+) -> Result<Value, AppError> {
+    lorebook_entry_reorder_inner(&state, &lorebook_id, ordered_ids, folder_id)
+}
 #[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn lorebook_folder_reorder(
@@ -981,6 +1174,39 @@ mod tests {
         let folder = lorebook_folder(state, id);
         assert_eq!(folder["order"], json!(order));
         assert_eq!(folder["sortOrder"], json!(order));
+    }
+    fn create_lorebook_entry(
+        state: &AppState,
+        id: &str,
+        lorebook_id: &str,
+        folder_id: Option<&str>,
+        order: i64,
+    ) {
+        let mut entry = json!({
+            "id": id,
+            "lorebookId": lorebook_id,
+            "name": id,
+            "content": id,
+            "order": order,
+            "sortOrder": order
+        });
+        if let Some(folder_id) = folder_id {
+            entry
+                .as_object_mut()
+                .expect("entry fixture should be an object")
+                .insert("folderId".to_string(), json!(folder_id));
+        }
+        create_record(state, "lorebook-entries", entry);
+    }
+
+    fn lorebook_entry(state: &AppState, id: &str) -> Value {
+        read_record(state, "lorebook-entries", id)
+    }
+
+    fn assert_lorebook_entry_order(state: &AppState, id: &str, order: i64) {
+        let entry = lorebook_entry(state, id);
+        assert_eq!(entry["order"], json!(order));
+        assert_eq!(entry["sortOrder"], json!(order));
     }
 
     #[test]
@@ -3915,6 +4141,191 @@ mod tests {
         assert_eq!(explicit["sortOrder"], json!(7));
     }
 
+    #[test]
+    fn lorebook_entry_reorder_rejects_invalid_batch_without_partial_writes() {
+        let state = test_state("lorebook-entry-reorder-atomic-validation");
+        create_lorebook(&state, "book");
+        create_lorebook(&state, "other");
+        create_lorebook_entry(&state, "entry-a", "book", None, 0);
+        create_lorebook_entry(&state, "entry-b", "book", None, 1);
+        create_lorebook_entry(&state, "foreign", "other", None, 0);
+
+        let error = lorebook_entry_reorder_inner(
+            &state,
+            "book",
+            vec![
+                "entry-b".to_string(),
+                "entry-a".to_string(),
+                "foreign".to_string(),
+            ],
+            None,
+        )
+        .expect_err("cross-lorebook batch member should reject the reorder");
+        assert_eq!(error.code, "invalid_input");
+        assert_lorebook_entry_order(&state, "entry-a", 0);
+        assert_lorebook_entry_order(&state, "entry-b", 1);
+
+        lorebook_entry_reorder_inner(
+            &state,
+            "book",
+            vec!["entry-b".to_string(), "entry-a".to_string()],
+            None,
+        )
+        .expect("valid same-lorebook batch should reorder entries");
+        assert_lorebook_entry_order(&state, "entry-b", 0);
+        assert_lorebook_entry_order(&state, "entry-a", 1);
+    }
+
+    #[test]
+    fn lorebook_entry_reorder_renumbers_source_and_destination_groups() {
+        let state = test_state("lorebook-entry-reorder-source-destination-groups");
+        create_lorebook(&state, "book");
+        create_lorebook_folder(&state, "target-folder", "book", None, Some(0));
+        create_lorebook_entry(&state, "root-a", "book", None, 0);
+        create_lorebook_entry(&state, "root-b", "book", None, 1);
+        create_lorebook_entry(&state, "root-c", "book", None, 2);
+        create_lorebook_entry(&state, "target-a", "book", Some("target-folder"), 0);
+
+        lorebook_entry_reorder_inner(
+            &state,
+            "book",
+            vec!["target-a".to_string(), "root-b".to_string()],
+            Some("target-folder".to_string()),
+        )
+        .expect("cross-folder reorder should update both sibling groups");
+
+        assert_lorebook_entry_order(&state, "root-a", 0);
+        assert_lorebook_entry_order(&state, "root-c", 1);
+        assert_lorebook_entry_order(&state, "target-a", 0);
+        assert_lorebook_entry_order(&state, "root-b", 1);
+        assert_eq!(
+            lorebook_entry(&state, "root-b")["folderId"],
+            "target-folder"
+        );
+    }
+    #[test]
+    fn regex_script_reorder_rejects_invalid_batch_without_partial_writes() {
+        let state = test_state("regex-script-reorder-atomic-validation");
+        create_record(
+            &state,
+            "regex-scripts",
+            json!({ "id": "script-a", "name": "A", "order": 0, "sortOrder": 0 }),
+        );
+        create_record(
+            &state,
+            "regex-scripts",
+            json!({ "id": "script-b", "name": "B", "order": 1, "sortOrder": 1 }),
+        );
+
+        let error = regex_script_reorder_inner(
+            &state,
+            vec!["script-b".to_string(), "script-b".to_string()],
+        )
+        .expect_err("duplicate script id should reject the reorder");
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            read_record(&state, "regex-scripts", "script-a")["order"],
+            json!(0)
+        );
+        assert_eq!(
+            read_record(&state, "regex-scripts", "script-b")["order"],
+            json!(1)
+        );
+
+        regex_script_reorder_inner(&state, vec!["script-b".to_string(), "script-a".to_string()])
+            .expect("valid regex script reorder should commit");
+        assert_eq!(
+            read_record(&state, "regex-scripts", "script-b")["order"],
+            json!(0)
+        );
+        assert_eq!(
+            read_record(&state, "regex-scripts", "script-a")["order"],
+            json!(1)
+        );
+    }
+
+    #[test]
+    fn prompt_nested_reorder_updates_child_rows_and_preset_order_atomically() {
+        let state = test_state("prompt-nested-reorder-atomic");
+        create_record(
+            &state,
+            "prompts",
+            json!({ "id": "preset", "name": "Preset", "sectionOrder": ["section-a", "section-b"] }),
+        );
+        create_record(
+            &state,
+            "prompt-sections",
+            json!({ "id": "section-a", "presetId": "preset", "name": "A", "order": 0, "sortOrder": 0 }),
+        );
+        create_record(
+            &state,
+            "prompt-sections",
+            json!({ "id": "section-b", "presetId": "preset", "name": "B", "order": 1, "sortOrder": 1 }),
+        );
+
+        prompt_nested_reorder_inner(
+            &state,
+            "preset",
+            "sections",
+            vec!["section-b".to_string(), "section-a".to_string()],
+        )
+        .expect("valid prompt section reorder should commit");
+
+        assert_eq!(
+            read_record(&state, "prompt-sections", "section-b")["order"],
+            json!(0)
+        );
+        assert_eq!(
+            read_record(&state, "prompt-sections", "section-a")["order"],
+            json!(1)
+        );
+        assert_eq!(
+            read_record(&state, "prompts", "preset")["sectionOrder"],
+            json!(["section-b", "section-a"])
+        );
+    }
+
+    #[test]
+    fn prompt_nested_reorder_rejects_foreign_child_without_partial_writes() {
+        let state = test_state("prompt-nested-reorder-foreign-child");
+        create_record(
+            &state,
+            "prompts",
+            json!({ "id": "preset", "name": "Preset", "sectionOrder": ["section-a"] }),
+        );
+        create_record(
+            &state,
+            "prompts",
+            json!({ "id": "other", "name": "Other", "sectionOrder": ["foreign"] }),
+        );
+        create_record(
+            &state,
+            "prompt-sections",
+            json!({ "id": "section-a", "presetId": "preset", "name": "A", "order": 0, "sortOrder": 0 }),
+        );
+        create_record(
+            &state,
+            "prompt-sections",
+            json!({ "id": "foreign", "presetId": "other", "name": "Foreign", "order": 0, "sortOrder": 0 }),
+        );
+
+        let error = prompt_nested_reorder_inner(
+            &state,
+            "preset",
+            "sections",
+            vec!["foreign".to_string(), "section-a".to_string()],
+        )
+        .expect_err("foreign child should reject the reorder");
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            read_record(&state, "prompt-sections", "section-a")["order"],
+            json!(0)
+        );
+        assert_eq!(
+            read_record(&state, "prompts", "preset")["sectionOrder"],
+            json!(["section-a"])
+        );
+    }
     #[test]
     fn lorebook_folder_reorder_rejects_invalid_batch_without_partial_writes() {
         let state = test_state("lorebook-folder-reorder-atomic-validation");

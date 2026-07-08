@@ -21,6 +21,8 @@ const BACKUP_DIRS: &[&str] = &[
     "lorebooks/images",
 ];
 
+const BACKUP_COMPLETE_MARKER: &str = ".de-koi-backup-complete";
+
 const RESTORE_NOTES: &str = "\
 De-Koi backup
 
@@ -199,7 +201,13 @@ fn write_backup_payload(state: &AppState, target: &Path) -> AppResult<()> {
             copy_dir_contents(&source, &target.join(dir))?;
         }
     }
+    fs::write(target.join(BACKUP_COMPLETE_MARKER), b"complete\n")?;
     Ok(())
+}
+
+fn is_complete_backup_dir(path: &Path) -> bool {
+    path.join(BACKUP_COMPLETE_MARKER).is_file()
+        || (path.join("marinara-profile.json").is_file() && path.join("RESTORE.txt").is_file())
 }
 
 fn backup_entry(path: &Path) -> AppResult<Value> {
@@ -223,8 +231,19 @@ fn backup_entry(path: &Path) -> AppResult<Value> {
 
 pub(crate) fn create_backup(state: &AppState) -> AppResult<Value> {
     let backup_name = timestamped_backup_name();
-    let backup_dir = backups_root(state).join(&backup_name);
-    write_backup_payload(state, &backup_dir)?;
+    let root = backups_root(state);
+    fs::create_dir_all(&root)?;
+    let staging_dir = root.join(format!(".staging-{backup_name}-{}", now_millis()));
+    let backup_dir = root.join(&backup_name);
+    let result = (|| -> AppResult<()> {
+        write_backup_payload(state, &staging_dir)?;
+        fs::rename(&staging_dir, &backup_dir)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging_dir);
+    }
+    result?;
     Ok(json!({
         "success": true,
         "backupName": backup_name,
@@ -242,7 +261,11 @@ pub(crate) fn list_backups(state: &AppState) -> AppResult<Value> {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
         let metadata = fs::symlink_metadata(&path)?;
-        if metadata.file_type().is_symlink() || !metadata.is_dir() || !valid_backup_name(&name) {
+        if metadata.file_type().is_symlink()
+            || !metadata.is_dir()
+            || !valid_backup_name(&name)
+            || !is_complete_backup_dir(&path)
+        {
             continue;
         }
         backups.push(backup_entry(&path)?);
@@ -534,6 +557,7 @@ mod tests {
         let backup_dir = state.data_dir.join("backups").join(name);
         assert!(backup_dir.join("marinara-profile.json").is_file());
         assert!(backup_dir.join("RESTORE.txt").is_file());
+        assert!(backup_dir.join(BACKUP_COMPLETE_MARKER).is_file());
         assert!(backup_dir
             .join("data/collections/characters.json")
             .is_file());
@@ -722,7 +746,7 @@ mod tests {
                 custom_tool_fixture(),
                 legacy_custom_tool_fixture()
             ]))
-                .expect("custom-tools sidecar fixture should serialize"),
+            .expect("custom-tools sidecar fixture should serialize"),
         )
         .expect("custom-tools sidecar fixture should write");
 
@@ -786,7 +810,7 @@ mod tests {
                 custom_tool_fixture(),
                 legacy_custom_tool_fixture()
             ]))
-                .expect("custom tools fixture should serialize"),
+            .expect("custom tools fixture should serialize"),
         )
         .expect("custom-tools fixture should write");
         fs::write(
@@ -795,7 +819,7 @@ mod tests {
                 custom_tool_fixture(),
                 legacy_custom_tool_fixture()
             ]))
-                .expect("custom-tools sidecar fixture should serialize"),
+            .expect("custom-tools sidecar fixture should serialize"),
         )
         .expect("custom-tools sidecar fixture should write");
         fs::write(
@@ -804,7 +828,7 @@ mod tests {
                 custom_tool_fixture(),
                 legacy_custom_tool_fixture()
             ]))
-                .expect("custom-tools corrupted fixture should serialize"),
+            .expect("custom-tools corrupted fixture should serialize"),
         )
         .expect("custom-tools corrupted fixture should write");
 
@@ -968,7 +992,9 @@ mod tests {
         );
         if tools.iter().any(|tool| tool["id"] == "tool-1") {
             assert!(
-                tools.iter().any(|tool| tool["staticResult"] == "safe static result"),
+                tools
+                    .iter()
+                    .any(|tool| tool["staticResult"] == "safe static result"),
                 "camelCase fixture should keep non-secret fields"
             );
         }

@@ -859,7 +859,9 @@ async fn profile_import_upload_stream(
                     started.elapsed().as_millis()
                 ));
                 let payload = json!({ "type": "done", "data": value });
-                let _ = tx.send(Ok(Event::default().data(payload.to_string()))).await;
+                let _ = tx
+                    .send(Ok(Event::default().data(payload.to_string())))
+                    .await;
             }
             Err(error) => {
                 request_log(format!(
@@ -869,7 +871,9 @@ async fn profile_import_upload_stream(
                     started.elapsed().as_millis()
                 ));
                 let payload = profile_import_error_payload(&error);
-                let _ = tx.send(Ok(Event::default().data(payload.to_string()))).await;
+                let _ = tx
+                    .send(Ok(Event::default().data(payload.to_string())))
+                    .await;
             }
         }
     });
@@ -1109,7 +1113,9 @@ async fn import_st_bulk_run_stream(
                         "details": error.details,
                     },
                 });
-                let _ = tx.send(Ok(Event::default().data(payload.to_string()))).await;
+                let _ = tx
+                    .send(Ok(Event::default().data(payload.to_string())))
+                    .await;
             }
         }
     });
@@ -1417,23 +1423,24 @@ async fn sidecar_embeddings(
 
 async fn sidecar_embeddings_inner(state: &AppState, body: Value) -> Result<Value, AppError> {
     let inputs = sidecar_embedding_inputs(&body)?;
-    let (connection_id, mut connection) =
-        if let Some(connection) = body.get("connection").filter(|value| value.is_object()) {
-            ("request".to_string(), connection.clone())
-        } else if body.get("provider").is_some() {
-            ("request".to_string(), body.clone())
-        } else if let Some(connection_id) = body
-            .get("connectionId")
-            .or_else(|| body.get("connection_id"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            prompts::resolve_embedding_connection_for_id_async(state, connection_id).await?
-        } else {
-            prompts::resolve_embedding_connection_for_id_async(state, sidecar::SIDECAR_CONNECTION_ID)
-                .await?
-        };
+    let (connection_id, mut connection) = if let Some(connection) =
+        body.get("connection").filter(|value| value.is_object())
+    {
+        ("request".to_string(), connection.clone())
+    } else if body.get("provider").is_some() {
+        ("request".to_string(), body.clone())
+    } else if let Some(connection_id) = body
+        .get("connectionId")
+        .or_else(|| body.get("connection_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        prompts::resolve_embedding_connection_for_id_async(state, connection_id).await?
+    } else {
+        prompts::resolve_embedding_connection_for_id_async(state, sidecar::SIDECAR_CONNECTION_ID)
+            .await?
+    };
     let model = prompts::embedding_model(&connection, body.get("model").and_then(Value::as_str))?;
     if let Some(object) = connection.as_object_mut() {
         object.insert("model".to_string(), Value::String(model.clone()));
@@ -1542,7 +1549,9 @@ async fn llm_stream(
                     "message": error.message,
                     "data": error.details,
                 });
-                let _ = tx.send(Ok(Event::default().data(payload.to_string()))).await;
+                let _ = tx
+                    .send(Ok(Event::default().data(payload.to_string())))
+                    .await;
             }
         }
     });
@@ -2149,9 +2158,7 @@ impl SecurityConfig {
             // bypass-address); a real forwarded client, including an allowlisted
             // or private-network one, is preserved for the auth gates to judge.
             return forwarded_client_ip(headers, trusted)
-                .filter(|ip| {
-                    !cidr_list_contains(trusted, *ip) && !self.ip_is_proxy_machinery(*ip)
-                })
+                .filter(|ip| !cidr_list_contains(trusted, *ip) && !self.ip_is_proxy_machinery(*ip))
                 .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         }
         if self.ip_has_bypass_privilege(peer) && forwarded_headers_present(headers) {
@@ -3508,7 +3515,10 @@ mod tests {
             .await
             .expect("LLM invoke errors should have a structured JSON body");
 
-        assert_eq!(payload.get("code").and_then(Value::as_str), Some("llm_provider_error"));
+        assert_eq!(
+            payload.get("code").and_then(Value::as_str),
+            Some("llm_provider_error")
+        );
         assert!(
             payload
                 .get("message")

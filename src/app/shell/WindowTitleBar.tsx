@@ -1,7 +1,6 @@
 import { HelpCircle, Home, Maximize2, Minus, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
-  closeDesktopWindow,
   getDesktopWindowVisualState,
   hasDesktopWindowControls,
   minimizeDesktopWindow,
@@ -11,6 +10,7 @@ import {
   toggleDesktopWindowMaximize,
   type DesktopWindowVisualState,
 } from "../../shared/api/window-controls-api";
+import { requestGuardedAppClose } from "../../shared/lib/app-close-guard";
 import { cn } from "../../shared/lib/utils";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
@@ -116,7 +116,7 @@ export function WindowTitleBar({
             ? toggleDesktopWindowMaximize().then(setWindowVisualState)
             : action === "fullscreen"
               ? toggleDesktopWindowFullscreen().then(setWindowVisualState)
-              : closeDesktopWindow();
+              : requestGuardedAppClose();
       void next.catch(() => refreshWindowVisualState());
     },
     [hasWindowControls, refreshWindowVisualState],

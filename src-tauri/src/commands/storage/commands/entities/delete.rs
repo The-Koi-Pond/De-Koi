@@ -122,7 +122,9 @@ pub(super) fn apply_delete_cleanup(
             contracts::DeleteCleanup::ClearLorebookLibraryFolder => {
                 unfile_records_in_folder(state, "lorebooks", id)?
             }
-            contracts::DeleteCleanup::ClearPresetFolder => unfile_records_in_folder(state, "prompts", id)?,
+            contracts::DeleteCleanup::ClearPresetFolder => {
+                unfile_records_in_folder(state, "prompts", id)?
+            }
             contracts::DeleteCleanup::ClearLorebookReferences => {
                 clear_deleted_lorebook_references(state, id)?;
             }
@@ -203,6 +205,211 @@ pub(super) fn validate_connection_folder_reorder(
     Ok(())
 }
 
+struct LorebookEntryReorderRow {
+    lorebook_id: Option<String>,
+    folder_id: Option<String>,
+    order: i64,
+}
+pub(crate) fn lorebook_entry_reorder_inner(
+    state: &AppState,
+    lorebook_id: &str,
+    ordered_ids: Vec<String>,
+    folder_id: Option<String>,
+) -> Result<Value, AppError> {
+    let lorebook_id = lorebook_id.trim().to_string();
+    if lorebook_id.is_empty() {
+        return Err(AppError::invalid_input("lorebookId is required"));
+    }
+    let folder_id = normalize_lorebook_reorder_parent_id(folder_id)?;
+    let ordered_ids = normalize_lorebook_reorder_ids(ordered_ids)?;
+
+    state.storage.update_collections_atomically(
+        vec!["lorebook-entries", "lorebook-folders"],
+        move |collections| {
+            let [entries, folders] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Lorebook entry reorder expected entry and folder collections",
+                ));
+            };
+            if entries.collection() != "lorebook-entries"
+                || folders.collection() != "lorebook-folders"
+            {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Lorebook entry reorder received an unexpected collection",
+                ));
+            }
+            lorebook_entry_reorder_in_rows(
+                entries.rows_mut(),
+                folders.rows(),
+                &lorebook_id,
+                ordered_ids,
+                folder_id,
+            )
+        },
+    )
+}
+
+pub(super) fn lorebook_entry_reorder_in_rows(
+    entry_rows: &mut [Value],
+    folder_rows: &[Value],
+    lorebook_id: &str,
+    ordered_ids: Vec<String>,
+    folder_id: Option<String>,
+) -> Result<Value, AppError> {
+    validate_lorebook_entry_reorder_folder(folder_rows, lorebook_id, folder_id.as_deref())?;
+    let by_id = entry_rows
+        .iter()
+        .enumerate()
+        .filter_map(|entry| {
+            let (index, entry) = entry;
+            let id = entry.get("id").and_then(Value::as_str)?.to_string();
+            Some((
+                id,
+                LorebookEntryReorderRow {
+                    lorebook_id: lorebook_entry_lorebook_id_for_validation(entry),
+                    folder_id: lorebook_entry_folder_id(entry),
+                    order: lorebook_entry_order(entry, index),
+                },
+            ))
+        })
+        .collect::<HashMap<_, _>>();
+    let ordered_id_set = ordered_ids.iter().cloned().collect::<HashSet<_>>();
+
+    for id in &ordered_ids {
+        if by_id.get(id).and_then(|entry| entry.lorebook_id.as_deref()) != Some(lorebook_id) {
+            return Err(AppError::invalid_input(format!(
+                "lorebook-entries/{id} does not belong to lorebook {lorebook_id}"
+            )));
+        }
+    }
+
+    for sibling_id in by_id
+        .iter()
+        .filter(|(_, entry)| {
+            entry.lorebook_id.as_deref() == Some(lorebook_id)
+                && entry.folder_id.as_deref() == folder_id.as_deref()
+        })
+        .map(|(id, _)| id.clone())
+    {
+        if !ordered_id_set.contains(&sibling_id) {
+            return Err(AppError::invalid_input(
+                "Lorebook entry reorder must include every existing sibling in the target folder",
+            ));
+        }
+    }
+
+    let affected_source_folders = ordered_ids
+        .iter()
+        .filter_map(|id| by_id.get(id))
+        .filter(|entry| entry.folder_id.as_deref() != folder_id.as_deref())
+        .map(|entry| entry.folder_id.clone())
+        .collect::<HashSet<_>>();
+    let source_reorders = affected_source_folders
+        .into_iter()
+        .map(|source_folder_id| {
+            let mut siblings = by_id
+                .iter()
+                .filter(|(id, entry)| {
+                    entry.lorebook_id.as_deref() == Some(lorebook_id)
+                        && entry.folder_id.as_deref() == source_folder_id.as_deref()
+                        && !ordered_id_set.contains(*id)
+                })
+                .map(|(id, entry)| (entry.order, id.clone()))
+                .collect::<Vec<_>>();
+            siblings.sort_by(|(left_order, left_id), (right_order, right_id)| {
+                left_order
+                    .cmp(right_order)
+                    .then_with(|| left_id.cmp(right_id))
+            });
+            siblings.into_iter().map(|(_, id)| id).collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let folder_patch = folder_id.map(Value::String).unwrap_or(Value::Null);
+    let now = now_iso();
+    for (index, id) in ordered_ids.iter().enumerate() {
+        patch_lorebook_entry_reorder_row(entry_rows, id, index, Some(&folder_patch), &now)?;
+    }
+    for sibling_ids in source_reorders {
+        for (index, id) in sibling_ids.iter().enumerate() {
+            patch_lorebook_entry_reorder_row(entry_rows, id, index, None, &now)?;
+        }
+    }
+
+    Ok(Value::Array(
+        entry_rows
+            .iter()
+            .filter(|entry| {
+                lorebook_entry_lorebook_id_for_validation(entry).as_deref() == Some(lorebook_id)
+            })
+            .cloned()
+            .collect(),
+    ))
+}
+
+fn validate_lorebook_entry_reorder_folder(
+    folder_rows: &[Value],
+    lorebook_id: &str,
+    folder_id: Option<&str>,
+) -> Result<(), AppError> {
+    let Some(folder_id) = folder_id else {
+        return Ok(());
+    };
+    let folder = folder_rows
+        .iter()
+        .find(|folder| folder.get("id").and_then(Value::as_str) == Some(folder_id))
+        .ok_or_else(|| {
+            AppError::invalid_input(format!("lorebook-folders/{folder_id} was not found"))
+        })?;
+    if lorebook_folder_lorebook_id(folder).as_deref() != Some(lorebook_id) {
+        return Err(AppError::invalid_input(
+            "Lorebook entry folderId must belong to the same lorebook.",
+        ));
+    }
+    Ok(())
+}
+
+fn patch_lorebook_entry_reorder_row(
+    entry_rows: &mut [Value],
+    id: &str,
+    index: usize,
+    folder_patch: Option<&Value>,
+    now: &str,
+) -> Result<(), AppError> {
+    let row = entry_rows
+        .iter_mut()
+        .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
+        .ok_or_else(|| AppError::not_found(format!("lorebook-entries/{id} was not found")))?;
+    let Some(object) = row.as_object_mut() else {
+        return Err(AppError::invalid_input("Stored record is not an object"));
+    };
+    object.insert("order".to_string(), json!(index));
+    object.insert("sortOrder".to_string(), json!(index));
+    if let Some(folder_patch) = folder_patch {
+        object.insert("folderId".to_string(), folder_patch.clone());
+    }
+    object.insert("updatedAt".to_string(), Value::String(now.to_string()));
+    Ok(())
+}
+
+fn lorebook_entry_order(entry: &Value, fallback: usize) -> i64 {
+    entry
+        .get("order")
+        .or_else(|| entry.get("sortOrder"))
+        .and_then(Value::as_i64)
+        .unwrap_or(fallback as i64)
+}
+
+fn lorebook_entry_folder_id(entry: &Value) -> Option<String> {
+    entry
+        .get("folderId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
 pub(crate) fn lorebook_folder_reorder_inner(
     state: &AppState,
     lorebook_id: &str,

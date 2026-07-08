@@ -11,6 +11,8 @@ import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickRe
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { translateDraftText } from "../../../../shared/lib/draft-translation";
+import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
+import { notifyDraftPersistenceFailure } from "../../../../shared/lib/draft-persistence-events";
 import { MAX_FILE_SIZES } from "../../../../engine/contracts/constants/defaults";
 import type { DiceRollResult } from "../../../../engine/contracts/types/game";
 import type { PromptAttachment } from "../../../../shared/api/message-attachment-api";
@@ -69,8 +71,8 @@ function readGameInputDraft(storageKey: string | null): string {
   try {
     const stored = localStorage.getItem(storageKey);
     if (stored !== null) return stored;
-  } catch {
-    /* ignore */
+  } catch (error) {
+    notifyDraftPersistenceFailure("game input draft", "load", error);
   }
   return "";
 }
@@ -79,8 +81,8 @@ function writeGameInputDraft(storageKey: string | null, value: string): void {
   if (!storageKey) return;
   try {
     localStorage.setItem(storageKey, value);
-  } catch {
-    /* ignore */
+  } catch (error) {
+    notifyDraftPersistenceFailure("game input draft", "save", error);
   }
 }
 
@@ -88,8 +90,8 @@ function clearGameInputDraft(storageKey: string | null): void {
   if (!storageKey) return;
   try {
     localStorage.removeItem(storageKey);
-  } catch {
-    /* ignore */
+  } catch (error) {
+    notifyDraftPersistenceFailure("game input draft", "clear", error);
   }
 }
 
@@ -136,6 +138,7 @@ export function GameInput({
   const inputBarRef = useRef<HTMLDivElement>(null);
   const addressButtonRef = useRef<HTMLButtonElement>(null);
   const addressMenuRef = useRef<HTMLDivElement>(null);
+  const attachmentsRef = useRef<Attachment[]>([]);
   const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChat = useChatStore((s) => s.activeChat);
   const chatMetadata = useMemo(() => {
@@ -148,6 +151,18 @@ export function GameInput({
     }
   }, [activeChat?.metadata]);
   const showDraftTranslateButton = chatMetadata.showInputTranslateButton === true;
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  useEffect(() => {
+    return registerAppCloseGuard({
+      label: "Game turn attachments",
+      hasPendingWork: () => attachmentsRef.current.length > 0,
+      message: "Unsent game attachments have not been saved. Close anyway and lose those attachments?",
+    });
+  }, []);
 
   useEffect(() => {
     const draft = readGameInputDraft(storageKey);

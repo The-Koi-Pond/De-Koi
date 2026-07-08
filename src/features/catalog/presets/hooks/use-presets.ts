@@ -13,6 +13,7 @@ import {
 } from "../../../../engine/contracts/schemas/prompt.schema";
 import { boolish } from "../../../../engine/generation/runtime-records";
 import type { StorageEntity } from "../../../../engine/capabilities/storage";
+import { promptNestedApi } from "../../../../shared/api/prompt-nested-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import type { PromptPreset, PromptGroup, PromptSection, ChoiceBlock } from "../../../../engine/contracts/types/prompt";
@@ -46,12 +47,12 @@ const promptNestedEntity: Record<PromptNestedKind, StorageEntity> = {
   sections: "prompt-sections",
   variables: "prompt-variables",
 };
-
 const promptOrderField: Record<PromptNestedKind, string> = {
   groups: "groupOrder",
   sections: "sectionOrder",
   variables: "variableOrder",
 };
+
 
 const presetOrderQueues = new Map<string, Promise<void>>();
 
@@ -145,23 +146,7 @@ async function deletePromptNested(kind: PromptNestedKind, id: string) {
 }
 
 async function reorderPromptNested<T>(presetId: string, kind: PromptNestedKind, ids: string[]): Promise<T[]> {
-  const entity = promptNestedEntity[kind];
-  await Promise.all(
-    ids.map((id, index) =>
-      storageApi.update(entity, id, {
-        order: index,
-        sortOrder: index,
-      }),
-    ),
-  );
-  await storageApi.update(
-    "prompts",
-    presetId,
-    updatePromptPresetSchema.parse({
-      [promptOrderField[kind]]: ids,
-    }),
-  );
-  return listPromptNested<T>(presetId, kind);
+  return promptNestedApi.reorder<T>({ presetId, kind, ids });
 }
 
 // ═══════════════════════════════════════════════

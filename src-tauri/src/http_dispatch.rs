@@ -344,6 +344,16 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 optional_u32_strict(&args, "size")?,
             )
         }
+        "gif_config" => {
+            dispatch_blocking_http_storage(state, &args, |state, _args| http::giphy_config(state))
+                .await
+        }
+        "gif_update_config" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                http::giphy_update_config(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "gif_search" => gif_search(state, &args).await,
         "tts_config" => integrations::tts_call(state, "GET", &["config"], Value::Null).await,
         "tts_update_config" => {
@@ -631,6 +641,22 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
+        "prompt_nested_reorder" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::prompt_nested_reorder,
+            )
+            .await
+        }
+        "regex_script_reorder" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::regex_script_reorder,
+            )
+            .await
+        }
         "storage_create" => {
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_create)
                 .await
@@ -652,6 +678,14 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 state,
                 &args,
                 http_storage_dispatch::connection_folder_reorder,
+            )
+            .await
+        }
+        "lorebook_entry_reorder" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::lorebook_entry_reorder,
             )
             .await
         }
@@ -1218,6 +1252,16 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "deki_prompt" | "professor_mari_prompt" => {
             deki::deki_prompt(state, optional_value(&args, "request")).await
         }
+        "deki_workspace_status" => {
+            deki::deki_workspace_status(state, optional_string(&args, "connectionId")).await
+        }
+        "deki_workspace_abort" => deki::deki_workspace_abort(state).await,
+        "deki_workspace_approve" => {
+            deki::deki_workspace_approve(state, required_string(&args, "id")?.to_string()).await
+        }
+        "deki_workspace_reject" => {
+            deki::deki_workspace_reject(state, required_string(&args, "id")?.to_string()).await
+        }
         "update_check" => updates::check_updates().await,
         "update_apply" => updates::apply_update(optional_value(&args, "input")),
         _ => Err(AppError::new(
@@ -1601,7 +1645,10 @@ mod tests {
         "connection_folder_reorder",
         "connection_move",
         "connection_save_default_parameters",
+        "gif_config",
+        "gif_update_config",
         "lorebook_entries_list_by_lorebook_ids",
+        "lorebook_entry_reorder",
         "memory_create",
         "memory_delete",
         "memory_get",
@@ -1617,7 +1664,9 @@ mod tests {
         "storage_duplicate",
         "storage_get",
         "storage_list",
+        "prompt_nested_reorder",
         "prompt_preset_bundle",
+        "regex_script_reorder",
         "storage_update",
         "tracker_snapshot_get",
         "tracker_snapshot_latest",

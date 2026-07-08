@@ -73,7 +73,7 @@ fn persist_image_upload_inner(
     let dir = state.data_dir.join(folder);
     fs::create_dir_all(&dir)?;
     let target = unique_file_path(&dir.join(&filename))?;
-    fs::write(&target, &bytes)?;
+    write_managed_file_atomically(&target, &bytes)?;
     stored_managed_image(target)
 }
 
@@ -95,7 +95,7 @@ pub(crate) fn persist_image_file_copy(
     fs::create_dir_all(&dir)?;
     let filename = managed_image_filename(filename_hint, ext);
     let target = unique_file_path(&dir.join(filename))?;
-    fs::write(&target, bytes)?;
+    write_managed_file_atomically(&target, &bytes)?;
     stored_managed_image(target)
 }
 
@@ -112,7 +112,7 @@ pub(crate) fn persist_image_bytes(
     fs::create_dir_all(&dir)?;
     let filename = managed_image_filename(filename_hint, ext);
     let target = unique_file_path(&dir.join(filename))?;
-    fs::write(&target, bytes)?;
+    write_managed_file_atomically(&target, bytes)?;
     stored_managed_image(target)
 }
 

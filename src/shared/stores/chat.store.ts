@@ -5,6 +5,7 @@ import { create } from "zustand";
 import type { AvatarCropValue } from "../lib/utils";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { Chat, ChatMode, Message } from "../../engine/contracts/types/chat";
+import { notifyDraftPersistenceFailure } from "../lib/draft-persistence-events";
 
 const STORAGE_KEY = "marinara-active-chat-id";
 const DRAFTS_KEY = "marinara-input-drafts";
@@ -22,7 +23,8 @@ function loadActiveChatId(): string | null {
   try {
     const id = localStorage.getItem(STORAGE_KEY)?.trim();
     return id || null;
-  } catch {
+  } catch (error) {
+    notifyDraftPersistenceFailure("active chat selection", "load", error);
     return null;
   }
 }
@@ -32,8 +34,8 @@ function loadDrafts(): Map<string, string> {
   try {
     const raw = localStorage.getItem(DRAFTS_KEY);
     if (raw) return new Map(JSON.parse(raw));
-  } catch {
-    /* ignore */
+  } catch (error) {
+    notifyDraftPersistenceFailure("conversation drafts", "load", error);
   }
   return new Map();
 }
@@ -43,8 +45,8 @@ function saveDrafts(m: Map<string, string>) {
   try {
     if (m.size === 0) localStorage.removeItem(DRAFTS_KEY);
     else localStorage.setItem(DRAFTS_KEY, JSON.stringify([...m]));
-  } catch {
-    /* ignore */
+  } catch (error) {
+    notifyDraftPersistenceFailure("conversation drafts", "save", error);
   }
 }
 
@@ -285,8 +287,8 @@ export const useChatStore = create<ChatState>()(
       try {
         if (id) localStorage.setItem(STORAGE_KEY, id);
         else localStorage.removeItem(STORAGE_KEY);
-      } catch {
-        /* ignore */
+      } catch (error) {
+        notifyDraftPersistenceFailure("active chat selection", id ? "save" : "clear", error);
       }
     },
     setMessages: (messages) => set({ messages }),
@@ -705,8 +707,8 @@ export const useChatStore = create<ChatState>()(
       try {
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(DRAFTS_KEY);
-      } catch {
-        /* ignore */
+      } catch (error) {
+        notifyDraftPersistenceFailure("conversation state", "clear", error);
       }
     },
   })),

@@ -498,7 +498,7 @@ pub(crate) fn upload_sprite(
     let (bytes, ext) = decode_image_value(image)?;
     fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{expression}.{ext}"));
-    fs::write(&path, bytes)?;
+    write_managed_file_atomically(&path, &bytes)?;
     sprite_info_from_path(&path, owner_kind, character_id)
 }
 
@@ -516,7 +516,7 @@ pub(crate) fn upload_sprites(
         .filter(|items| !items.is_empty())
         .ok_or_else(|| AppError::invalid_input("At least one sprite is required"))?;
     fs::create_dir_all(&dir)?;
-    let mut imported = 0usize;
+    let mut prepared = Vec::new();
     let mut failed = Vec::new();
 
     for item in uploads {
@@ -547,18 +547,60 @@ pub(crate) fn upload_sprites(
             }
         };
         let filename = format!("{expression}.{ext}");
-        match fs::write(dir.join(&filename), bytes) {
-            Ok(_) => imported += 1,
-            Err(error) => failed.push(json!({
-                "expression": expression,
-                "filename": filename,
-                "error": error.to_string()
-            })),
+        let path = dir.join(&filename);
+        prepared.push((expression, filename, path, bytes));
+    }
+
+    if !failed.is_empty() {
+        return Ok(json!({
+            "imported": 0,
+            "failed": failed,
+            "sprites": list_sprites_for_dir(&dir, owner_kind, character_id)?
+        }));
+    }
+
+    let mut written: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
+    for (_expression, filename, path, bytes) in &prepared {
+        let previous = if path.exists() {
+            Some(fs::read(path)?)
+        } else {
+            None
+        };
+        if let Err(error) = write_managed_file_atomically(path, bytes) {
+            let mut rollback_errors = Vec::new();
+            for (written_path, previous_bytes) in written.into_iter().rev() {
+                let rollback_result = match previous_bytes {
+                    Some(bytes) => write_managed_file_atomically(&written_path, &bytes),
+                    None => match fs::remove_file(&written_path) {
+                        Ok(()) => Ok(()),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                        Err(error) => Err(error.into()),
+                    },
+                };
+                if let Err(error) = rollback_result {
+                    rollback_errors.push(format!("{}: {}", written_path.display(), error.message));
+                }
+            }
+            if rollback_errors.is_empty() {
+                return Err(AppError::new(
+                    "sprite_batch_write_failed",
+                    format!("Failed to write sprite {filename}: {}", error.message),
+                ));
+            }
+            return Err(AppError::new(
+                "sprite_batch_rollback_failed",
+                format!(
+                    "Failed to write sprite {filename}: {}; rollback also failed for {}",
+                    error.message,
+                    rollback_errors.join(", ")
+                ),
+            ));
         }
+        written.push((path.clone(), previous));
     }
 
     Ok(json!({
-        "imported": imported,
+        "imported": prepared.len(),
         "failed": failed,
         "sprites": list_sprites_for_dir(&dir, owner_kind, character_id)?
     }))
@@ -616,7 +658,7 @@ pub(crate) fn clean_saved_sprites(
                 fs::copy(&path, restore_point_dir.join(&filename))?;
                 let output_filename = format!("{expression}.png");
                 let output_path = dir.join(&output_filename);
-                fs::write(&output_path, cleaned.bytes)?;
+                write_managed_file_atomically(&output_path, &cleaned.bytes)?;
                 if path != output_path {
                     let _ = fs::remove_file(&path);
                 }
@@ -639,14 +681,12 @@ pub(crate) fn clean_saved_sprites(
     if entries.is_empty() {
         let _ = fs::remove_dir_all(&restore_point_dir);
     } else {
-        fs::write(
-            restore_point_dir.join("manifest.json"),
-            serde_json::to_vec_pretty(&json!({
-                "id": restore_point_id,
-                "createdAt": now_iso(),
-                "entries": entries
-            }))?,
-        )?;
+        let manifest_bytes = serde_json::to_vec_pretty(&json!({
+            "id": restore_point_id,
+            "createdAt": now_iso(),
+            "entries": entries
+        }))?;
+        write_managed_file_atomically(&restore_point_dir.join("manifest.json"), &manifest_bytes)?;
         prune_sprite_cleanup_restore_points(
             &dir,
             SPRITE_CLEANUP_RESTORE_POINT_LIMIT,
@@ -3903,7 +3943,7 @@ mod sprite_upload_tests {
     }
 
     #[test]
-    fn bulk_upload_reports_partial_failures_and_returns_refreshed_list() {
+    fn bulk_upload_validation_failures_do_not_write_partial_sprites() {
         let (state, root) = test_state("bulk");
         let result = upload_sprites(
             &state,
@@ -3917,9 +3957,9 @@ mod sprite_upload_tests {
             }),
             None,
         )
-        .expect("bulk upload should keep partial failures in the result");
+        .expect("bulk upload should report validation failures without partial writes");
 
-        assert_eq!(result.get("imported").and_then(Value::as_u64), Some(1));
+        assert_eq!(result.get("imported").and_then(Value::as_u64), Some(0));
         assert_eq!(
             result.get("failed").and_then(Value::as_array).map(Vec::len),
             Some(2)
@@ -3928,23 +3968,14 @@ mod sprite_upload_tests {
             .get("sprites")
             .and_then(Value::as_array)
             .expect("sprites list should be returned");
-        assert_eq!(sprites.len(), 1);
-        assert_eq!(
-            sprites[0].get("expression").and_then(Value::as_str),
-            Some("happy_face")
-        );
-        assert_eq!(
-            sprites[0].get("filename").and_then(Value::as_str),
-            Some("happy_face.png")
-        );
-        let url = sprites[0]
-            .get("url")
-            .and_then(Value::as_str)
-            .expect("sprite list item should include a url");
-        assert!(
-            !url.starts_with("data:image/"),
-            "sprite list items should not eagerly embed image bytes"
-        );
+        assert!(sprites.is_empty());
+        assert!(!state
+            .data_dir
+            .join("sprites")
+            .join("characters")
+            .join("character-1")
+            .join("happy_face.png")
+            .exists());
 
         let _ = fs::remove_dir_all(root);
     }

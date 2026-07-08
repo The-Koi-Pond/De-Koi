@@ -135,9 +135,7 @@ fn is_trusted_release_url(value: &str) -> bool {
 
     url.scheme() == "https"
         && url.host_str() == Some("github.com")
-        && url
-            .path()
-            .starts_with("/The-Koi-Pond/De-Koi/releases/")
+        && url.path().starts_with("/The-Koi-Pond/De-Koi/releases/")
 }
 
 async fn fetch_latest_release() -> AppResult<ReleaseInfo> {

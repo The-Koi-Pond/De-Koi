@@ -1,5 +1,5 @@
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine as _;
 use image::ImageFormat;
 use marinara_core::{AppError, AppResult};
 use marinara_security::redact_sensitive_text;
