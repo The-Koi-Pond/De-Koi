@@ -15,3 +15,10 @@ export function getAppShellLeftSidebarState({
     dekiSidebarOpen: requestedPanel === "deki",
   };
 }
+
+export function getToggledAppShellLeftSidebarPanel(
+  currentPanel: AppShellLeftSidebarPanel,
+  requestedPanel: Exclude<AppShellLeftSidebarPanel, null>,
+): AppShellLeftSidebarPanel {
+  return currentPanel === requestedPanel ? null : requestedPanel;
+}
