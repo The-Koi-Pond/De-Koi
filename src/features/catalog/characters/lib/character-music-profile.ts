@@ -25,6 +25,56 @@ function cleanText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+const VIBE_SEARCH_STOPWORDS = new Set([
+  "about",
+  "after",
+  "because",
+  "before",
+  "canon",
+  "character",
+  "could",
+  "does",
+  "exact",
+  "extrapolates",
+  "extrapolating",
+  "from",
+  "having",
+  "hook",
+  "into",
+  "listening",
+  "music",
+  "notes",
+  "play",
+  "publicly",
+  "read",
+  "scene",
+  "state",
+  "states",
+  "their",
+  "them",
+  "they",
+  "this",
+  "would",
+]);
+
+function compactVibeSearchTerms(value: string): string {
+  const text = cleanText(value)
+    .replace(/hook to cut\s*:.*/i, " ")
+    .replace(/canon does not state[^.?!]*[.?!]?/gi, " ")
+    .replace(/\bextrapolat(?:e|es|ed|ing)\b/gi, " ");
+  const terms = text.match(/[a-z0-9][a-z0-9'-]{2,}/gi) ?? [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const term of terms) {
+    const normalized = term.toLowerCase().replace(/^'+|'+$/g, "");
+    if (!normalized || VIBE_SEARCH_STOPWORDS.has(normalized) || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+    if (result.length >= 8) break;
+  }
+  return result.join(" ");
+}
+
 function uniqueTexts(value: unknown): string[] {
   const entries = Array.isArray(value) ? value : [];
   const seen = new Set<string>();
@@ -88,7 +138,8 @@ function songQuery(song: CharacterMusicFavoriteSong): string {
 }
 
 function tasteQuery(profile: CharacterMusicProfile): string {
-  return [...(profile.favoriteArtists ?? []), ...(profile.favoriteGenres ?? []), profile.vibeNotes, "music"]
+  const vibeSearchTerms = compactVibeSearchTerms(profile.vibeNotes ?? "");
+  return [...(profile.favoriteArtists ?? []), ...(profile.favoriteGenres ?? []), vibeSearchTerms, "music"]
     .map((part) => cleanText(part ?? ""))
     .filter(Boolean)
     .join(" ");
@@ -108,6 +159,7 @@ export function deriveCharacterMusicOptions(profile: CharacterMusicProfile): Res
   const songs = profile.favoriteSongs ?? [];
   const artists = profile.favoriteArtists ?? [];
   const genres = profile.favoriteGenres ?? [];
+  const vibeSearchTerms = compactVibeSearchTerms(profile.vibeNotes ?? "");
   const options: ResolvedCharacterNowListening[] = songs.map((song) => {
     const query = songQuery(song);
     return {
@@ -122,7 +174,7 @@ export function deriveCharacterMusicOptions(profile: CharacterMusicProfile): Res
 
   for (const artist of artists) {
     const title = `${artist} radio`;
-    const query = [artist, ...genres, profile.vibeNotes, "music"]
+    const query = [artist, ...genres, vibeSearchTerms, "music"]
       .map((part) => cleanText(part ?? ""))
       .filter(Boolean)
       .join(" ");
@@ -132,7 +184,7 @@ export function deriveCharacterMusicOptions(profile: CharacterMusicProfile): Res
 
   for (const genre of genres) {
     const title = `${genre} mix`;
-    const query = [...artists, genre, profile.vibeNotes, "music"]
+    const query = [...artists, genre, vibeSearchTerms, "music"]
       .map((part) => cleanText(part ?? ""))
       .filter(Boolean)
       .join(" ");
@@ -141,7 +193,7 @@ export function deriveCharacterMusicOptions(profile: CharacterMusicProfile): Res
   }
 
   if (profile.vibeNotes?.trim()) {
-    const title = `${profile.vibeNotes} mix`;
+    const title = "music taste mix";
     const query = tasteQuery(profile);
     if (query.trim()) {
       options.push({ kind: "taste", title, artist: null, url: null, query, displayText: title });

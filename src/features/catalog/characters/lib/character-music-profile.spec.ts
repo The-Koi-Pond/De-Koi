@@ -87,7 +87,7 @@ describe("deriveCharacterNowListening", () => {
       title: "The Dresden Dolls radio",
       artist: null,
       url: null,
-      query: "The Dresden Dolls dark cabaret dramatic piano after midnight music",
+      query: "The Dresden Dolls dark cabaret dramatic piano midnight music",
       displayText: "The Dresden Dolls radio",
     });
     expect(formatNowListeningLine(listening)).toBe("Listening to: The Dresden Dolls radio");
@@ -153,6 +153,25 @@ describe("buildCharacterMusicPlaybackCue", () => {
         displayText: "The Dresden Dolls radio",
       }),
     ).toEqual({ query: "The Dresden Dolls dark cabaret music" });
+  });
+
+  it("compacts long vibe notes before using them as Music Player search text", () => {
+    const listening = deriveCharacterNowListening(
+      {
+        publicListeningEnabled: true,
+        favoriteGenres: [],
+        favoriteArtists: [],
+        favoriteSongs: [],
+        vibeNotes:
+          "Canon does not state Mira's exact listening habits, so this read extrapolates from her night-radio work and guarded loyalty. She plays tense mechanical songs after midnight. Hook to cut: the locked radio is Lio's.",
+      },
+      0,
+    );
+
+    expect(listening?.displayText).toBe("music taste mix");
+    expect(listening?.query).toBe("she plays tense mechanical songs midnight music");
+    expect(listening?.query).not.toContain("Canon does not state");
+    expect(listening?.query).not.toContain("Hook to cut");
   });
 });
 

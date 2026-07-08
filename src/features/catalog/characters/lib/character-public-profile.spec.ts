@@ -178,7 +178,7 @@ describe("resolveCharacterPublicProfile", () => {
       "Disciple by Throbbing Gristle",
       "Coil radio",
       "industrial mix",
-      "coldwave ritual mix",
+      "music taste mix",
     ]);
     expect(profile.musicPickIndex).toBe(2);
     expect(profile.nowListening?.displayText).toBe("industrial mix");
@@ -276,8 +276,10 @@ describe("buildCharacterPublicProfileGenerationMessages", () => {
     });
 
     expect(messages[0]?.content).toContain("Discord");
-    expect(messages[1]?.content).toContain("not a narrator summary");
-    expect(messages[1]?.content).toContain("real user");
+    expect(messages[1]?.content).toContain("TYPING HABITS ARE THE SPEC");
+    expect(messages[1]?.content).toContain("EVERY FIELD IS A CHOICE THEY MADE");
+    expect(messages[1]?.content).toContain("one-line parenthetical note");
+    expect(messages[1]?.content).toContain("ONE HOOK");
   });
 
   it("does not provide the current target field as a value to preserve while regenerating", () => {
@@ -406,5 +408,14 @@ describe("cleanGeneratedCharacterPublicProfileField", () => {
     expect(cleanGeneratedCharacterPublicProfileField("bio", "```text\nBio: i keep the keys. you keep up.\n```")).toBe(
       "i keep the keys. you keep up.",
     );
+  });
+
+  it("strips generated parenthetical read notes before storing the field", () => {
+    expect(
+      cleanGeneratedCharacterPublicProfileField(
+        "bio",
+        "i keep the keys.\nyou keep up.\n\n(Note: dry guarded read; hook is the spare period.)",
+      ),
+    ).toBe("i keep the keys.\nyou keep up.");
   });
 });

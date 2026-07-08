@@ -64,12 +64,22 @@ const PROFILE_FIELD_LABELS: Record<CharacterPublicProfileSuggestionField, string
   bio: "bio",
 };
 
+const DISCORD_PROFILE_RULES = [
+  "Create a Discord presence for the character: Display Name, username, and bio (2-3 lines), using their card as the only source of truth.",
+  "Rules:",
+  "1. TYPING HABITS ARE THE SPEC. If the card defines how they text, including punctuation, emoji use, or formality, the bio must be written in exactly that voice. The bio IS a text message they wrote.",
+  "2. EVERY FIELD IS A CHOICE THEY MADE. The username tells what they wanted vs. what was available. The display name tells how decorated their public self is. The bio tells what they think strangers need to know. If a detail implies a story, leave the story implied, and do not explain it in the bio itself.",
+  "3. Include a one-line parenthetical note under the generated value explaining the read, so the user can veto it. This note will be stripped before saving the field.",
+  "4. ONE HOOK per character: an implied incident, a relationship to another cast member's account, or a prop for a scene.",
+  "5. Respect the fiction's constraints. If a character canonically can't or wouldn't do something, the profile must engage with that constraint rather than ignore it.",
+].join("\n");
+
 const PROFILE_FIELD_INSTRUCTIONS: Record<CharacterPublicProfileSuggestionField, string> = {
   displayName:
-    "Write the Discord display name this character would set for themself as a real user. Use their taste, aliases, humor, status, community role, or self-presentation; do not default to the card name unless that is truly what they would use. Keep it short. Return only the display name.",
+    `${DISCORD_PROFILE_RULES}\n\nFor this field, return the display name they chose for public self-presentation, then a one-line parenthetical note under it.`,
   handle:
-    "Write the Discord-style username handle this character would choose for themself as a real user. It must start with @, feel self-chosen, and be short enough for a profile card; do not merely slugify the card name unless that is truly their style. Return only the handle.",
-  bio: "Write the public Discord bio this character would type for themself as a real user. Match their everyday self-presentation, humor, boundaries, status, interests, or social signals; not a narrator summary or character pitch. Keep it to one or two short sentences or fragments. Return only the bio.",
+    `${DISCORD_PROFILE_RULES}\n\nFor this field, return the Discord-style username handle they chose, starting with @, then a one-line parenthetical note under it.`,
+  bio: `${DISCORD_PROFILE_RULES}\n\nFor this field, return the 2-3 line bio in their exact texting voice, then a one-line parenthetical note under it.`,
 };
 
 function previousProfileTargetLine(
@@ -164,6 +174,14 @@ function firstNonEmptyLine(value: string): string {
       .map((line) => line.trim())
       .find(Boolean) ?? ""
   );
+}
+
+function stripGeneratedReadNote(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*\((?:note|read|hook|why)\s*:/i.test(line.trim()))
+    .join("\n")
+    .trim();
 }
 
 function jsonFieldValue(field: CharacterPublicProfileSuggestionField, raw: string): string {
@@ -317,7 +335,7 @@ export function cleanGeneratedCharacterPublicProfileField(
 ): string {
   const jsonValue = jsonFieldValue(field, raw);
   const source = jsonValue || raw;
-  let text = stripFieldLabel(field, stripWrappingQuotes(stripMarkdownFence(source))).trim();
+  let text = stripGeneratedReadNote(stripFieldLabel(field, stripWrappingQuotes(stripMarkdownFence(source))).trim());
   if (field === "displayName" || field === "handle") {
     text = firstNonEmptyLine(text);
   }
