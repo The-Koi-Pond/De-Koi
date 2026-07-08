@@ -1503,8 +1503,14 @@ impl FileStorage {
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(None);
         }
-        if let Ok(row) = self.indexed_row_by_id_from_disk(collection, id, recover_on_fallback) {
-            return Ok(row);
+        match self.indexed_row_by_id_from_disk(collection, id, recover_on_fallback) {
+            Ok(row) => return Ok(row),
+            Err(error)
+                if recover_on_fallback && error.code == "storage_collection_recovery_required" =>
+            {
+                return Err(error);
+            }
+            Err(_) => {}
         }
         match read_pretty_record_by_id_from_file(&path, id) {
             Ok(Some(row)) => return Ok(Some(row)),
@@ -1552,14 +1558,20 @@ impl FileStorage {
             return Ok(None);
         }
 
-        if let Ok(row) = self.indexed_projected_row_by_id_from_disk(
+        match self.indexed_projected_row_by_id_from_disk(
             collection,
             id,
             &field_set,
             &nested_field_sets,
             recover_on_fallback,
         ) {
-            return Ok(row);
+            Ok(row) => return Ok(row),
+            Err(error)
+                if recover_on_fallback && error.code == "storage_collection_recovery_required" =>
+            {
+                return Err(error);
+            }
+            Err(_) => {}
         }
         match read_pretty_projected_record_by_id_from_file(
             &path,
@@ -3318,7 +3330,7 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_collection_and_backup_are_preserved_and_recreated_empty() {
+    fn corrupt_collection_and_backup_are_preserved_for_manual_recovery() {
         let root = temp_storage_root("corrupt-collection-and-backup");
         let storage = FileStorage::new(&root).unwrap();
         let collection = root.join("collections").join("messages.json");
@@ -3326,10 +3338,12 @@ mod tests {
         fs::write(&collection, b"\0\0\0not-json").unwrap();
         fs::write(&backup, b"{ bad backup").unwrap();
 
-        let rows = storage.list("messages").unwrap();
+        let error = storage
+            .list("messages")
+            .expect_err("corrupt primary and backup should require manual recovery");
 
-        assert!(rows.is_empty());
-        assert_eq!(fs::read_to_string(&collection).unwrap(), "[]");
+        assert_eq!(error.code, "storage_collection_recovery_required");
+        assert!(!collection.exists());
         assert!(!backup.exists());
         assert_eq!(
             fs::read_dir(root.join("collections"))

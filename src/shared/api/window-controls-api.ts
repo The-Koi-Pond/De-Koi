@@ -83,9 +83,8 @@ export async function closeDesktopWindow(options: { force?: boolean } = {}) {
   if (options.force) armAllowNextClose();
   try {
     await requireCurrentWindow().close();
-  } catch (error) {
+  } finally {
     if (options.force) resetAllowNextClose();
-    throw error;
   }
 }
 

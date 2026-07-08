@@ -32,6 +32,14 @@ fn required_string_vec(args: &Map<String, Value>, key: &str) -> AppResult<Vec<St
         .collect()
 }
 
+fn required_non_empty_string_vec(args: &Map<String, Value>, key: &str) -> AppResult<Vec<String>> {
+    let values = required_string_vec(args, key)?;
+    if values.is_empty() {
+        return Err(AppError::invalid_input(format!("{key} must not be empty")));
+    }
+    Ok(values)
+}
+
 fn optional_value(args: &Map<String, Value>, key: &str) -> Value {
     args.get(key).cloned().unwrap_or(Value::Null)
 }
@@ -135,7 +143,10 @@ pub fn storage_delete(state: &AppState, args: &Map<String, Value>) -> AppResult<
 }
 
 pub fn regex_script_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    entity_commands::regex_script_reorder_inner(state, required_string_vec(args, "orderedIds")?)
+    entity_commands::regex_script_reorder_inner(
+        state,
+        required_non_empty_string_vec(args, "orderedIds")?,
+    )
 }
 
 pub fn prompt_nested_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
@@ -143,7 +154,7 @@ pub fn prompt_nested_reorder(state: &AppState, args: &Map<String, Value>) -> App
         state,
         required_string(args, "presetId")?,
         required_string(args, "kind")?,
-        required_string_vec(args, "orderedIds")?,
+        required_non_empty_string_vec(args, "orderedIds")?,
     )
 }
 pub fn storage_duplicate(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
@@ -157,7 +168,7 @@ pub fn storage_duplicate(state: &AppState, args: &Map<String, Value>) -> AppResu
 pub fn connection_folder_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     entity_commands::connection_folder_reorder_inner(
         state,
-        required_string_vec(args, "orderedIds")?,
+        required_non_empty_string_vec(args, "orderedIds")?,
     )
 }
 
@@ -165,16 +176,17 @@ pub fn lorebook_entry_reorder(state: &AppState, args: &Map<String, Value>) -> Ap
     let folder_id = match args.get("folderId") {
         Some(Value::Null) | None => None,
         Some(Value::String(value)) => Some(value.clone()),
+        Some(Value::Number(value)) => Some(value.to_string()),
         Some(_) => {
             return Err(AppError::invalid_input(
-                "folderId must be a folder id or null",
+                "folderId must be a folder id, number, or null",
             ))
         }
     };
     entity_commands::lorebook_entry_reorder_inner(
         state,
         required_string(args, "lorebookId")?,
-        required_string_vec(args, "orderedIds")?,
+        required_non_empty_string_vec(args, "orderedIds")?,
         folder_id,
     )
 }
@@ -191,7 +203,7 @@ pub fn lorebook_folder_reorder(state: &AppState, args: &Map<String, Value>) -> A
     entity_commands::lorebook_folder_reorder_inner(
         state,
         required_string(args, "lorebookId")?,
-        required_string_vec(args, "orderedIds")?,
+        required_non_empty_string_vec(args, "orderedIds")?,
         parent_folder_id,
     )
 }
@@ -333,6 +345,64 @@ mod tests {
             .exists());
     }
 
+    #[tokio::test]
+    async fn dispatch_reorder_rejects_empty_ordered_ids() {
+        let state = test_state("reorder-empty-ordered-ids");
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "regex_script_reorder".to_string(),
+                args: Some(json!({ "orderedIds": [] })),
+            },
+        )
+        .await
+        .expect_err("empty orderedIds should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("orderedIds must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_lorebook_entry_reorder_accepts_numeric_folder_id() {
+        let state = test_state("lorebook-entry-reorder-numeric-folder-id");
+        state
+            .storage
+            .create(
+                "lorebook-folders",
+                json!({ "id": "7", "lorebookId": "book-1", "name": "Folder" }),
+            )
+            .expect("folder should seed");
+        state
+            .storage
+            .create(
+                "lorebook-entries",
+                json!({ "id": "entry-1", "lorebookId": "book-1", "key": ["entry"] }),
+            )
+            .expect("entry should seed");
+
+        dispatch(
+            &state,
+            InvokeRequest {
+                command: "lorebook_entry_reorder".to_string(),
+                args: Some(json!({
+                    "lorebookId": "book-1",
+                    "folderId": 7,
+                    "orderedIds": ["entry-1"]
+                })),
+            },
+        )
+        .await
+        .expect("numeric folderId should dispatch");
+
+        let entry = state
+            .storage
+            .get("lorebook-entries", "entry-1")
+            .expect("entry should read")
+            .expect("entry should exist");
+        assert_eq!(entry["folderId"], json!("7"));
+        assert_eq!(entry["order"], json!(0));
+    }
     #[tokio::test]
     async fn dispatch_chat_disconnect_clears_partner_and_connected_notes() {
         let state = test_state("chat-disconnect-connected-notes");

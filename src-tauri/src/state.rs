@@ -2270,22 +2270,26 @@ mod tests {
     }
 
     #[test]
-    fn app_state_startup_recovers_when_collection_and_backup_are_corrupt() {
+    fn app_state_startup_requires_manual_recovery_when_collection_and_backup_are_corrupt() {
         let root = temp_root("corrupt-storage-startup");
         let collections = root.0.join("data").join("collections");
         std::fs::create_dir_all(&collections).expect("collections directory should exist");
-        std::fs::write(collections.join("messages.json"), b"\0\0\0")
-            .expect("corrupt primary should be written");
-        std::fs::write(collections.join("messages.json.bak"), b"{ bad backup")
-            .expect("corrupt backup should be written");
+        let primary = collections.join("messages.json");
+        let backup = collections.join("messages.json.bak");
+        std::fs::write(&primary, b"\0\0\0").expect("corrupt primary should be written");
+        std::fs::write(&backup, b"{ bad backup").expect("corrupt backup should be written");
 
-        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
+        let error = match AppState::from_data_dir(&root.0, Vec::new()) {
+            Ok(_) => panic!("state should require manual recovery"),
+            Err(error) => error,
+        };
 
-        assert!(state.storage.list("messages").unwrap().is_empty());
         assert_eq!(
-            std::fs::read_to_string(collections.join("messages.json")).unwrap(),
-            "[]"
+            error.code, "storage_collection_recovery_required",
+            "{error:?}"
         );
+        assert!(!primary.exists());
+        assert!(!backup.exists());
         assert_eq!(
             std::fs::read_dir(collections)
                 .unwrap()
