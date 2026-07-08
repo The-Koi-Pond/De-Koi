@@ -3,7 +3,8 @@
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { storageApi } from "../../../../shared/api/storage-api";
-import type { ChatFolder } from "../../../../engine/contracts/types/chat";
+import { chatFolderApi } from "../../../../shared/api/chat-folder-api";
+import type { ChatFolder, ChatMode } from "../../../../engine/contracts/types/chat";
 import { chatKeys } from "../query-keys";
 
 const folderKeys = {
@@ -59,11 +60,8 @@ export function useDeleteFolder() {
 export function useReorderFolders() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (orderedIds: string[]) => {
-      await Promise.all(
-        orderedIds.map((id, index) => storageApi.update("chat-folders", id, { sortOrder: index, order: index })),
-      );
-    },
+    mutationFn: ({ mode, orderedIds }: { mode: ChatMode; orderedIds: string[] }) =>
+      chatFolderApi.reorder({ mode, folderIds: orderedIds }),
     onSuccess: () => qc.invalidateQueries({ queryKey: folderKeys.list() }),
   });
 }

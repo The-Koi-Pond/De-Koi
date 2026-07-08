@@ -14,6 +14,7 @@ import {
 import { boolish } from "../../../../engine/generation/runtime-records";
 import type { StorageEntity } from "../../../../engine/capabilities/storage";
 import { promptNestedApi } from "../../../../shared/api/prompt-nested-api";
+import { promptPresetApi } from "../../../../shared/api/prompt-preset-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import type { PromptPreset, PromptGroup, PromptSection, ChoiceBlock } from "../../../../engine/contracts/types/prompt";
@@ -242,25 +243,7 @@ export function useDuplicatePreset() {
 export function useSetDefaultPreset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const prompts = await storageApi.list<PromptPresetSummary>("prompts", PRESET_SUMMARY_OPTIONS);
-      let selected: PromptPresetSummary | null = null;
-      await Promise.all(
-        prompts.map(async (prompt) => {
-          const isDefault = prompt.id === id;
-          const updated = await storageApi.update<PromptPresetSummary>(
-            "prompts",
-            prompt.id,
-            updatePromptPresetSchema.parse({
-              isDefault,
-              default: isDefault,
-            }),
-          );
-          if (isDefault) selected = updated;
-        }),
-      );
-      return selected!;
-    },
+    mutationFn: (id: string) => promptPresetApi.setDefault(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: presetKeys.list() });
       qc.invalidateQueries({ queryKey: presetKeys.default() });

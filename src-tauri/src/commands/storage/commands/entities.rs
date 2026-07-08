@@ -860,6 +860,118 @@ pub(crate) fn prompt_nested_reorder_inner(
         })
 }
 
+pub(crate) fn prompt_set_default_inner(
+    state: &AppState,
+    preset_id: &str,
+) -> Result<Value, AppError> {
+    let preset_id = preset_id.trim().to_string();
+    if preset_id.is_empty() {
+        return Err(AppError::invalid_input("presetId is required"));
+    }
+    state
+        .storage
+        .update_collections_atomically(vec!["prompts"], move |collections| {
+            let [prompts] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Prompt default update expected the prompt collection",
+                ));
+            };
+            if prompts.collection() != "prompts" {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Prompt default update received an unexpected collection",
+                ));
+            }
+            patch_single_default_row(prompts.rows_mut(), "prompts", &preset_id)
+        })
+}
+
+pub(crate) fn chat_preset_set_active_inner(
+    state: &AppState,
+    preset_id: &str,
+) -> Result<Value, AppError> {
+    let preset_id = preset_id.trim().to_string();
+    if preset_id.is_empty() {
+        return Err(AppError::invalid_input("presetId is required"));
+    }
+    state
+        .storage
+        .update_collections_atomically(vec!["chat-presets"], move |collections| {
+            let [presets] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Chat preset active update expected the chat preset collection",
+                ));
+            };
+            if presets.collection() != "chat-presets" {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Chat preset active update received an unexpected collection",
+                ));
+            }
+            let mode = presets
+                .rows()
+                .iter()
+                .find(|row| row.get("id").and_then(Value::as_str) == Some(preset_id.as_str()))
+                .and_then(|row| row.get("mode"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    AppError::not_found(format!("chat-presets/{preset_id} was not found"))
+                })?
+                .to_string();
+            patch_single_active_chat_preset_row(presets.rows_mut(), &preset_id, &mode)
+        })
+}
+
+pub(crate) fn chat_folder_reorder_inner(
+    state: &AppState,
+    mode: &str,
+    ordered_ids: Vec<String>,
+) -> Result<Value, AppError> {
+    let mode = mode.trim().to_string();
+    if mode.is_empty() {
+        return Err(AppError::invalid_input("mode is required"));
+    }
+    let ordered_ids = normalize_ordered_storage_ids(ordered_ids, "Chat folder reorder")?;
+    state
+        .storage
+        .update_collections_atomically(vec!["chat-folders"], move |collections| {
+            let [folders] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Chat folder reorder expected the chat folder collection",
+                ));
+            };
+            if folders.collection() != "chat-folders" {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Chat folder reorder received an unexpected collection",
+                ));
+            }
+            validate_owner_scoped_reorder_rows(
+                folders.rows(),
+                "chat-folders",
+                &ordered_ids,
+                "mode",
+                &mode,
+            )?;
+            patch_reorder_rows(
+                folders.rows_mut(),
+                "chat-folders",
+                &ordered_ids,
+                Some((&mode, "mode")),
+            )?;
+            Ok(Value::Array(
+                folders
+                    .rows()
+                    .iter()
+                    .filter(|row| row.get("mode").and_then(Value::as_str) == Some(mode.as_str()))
+                    .cloned()
+                    .collect(),
+            ))
+        })
+}
 fn prompt_nested_reorder_contract(kind: &str) -> Result<(&'static str, &'static str), AppError> {
     match kind.trim() {
         "groups" => Ok(("prompt-groups", "groupOrder")),
@@ -891,6 +1003,26 @@ fn normalize_ordered_storage_ids(ids: Vec<String>, label: &str) -> Result<Vec<St
     Ok(normalized)
 }
 
+fn validate_owner_scoped_reorder_rows(
+    rows: &[Value],
+    collection: &str,
+    ordered_ids: &[String],
+    owner_field: &str,
+    owner_id: &str,
+) -> Result<(), AppError> {
+    let existing_ids = rows
+        .iter()
+        .filter(|row| row.get(owner_field).and_then(Value::as_str) == Some(owner_id))
+        .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToOwned::to_owned))
+        .collect::<HashSet<_>>();
+    let ordered_id_set = ordered_ids.iter().cloned().collect::<HashSet<_>>();
+    if existing_ids != ordered_id_set {
+        return Err(AppError::invalid_input(format!(
+            "{collection} reorder must include every existing item in {owner_id} exactly once"
+        )));
+    }
+    Ok(())
+}
 fn patch_reorder_rows(
     rows: &mut [Value],
     collection: &str,
@@ -926,6 +1058,60 @@ fn patch_reorder_rows(
     Ok(())
 }
 
+fn patch_single_default_row(
+    rows: &mut [Value],
+    collection: &str,
+    selected_id: &str,
+) -> Result<Value, AppError> {
+    if !rows
+        .iter()
+        .any(|row| row.get("id").and_then(Value::as_str) == Some(selected_id))
+    {
+        return Err(AppError::not_found(format!(
+            "{collection}/{selected_id} was not found"
+        )));
+    }
+    let now = now_iso();
+    let mut selected = None;
+    for row in rows {
+        let Some(object) = row.as_object_mut() else {
+            return Err(AppError::invalid_input("Stored record is not an object"));
+        };
+        let is_selected = object.get("id").and_then(Value::as_str) == Some(selected_id);
+        object.insert("isDefault".to_string(), Value::Bool(is_selected));
+        object.insert("default".to_string(), Value::Bool(is_selected));
+        object.insert("updatedAt".to_string(), Value::String(now.clone()));
+        if is_selected {
+            selected = Some(Value::Object(object.clone()));
+        }
+    }
+    selected.ok_or_else(|| AppError::not_found(format!("{collection}/{selected_id} was not found")))
+}
+
+fn patch_single_active_chat_preset_row(
+    rows: &mut [Value],
+    selected_id: &str,
+    mode: &str,
+) -> Result<Value, AppError> {
+    let now = now_iso();
+    let mut selected = None;
+    for row in rows {
+        if row.get("mode").and_then(Value::as_str) != Some(mode) {
+            continue;
+        }
+        let Some(object) = row.as_object_mut() else {
+            return Err(AppError::invalid_input("Stored record is not an object"));
+        };
+        let is_selected = object.get("id").and_then(Value::as_str) == Some(selected_id);
+        object.insert("isActive".to_string(), Value::Bool(is_selected));
+        object.insert("active".to_string(), Value::Bool(is_selected));
+        object.insert("updatedAt".to_string(), Value::String(now.clone()));
+        if is_selected {
+            selected = Some(Value::Object(object.clone()));
+        }
+    }
+    selected.ok_or_else(|| AppError::not_found(format!("chat-presets/{selected_id} was not found")))
+}
 fn patch_prompt_order_row(
     rows: &mut [Value],
     preset_id: &str,
@@ -970,6 +1156,33 @@ pub fn prompt_nested_reorder(
     ordered_ids: Vec<String>,
 ) -> Result<Value, AppError> {
     prompt_nested_reorder_inner(&state, &preset_id, &kind, ordered_ids)
+}
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn prompt_set_default(
+    state: State<'_, AppState>,
+    preset_id: String,
+) -> Result<Value, AppError> {
+    prompt_set_default_inner(&state, &preset_id)
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn chat_preset_set_active(
+    state: State<'_, AppState>,
+    preset_id: String,
+) -> Result<Value, AppError> {
+    chat_preset_set_active_inner(&state, &preset_id)
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn chat_folder_reorder(
+    state: State<'_, AppState>,
+    mode: String,
+    ordered_ids: Vec<String>,
+) -> Result<Value, AppError> {
+    chat_folder_reorder_inner(&state, &mode, ordered_ids)
 }
 #[cfg(feature = "desktop")]
 #[tauri::command]
@@ -4324,6 +4537,128 @@ mod tests {
         assert_eq!(
             read_record(&state, "prompts", "preset")["sectionOrder"],
             json!(["section-a"])
+        );
+    }
+    #[test]
+    fn prompt_set_default_updates_all_flags_atomically() {
+        let state = test_state("prompt-set-default-atomic");
+        create_record(
+            &state,
+            "prompts",
+            json!({ "id": "preset-a", "name": "A", "isDefault": true, "default": true }),
+        );
+        create_record(
+            &state,
+            "prompts",
+            json!({ "id": "preset-b", "name": "B", "isDefault": false, "default": false }),
+        );
+
+        let selected =
+            prompt_set_default_inner(&state, "preset-b").expect("default update should commit");
+        assert_eq!(selected["id"], "preset-b");
+        assert_eq!(
+            read_record(&state, "prompts", "preset-a")["isDefault"],
+            json!(false)
+        );
+        assert_eq!(
+            read_record(&state, "prompts", "preset-a")["default"],
+            json!(false)
+        );
+        assert_eq!(
+            read_record(&state, "prompts", "preset-b")["isDefault"],
+            json!(true)
+        );
+        assert_eq!(
+            read_record(&state, "prompts", "preset-b")["default"],
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn chat_preset_set_active_updates_only_selected_mode() {
+        let state = test_state("chat-preset-set-active-atomic");
+        create_record(
+            &state,
+            "chat-presets",
+            json!({ "id": "conversation-a", "name": "A", "mode": "conversation", "isActive": true, "active": true }),
+        );
+        create_record(
+            &state,
+            "chat-presets",
+            json!({ "id": "conversation-b", "name": "B", "mode": "conversation", "isActive": false, "active": false }),
+        );
+        create_record(
+            &state,
+            "chat-presets",
+            json!({ "id": "game-a", "name": "Game", "mode": "game", "isActive": true, "active": true }),
+        );
+
+        let selected = chat_preset_set_active_inner(&state, "conversation-b")
+            .expect("active update should commit");
+        assert_eq!(selected["id"], "conversation-b");
+        assert_eq!(
+            read_record(&state, "chat-presets", "conversation-a")["isActive"],
+            json!(false)
+        );
+        assert_eq!(
+            read_record(&state, "chat-presets", "conversation-b")["isActive"],
+            json!(true)
+        );
+        assert_eq!(
+            read_record(&state, "chat-presets", "game-a")["isActive"],
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn chat_folder_reorder_is_mode_scoped_and_validated() {
+        let state = test_state("chat-folder-reorder-mode-scoped");
+        create_record(
+            &state,
+            "chat-folders",
+            json!({ "id": "conversation-a", "name": "A", "mode": "conversation", "sortOrder": 0, "order": 0 }),
+        );
+        create_record(
+            &state,
+            "chat-folders",
+            json!({ "id": "conversation-b", "name": "B", "mode": "conversation", "sortOrder": 1, "order": 1 }),
+        );
+        create_record(
+            &state,
+            "chat-folders",
+            json!({ "id": "game-a", "name": "Game", "mode": "game", "sortOrder": 0, "order": 0 }),
+        );
+
+        let error =
+            chat_folder_reorder_inner(&state, "conversation", vec!["conversation-b".to_string()])
+                .expect_err("omitted mode sibling should reject reorder");
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            read_record(&state, "chat-folders", "conversation-a")["sortOrder"],
+            json!(0)
+        );
+        assert_eq!(
+            read_record(&state, "chat-folders", "conversation-b")["sortOrder"],
+            json!(1)
+        );
+
+        chat_folder_reorder_inner(
+            &state,
+            "conversation",
+            vec!["conversation-b".to_string(), "conversation-a".to_string()],
+        )
+        .expect("valid mode-scoped reorder should commit");
+        assert_eq!(
+            read_record(&state, "chat-folders", "conversation-b")["sortOrder"],
+            json!(0)
+        );
+        assert_eq!(
+            read_record(&state, "chat-folders", "conversation-a")["sortOrder"],
+            json!(1)
+        );
+        assert_eq!(
+            read_record(&state, "chat-folders", "game-a")["sortOrder"],
+            json!(0)
         );
     }
     #[test]

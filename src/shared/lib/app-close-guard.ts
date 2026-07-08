@@ -41,26 +41,36 @@ export function registerAppCloseGuard(guard: AppCloseGuard) {
   };
 }
 
+export async function confirmDiscardPendingAppWork(options?: {
+  title?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+}) {
+  for (const guard of pendingGuards()) {
+    if (guard.flush) await guard.flush();
+  }
+  const remaining = pendingGuards();
+  if (remaining.length === 0) return true;
+  return showConfirmDialog({
+    title: options?.title ?? "Leave this work?",
+    message:
+      remaining.find((guard) => guard.message)?.message ??
+      `${formatGuardList(remaining)} Continue anyway and discard the unsaved work?`,
+    confirmLabel: options?.confirmLabel ?? "Discard",
+    cancelLabel: options?.cancelLabel ?? "Keep working",
+    tone: "destructive",
+  });
+}
+
 export async function requestGuardedAppClose() {
   if (closeInProgress) return false;
   closeInProgress = true;
   try {
-    for (const guard of pendingGuards()) {
-      if (guard.flush) await guard.flush();
-    }
-    const remaining = pendingGuards();
-    if (remaining.length > 0) {
-      const confirmed = await showConfirmDialog({
-        title: "Close De-Koi?",
-        message:
-          remaining.find((guard) => guard.message)?.message ??
-          `${formatGuardList(remaining)} Close anyway and discard the unsaved work?`,
-        confirmLabel: "Close anyway",
-        cancelLabel: "Keep working",
-        tone: "destructive",
-      });
-      if (!confirmed) return false;
-    }
+    const confirmed = await confirmDiscardPendingAppWork({
+      title: "Close De-Koi?",
+      confirmLabel: "Close anyway",
+    });
+    if (!confirmed) return false;
     await closeDesktopWindow({ force: true });
     return true;
   } finally {

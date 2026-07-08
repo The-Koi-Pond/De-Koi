@@ -649,6 +649,22 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
+        "prompt_set_default" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::prompt_set_default)
+                .await
+        }
+        "chat_preset_set_active" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::chat_preset_set_active,
+            )
+            .await
+        }
+        "chat_folder_reorder" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::chat_folder_reorder)
+                .await
+        }
         "regex_script_reorder" => {
             dispatch_blocking_http_storage(
                 state,
@@ -1665,6 +1681,9 @@ mod tests {
         "storage_get",
         "storage_list",
         "prompt_nested_reorder",
+        "prompt_set_default",
+        "chat_preset_set_active",
+        "chat_folder_reorder",
         "prompt_preset_bundle",
         "regex_script_reorder",
         "storage_update",
