@@ -54,6 +54,14 @@ function hasManagedGalleryReference(attachment: PromptAttachment): boolean {
   return !!readString(attachment.galleryId).trim() || !!readString(attachment.filePath).trim();
 }
 
+function hasResolvableImageReference(attachment: PromptAttachment): boolean {
+  return (
+    hasManagedGalleryReference(attachment) ||
+    !!readString(attachment.url).trim() ||
+    !!readString(attachment.imageUrl).trim()
+  );
+}
+
 function estimateDataUrlBytes(dataUrl: string): number {
   const commaIndex = dataUrl.indexOf(",");
   if (!dataUrl.startsWith("data:") || commaIndex < 0) return utf8ByteLength(dataUrl);
@@ -243,6 +251,8 @@ export async function resolveImageAttachmentDelivery(
       } else {
         warnings.push(imageDeliveryWarning(filename, `it is larger than ${providerSizeMegabytes()} MB after resolution.`));
       }
+    } else if (hasResolvableImageReference(attachment)) {
+      warnings.push(imageDeliveryWarning(filename, "the saved image data could not be resolved."));
     }
   }
   return { images, warnings };

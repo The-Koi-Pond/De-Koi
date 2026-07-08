@@ -25,6 +25,8 @@ function nearestSearchableElement(node: Node): HTMLElement | null {
   return null;
 }
 
+const FIND_SEARCH_DEBOUNCE_MS = 120;
+
 function collectMatches(query: string): HTMLElement[] {
   const needle = query.trim().toLocaleLowerCase();
   if (!needle) return [];
@@ -63,6 +65,7 @@ export function AppFindOverlay() {
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const activeElementRef = useRef<HTMLElement | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearActiveElement = useCallback(() => {
     activeElementRef.current?.removeAttribute("data-marinara-find-active");
@@ -114,9 +117,6 @@ export function AppFindOverlay() {
         const selected = selectedTextForFind();
         if (selected) {
           setQuery(selected);
-          window.requestAnimationFrame(() => runSearch(selected));
-        } else if (query.trim()) {
-          window.requestAnimationFrame(() => runSearch(query));
         }
         setOpen(true);
         window.requestAnimationFrame(() => {
@@ -140,14 +140,35 @@ export function AppFindOverlay() {
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [close, open, query, runSearch, step]);
+  }, [close, open, step]);
 
   useEffect(() => {
     if (!open) return;
-    runSearch(query);
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+    searchTimerRef.current = setTimeout(() => {
+      searchTimerRef.current = null;
+      runSearch(query);
+    }, FIND_SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = null;
+      }
+    };
   }, [open, query, runSearch]);
 
-  useEffect(() => clearActiveElement, [clearActiveElement]);
+  useEffect(
+    () => () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = null;
+      }
+      clearActiveElement();
+    },
+    [clearActiveElement],
+  );
 
   if (!open) return null;
 

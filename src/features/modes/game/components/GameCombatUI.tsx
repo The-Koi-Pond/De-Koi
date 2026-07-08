@@ -22,6 +22,7 @@ import {
 } from "react";
 import { cn } from "../../../../shared/lib/utils";
 import { audioManager } from "../lib/game-audio";
+import { createCombatTimerRegistry, type CombatTimerRegistry } from "../lib/combat-timer-registry";
 import { getOrCreateCachedTTSAudioBlob } from "../../../../shared/lib/tts-audio-cache";
 import {
   normalizeTTSCharacterName,
@@ -695,11 +696,16 @@ export function GameCombatUI({
   const combatLogCounter = useRef(0);
   const combatLogEndRef = useRef<HTMLDivElement | null>(null);
   const introTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const combatTimerRegistryRef = useRef<CombatTimerRegistry | null>(null);
   const combatVoiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const combatVoiceCacheRef = useRef<Map<string, CombatVoiceEntry>>(new Map());
   const combatVoicePendingRef = useRef<Map<string, AbortController>>(new Map());
   const combatVoiceSequenceRef = useRef(0);
   const lastAutoPlayedCombatVoiceGroupRef = useRef<string | null>(null);
+
+  if (!combatTimerRegistryRef.current) {
+    combatTimerRegistryRef.current = createCombatTimerRegistry();
+  }
 
   const appendCombatLog = useCallback((text: string, tone: CombatLogEntry["tone"] = "action") => {
     const trimmed = text.trim();
@@ -1120,6 +1126,12 @@ export function GameCombatUI({
     return () => clearTimeout(introTimer.current);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      combatTimerRegistryRef.current?.clearAll();
+    };
+  }, []);
+
   // ── All combatants merged for server requests ──
   const allCombatants = useMemo(
     () => [
@@ -1262,7 +1274,7 @@ export function GameCombatUI({
       const id = `dmg-${++popupCounter.current}`;
       const popup: DamagePopup = { id, targetId, amount, isCritical, isMiss, reactionLabel, isHeal };
       setDamagePopups((prev) => [...prev, popup]);
-      setTimeout(() => {
+      combatTimerRegistryRef.current?.schedule(() => {
         setDamagePopups((prev) => prev.filter((p) => p.id !== id));
       }, DAMAGE_DISPLAY_MS);
     },
@@ -1343,6 +1355,7 @@ export function GameCombatUI({
       setPhase("animating");
       let actionIdx = 0;
       const combatantsForLog = allCombatants;
+      const timerRegistry = combatTimerRegistryRef.current;
 
       const playNextAction = () => {
         if (actionIdx >= result.actions.length) {
@@ -1392,10 +1405,10 @@ export function GameCombatUI({
         if (!action.isMiss) updateCombatantHp(action.defenderId, action.remainingHp);
 
         actionIdx++;
-        setTimeout(playNextAction, action.reaction ? COMBAT_REACTION_DELAY_MS : COMBAT_ACTION_DELAY_MS);
+        timerRegistry?.schedule(playNextAction, action.reaction ? COMBAT_REACTION_DELAY_MS : COMBAT_ACTION_DELAY_MS);
       };
 
-      setTimeout(playNextAction, COMBAT_ACTION_START_DELAY_MS);
+      timerRegistry?.schedule(playNextAction, COMBAT_ACTION_START_DELAY_MS);
     },
     [allCombatants, appendCombatLog, playSfx, spawnDamage, applyRoundEnd, updateCombatantHp],
   );

@@ -14,9 +14,13 @@ type PathResponse = { path?: string | null };
 export type ManagedAssetThumbnailKind = "background" | "gallery" | "game" | "lorebook";
 
 const pendingAvatarThumbnailResolutions = new Map<string, Promise<string | null>>();
+const pendingManagedAssetThumbnailResolutions = new Map<string, Promise<string | null>>();
 let activeAvatarThumbnailResolutions = 0;
+let activeManagedAssetThumbnailResolutions = 0;
 const queuedAvatarThumbnailResolutions: Array<() => void> = [];
+const queuedManagedAssetThumbnailResolutions: Array<() => void> = [];
 const MAX_ACTIVE_AVATAR_THUMBNAIL_RESOLUTIONS = 2;
+const MAX_ACTIVE_MANAGED_ASSET_THUMBNAIL_RESOLUTIONS = 2;
 
 export function managedAssetThumbnailRemotePath(
   kind: ManagedAssetThumbnailKind,
@@ -43,20 +47,32 @@ function hashCacheInput(value: string | null | undefined): string {
   return `${input.length}:${(hash >>> 0).toString(16)}`;
 }
 
+function runtimeCacheScope(): string {
+  const target = remoteRuntimeTarget();
+  return target ? `${target.baseUrl}\0${target.authorization ?? ""}` : "embedded";
+}
+
 function avatarThumbnailResolutionCacheKey(
   filename: string | null | undefined,
   absolutePath: string | null | undefined,
   size: number,
   sourceUrl: string | null,
 ): string {
-  const target = remoteRuntimeTarget();
   return [
-    target ? `${target.baseUrl}\0${target.authorization ?? ""}` : "embedded",
+    runtimeCacheScope(),
     filename?.trim() ?? "",
     absolutePath?.trim() ?? "",
     String(size),
     hashCacheInput(sourceUrl),
   ].join("\0");
+}
+
+function managedThumbnailResolutionCacheKey(
+  kind: ManagedAssetThumbnailKind,
+  path: string | null | undefined,
+  size: number,
+): string {
+  return [runtimeCacheScope(), kind, path?.trim() ?? "", String(size)].join("\0");
 }
 
 function scheduleAvatarThumbnailResolution<T>(task: () => Promise<T>): Promise<T> {
@@ -75,6 +91,25 @@ function scheduleAvatarThumbnailResolution<T>(task: () => Promise<T>): Promise<T
       return;
     }
     queuedAvatarThumbnailResolutions.push(run);
+  });
+}
+
+function scheduleManagedAssetThumbnailResolution<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const run = () => {
+      activeManagedAssetThumbnailResolutions += 1;
+      task()
+        .then(resolve, reject)
+        .finally(() => {
+          activeManagedAssetThumbnailResolutions -= 1;
+          queuedManagedAssetThumbnailResolutions.shift()?.();
+        });
+    };
+    if (activeManagedAssetThumbnailResolutions < MAX_ACTIVE_MANAGED_ASSET_THUMBNAIL_RESOLUTIONS) {
+      run();
+      return;
+    }
+    queuedManagedAssetThumbnailResolutions.push(run);
   });
 }
 
@@ -111,14 +146,29 @@ export async function resolveManagedAssetThumbnailFileUrl(
   path: string | null | undefined,
   size = 256,
 ): Promise<string | null> {
-  const remoteUrl = await remoteManagedAssetResolvableUrl(
-    "thumbnail",
-    managedAssetThumbnailRemotePath(kind, path, size),
-  );
-  if (remoteUrl) return remoteUrl;
-  if (!path?.trim()) return null;
-  const response = await invokeTauri<PathResponse>("managed_asset_thumbnail_file_path", { kind, path, size });
-  return filePathToAssetUrl(response.path ?? "");
+  const cacheKey = managedThumbnailResolutionCacheKey(kind, path, size);
+  const pending = pendingManagedAssetThumbnailResolutions.get(cacheKey);
+  if (pending) return pending;
+
+  const promise = scheduleManagedAssetThumbnailResolution(async () => {
+    const remoteUrl = await remoteManagedAssetResolvableUrl(
+      "thumbnail",
+      managedAssetThumbnailRemotePath(kind, path, size),
+    );
+    if (remoteUrl) return remoteUrl;
+    if (!path?.trim()) return null;
+    const response = await invokeTauri<PathResponse>("managed_asset_thumbnail_file_path", { kind, path, size });
+    return filePathToAssetUrl(response.path ?? "");
+  });
+  pendingManagedAssetThumbnailResolutions.set(cacheKey, promise);
+  promise
+    .finally(() => {
+      if (pendingManagedAssetThumbnailResolutions.get(cacheKey) === promise) {
+        pendingManagedAssetThumbnailResolutions.delete(cacheKey);
+      }
+    })
+    .catch(() => {});
+  return promise;
 }
 
 export async function resolveAvatarThumbnailFileUrl(

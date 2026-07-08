@@ -226,6 +226,9 @@ export async function flushPendingGameMetadataPatches(chatId?: string, options: 
             handlers?.delete(handler);
           }
         }
+        if (handlers) {
+          persistedChatHandlers.delete(queuedSnapshot.chatId);
+        }
         return chat;
       })
       .catch((error) => {

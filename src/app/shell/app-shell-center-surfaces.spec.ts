@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
 
 describe("getAppShellCenterSurfaceState", () => {
-  it("lets Deki occupy the center surface when no full-view surface is active", () => {
+  it("lets Deki occupy the center surface when no full-view surface is active and a session is selected", () => {
     expect(
       getAppShellCenterSurfaceState({
         botBrowserOpen: false,
@@ -10,10 +10,27 @@ describe("getAppShellCenterSurfaceState", () => {
         rightPanelOpen: false,
         detailViewOpen: false,
         dekiOpen: true,
+        activeDekiSessionId: "deki-1",
       }),
     ).toEqual({
       dekiSurfaceVisible: true,
       mainSurfaceVisible: false,
+    });
+  });
+
+  it("keeps the main surface visible when only the Deki sidebar is opened", () => {
+    expect(
+      getAppShellCenterSurfaceState({
+        botBrowserOpen: false,
+        gameAssetsBrowserOpen: false,
+        rightPanelOpen: false,
+        detailViewOpen: false,
+        dekiOpen: false,
+        activeDekiSessionId: null,
+      }),
+    ).toEqual({
+      dekiSurfaceVisible: false,
+      mainSurfaceVisible: true,
     });
   });
 
@@ -25,6 +42,7 @@ describe("getAppShellCenterSurfaceState", () => {
         rightPanelOpen: false,
         detailViewOpen: false,
         dekiOpen: true,
+        activeDekiSessionId: "deki-1",
       }),
     ).toEqual({
       dekiSurfaceVisible: false,
@@ -40,6 +58,7 @@ describe("getAppShellCenterSurfaceState", () => {
         rightPanelOpen: true,
         detailViewOpen: false,
         dekiOpen: true,
+        activeDekiSessionId: "deki-1",
       }),
     ).toEqual({
       dekiSurfaceVisible: false,
@@ -55,6 +74,7 @@ describe("getAppShellCenterSurfaceState", () => {
         rightPanelOpen: false,
         detailViewOpen: true,
         dekiOpen: true,
+        activeDekiSessionId: "deki-1",
       }),
     ).toEqual({
       dekiSurfaceVisible: false,

@@ -48,6 +48,7 @@ import {
 import { useChatSurfaceCharacterSummariesByIds } from "../../features/catalog/characters/index";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
+import { confirmDiscardPendingAppWork } from "../../shared/lib/app-close-guard";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
@@ -66,6 +67,8 @@ import {
   type ChatSidebarSortOption,
 } from "./chat-sidebar-rows";
 import { buildChatSidebarCharacterLookup, type ChatSidebarCharacterAvatar } from "./chat-sidebar-character-avatars";
+import { CHAT_ROW_ACTION_RAIL_CLASS_NAME, CHAT_ROW_TITLE_CLASS_NAME } from "./chat-sidebar-row-layout";
+import { formatChatTagsDraft, normalizeChatTagsDraft } from "./chat-sidebar-tags";
 type ChatSortOption = ChatSidebarSortOption;
 export type ChatSidebarTab = "conversation" | "roleplay" | "game";
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
@@ -199,6 +202,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
 
   // Folder UI state
   const [movingChatId, setMovingChatId] = useState<string | null>(null);
+  const [tagEditingChatId, setTagEditingChatId] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
   const [chatDropTarget, setChatDropTarget] = useState<ChatDropTarget>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
@@ -504,11 +509,10 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
   const handleFolderReorder = useCallback(
     (newOrder: string[]) => {
       setLocalFolderOrder(newOrder);
-      reorderFoldersMut.mutate(newOrder);
+      reorderFoldersMut.mutate({ mode: activeTab, orderedIds: newOrder });
     },
-    [reorderFoldersMut],
+    [activeTab, reorderFoldersMut],
   );
-
 
   const clearFolderDragState = useCallback(() => {
     setDraggedFolderId(null);
@@ -569,6 +573,34 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
     },
     [moveChatMut],
   );
+
+  const tagEditingChat = useMemo(
+    () => chats?.find((chat) => chat.id === tagEditingChatId) ?? null,
+    [chats, tagEditingChatId],
+  );
+
+  const openTagEditor = useCallback((chat: ChatSidebarRow["chat"]) => {
+    setTagEditingChatId(chat.id);
+    setTagDraft(formatChatTagsDraft(getChatTags(chat)));
+  }, []);
+
+  const closeTagEditor = useCallback(() => {
+    setTagEditingChatId(null);
+    setTagDraft("");
+  }, []);
+
+  const saveTagEditor = useCallback(() => {
+    if (!tagEditingChatId) return;
+    updateChatMetadata.mutate(
+      { id: tagEditingChatId, tags: normalizeChatTagsDraft(tagDraft) },
+      {
+        onSuccess: () => {
+          toast.success("Chat tags updated.");
+        },
+      },
+    );
+    closeTagEditor();
+  }, [closeTagEditor, tagDraft, tagEditingChatId, updateChatMetadata]);
 
   const clearChatDragState = useCallback(() => {
     setDraggedChatId(null);
@@ -703,6 +735,12 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
         onClick={async () => {
           if (multiSelectMode) {
             toggleSelectChat(chat.id);
+            return;
+          }
+          if (
+            chat.id !== activeChatId &&
+            !(await confirmDiscardPendingAppWork({ title: "Switch chats?", confirmLabel: "Switch anyway" }))
+          ) {
             return;
           }
           if (hasAnyDetailOpen()) {
@@ -872,7 +910,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
         </div>
 
         {/* Name */}
-        <div className="min-w-0 flex-1">
+        <div className={CHAT_ROW_TITLE_CLASS_NAME}>
           <span
             className={cn(
               "block truncate text-sm",
@@ -891,73 +929,74 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
           </span>
         )}
 
-        {/* Mode badge on hover */}
         {!multiSelectMode && (
-          <span className="shrink-0 text-[0.625rem] text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 max-md:opacity-100">
-            {cfg.shortLabel}
-          </span>
-        )}
-
-        {/* Pin chat */}
-        {!multiSelectMode && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              updateChatMetadata.mutate({ id: chat.id, pinned: !pinned });
-            }}
-            disabled={updateChatMetadata.isPending}
-            className={cn(
-              "shrink-0 rounded-md p-1 transition-all hover:bg-[var(--accent)] disabled:opacity-50",
-              pinned
-                ? "text-amber-400 opacity-100"
-                : "text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 max-md:opacity-100",
+          <div className={cn(CHAT_ROW_ACTION_RAIL_CLASS_NAME, pinned && "pointer-events-auto opacity-100")}>
+            <span className="px-1 text-[0.625rem] text-[var(--muted-foreground)]">{cfg.shortLabel}</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openTagEditor(chat);
+              }}
+              className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--primary)]"
+              title="Edit tags"
+              aria-label={`Edit tags for ${chat.name}`}
+            >
+              <Tag size="0.75rem" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                updateChatMetadata.mutate({ id: chat.id, pinned: !pinned });
+              }}
+              disabled={updateChatMetadata.isPending}
+              className={cn(
+                "shrink-0 rounded-md p-1 transition-all hover:bg-[var(--accent)] disabled:opacity-50",
+                pinned ? "text-amber-400" : "text-[var(--muted-foreground)]",
+              )}
+              title={pinned ? "Unpin chat" : "Pin chat"}
+              aria-label={pinned ? "Unpin chat" : "Pin chat"}
+            >
+              <Star size="0.75rem" className={pinned ? "fill-current" : ""} />
+            </button>
+            {modeFolders.length > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMovingChatId(chat.id);
+                }}
+                className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
+                title="Move to folder"
+                aria-label={`Move ${chat.name} to folder`}
+              >
+                <FolderOpen size="0.75rem" />
+              </button>
             )}
-            title={pinned ? "Unpin chat" : "Pin chat"}
-            aria-label={pinned ? "Unpin chat" : "Pin chat"}
-          >
-            <Star size="0.75rem" className={pinned ? "fill-current" : ""} />
-          </button>
-        )}
-
-        {/* Move to folder */}
-        {!multiSelectMode && modeFolders.length > 0 && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setMovingChatId(chat.id);
-            }}
-            className="shrink-0 rounded-md p-1 opacity-0 transition-all hover:bg-[var(--accent)] group-hover:opacity-100 max-md:opacity-100"
-            title="Move to folder"
-          >
-            <FolderOpen size="0.75rem" className="text-[var(--muted-foreground)]" />
-          </button>
-        )}
-
-        {/* Delete button */}
-        {!multiSelectMode && (
-          <button
-            onClick={async (e) => {
-              e.stopPropagation();
-              if (branchCount > 1 && chat.groupId) {
-                setDeleteTarget({ chatId: chat.id, groupId: chat.groupId, branchCount });
-              } else {
-                if (
-                  await showConfirmDialog({
-                    title: "Delete Chat",
-                    message: "Delete this chat?",
-                    confirmLabel: "Delete",
-                    tone: "destructive",
-                  })
-                ) {
-                  deleteChat.mutate(chat.id);
-                  if (activeChatId === chat.id) setActiveChatId(null);
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (branchCount > 1 && chat.groupId) {
+                  setDeleteTarget({ chatId: chat.id, groupId: chat.groupId, branchCount });
+                } else {
+                  if (
+                    await showConfirmDialog({
+                      title: "Delete Chat",
+                      message: "Delete this chat?",
+                      confirmLabel: "Delete",
+                      tone: "destructive",
+                    })
+                  ) {
+                    deleteChat.mutate(chat.id);
+                    if (activeChatId === chat.id) setActiveChatId(null);
+                  }
                 }
-              }
-            }}
-            className="shrink-0 rounded-md p-1 opacity-0 transition-all hover:bg-[var(--destructive)]/20 group-hover:opacity-100 max-md:opacity-100"
-          >
-            <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
-          </button>
+              }}
+              className="shrink-0 rounded-md p-1 text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20"
+              title="Delete chat"
+              aria-label={`Delete ${chat.name}`}
+            >
+              <Trash2 size="0.75rem" />
+            </button>
+          </div>
         )}
       </div>
     );
@@ -989,7 +1028,15 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
           return (
             <button
               key={tab}
-              onClick={() => onActiveTabChange(tab)}
+              onClick={async () => {
+                if (tab === activeTab) return;
+                if (
+                  !(await confirmDiscardPendingAppWork({ title: "Switch chat modes?", confirmLabel: "Switch anyway" }))
+                ) {
+                  return;
+                }
+                onActiveTabChange(tab);
+              }}
               className={cn(
                 "relative flex min-h-[2.125rem] min-w-0 flex-1 items-center justify-center gap-1 overflow-visible rounded-lg px-1 py-2 text-[0.625rem] leading-normal font-medium transition-all",
                 isActive
@@ -1402,6 +1449,41 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
                 {f.name}
               </button>
             ))}
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={tagEditingChatId !== null} onClose={closeTagEditor} title="Edit Tags" width="max-w-sm">
+        {tagEditingChat && (
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--foreground)]">
+              Tags
+              <textarea
+                value={tagDraft}
+                onChange={(event) => setTagDraft(event.target.value)}
+                rows={3}
+                placeholder="story, urgent"
+                aria-label={`Tags for ${tagEditingChat.name}`}
+                className="min-h-20 resize-none rounded-xl border border-[var(--border)]/60 bg-[var(--background)] px-3 py-2 text-sm font-normal text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)]/65 focus:border-[var(--primary)]/45"
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setTagDraft("")}
+                className="rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)]"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={saveTagEditor}
+                disabled={updateChatMetadata.isPending}
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition-all hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+              >
+                {updateChatMetadata.isPending ? "Saving..." : "Save tags"}
+              </button>
+            </div>
           </div>
         )}
       </Modal>

@@ -186,6 +186,11 @@ interface PreparedUserInput {
   mentionedCharacterNames: string[];
 }
 
+interface StoredImageAttachmentDelivery {
+  messages: JsonRecord[];
+  warnings: ImageAttachmentDeliveryWarning[];
+}
+
 interface CyoaChoice {
   label: string;
   text: string;
@@ -1537,6 +1542,88 @@ export async function loadMessagesForGenerationTarget(args: {
   return [...previousMessages, target];
 }
 
+function storedMessageImageDataUrls(message: JsonRecord): string[] {
+  return Array.isArray(message.images)
+    ? message.images.filter((image): image is string => typeof image === "string" && image.trim().length > 0)
+    : [];
+}
+
+function hasStoredPromptImages(messages: JsonRecord[]): boolean {
+  return messages.some((message) => storedMessageImageDataUrls(message).length > 0);
+}
+
+async function resolveStoredImageAttachmentsForPrompt(
+  storage: StorageGateway,
+  messages: JsonRecord[],
+  skipMessageIds: Set<string> = new Set(),
+): Promise<StoredImageAttachmentDelivery> {
+  const warnings: ImageAttachmentDeliveryWarning[] = [];
+  let changed = false;
+  const resolvedMessages: JsonRecord[] = [];
+
+  for (const message of messages) {
+    const messageId = readString(message.id).trim();
+    const role = readString(message.role).trim();
+    const attachments = promptAttachmentsFromExtra(message.extra);
+    if (role !== "user" || (messageId && skipMessageIds.has(messageId)) || !attachments?.some(isImageAttachment)) {
+      resolvedMessages.push(message);
+      continue;
+    }
+
+    const delivery = await resolveImageAttachmentDelivery(storage, attachments);
+    warnings.push(...delivery.warnings);
+    if (delivery.images.length === 0) {
+      resolvedMessages.push(message);
+      continue;
+    }
+
+    changed = true;
+    resolvedMessages.push({
+      ...message,
+      images: [...storedMessageImageDataUrls(message), ...delivery.images],
+    });
+  }
+
+  return { messages: changed ? resolvedMessages : messages, warnings };
+}
+
+function imageAttachmentConnectionWarnings(connection: JsonRecord): ImageAttachmentDeliveryWarning[] {
+  const provider = readString(connection.provider).trim();
+  if (provider === "claude_subscription") {
+    return [
+      imageAttachmentConnectionWarning(
+        "Image attachments could not be delivered through the Claude subscription path. Use an image-capable API provider or remove the attachment.",
+      ),
+    ];
+  }
+
+  const capabilities = parseRecord(connection.capabilities);
+  if (capabilities.vision === false) {
+    const model = readString(connection.model).trim() || readString(connection.name).trim() || "The selected model";
+    return [
+      imageAttachmentConnectionWarning(
+        `${model} is marked as not vision-capable, so image attachments were not delivered to the character.`,
+      ),
+    ];
+  }
+
+  return [];
+}
+
+function applyStoredImageAttachmentConnectionSupport(
+  messages: JsonRecord[],
+  connection: JsonRecord,
+): StoredImageAttachmentDelivery {
+  if (!hasStoredPromptImages(messages)) return { messages, warnings: [] };
+  const warnings = imageAttachmentConnectionWarnings(connection);
+  if (warnings.length === 0) return { messages, warnings };
+  return {
+    messages: messages.map((message) =>
+      storedMessageImageDataUrls(message).length > 0 ? { ...message, images: [] } : message,
+    ),
+    warnings,
+  };
+}
 function imageAttachmentConnectionWarning(message: string): ImageAttachmentDeliveryWarning {
   return {
     code: "image_attachment_delivery",
@@ -1551,28 +1638,9 @@ function applyImageAttachmentConnectionSupport(
   connection: JsonRecord,
 ): ImageAttachmentDeliveryWarning[] {
   if (prepared.images.length === 0) return [];
-  const provider = readString(connection.provider).trim();
-  if (provider === "claude_subscription") {
-    prepared.images = [];
-    return [
-      imageAttachmentConnectionWarning(
-        "Image attachments could not be delivered through the Claude subscription path. Use an image-capable API provider or remove the attachment.",
-      ),
-    ];
-  }
-
-  const capabilities = parseRecord(connection.capabilities);
-  if (capabilities.vision === false) {
-    prepared.images = [];
-    const model = readString(connection.model).trim() || readString(connection.name).trim() || "The selected model";
-    return [
-      imageAttachmentConnectionWarning(
-        `${model} is marked as not vision-capable, so image attachments were not delivered to the character.`,
-      ),
-    ];
-  }
-
-  return [];
+  const warnings = imageAttachmentConnectionWarnings(connection);
+  if (warnings.length > 0) prepared.images = [];
+  return warnings;
 }
 
 function withImageAttachments(messages: LlmMessage[], images: string[]): LlmMessage[] {
@@ -4248,7 +4316,14 @@ export async function* dryRunGeneration(
     chatId,
     regenerationTarget,
   );
-  const generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+  let generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+  const storedImageDelivery = await resolveStoredImageAttachmentsForPrompt(deps.storage, generationMessages);
+  generationMessages = storedImageDelivery.messages;
+  const storedImageConnectionSupport = applyStoredImageAttachmentConnectionSupport(generationMessages, connection);
+  generationMessages = storedImageConnectionSupport.messages;
+  for (const warning of [...storedImageDelivery.warnings, ...storedImageConnectionSupport.warnings]) {
+    yield { type: "agent_warning", data: warning };
+  }
   const latestUserInput =
     userRegenerationSourceMessage?.content || preparedUserInput.content || inputUserMessage(input);
   const generationTrackerBaseline = await selectGenerationTrackerBaseline(
@@ -4451,8 +4526,9 @@ export async function* startGeneration(
   ]) {
     yield { type: "agent_warning", data: warning };
   }
+  let savedTimelineMessage: JsonRecord | null = null;
   if (savesUserMessage) {
-    const savedTimelineMessage = savedUserMessageForTimeline(savedUserMessage, chatId);
+    savedTimelineMessage = savedUserMessageForTimeline(savedUserMessage, chatId);
     storedMessages = savedTimelineMessage
       ? [...(storedMessages ?? []), savedTimelineMessage]
       : await loadChatMessages(deps.storage, chatId, messageLoadOptions);
@@ -4468,6 +4544,20 @@ export async function* startGeneration(
     regenerationTarget,
   );
   let generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+  const skippedStoredImageMessageIds = new Set(
+    [readString(savedTimelineMessage?.id).trim()].filter((id): id is string => id.length > 0),
+  );
+  const storedImageDelivery = await resolveStoredImageAttachmentsForPrompt(
+    deps.storage,
+    generationMessages,
+    skippedStoredImageMessageIds,
+  );
+  generationMessages = storedImageDelivery.messages;
+  const storedImageConnectionSupport = applyStoredImageAttachmentConnectionSupport(generationMessages, connection);
+  generationMessages = storedImageConnectionSupport.messages;
+  for (const warning of [...storedImageDelivery.warnings, ...storedImageConnectionSupport.warnings]) {
+    yield { type: "agent_warning", data: warning };
+  }
   const latestUserInput =
     readString(internalOptions.latestUserInput).trim() ||
     userRegenerationSourceMessage?.content ||
@@ -4560,6 +4650,20 @@ export async function* startGeneration(
       storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
       regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
       generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+      const delayedStoredImageDelivery = await resolveStoredImageAttachmentsForPrompt(
+        deps.storage,
+        generationMessages,
+        skippedStoredImageMessageIds,
+      );
+      generationMessages = delayedStoredImageDelivery.messages;
+      const delayedStoredImageConnectionSupport = applyStoredImageAttachmentConnectionSupport(
+        generationMessages,
+        connection,
+      );
+      generationMessages = delayedStoredImageConnectionSupport.messages;
+      for (const warning of [...delayedStoredImageDelivery.warnings, ...delayedStoredImageConnectionSupport.warnings]) {
+        yield { type: "agent_warning", data: warning };
+      }
     }
     if (characterNames.length > 0) {
       yield { type: "typing", data: { characters: characterNames } };

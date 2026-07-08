@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "../../shared/lib/utils";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
-import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
+import { getToggledAppShellLeftSidebarPanel, type AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 
 function stopChromeDrag(event: ReactMouseEvent<HTMLElement>) {
   event.stopPropagation();
@@ -13,7 +13,7 @@ export function ChatTitleControls({
   dekiOpen = false,
   leftSidebarPanel = "chats",
   onLeftSidebarPanelChange,
-  onOpenDeki,
+  onOpenDeki: _onOpenDeki,
   onGoHome,
   className,
   hideDekiOnNarrow = false,
@@ -35,9 +35,11 @@ export function ChatTitleControls({
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const chatSidebarOpen = leftSidebarPanel === "chats";
+  const dekiSidebarOpen = leftSidebarPanel === "deki";
+  const dekiButtonActive = dekiOpen || dekiSidebarOpen;
 
   const toggleChatSidebar = () => {
-    onLeftSidebarPanelChange?.(chatSidebarOpen ? null : "chats");
+    onLeftSidebarPanelChange?.(getToggledAppShellLeftSidebarPanel(leftSidebarPanel, "chats"));
   };
 
   const goHome = () => {
@@ -46,10 +48,8 @@ export function ChatTitleControls({
     onGoHome?.();
   };
 
-  const openDeki = () => {
-    setActiveChatId(null);
-    closeAllDetails();
-    onOpenDeki?.();
+  const toggleDekiSidebar = () => {
+    onLeftSidebarPanelChange?.(getToggledAppShellLeftSidebarPanel(leftSidebarPanel, "deki"));
   };
 
   return (
@@ -91,22 +91,22 @@ export function ChatTitleControls({
       {!hideDeki && (
         <button
           type="button"
-          onClick={openDeki}
+          onClick={toggleDekiSidebar}
           onMouseDown={stopChromeDrag}
           onDoubleClick={stopChromeDrag}
           className={cn(
             "mari-titlebar-action relative rounded-md p-1 transition-all duration-200",
             hideDekiOnNarrow && "mari-titlebar-action-mobile-optional",
-            dekiOpen
+            dekiButtonActive
               ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
               : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
           )}
           title="Deki-senpai"
           aria-label="Deki-senpai"
-          aria-pressed={dekiOpen}
+          aria-pressed={dekiButtonActive}
         >
           <MessageCircleHeart size="0.95rem" aria-hidden />
-          {dekiOpen && (
+          {dekiButtonActive && (
             <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
           )}
         </button>
