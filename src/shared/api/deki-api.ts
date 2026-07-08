@@ -131,8 +131,14 @@ const DEKI_WORKSPACE_TOOL_NAMES = new Set<DekiWorkspaceToolName>([
   "ls",
   "deki_data",
   "deki_code",
+  "read_deki_library",
+  "read_deki_library_items",
+  "search_deki_code",
+  "read_deki_code_file",
   "read_deki_chats",
   "read_deki_chat_messages",
+  "search_deki_web",
+  "read_deki_web_page",
 ]);
 
 const DEKI_WORKSPACE_HISTORY_STATUSES = new Set<DekiWorkspaceHistoryEntry["status"]>([

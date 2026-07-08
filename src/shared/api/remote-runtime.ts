@@ -235,6 +235,10 @@ const REMOTE_COMMANDS = new Set([
   "deki_workspace_approve",
   "deki_workspace_reject",
   "professor_mari_prompt",
+  "deki_workspace_status",
+  "deki_workspace_abort",
+  "deki_workspace_approve",
+  "deki_workspace_reject",
   "update_check",
   "update_apply",
 ]);

@@ -1,0 +1,119 @@
+@startuml name "Deki JSON command loop sequence"
+title "Deki Slice 2 - bounded JSON command loop sequence"
+rightfooter Runtime sequence for issue #675; no app-data approvals or streaming UI in this slice
+
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam ParticipantPadding 24
+skinparam BoxPadding 12
+
+actor User
+participant "DekiSurface\nsrc/features/shell/deki" as UI
+participant "runDetachedDekiSend\nsrc/features/shell/deki/lib" as Send
+participant "runDekiEntry\nsrc/engine/deki" as Entry
+participant "dekiApi.prompt\nsrc/shared/api" as Api
+participant "Tauri/remote invoke\nshared/api + http_dispatch" as Invoke
+participant "deki_prompt\nsrc-tauri commands/storage/deki.rs" as Runtime
+participant "Prompt builder\ndeki/prompt.rs" as Prompt
+participant "Loop coordinator\ndeki/loop.rs" as Loop
+participant "Model client\ndeki/model_client.rs" as ModelClient
+participant "Protocol parser\ndeki/protocol.rs" as Protocol
+participant "Evidence budgeter\ndeki/budget.rs" as Budget
+participant "Typed command registry\ndeki/commands/mod.rs" as Commands
+participant "LLM provider\nsrc-tauri/crates/llm" as Llm
+database "AppState.storage" as Storage
+collections "Repo root\nbounded source files" as Repo
+participant "Public web\napproved grants only" as Web
+participant "Action parser\ndeki/action_parser.rs" as ActionParser
+
+User -> UI : send prompt
+UI -> Send : runDetachedDekiSend(input)
+Send -> Send : persist user message\ncompact history if needed
+Send -> Entry : runDekiEntry(request, dekiApi)
+Entry -> Api : prompt(DekiEntryRequest)
+Api -> Invoke : invoke "deki_prompt"
+Invoke -> Runtime : deki_prompt(state, request)
+
+Runtime -> Runtime : resolve connection\nvalidate request and session context
+Runtime -> Prompt : build system + task prompt\ninclude approved chat/web grants\ninclude JSON protocol instructions
+Prompt --> Runtime : prompt parts + initial context
+Runtime -> Loop : run bounded JSON command loop
+Loop -> Budget : initialize named limits\nrounds=8, commands/round=4,\nwall time=90s, evidence caps
+Loop -> ModelClient : chat request with plain messages\nno native tool calls
+ModelClient -> Llm : De-Koi Rust LLM transport
+Llm --> ModelClient : assistant text
+ModelClient --> Loop : assistant JSON frame or final text
+Loop -> Protocol : extract exactly one command frame
+
+alt valid command frame with stop=false
+    Protocol --> Loop : say + typed commands + stop=false
+    loop bounded rounds until stop, timeout, abort, or max rounds
+        Loop -> Budget : check round, wall-time,\ncommand-count, trace budgets
+        alt budget available
+            Loop -> Commands : execute typed read-only commands
+            alt repo read/search/list
+                Commands -> Repo : read/search bounded safe paths
+                Repo --> Commands : bounded result
+            else Deki library read
+                Commands -> Storage : list/get allowed creative-library data
+                Storage --> Commands : bounded overview/detail result
+            else approved chat read
+                Commands -> Storage : read only granted chat/message window
+                Storage --> Commands : bounded chat result
+            else approved web search/page read
+                Commands -> Web : exact granted query or allowed URL\nbounded results/pages/time
+                Web --> Commands : bounded public source text
+            else unsupported or mutating command
+                Commands --> Loop : structured error result
+            end
+            Commands --> Budget : raw command result
+            Budget --> Loop : compact evidence + trace item\nwith truncation notes
+            Loop -> ModelClient : next turn with hidden bounded evidence
+            ModelClient -> Llm : plain chat completion
+            Llm --> ModelClient : assistant text
+            ModelClient --> Loop : next JSON frame
+            Loop -> Protocol : parse/strip frame
+        else budget, timeout, or abort exhausted
+            Budget --> Loop : controlled stop reason
+        end
+    end
+else final frame or stop=true
+    Protocol --> Loop : visible say/message/final + stop=true
+else ambiguous/multiple/malformed frame
+    Protocol --> Loop : deterministic protocol error
+end
+
+Loop --> Runtime : visible assistant text,\nread-only trace summary,\ncontrolled stop reason if any
+Runtime -> ActionParser : parse optional <deki_action>\nfrom final visible text only
+ActionParser --> Runtime : cleaned visible content + action
+Runtime --> Invoke : { content, createdAt, action }
+Invoke --> Api : DekiGatewayResponse
+Api --> Entry : response
+Entry -> Entry : normalizeDekiEntryAction
+Entry --> Send : DekiEntryResponse
+Send -> UI : persist assistant message
+UI --> User : render final answer + existing action card
+
+note right of Protocol
+  JSON control frames are never saved to Deki history.
+  Fenced JSON can be tolerated only when stripped from visible output.
+  Protocol parsing must not inspect inside <deki_action> blocks.
+end note
+
+note right of Commands
+  Slice 2 commands are read-only and typed.
+  Web search/page reads are included only after a matching grant.
+  Dry-run mutation plans and approval resolution are Slice 3.
+end note
+
+note right of Budget
+  Every command result is compacted before model feedback.
+  Truncation must be explicit and include how to narrow the next command.
+end note
+
+note right of Runtime
+  Existing <deki_action> behavior remains the bridge to current UI approvals
+  until Slice 4 adds streamed tool and approval events.
+end note
+
+@enduml
