@@ -50,6 +50,7 @@ jobs:
             wget \
             file \
             libxdo-dev \
+            xdg-utils \
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
