@@ -19,6 +19,7 @@ export type SupportReportInput = {
 
 export type BugReportUrlInput = SupportReportInput & {
   bugReportUrl?: string | null;
+  includeReportText?: boolean;
 };
 
 function inferOs(platform: string, userAgent: string): string {
@@ -63,8 +64,10 @@ export function buildSupportReportText({
 export function buildBugReportUrl({
   bugReportUrl = SUPPORT_LINKS.bugReportUrl,
   source,
+  reportText,
   appVersion = APP_VERSION,
   platform = getBrowserPlatformInfo(),
+  includeReportText = false,
 }: BugReportUrlInput): string {
   if (!bugReportUrl) {
     throw new Error("Bug report URL is not configured.");
@@ -72,20 +75,33 @@ export function buildBugReportUrl({
 
   const url = new URL(bugReportUrl);
   url.searchParams.set("title", "[Bug]: ");
-  url.searchParams.set(
-    "body",
-    [
-      "## What happened?",
+  const body = [
+    "## What happened?",
+    "",
+    includeReportText
+      ? "The support report could not be copied automatically, so De-Koi added it below. Add what you were trying to do."
+      : "Paste the copied report below, then add what you were trying to do.",
+    "",
+    "## Environment",
+    "",
+    `- App version: ${appVersion}`,
+    `- Source: ${source}`,
+    `- OS: ${platform.os}`,
+  ];
+  if (includeReportText) {
+    const maxInlineReportLength = 3500;
+    const inlineReport = reportText.slice(0, maxInlineReportLength);
+    body.push(
       "",
-      "Paste the copied report below, then add what you were trying to do.",
+      "## Support report",
       "",
-      "## Environment",
-      "",
-      `- App version: ${appVersion}`,
-      `- Source: ${source}`,
-      `- OS: ${platform.os}`,
-    ].join("\n"),
-  );
+      "```text",
+      inlineReport,
+      reportText.length > maxInlineReportLength ? "[Report truncated by De-Koi because automatic copy was unavailable.]" : "",
+      "```",
+    );
+  }
+  url.searchParams.set("body", body.join("\n"));
   return url.toString();
 }
 
@@ -100,19 +116,19 @@ export async function openBugReport(input: SupportReportInput): Promise<string> 
   const platform = input.platform ?? getBrowserPlatformInfo();
   const appVersion = input.appVersion ?? APP_VERSION;
   const reportText = buildSupportReportText({ ...input, appVersion, platform });
+  let reportCopiedOrShown = false;
   const writeText = navigator.clipboard?.writeText;
   if (typeof writeText === "function") {
     try {
       await writeText.call(navigator.clipboard, reportText);
+      reportCopiedOrShown = true;
     } catch {
-      if (!promptForManualReportCopy(reportText)) {
-        throw new Error("Clipboard is unavailable; copy the report manually before filing.");
-      }
+      reportCopiedOrShown = promptForManualReportCopy(reportText);
     }
-  } else if (!promptForManualReportCopy(reportText)) {
-    throw new Error("Clipboard is unavailable; copy the report manually before filing.");
+  } else {
+    reportCopiedOrShown = promptForManualReportCopy(reportText);
   }
-  const url = buildBugReportUrl({ ...input, appVersion, platform });
+  const url = buildBugReportUrl({ ...input, appVersion, platform, includeReportText: !reportCopiedOrShown });
   await openExternalUrl(url);
   return url;
 }

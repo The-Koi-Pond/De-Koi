@@ -88,4 +88,26 @@ describe("support report helpers", () => {
     expect(openExternalUrlMock).toHaveBeenCalledWith(url);
     expect(url).toContain("https://github.com/The-Koi-Pond/De-Koi/issues/new?");
   });
+  it("embeds the report in the issue body when no manual copy surface exists", async () => {
+    Object.defineProperty(window, "prompt", {
+      configurable: true,
+      value: undefined,
+    });
+
+    const url = await openBugReport({
+      source: "query-error",
+      appVersion: "1.6.1",
+      platform: {
+        os: "Windows",
+        userAgent: "Mozilla/5.0 Windows",
+        language: "en-US",
+      },
+      reportText: "Fetch failed",
+    });
+
+    const body = new URL(url).searchParams.get("body") ?? "";
+    expect(body).toContain("could not be copied automatically");
+    expect(body).toContain("Fetch failed");
+    expect(openExternalUrlMock).toHaveBeenCalledWith(url);
+  });
 });
