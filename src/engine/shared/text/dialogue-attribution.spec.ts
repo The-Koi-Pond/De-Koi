@@ -117,6 +117,33 @@ describe("dialogue attribution metadata", () => {
     });
   });
 
+  it("attributes named and bare speaker tag forms over stripped text", () => {
+    const named = buildDialogueAttributions('<speaker name="Alice">"Hi."</speaker>', speakers, {
+      stripSpeakerTags: true,
+    });
+    const bare = buildDialogueAttributions('<speaker="Alice">"Hi."</speaker>', speakers, {
+      stripSpeakerTags: true,
+    });
+
+    for (const result of [named, bare]) {
+      expect(result.text).toBe('"Hi."');
+      expect(result.attributions).toEqual({
+        version: 1,
+        textHash: createDialogueAttributionTextHash('"Hi."'),
+        segments: [
+          {
+            start: 0,
+            end: 5,
+            speakerName: "Alice",
+            speakerId: "char-alice",
+            source: "speaker-tag",
+            confidence: "explicit",
+          },
+        ],
+      });
+    }
+  });
+
   it("attributes quoted dialogue to the explicit prose speaker instead of the nearest mention", () => {
     const result = buildDialogueAttributions('Alice watched Bob. "Careful," Alice said.', speakers, {
       includeDerivedProse: true,

@@ -610,6 +610,11 @@ function normalizeSegments(
 
 function parseTagAttributes(raw: string): { name?: string; characterId?: string } {
   const attrs: { name?: string; characterId?: string } = {};
+  const bareSpeaker = raw.match(/^\s*=\s*(?:"([^"]*)"|'([^']*)')\s*$/);
+  if (bareSpeaker) {
+    const value = (bareSpeaker[1] ?? bareSpeaker[2] ?? "").trim();
+    if (value.length > 0) attrs.name = value;
+  }
   const attrPattern = /([a-zA-Z][a-zA-Z0-9_-]*)=(?:"([^"]*)"|'([^']*)')/g;
   let match: RegExpExecArray | null;
 
