@@ -151,49 +151,81 @@ function collectSpeakerTagSegments(
   lookup: SpeakerLookup,
   stripTags: boolean,
 ): { text: string; segments: DialogueAttributionSegment[] } {
-  const tagPattern = /<speaker\b([^>]*)>([\s\S]*?)<\/speaker>/gi;
   const segments: DialogueAttributionSegment[] = [];
 
-  if (!tagPattern.test(text)) {
+  if (!stripTags) {
+    const tagPattern = /<speaker\b([^>]*)>([\s\S]*?)<\/speaker>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = tagPattern.exec(text)) !== null) {
+      const fullMatch = match[0];
+      const attrs = parseTagAttributes(match[1] ?? "");
+      const innerText = match[2] ?? "";
+      const speaker = findSpeaker(lookup, attrs.name, attrs.characterId);
+      if (speaker) {
+        const innerStart = match.index + fullMatch.indexOf(innerText);
+        segments.push(createSegment(innerStart, innerStart + innerText.length, speaker, "speaker-tag", "explicit"));
+      }
+    }
     return { text, segments };
   }
 
-  tagPattern.lastIndex = 0;
+  const tagPattern = /<\/speaker\s*>|<speaker\b[^>]*>/gi;
+  const stack: Array<{ speaker: SpeakerLookupEntry | null }> = [];
   let cleaned = "";
   let cursor = 0;
   let match: RegExpExecArray | null;
 
+  const activeSpeaker = (): SpeakerLookupEntry | null => {
+    for (let index = stack.length - 1; index >= 0; index -= 1) {
+      const speaker = stack[index]?.speaker;
+      if (speaker) return speaker;
+    }
+    return null;
+  };
+
+  const appendText = (rawChunk: string, finalChunk = false) => {
+    const chunk = finalChunk ? stripIncompleteSpeakerMarkers(rawChunk) : rawChunk;
+    if (!chunk) return;
+    const start = cleaned.length;
+    cleaned += chunk;
+    const end = cleaned.length;
+    const speaker = activeSpeaker();
+    if (!speaker || end <= start) return;
+
+    const last = segments[segments.length - 1];
+    if (
+      last &&
+      last.end === start &&
+      last.speakerName === speaker.name &&
+      (last.speakerId ?? null) === (speaker.id ?? null) &&
+      last.source === "speaker-tag" &&
+      last.confidence === "explicit"
+    ) {
+      last.end = end;
+      return;
+    }
+
+    segments.push(createSegment(start, end, speaker, "speaker-tag", "explicit"));
+  };
+
   while ((match = tagPattern.exec(text)) !== null) {
-    const fullMatch = match[0];
-    const attrs = parseTagAttributes(match[1] ?? "");
-    const innerText = match[2] ?? "";
-    const speaker = findSpeaker(lookup, attrs.name, attrs.characterId);
-
-    if (stripTags) {
-      cleaned += text.slice(cursor, match.index);
-      const start = cleaned.length;
-      cleaned += innerText;
-      const end = cleaned.length;
-      cursor = match.index + fullMatch.length;
-
-      if (speaker) {
-        segments.push(createSegment(start, end, speaker, "speaker-tag", "explicit"));
-      }
-      continue;
+    appendText(text.slice(cursor, match.index));
+    const token = match[0] ?? "";
+    if (/^<\//.test(token)) {
+      if (stack.length > 0) stack.pop();
+    } else {
+      const attrs = parseTagAttributes(/^<speaker\b([^>]*)>$/i.exec(token)?.[1] ?? "");
+      stack.push({ speaker: findSpeaker(lookup, attrs.name, attrs.characterId) });
     }
-
-    if (speaker) {
-      const innerStart = match.index + fullMatch.indexOf(innerText);
-      segments.push(createSegment(innerStart, innerStart + innerText.length, speaker, "speaker-tag", "explicit"));
-    }
+    cursor = match.index + token.length;
   }
 
-  if (!stripTags) {
-    return { text, segments };
-  }
-
-  cleaned += text.slice(cursor);
+  appendText(text.slice(cursor), true);
   return { text: cleaned, segments };
+}
+
+function stripIncompleteSpeakerMarkers(text: string): string {
+  return text.replace(/<\/speaker\s*$/i, "").replace(/<speaker\b[^>]*$/i, "");
 }
 
 function collectNamePrefixSegments(
@@ -610,6 +642,11 @@ function normalizeSegments(
 
 function parseTagAttributes(raw: string): { name?: string; characterId?: string } {
   const attrs: { name?: string; characterId?: string } = {};
+  const bareSpeaker = raw.match(/^\s*=\s*(?:"([^"]*)"|'([^']*)'|([^"']+))\s*$/);
+  if (bareSpeaker) {
+    const value = (bareSpeaker[1] ?? bareSpeaker[2] ?? bareSpeaker[3] ?? "").trim();
+    if (value.length > 0) attrs.name = value;
+  }
   const attrPattern = /([a-zA-Z][a-zA-Z0-9_-]*)=(?:"([^"]*)"|'([^']*)')/g;
   let match: RegExpExecArray | null;
 

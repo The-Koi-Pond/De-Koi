@@ -1030,6 +1030,8 @@ export function parseCharacterCommands(content: string): {
     if (cmd.name) commands.push(cmd);
   }
 
+  if (commands.length === 0) return { cleanContent: content, commands };
+
   // Strip all commands from the visible content
   const cleanContent = content
     .replace(SCHEDULE_UPDATE_RE, "")

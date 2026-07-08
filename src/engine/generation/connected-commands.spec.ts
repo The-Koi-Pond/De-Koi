@@ -192,6 +192,16 @@ describe("connected conversation notes", () => {
   });
 });
 
+describe("character command parsing", () => {
+  it("preserves ordinary assistant paragraph spacing when no commands are present", () => {
+    const content = "First paragraph.\n\n\nSecond paragraph.";
+
+    const result = parseCharacterCommands(content);
+
+    expect(result.cleanContent).toBe(content);
+    expect(result.commands).toEqual([]);
+  });
+});
 describe("scene connected command parsing", () => {
   it("accepts model scene tags with curly quotes and alternate scenario keys", () => {
     const result = parseCharacterCommands(

@@ -1,7 +1,7 @@
 use super::shared::{
-    collapse_excess_blank_lines, compact_message_swipe_fields_for_storage, json_object_value,
-    materialize_message_swipe_fields, non_negative_i64_value, normalize_typed_json_fields,
-    swipe_scoped_extra, sync_message_patch_content_to_active_swipe, with_message_create_defaults,
+    compact_message_swipe_fields_for_storage, json_object_value, materialize_message_swipe_fields,
+    non_negative_i64_value, normalize_typed_json_fields, swipe_scoped_extra,
+    sync_message_patch_content_to_active_swipe, with_message_create_defaults,
 };
 use crate::state::AppState;
 use marinara_core::{ensure_object, new_id, now_iso, AppError, AppResult};
@@ -180,9 +180,6 @@ fn normalize_swipe_row(
         object.insert("chatId".to_string(), Value::String(chat_id.to_string()));
     }
     object.insert("index".to_string(), json!(index));
-    if let Some(Value::String(content)) = object.get_mut("content") {
-        *content = collapse_excess_blank_lines(content);
-    }
     object
         .entry("createdAt".to_string())
         .or_insert_with(|| Value::String(message_created_at.unwrap_or(&now).to_string()));
@@ -2034,6 +2031,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn create_message_preserves_blank_lines_in_content_and_swipes() {
+        let state = test_state("create-blank-lines");
+        let content = "Line 1\n\n\nLine 2";
+        let created = create_message(
+            &state,
+            json!({
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": content,
+                "swipes": [{ "content": content }]
+            }),
+        )
+        .expect("message should create");
+
+        assert_eq!(created["content"], json!(content));
+        assert_eq!(created["swipes"][0]["content"], json!(content));
+    }
     #[test]
     fn create_message_preserves_provided_extra_when_defaulting_missing_leaves() {
         let state = test_state("create-default-extra-preserve");

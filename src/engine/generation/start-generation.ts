@@ -3273,7 +3273,7 @@ async function saveAssistantMessage(args: {
   const regenerateMessageId = readString(args.input.regenerateMessageId).trim();
   const regenerationTargetRole = readString(args.regenerationTarget?.role).trim();
   const generationReplay = buildGenerationReplay(args.input);
-  const content = collapseExcessBlankLines(args.content);
+  const content = args.content;
   assertVisibleGeneratedContent(content, args.attachments);
   const thinking = collapseExcessBlankLines(readString(args.thinking).trim());
   const providerMetadata = args.input.impersonate === true ? null : providerMetadataRecord(args.providerMetadata);
@@ -3439,7 +3439,7 @@ async function saveRegeneratedMessage(args: {
     agentExtra: args.agentExtra,
   });
   if (args.chat && args.characters && args.sourceContent) {
-    const canonicalContent = collapseExcessBlankLines(args.content);
+    const canonicalContent = args.content;
     const deterministicAttributions = roleplayDeterministicDialogueAttributions({
       chat: args.chat,
       characters: args.characters,
@@ -3451,7 +3451,7 @@ async function saveRegeneratedMessage(args: {
   await args.storage.addChatMessageSwipe(
     args.chatId,
     args.messageId,
-    collapseExcessBlankLines(args.content),
+    args.content,
     swipeOptionsWithCharacterId(swipeExtra, args),
   );
   let dialogueAttributions: DialogueAttributionsExtra | null = null;

@@ -1944,7 +1944,7 @@ function buildRoleplaySpeakerTagPromptBlock(
 
   const names = conversationCharacterNames(characters);
   if (names.length <= 1) return null;
-  const examples = names.slice(0, 2).map((name) => `<speaker="${name}">"Example dialogue."</speaker>`);
+  const examples = names.slice(0, 2).map((name) => `<speaker name="${name}">"Example dialogue."</speaker>`);
 
   return wrapContent(
     [

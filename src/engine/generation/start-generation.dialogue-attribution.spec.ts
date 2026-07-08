@@ -74,7 +74,7 @@ function roleplayAttributionStorage(connectionOverrides: Record<string, unknown>
     },
     async createChatMessage<T = unknown>(chatId: string, value: Record<string, unknown>): Promise<T> {
       calls.push("createChatMessage");
-      const content = String(value.content ?? "").replace(/\n{3,}/g, "\n\n");
+      const content = String(value.content ?? "");
       const extra = (value.extra as Record<string, unknown> | undefined) ?? {};
       const message: StoredMessage = {
         id: `message-${nextMessageId++}`,
@@ -203,6 +203,30 @@ describe("startGeneration dialogue attribution", () => {
     expect(assistant!.swipes[0]?.extra?.dialogueAttributions).toEqual(assistant!.extra.dialogueAttributions);
   });
 
+  it("preserves generated assistant blank lines when saving roleplay content", async () => {
+    const { storage, messages } = roleplayAttributionStorage();
+    const content = "First paragraph.\n\n\nSecond paragraph.";
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm: roleplayLlm(content),
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "continue",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    const assistant = messages.find((item) => item.role === "assistant");
+    expect(assistant?.content).toBe(content);
+    expect(assistant?.swipes[0]?.content).toBe(content);
+  });
   it("stores Name-prefix attribution against the canonical saved text without a model call", async () => {
     const { storage, messages, calls } = roleplayAttributionStorage();
 

@@ -5,7 +5,6 @@ import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { copyToClipboard, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
-import { speakerIdentityEntries } from "../../../../shared/lib/speaker-identity";
 import { chatKeys } from "../../../catalog/chats/index";
 import { resolveMessageMacros } from "../../../../shared/lib/chat-macros";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
@@ -264,13 +263,12 @@ export const ConversationMessage = memo(function ConversationMessage({
   const dialogueColor = isUser ? undefined : charInfo?.dialogueColor;
   const speakerColorMap = useMemo(() => {
     if (!scopedCharacterMap) return undefined;
-    const entries = speakerIdentityEntries(
-      [...scopedCharacterMap.values()].map((info) => ({
-        color: info.dialogueColor,
-        names: [info.name, ...(info.speakerAliases ?? [])],
-      })),
-    );
-    const map = createSpeakerColorLookup(entries);
+    const identities = [...scopedCharacterMap.entries()].map(([id, info]) => ({
+      id,
+      color: info.dialogueColor,
+      names: [info.name, ...(info.speakerAliases ?? [])],
+    }));
+    const map = createSpeakerColorLookup(identities);
     return map.size ? map : undefined;
   }, [scopedCharacterMap]);
   useLazyDialogueAttributionBackfill({

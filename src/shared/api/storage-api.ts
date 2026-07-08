@@ -111,8 +111,8 @@ function normalizeMessageWrite(value: Record<string, unknown>): Record<string, u
   return next;
 }
 
-function normalizeStorageWrite(entity: StorageEntity, value: Record<string, unknown>): Record<string, unknown> {
-  return entity === "messages" ? normalizeMessageWrite(value) : value;
+function normalizeStorageWrite(_entity: StorageEntity, value: Record<string, unknown>): Record<string, unknown> {
+  return value;
 }
 
 function storageWriteInvalidationKinds(
@@ -186,7 +186,7 @@ function messageExtraDefaults(role: unknown, value: unknown): Record<string, unk
 
 function chatMessageDefaults(chatId: string, value: Record<string, unknown>): Record<string, unknown> {
   const role = typeof value.role === "string" ? value.role : "user";
-  const content = typeof value.content === "string" ? collapseExcessBlankLines(value.content) : "";
+  const content = typeof value.content === "string" ? value.content : "";
   const extra = messageExtraDefaults(role, value.extra);
   const swipes = Array.isArray(value.swipes) && value.swipes.length > 0 ? value.swipes : [{ content, extra }];
   const requestedActiveIndex =
@@ -206,7 +206,7 @@ function chatMessageDefaults(chatId: string, value: Record<string, unknown>): Re
 }
 
 function chatMessageSwipeBody(content: string, options?: AddChatMessageSwipeOptions): Record<string, unknown> {
-  const body: Record<string, unknown> = { content: collapseExcessBlankLines(content) };
+  const body: Record<string, unknown> = { content };
   if (options?.extra) body.extra = options.extra;
   if (typeof options?.activate === "boolean") body.activate = options.activate;
   if (Object.prototype.hasOwnProperty.call(options ?? {}, "characterId")) {
@@ -488,7 +488,11 @@ export const storageApi: StorageGateway = {
   },
   getChatMessage: (messageId, options) => storageApi.get("messages", messageId, options),
   createChatMessage: (chatId, value) => storageApi.create("messages", chatMessageDefaults(chatId, value)),
-  updateChatMessage: (messageId, patch) => storageApi.update("messages", messageId, normalizeMessageWrite(patch)),
+  updateChatMessage: async <T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T> => {
+    const updated = await storageApi.update<T>("messages", messageId, normalizeMessageWrite(patch));
+    if (typeof patch.content !== "string") return updated;
+    return storageApi.patchChatMessageExtra<T>(messageId, { dialogueAttributions: null });
+  },
   updateChatMessageContentIfUnchanged: async (chatId, messageId, expectedContent, content) => {
     const result = (await invokeTauri("chat_message_update_content_if_unchanged", {
       chatId,

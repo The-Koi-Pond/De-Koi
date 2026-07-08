@@ -643,7 +643,6 @@ fn normalize_message_text_fields(object: &mut Map<String, Value>) {
         }
     }
 }
-
 fn validate_message_create_swipes(object: &Map<String, Value>) -> AppResult<()> {
     let Some(swipes) = object.get("swipes").and_then(Value::as_array) else {
         return Ok(());
@@ -1025,6 +1024,9 @@ pub(crate) fn normalize_extension_for_update(patch: Value) -> AppResult<Value> {
 
 pub(crate) fn normalize_update_patch(collection: &str, patch: Value) -> AppResult<Value> {
     let mut object = ensure_object(patch)?;
+    if collection == "messages" {
+        normalize_message_text_fields(&mut object);
+    }
     normalize_typed_json_fields(collection, &mut object)?;
     Ok(Value::Object(object))
 }
@@ -1159,7 +1161,6 @@ fn normalize_typed_json_fields_with_prompt_default_mode(
         );
     }
     if collection == "messages" {
-        normalize_message_text_fields(object);
         compact_message_swipe_fields_for_storage(object);
     }
     Ok(())
@@ -1542,7 +1543,6 @@ pub(crate) fn with_message_create_defaults(body: Value) -> AppResult<Value> {
     normalize_json_array_fields(&mut object, &["swipes", "images", "attachments"])?;
     validate_message_create_swipes(&object)?;
     insert_message_extra_default(&mut object)?;
-    normalize_message_text_fields(&mut object);
     Ok(Value::Object(object))
 }
 
