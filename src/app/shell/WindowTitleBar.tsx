@@ -1,4 +1,4 @@
-import { HelpCircle, Maximize2, Minus, Square, X } from "lucide-react";
+import { HelpCircle, Home, Maximize2, Minus, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   closeDesktopWindow,
@@ -237,7 +237,7 @@ export function WindowTitleBar({
             aria-label="Home"
             aria-current={isHomeSurface ? "page" : undefined}
           >
-            <img className="mari-title-icon" src="/favicon.png" alt="" draggable={false} />
+            <Home className="mari-title-icon" size="0.95rem" aria-hidden />
             {isHomeSurface && (
               <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
             )}

@@ -81,9 +81,10 @@ export function cacheCharacterListRecordFromResult(
     characterKeys.librarySummaries(),
     record,
   );
+  const updatedPanelSummaries = upsertCharacterCollectionRecord(queryClient, characterKeys.panelSummaries(), record);
   queryClient.setQueryData(characterKeys.detail(record.id), record);
   queryClient.setQueryData(characterKeys.summaryDetail(record.id), record);
-  return updatedList || updatedSummaries || updatedLibrarySummaries;
+  return updatedList || updatedSummaries || updatedLibrarySummaries || updatedPanelSummaries;
 }
 
 export function removeCachedCharacterRecord(
@@ -93,6 +94,7 @@ export function removeCachedCharacterRecord(
   removeCharacterCollectionRecord(queryClient, characterKeys.list(), id);
   removeCharacterCollectionRecord(queryClient, characterKeys.summaries(), id);
   removeCharacterCollectionRecord(queryClient, characterKeys.librarySummaries(), id);
+  removeCharacterCollectionRecord(queryClient, characterKeys.panelSummaries(), id);
   queryClient.removeQueries({ queryKey: characterKeys.detail(id) });
   queryClient.removeQueries({ queryKey: characterKeys.summaryDetail(id) });
   queryClient.invalidateQueries({ queryKey: characterKeys.summaries() });

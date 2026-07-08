@@ -119,6 +119,18 @@ describe("WindowTitleBar web mode", () => {
     expect(container!.querySelector(".mari-titlebar-web-home-button")).toBeNull();
   });
 
+  it("uses the house icon for the home action instead of the app logo", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<WindowTitleBar />);
+    });
+
+    const homeButton = container!.querySelector<HTMLButtonElement>('button[aria-label="Home"]');
+
+    expect(homeButton?.querySelector("svg")).toBeTruthy();
+    expect(homeButton?.querySelector('img[src="/favicon.png"]')).toBeNull();
+  });
+
   it("places the titlebar accessory on the left side of the titlebar", async () => {
     await act(async () => {
       root = createRoot(container!);

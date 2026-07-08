@@ -19,6 +19,7 @@ import { resolveGalleryFileUrl } from "../../../../shared/api/local-file-api";
 import type { CustomKind, CustomTagPatch } from "../../../../shared/lib/custom-emoji";
 import type { CharacterCardVersion } from "../../../../engine/contracts/types/character";
 import {
+  cacheCharacterListRecordFromResult,
   invalidateCharacterCollectionQueries,
   invalidateCharacterRecordQueries,
   normalizeCharacterAvatarFields,
@@ -462,8 +463,12 @@ export function useUpdateCharacter() {
       versionReason?: string;
       skipVersionSnapshot?: boolean;
     }) => characterApi.update(id, updateCharacterSchema.parse(data)),
-    onSuccess: (_data, variables) => {
-      invalidateCharacterRecordQueries(qc, variables.id, { includeVersions: true });
+    onSuccess: (data, variables) => {
+      const updated = cacheCharacterListRecordFromResult(qc, { character: data });
+      if (!updated) invalidateCharacterCollectionQueries(qc);
+      qc.invalidateQueries({ queryKey: characterKeys.detail(variables.id) });
+      qc.invalidateQueries({ queryKey: characterKeys.summaryDetail(variables.id) });
+      qc.invalidateQueries({ queryKey: characterKeys.versions(variables.id) });
     },
   });
 }
