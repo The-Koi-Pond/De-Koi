@@ -480,7 +480,8 @@ export function ConversationInput({
               data: prepared.data,
               name: prepared.name,
             });
-          } catch {
+          } catch (error) {
+            console.warn("[chat-attachment] Failed to prepare image attachment", { displayName, error });
             toast.error(`Failed to prepare ${displayName}`);
           } finally {
             adjustPendingAttachmentReads(originChatId, -1);
@@ -1441,8 +1442,10 @@ export function ConversationInput({
         gifAttachments = [
           { type: attachment.type, data: attachment.data, filename: attachment.name, name: attachment.name },
         ];
-      } catch {
-        // If fetch fails (CORS etc.), send without attachment ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â still shows as image in chat
+      } catch (error) {
+        console.warn("[chat-attachment] Failed to prepare GIF attachment", { gifUrl, error });
+        toast.error("Failed to prepare GIF attachment. The GIF was not sent because the model would not receive it.");
+        return;
       }
 
       const saveGifMessage = async () => {
