@@ -89,15 +89,29 @@ export function buildBugReportUrl({
   return url.toString();
 }
 
+function promptForManualReportCopy(reportText: string): boolean {
+  const prompt = globalThis.window?.prompt;
+  if (typeof prompt !== "function") return false;
+  prompt.call(window, "Clipboard is unavailable. Copy this De-Koi support report before submitting:", reportText);
+  return true;
+}
+
 export async function openBugReport(input: SupportReportInput): Promise<string> {
   const platform = input.platform ?? getBrowserPlatformInfo();
   const appVersion = input.appVersion ?? APP_VERSION;
   const reportText = buildSupportReportText({ ...input, appVersion, platform });
   const writeText = navigator.clipboard?.writeText;
-  if (typeof writeText !== "function") {
+  if (typeof writeText === "function") {
+    try {
+      await writeText.call(navigator.clipboard, reportText);
+    } catch {
+      if (!promptForManualReportCopy(reportText)) {
+        throw new Error("Clipboard is unavailable; copy the report manually before filing.");
+      }
+    }
+  } else if (!promptForManualReportCopy(reportText)) {
     throw new Error("Clipboard is unavailable; copy the report manually before filing.");
   }
-  await writeText.call(navigator.clipboard, reportText);
   const url = buildBugReportUrl({ ...input, appVersion, platform });
   await openExternalUrl(url);
   return url;

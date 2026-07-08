@@ -1,7 +1,29 @@
-﻿import { describe, expect, it } from "vitest";
-import { buildBugReportUrl, buildSupportReportText } from "./support-report";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { openExternalUrlMock } = vi.hoisted(() => ({
+  openExternalUrlMock: vi.fn(),
+}));
+
+vi.mock("../api/external-link-api", () => ({
+  openExternalUrl: openExternalUrlMock,
+}));
+
+import { buildBugReportUrl, buildSupportReportText, openBugReport } from "./support-report";
+
+function setClipboard(value: unknown) {
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value,
+  });
+}
 
 describe("support report helpers", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    openExternalUrlMock.mockReset();
+    setClipboard(undefined);
+  });
+
   it("builds a short bug-report URL skeleton without embedding the full report payload", () => {
     const url = buildBugReportUrl({
       bugReportUrl: "https://github.com/The-Koi-Pond/De-Koi/issues/new",
@@ -44,5 +66,28 @@ describe("support report helpers", () => {
     expect(report).toContain("App version: 1.6.1");
     expect(report).toContain("OS: macOS");
     expect(report).toContain("Error: render failed");
+  });
+
+  it("falls back to a manual copy prompt when clipboard is unavailable", async () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("");
+
+    const url = await openBugReport({
+      bugReportUrl: "https://github.com/The-Koi-Pond/De-Koi/issues/new",
+      source: "query-error",
+      appVersion: "1.6.1",
+      platform: {
+        os: "Windows",
+        userAgent: "Mozilla/5.0 Windows",
+        language: "en-US",
+      },
+      reportText: "Fetch failed",
+    });
+
+    expect(promptSpy).toHaveBeenCalledWith(
+      "Clipboard is unavailable. Copy this De-Koi support report before submitting:",
+      expect.stringContaining("Fetch failed"),
+    );
+    expect(openExternalUrlMock).toHaveBeenCalledWith(url);
+    expect(url).toContain("https://github.com/The-Koi-Pond/De-Koi/issues/new?");
   });
 });
