@@ -112,7 +112,7 @@ pub(crate) fn persist_image_bytes(
     fs::create_dir_all(&dir)?;
     let filename = managed_image_filename(filename_hint, ext);
     let target = unique_file_path(&dir.join(filename))?;
-    write_managed_file_atomically(&target, &bytes)?;
+    write_managed_file_atomically(&target, bytes)?;
     stored_managed_image(target)
 }
 

@@ -141,8 +141,8 @@ pub fn regex_script_reorder(state: &AppState, args: &Map<String, Value>) -> AppR
 pub fn prompt_nested_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     entity_commands::prompt_nested_reorder_inner(
         state,
-        &required_string(args, "presetId")?,
-        &required_string(args, "kind")?,
+        required_string(args, "presetId")?,
+        required_string(args, "kind")?,
         required_string_vec(args, "orderedIds")?,
     )
 }
@@ -173,7 +173,7 @@ pub fn lorebook_entry_reorder(state: &AppState, args: &Map<String, Value>) -> Ap
     };
     entity_commands::lorebook_entry_reorder_inner(
         state,
-        &required_string(args, "lorebookId")?,
+        required_string(args, "lorebookId")?,
         required_string_vec(args, "orderedIds")?,
         folder_id,
     )
