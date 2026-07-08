@@ -65,9 +65,17 @@ describe("storageApi chat message writes", () => {
   });
   it("clears dialogue attribution metadata after message content edits", async () => {
     invokeTauriMock
-      .mockResolvedValueOnce({ id: "message-1", content: "Edited\n\nText", extra: { dialogueAttributions: { version: 1 }, thinking: "kept" } })
+      .mockResolvedValueOnce({
+        id: "message-1",
+        content: "Edited\n\nText",
+        extra: { dialogueAttributions: { version: 1 }, thinking: "kept" },
+      })
       .mockResolvedValueOnce({ id: "message-1", extra: { dialogueAttributions: { version: 1 }, thinking: "kept" } })
-      .mockResolvedValueOnce({ id: "message-1", content: "Edited\n\nText", extra: { dialogueAttributions: null, thinking: "kept" } });
+      .mockResolvedValueOnce({
+        id: "message-1",
+        content: "Edited\n\nText",
+        extra: { dialogueAttributions: null, thinking: "kept" },
+      });
 
     const { storageApi } = await import("./storage-api");
 
@@ -91,6 +99,23 @@ describe("storageApi chat message writes", () => {
       entity: "messages",
       id: "message-1",
       patch: { extra: { dialogueAttributions: null, thinking: "kept" } },
+    });
+  });
+});
+describe("storageApi deletes", () => {
+  it("forwards force deletes to the storage runtime", async () => {
+    invokeTauriMock.mockResolvedValueOnce({ deleted: true });
+
+    const { storageApi } = await import("./storage-api");
+
+    await expect(storageApi.delete("connections", "connection-1", { force: true })).resolves.toEqual({
+      deleted: true,
+    });
+
+    expect(invokeTauriMock).toHaveBeenCalledWith("storage_delete", {
+      entity: "connections",
+      id: "connection-1",
+      force: true,
     });
   });
 });

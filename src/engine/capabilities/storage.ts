@@ -63,16 +63,14 @@ export interface StorageImageAttachmentReference {
   galleryId?: string | null;
 }
 
+export type StorageDeleteOptions = { force?: boolean };
+
 export interface GenericStorageGateway {
   list<T = unknown>(entity: StorageEntity, options?: StorageListOptions): Promise<T[]>;
-  get<T = unknown>(
-    entity: StorageEntity,
-    id: string,
-    options?: StorageReadOptions,
-  ): Promise<T | null>;
+  get<T = unknown>(entity: StorageEntity, id: string, options?: StorageReadOptions): Promise<T | null>;
   create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T>;
   update<T = unknown>(entity: StorageEntity, id: string, patch: Record<string, unknown>): Promise<T>;
-  delete(entity: StorageEntity, id: string): Promise<{ deleted: boolean }>;
+  delete(entity: StorageEntity, id: string, options?: StorageDeleteOptions): Promise<{ deleted: boolean }>;
 }
 
 export interface ChatTranscriptPort {

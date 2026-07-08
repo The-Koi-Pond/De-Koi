@@ -1,0 +1,94 @@
+name: baremetal pi build
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: baremetal-pi-build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.33.2"
+  RUST_TARGET: aarch64-unknown-linux-gnu
+
+jobs:
+  build:
+    name: Linux arm64 Tauri bundle
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri Linux bundle dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm \
+            fakeroot \
+            dpkg-dev
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Linux arm64 Tauri bundle
+        run: pnpm tauri build --ci --no-sign --target "${RUST_TARGET}"
+
+      - name: Collect Linux arm64 bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          shopt -s nullglob
+          bundles=(
+            src-tauri/target/${RUST_TARGET}/release/bundle/deb/*.deb
+            src-tauri/target/${RUST_TARGET}/release/bundle/appimage/*.AppImage
+            src-tauri/target/${RUST_TARGET}/release/bundle/rpm/*.rpm
+          )
+          if [ "${#bundles[@]}" -eq 0 ]; then
+            echo "::error::No Linux arm64 Tauri bundles were produced."
+            find src-tauri/target/${RUST_TARGET}/release/bundle -maxdepth 3 -type f -print || true
+            exit 1
+          fi
+          for file in "${bundles[@]}"; do
+            cp "${file}" "release-assets/$(basename "${file}")"
+          done
+          find release-assets -maxdepth 1 -type f -print
+
+      - name: Upload Linux arm64 bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: baremetal-pi-linux-arm64-bundles
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14

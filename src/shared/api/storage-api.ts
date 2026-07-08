@@ -7,6 +7,7 @@ import type {
   StorageImageAttachmentReference,
   StorageEntity,
   StorageGateway,
+  StorageDeleteOptions,
   StorageListOptions,
 } from "../../engine/capabilities/storage";
 import {
@@ -467,11 +468,12 @@ export const storageApi: StorageGateway = {
     );
     return normalizeStorageReadResult(entity, result) as never;
   },
-  delete: (entity: StorageEntity, id: string) =>
+  delete: (entity: StorageEntity, id: string, options?: StorageDeleteOptions) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(
       invokeTauri("storage_delete", {
         entity,
         id,
+        ...(options?.force === undefined ? {} : { force: options.force }),
       }),
       storageDeleteInvalidationKinds(entity),
     ),
