@@ -627,6 +627,22 @@ pub(crate) fn collapse_excess_blank_lines(input: &str) -> String {
     output
 }
 
+fn normalize_message_text_fields(object: &mut Map<String, Value>) {
+    if let Some(Value::String(content)) = object.get_mut("content") {
+        *content = collapse_excess_blank_lines(content);
+    }
+    let Some(swipes) = object.get_mut("swipes").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for swipe in swipes {
+        let Some(swipe) = swipe.as_object_mut() else {
+            continue;
+        };
+        if let Some(Value::String(content)) = swipe.get_mut("content") {
+            *content = collapse_excess_blank_lines(content);
+        }
+    }
+}
 fn validate_message_create_swipes(object: &Map<String, Value>) -> AppResult<()> {
     let Some(swipes) = object.get("swipes").and_then(Value::as_array) else {
         return Ok(());
@@ -1008,6 +1024,9 @@ pub(crate) fn normalize_extension_for_update(patch: Value) -> AppResult<Value> {
 
 pub(crate) fn normalize_update_patch(collection: &str, patch: Value) -> AppResult<Value> {
     let mut object = ensure_object(patch)?;
+    if collection == "messages" {
+        normalize_message_text_fields(&mut object);
+    }
     normalize_typed_json_fields(collection, &mut object)?;
     Ok(Value::Object(object))
 }
