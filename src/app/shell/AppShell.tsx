@@ -39,6 +39,7 @@ import { hasPendingAppCloseWork, requestGuardedAppClose } from "../../shared/lib
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
 import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
+import { shouldRequestDekiSessionSelect } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
 import { shouldUseLowPowerShellMode } from "./shell-performance";
@@ -243,7 +244,6 @@ function SidePanelFallback() {
 }
 
 export function AppShell() {
-
   // Auto idle detection (10 min inactivity -> idle, activity -> active)
   useIdleDetection();
 
@@ -259,12 +259,9 @@ export function AppShell() {
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     let cancelled = false;
-    void onDesktopWindowCloseRequested(
-      () => {
-        void requestGuardedAppClose();
-      },
-      hasPendingAppCloseWork,
-    ).then((unlisten) => {
+    void onDesktopWindowCloseRequested(() => {
+      void requestGuardedAppClose();
+    }, hasPendingAppCloseWork).then((unlisten) => {
       if (cancelled) {
         unlisten();
         return;
@@ -276,8 +273,6 @@ export function AppShell() {
       cleanup?.();
     };
   }, []);
-
-
 
   const queryClient = useQueryClient();
   const [backgroundAutonomousPollingReady, setBackgroundAutonomousPollingReady] = useState(false);
@@ -309,6 +304,7 @@ export function AppShell() {
   const { data: musicDjMiniPlayerEnabled } = useIsCoreModuleEnabled(MUSIC_DJ_MINI_PLAYER_MODULE_ID);
   const sidebarDragWidthRef = useRef<number | null>(null);
   const rightPanelDragWidthRef = useRef<number | null>(null);
+  const pendingDekiSessionIdRef = useRef<string | null>(null);
   const headerRef = useRef<HTMLElement>(null);
   const sharedPanelWidth = getSharedPanelWidth(sidebarWidth, rightPanelWidth);
   const liveSidebarWidth = sidebarDragWidth ?? rightPanelDragWidth ?? sharedPanelWidth;
@@ -558,6 +554,20 @@ export function AppShell() {
 
   const openDekiSession = useCallback(
     async (sessionId: string) => {
+      if (
+        !shouldRequestDekiSessionSelect({
+          sessionId,
+          activeSessionId: activeDekiSessionId,
+          dekiOpen,
+          pendingSessionId: pendingDekiSessionIdRef.current,
+        })
+      ) {
+        markDekiSessionRead(sessionId);
+        openDekiShell();
+        return;
+      }
+
+      pendingDekiSessionIdRef.current = sessionId;
       try {
         const state = await dekiApi.sessions.select(sessionId);
         syncDekiSessionState(state);
@@ -566,9 +576,11 @@ export function AppShell() {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Deki-senpai chat could not be opened.";
         toast.error(message);
+      } finally {
+        if (pendingDekiSessionIdRef.current === sessionId) pendingDekiSessionIdRef.current = null;
       }
     },
-    [markDekiSessionRead, openDekiShell, syncDekiSessionState],
+    [activeDekiSessionId, dekiOpen, markDekiSessionRead, openDekiShell, syncDekiSessionState],
   );
 
   const createDekiSession = useCallback(async () => {
@@ -869,6 +881,7 @@ export function AppShell() {
     rightPanelOpen,
     detailViewOpen: hasDetailView,
     dekiOpen,
+    activeDekiSessionId,
   });
   useEffect(() => {
     if (hasDetailView) setDekiOpen(false);
@@ -1371,7 +1384,7 @@ export function AppShell() {
             tabIndex={activeMobilePanel === "sidebar" ? -1 : undefined}
             className={cn(
               "mari-sidebar flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
-              sidebarDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              sidebarDragWidth == null && "transition-none",
               // Mobile: fixed overlay
               "max-md:fixed max-md:top-0 max-md:left-0 max-md:z-[70] max-md:shadow-2xl max-md:pt-[env(safe-area-inset-top)]",
               !chatSidebarVisible && "max-md:w-0!",
@@ -1396,7 +1409,7 @@ export function AppShell() {
             tabIndex={activeMobilePanel === "deki" ? -1 : undefined}
             className={cn(
               "mari-sidebar flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
-              sidebarDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              sidebarDragWidth == null && "transition-none",
               "max-md:fixed max-md:top-0 max-md:left-0 max-md:z-[70] max-md:shadow-2xl max-md:pt-[env(safe-area-inset-top)]",
               !dekiSidebarVisible && "max-md:w-0!",
             )}

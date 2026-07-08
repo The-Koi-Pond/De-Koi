@@ -15,7 +15,7 @@ export function MobileTabBar({
   trackerPanelVisible,
   onToolsSheetOpenChange,
   onLeftSidebarPanelChange,
-  onToggleDeki,
+  onToggleDeki: _onToggleDeki,
   onGoHome,
 }: {
   dekiOpen: boolean;
@@ -29,7 +29,6 @@ export function MobileTabBar({
   onGoHome: () => void;
 }) {
   const activeChatId = useChatStore((s) => s.activeChatId);
-  const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const closeRightPanel = useUIStore((s) => s.closeRightPanel);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const openRightPanel = useUIStore((s) => s.openRightPanel);
@@ -52,13 +51,10 @@ export function MobileTabBar({
   };
 
   const openDeki = () => {
+    const wasOpen = leftSidebarPanel === "deki";
     closeAll();
-    setActiveChatId(null);
-    if (dekiOpen) {
-      onGoHome();
-    } else {
-      onToggleDeki();
-    }
+    if (!wasOpen) onLeftSidebarPanelChange("deki");
+    if (dekiOpen) onGoHome();
   };
 
   const openPanel = (panel: MobileToolsPanel) => {
@@ -70,7 +66,8 @@ export function MobileTabBar({
 
   const isTools = rightPanelOpen || toolsSheetOpen;
   const isChats = leftSidebarPanel === "chats" && !rightPanelOpen && !toolsSheetOpen && !trackerPanelVisible;
-  const isDeki = dekiOpen;
+  const isDeki =
+    (dekiOpen || leftSidebarPanel === "deki") && !rightPanelOpen && !toolsSheetOpen && !trackerPanelVisible;
 
   return (
     <>
