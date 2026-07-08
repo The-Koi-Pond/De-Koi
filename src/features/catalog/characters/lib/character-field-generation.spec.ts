@@ -150,18 +150,37 @@ describe("buildCharacterFieldGenerationMessages", () => {
     expect(messages[1]?.content).toContain("substantially different");
   });
 
-  it("guides music popularity and obscurity from background and listening habits", () => {
-    const messages = buildCharacterFieldGenerationMessages("music_favorite_songs", {
-      data: characterData({
-        description: "A sheltered pop-radio listener from a small-town dance studio.",
-        personality: "Earnest, social, and very current with chart hits.",
-      }),
-      comment: "Weekend playlist maker",
-    });
+  it("uses the richer music profile prompt rules for every music wand field", () => {
+    const fields: CharacterFieldGenerationField[] = [
+      "music_favorite_songs",
+      "music_favorite_artists",
+      "music_favorite_genres",
+      "music_vibe_notes",
+    ];
 
-    expect(messages[1]?.content).toContain("famous, niche, local, archival, online-only, or obscure");
-    expect(messages[1]?.content).toContain("background, era, access, subculture, and listening habits");
-    expect(messages[1]?.content).toContain("Avoid defaulting to the same canonical");
+    for (const field of fields) {
+      const prompt =
+        buildCharacterFieldGenerationMessages(field, {
+          data: characterData({
+            description: "A sheltered pop-radio listener from a small-town dance studio.",
+            personality: "Earnest, social, and very current with chart hits.",
+          }),
+          comment: "Weekend playlist maker",
+        })[1]?.content ?? "";
+
+      expect(prompt).toContain("CANON FIRST");
+      expect(prompt).toContain("TASTE IS CHARACTERIZATION");
+      expect(prompt).toContain("HOW they listen matters");
+      expect(prompt).toContain("Hook to cut");
+    }
+  });
+
+  it("asks vibe notes for 3-5 sentences instead of a short search phrase", () => {
+    const prompt = buildCharacterFieldGenerationMessages("music_vibe_notes", { data: characterData() })[1]?.content ?? "";
+
+    expect(prompt).toContain("3-5 sentences");
+    expect(prompt).toContain("visible characterization reasoning");
+    expect(prompt).not.toContain("one short music-taste vibe note for fallback Music Player searches");
   });
 
   it("asks for concrete playable field details instead of broad trait inventories", () => {
