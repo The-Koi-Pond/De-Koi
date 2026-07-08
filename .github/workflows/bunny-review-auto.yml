@@ -63,10 +63,14 @@ jobs:
 
           echo "Bunny auto dispatch gate: action=$EVENT_ACTION base=$PR_BASE_REF draft=$PR_IS_DRAFT author=$PR_AUTHOR association=$PR_AUTHOR_ASSOCIATION sync_automation=${PR_SYNC_AUTOMATION:-unset}"
           TARGET_REF="$PR_BASE_REF"
-          if [ "$TARGET_REF" != "main" ]; then
-            echo "::error::Unsupported Bunny review base ref: $TARGET_REF"
-            exit 1
-          fi
+          case "$TARGET_REF" in
+            main|feature/deki-rework)
+              ;;
+            *)
+              echo "::error::Unsupported Bunny review base ref: $TARGET_REF"
+              exit 1
+              ;;
+          esac
           if [ "$PR_IS_DRAFT" = "true" ]; then
             echo "Skipping Bunny auto dispatch for draft pull request."
             exit 0
