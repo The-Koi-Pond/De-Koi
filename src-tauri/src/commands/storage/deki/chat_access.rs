@@ -1,5 +1,4 @@
 use crate::state::AppState;
-use autoagents::prelude::{ToolInput, ToolInputT};
 use marinara_core::{now_iso, AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -56,44 +55,28 @@ pub(super) struct DekiChatAccessWindow {
     pub(super) message_count: Option<usize>,
 }
 
-#[derive(Debug, Deserialize, ToolInput)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ReadDekiChatsArgs {
-    #[input(description = "Optional exact approved chat ids to list.")]
     #[serde(default, alias = "chat_ids")]
     pub(super) chat_ids: Option<Vec<String>>,
-    #[input(
-        description = "Optional character id; only approved chats involving this character are returned."
-    )]
     #[serde(default, alias = "character_id")]
     pub(super) character_id: Option<String>,
-    #[input(description = "Optional chat modes to list: conversation, roleplay, or game.")]
     #[serde(default)]
     pub(super) modes: Option<Vec<String>>,
-    #[input(
-        description = "Maximum overview rows to return. Defaults to 50 and is capped by De-Koi."
-    )]
     #[serde(default)]
     pub(super) limit: Option<usize>,
-    #[input(description = "Zero-based pagination offset for overview rows.")]
     #[serde(default)]
     pub(super) offset: Option<usize>,
 }
 
-#[derive(Debug, Deserialize, ToolInput)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ReadDekiChatMessagesArgs {
-    #[input(description = "Exact approved chat id to read messages from.")]
     #[serde(alias = "chat_id")]
     pub(super) chat_id: String,
-    #[input(
-        description = "Maximum messages to return. The approved grant window is always enforced."
-    )]
     #[serde(default)]
     pub(super) limit: Option<usize>,
-    #[input(
-        description = "Optional pagination cursor; returns messages before this createdAt|id cursor when supported."
-    )]
     #[serde(default)]
     pub(super) before: Option<String>,
 }
