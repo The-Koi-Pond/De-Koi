@@ -26,7 +26,6 @@ describe("support report helpers", () => {
 
   it("builds a short bug-report URL skeleton without embedding the full report payload", () => {
     const url = buildBugReportUrl({
-      bugReportUrl: "https://github.com/The-Koi-Pond/De-Koi/issues/new",
       source: "health-diagnostics",
       appVersion: "1.6.1",
       platform: {
@@ -72,7 +71,6 @@ describe("support report helpers", () => {
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("");
 
     const url = await openBugReport({
-      bugReportUrl: "https://github.com/The-Koi-Pond/De-Koi/issues/new",
       source: "query-error",
       appVersion: "1.6.1",
       platform: {
