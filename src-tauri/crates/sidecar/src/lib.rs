@@ -348,6 +348,34 @@ fn log_path(state: &LocalSidecarState) -> AppResult<PathBuf> {
     Ok(sidecar_root(state)?.join("sidecar.log"))
 }
 
+pub fn log_tail(state: &LocalSidecarState, max_lines: usize) -> AppResult<Value> {
+    let path = log_path(state)?;
+    if !path.exists() {
+        return Ok(json!({
+            "available": false,
+            "path": path.to_string_lossy(),
+            "lines": [],
+            "truncated": false,
+            "error": "Sidecar log file does not exist yet."
+        }));
+    }
+
+    let max_lines = max_lines.clamp(1, 1000);
+    let contents = fs::read_to_string(&path)?;
+    let mut lines: Vec<&str> = contents.lines().collect();
+    let truncated = lines.len() > max_lines;
+    if truncated {
+        lines = lines.split_off(lines.len() - max_lines);
+    }
+
+    Ok(json!({
+        "available": true,
+        "path": path.to_string_lossy(),
+        "lines": lines,
+        "truncated": truncated
+    }))
+}
+
 fn models_dir(state: &LocalSidecarState) -> AppResult<PathBuf> {
     let path = sidecar_root(state)?.join("models");
     fs::create_dir_all(path.join("custom"))?;
@@ -2871,6 +2899,21 @@ mod tests {
             .expect("tar symlink should be appendable");
         let encoder = builder.into_inner().expect("tar builder should finish");
         encoder.finish().expect("gzip encoder should finish");
+    }
+
+    #[test]
+    fn log_tail_reads_last_requested_lines() {
+        let state = test_state("log-tail");
+        let path = log_path(&state).expect("log path should resolve");
+        fs::write(&path, "line 1\nline 2\nline 3\nline 4\n")
+            .expect("log file should be writable");
+
+        let tail = log_tail(&state, 2).expect("log tail should be readable");
+
+        assert_eq!(tail["available"], true);
+        assert_eq!(tail["truncated"], true);
+        assert_eq!(tail["lines"], json!(["line 3", "line 4"]));
+        assert_eq!(tail["path"].as_str(), Some(path.to_string_lossy().as_ref()));
     }
 
     #[tokio::test]

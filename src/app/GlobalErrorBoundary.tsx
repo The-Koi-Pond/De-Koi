@@ -1,10 +1,12 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { recordClientDiagnostic } from "../shared/lib/client-diagnostics";
+import { buildSupportReportText, openBugReport } from "../shared/lib/support-report";
 
 type GlobalErrorBoundaryState = {
   error: unknown;
   componentStack: string;
   copyStatus: "idle" | "copied" | "failed";
+  reportStatus: "idle" | "opening" | "failed";
 };
 
 type GlobalErrorBoundaryProps = {
@@ -134,12 +136,14 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
     error: null,
     componentStack: "",
     copyStatus: "idle",
+    reportStatus: "idle",
   };
 
   static getDerivedStateFromError(error: unknown): Partial<GlobalErrorBoundaryState> {
     return {
       error,
       copyStatus: "idle",
+      reportStatus: "idle",
     };
   }
 
@@ -170,7 +174,10 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
   };
 
   private copyDebugDetails = () => {
-    const debugDetails = buildDebugDetails(this.state.error, this.state.componentStack);
+    const debugDetails = buildSupportReportText({
+      source: "crash-screen",
+      reportText: buildDebugDetails(this.state.error, this.state.componentStack),
+    });
     const writeText = navigator.clipboard?.writeText;
 
     if (typeof writeText !== "function") {
@@ -183,6 +190,16 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
     void writePromise
       .then(() => this.setState({ copyStatus: "copied" }))
       .catch(() => this.setState({ copyStatus: "failed" }));
+  };
+
+  private reportBug = () => {
+    this.setState({ reportStatus: "opening" });
+    void openBugReport({
+      source: "crash-screen",
+      reportText: buildDebugDetails(this.state.error, this.state.componentStack),
+    })
+      .then(() => this.setState({ reportStatus: "idle", copyStatus: "copied" }))
+      .catch(() => this.setState({ reportStatus: "failed" }));
   };
 
   render() {
@@ -266,6 +283,21 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
                   : this.state.copyStatus === "failed"
                     ? "Copy failed"
                     : "Copy report"}
+              </button>
+              <button
+                type="button"
+                onClick={this.reportBug}
+                style={{
+                  ...buttonStyle,
+                  background: "transparent",
+                  color: "var(--foreground, #f8fafc)",
+                }}
+              >
+                {this.state.reportStatus === "opening"
+                  ? "Opening report"
+                  : this.state.reportStatus === "failed"
+                    ? "Report failed"
+                    : "Report bug"}
               </button>
             </div>
           </section>

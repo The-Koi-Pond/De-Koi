@@ -209,6 +209,38 @@
     "coverage": "core"
   },
   {
+    "id": "help-hub",
+    "title": "Help Hub",
+    "category": "Help",
+    "summary": "A central Help surface for diagnostics, bug reports, onboarding replay, shortcut reference, and app version details.",
+    "keywords": ["help", "support", "about", "version", "shortcuts", "question mark", "diagnostics", "getting started"],
+    "audience": "Users who are stuck, confused, or want one place to find recovery actions.",
+    "where": "Title bar Help button, mobile chat Help button, or press ? outside text inputs.",
+    "actions": [{ "type": "open-help", "label": "Open Help" }],
+    "coverage": "core"
+  },
+  {
+    "id": "onboarding-tutorial",
+    "title": "Replay Onboarding",
+    "category": "Help",
+    "summary": "Replay the first-run walkthrough without changing your library or settings.",
+    "keywords": ["onboarding", "tutorial", "first run", "getting started", "walkthrough", "replay"],
+    "audience": "Users who skipped onboarding or want the initial orientation again.",
+    "where": "Help Hub > Replay onboarding, or Discover > Replay Onboarding.",
+    "actions": [{ "type": "replay-onboarding", "label": "Replay Onboarding" }],
+    "coverage": "core"
+  },
+  {
+    "id": "report-bug",
+    "title": "Report A Bug",
+    "category": "Help",
+    "summary": "Copy a short support report and open the configured GitHub issue form.",
+    "keywords": ["bug", "report bug", "issue", "github", "support", "error", "crash", "diagnostics"],
+    "audience": "Users who hit an error or need to send maintainers useful troubleshooting context.",
+    "where": "Crash screen, Settings > Health, Help Hub, or Discover > Report A Bug.",
+    "actions": [{ "type": "report-bug", "label": "Report Bug" }],
+    "coverage": "core"
+  },  {
     "id": "deki",
     "title": "Deki-senpai",
     "category": "Help",

@@ -1,6 +1,7 @@
 import type {
   LocalSidecarCustomModelEntry,
   LocalSidecarConfigPatch,
+  LocalSidecarLogTail,
   LocalSidecarQuantization,
   LocalSidecarStatusResponse,
   LocalSidecarTestMessageResult,
@@ -9,6 +10,7 @@ import { invokeTauri } from "./tauri-client";
 
 export const localSidecarApi = {
   status: () => invokeTauri<LocalSidecarStatusResponse>("local_sidecar_status"),
+  logTail: (maxLines = 200) => invokeTauri<LocalSidecarLogTail>("local_sidecar_log_tail", { maxLines }),
   updateConfig: (body: LocalSidecarConfigPatch) =>
     invokeTauri<LocalSidecarStatusResponse>("local_sidecar_update_config", { body }),
   installRuntime: (body: { reinstall?: boolean } = {}) =>

@@ -51,4 +51,31 @@ describe("QueryErrorState", () => {
 
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it("renders a secondary help action when one is provided", () => {
+    const onRetry = vi.fn();
+    const onGetHelp = vi.fn();
+
+    act(() => {
+      root = createRoot(container);
+      root.render(
+        <QueryErrorState
+          title="Assets unavailable"
+          message="Couldn't load game assets. Try again."
+          onRetry={onRetry}
+          onGetHelp={onGetHelp}
+        />,
+      );
+    });
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons.map((button) => button.textContent)).toEqual(["Retry", "Get help"]);
+
+    act(() => {
+      buttons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(onGetHelp).toHaveBeenCalledTimes(1);
+  });
 });

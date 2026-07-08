@@ -143,7 +143,7 @@ function buildMacroHelpText(): string {
 
 const MACRO_HELP_TEXT = buildMacroHelpText();
 
-function buildSlashHelpText(): string {
+export function buildSlashHelpText(): string {
   return [
     "Available Commands:",
     "",

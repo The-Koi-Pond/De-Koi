@@ -19,6 +19,7 @@ vi.mock('../../../../shared/api/remote-runtime', async () => {
 vi.mock('../../../../shared/api/local-sidecar-api', () => ({
   localSidecarApi: {
     status: vi.fn(),
+    logTail: vi.fn(),
   },
 }));
 
@@ -84,6 +85,7 @@ describe('HealthDiagnosticsSettings provider probes', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
     vi.mocked(localSidecarApi.status).mockResolvedValue(readySidecarStatus());
+    vi.mocked(localSidecarApi.logTail).mockResolvedValue({ available: false, path: null, lines: [], truncated: false });
     vi.mocked(storageApi.list).mockImplementation(async (entity) => {
       if (entity === 'connections') {
         return [

@@ -74,6 +74,8 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
       break;
     case "replay-onboarding":
     case "open-deki":
+    case "open-help":
+    case "report-bug":
     case "go-home":
       break;
     case "open-showcase":

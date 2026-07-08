@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
+import { openBugReport } from "../../../../shared/lib/support-report";
 import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { HealthDiagnosticsSettings } from "./HealthDiagnosticsSettings";
@@ -20,8 +21,14 @@ vi.mock("../../../../shared/api/remote-runtime", async () => {
 vi.mock("../../../../shared/api/local-sidecar-api", () => ({
   localSidecarApi: {
     status: vi.fn(),
+    logTail: vi.fn(),
     testMessage: vi.fn(),
   },
+}));
+
+vi.mock("../../../../shared/lib/support-report", () => ({
+  getBrowserPlatformInfo: vi.fn(() => ({ os: "Windows", userAgent: "Vitest", language: "en-US" })),
+  openBugReport: vi.fn(),
 }));
 
 vi.mock("../../../../shared/api/connection-command-api", () => ({
@@ -105,6 +112,12 @@ describe("HealthDiagnosticsSettings", () => {
       curatedModels: [],
       download: null,
     });
+    vi.mocked(localSidecarApi.logTail).mockResolvedValue({
+      available: true,
+      path: "C:\\Users\\celia\\AppData\\Roaming\\De-Koi\\sidecar.log",
+      lines: ["sidecar ready"],
+      truncated: false,
+    });
     vi.mocked(localSidecarApi.testMessage).mockResolvedValue({
       success: true,
       response: "pong",
@@ -150,12 +163,38 @@ describe("HealthDiagnosticsSettings", () => {
     expect(container!.textContent).toContain("Storage");
     expect(container!.textContent).toContain("Recent Diagnostics");
     expect(container!.textContent).toContain("Troubleshooting Packet");
+    expect(container!.textContent).toContain("Report bug");
     expect(container!.textContent).toContain("Main Model");
     expect(localSidecarApi.status).toHaveBeenCalledTimes(1);
     expect(localSidecarApi.testMessage).not.toHaveBeenCalled();
     expect(connectionCommandApi.test).not.toHaveBeenCalled();
   });
 
+
+  it("opens a bug report from the troubleshooting packet", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<HealthDiagnosticsSettings />);
+    });
+    await flushAsyncWork();
+
+    const reportButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Report bug"),
+    );
+    expect(reportButton).toBeTruthy();
+
+    await act(async () => {
+      reportButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushAsyncWork();
+
+    expect(openBugReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "health-diagnostics",
+        reportText: expect.stringContaining("de-koi-diagnostics.v1"),
+      }),
+    );
+  });
   it("runs sidecar smoke tests and provider probes only from explicit buttons", async () => {
     await act(async () => {
       root = createRoot(container!);

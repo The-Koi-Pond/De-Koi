@@ -318,6 +318,7 @@ pub fn run() {
             storage_commands::media_commands::llm_stream_cancel,
             storage_commands::media_commands::llm_list_models,
             storage_commands::media_commands::local_sidecar_status,
+            storage_commands::media_commands::local_sidecar_log_tail,
             storage_commands::media_commands::local_sidecar_update_config,
             storage_commands::media_commands::local_sidecar_runtime_install,
             storage_commands::media_commands::local_sidecar_download_curated,

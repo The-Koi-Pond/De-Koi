@@ -2,6 +2,7 @@ import type { DiscoveryAction } from "../discovery-types";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../discovery-events";
+import { openBugReport } from "../../../../shared/lib/support-report";
 
 function emitDiscoveryEvent(detail: DiscoveryAppEventDetail) {
   if (typeof window === "undefined") return;
@@ -19,6 +20,10 @@ export function getDiscoveryActionLabel(action: DiscoveryAction) {
       return "Replay Tutorial";
     case "open-deki":
       return "Open Deki-senpai";
+    case "open-help":
+      return "Open Help";
+    case "report-bug":
+      return "Report Bug";
     case "go-home":
       return "Go Home";
     case "open-showcase":
@@ -42,6 +47,15 @@ export function runDiscoveryAction(action: DiscoveryAction) {
       return;
     case "open-deki":
       emitDiscoveryEvent({ type: "open-deki" });
+      return;
+    case "open-help":
+      emitDiscoveryEvent({ type: "open-help" });
+      return;
+    case "report-bug":
+      void openBugReport({
+        source: "help-hub",
+        reportText: "Bug report started from Discover. Add what happened below.",
+      }).catch(() => undefined);
       return;
     case "go-home":
       useChatStore.getState().setActiveChatId(null);

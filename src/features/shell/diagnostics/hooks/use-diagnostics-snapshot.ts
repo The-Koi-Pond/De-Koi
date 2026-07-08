@@ -6,11 +6,13 @@ import { checkRemoteRuntimeHealth, hasEmbeddedTauriRuntime } from "../../../../s
 import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { getRecentClientDiagnostics, recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
+import { getBrowserPlatformInfo } from "../../../../shared/lib/support-report";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   buildGenerationTimingSection,
   diagnosticsOverallStatus,
   type DiagnosticItem,
+  type DiagnosticsLogTail,
   type DiagnosticsRuntimeMode,
   type DiagnosticsSection,
   type DiagnosticsSnapshot,
@@ -142,6 +144,20 @@ async function sidecarSection(): Promise<DiagnosticsSection> {
   }
 }
 
+async function sidecarLogTail(): Promise<DiagnosticsLogTail> {
+  try {
+    return await localSidecarApi.logTail(200);
+  } catch (error) {
+    return {
+      available: false,
+      path: null,
+      lines: [],
+      truncated: false,
+      error: errorMessage(error),
+    };
+  }
+}
+
 function providerItem(connection: ConnectionSummary): DiagnosticItem {
   const id = connection.id?.trim() || "connection";
   return {
@@ -255,11 +271,12 @@ async function sectionOrError(id: string, title: string, load: () => Promise<Dia
 }
 
 export async function createDiagnosticsSnapshot(remoteRuntimeUrl: string): Promise<DiagnosticsSnapshot> {
-  const [runtime, sidecar, providers, storage] = await Promise.all([
+  const [runtime, sidecar, providers, storage, logTail] = await Promise.all([
     sectionOrError("runtime", "Runtime", () => runtimeSection(remoteRuntimeUrl)),
     sectionOrError("sidecar", "Local Model", sidecarSection),
     sectionOrError("providers", "Providers", providersSection),
     sectionOrError("storage", "Storage", storageSection),
+    sidecarLogTail(),
   ]);
   const recentDiagnostics = getRecentClientDiagnostics();
   const generationTiming = buildGenerationTimingSection(recentDiagnostics);
@@ -268,6 +285,8 @@ export async function createDiagnosticsSnapshot(remoteRuntimeUrl: string): Promi
     generatedAt: new Date().toISOString(),
     appVersion: APP_VERSION,
     runtimeMode: runtimeMode(remoteRuntimeUrl),
+    platform: getBrowserPlatformInfo(),
+    logTail,
     overallStatus: diagnosticsOverallStatus(sections),
     sections,
     recentDiagnostics,

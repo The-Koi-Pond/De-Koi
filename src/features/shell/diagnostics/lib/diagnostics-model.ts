@@ -1,4 +1,5 @@
 import type { ClientDiagnosticRecord } from "../../../../shared/lib/client-diagnostics";
+import type { SupportPlatformInfo } from "../../../../shared/lib/support-report";
 
 export type DiagnosticStatus = "ok" | "warning" | "degraded" | "error" | "unknown";
 export type DiagnosticsRuntimeMode = "embedded" | "remote" | "web-shell";
@@ -18,9 +19,19 @@ export interface DiagnosticsSection {
   items: DiagnosticItem[];
 }
 
+export interface DiagnosticsLogTail {
+  available: boolean;
+  path: string | null;
+  lines: string[];
+  truncated: boolean;
+  error?: string;
+}
+
 export interface DiagnosticsSnapshot {
   generatedAt: string;
   appVersion: string;
+  platform: SupportPlatformInfo;
+  logTail: DiagnosticsLogTail | null;
   runtimeMode: DiagnosticsRuntimeMode;
   overallStatus: DiagnosticStatus;
   sections: DiagnosticsSection[];
@@ -31,6 +42,8 @@ export interface TroubleshootingPacket {
   schema: "de-koi-diagnostics.v1";
   generatedAt: string;
   appVersion: string;
+  platform: SupportPlatformInfo;
+  logTail: DiagnosticsLogTail | null;
   runtimeMode: DiagnosticsRuntimeMode;
   overallStatus: DiagnosticStatus;
   sections: DiagnosticsSection[];
@@ -123,13 +136,17 @@ function redactStack(value: string): string {
   return [...lines.slice(0, STACK_LINE_LIMIT), "[stack truncated]"].join("\n");
 }
 
+function redactInlineSecrets(value: string): string {
+  return value.replace(/\b(api[_-]?key|authorization|password|secret|token)\s*[:=]\s*[^\s,;]+/gi, (_match, key: string) => `${key}=${SECRET_REPLACEMENT}`);
+}
+
 function redactString(value: string, key?: string): string {
   if (/^data:[^,]+,/i.test(value)) return DATA_URI_REPLACEMENT;
   const url = redactUrl(value);
   if (url) return url;
   if (looksLikeEncodedBlob(value)) return ENCODED_REPLACEMENT;
 
-  let next = redactLocalPaths(value);
+  let next = redactInlineSecrets(redactLocalPaths(value));
   if (key?.toLowerCase() === "stack") {
     next = redactStack(next);
   }
@@ -293,6 +310,8 @@ export function buildTroubleshootingPacket(
     schema: "de-koi-diagnostics.v1",
     generatedAt: generatedAt.toISOString(),
     appVersion: snapshot.appVersion,
+    platform: snapshot.platform,
+    logTail: snapshot.logTail,
     runtimeMode: snapshot.runtimeMode,
     overallStatus: snapshot.overallStatus,
     sections: snapshot.sections,

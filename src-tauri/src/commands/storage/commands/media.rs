@@ -350,6 +350,14 @@ pub async fn local_sidecar_status(state: State<'_, AppState>) -> Result<Value, A
 }
 
 #[tauri::command]
+pub fn local_sidecar_log_tail(
+    state: State<'_, AppState>,
+    max_lines: Option<usize>,
+) -> Result<Value, AppError> {
+    sidecar::log_tail(&state, max_lines.unwrap_or(200))
+}
+
+#[tauri::command]
 pub async fn local_sidecar_update_config(
     state: State<'_, AppState>,
     body: Value,

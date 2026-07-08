@@ -1,7 +1,12 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { describeWindowErrorEvent, GlobalErrorBoundary } from "./GlobalErrorBoundary";
+import { openBugReport } from "../shared/lib/support-report";
+
+vi.mock("../shared/lib/support-report", () => ({
+  openBugReport: vi.fn(() => Promise.resolve("https://github.com/The-Koi-Pond/De-Koi/issues/new")),
+}));
 
 function ThrowingChild() {
   throw new Error("invoke failed: status 500 at /api/invoke");
@@ -63,7 +68,36 @@ describe("GlobalErrorBoundary", () => {
     expect(container.textContent).toContain("De-Koi hit a display problem.");
     expect(container.textContent).toContain("Reload De-Koi");
     expect(container.textContent).toContain("Copy report");
+    expect(container.textContent).toContain("Report bug");
     expect(container.textContent).not.toContain("invoke failed");
     expect(container.textContent).not.toContain("Debug details");
+  });
+
+  it("opens a bug report with copied crash details", async () => {
+    act(() => {
+      root = createRoot(container);
+      root.render(
+        createElement(GlobalErrorBoundary, {
+          onReload: () => undefined,
+          children: createElement(ThrowingChild),
+        }),
+      );
+    });
+
+    const reportButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Report bug"),
+    );
+    expect(reportButton).toBeTruthy();
+
+    await act(async () => {
+      reportButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(openBugReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "crash-screen",
+        reportText: expect.stringContaining("invoke failed"),
+      }),
+    );
   });
 });
