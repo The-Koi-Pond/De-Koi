@@ -138,7 +138,7 @@ describe("ChatMessage", () => {
       expect.objectContaining({ width: expect.any(Number) }),
     );
   });
-  it("does not use the character dialogue color when attribution is missing", () => {
+  it("uses the character dialogue color as the assistant fallback when attribution is missing", () => {
     const coloredCharacterMap = new Map([
       [
         "character-1",
@@ -165,7 +165,7 @@ describe("ChatMessage", () => {
 
     const dialogue = container!.querySelector<HTMLElement>(".mari-message-content strong");
     expect(dialogue).not.toBeNull();
-    expect(dialogue!.style.color).toBe("");
+    expect(dialogue!.style.color).toBe("rgb(255, 51, 102)");
   });
   it("lazily backfills legacy roleplay attribution from Name-prefix text", async () => {
     const patchExtra = vi.spyOn(storageApi, "patchChatMessageExtra").mockResolvedValue({} as Message);
@@ -194,7 +194,7 @@ describe("ChatMessage", () => {
       );
     });
 
-    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")?.style.color ?? "").toBe("");
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")?.style.color ?? "").toBe("rgb(255, 51, 102)");
     await flushLegacyBackfill();
 
     expect(patchExtra).toHaveBeenCalledWith("message-legacy-backfill", {
@@ -379,6 +379,99 @@ describe("ChatMessage", () => {
     expect(quote?.style.color).toBe("");
   });
 
+  it("colors persona-attributed assistant dialogue from persona identity", () => {
+    const content = '"I said it."';
+    const personaAttributedMessage: Message = {
+      ...message,
+      id: "message-persona-attributed-dialogue",
+      characterId: null,
+      content,
+      extra: {
+        ...message.extra,
+        dialogueAttributions: {
+          version: 1,
+          textHash: createDialogueAttributionTextHash(content),
+          segments: [
+            {
+              start: 0,
+              end: content.length,
+              speakerName: "Chai",
+              speakerId: "persona-1",
+              source: "speaker-tag",
+              confidence: "explicit",
+            },
+          ],
+        },
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={personaAttributedMessage}
+            personaInfo={{ id: "persona-1", name: "Chai", dialogueColor: "#b58cff" }}
+            chatMode="roleplay"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
+    expect(quote?.textContent).toBe(content);
+    expect(quote?.style.color).toBe("rgb(181, 140, 255)");
+  });
+
+  it("warns once per chat when attributed speakers miss the color map", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const content = '"Boo."';
+    const missingSpeakerMessage: Message = {
+      ...message,
+      id: "message-missing-speaker-color",
+      chatId: "chat-missing-speaker-color",
+      characterId: null,
+      content,
+      extra: {
+        ...message.extra,
+        dialogueAttributions: {
+          version: 1,
+          textHash: createDialogueAttributionTextHash(content),
+          segments: [
+            {
+              start: 0,
+              end: content.length,
+              speakerName: "Ghost",
+              source: "speaker-tag",
+              confidence: "explicit",
+            },
+          ],
+        },
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={missingSpeakerMessage} characterMap={characterMap} chatMode="roleplay" />
+        </QueryClientProvider>,
+      );
+    });
+    act(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={{ ...missingSpeakerMessage, id: "message-missing-speaker-color-2" }} characterMap={characterMap} chatMode="roleplay" />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      "[chat-ui] Dialogue attribution speaker missing color map.",
+      expect.objectContaining({ chatId: "chat-missing-speaker-color", speakers: ["Ghost"] }),
+    );
+  });
   it("does not infer roleplay assistant quote colors on first render without stored attribution", () => {
     const attributedMessage: Message = {
       ...message,
@@ -407,8 +500,8 @@ describe("ChatMessage", () => {
 
     const quotes = Array.from(container!.querySelectorAll<HTMLElement>(".mari-message-content strong"));
     expect(quotes.map((quote) => [quote.textContent, quote.style.color])).toEqual([
-      ["\"Ah. 'Technical specifications,'\"", ""],
-      ['"Do not move!"', ""],
+      ["\"Ah. 'Technical specifications,'\"", "inherit"],
+      ['"Do not move!"', "inherit"],
     ]);
   });
   it("does not infer configured character aliases on first render without stored attribution", () => {
@@ -438,7 +531,7 @@ describe("ChatMessage", () => {
 
     const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
     expect(quote?.textContent).toBe('"Welcome,"');
-    expect(quote?.style.color).toBe("");
+    expect(quote?.style.color).toBe("inherit");
   });
 
   it("does not color unconfigured character titles", () => {
@@ -468,7 +561,7 @@ describe("ChatMessage", () => {
 
     const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
     expect(quote?.textContent).toBe('"Welcome,"');
-    expect(quote?.style.color).toBe("");
+    expect(quote?.style.color).toBe("inherit");
   });
   it("shows remembered and recalled memory indicators with recalled details", () => {
     const onPeekPrompt = vi.fn();

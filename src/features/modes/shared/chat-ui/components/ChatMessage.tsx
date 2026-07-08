@@ -2,7 +2,7 @@
 // Chat: Message — mode-aware rendering
 // ──────────────────────────────────────────────
 import { cn, copyToClipboard, normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
-import { speakerIdentityEntries } from "../../../../../shared/lib/speaker-identity";
+import { normalizeSpeakerName, speakerIdentityEntries } from "../../../../../shared/lib/speaker-identity";
 import { applyInlineMarkdown, renderMarkdownBlocks, applyInlineMarkdownHTML } from "../../../../../shared/lib/markdown";
 import {
   User,
@@ -30,6 +30,7 @@ import {
   Timer,
 } from "lucide-react";
 import type {
+  DialogueAttributionSegment,
   DialogueAttributionsExtra,
   Message,
   MessageExtra,
@@ -112,6 +113,25 @@ function readDialogueAttributionsFromExtra(extra: unknown): DialogueAttributions
   if (!extra || typeof extra !== "object" || Array.isArray(extra)) return null;
   const value = (extra as { dialogueAttributions?: unknown }).dialogueAttributions;
   return value && typeof value === "object" && !Array.isArray(value) ? (value as DialogueAttributionsExtra) : null;
+}
+
+const loggedMissingDialogueColorChats = new Set<string>();
+const ASSISTANT_DEFAULT_DIALOGUE_COLOR = "inherit";
+
+function missingDialogueColorSpeakers(
+  segments: readonly DialogueAttributionSegment[] | undefined,
+  speakerColorMap: Map<string, string> | undefined,
+): string[] {
+  const missing: string[] = [];
+  const seen = new Set<string>();
+  for (const segment of segments ?? []) {
+    const speakerName = segment.speakerName.trim();
+    const key = speakerName ? normalizeSpeakerName(speakerName) : "";
+    if (!speakerName || !key || speakerColorMap?.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    missing.push(speakerName);
+  }
+  return missing;
 }
 
 function resolveDialogueAttributionsForMessage(message: ChatMessageProps["message"], extra: ChatMessageExtra) {
@@ -1566,18 +1586,26 @@ export const ChatMessage = memo(function ChatMessage({
   const msgNameColor = msgColors?.nameColor ?? undefined;
   const roleplayBubbleBg = boxBgColor ? boxBgColor : isUser ? userBubbleBg : assistantBubbleBg;
 
-  // Build speaker -> dialogueColor map from explicit character identities only.
   const speakerColorMap = useMemo(() => {
-    if (!scopedCharacterMap) return undefined;
-    const entries = speakerIdentityEntries(
-      [...scopedCharacterMap.values()].map((info) => ({
-        color: info.dialogueColor,
-        names: [info.name, ...(info.speakerAliases ?? [])],
-      })),
-    );
-    const map = createSpeakerColorLookup(entries);
+    const identities = [
+      ...(scopedCharacterMap
+        ? [...scopedCharacterMap.values()].map((info) => ({
+            color: info.dialogueColor,
+            names: [info.name, ...(info.speakerAliases ?? [])],
+          }))
+        : []),
+      ...(personaInfo?.name
+        ? [
+            {
+              color: personaInfo.dialogueColor,
+              names: [personaInfo.name],
+            },
+          ]
+        : []),
+    ];
+    const map = createSpeakerColorLookup(speakerIdentityEntries(identities));
     return map.size > 0 ? map : undefined;
-  }, [scopedCharacterMap]);
+  }, [personaInfo?.dialogueColor, personaInfo?.name, scopedCharacterMap]);
   useLazyDialogueAttributionBackfill({
     message,
     extra,
@@ -1585,6 +1613,20 @@ export const ChatMessage = memo(function ChatMessage({
     chatCharacterIds,
     enabled: !isStreaming,
   });
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !dialogueAttributions?.segments.length) return;
+    const chatId = message.chatId || "unknown";
+    if (loggedMissingDialogueColorChats.has(chatId)) return;
+    const speakers = missingDialogueColorSpeakers(dialogueAttributions.segments, speakerColorMap);
+    if (speakers.length === 0) return;
+    loggedMissingDialogueColorChats.add(chatId);
+    console.warn("[chat-ui] Dialogue attribution speaker missing color map.", {
+      chatId,
+      messageId: message.id,
+      speakers,
+    });
+  }, [dialogueAttributions, message.chatId, message.id, speakerColorMap]);
   // Merged group chat: cycling avatars + cycling name color
   const mergedAvatars = useMemo<MergedAvatar[]>(() => {
     if (!isMergedGroup || !characterMap || !chatCharacterIds) return [];
@@ -1732,7 +1774,7 @@ export const ChatMessage = memo(function ChatMessage({
   const renderedContent = useMemo(() => {
     return renderContent(
       text,
-      undefined,
+      isUser ? undefined : (dialogueColor ?? ASSISTANT_DEFAULT_DIALOGUE_COLOR),
       speakerColorMap,
       dialogueAttributions,
       boldDialogue,
