@@ -344,8 +344,16 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 optional_u32_strict(&args, "size")?,
             )
         }
-        "gif_config" => http::giphy_config(state),
-        "gif_update_config" => http::giphy_update_config(state, optional_value(&args, "body")),
+        "gif_config" => {
+            dispatch_blocking_http_storage(state, &args, |state, _args| http::giphy_config(state))
+                .await
+        }
+        "gif_update_config" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                http::giphy_update_config(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "gif_search" => gif_search(state, &args).await,
         "tts_config" => integrations::tts_call(state, "GET", &["config"], Value::Null).await,
         "tts_update_config" => {
@@ -1608,10 +1616,6 @@ mod tests {
         "agent_memory_get",
         "agent_memory_patch",
         "agent_patch_by_type",
-        "deki_workspace_abort",
-        "deki_workspace_approve",
-        "deki_workspace_reject",
-        "deki_workspace_status",
         "agent_runs_clear_for_chat",
         "agent_runs_list_for_chat",
         "agent_toggle_by_type",
