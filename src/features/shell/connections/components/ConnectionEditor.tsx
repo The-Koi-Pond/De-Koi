@@ -4,6 +4,7 @@
 // ──────────────────────────────────────────────
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ChangeEvent } from "react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { toast } from "sonner";
 import {
   useConnection,
   useConnections,
@@ -46,6 +47,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
+import { connectionDeleteBlockFromError, formatConnectionDeleteBlockMessage } from "./connection-delete-block";
 import { DraftNumberInput } from "../../../../shared/components/ui/DraftNumberInput";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import {
@@ -81,7 +83,6 @@ import type {
   ImageDefaultsService,
   ImageGenerationDefaultsProfile,
 } from "../../../../engine/contracts/types/image-generation-defaults";
-import { toast } from "sonner";
 
 /** Links where users can obtain API keys for each provider */
 const API_KEY_LINKS: Partial<Record<APIProvider, { label: string; url: string }>> = {
@@ -579,6 +580,7 @@ export function ConnectionEditor() {
 
   const handleDelete = useCallback(async () => {
     if (!connectionDetailId) return;
+    setSaveError(null);
     if (
       !(await showConfirmDialog({
         title: "Delete Connection",
@@ -589,10 +591,43 @@ export function ConnectionEditor() {
     ) {
       return;
     }
-    deleteConnection.mutate(connectionDetailId, {
-      onSuccess: () => closeConnectionDetail(),
-      onError: (err) => setSaveError(err instanceof Error ? err.message : "Delete failed"),
-    });
+
+    try {
+      await deleteConnection.mutateAsync(connectionDetailId);
+      toast.success("Connection deleted.");
+      closeConnectionDetail();
+      return;
+    } catch (err) {
+      const block = connectionDeleteBlockFromError(err);
+      if (!block) {
+        const message = err instanceof Error ? err.message : "Delete failed";
+        setSaveError(message);
+        toast.error(message);
+        return;
+      }
+
+      const force = await showConfirmDialog({
+        title: "Connection Still Attached",
+        message: formatConnectionDeleteBlockMessage(block.chats, 6, block.agents),
+        confirmLabel: "Delete anyway",
+        cancelLabel: "Keep connection",
+        tone: "destructive",
+      });
+      if (!force) {
+        toast("Connection was not deleted.");
+        return;
+      }
+    }
+
+    try {
+      await deleteConnection.mutateAsync({ id: connectionDetailId, force: true });
+      toast.success("Connection deleted. Attached chats were disconnected.");
+      closeConnectionDetail();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Delete failed";
+      setSaveError(message);
+      toast.error(message);
+    }
   }, [connectionDetailId, deleteConnection, closeConnectionDetail]);
 
   const handleTestConnection = useCallback(async () => {

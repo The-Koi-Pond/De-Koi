@@ -3,6 +3,8 @@
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { connectionKeys } from "../query-keys";
+import { chatKeys } from "../../chats/query-keys";
+
 import {
   createConnectionSchema,
   type CreateConnectionInput,
@@ -34,6 +36,7 @@ export type ClaudeSubscriptionDiagnosis = {
 type CreateConnectionVariables = Partial<CreateConnectionInput> & Pick<CreateConnectionInput, "name" | "provider">;
 const CONNECTION_LIST_STALE_TIME_MS = 5_000;
 const CONNECTION_LIST_REFETCH_INTERVAL_MS = 5_000;
+const CONNECTION_REF_AGENT_QUERY_KEY = ["agents"] as const;
 
 const CONNECTION_SUMMARY_OPTIONS = {
   fields: [
@@ -177,11 +180,31 @@ export function useDuplicateConnection() {
   });
 }
 
+type DeleteConnectionVariables = string | { id: string; force?: boolean };
+
+type DeleteConnectionResult = { deleted: boolean; cleared?: { agents?: number; chats?: number } };
+
+function deleteConnectionId(variables: DeleteConnectionVariables): string {
+  return typeof variables === "string" ? variables : variables.id;
+}
+
 export function useDeleteConnection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => storageApi.delete("connections", assertStoredConnectionId(id)),
-    onSuccess: () => qc.invalidateQueries({ queryKey: connectionKeys.list() }),
+    mutationFn: (variables: DeleteConnectionVariables) => {
+      const id = assertStoredConnectionId(deleteConnectionId(variables));
+      const force = typeof variables === "string" ? undefined : variables.force;
+      return storageApi.delete("connections", id, { force }) as Promise<DeleteConnectionResult>;
+    },
+    onSuccess: (result, variables) => {
+      const id = deleteConnectionId(variables);
+      qc.invalidateQueries({ queryKey: connectionKeys.list() });
+      qc.invalidateQueries({ queryKey: connectionKeys.detail(id) });
+      if (typeof variables !== "string" || result.cleared) {
+        qc.invalidateQueries({ queryKey: chatKeys.all });
+        qc.invalidateQueries({ queryKey: CONNECTION_REF_AGENT_QUERY_KEY });
+      }
+    },
   });
 }
 
