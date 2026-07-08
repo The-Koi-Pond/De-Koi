@@ -12,6 +12,7 @@ export type CustomNotificationSound = {
 
 const DEFAULT_NOTIFICATION_SOUND_ID: NotificationSoundId = "frog";
 const CUSTOM_NOTIFICATION_SOUND_MAX_BYTES = 512 * 1024;
+const FROG_NOTIFICATION_SOUND_SRC = "/sounds/frog-croak.mp3";
 export const CUSTOM_NOTIFICATION_SOUND_ACCEPT = "audio/*,.mp3,.wav,.ogg,.webm,.m4a,.aac,.flac";
 
 export const NOTIFICATION_SOUND_OPTIONS: Array<{
@@ -48,6 +49,14 @@ const AUDIO_EXTENSION_MIME_TYPES: Record<string, string> = {
 
 let notificationAudioContext: NotificationAudioContext | null = null;
 
+function playAudioFile(src: string, volume: number) {
+  if (typeof Audio === "undefined") return;
+  const audio = new Audio(src);
+  audio.preload = "auto";
+  audio.volume = volume;
+  void audio.play().catch(() => {});
+}
+
 function getNotificationAudioContext(): NotificationAudioContext | null {
   if (typeof window === "undefined") return null;
   const audioWindow = window as Window & { webkitAudioContext?: typeof AudioContext };
@@ -66,42 +75,7 @@ function getNotificationAudioContext(): NotificationAudioContext | null {
 }
 
 function playFrogPing() {
-  const context = getNotificationAudioContext();
-  if (!context) return;
-
-  if (context.state === "suspended" || context.state === "interrupted") {
-    void context.resume().catch(() => {});
-  }
-
-  const now = context.currentTime;
-  const croak = context.createOscillator();
-  croak.type = "sawtooth";
-  croak.frequency.setValueAtTime(190, now);
-  croak.frequency.exponentialRampToValueAtTime(142, now + 0.07);
-  croak.frequency.exponentialRampToValueAtTime(205, now + 0.15);
-
-  const throat = context.createOscillator();
-  throat.type = "triangle";
-  throat.frequency.setValueAtTime(96, now);
-  throat.frequency.linearRampToValueAtTime(118, now + 0.12);
-
-  const gain = context.createGain();
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.12, now + 0.025);
-  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-
-  const throatGain = context.createGain();
-  throatGain.gain.setValueAtTime(0.0001, now);
-  throatGain.gain.exponentialRampToValueAtTime(0.08, now + 0.03);
-  throatGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-
-  croak.connect(gain).connect(context.destination);
-  throat.connect(throatGain).connect(context.destination);
-
-  croak.start(now);
-  croak.stop(now + 0.22);
-  throat.start(now);
-  throat.stop(now + 0.2);
+  playAudioFile(FROG_NOTIFICATION_SOUND_SRC, 0.7);
 }
 
 function playLegacyPing() {
@@ -141,15 +115,11 @@ function playLegacyPing() {
 }
 
 function playCustomNotificationSound(sound: CustomNotificationSound | null) {
-  if (!sound?.dataUrl || typeof Audio === "undefined") {
+  if (!sound?.dataUrl) {
     playFrogPing();
     return;
   }
-
-  const audio = new Audio(sound.dataUrl);
-  audio.preload = "auto";
-  audio.volume = 0.7;
-  void audio.play().catch(() => {});
+  playAudioFile(sound.dataUrl, 0.7);
 }
 
 export function normalizeNotificationSoundId(value: unknown): NotificationSoundId {
