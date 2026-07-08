@@ -52,12 +52,14 @@ import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
 import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties, type DragEvent } from "react";
+import { toast } from "sonner";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import type { ChatFolder } from "../../engine/contracts/types/chat";
 import { Modal } from "../../shared/components/ui/Modal";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { useStartNewChat } from "./useStartNewChat";
 import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
+import { deleteSelectedChatsSequentially, formatDeleteSelectedChatsError } from "./chat-sidebar-batch-actions";
 import {
   deriveChatSidebarRows,
   type ChatSidebarRow as DerivedChatSidebarRow,
@@ -639,11 +641,17 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
     ) {
       return;
     }
-    for (const id of deletableIds) {
-      deleteChat.mutate(id);
+    try {
+      await deleteSelectedChatsSequentially({
+        chatIds: deletableIds,
+        activeChatId,
+        deleteChat: deleteChat.mutateAsync,
+        setActiveChatId,
+        exitMultiSelect,
+      });
+    } catch (error) {
+      toast.error(formatDeleteSelectedChatsError(error));
     }
-    if (activeChatId && deletableIds.includes(activeChatId)) setActiveChatId(null);
-    exitMultiSelect();
   }, [selectedChatIds, deleteChat, activeChatId, setActiveChatId, exitMultiSelect]);
 
   const handleBatchExport = useCallback(
