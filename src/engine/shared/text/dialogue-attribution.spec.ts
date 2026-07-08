@@ -202,7 +202,7 @@ describe("dialogue attribution metadata", () => {
     expect(orphanClose.attributions).toBeNull();
   });
 
-  it("strips malformed complete speaker tags while preserving inner text", () => {
+  it("attributes recoverable malformed equals speaker tags while preserving inner text", () => {
     const malformedEquals = buildDialogueAttributions('<speaker=Alice>Hello</speaker>', speakers, {
       stripSpeakerTags: true,
     });
@@ -214,7 +214,16 @@ describe("dialogue attribution metadata", () => {
     });
 
     expect(malformedEquals.text).toBe("Hello");
-    expect(malformedEquals.attributions).toBeNull();
+    expect(malformedEquals.attributions?.segments).toEqual([
+      {
+        start: 0,
+        end: 5,
+        speakerName: "Alice",
+        speakerId: "char-alice",
+        source: "speaker-tag",
+        confidence: "explicit",
+      },
+    ]);
     expect(malformedSpace.text).toBe("Hello");
     expect(malformedSpace.attributions).toBeNull();
     expect(uppercaseBare.text).toBe("Hello");
