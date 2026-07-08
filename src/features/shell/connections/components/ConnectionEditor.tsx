@@ -47,7 +47,11 @@ import {
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
-import { connectionDeleteBlockFromError, formatConnectionDeleteBlockMessage } from "./connection-delete-block";
+import {
+  connectionDeleteBlockFromError,
+  formatConnectionDeleteBlockMessage,
+  formatConnectionForceDeleteFailureMessage,
+} from "./connection-delete-block";
 import { DraftNumberInput } from "../../../../shared/components/ui/DraftNumberInput";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import {
@@ -624,7 +628,7 @@ export function ConnectionEditor() {
       toast.success("Connection deleted. Attached chats were disconnected.");
       closeConnectionDetail();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Delete failed";
+      const message = formatConnectionForceDeleteFailureMessage(err);
       setSaveError(message);
       toast.error(message);
     }

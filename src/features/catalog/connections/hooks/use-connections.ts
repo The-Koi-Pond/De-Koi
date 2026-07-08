@@ -205,6 +205,14 @@ export function useDeleteConnection() {
         qc.invalidateQueries({ queryKey: CONNECTION_REF_AGENT_QUERY_KEY });
       }
     },
+    onSettled: (_result, _error, variables) => {
+      if (typeof variables === "string" || !variables.force) return;
+      const id = deleteConnectionId(variables);
+      qc.invalidateQueries({ queryKey: connectionKeys.list() });
+      qc.invalidateQueries({ queryKey: connectionKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: chatKeys.all });
+      qc.invalidateQueries({ queryKey: CONNECTION_REF_AGENT_QUERY_KEY });
+    },
   });
 }
 

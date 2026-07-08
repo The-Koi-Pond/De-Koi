@@ -37,6 +37,11 @@ export function connectionDeleteBlockFromError(error: unknown): ConnectionDelete
   };
 }
 
+export function formatConnectionForceDeleteFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message.trim() : "Delete failed";
+  return `Forced delete failed. The connection may still exist; De-Koi is refreshing attached chats and agents. ${detail}`;
+}
+
 function referenceLabel(row: ConnectionReferenceSummary, fallback: string): string {
   return row.name || row.type || row.id || fallback;
 }

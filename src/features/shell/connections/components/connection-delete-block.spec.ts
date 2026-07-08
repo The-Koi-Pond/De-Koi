@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../../../shared/api/api-errors";
-import { connectionDeleteBlockFromError, formatConnectionDeleteBlockMessage } from "./connection-delete-block";
+import {
+  connectionDeleteBlockFromError,
+  formatConnectionDeleteBlockMessage,
+  formatConnectionForceDeleteFailureMessage,
+} from "./connection-delete-block";
 
 describe("connection delete block dialog", () => {
   it("formats attached chats with a cap and consequence warning", () => {
@@ -19,6 +23,11 @@ describe("connection delete block dialog", () => {
     );
   });
 
+  it("formats forced delete failures as an explicit stale-state warning", () => {
+    expect(formatConnectionForceDeleteFailureMessage(new Error("database busy"))).toBe(
+      "Forced delete failed. The connection may still exist; De-Koi is refreshing attached chats and agents. database busy",
+    );
+  });
   it("extracts attached chats from connection_in_use ApiError details", () => {
     const error = new ApiError("Connection in use", 409, {
       code: "connection_in_use",
