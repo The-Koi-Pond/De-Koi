@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { deleteSelectedChatsSequentially } from "./chat-sidebar-batch-actions";
+import {
+  DeleteSelectedChatsError,
+  deleteSelectedChatsSequentially,
+  formatDeleteSelectedChatsError,
+} from "./chat-sidebar-batch-actions";
 
 function deferred() {
   let resolve!: () => void;
@@ -44,7 +48,7 @@ describe("deleteSelectedChatsSequentially", () => {
     expect(exitMultiSelect).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps selection mode open when a delete fails", async () => {
+  it("resets selection mode when the first delete fails", async () => {
     const deleteChat = vi.fn(async (chatId: string) => {
       if (chatId === "chat-a") throw new Error("storage delete failed");
     });
@@ -59,10 +63,46 @@ describe("deleteSelectedChatsSequentially", () => {
         setActiveChatId,
         exitMultiSelect,
       }),
-    ).rejects.toThrow("storage delete failed");
+    ).rejects.toMatchObject({
+      deletedCount: 0,
+      totalCount: 2,
+      failedChatId: "chat-a",
+    });
 
     expect(deleteChat).toHaveBeenCalledTimes(1);
     expect(setActiveChatId).not.toHaveBeenCalled();
-    expect(exitMultiSelect).not.toHaveBeenCalled();
+    expect(exitMultiSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports partial deletion after clearing deleted active chat state", async () => {
+    const deleteChat = vi.fn(async (chatId: string) => {
+      if (chatId === "chat-b") throw new Error("storage delete failed");
+    });
+    const setActiveChatId = vi.fn();
+    const exitMultiSelect = vi.fn();
+
+    let captured: unknown;
+    try {
+      await deleteSelectedChatsSequentially({
+        chatIds: ["chat-a", "chat-b"],
+        activeChatId: "chat-a",
+        deleteChat,
+        setActiveChatId,
+        exitMultiSelect,
+      });
+    } catch (error) {
+      captured = error;
+    }
+
+    expect(captured).toBeInstanceOf(DeleteSelectedChatsError);
+    expect(captured).toMatchObject({
+      deletedCount: 1,
+      totalCount: 2,
+      failedChatId: "chat-b",
+    });
+    expect(formatDeleteSelectedChatsError(captured)).toBe("Deleted 1 of 2 chats. storage delete failed");
+    expect(deleteChat).toHaveBeenCalledTimes(2);
+    expect(setActiveChatId).toHaveBeenCalledWith(null);
+    expect(exitMultiSelect).toHaveBeenCalledTimes(1);
   });
 });

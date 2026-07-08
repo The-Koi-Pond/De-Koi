@@ -59,7 +59,7 @@ import { Modal } from "../../shared/components/ui/Modal";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { useStartNewChat } from "./useStartNewChat";
 import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
-import { deleteSelectedChatsSequentially } from "./chat-sidebar-batch-actions";
+import { deleteSelectedChatsSequentially, formatDeleteSelectedChatsError } from "./chat-sidebar-batch-actions";
 import {
   deriveChatSidebarRows,
   type ChatSidebarRow as DerivedChatSidebarRow,
@@ -650,8 +650,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
         exitMultiSelect,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to delete selected chats.";
-      toast.error(message);
+      toast.error(formatDeleteSelectedChatsError(error));
     }
   }, [selectedChatIds, deleteChat, activeChatId, setActiveChatId, exitMultiSelect]);
 
