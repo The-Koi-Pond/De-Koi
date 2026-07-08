@@ -108,7 +108,7 @@ impl DekiEvidenceBudget {
         json!({
             "id": value.get("id").cloned().unwrap_or(Value::Null),
             "name": value.get("name").cloned().unwrap_or_else(|| json!(command_name)),
-            "ok": value.get("ok").cloned().unwrap_or_else(|| json!(false)),
+            "ok": value.get("ok").cloned().unwrap_or(Value::Bool(false)),
             "truncated": true,
             "evidence": compacted.text,
             "narrowing": format!(

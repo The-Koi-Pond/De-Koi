@@ -19,6 +19,17 @@ pub(super) struct DekiJsonRuntimeOutput {
     pub(super) workspace_trace: Vec<Value>,
 }
 
+struct DekiCommandRoundContext<'a> {
+    state: &'a AppState,
+    chat_access_grants: &'a [super::chat_access::DekiChatAccessGrant],
+    web_research_grants: &'a [super::commands::web::DekiWebResearchGrant],
+    command_state: &'a mut super::commands::DekiCommandTurnState,
+    budget: &'a DekiRuntimeBudget,
+    evidence_budget: &'a mut DekiEvidenceBudget,
+    trace: &'a mut Vec<Value>,
+    trace_chars: &'a mut usize,
+}
+
 pub(super) async fn run_json_command_runtime(
     input: DekiJsonRuntimeInput<'_>,
 ) -> AppResult<DekiJsonRuntimeOutput> {
@@ -79,15 +90,17 @@ pub(super) async fn run_json_command_runtime(
         let assistant_frame = raw_frame_for_memory(&frame);
         let command_results = execute_command_round(
             round_index,
-            input.state,
-            &input.chat_access_grants,
-            &input.web_research_grants,
-            &mut command_state,
             frame,
-            &budget,
-            &mut evidence_budget,
-            &mut trace,
-            &mut trace_chars,
+            DekiCommandRoundContext {
+                state: input.state,
+                chat_access_grants: &input.chat_access_grants,
+                web_research_grants: &input.web_research_grants,
+                command_state: &mut command_state,
+                budget: &budget,
+                evidence_budget: &mut evidence_budget,
+                trace: &mut trace,
+                trace_chars: &mut trace_chars,
+            },
         )
         .await?;
         let evidence = json!({
@@ -112,16 +125,19 @@ pub(super) async fn run_json_command_runtime(
 
 async fn execute_command_round(
     round_index: usize,
-    state: &AppState,
-    chat_access_grants: &[super::chat_access::DekiChatAccessGrant],
-    web_research_grants: &[super::commands::web::DekiWebResearchGrant],
-    command_state: &mut super::commands::DekiCommandTurnState,
     frame: DekiCommandFrame,
-    budget: &DekiRuntimeBudget,
-    evidence_budget: &mut DekiEvidenceBudget,
-    trace: &mut Vec<Value>,
-    trace_chars: &mut usize,
+    context: DekiCommandRoundContext<'_>,
 ) -> AppResult<Vec<Value>> {
+    let DekiCommandRoundContext {
+        state,
+        chat_access_grants,
+        web_research_grants,
+        command_state,
+        budget,
+        evidence_budget,
+        trace,
+        trace_chars,
+    } = context;
     let requested_count = frame.commands.len();
     let command_limit = budget.max_commands_per_round();
     let mut results = Vec::new();
