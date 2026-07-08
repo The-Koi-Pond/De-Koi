@@ -39,7 +39,7 @@ import { hasPendingAppCloseWork, requestGuardedAppClose } from "../../shared/lib
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
 import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
-import { shouldRequestDekiSessionSelect } from "./app-shell-deki-session";
+import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
 import { shouldUseLowPowerShellMode } from "./shell-performance";
@@ -554,14 +554,16 @@ export function AppShell() {
 
   const openDekiSession = useCallback(
     async (sessionId: string) => {
-      if (
-        !shouldRequestDekiSessionSelect({
-          sessionId,
-          activeSessionId: activeDekiSessionId,
-          dekiOpen,
-          pendingSessionId: pendingDekiSessionIdRef.current,
-        })
-      ) {
+      const selectAction = getDekiSessionSelectAction({
+        sessionId,
+        activeSessionId: activeDekiSessionId,
+        dekiOpen,
+        pendingSessionId: pendingDekiSessionIdRef.current,
+      });
+
+      if (selectAction === "ignore-pending") return;
+
+      if (selectAction === "open-active") {
         markDekiSessionRead(sessionId);
         openDekiShell();
         return;

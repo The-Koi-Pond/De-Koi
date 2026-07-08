@@ -1,4 +1,6 @@
-export function shouldRequestDekiSessionSelect({
+export type DekiSessionSelectAction = "select" | "open-active" | "ignore-pending";
+
+export function getDekiSessionSelectAction({
   sessionId,
   activeSessionId,
   dekiOpen,
@@ -8,7 +10,12 @@ export function shouldRequestDekiSessionSelect({
   activeSessionId: string | null;
   dekiOpen: boolean;
   pendingSessionId: string | null;
-}) {
-  if (pendingSessionId === sessionId) return false;
-  return !(dekiOpen && activeSessionId === sessionId);
+}): DekiSessionSelectAction {
+  if (pendingSessionId === sessionId) return "ignore-pending";
+  if (dekiOpen && activeSessionId === sessionId) return "open-active";
+  return "select";
+}
+
+export function shouldRequestDekiSessionSelect(input: Parameters<typeof getDekiSessionSelectAction>[0]) {
+  return getDekiSessionSelectAction(input) === "select";
 }
