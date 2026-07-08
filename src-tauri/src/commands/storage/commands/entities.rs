@@ -4642,6 +4642,29 @@ mod tests {
             json!(1)
         );
 
+        let error = chat_folder_reorder_inner(
+            &state,
+            "conversation",
+            vec![
+                "conversation-b".to_string(),
+                "conversation-a".to_string(),
+                "game-a".to_string(),
+            ],
+        )
+        .expect_err("foreign mode folder should reject reorder");
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            read_record(&state, "chat-folders", "conversation-a")["sortOrder"],
+            json!(0)
+        );
+        assert_eq!(
+            read_record(&state, "chat-folders", "conversation-b")["sortOrder"],
+            json!(1)
+        );
+        assert_eq!(
+            read_record(&state, "chat-folders", "game-a")["sortOrder"],
+            json!(0)
+        );
         chat_folder_reorder_inner(
             &state,
             "conversation",

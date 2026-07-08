@@ -60,6 +60,43 @@ describe("app close guard", () => {
     );
   });
 
+  it.each([
+    ["chat switch", { title: "Switch chats?", confirmLabel: "Switch anyway" }],
+    ["mode switch", { title: "Switch chat modes?", confirmLabel: "Switch anyway" }],
+  ])("blocks %s when pending work remains and the user cancels", async (_transition, options) => {
+    dialogs.showConfirmDialog.mockResolvedValue(false);
+    cleanups.push(
+      registerAppCloseGuard({
+        label: "Attachment",
+        hasPendingWork: () => true,
+      }),
+    );
+
+    await expect(confirmDiscardPendingAppWork(options)).resolves.toBe(false);
+    expect(dialogs.showConfirmDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: options.title,
+        confirmLabel: options.confirmLabel,
+      }),
+    );
+  });
+
+  it("flushes pending work before force-closing the desktop window", async () => {
+    let dirty = true;
+    cleanups.push(
+      registerAppCloseGuard({
+        label: "Draft",
+        hasPendingWork: () => dirty,
+        flush: () => {
+          dirty = false;
+        },
+      }),
+    );
+
+    await expect(requestGuardedAppClose()).resolves.toBe(true);
+    expect(dialogs.showConfirmDialog).not.toHaveBeenCalled();
+    expect(windowControls.closeDesktopWindow).toHaveBeenCalledWith({ force: true });
+  });
   it("does not force-close the window when the user cancels", async () => {
     dialogs.showConfirmDialog.mockResolvedValue(false);
     cleanups.push(
