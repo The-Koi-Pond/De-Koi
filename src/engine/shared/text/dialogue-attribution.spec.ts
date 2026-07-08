@@ -144,6 +144,119 @@ describe("dialogue attribution metadata", () => {
     }
   });
 
+  it("strips nested speaker tags without residual markup", () => {
+    const result = buildDialogueAttributions(
+      '<speaker name="Alice">Outer <speaker name="Bob">Inner</speaker> tail</speaker>',
+      speakers,
+      { stripSpeakerTags: true },
+    );
+
+    expect(result.text).toBe("Outer Inner tail");
+    expect(result.attributions?.segments).toEqual([
+      {
+        start: 0,
+        end: 6,
+        speakerName: "Alice",
+        speakerId: "char-alice",
+        source: "speaker-tag",
+        confidence: "explicit",
+      },
+      {
+        start: 6,
+        end: 11,
+        speakerName: "Bob",
+        speakerId: "char-bob",
+        source: "speaker-tag",
+        confidence: "explicit",
+      },
+      {
+        start: 11,
+        end: 16,
+        speakerName: "Alice",
+        speakerId: "char-alice",
+        source: "speaker-tag",
+        confidence: "explicit",
+      },
+    ]);
+  });
+
+  it("strips incomplete and orphan speaker markers without dropping recoverable text", () => {
+    const unclosed = buildDialogueAttributions('<speaker="Alice">Hello', speakers, { stripSpeakerTags: true });
+    const splitOpener = buildDialogueAttributions('Hello <speaker name="Alice"', speakers, { stripSpeakerTags: true });
+    const orphanClose = buildDialogueAttributions('Hello</speaker> tail', speakers, { stripSpeakerTags: true });
+
+    expect(unclosed.text).toBe("Hello");
+    expect(unclosed.attributions?.segments).toEqual([
+      {
+        start: 0,
+        end: 5,
+        speakerName: "Alice",
+        speakerId: "char-alice",
+        source: "speaker-tag",
+        confidence: "explicit",
+      },
+    ]);
+    expect(splitOpener.text).toBe("Hello ");
+    expect(splitOpener.attributions).toBeNull();
+    expect(orphanClose.text).toBe("Hello tail");
+    expect(orphanClose.attributions).toBeNull();
+  });
+
+  it("strips malformed complete speaker tags while preserving inner text", () => {
+    const malformedEquals = buildDialogueAttributions('<speaker=Alice>Hello</speaker>', speakers, {
+      stripSpeakerTags: true,
+    });
+    const malformedSpace = buildDialogueAttributions('<speaker Alice>Hello</speaker>', speakers, {
+      stripSpeakerTags: true,
+    });
+    const uppercaseBare = buildDialogueAttributions('<Speaker="Alice">Hello</speaker>', speakers, {
+      stripSpeakerTags: true,
+    });
+
+    expect(malformedEquals.text).toBe("Hello");
+    expect(malformedEquals.attributions).toBeNull();
+    expect(malformedSpace.text).toBe("Hello");
+    expect(malformedSpace.attributions).toBeNull();
+    expect(uppercaseBare.text).toBe("Hello");
+    expect(uppercaseBare.attributions?.segments).toEqual([
+      {
+        start: 0,
+        end: 5,
+        speakerName: "Alice",
+        speakerId: "char-alice",
+        source: "speaker-tag",
+        confidence: "explicit",
+      },
+    ]);
+  });
+
+  it("preserves non-markup content around malformed Phase 2 inputs", () => {
+    const specialSpeakers = [
+      ...speakers,
+      { id: "char-special", name: 'Dr. A+B: Ω' },
+      { id: "char-quote", name: 'Anna "Ace"' },
+    ];
+    const special = buildDialogueAttributions('<speaker name="Dr. A+B: Ω">Hi</speaker>', specialSpeakers, {
+      stripSpeakerTags: true,
+    });
+    const quotedName = buildDialogueAttributions('<speaker name=\'Anna "Ace"\'>Yo</speaker>', specialSpeakers, {
+      stripSpeakerTags: true,
+    });
+    const warning = buildDialogueAttributions("Warning: the bridge is out.", specialSpeakers, {
+      stripLeadingSpeakerPrefix: true,
+    });
+    const tagLikeQuote = buildDialogueAttributions('She said "<speaker name=\'Alice\'>hello</speaker>".', speakers, {
+      stripSpeakerTags: true,
+    });
+
+    expect(special.text).toBe("Hi");
+    expect(special.attributions?.segments[0]).toMatchObject({ speakerName: 'Dr. A+B: Ω', start: 0, end: 2 });
+    expect(quotedName.text).toBe("Yo");
+    expect(quotedName.attributions?.segments[0]).toMatchObject({ speakerName: 'Anna "Ace"', start: 0, end: 2 });
+    expect(warning.text).toBe("Warning: the bridge is out.");
+    expect(warning.attributions).toBeNull();
+    expect(tagLikeQuote.text).toBe('She said "hello".');
+  });
   it("attributes quoted dialogue to the explicit prose speaker instead of the nearest mention", () => {
     const result = buildDialogueAttributions('Alice watched Bob. "Careful," Alice said.', speakers, {
       includeDerivedProse: true,
