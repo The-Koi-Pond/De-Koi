@@ -157,6 +157,21 @@ pub fn prompt_nested_reorder(state: &AppState, args: &Map<String, Value>) -> App
         required_non_empty_string_vec(args, "orderedIds")?,
     )
 }
+pub fn prompt_set_default(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    entity_commands::prompt_set_default_inner(state, required_string(args, "presetId")?)
+}
+
+pub fn chat_preset_set_active(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    entity_commands::chat_preset_set_active_inner(state, required_string(args, "presetId")?)
+}
+
+pub fn chat_folder_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    entity_commands::chat_folder_reorder_inner(
+        state,
+        required_string(args, "mode")?,
+        required_non_empty_string_vec(args, "orderedIds")?,
+    )
+}
 pub fn storage_duplicate(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     entity_commands::duplicate_entity(
         state,

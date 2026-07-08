@@ -48,6 +48,7 @@ import {
 import { useChatSurfaceCharacterSummariesByIds } from "../../features/catalog/characters/index";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
+import { confirmDiscardPendingAppWork } from "../../shared/lib/app-close-guard";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
@@ -508,9 +509,9 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
   const handleFolderReorder = useCallback(
     (newOrder: string[]) => {
       setLocalFolderOrder(newOrder);
-      reorderFoldersMut.mutate(newOrder);
+      reorderFoldersMut.mutate({ mode: activeTab, orderedIds: newOrder });
     },
-    [reorderFoldersMut],
+    [activeTab, reorderFoldersMut],
   );
 
   const clearFolderDragState = useCallback(() => {
@@ -734,6 +735,12 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
         onClick={async () => {
           if (multiSelectMode) {
             toggleSelectChat(chat.id);
+            return;
+          }
+          if (
+            chat.id !== activeChatId &&
+            !(await confirmDiscardPendingAppWork({ title: "Switch chats?", confirmLabel: "Switch anyway" }))
+          ) {
             return;
           }
           if (hasAnyDetailOpen()) {
@@ -1021,7 +1028,15 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
           return (
             <button
               key={tab}
-              onClick={() => onActiveTabChange(tab)}
+              onClick={async () => {
+                if (tab === activeTab) return;
+                if (
+                  !(await confirmDiscardPendingAppWork({ title: "Switch chat modes?", confirmLabel: "Switch anyway" }))
+                ) {
+                  return;
+                }
+                onActiveTabChange(tab);
+              }}
               className={cn(
                 "relative flex min-h-[2.125rem] min-w-0 flex-1 items-center justify-center gap-1 overflow-visible rounded-lg px-1 py-2 text-[0.625rem] leading-normal font-medium transition-all",
                 isActive

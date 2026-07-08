@@ -12,6 +12,7 @@ import { chatModeSchema } from "../../../../engine/contracts/schemas/chat.schema
 import { boolish } from "../../../../engine/generation/runtime-records";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
+import { chatPresetApi } from "../../../../shared/api/chat-preset-api";
 import { chatKeys } from "../../chats/query-keys";
 import type { Chat, ChatMode } from "../../../../engine/contracts/types/chat";
 import {
@@ -143,22 +144,6 @@ function importPayloadFromEnvelope(envelope: unknown): Record<string, unknown> {
   });
 }
 
-async function setOnlyActivePreset(id: string): Promise<ChatPreset> {
-  const selected = await storageApi.get<RawChatPreset>("chat-presets", id);
-  if (!selected) throw new Error(`Chat preset ${id} was not found`);
-  const presets = (await storageApi.list<RawChatPreset>("chat-presets")).map(normalizeChatPresetFlags);
-  await Promise.all(
-    presets
-      .filter((preset) => preset.mode === selected.mode)
-      .map((preset) =>
-        storageApi.update<ChatPreset>("chat-presets", preset.id, {
-          isActive: preset.id === id,
-          active: preset.id === id,
-        }),
-      ),
-  );
-  return { ...normalizeChatPresetFlags(selected), isActive: true, active: true } as ChatPreset;
-}
 
 export function useChatPresets(mode?: ChatMode | null, enabled = true) {
   return useQuery({
@@ -225,7 +210,7 @@ export function useDuplicateChatPreset() {
 export function useSetActiveChatPreset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => setOnlyActivePreset(id),
+    mutationFn: (id: string) => chatPresetApi.setActive(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatPresetKeys.all }),
   });
 }
