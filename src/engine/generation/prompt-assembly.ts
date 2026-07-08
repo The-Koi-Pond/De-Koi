@@ -3116,12 +3116,16 @@ function historyMessageSelection(
     const content = historyMessageContent(message, includePastReasoning);
     if (!content.length) continue;
     const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
+    const images = Array.isArray(message.images)
+      ? message.images.filter((image): image is string => typeof image === "string" && image.trim().length > 0)
+      : [];
     visibleMessages.push({
       role,
       content,
       contextKind: "history" as const,
       characterId: readString(message.characterId).trim() || undefined,
       name: readString(message.name).trim() || undefined,
+      ...(images.length ? { images } : {}),
       ...(providerMetadata ? { providerMetadata } : {}),
     });
   }

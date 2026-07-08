@@ -400,7 +400,8 @@ export const ChatInput = memo(function ChatInput({
               data: prepared.data,
               name: prepared.name,
             });
-          } catch {
+          } catch (error) {
+            console.warn("[chat-attachment] Failed to prepare image attachment", { displayName, error });
             toast.error(`Failed to prepare ${displayName}`);
           } finally {
             adjustPendingAttachmentReads(originChatId, -1);
