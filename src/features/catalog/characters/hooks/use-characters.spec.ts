@@ -1,9 +1,20 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { storageApi } from "../../../../shared/api/storage-api";
-import { useCharacterLibrarySummaries, useChatSurfaceCharacterSummariesByIds } from "./use-characters";
+import {
+  characterKeys,
+  useCharacterLibrarySummaries,
+  useChatSurfaceCharacterSummariesByIds,
+  useUpdateCharacter,
+} from "./use-characters";
 
+const queryClientMock = vi.hoisted(() => ({
+  getQueryData: vi.fn(),
+  invalidateQueries: vi.fn(),
+  removeQueries: vi.fn(),
+  setQueryData: vi.fn(),
+}));
 vi.mock("react", () => ({
   useMemo: (factory: () => unknown) => factory(),
 }));
@@ -12,12 +23,7 @@ vi.mock("@tanstack/react-query", () => ({
   useMutation: vi.fn((options) => options),
   useQueries: vi.fn(() => []),
   useQuery: vi.fn((options) => options),
-  useQueryClient: vi.fn(() => ({
-    getQueryData: vi.fn(),
-    invalidateQueries: vi.fn(),
-    removeQueries: vi.fn(),
-    setQueryData: vi.fn(),
-  })),
+  useQueryClient: vi.fn(() => queryClientMock),
 }));
 
 vi.mock("../../../../shared/api/storage-api", () => ({
@@ -52,11 +58,16 @@ vi.mock("../../../../shared/api/image-generation-api", () => ({
 }));
 
 vi.mock("../../../../shared/api/local-file-api", () => ({
+  avatarFileUrlFromPath: vi.fn(() => null),
   resolveGalleryFileUrl: vi.fn(),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  queryClientMock.getQueryData.mockReset();
+  queryClientMock.invalidateQueries.mockReset();
+  queryClientMock.removeQueries.mockReset();
+  queryClientMock.setQueryData.mockReset();
 });
 
 describe("character library summary query", () => {
@@ -153,5 +164,30 @@ describe("chat surface character summary query", () => {
     expect(options?.fieldSelections?.data).not.toEqual(
       expect.arrayContaining(["first_mes", "alternate_greetings", "character_book"]),
     );
+  });
+});
+
+describe("character update cache", () => {
+  it("refreshes the panel summary cache without invalidating the character list after save", () => {
+    const savedCharacter = {
+      id: "char-1",
+      data: { name: "Harlequin", scenario: "After save" },
+      comment: "The Seductive Rival",
+      avatarPath: null,
+    };
+    queryClientMock.getQueryData.mockImplementation((key: readonly unknown[]) => {
+      return JSON.stringify(key) === JSON.stringify(characterKeys.panelSummaries())
+        ? [{ ...savedCharacter, comment: "Before save" }]
+        : undefined;
+    });
+
+    const mutation = useUpdateCharacter() as unknown as {
+      onSuccess: (data: typeof savedCharacter, variables: { id: string }) => void;
+    };
+    mutation.onSuccess(savedCharacter, { id: "char-1" });
+
+    expect(queryClientMock.setQueryData).toHaveBeenCalledWith(characterKeys.panelSummaries(), expect.any(Function));
+    expect(queryClientMock.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: characterKeys.panelSummaries() });
+    expect(useMutation).toHaveBeenCalled();
   });
 });
