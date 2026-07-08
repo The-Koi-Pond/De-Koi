@@ -1,0 +1,160 @@
+@startuml name "Deki JSON command runtime target"
+title "Deki Slice 2 target - JSON command runtime ownership"
+rightfooter Target shape for issue #675; use with docs/deki-json-command-runtime-architecture.md
+
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+skinparam component {
+    BackgroundColor<<ui>> #E3F2FD
+    BorderColor<<ui>> #1565C0
+    BackgroundColor<<engine>> #E8F5E9
+    BorderColor<<engine>> #2E7D32
+    BackgroundColor<<adapter>> #E3F2FD
+    BorderColor<<adapter>> #1565C0
+    BackgroundColor<<rust>> #EDE7F6
+    BorderColor<<rust>> #5E35B1
+    BackgroundColor<<module>> #F1F8E9
+    BorderColor<<module>> #558B2F
+    BackgroundColor<<edge>> #FFF8E1
+    BorderColor<<edge>> #F9A825
+    BackgroundColor<<blocked>> #FFEBEE
+    BorderColor<<blocked>> #C62828
+}
+
+legend right
+  |= Marker |= Meaning |
+  | <color:#1565C0>blue</color> | React feature or shared API adapter |
+  | <color:#2E7D32>green</color> | TypeScript product contract |
+  | <color:#5E35B1>purple</color> | Rust privileged runtime/capability |
+  | <color:#558B2F>green edge</color> | Focused Deki runtime module |
+  | <color:#F9A825>yellow</color> | Existing compatibility edge to preserve |
+  | <color:#C62828>red</color> | Forbidden or out-of-scope Slice 2 behavior |
+endlegend
+
+package "React shell feature" {
+    component "src/features/shell/deki/components/DekiSurface.tsx\nfinal-response UI, history, action cards" as DekiSurface <<ui>>
+    component "src/features/shell/deki/lib/deki-send.ts\ncompaction + detached send flow" as DekiSend <<ui>>
+}
+
+package "TypeScript contracts and adapters" {
+    component "src/engine/deki/deki-entry.ts\nDekiEntryRequest/Response,\naction + workspace contract types" as DekiEntry <<engine>>
+    component "src/engine/deki/deki-history.ts\ncontext window and compaction helpers" as DekiHistory <<engine>>
+    component "src/shared/api/deki-api.ts\ntyped prompt, history,\nactions, workspace stubs" as DekiApi <<adapter>>
+    component "src/shared/api/tauri-client.ts\nembedded or remote invoke selection" as TauriClient <<adapter>>
+    component "src/shared/api/remote-runtime.ts\nexplicit command allowlist" as RemoteRuntime <<adapter>>
+}
+
+package "Embedded and hostable Rust entrypoints" {
+    component "src-tauri/src/lib.rs\ngenerate_handler registration" as TauriRegistry <<rust>>
+    component "src-tauri/src/commands/storage/commands/deki.rs\nthin Tauri command facade" as DekiCommands <<rust>>
+    component "src-tauri/src/http_dispatch.rs\n/api/invoke explicit dispatch" as HttpDispatch <<rust>>
+}
+
+package "Deki Rust runtime owner" {
+    component "src-tauri/src/commands/storage/deki.rs\nthin public facade:\nrequest parse, state wiring,\nfinal response return" as DekiRuntime <<rust>>
+    component "deki/prompt.rs\nsystem/task prompt assembly,\npersona, attachments,\napproved context" as Prompt <<module>>
+    component "deki/model_client.rs\nplain chat-completion adapter\nthrough marinara_llm;\nno native tool-call dependency" as ModelClient <<module>>
+    component "deki/loop.rs\nbounded command-loop coordinator,\nstop handling, cancellation checks,\ninternal trace collection" as Loop <<module>>
+    component "deki/protocol.rs\nJSON frame extraction,\nvisible say/message/final selection,\nprotocol leakage stripping" as Protocol <<module>>
+    component "deki/budget.rs\nper-command, per-round,\ntotal evidence and trace budgets" as Budget <<module>>
+    component "deki/action_parser.rs\n<deki_action> extraction,\nrepair, validation, one-action rule" as ActionParser <<module>>
+    component "deki/status.rs\nworkspace status/abort DTOs,\nroute state, enabled tools" as Status <<module>>
+    component "deki/commands/mod.rs\ntyped read-only command registry;\nno broad Value switch" as CommandRegistry <<module>>
+    component "deki/commands/code.rs\nrepo ls/find/grep/read\nsafe relative paths" as CodeCommands <<module>>
+    component "deki/library.rs\ncreative library overview/detail reads" as Library <<module>>
+    component "deki/chat_access.rs\nscoped chat grants and bounded messages" as ChatAccess <<module>>
+    component "deki/commands/web.rs\napproved web search/page reads,\nresult/page/time limits" as WebCommands <<module>>
+}
+
+package "Rust capability edges" {
+    component "src-tauri/crates/llm\nprovider transport without\nnative tool-call dependency" as Llm <<rust>>
+    component "AppState.storage / FileStorage\ncollections and settings reads" as Storage <<rust>>
+    component "marinara_security\nrepo path safety and local/public URL guards" as Security <<rust>>
+    component "De-Koi repository root\nbounded source/guidance reads only" as RepoRoot <<edge>>
+    component "Public web\nonly after matching grant;\nbounded search/page fetch" as PublicWeb <<edge>>
+    component "Runtime clock/cancel state\nwall-time budget and abort checks" as RuntimeState <<edge>>
+}
+
+package "Out of scope for Slice 2" {
+    component "deki_data apply approvals\nSlice 3 / issue #676" as DataApprovals <<blocked>>
+    component "streamed prompt events and trace UI\nSlice 4 / issue #677" as Streaming <<blocked>>
+    component "raw shell or broad file mutation" as RawShell <<blocked>>
+}
+
+DekiSurface -[#1565C0]-> DekiSend
+DekiSend -[#2E7D32]-> DekiEntry
+DekiSend -[#2E7D32]-> DekiHistory
+DekiSend -[#1565C0]-> DekiApi
+DekiApi -[#1565C0]-> TauriClient
+TauriClient -[#1565C0]-> TauriRegistry : embedded
+TauriClient -[#1565C0]-> RemoteRuntime : remoteRuntimeUrl set
+RemoteRuntime -[#1565C0]-> HttpDispatch : /api/invoke
+
+TauriRegistry -[#5E35B1]-> DekiCommands
+DekiCommands -[#5E35B1]-> DekiRuntime
+DekiCommands -[#5E35B1]-> Status
+HttpDispatch -[#5E35B1]-> DekiRuntime
+HttpDispatch -[#5E35B1]-> Status
+
+DekiRuntime -[#558B2F]-> Prompt
+DekiRuntime -[#558B2F]-> Loop
+DekiRuntime -[#558B2F]-> ActionParser
+DekiRuntime -[#558B2F]-> Status
+Loop -[#558B2F]-> ModelClient
+Loop -[#558B2F]-> Protocol
+Loop -[#558B2F]-> Budget
+Loop -[#558B2F]-> CommandRegistry
+Loop -[#558B2F]-> RuntimeState
+ModelClient -[#5E35B1]-> Llm
+CommandRegistry -[#558B2F]-> CodeCommands
+CommandRegistry -[#558B2F]-> Library
+CommandRegistry -[#558B2F]-> ChatAccess
+CommandRegistry -[#558B2F]-> WebCommands
+CodeCommands -[#5E35B1]-> Security
+CodeCommands -[#F9A825]-> RepoRoot
+Library -[#5E35B1]-> Storage
+ChatAccess -[#5E35B1]-> Storage
+WebCommands -[#5E35B1]-> Security
+WebCommands -[#F9A825]-> PublicWeb
+CommandRegistry -[#558B2F]-> Budget : every result is capped
+Status -[#558B2F]-> RuntimeState
+Status -[#558B2F]-> CommandRegistry : enabled tool list
+
+CommandRegistry -[#C62828,dashed]-> DataApprovals : not in Slice 2
+DekiApi -[#C62828,dashed]-> Streaming : keep final response path
+CommandRegistry -[#C62828,dashed]-> RawShell : forbidden
+
+note right of DekiRuntime
+  Slice 2 keeps deki.rs boring:
+  public request/response glue only.
+  Major behavior lives in focused modules.
+end note
+
+note bottom of Protocol
+  The command protocol JSON is hidden runtime control data.
+  Saved assistant text must come from say/message/final.
+  <deki_action> blocks are parsed only after final visible text is selected.
+end note
+
+note bottom of CommandRegistry
+  Supported Slice 2 commands are read-only and typed:
+  repo code reads/search/listing, Deki library reads,
+  approved chat reads, and approved public web reads.
+  Exact code edits and app-data mutations wait for approval slices.
+end note
+
+note bottom of Budget
+  All command results pass through budget.rs before model feedback:
+  max rounds, commands per round, per-command bytes,
+  total evidence bytes, trace bytes, and wall-clock timeout.
+end note
+
+note right of Status
+  If workspace status becomes meaningful in Slice 2,
+  embedded and remote route registration must be updated together.
+  Approve/reject remain Slice 3 unless returned as explicit not-implemented.
+end note
+
+@enduml
