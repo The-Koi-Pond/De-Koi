@@ -1,7 +1,5 @@
-// ──────────────────────────────────────────────
-// Layout: Mobile App Top Bar
-// ──────────────────────────────────────────────
-import { ArrowLeft } from "lucide-react";
+// Mobile app top bar
+import { ArrowLeft, HelpCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useChat } from "../../features/catalog/chats/index";
 import { useChatStore } from "../../shared/stores/chat.store";
@@ -16,11 +14,13 @@ export function TopBar({
   onOpenDeki: _onOpenDeki,
   onGoHome,
   onCloseLeftSidebar,
+  onOpenHelp,
 }: {
   dekiOpen?: boolean;
   onOpenDeki?: () => void;
   onGoHome?: () => void;
   onCloseLeftSidebar?: () => void;
+  onOpenHelp?: () => void;
 }) {
   const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChat = useChatStore((s) => s.activeChat);
@@ -230,7 +230,22 @@ export function TopBar({
         )}
       </div>
 
-      {rightSlot && <div className="flex items-center gap-0.5">{rightSlot}</div>}
+      {(onOpenHelp || rightSlot) && (
+        <div className="flex items-center gap-0.5">
+          {onOpenHelp && (
+            <button
+              type="button"
+              onClick={onOpenHelp}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[var(--muted-foreground)] transition-all active:scale-90 hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+              title="Help"
+              aria-label="Help"
+            >
+              <HelpCircle size="1.05rem" aria-hidden />
+            </button>
+          )}
+          {rightSlot}
+        </div>
+      )}
     </header>
   );
 }

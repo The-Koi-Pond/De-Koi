@@ -1,10 +1,10 @@
 use crate::http_storage_dispatch;
 use crate::state::AppState;
 use crate::storage_commands::{
-    admin, agents, avatars, backgrounds, backup, bot_browser, canonical_memory, characters, chat_memory, chats,
-    connection_secrets, custom_tools, deki, entity_images, exports, fonts, game_assets, generation,
-    http, images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails,
-    personas, profile, prompts, shared, sidecar, sprites, translation, updates,
+    admin, agents, avatars, backgrounds, backup, bot_browser, canonical_memory, characters,
+    chat_memory, chats, connection_secrets, custom_tools, deki, entity_images, exports, fonts,
+    game_assets, generation, http, images, imports, integrations, knowledge, llm, lorebook_images,
+    managed_thumbnails, personas, profile, prompts, shared, sidecar, sprites, translation, updates,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -359,16 +359,34 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "discord_webhook_send" => {
             integrations::discord_webhook_send(optional_value(&args, "body")).await
         }
-        "music_status" => music_direct(state, "POST", &["status"], optional_value(&args, "body")).await,
+        "music_status" => {
+            music_direct(state, "POST", &["status"], optional_value(&args, "body")).await
+        }
         "music_search_candidates" => {
-            music_direct(state, "POST", &["search-candidates"], optional_value(&args, "input")).await
+            music_direct(
+                state,
+                "POST",
+                &["search-candidates"],
+                optional_value(&args, "input"),
+            )
+            .await
         }
         "music_play" => music_direct(state, "POST", &["play"], optional_value(&args, "body")).await,
-        "music_pause" => music_direct(state, "POST", &["pause"], optional_value(&args, "body")).await,
+        "music_pause" => {
+            music_direct(state, "POST", &["pause"], optional_value(&args, "body")).await
+        }
         "music_stop" => music_direct(state, "POST", &["stop"], optional_value(&args, "body")).await,
-        "music_set_volume" => music_direct(state, "POST", &["volume"], optional_value(&args, "body")).await,
+        "music_set_volume" => {
+            music_direct(state, "POST", &["volume"], optional_value(&args, "body")).await
+        }
         "music_fresh_pick" => {
-            music_direct(state, "POST", &["fresh-pick"], optional_value(&args, "input")).await
+            music_direct(
+                state,
+                "POST",
+                &["fresh-pick"],
+                optional_value(&args, "input"),
+            )
+            .await
         }
         "spotify_status" => {
             spotify_direct(state, "POST", &["status"], optional_value(&args, "body")).await
@@ -606,8 +624,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_get).await
         }
         "prompt_preset_bundle" => {
-            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::prompt_preset_bundle)
-                .await
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::prompt_preset_bundle,
+            )
+            .await
         }
         "storage_create" => {
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_create)
@@ -1168,6 +1190,10 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         }
         "llm_stream_cancel" => llm_stream_cancel(state, &args),
         "local_sidecar_status" => sidecar::status(state).await,
+        "local_sidecar_log_tail" => sidecar::log_tail(
+            state,
+            optional_u32(&args, "maxLines").unwrap_or(200) as usize,
+        ),
         "local_sidecar_update_config" => {
             sidecar::update_config(state, optional_value(&args, "body")).await
         }
@@ -2909,4 +2935,3 @@ mod tests {
         );
     }
 }
-

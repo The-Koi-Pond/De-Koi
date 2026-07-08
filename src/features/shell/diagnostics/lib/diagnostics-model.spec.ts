@@ -126,6 +126,17 @@ describe("diagnostics model", () => {
     const snapshot: DiagnosticsSnapshot = {
       generatedAt: "2026-06-22T20:00:00.000Z",
       appVersion: "1.6.1",
+      platform: {
+        os: "Windows",
+        userAgent: "Mozilla/5.0 C:\\Users\\celia\\AppData\\Local",
+        language: "en-US",
+      },
+      logTail: {
+        available: true,
+        path: "C:\\Users\\celia\\AppData\\Roaming\\De-Koi\\sidecar.log",
+        lines: ["server started", "apiKey=sk-secret", "ready"],
+        truncated: false,
+      },
       runtimeMode: "embedded",
       overallStatus: "warning",
       sections: [
@@ -183,9 +194,15 @@ describe("diagnostics model", () => {
     expect(packet.schema).toBe("de-koi-diagnostics.v1");
     expect(packet.generatedAt).toBe("2026-06-22T20:01:00.000Z");
     expect(packet.appVersion).toBe("1.6.1");
+    expect(packet.platform.os).toBe("Windows");
+    expect(packet.logTail?.available).toBe(true);
     expect(rendered).toContain("Main Model");
     expect(rendered).toContain("gpt-test");
+    expect(rendered).toContain("server started");
+    expect(rendered).toContain("ready");
     expect(rendered).not.toContain("sk-secret");
+    expect(rendered).not.toContain("apiKey=sk-secret");
+    expect(rendered).not.toContain("C:\\Users\\celia");
     expect(rendered).not.toContain("token:secret");
     expect(rendered).not.toContain("token=hidden");
     expect(rendered).not.toContain("do-not-share");

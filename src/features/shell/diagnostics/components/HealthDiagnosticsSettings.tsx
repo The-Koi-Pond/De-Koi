@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Activity, Clipboard, Loader2, RefreshCw, ShieldCheck, Stethoscope, Wifi } from "lucide-react";
+import { Activity, Bug, Clipboard, Loader2, RefreshCw, ShieldCheck, Stethoscope, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
 import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
+import { openBugReport } from "../../../../shared/lib/support-report";
 import { cn } from "../../../../shared/lib/utils";
 import {
   buildTroubleshootingPacket,
@@ -135,6 +136,7 @@ function SectionIcon({ id }: { id: string }) {
 export function HealthDiagnosticsSettings() {
   const { snapshot, loading, error, refresh } = useDiagnosticsSnapshot();
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [reportStatus, setReportStatus] = useState<"idle" | "opening" | "failed">("idle");
   const [sidecarBusy, setSidecarBusy] = useState(false);
   const [sidecarSmokeResult, setSidecarSmokeResult] = useState<ProbeState | null>(null);
   const [providerBusy, setProviderBusy] = useState<Record<string, boolean>>({});
@@ -159,6 +161,20 @@ export function HealthDiagnosticsSettings() {
     } catch (copyError) {
       setCopyStatus("failed");
       toast.error(copyError instanceof Error ? copyError.message : "Failed to copy troubleshooting packet");
+    }
+  };
+
+  const reportPacket = async () => {
+    if (!packetText || reportStatus === "opening") return;
+    setReportStatus("opening");
+    try {
+      await openBugReport({ source: "health-diagnostics", reportText: packetText });
+      setReportStatus("idle");
+      setCopyStatus("copied");
+      toast.success("Troubleshooting packet copied and bug report opened");
+    } catch (reportError) {
+      setReportStatus("failed");
+      toast.error(reportError instanceof Error ? reportError.message : "Failed to open bug report");
     }
   };
 
@@ -375,15 +391,26 @@ export function HealthDiagnosticsSettings() {
               Copy a redacted JSON packet for support.
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => void copyPacket()}
-            disabled={!packetText}
-            className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 py-1 text-[0.6875rem] font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Clipboard size="0.75rem" />
-            {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy packet"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void reportPacket()}
+              disabled={!packetText || reportStatus === "opening"}
+              className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md bg-[var(--background)] px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {reportStatus === "opening" ? <Loader2 size="0.75rem" className="animate-spin" /> : <Bug size="0.75rem" />}
+              {reportStatus === "failed" ? "Report failed" : "Report bug"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void copyPacket()}
+              disabled={!packetText}
+              className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 py-1 text-[0.6875rem] font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Clipboard size="0.75rem" />
+              {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy packet"}
+            </button>
+          </div>
         </div>
         <pre className="max-h-48 overflow-auto rounded-md bg-[var(--background)]/75 p-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)] ring-1 ring-[var(--border)]/70">
           {packetText || "Diagnostics packet will appear after the first snapshot finishes."}

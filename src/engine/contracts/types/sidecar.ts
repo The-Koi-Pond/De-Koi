@@ -1,6 +1,13 @@
 export const LOCAL_SIDECAR_CONNECTION_ID = "sidecar:local";
 export const LOCAL_SIDECAR_MODEL = "local-sidecar";
 
+export type LocalSidecarLogTail = {
+  available: boolean;
+  path: string | null;
+  lines: string[];
+  truncated: boolean;
+  error?: string;
+};
 export type LocalSidecarStatus =
   | "not_configured"
   | "downloading_runtime"

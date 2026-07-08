@@ -37,6 +37,14 @@ export type DiscoveryAction =
       label?: string;
     }
   | {
+      type: "open-help";
+      label?: string;
+    }
+  | {
+      type: "report-bug";
+      label?: string;
+    }
+  | {
       type: "go-home";
       label?: string;
     }

@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+﻿import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
@@ -67,6 +67,8 @@ function validateAction(action, entryId, index) {
       break;
     case "replay-onboarding":
     case "open-deki":
+    case "open-help":
+    case "report-bug":
     case "go-home":
       break;
     case "open-showcase":

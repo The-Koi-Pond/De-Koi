@@ -18,6 +18,7 @@ vi.mock('../../../../shared/api/remote-runtime', () => ({
 vi.mock('../../../../shared/api/local-sidecar-api', () => ({
   localSidecarApi: {
     status: vi.fn(),
+    logTail: vi.fn(),
   },
 }));
 
@@ -59,6 +60,12 @@ describe('createDiagnosticsSnapshot', () => {
     remoteRuntimeMock.embedded = false;
     remoteRuntimeMock.health.mockReset();
     vi.mocked(localSidecarApi.status).mockResolvedValue(readySidecarStatus());
+    vi.mocked(localSidecarApi.logTail).mockResolvedValue({
+      available: true,
+      path: 'C:\\Users\\celia\\AppData\\Roaming\\De-Koi\\sidecar.log',
+      lines: ['sidecar boot', 'sidecar ready'],
+      truncated: false,
+    });
     vi.mocked(storageApi.list).mockImplementation(async (entity) => {
       if (entity === 'connections') {
         return [

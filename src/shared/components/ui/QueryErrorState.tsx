@@ -1,10 +1,12 @@
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, HelpCircle, RefreshCw } from "lucide-react";
+import { requestHelp } from "../../lib/help-events";
 import { cn } from "../../lib/utils";
 
 type QueryErrorStateProps = {
   title?: string;
   message: string;
   onRetry?: () => void;
+  onGetHelp?: () => void;
   retryLabel?: string;
   className?: string;
   compact?: boolean;
@@ -14,10 +16,13 @@ export function QueryErrorState({
   title = "Something couldn't load",
   message,
   onRetry,
+  onGetHelp,
   retryLabel = "Retry",
   className,
   compact = false,
 }: QueryErrorStateProps) {
+  const getHelpHandler = onGetHelp ?? (compact ? undefined : requestHelp);
+
   return (
     <div
       role="alert"
@@ -32,15 +37,29 @@ export function QueryErrorState({
         <span>{title}</span>
       </div>
       <p className="m-0 max-w-md text-[0.75rem] leading-relaxed text-[var(--muted-foreground)]">{message}</p>
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
-        >
-          <RefreshCw size="0.75rem" />
-          {retryLabel}
-        </button>
+      {(onRetry || getHelpHandler) && (
+        <div className="flex flex-wrap gap-2">
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+            >
+              <RefreshCw size="0.75rem" />
+              {retryLabel}
+            </button>
+          )}
+          {getHelpHandler && (
+            <button
+              type="button"
+              onClick={getHelpHandler}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-transparent px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+            >
+              <HelpCircle size="0.75rem" />
+              Get help
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

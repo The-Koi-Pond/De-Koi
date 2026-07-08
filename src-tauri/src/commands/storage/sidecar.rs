@@ -16,6 +16,10 @@ pub(crate) async fn status(state: &AppState) -> AppResult<Value> {
     marinara_sidecar::status(&sidecar_state(state)).await
 }
 
+pub(crate) fn log_tail(state: &AppState, max_lines: usize) -> AppResult<Value> {
+    marinara_sidecar::log_tail(&sidecar_state(state), max_lines)
+}
+
 pub(crate) async fn update_config(state: &AppState, body: Value) -> AppResult<Value> {
     marinara_sidecar::update_config(&sidecar_state(state), body).await
 }

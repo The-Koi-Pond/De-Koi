@@ -4,6 +4,7 @@
 import { ChatSidebar, type ChatSidebarTab } from "./ChatSidebar";
 import { DekiSidebar } from "./DekiSidebar";
 import { AppFindOverlay } from "./AppFindOverlay";
+import { HelpHub } from "./HelpHub";
 import { TopBar } from "./TopBar";
 import { TopBarActionsProvider } from "../../shared/components/mobile-shell-actions";
 import { WindowTitleBar } from "./WindowTitleBar";
@@ -31,6 +32,7 @@ import { ImagePromptReviewHost } from "../../shared/components/ui/ImagePromptRev
 import { cn } from "../../shared/lib/utils";
 import { parseChatMetadata } from "../../shared/lib/chat-display";
 import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
+import { HELP_REQUEST_EVENT } from "../../shared/lib/help-events";
 import { markPerformanceMilestoneOnce } from "../../shared/lib/performance-diagnostics";
 import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
@@ -39,7 +41,7 @@ import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
 import { shouldUseLowPowerShellMode } from "./shell-performance";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { HelpCircle, Loader2 } from "lucide-react";
 import {
   lazy,
   Suspense,
@@ -246,6 +248,8 @@ export function AppShell() {
     markPerformanceMilestoneOnce("shell.ready");
   }, []);
 
+
+
   const queryClient = useQueryClient();
   const [backgroundAutonomousPollingReady, setBackgroundAutonomousPollingReady] = useState(false);
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
@@ -434,6 +438,7 @@ export function AppShell() {
   const botBrowserOpen = useUIStore((s) => s.botBrowserOpen);
   const gameAssetsBrowserOpen = useUIStore((s) => s.gameAssetsBrowserOpen);
   const hasCompletedOnboarding = useUIStore((s) => s.hasCompletedOnboarding);
+  const [helpHubOpen, setHelpHubOpen] = useState(false);
   const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChat = useChatStore((s) => s.activeChat);
   const clearUnread = useChatStore((s) => s.clearUnread);
@@ -607,6 +612,40 @@ export function AppShell() {
     closeDekiShell();
   }, [activeChatId, closeDekiShell]);
 
+  const openHelpHub = useCallback(() => {
+    setHelpHubOpen(true);
+  }, []);
+
+  const openHealthFromHelp = useCallback(() => {
+    const ui = useUIStore.getState();
+    ui.openRightPanel("settings");
+    ui.setSettingsTab("health");
+    setHelpHubOpen(false);
+  }, []);
+
+  const replayOnboardingFromHelp = useCallback(() => {
+    useUIStore.getState().setHasCompletedOnboarding(false);
+    setHelpHubOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== "?") return;
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName.toLowerCase();
+      if (tagName === "input" || tagName === "textarea" || target?.isContentEditable) return;
+      event.preventDefault();
+      setHelpHubOpen(true);
+    };
+    const handleHelpRequest = () => setHelpHubOpen(true);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener(HELP_REQUEST_EVENT, handleHelpRequest);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener(HELP_REQUEST_EVENT, handleHelpRequest);
+    };
+  }, []);
+
   useEffect(() => {
     const handleDiscoveryAction = (event: Event) => {
       const detail = (event as CustomEvent<DiscoveryAppEventDetail>).detail;
@@ -617,6 +656,11 @@ export function AppShell() {
         setLeftSidebarPanel("deki");
         setTrackerPanelOpen(false);
         setDekiOpen(true);
+        return;
+      }
+
+      if (detail?.type === "open-help") {
+        setHelpHubOpen(true);
         return;
       }
 
@@ -1246,6 +1290,7 @@ export function AppShell() {
             leftSidebarPanel={leftSidebarPanel}
             onLeftSidebarPanelChange={setLeftSidebarPanel}
             onOpenDeki={() => openActiveDeki()}
+            onOpenHelp={openHelpHub}
             onGoHome={closeDekiShell}
             titlebarAccessory={
               musicDjMiniPlayerEnabled ? (
@@ -1258,9 +1303,23 @@ export function AppShell() {
           <TopBar
             dekiOpen={dekiOpen}
             onOpenDeki={() => openActiveDeki()}
+            onOpenHelp={openHelpHub}
             onGoHome={closeDekiShell}
             onCloseLeftSidebar={() => setLeftSidebarPanel(null)}
           />
+          {!activeChatId && (
+            <div className="mari-mobile-homebar relative z-30 flex h-[3.25rem] shrink-0 items-center justify-end px-2 md:hidden">
+              <button
+                type="button"
+                onClick={openHelpHub}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[var(--muted-foreground)] transition-all active:scale-90 hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+                title="Help"
+                aria-label="Help"
+              >
+                <HelpCircle size="1.05rem" aria-hidden />
+              </button>
+            </div>
+          )}
         </header>
 
         <div data-component="AppShellBody" className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -1523,6 +1582,12 @@ export function AppShell() {
               <OnboardingTutorial onShellInertResync={syncMobilePanelInert} />
             </Suspense>
           )}
+          <HelpHub
+            open={helpHubOpen}
+            onClose={() => setHelpHubOpen(false)}
+            onOpenHealth={openHealthFromHelp}
+            onReplayOnboarding={replayOnboardingFromHelp}
+          />
           {debugMode && hasAgentDebugActivity && (
             <Suspense fallback={null}>
               <AgentDebugPanel />
@@ -1549,3 +1614,4 @@ export function AppShell() {
     </TopBarActionsProvider>
   );
 }
+
