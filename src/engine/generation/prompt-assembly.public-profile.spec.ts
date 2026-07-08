@@ -256,8 +256,8 @@ describe("merged roleplay prompt compaction", () => {
     expect(promptText).toContain(
       "When one assistant response includes quoted dialogue from more than one known character",
     );
-    expect(promptText).toContain('<speaker="Mira Vale">"Example dialogue."</speaker>');
-    expect(promptText).toContain('<speaker="Orin">"Example dialogue."</speaker>');
+    expect(promptText).toContain('<speaker name="Mira Vale">"Example dialogue."</speaker>');
+    expect(promptText).toContain('<speaker name="Orin">"Example dialogue."</speaker>');
     expect(promptText).not.toContain('<speaker="Archivist">');
   });
 });

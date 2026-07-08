@@ -375,7 +375,6 @@ pub(crate) fn message_swipes(
         .get("content")
         .cloned()
         .unwrap_or_else(|| Value::String(String::new()));
-    let content = content;
     let new_extra = object_extra(body.get("extra")).unwrap_or_else(|| json!({}));
     let object = message
         .as_object_mut()
