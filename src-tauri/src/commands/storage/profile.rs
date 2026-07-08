@@ -3352,7 +3352,9 @@ mod tests {
             "profile snapshot must not contain the live webhook token"
         );
         assert!(
-            tools.iter().any(|tool| tool["staticResult"] == "safe static result"),
+            tools
+                .iter()
+                .any(|tool| tool["staticResult"] == "safe static result"),
             "camelCase fixture should keep non-secret fields"
         );
         assert!(

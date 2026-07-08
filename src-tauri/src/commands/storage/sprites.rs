@@ -498,7 +498,7 @@ pub(crate) fn upload_sprite(
     let (bytes, ext) = decode_image_value(image)?;
     fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{expression}.{ext}"));
-    fs::write(&path, bytes)?;
+    write_managed_file_atomically(&path, &bytes)?;
     sprite_info_from_path(&path, owner_kind, character_id)
 }
 
@@ -547,7 +547,7 @@ pub(crate) fn upload_sprites(
             }
         };
         let filename = format!("{expression}.{ext}");
-        match fs::write(dir.join(&filename), bytes) {
+        match write_managed_file_atomically(&dir.join(&filename), &bytes) {
             Ok(_) => imported += 1,
             Err(error) => failed.push(json!({
                 "expression": expression,
@@ -616,7 +616,7 @@ pub(crate) fn clean_saved_sprites(
                 fs::copy(&path, restore_point_dir.join(&filename))?;
                 let output_filename = format!("{expression}.png");
                 let output_path = dir.join(&output_filename);
-                fs::write(&output_path, cleaned.bytes)?;
+                write_managed_file_atomically(&output_path, &cleaned.bytes)?;
                 if path != output_path {
                     let _ = fs::remove_file(&path);
                 }
@@ -639,14 +639,12 @@ pub(crate) fn clean_saved_sprites(
     if entries.is_empty() {
         let _ = fs::remove_dir_all(&restore_point_dir);
     } else {
-        fs::write(
-            restore_point_dir.join("manifest.json"),
-            serde_json::to_vec_pretty(&json!({
-                "id": restore_point_id,
-                "createdAt": now_iso(),
-                "entries": entries
-            }))?,
-        )?;
+        let manifest_bytes = serde_json::to_vec_pretty(&json!({
+            "id": restore_point_id,
+            "createdAt": now_iso(),
+            "entries": entries
+        }))?;
+        write_managed_file_atomically(&restore_point_dir.join("manifest.json"), &manifest_bytes)?;
         prune_sprite_cleanup_restore_points(
             &dir,
             SPRITE_CLEANUP_RESTORE_POINT_LIMIT,

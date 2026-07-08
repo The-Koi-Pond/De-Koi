@@ -4,13 +4,18 @@ use std::collections::HashSet;
 use std::process::Command;
 
 fn read_string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-    value.get(key).and_then(Value::as_str).filter(|text| !text.trim().is_empty())
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
 }
 
 fn validate_volume(value: Option<i64>) -> AppResult<u8> {
     let volume = value.unwrap_or(60);
     if !(0..=100).contains(&volume) {
-        return Err(AppError::invalid_input("music volume must be between 0 and 100"));
+        return Err(AppError::invalid_input(
+            "music volume must be between 0 and 100",
+        ));
     }
     Ok(volume as u8)
 }
@@ -24,11 +29,17 @@ fn provider_error(code: &str, message: impl Into<String>) -> Value {
 
 fn youtube_video_id(raw: &str) -> Option<String> {
     let text = raw.trim();
-    if text.len() == 11 && text.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if text.len() == 11
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return Some(text.to_owned());
     }
     for marker in ["v=", "youtu.be/", "embed/", "shorts/"] {
-        let Some(start) = text.find(marker) else { continue };
+        let Some(start) = text.find(marker) else {
+            continue;
+        };
         let rest = &text[start + marker.len()..];
         let id: String = rest
             .chars()
@@ -58,7 +69,9 @@ fn candidate_from_youtube_url(raw: &str, reason: &str) -> Option<Value> {
 }
 
 fn push_candidate(candidates: &mut Vec<Value>, seen_ids: &mut HashSet<String>, candidate: Value) {
-    let Some(id) = read_string(&candidate, "id") else { return };
+    let Some(id) = read_string(&candidate, "id") else {
+        return;
+    };
     if seen_ids.insert(id.to_owned()) {
         candidates.push(candidate);
     }
@@ -72,7 +85,10 @@ fn yt_dlp_candidate(entry: &Value, index: usize) -> Option<Value> {
     let channel = read_string(entry, "uploader")
         .or_else(|| read_string(entry, "channel"))
         .or_else(|| read_string(entry, "creator"));
-    let duration = entry.get("duration").and_then(Value::as_f64).map(|value| value.max(0.0) as u64);
+    let duration = entry
+        .get("duration")
+        .and_then(Value::as_f64)
+        .map(|value| value.max(0.0) as u64);
     let thumbnail = read_string(entry, "thumbnail")
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"));
@@ -117,7 +133,11 @@ fn yt_dlp_search(query: &str, limit: usize) -> AppResult<(Vec<Value>, Option<Val
             Vec::new(),
             Some(provider_error(
                 "music_ytdlp_failed",
-                if stderr.is_empty() { "yt-dlp search failed".to_owned() } else { stderr },
+                if stderr.is_empty() {
+                    "yt-dlp search failed".to_owned()
+                } else {
+                    stderr
+                },
             )),
         ));
     }
@@ -126,7 +146,10 @@ fn yt_dlp_search(query: &str, limit: usize) -> AppResult<(Vec<Value>, Option<Val
         Err(error) => {
             return Ok((
                 Vec::new(),
-                Some(provider_error("music_ytdlp_parse_failed", error.to_string())),
+                Some(provider_error(
+                    "music_ytdlp_parse_failed",
+                    error.to_string(),
+                )),
             ));
         }
     };
@@ -158,7 +181,10 @@ fn status() -> Value {
 }
 
 fn search_candidates(body: Value) -> AppResult<Value> {
-    let query = read_string(&body, "query").unwrap_or_default().trim().to_owned();
+    let query = read_string(&body, "query")
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
     let limit = body
         .get("limit")
         .and_then(Value::as_u64)
@@ -222,7 +248,12 @@ fn volume(body: Value) -> AppResult<Value> {
     }))
 }
 
-pub(crate) async fn music_call(_state: &AppState, method: &str, rest: &[&str], body: Value) -> AppResult<Value> {
+pub(crate) async fn music_call(
+    _state: &AppState,
+    method: &str,
+    rest: &[&str],
+    body: Value,
+) -> AppResult<Value> {
     let action = rest.first().copied().unwrap_or("status");
     match (method, action) {
         ("GET", "status") | ("POST", "status") => Ok(status()),

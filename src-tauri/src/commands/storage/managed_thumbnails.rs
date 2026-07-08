@@ -162,7 +162,9 @@ fn source_root_for(
     kind.source_roots(state)?
         .into_iter()
         .find(|root| source.starts_with(root))
-        .ok_or_else(|| AppError::invalid_input("Managed thumbnail source is outside managed assets"))
+        .ok_or_else(|| {
+            AppError::invalid_input("Managed thumbnail source is outside managed assets")
+        })
 }
 fn canonical_source(
     state: &AppState,
@@ -328,7 +330,8 @@ mod tests {
             .expect("system clock should be after unix epoch")
             .as_nanos();
         let root = std::env::temp_dir().join(format!("marinara-thumbnails-default-bg-{nonce}"));
-        let defaults = std::env::temp_dir().join(format!("marinara-thumbnails-default-source-{nonce}"));
+        let defaults =
+            std::env::temp_dir().join(format!("marinara-thumbnails-default-source-{nonce}"));
         let source = defaults.join("backgrounds").join("castle.png");
         std::fs::create_dir_all(source.parent().expect("source parent"))
             .expect("default background directory should be created");
@@ -336,13 +339,9 @@ mod tests {
         let state = AppState::from_data_dir(&root, vec![defaults.clone()])
             .expect("test app state should initialize");
 
-        let response = managed_asset_thumbnail_file_path(
-            &state,
-            "game",
-            "__user_bg__/castle.png",
-            Some(128),
-        )
-        .expect("default background thumbnail should be created through game asset URLs");
+        let response =
+            managed_asset_thumbnail_file_path(&state, "game", "__user_bg__/castle.png", Some(128))
+                .expect("default background thumbnail should be created through game asset URLs");
         let thumbnail = PathBuf::from(response["path"].as_str().expect("path should be returned"));
 
         assert!(thumbnail.starts_with(state.data_dir.join(".managed-thumbnails")));

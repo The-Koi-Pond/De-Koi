@@ -106,7 +106,7 @@ fn restore_sprites_for_owner(
             ext,
         );
         let target = unique_file_path(&dir.join(filename))?;
-        fs::write(target, bytes)?;
+        write_managed_file_atomically(&target, &bytes)?;
         imported += 1;
     }
     Ok(imported)

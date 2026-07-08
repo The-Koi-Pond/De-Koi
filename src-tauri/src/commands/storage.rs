@@ -4,6 +4,7 @@ use marinara_core::{ensure_object, new_id, now_iso, now_millis, AppError, AppRes
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 use std::time::Duration;
 
 #[path = "storage/admin.rs"]
@@ -32,6 +33,8 @@ pub(crate) mod connection_secrets;
 pub(crate) mod contracts;
 #[path = "storage/custom_tools.rs"]
 pub(crate) mod custom_tools;
+#[path = "storage/deki.rs"]
+pub(crate) mod deki;
 #[path = "storage/entity_images.rs"]
 pub(crate) mod entity_images;
 #[path = "storage/exports.rs"]
@@ -60,8 +63,6 @@ pub(crate) mod llm;
 pub(crate) mod lorebook_images;
 #[path = "storage/managed_thumbnails.rs"]
 pub(crate) mod managed_thumbnails;
-#[path = "storage/deki.rs"]
-pub(crate) mod deki;
 #[path = "storage/media_uploads.rs"]
 pub(crate) mod media_uploads;
 #[path = "storage/message_swipes.rs"]
@@ -87,6 +88,28 @@ pub(crate) mod translation;
 #[path = "storage/updates.rs"]
 pub(crate) mod updates;
 
+pub(crate) fn write_managed_file_atomically(path: &Path, bytes: &[u8]) -> AppResult<()> {
+    let parent = path.parent().ok_or_else(|| {
+        AppError::invalid_input("Managed file path is missing a parent directory")
+    })?;
+    fs::create_dir_all(parent)?;
+    let filename = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| AppError::invalid_input("Managed file path is missing a file name"))?;
+    let tmp = parent.join(format!(".{filename}.tmp-{}-{}", now_millis(), new_id()));
+    let result = (|| -> AppResult<()> {
+        fs::write(&tmp, bytes)?;
+        fs::OpenOptions::new().read(true).open(&tmp)?.sync_all()?;
+        fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/agents.rs"]
 pub mod agent_commands;
@@ -102,6 +125,9 @@ pub mod bot_browser_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/chats.rs"]
 pub mod chat_commands;
+#[cfg(feature = "desktop")]
+#[path = "storage/commands/deki.rs"]
+pub mod deki_commands;
 #[path = "storage/commands/entities.rs"]
 pub mod entity_commands;
 #[cfg(feature = "desktop")]
@@ -113,9 +139,6 @@ pub mod import_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/integrations.rs"]
 pub mod integration_commands;
-#[cfg(feature = "desktop")]
-#[path = "storage/commands/deki.rs"]
-pub mod deki_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/local_files.rs"]
 pub mod local_file_commands;
@@ -131,4 +154,3 @@ pub mod profile_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/updates.rs"]
 pub mod update_commands;
-

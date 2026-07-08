@@ -2370,7 +2370,7 @@ impl FileStorage {
                 }
                 Err(backup_error) => {
                     eprintln!(
-                        "[storage] {collection} collection file and backup are corrupt; preserving both and recreating an empty collection. primary={} backup={} primary_error={} backup_error={}",
+                        "[storage] {collection} collection file and backup are corrupt; preserving both and requiring manual recovery. primary={} backup={} primary_error={} backup_error={}",
                         path.display(),
                         backup.display(),
                         error.message,
@@ -2378,21 +2378,40 @@ impl FileStorage {
                     );
                     preserve_corrupt_file(path)?;
                     preserve_corrupt_file(&backup)?;
-                    self.write_collection_immediate(collection, &[])?;
-                    return Ok(Vec::new());
+                    return Err(AppError::with_details(
+                        "storage_collection_recovery_required",
+                        format!(
+                            "{collection} storage is corrupt and its backup could not be recovered. De-Koi preserved the corrupt files and stopped before replacing them with empty data."
+                        ),
+                        json!({
+                            "collection": collection,
+                            "primaryPath": path.display().to_string(),
+                            "backupPath": backup.display().to_string(),
+                            "primaryError": error.message,
+                            "backupError": backup_error.message,
+                        }),
+                    ));
                 }
             }
         }
 
         eprintln!(
-            "[storage] {collection} collection file is corrupt and no backup exists; preserving it and recreating an empty collection. primary={} error={}",
+            "[storage] {collection} collection file is corrupt and no backup exists; preserving it and requiring manual recovery. primary={} error={}",
             path.display(),
             error.message
         );
         preserve_corrupt_file(path)?;
-        self.write_collection_immediate(collection, &[])?;
-        Ok(Vec::new())
-    }
+        Err(AppError::with_details(
+            "storage_collection_recovery_required",
+            format!(
+                "{collection} storage is corrupt and no backup exists. De-Koi preserved the corrupt file and stopped before replacing it with empty data."
+            ),
+            json!({
+                "collection": collection,
+                "primaryPath": path.display().to_string(),
+                "primaryError": error.message,
+            }),
+        ))    }
 
     fn replace_all_many_locked<F>(
         &self,

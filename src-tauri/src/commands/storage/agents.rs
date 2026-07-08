@@ -407,7 +407,10 @@ pub(crate) fn normalize_agent_record_for_read(value: &mut Value) {
     if object.get("type").and_then(Value::as_str) == Some("music-dj")
         && object.get("name").and_then(Value::as_str) == Some("Assistant DJ")
     {
-        object.insert("name".to_string(), Value::String("Music Player".to_string()));
+        object.insert(
+            "name".to_string(),
+            Value::String("Music Player".to_string()),
+        );
     }
 }
 
@@ -1323,7 +1326,10 @@ mod tests {
             .get("agents", "legacy-music-dj")
             .expect("agent lookup should succeed")
             .expect("hydrated music player should still exist");
-        assert_eq!(stored.get("name").and_then(Value::as_str), Some("Music Player"));
+        assert_eq!(
+            stored.get("name").and_then(Value::as_str),
+            Some("Music Player")
+        );
     }
 
     #[test]

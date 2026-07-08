@@ -8,6 +8,10 @@ type TauriRuntimeWindow = Window & {
 
 type CurrentWindow = ReturnType<typeof getCurrentWindow>;
 
+type DesktopCloseRequestedEvent = {
+  preventDefault: () => void;
+};
+
 export type DesktopWindowVisualState = {
   fullscreen: boolean;
   maximized: boolean;
@@ -17,6 +21,22 @@ const WINDOWED_STATE: DesktopWindowVisualState = {
   fullscreen: false,
   maximized: false,
 };
+let allowNextClose = false;
+let allowNextCloseResetTimer: number | null = null;
+
+function resetAllowNextClose() {
+  allowNextClose = false;
+  if (allowNextCloseResetTimer !== null) {
+    window.clearTimeout(allowNextCloseResetTimer);
+    allowNextCloseResetTimer = null;
+  }
+}
+
+function armAllowNextClose() {
+  allowNextClose = true;
+  if (allowNextCloseResetTimer !== null) window.clearTimeout(allowNextCloseResetTimer);
+  allowNextCloseResetTimer = window.setTimeout(resetAllowNextClose, 1000);
+}
 
 function hasEmbeddedTauriWindowShell() {
   if (typeof window === "undefined") return false;
@@ -59,8 +79,14 @@ export async function minimizeDesktopWindow() {
   await requireCurrentWindow().minimize();
 }
 
-export async function closeDesktopWindow() {
-  await requireCurrentWindow().close();
+export async function closeDesktopWindow(options: { force?: boolean } = {}) {
+  if (options.force) armAllowNextClose();
+  try {
+    await requireCurrentWindow().close();
+  } catch (error) {
+    if (options.force) resetAllowNextClose();
+    throw error;
+  }
 }
 
 export async function startDesktopWindowDrag() {
@@ -91,4 +117,22 @@ export async function onDesktopWindowVisualStateChanged(handler: () => void): Pr
   return () => {
     for (const unlisten of unlisteners) unlisten();
   };
+}
+
+export async function onDesktopWindowCloseRequested(
+  handler: () => void | Promise<void>,
+  shouldPreventClose: () => boolean = () => true,
+): Promise<UnlistenFn> {
+  const appWindow = currentWindow();
+  if (!appWindow) return () => {};
+
+  return appWindow.onCloseRequested((event: DesktopCloseRequestedEvent) => {
+    if (allowNextClose) {
+      resetAllowNextClose();
+      return;
+    }
+    if (!shouldPreventClose()) return;
+    event.preventDefault();
+    void handler();
+  });
 }

@@ -5,10 +5,7 @@ use serde_json::Value;
 use tauri::State;
 
 #[tauri::command]
-pub async fn deki_prompt(
-    state: State<'_, AppState>,
-    request: Value,
-) -> Result<Value, AppError> {
+pub async fn deki_prompt(state: State<'_, AppState>, request: Value) -> Result<Value, AppError> {
     deki::deki_prompt(&state, request).await
 }
 

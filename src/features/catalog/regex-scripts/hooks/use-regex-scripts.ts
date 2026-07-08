@@ -7,6 +7,7 @@ import {
   reorderRegexScriptsSchema,
   updateRegexScriptSchema,
 } from "../../../../engine/contracts/schemas/regex.schema";
+import { regexScriptApi } from "../../../../shared/api/regex-script-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { filterRegexScriptsByCharacterIds } from "../lib/regex-script-filter";
 
@@ -75,12 +76,7 @@ export function useReorderRegexScripts() {
   return useMutation({
     mutationFn: async (scriptIds: string[]) => {
       const payload = reorderRegexScriptsSchema.parse({ scriptIds });
-      await Promise.all(
-        payload.scriptIds.map((id, index) =>
-          storageApi.update("regex-scripts", id, updateRegexScriptSchema.parse({ sortOrder: index, order: index })),
-        ),
-      );
-      return storageApi.list<RegexScriptRow>("regex-scripts");
+      return regexScriptApi.reorder<RegexScriptRow>(payload.scriptIds);
     },
     onSuccess: (scripts) => {
       qc.setQueryData(regexKeys.all, scripts);

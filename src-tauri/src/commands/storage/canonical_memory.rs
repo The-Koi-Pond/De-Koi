@@ -287,57 +287,6 @@ pub(crate) fn query_memories(state: &AppState, body: Value) -> AppResult<Value> 
     Ok(Value::Array(memories))
 }
 
-fn memory_references_source_message(memory: &Value, message_ids: &HashSet<String>) -> bool {
-    memory
-        .get("provenance")
-        .and_then(Value::as_object)
-        .and_then(|provenance| provenance.get("messageIds"))
-        .and_then(Value::as_array)
-        .is_some_and(|ids| {
-            ids.iter()
-                .filter_map(Value::as_str)
-                .any(|id| message_ids.contains(id))
-        })
-}
-
-pub(crate) fn mark_memories_for_source_messages(
-    state: &AppState,
-    message_ids: &[String],
-    status: &str,
-) -> AppResult<Value> {
-    if !MEMORY_STATUSES.contains(&status) {
-        return Err(AppError::invalid_input(format!(
-            "Unsupported memory status: {status}"
-        )));
-    }
-    let message_ids = message_ids
-        .iter()
-        .map(|id| id.trim().to_string())
-        .filter(|id| !id.is_empty())
-        .collect::<HashSet<_>>();
-    if message_ids.is_empty() {
-        return Ok(json!({ "updated": 0 }));
-    }
-    let memories = state.storage.list(MEMORY_COLLECTION)?;
-    let mut updated = 0usize;
-    for memory in memories {
-        if !memory_references_source_message(&memory, &message_ids) {
-            continue;
-        }
-        let memory_id = read_string(memory.get("id"));
-        if memory_id.is_empty() {
-            continue;
-        }
-        let current_status = read_string(memory.get("status"));
-        if current_status == status || current_status == "deleted" {
-            continue;
-        }
-        update_memory(state, &memory_id, json!({ "status": status }))?;
-        updated += 1;
-    }
-    Ok(json!({ "updated": updated }))
-}
-
 fn normalize_index_row(state: &AppState, mut object: Map<String, Value>) -> AppResult<Value> {
     let memory_id = require_string(&object, "memoryId")?;
     let memory = get_memory(state, &memory_id)?;

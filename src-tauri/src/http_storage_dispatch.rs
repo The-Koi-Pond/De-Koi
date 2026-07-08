@@ -134,6 +134,18 @@ pub fn storage_delete(state: &AppState, args: &Map<String, Value>) -> AppResult<
     )
 }
 
+pub fn regex_script_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    entity_commands::regex_script_reorder_inner(state, required_string_vec(args, "orderedIds")?)
+}
+
+pub fn prompt_nested_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    entity_commands::prompt_nested_reorder_inner(
+        state,
+        &required_string(args, "presetId")?,
+        &required_string(args, "kind")?,
+        required_string_vec(args, "orderedIds")?,
+    )
+}
 pub fn storage_duplicate(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     entity_commands::duplicate_entity(
         state,
@@ -149,6 +161,23 @@ pub fn connection_folder_reorder(state: &AppState, args: &Map<String, Value>) ->
     )
 }
 
+pub fn lorebook_entry_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    let folder_id = match args.get("folderId") {
+        Some(Value::Null) | None => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(_) => {
+            return Err(AppError::invalid_input(
+                "folderId must be a folder id or null",
+            ))
+        }
+    };
+    entity_commands::lorebook_entry_reorder_inner(
+        state,
+        &required_string(args, "lorebookId")?,
+        required_string_vec(args, "orderedIds")?,
+        folder_id,
+    )
+}
 pub fn lorebook_folder_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     let parent_folder_id = match args.get("parentFolderId") {
         Some(Value::Null) | None => None,

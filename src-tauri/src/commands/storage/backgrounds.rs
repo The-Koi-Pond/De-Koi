@@ -249,7 +249,7 @@ fn write_background_file(state: &AppState, original_name: &str, bytes: &[u8]) ->
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&path, bytes)?;
+    write_managed_file_atomically(&path, bytes)?;
     Ok(path
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
@@ -811,7 +811,8 @@ mod tests {
             .expect("system clock should be after epoch")
             .as_nanos();
         let root = std::env::temp_dir().join(format!("marinara-backgrounds-default-list-{nonce}"));
-        let defaults = std::env::temp_dir().join(format!("marinara-backgrounds-default-source-{nonce}"));
+        let defaults =
+            std::env::temp_dir().join(format!("marinara-backgrounds-default-source-{nonce}"));
         let default_background = defaults.join("backgrounds").join("castle.jpg");
         std::fs::create_dir_all(default_background.parent().expect("background parent"))
             .expect("default background folder should be created");
@@ -848,9 +849,15 @@ mod tests {
             .find(|row| row.get("path").and_then(Value::as_str) == Some("__user_bg__/castle.jpg"))
             .expect("bundled default background should be listed");
 
-        assert_eq!(default_row.get("source").and_then(Value::as_str), Some("game_asset"));
         assert_eq!(
-            default_row.get("absolutePath").and_then(Value::as_str).map(PathBuf::from),
+            default_row.get("source").and_then(Value::as_str),
+            Some("game_asset")
+        );
+        assert_eq!(
+            default_row
+                .get("absolutePath")
+                .and_then(Value::as_str)
+                .map(PathBuf::from),
             Some(default_background)
         );
         assert!(

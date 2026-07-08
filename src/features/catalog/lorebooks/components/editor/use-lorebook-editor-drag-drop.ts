@@ -196,16 +196,10 @@ export function useLorebookEditorDragDrop({
         return;
       }
 
-      const sourceIds = sourceList.filter((_, idx) => idx !== sourceIdx).map((entry) => entry.id);
       const targetIds = (entriesByContainer.get(targetContainer) ?? []).map((entry) => entry.id);
       const insertAt = Math.max(0, Math.min(targetIdx, targetIds.length));
       targetIds.splice(insertAt, 0, moved.id);
-      void (async () => {
-        if (sourceIds.length > 0) {
-          await onReorderEntries({ lorebookId, entryIds: sourceIds, folderId: sourceContainer });
-        }
-        await onReorderEntries({ lorebookId, entryIds: targetIds, folderId: targetContainer });
-      })().catch(() => {
+      void Promise.resolve(onReorderEntries({ lorebookId, entryIds: targetIds, folderId: targetContainer })).catch(() => {
         /* mutation errors surface through React Query */
       });
     },

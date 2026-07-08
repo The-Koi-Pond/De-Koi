@@ -6,6 +6,7 @@ import type {
   LorebookMatchingSource,
 } from "../../../../../engine/contracts/types/lorebook";
 import { cn } from "../../../../../shared/lib/utils";
+import { registerAppCloseGuard } from "../../../../../shared/lib/app-close-guard";
 import { useUpdateLorebookEntry } from "../../hooks/use-lorebooks";
 import {
   ExpandableTextarea,
@@ -242,6 +243,15 @@ export function LorebookEntryDrawer({
   useEffect(() => {
     saveNowRef.current = saveNow;
   }, [saveNow]);
+
+  useEffect(() => {
+    return registerAppCloseGuard({
+      label: "Lorebook entry",
+      hasPendingWork: () => dirtyRef.current || savingRef.current,
+      flush: () => saveNowRef.current(),
+      message: "A lorebook entry is still saving. Close anyway and discard unsaved entry edits?",
+    });
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;

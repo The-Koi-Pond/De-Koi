@@ -50,12 +50,18 @@ async fn music_direct(
 }
 
 #[tauri::command]
-pub async fn music_status(state: State<'_, AppState>, body: Option<Value>) -> Result<Value, AppError> {
+pub async fn music_status(
+    state: State<'_, AppState>,
+    body: Option<Value>,
+) -> Result<Value, AppError> {
     music_direct(state, "POST", &["status"], body.unwrap_or(Value::Null)).await
 }
 
 #[tauri::command]
-pub async fn music_search_candidates(state: State<'_, AppState>, input: Value) -> Result<Value, AppError> {
+pub async fn music_search_candidates(
+    state: State<'_, AppState>,
+    input: Value,
+) -> Result<Value, AppError> {
     music_direct(state, "POST", &["search-candidates"], input).await
 }
 
@@ -65,12 +71,18 @@ pub async fn music_play(state: State<'_, AppState>, body: Value) -> Result<Value
 }
 
 #[tauri::command]
-pub async fn music_pause(state: State<'_, AppState>, body: Option<Value>) -> Result<Value, AppError> {
+pub async fn music_pause(
+    state: State<'_, AppState>,
+    body: Option<Value>,
+) -> Result<Value, AppError> {
     music_direct(state, "POST", &["pause"], body.unwrap_or(Value::Null)).await
 }
 
 #[tauri::command]
-pub async fn music_stop(state: State<'_, AppState>, body: Option<Value>) -> Result<Value, AppError> {
+pub async fn music_stop(
+    state: State<'_, AppState>,
+    body: Option<Value>,
+) -> Result<Value, AppError> {
     music_direct(state, "POST", &["stop"], body.unwrap_or(Value::Null)).await
 }
 

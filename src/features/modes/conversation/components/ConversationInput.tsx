@@ -68,6 +68,7 @@ import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickRe
 import { blobToDataUrl, loadUrlBlob } from "../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../shared/lib/chat-attachment-images";
 import { translateDraftText } from "../../../../shared/lib/draft-translation";
+import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
 import {
   CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
   CHAT_INPUT_ICON_BUTTON_CLASS,
@@ -208,6 +209,7 @@ export function ConversationInput({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pendingAttachmentReadsByChat, setPendingAttachmentReadsByChat] = useState<Record<string, number>>({});
+  const pendingAttachmentReadsByChatRef = useRef<Record<string, number>>({});
   const [isTranslatingDraft, setIsTranslatingDraft] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
@@ -356,6 +358,22 @@ export function ConversationInput({
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
+
+  useEffect(() => {
+    pendingAttachmentReadsByChatRef.current = pendingAttachmentReadsByChat;
+  }, [pendingAttachmentReadsByChat]);
+
+  useEffect(() => {
+    return registerAppCloseGuard({
+      label: "Conversation attachments",
+      hasPendingWork: () => {
+        const chatId = useChatStore.getState().activeChatId;
+        if (!chatId) return false;
+        return attachmentsRef.current.length > 0 || (pendingAttachmentReadsByChatRef.current[chatId] ?? 0) > 0;
+      },
+      message: "Unsent conversation attachments have not been saved. Close anyway and lose those attachments?",
+    });
+  }, []);
 
   // Restore draft
   const prevChatIdRef = useRef<string | null>(null);

@@ -1,8 +1,8 @@
 use crate::state::AppState;
 use autoagents::prelude::{ToolInput, ToolInputT};
-use marinara_core::{AppError, AppResult, now_iso};
+use marinara_core::{now_iso, AppError, AppResult};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 
 const CHAT_OVERVIEW_DEFAULT_LIMIT: usize = 50;
@@ -272,8 +272,7 @@ pub(super) fn prompt_context(
         "chatCount": excerpts.len(),
         "chats": excerpts,
     });
-    let serialized =
-        serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
+    let serialized = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
     Ok(truncate_prompt_context(serialized))
 }
 
