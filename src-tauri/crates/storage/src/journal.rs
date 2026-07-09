@@ -61,16 +61,24 @@ fn record_id(record: &Value) -> AppResult<&str> {
         .ok_or_else(|| AppError::invalid_input("Journal records require a non-empty string id"))
 }
 
+fn unique_record_ids(records: &[Value]) -> AppResult<Vec<&str>> {
+    let ids = records.iter().map(record_id).collect::<AppResult<Vec<_>>>()?;
+    let mut seen = HashSet::new();
+    if ids.iter().any(|id| !seen.insert(*id)) {
+        return Err(AppError::invalid_input(
+            "Journal upsert mutations require unique record ids",
+        ));
+    }
+    Ok(ids)
+}
+
 pub(crate) fn apply_collection_mutation(
     rows: &mut Vec<Value>,
     mutation: &CollectionMutation,
 ) -> AppResult<()> {
     match mutation {
         CollectionMutation::UpsertMany { records } => {
-            let record_ids = records
-                .iter()
-                .map(record_id)
-                .collect::<AppResult<Vec<_>>>()?;
+            let record_ids = unique_record_ids(records)?;
             for (record, id) in records.iter().zip(record_ids) {
                 rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(id));
                 rows.push(record.clone());
@@ -101,9 +109,7 @@ pub(crate) fn apply_collection_mutation(
 fn validate_collection_mutation(mutation: &CollectionMutation) -> AppResult<()> {
     match mutation {
         CollectionMutation::UpsertMany { records } => {
-            for record in records {
-                record_id(record)?;
-            }
+            unique_record_ids(records)?;
         }
         CollectionMutation::DeleteIds { ids } => {
             if ids.iter().any(|id| id.trim().is_empty()) {
@@ -338,6 +344,25 @@ mod tests {
     }
 
     #[test]
+    fn upsert_many_rejects_duplicate_mutation_ids_without_changing_rows() {
+        let original = vec![json!({ "id": "safe", "name": "Before" })];
+        let mut rows = original.clone();
+        let error = apply_collection_mutation(
+            &mut rows,
+            &CollectionMutation::UpsertMany {
+                records: vec![
+                    json!({ "id": "duplicate", "name": "First" }),
+                    json!({ "id": "duplicate", "name": "Second" }),
+                ],
+            },
+        )
+        .expect_err("duplicate journal ids must fail closed");
+
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(rows, original);
+    }
+
+    #[test]
     fn append_and_recover_collection_journal_replays_in_order() {
         let collections = temp_collections("append-recover");
         fs::write(
@@ -389,6 +414,34 @@ mod tests {
 
         let error = recover_collection_journals(&collections)
             .expect_err("corrupt journal must block recovery");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), original);
+        assert!(journal.exists());
+        fs::remove_dir_all(collections).unwrap();
+    }
+
+    #[test]
+    fn corruption_after_valid_journal_entry_leaves_primary_unchanged() {
+        let collections = temp_collections("valid-then-corrupt");
+        let primary = collections.join("characters.json");
+        let original = serde_json::to_vec_pretty(&json!([{ "id": "safe", "name": "Before" }])).unwrap();
+        fs::write(&primary, &original).unwrap();
+        append_collection_mutation(
+            &collections,
+            "characters",
+            &CollectionMutation::UpsertMany {
+                records: vec![json!({ "id": "safe", "name": "After" })],
+            },
+        )
+        .unwrap();
+        let journal = collections.join("characters.pending.jsonl");
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt second entry\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = recover_collection_journals(&collections)
+            .expect_err("a later corrupt entry must abort before primary replacement");
 
         assert_eq!(error.code, "storage_journal_recovery_required");
         assert_eq!(fs::read(&primary).unwrap(), original);
