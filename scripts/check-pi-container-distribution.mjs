@@ -354,6 +354,7 @@ assertNotMatch(
 assertNotMatch(".github/workflows/pi-container-images.yml", workflow, /type=raw,value=latest/);
 assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "build-pi-bare-metal");
 assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "ubuntu-24.04-arm");
+assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "dtolnay/rust-toolchain@1.95.0");
 assertContains(
   ".github/workflows/baremetal-pi-build.yml",
   prealphaWorkflow,

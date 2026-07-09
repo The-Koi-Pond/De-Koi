@@ -156,7 +156,7 @@ jobs:
           cache: pnpm
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
