@@ -1467,7 +1467,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
               onTagsChange={setTagDraftTags}
               suggestions={allTags}
               inputAriaLabel={`Tags for ${tagEditingChat.name}`}
-              separatorPattern={/[,\.\n]/}
+              separatorPattern={/[,.\n]/}
             />
             <div className="flex justify-end gap-2">
               <button
