@@ -214,6 +214,76 @@ describe("startGeneration group typing", () => {
     expect(secondPrompt).not.toContain("Prefix each character's line");
   });
 
+  it("uses the final same-ID assistant patch once in the next responder peer context", async () => {
+    const { storage } = groupTypingStorage({
+      groupResponseOrder: "sequential",
+      activeAgentIds: ["peer-context-patcher"],
+    });
+    const originalList = storage.list.bind(storage);
+    const originalPatchChatMessageExtra = storage.patchChatMessageExtra.bind(storage);
+    Object.assign(storage, {
+      async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+        if (entity === "agents") {
+          return [
+            {
+              id: "peer-context-patcher",
+              type: "peer-context-patcher",
+              name: "Peer Context Patcher",
+              enabled: true,
+              phase: "post_processing",
+              promptTemplate: "Return a compact post-processing result.",
+              settings: { resultType: "cyoa_choices" },
+            },
+          ] as T[];
+        }
+        return originalList<T>(entity);
+      },
+      async patchChatMessageExtra<T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T> {
+        const patched = await originalPatchChatMessageExtra<T>(messageId, patch);
+        if (
+          typeof patched === "object" &&
+          patched !== null &&
+          "characterId" in patched &&
+          patched.characterId === "char-a"
+        ) {
+          Object.assign(patched, { content: "Aki's final patched contribution." });
+        }
+        return patched;
+      },
+    });
+    const mainRequests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream(request) {
+        const prompt = request.messages.map((message) => message.content).join("\n");
+        if (!prompt.includes("Respond only as ")) {
+          yield { type: "token", text: '{"choices":[{"label":"Continue","text":"Continue"}]}' };
+          return;
+        }
+        mainRequests.push(request);
+        yield { type: "token", text: mainRequests.length === 1 ? "Aki's initial contribution." : "Bea responds." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, answer together.",
+        },
+      ),
+    );
+
+    expect(mainRequests).toHaveLength(2);
+    const secondPrompt = mainRequests[1]!.messages.map((message) => message.content).join("\n");
+    expect(secondPrompt.match(/Aki:/g)).toHaveLength(1);
+    expect(secondPrompt).toContain("Aki: Aki's final patched contribution.");
+    expect(secondPrompt).not.toContain("Aki's initial contribution.");
+  });
+
   it("keeps same-send peer guidance when the ordinary group turn prompt is disabled", async () => {
     const { storage } = groupTypingStorage({
       groupResponseOrder: "sequential",

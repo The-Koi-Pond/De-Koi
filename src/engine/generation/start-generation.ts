@@ -2262,6 +2262,7 @@ async function* runIndividualGroupTurnLoop(args: {
   signal?: AbortSignal;
 }): AsyncGenerator<GenerationEvent> {
   const priorResponderContributions: SameSendPeerContribution[] = [];
+  const priorResponderContributionIndexByMessageId = new Map<string, number>();
   for (let index = 0; index < args.turnIds.length; index += 1) {
     throwIfAborted(args.signal);
     const characterId = args.turnIds[index]!;
@@ -2304,7 +2305,16 @@ async function* runIndividualGroupTurnLoop(args: {
       }
       if (event.type === "assistant_message" && isRecord(event.data)) {
         const content = readString(event.data.content).trim();
-        if (content) priorResponderContributions.push({ characterName, content });
+        if (content) {
+          const id = readString(event.data.id).trim();
+          const existingIndex = id ? priorResponderContributionIndexByMessageId.get(id) : undefined;
+          if (existingIndex === undefined) {
+            if (id) priorResponderContributionIndexByMessageId.set(id, priorResponderContributions.length);
+            priorResponderContributions.push({ characterName, content });
+          } else {
+            priorResponderContributions[existingIndex] = { characterName, content };
+          }
+        }
       }
       yield event;
     }
