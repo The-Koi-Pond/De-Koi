@@ -6,12 +6,10 @@ import {
 } from "../contracts/types/agent";
 import {
   getEffectiveMemoryRecallEnabled,
-  type DaySummaryEntry,
   type DialogueAttributionsExtra,
   type GenerationContextAttribution,
   type GenerationPromptSnapshot,
   type GenerationPromptSnapshotMessage,
-  type WeekSummaryEntry,
 } from "../contracts/types/chat";
 import type { GameState } from "../contracts/types/game-state";
 import type { EventGateway } from "../capabilities/events";
@@ -33,9 +31,9 @@ import { conversationCommandPromptEnabled } from "../modes/chat/commands/activat
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
 import {
-  backfillConversationSummaries,
-  type ConversationSummaryBackfillResult,
-} from "../modes/chat/core/summaries/auto-summary.service";
+  cancelConversationSummaryBackfill,
+  scheduleConversationSummaryBackfill,
+} from "../modes/chat/core/summaries/conversation-summary-background";
 import {
   getAvailabilityDecision,
   getAvailabilityResponseDelay,
@@ -1465,48 +1463,30 @@ function resolveGenerationPromptTimeZone(chat: JsonRecord, input: StartGeneratio
   }
 }
 
-function mergeSummaryEntries<T extends DaySummaryEntry | WeekSummaryEntry>(
-  current: unknown,
-  patch: Record<string, T>,
-): Record<string, T> {
-  const currentRecord = isRecord(current) ? (current as Record<string, T>) : {};
-  return { ...currentRecord, ...patch };
+function isConversationGenerationChat(chat: JsonRecord): boolean {
+  return readString(chat.mode || chat.chatMode, "conversation") === "conversation";
 }
 
-function chatWithBackfilledSummaries(chat: JsonRecord, result: ConversationSummaryBackfillResult): JsonRecord {
-  if (result.generatedDays.length === 0 && result.consolidatedWeeks.length === 0) return chat;
-  const metadata = parseRecord(chat.metadata);
-  return {
-    ...chat,
-    metadata: {
-      ...metadata,
-      daySummaries: mergeSummaryEntries(metadata.daySummaries, result.generatedDaySummaries),
-      weekSummaries: mergeSummaryEntries(metadata.weekSummaries, result.consolidatedWeekSummaries),
-    },
-  };
+function cancelConversationSummaryBackgroundForForeground(storage: StorageGateway, chat: JsonRecord): void {
+  if (!isConversationGenerationChat(chat)) return;
+  cancelConversationSummaryBackfill(storage, readString(chat.id).trim());
 }
 
-async function prepareConversationSummariesForGeneration(
+function scheduleConversationSummaryBackgroundAfterSavedAssistant(
   deps: GenerationEngineDeps,
   chat: JsonRecord,
   input: StartGenerationInput,
   connection: JsonRecord,
-  signal?: AbortSignal,
-): Promise<JsonRecord> {
-  if (readString(chat.mode || chat.chatMode, "conversation") !== "conversation") return chat;
-  const chatId = readString(chat.id).trim() || readString(input.chatId).trim();
-  const result = await backfillConversationSummaries(
+): void {
+  if (!isConversationGenerationChat(chat)) return;
+  scheduleConversationSummaryBackfill(
     { storage: deps.storage, llm: deps.llm },
     {
-      chatId,
+      chatId: readString(chat.id).trim() || readString(input.chatId).trim(),
       connectionId: readString(connection.id).trim() || readString(input.connectionId).trim() || null,
-      timeZone: resolveGenerationPromptTimeZone(chat, input),
-      signal,
+      timeZone: resolveGenerationPromptTimeZone(chat, input) ?? null,
     },
   );
-  if (result.generatedDays.length === 0 && result.consolidatedWeeks.length === 0) return chat;
-  const refreshed = await deps.storage.get<JsonRecord>("chats", chatId).catch(() => null);
-  return chatWithBackfilledSummaries(isRecord(refreshed) ? refreshed : chat, result);
 }
 
 function generationMessageLoadOptions(chat: JsonRecord, input: StartGenerationInput): ChatMessageListOptions {
@@ -4394,6 +4374,7 @@ export async function* dryRunGeneration(
   throwIfAborted(signal);
   const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
+  cancelConversationSummaryBackgroundForForeground(deps.storage, chat);
   input = (await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input)) as GenerationDryRunInput;
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
@@ -4559,8 +4540,9 @@ export async function* startGeneration(
   const chatId = readString(input.chatId).trim();
   if (!chatId) throw new Error("chatId is required");
   throwIfAborted(signal);
-  let chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
+  const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
+  cancelConversationSummaryBackgroundForForeground(deps.storage, chat);
   scheduleAutomaticMemoryCaptureQueueProcessing(deps.storage);
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
@@ -4640,8 +4622,6 @@ export async function* startGeneration(
   } else {
     storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
   }
-  chat = await prepareConversationSummariesForGeneration(deps, chat, input, connection, signal);
-  throwIfAborted(signal);
   let regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
   const userRegenerationSourceMessage = await userMessageRegenerationSourceMessage(
     deps.storage,
@@ -5200,6 +5180,7 @@ export async function* startGeneration(
     }
     if (savedAssistantGeneration) {
       await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, savedUserMessage, latestSaved);
+      scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
     }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
     return;
@@ -5397,6 +5378,7 @@ export async function* startGeneration(
   }
   if (savedAssistantGeneration) {
     await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, savedUserMessage, saved);
+    scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
   }
   yield { type: "done" };
 }
