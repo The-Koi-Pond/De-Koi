@@ -4422,7 +4422,7 @@ export async function* startGeneration(
   const chatId = readString(input.chatId).trim();
   if (!chatId) throw new Error("chatId is required");
   throwIfAborted(signal);
-  let chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
+  const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
   cancelConversationSummaryBackgroundForForeground(deps.storage, chat);
   scheduleAutomaticMemoryCaptureQueueProcessing(deps.storage);
