@@ -3114,11 +3114,11 @@ function historyMessageSelection(
     }
     const role = normalizeRole(message.role);
     const content = historyMessageContent(message, includePastReasoning);
-    if (!content.length) continue;
-    const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
     const images = Array.isArray(message.images)
       ? message.images.filter((image): image is string => typeof image === "string" && image.trim().length > 0)
       : [];
+    if (!content.length && images.length === 0) continue;
+    const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
     visibleMessages.push({
       role,
       content,
@@ -4243,7 +4243,7 @@ export async function assembleGenerationPrompt(
       ...message,
       content: collapseExcessBlankLines(stripPromptComments(message.content)).trim(),
     }))
-    .filter((message) => message.content.length > 0);
+    .filter((message) => message.content.length > 0 || (message.images?.length ?? 0) > 0);
   if (shouldPrefixGroupIndividualHistorySpeakers(input, characters)) {
     messages = prefixGroupIndividualHistorySpeakers(messages, characters, persona);
   }

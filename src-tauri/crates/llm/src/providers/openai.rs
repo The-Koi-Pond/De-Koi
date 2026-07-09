@@ -384,7 +384,7 @@ pub(crate) fn chatgpt_responses_message_input(
     };
     let mut items = Vec::new();
     let mut content = Vec::new();
-    if !message.content.trim().is_empty() || role != "assistant" {
+    if !message.content.trim().is_empty() {
         content.push(json!({ "type": text_type, "text": message.content }));
     }
     for image in &message.images {

@@ -77,7 +77,6 @@ import {
   appendReadableAttachmentsToContent,
   buildUserMessageRegenerationPromptFromSource,
   buildUserMessageRegenerationSourceMessage,
-  getAttachmentFilename,
   promptAttachmentsFromExtra,
   resolveRegenerationGameStateAnchor,
   resolveRegenerationGameStateFallbackMessageIds,
@@ -382,12 +381,6 @@ function assertChatCanGenerate(chat: JsonRecord, input?: { forCharacterId?: unkn
   assertRequestedCharacterIsActive(chat, input?.forCharacterId);
 }
 
-function imageAttachmentNotes(attachments: PromptAttachment[]): string {
-  const names = attachments.filter(isImageAttachment).map(getAttachmentFilename);
-  if (names.length === 0) return "";
-  return names.map((name) => `[Attached image: ${name}]`).join("\n");
-}
-
 async function prepareUserInput(
   storage: StorageGateway,
   input: StartGenerationInput,
@@ -404,11 +397,8 @@ async function prepareUserInput(
       ? await applyRuntimeRegexScripts(storage, "user_input", raw, { chatCharacterIds: activeCharacterIds(chat) })
       : "";
     const withReadableAttachments = appendReadableAttachmentsToContent(regexed, managedAttachments);
-    const imageNotes = imageAttachmentNotes(managedAttachments);
     return {
-      content: collapseExcessBlankLines(
-        [withReadableAttachments, imageNotes].filter((part) => part.trim().length > 0).join("\n\n"),
-      ),
+      content: collapseExcessBlankLines(withReadableAttachments),
       attachments: managedAttachments,
       preparedAttachments,
       images: imageDelivery.images,
@@ -438,11 +428,8 @@ async function prepareDryRunUserInput(
   const mentionedCharacterNames = stringArray(input.mentionedCharacterNames).filter((name) => name.trim().length > 0);
   const regexed = raw ? await applyRuntimeRegexScripts(storage, "user_input", raw) : "";
   const withReadableAttachments = appendReadableAttachmentsToContent(regexed, attachments);
-  const imageNotes = imageAttachmentNotes(attachments);
   return {
-    content: collapseExcessBlankLines(
-      [withReadableAttachments, imageNotes].filter((part) => part.trim().length > 0).join("\n\n"),
-    ),
+    content: collapseExcessBlankLines(withReadableAttachments),
     attachments,
     preparedAttachments: { attachments, createdGalleryIds: [] },
     images: imageDelivery.images,
@@ -5684,4 +5671,3 @@ function mergeTurnUsages(usages: unknown[]): unknown {
   }
   return merged;
 }
-
