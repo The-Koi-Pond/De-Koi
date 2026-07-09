@@ -8,7 +8,7 @@ import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { preloadRightPanelPanel } from "./right-panel-loaders";
 
 export function MobileTabBar({
-  dekiOpen,
+  dekiOpen: _dekiOpen,
   leftSidebarPanel,
   toolsSheetOpen,
   toolsSheetRef,
@@ -16,7 +16,7 @@ export function MobileTabBar({
   onToolsSheetOpenChange,
   onLeftSidebarPanelChange,
   onToggleDeki: _onToggleDeki,
-  onGoHome,
+  onGoHome: _onGoHome,
 }: {
   dekiOpen: boolean;
   leftSidebarPanel: AppShellLeftSidebarPanel;
@@ -54,7 +54,6 @@ export function MobileTabBar({
     const wasOpen = leftSidebarPanel === "deki";
     closeAll();
     if (!wasOpen) onLeftSidebarPanelChange("deki");
-    if (dekiOpen) onGoHome();
   };
 
   const openPanel = (panel: MobileToolsPanel) => {
@@ -66,8 +65,7 @@ export function MobileTabBar({
 
   const isTools = rightPanelOpen || toolsSheetOpen;
   const isChats = leftSidebarPanel === "chats" && !rightPanelOpen && !toolsSheetOpen && !trackerPanelVisible;
-  const isDeki =
-    (dekiOpen || leftSidebarPanel === "deki") && !rightPanelOpen && !toolsSheetOpen && !trackerPanelVisible;
+  const isDeki = leftSidebarPanel === "deki" && !rightPanelOpen && !toolsSheetOpen && !trackerPanelVisible;
 
   return (
     <>
