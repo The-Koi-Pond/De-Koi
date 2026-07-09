@@ -23,9 +23,6 @@ type CharacterEditorTabContentProps = {
   updateExtension: (key: string, value: unknown) => void;
   newTag: string;
   setNewTag: (tag: string) => void;
-  addTag: () => void;
-  removeTag: (tag: string) => void;
-  removeAllTags: () => void;
   avatarPreview: string | null;
   imageConnections: ImageGenerationConnectionOption[];
 };
@@ -39,9 +36,6 @@ export function CharacterEditorTabContent({
   updateExtension,
   newTag,
   setNewTag,
-  addTag,
-  removeTag,
-  removeAllTags,
   avatarPreview,
   imageConnections,
 }: CharacterEditorTabContentProps) {
@@ -57,9 +51,6 @@ export function CharacterEditorTabContent({
             updateExtension={updateExtension}
             newTag={newTag}
             setNewTag={setNewTag}
-            addTag={addTag}
-            removeTag={removeTag}
-            removeAllTags={removeAllTags}
             avatarPreview={avatarPreview}
             imageConnections={imageConnections}
           />

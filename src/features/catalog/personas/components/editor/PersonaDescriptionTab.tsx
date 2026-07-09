@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Maximize2, Plus, Tag, X } from "lucide-react";
+import { Maximize2, Plus, X } from "lucide-react";
 import { AvatarCropWidget } from "../../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
+import { TagInput } from "../../../../../shared/components/ui/TagInput";
 import { cn, generateClientId } from "../../../../../shared/lib/utils";
 import type { AltDescriptionEntry, PersonaFormData } from "../../lib/persona-editor-model";
 
@@ -18,21 +19,6 @@ export function PersonaDescriptionTab({
   const altDescs = formData.altDescriptions;
   const [expandedField, setExpandedField] = useState<"description" | string | null>(null);
   const [newTag, setNewTag] = useState("");
-
-  const addTag = () => {
-    const tag = newTag.trim();
-    if (!tag) return;
-    if (formData.tags.includes(tag)) return;
-    updateField("tags", [...formData.tags, tag]);
-    setNewTag("");
-  };
-
-  const removeTag = (tag: string) => {
-    updateField(
-      "tags",
-      formData.tags.filter((t) => t !== tag),
-    );
-  };
 
   const updateAltDescs = (next: AltDescriptionEntry[]) => {
     updateField("altDescriptions", next);
@@ -101,52 +87,17 @@ export function PersonaDescriptionTab({
         </p>
       </div>
 
-      <div className="space-y-2">
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-          Tags{" "}
+      <TagInput
+        label="Tags"
+        help={
           <HelpTooltip text="Labels for organizing personas. Use tags like 'fantasy', 'modern', 'OC' etc. to categorize and filter." />
-        </span>
-        <div className="flex flex-wrap gap-1.5">
-          {formData.tags.map((tag) => (
-            <span
-              key={tag}
-              className="flex items-center gap-1 rounded-full bg-emerald-400/10 px-2.5 py-1 text-[0.6875rem] font-medium text-emerald-400"
-            >
-              <Tag size="0.625rem" />
-              {tag}
-              <button
-                type="button"
-                onClick={() => removeTag(tag)}
-                className="ml-0.5 rounded-full transition-colors hover:text-[var(--destructive)]"
-                aria-label={`Remove tag ${tag}`}
-              >
-                <X size="0.625rem" />
-              </button>
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-1.5">
-          <input
-            value={newTag}
-            onChange={(event) => setNewTag(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                addTag();
-              }
-            }}
-            placeholder="Add tag…"
-            className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs outline-none focus:border-emerald-400/40"
-          />
-          <button
-            type="button"
-            onClick={addTag}
-            className="rounded-xl bg-emerald-400/15 px-3 py-1.5 text-xs font-medium text-emerald-400 transition-all hover:bg-emerald-400/25"
-          >
-            Add
-          </button>
-        </div>
-      </div>
+        }
+        tags={formData.tags}
+        inputValue={newTag}
+        onInputChange={setNewTag}
+        onTagsChange={(tags) => updateField("tags", tags)}
+        tone="emerald"
+      />
 
       <div>
         <div className="mb-4 flex items-center justify-between">

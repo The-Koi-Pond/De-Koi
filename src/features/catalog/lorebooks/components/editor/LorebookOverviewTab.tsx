@@ -1,18 +1,7 @@
-import {
-  BookOpen,
-  Gamepad2,
-  Globe,
-  Plus,
-  Tag,
-  ToggleLeft,
-  ToggleRight,
-  Users,
-  UserRound,
-  Wand2,
-  X,
-} from "lucide-react";
+import { BookOpen, Plus, Gamepad2, Globe, ToggleLeft, ToggleRight, Users, UserRound, Wand2 } from "lucide-react";
 import type { LorebookCategory, LorebookEntry } from "../../../../../engine/contracts/types/lorebook";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
+import { TagInput } from "../../../../../shared/components/ui/TagInput";
 import { cn } from "../../../../../shared/lib/utils";
 import { LOREBOOK_CATEGORY_OPTIONS } from "../../lib/lorebook-category-options";
 import { ExpandableTextarea } from "../shared/LorebookFormFields";
@@ -30,21 +19,6 @@ const CATEGORY_ICONS: Record<LorebookCategory, typeof Globe> = {
 };
 
 type ScopeSummaryLine = { label: string; names: string };
-
-function appendLorebookOverviewTags(tags: readonly string[], rawInput: string): string[] {
-  const nextTags = [...tags];
-  const tagSet = new Set(nextTags);
-  for (const tag of rawInput
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean)) {
-    if (!tagSet.has(tag)) {
-      nextTags.push(tag);
-      tagSet.add(tag);
-    }
-  }
-  return nextTags;
-}
 
 export type LorebookOverviewScopeSummary =
   | null
@@ -149,15 +123,6 @@ export function LorebookOverviewTab({
   onPersonaLinkPickerOpenChange: (value: boolean) => void;
   onDirty: () => void;
 }) {
-  const addTag = () => {
-    const nextTags = appendLorebookOverviewTags(tags, newTag);
-    if (nextTags.length !== tags.length) {
-      onTagsChange(nextTags);
-      onDirty();
-    }
-    onNewTagChange("");
-  };
-
   return (
     <div className="space-y-6">
       <div>
@@ -185,52 +150,19 @@ export function LorebookOverviewTab({
         />
       </div>
 
-      <div>
-        <label className="mb-1.5 flex items-center gap-1 text-xs font-medium">
-          <Tag size="0.75rem" /> Tags
-        </label>
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {tags.map((tag) => (
-            <span
-              key={tag}
-              className="flex items-center gap-1 rounded-lg bg-amber-400/15 px-2 py-1 text-[0.6875rem] font-medium text-amber-400"
-            >
-              {tag}
-              <button
-                onClick={() => {
-                  onTagsChange(tags.filter((current) => current !== tag));
-                  onDirty();
-                }}
-                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-amber-400/20"
-                aria-label={`Remove tag ${tag}`}
-              >
-                <X size="0.625rem" />
-              </button>
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-1.5">
-          <input
-            value={newTag}
-            onChange={(event) => onNewTagChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && newTag.trim()) {
-                event.preventDefault();
-                addTag();
-              }
-            }}
-            placeholder="Add tag…"
-            className="flex-1 rounded-xl bg-[var(--secondary)] px-3 py-2 text-xs ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-          />
-          <button
-            onClick={addTag}
-            className="rounded-xl bg-[var(--secondary)] px-3 py-2 text-xs font-medium ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
-            aria-label="Add tag"
-          >
-            <Plus size="0.75rem" />
-          </button>
-        </div>
-      </div>
+      <TagInput
+        label="Tags"
+        tags={tags}
+        inputValue={newTag}
+        onInputChange={onNewTagChange}
+        onTagsChange={(nextTags) => {
+          onTagsChange(nextTags);
+          onDirty();
+        }}
+        tone="amber"
+        addButtonLabel={<Plus size="0.75rem" />}
+        placeholder="Add tag..."
+      />
 
       <div>
         <label className="mb-1.5 block text-xs font-medium">Category</label>

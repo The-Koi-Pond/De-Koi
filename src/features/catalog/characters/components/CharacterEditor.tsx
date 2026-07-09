@@ -273,27 +273,6 @@ export function CharacterEditor() {
     closeDetail();
   }, [avatarUploading, closeDetail, setDirtyState]);
 
-  const addTag = () => {
-    const tag = newTag.trim();
-    if (!tag || !formData) return;
-    if (formData.tags.includes(tag)) return;
-    updateField("tags", [...formData.tags, tag]);
-    setNewTag("");
-  };
-
-  const removeTag = (tag: string) => {
-    if (!formData) return;
-    updateField(
-      "tags",
-      formData.tags.filter((t) => t !== tag),
-    );
-  };
-
-  const removeAllTags = () => {
-    if (!formData || formData.tags.length === 0) return;
-    updateField("tags", []);
-  };
-
   const handleStartChat = () => {
     if (!characterId || !formData) return;
     startChatFromCharacter({
@@ -392,9 +371,6 @@ export function CharacterEditor() {
           updateExtension={updateExtension}
           newTag={newTag}
           setNewTag={setNewTag}
-          addTag={addTag}
-          removeTag={removeTag}
-          removeAllTags={removeAllTags}
           avatarPreview={avatarPreview}
           imageConnections={imageConnections}
         />
