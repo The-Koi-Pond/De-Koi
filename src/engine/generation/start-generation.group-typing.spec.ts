@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { IntegrationGateway } from "../capabilities/integrations";
-import type { LlmGateway } from "../capabilities/llm";
+import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
 import { startGeneration } from "./start-generation";
@@ -32,6 +32,7 @@ function groupTypingStorage(
     "conn-1": { id: "conn-1", provider: "test-provider", model: "test-model" },
     "char-a": { id: "char-a", name: "Aki", data: { name: "Aki", personality: "warm" } },
     "char-b": { id: "char-b", name: "Bea", data: { name: "Bea", personality: "dry" } },
+    "char-c": { id: "char-c", name: "Cleo", data: { name: "Cleo", personality: "bright" } },
   };
   const messages: StoredMessage[] = [];
   let nextMessageId = 1;
@@ -48,7 +49,9 @@ function groupTypingStorage(
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "chats" && id === "chat-1") return records["chat-1"] as T;
       if (entity === "connections" && id === "conn-1") return records["conn-1"] as T;
-      if (entity === "characters" && (id === "char-a" || id === "char-b")) return records[id] as T;
+      if (entity === "characters" && (id === "char-a" || id === "char-b" || id === "char-c")) {
+        return records[id] as T;
+      }
       return null;
     },
     async create<T = unknown>(_entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
@@ -174,6 +177,181 @@ describe("startGeneration group typing", () => {
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-a", "char-b"]);
   });
 
+  it("gives later responders same-send peer context without inviting repeated replies", async () => {
+    const { storage } = groupTypingStorage();
+    const requests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream(request) {
+        requests.push(request);
+        yield { type: "token", text: requests.length === 1 ? "Aki got here first." : "Bea adds something new." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm,
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, what do you both think?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(requests).toHaveLength(2);
+    const secondPrompt = requests[1]!.messages.map((message) => message.content).join("\n");
+    expect(secondPrompt).toContain("same-send peer contribution");
+    expect(secondPrompt).toContain("Aki: Aki got here first.");
+    expect(secondPrompt).toContain("Respond only as Bea");
+    expect(secondPrompt).toContain("Do not repeat");
+    expect(secondPrompt).not.toContain("Prefix each character's line");
+  });
+
+  it("uses the final same-ID assistant patch once in the next responder peer context", async () => {
+    const { storage } = groupTypingStorage({
+      groupResponseOrder: "sequential",
+      activeAgentIds: ["peer-context-patcher"],
+    });
+    const originalList = storage.list.bind(storage);
+    const originalPatchChatMessageExtra = storage.patchChatMessageExtra.bind(storage);
+    Object.assign(storage, {
+      async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+        if (entity === "agents") {
+          return [
+            {
+              id: "peer-context-patcher",
+              type: "peer-context-patcher",
+              name: "Peer Context Patcher",
+              enabled: true,
+              phase: "post_processing",
+              promptTemplate: "Return a compact post-processing result.",
+              settings: { resultType: "cyoa_choices" },
+            },
+          ] as T[];
+        }
+        return originalList<T>(entity);
+      },
+      async patchChatMessageExtra<T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T> {
+        const patched = await originalPatchChatMessageExtra<T>(messageId, patch);
+        if (
+          typeof patched === "object" &&
+          patched !== null &&
+          "characterId" in patched &&
+          patched.characterId === "char-a"
+        ) {
+          Object.assign(patched, { content: "Aki's final patched contribution." });
+        }
+        return patched;
+      },
+    });
+    const mainRequests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream(request) {
+        const prompt = request.messages.map((message) => message.content).join("\n");
+        if (!prompt.includes("Respond only as ")) {
+          yield { type: "token", text: '{"choices":[{"label":"Continue","text":"Continue"}]}' };
+          return;
+        }
+        mainRequests.push(request);
+        yield { type: "token", text: mainRequests.length === 1 ? "Aki's initial contribution." : "Bea responds." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, answer together.",
+        },
+      ),
+    );
+
+    expect(mainRequests).toHaveLength(2);
+    const secondPrompt = mainRequests[1]!.messages.map((message) => message.content).join("\n");
+    expect(secondPrompt.match(/Aki:/g)).toHaveLength(1);
+    expect(secondPrompt).toContain("Aki: Aki's final patched contribution.");
+    expect(secondPrompt).not.toContain("Aki's initial contribution.");
+  });
+
+  it("keeps same-send peer guidance when the ordinary group turn prompt is disabled", async () => {
+    const { storage } = groupTypingStorage({
+      groupResponseOrder: "sequential",
+      groupTurnPromptEnabled: false,
+    });
+    const requests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream(request) {
+        requests.push(request);
+        yield { type: "token", text: requests.length === 1 ? "Aki already answered." : "Bea answers next." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, answer together.",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    const secondPrompt = requests[1]!.messages.map((message) => message.content).join("\n");
+    expect(secondPrompt).toContain("same-send peer contribution");
+    expect(secondPrompt).toContain("Aki: Aki already answered.");
+    expect(secondPrompt).toContain("Do not repeat");
+  });
+
+  it("preserves every prior responder identity when same-send context is bounded", async () => {
+    const { storage } = groupTypingStorage(
+      { groupResponseOrder: "sequential" },
+      { characterIds: ["char-a", "char-b", "char-c"] },
+    );
+    const requests: LlmRequest[] = [];
+    const responses = [`Aki starts ${"x".repeat(4_100)}`, "Bea gives the recent peer reply.", "Cleo responds."];
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream(request) {
+        requests.push(request);
+        yield { type: "token", text: responses[requests.length - 1] };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki, Bea, and Cleo: thoughts?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(requests).toHaveLength(3);
+    const thirdPrompt = requests[2]!.messages.map((message) => message.content).join("\n");
+    expect(thirdPrompt).toContain("Aki:");
+    expect(thirdPrompt).toContain("Bea: Bea gives the recent peer reply.");
+    expect(thirdPrompt).toContain("Respond only as Cleo");
+  });
+
   it("lets smart conversation group selection choose multiple responders", async () => {
     const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
 
@@ -196,6 +374,94 @@ describe("startGeneration group typing", () => {
     const assistantMessages = messages.filter((message) => message.role === "assistant");
 
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-b", "char-a"]);
+  });
+
+  it("stops a later smart responder when an earlier mentioned character answered fully", async () => {
+    const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
+    const continuationRequests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      complete: vi.fn(async (request) => {
+        continuationRequests.push(request);
+        return '{"shouldRespond":false,"reason":"Aki already answered fully"}';
+      }),
+      async *stream() {
+        yield { type: "token", text: "Aki covered the whole answer." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm,
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, what do you both think?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    const continuationRequest = continuationRequests.find((request) =>
+      request.messages.some((message) => message.content.includes("hidden continuation orchestrator")),
+    );
+
+    expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-a"]);
+    expect(continuationRequest).toBeDefined();
+    expect(continuationRequest!.messages.map((message) => message.content).join("\n")).toContain(
+      "Aki covered the whole answer.",
+    );
+  });
+
+  it("keeps a later smart responder when the continuation decision is malformed", async () => {
+    const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm: groupTypingLlm("not json"), integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, what do you both think?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(messages.filter((message) => message.role === "assistant").map((message) => message.characterId)).toEqual([
+      "char-a",
+      "char-b",
+    ]);
+  });
+
+  it("keeps a later smart responder when the continuation decision errors", async () => {
+    const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
+    const llm = groupTypingLlm();
+    llm.complete = vi.fn(async () => {
+      throw new Error("selector unavailable");
+    });
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, what do you both think?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(messages.filter((message) => message.role === "assistant").map((message) => message.characterId)).toEqual([
+      "char-a",
+      "char-b",
+    ]);
   });
 
   it("defaults conversation group response order to smart selection", async () => {
