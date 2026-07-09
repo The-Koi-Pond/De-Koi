@@ -1,23 +1,148 @@
-name: baremetal pi build
+name: Pre-Alpha Pi Bare-Metal Build
 
 on:
   workflow_dispatch:
+    inputs:
+      extra_release_notes:
+        description: "Optional operator notes to append to the pre-alpha release body"
+        required: false
+        type: string
 
 concurrency:
-  group: baremetal-pi-build-${{ github.ref }}
+  group: prealpha-pi-bare-metal-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   NODE_VERSION: "22"
   PNPM_VERSION: "10.33.2"
-  RUST_TARGET: aarch64-unknown-linux-gnu
 
 jobs:
-  build:
-    name: Linux arm64 Tauri bundle
-    runs-on: ubuntu-24.04-arm
+  main-only:
+    name: Main branch guard
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Allow only main branch dispatches
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "::error::Pre-alpha Pi bare-metal builds are manual-only and may only run from the main branch. Selected branch: ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          echo "Building Pi bare-metal pre-alpha artifact from ${GITHUB_REF_NAME}."
+
+  create-prealpha-release:
+    name: Create draft pre-release
+    runs-on: ubuntu-latest
+    needs: main-only
     permissions:
-      contents: read
+      contents: write
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
+      release_url: ${{ steps.create.outputs.release_url }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compute pre-alpha version and tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          short_sha="${GITHUB_SHA::7}"
+          tag_name="prealpha-de-koi-pi-bare-metal-v${version}-run${GITHUB_RUN_NUMBER}-attempt${GITHUB_RUN_ATTEMPT}-${short_sha}"
+          release_name="De-Koi Pi Bare-Metal Pre-Alpha Build v${version} #${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "version=${version}"
+            echo "tag_name=${tag_name}"
+            echo "release_name=${release_name}"
+            echo "short_sha=${short_sha}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create draft GitHub pre-release with warning notes
+        id: create
+        uses: actions/github-script@v9
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+          RELEASE_NAME: ${{ steps.version.outputs.release_name }}
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          SHORT_SHA: ${{ steps.version.outputs.short_sha }}
+          EXTRA_RELEASE_NOTES: ${{ inputs.extra_release_notes }}
+        with:
+          script: |
+            const extraNotes = (process.env.EXTRA_RELEASE_NOTES || '').trim();
+            const branch = context.ref.replace('refs/heads/', '');
+            const bodyLines = [
+              '# DE-KOI PI BARE-METAL PRE-ALPHA TEST BUILD - EXPECT BREAKAGE',
+              '',
+              'This is a **manual De-Koi Raspberry Pi bare-metal pre-alpha test build** for team testing. It is marked as a **GitHub pre-release** and forced to **not be the latest release**.',
+              '',
+              '## Read before downloading',
+              '',
+              '- **Almost everything may be broken.** Expect crashes, missing behavior, unfinished UI, incomplete migration paths, broken imports/exports, provider/runtime issues, and Pi-specific failures.',
+              '- **Use throwaway data only.** Back up existing De-Koi data before launching this build. Do not use this for real saves, production stories, or important chats.',
+              '- **No stable-update promise.** These artifacts do not publish updater metadata and should not be treated as an official update channel.',
+              '- **Built only from the `main` branch.** This workflow does not publish from other development branches, mark itself as latest, or publish stable updater metadata.',
+              '',
+              '## Included artifacts when the workflow succeeds',
+              '',
+              '- Raspberry Pi OS Lite ARM64 bare-metal web/runtime tarball for Caddy or nginx deployment.',
+              '',
+              '## Build identity',
+              '',
+              '- Runtime: `de-koi-server` hostable web/runtime package',
+              `- Source branch: \`${branch}\``,
+              `- Source commit: \`${context.sha}\``,
+              `- Version: \`${process.env.APP_VERSION}\``,
+              `- Short SHA: \`${process.env.SHORT_SHA}\``,
+              '',
+              '## License And Source',
+              '',
+              'De-Koi is an unofficial modified fork of Marinara Engine. It is a separate project and is not an official Marinara Engine release, support channel, or distribution.',
+              '',
+              'De-Koi is not sponsored by, endorsed by, or released on behalf of Marinara Engine, Spicy Marinara, Pasta Devs, or the Marinara Engine project.',
+              '',
+              'De-Koi is licensed under the GNU Affero General Public License version 3. The corresponding source code for this build is available from this repository at the source commit listed above.',
+              '',
+              'See `LICENSE.txt` and `NOTICE.md` in the repository for license, attribution, source, and other notices.',
+              '',
+            ];
+
+            if (extraNotes) {
+              bodyLines.push('## Operator notes', '', extraNotes, '');
+            }
+
+            bodyLines.push(
+              '## Tester guidance',
+              '',
+              '1. Download the Pi bare-metal tarball and checksum from the assets below.',
+              '2. Install/update it only on a Pi where data loss is acceptable.',
+              '3. Report issues with artifact name, source commit, and logs/screenshots when possible.',
+            );
+
+            const body = bodyLines.join('\n');
+
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: process.env.TAG_NAME,
+              target_commitish: context.sha,
+              name: process.env.RELEASE_NAME,
+              body,
+              draft: true,
+              prerelease: true,
+              make_latest: 'false',
+            });
+
+            core.setOutput('release_id', String(data.id));
+            core.setOutput('release_url', data.html_url);
+
+  build-pi-bare-metal:
+    name: Raspberry Pi bare-metal ARM64 package
+    runs-on: ubuntu-24.04-arm
+    needs: create-prealpha-release
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
 
@@ -32,64 +157,75 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ env.RUST_TARGET }}
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
-      - name: Install Tauri Linux bundle dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            xdg-utils \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            rpm \
-            fakeroot \
-            dpkg-dev
-
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Linux arm64 Tauri bundle
-        run: pnpm tauri build --ci --no-sign --target "${RUST_TARGET}"
+      - name: Build web shell
+        run: pnpm build
 
-      - name: Collect Linux arm64 bundles
+      - name: Build hostable runtime
+        env:
+          DE_KOI_SOURCE_COMMIT: ${{ github.sha }}
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server --no-default-features --features server
+
+      - name: Package Pi bare-metal release asset
         shell: bash
+        env:
+          DE_KOI_SOURCE_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          short_sha="${GITHUB_SHA::7}"
           mkdir -p release-assets
-          shopt -s nullglob
-          bundles=(
-            src-tauri/target/${RUST_TARGET}/release/bundle/deb/*.deb
-            src-tauri/target/${RUST_TARGET}/release/bundle/appimage/*.AppImage
-            src-tauri/target/${RUST_TARGET}/release/bundle/rpm/*.rpm
-          )
-          if [ "${#bundles[@]}" -eq 0 ]; then
-            echo "::error::No Linux arm64 Tauri bundles were produced."
-            find src-tauri/target/${RUST_TARGET}/release/bundle -maxdepth 3 -type f -print || true
-            exit 1
-          fi
-          for file in "${bundles[@]}"; do
-            cp "${file}" "release-assets/$(basename "${file}")"
-          done
-          find release-assets -maxdepth 1 -type f -print
+          asset="release-assets/De-Koi-PreAlpha-pi-bare-metal-arm64-v${version}-${short_sha}.tar.gz"
+          bash scripts/pi-bare-metal-package.sh "${asset}"
+          test -s "${asset}"
+          test -s "${asset}.sha256"
 
-      - name: Upload Linux arm64 bundles
+      - name: Upload Pi bare-metal workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: baremetal-pi-linux-arm64-bundles
+          name: prealpha-pi-bare-metal-arm64-release-assets
           path: release-assets/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload Pi bare-metal assets to draft pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.create-prealpha-release.outputs.tag_name }}
+        run: gh release upload "${TAG_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --clobber
+
+  publish-prealpha-release:
+    name: Publish pre-release as not latest
+    runs-on: ubuntu-latest
+    needs:
+      - create-prealpha-release
+      - build-pi-bare-metal
+    permissions:
+      contents: write
+    steps:
+      - name: Publish draft pre-release without marking it latest
+        uses: actions/github-script@v9
+        env:
+          RELEASE_ID: ${{ needs.create-prealpha-release.outputs.release_id }}
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: Number(process.env.RELEASE_ID),
+              draft: false,
+              prerelease: true,
+              make_latest: 'false',
+            });
+
+      - name: Release URL
+        run: echo "Published ${{ needs.create-prealpha-release.outputs.release_url }}"

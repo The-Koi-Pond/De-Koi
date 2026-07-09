@@ -276,7 +276,7 @@ assertContains("docs/vds.md", vdsDocs, "BASIC_AUTH_USER");
 assertContains("docs/vds.md", vdsDocs, "IP_ALLOWLIST");
 
 const workflow = read(".github/workflows/pi-container-images.yml");
-const prealphaWorkflow = read(".github/workflows/prealpha-platform-builds.yml");
+const prealphaWorkflow = read(".github/workflows/baremetal-pi-build.yml");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "packages: write");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "runs-on: ${{ matrix.runner }}");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "runner: ubuntu-24.04-arm");
@@ -352,16 +352,20 @@ assertNotMatch(
   /Docker metadata[\s\S]*type=raw,value=prealpha[\s\S]*Build and push native platform image/,
 );
 assertNotMatch(".github/workflows/pi-container-images.yml", workflow, /type=raw,value=latest/);
-assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "build-pi-bare-metal");
-assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "ubuntu-24.04-arm");
+assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "build-pi-bare-metal");
+assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "ubuntu-24.04-arm");
 assertContains(
-  ".github/workflows/prealpha-platform-builds.yml",
+  ".github/workflows/baremetal-pi-build.yml",
   prealphaWorkflow,
   "cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server --no-default-features --features server",
 );
-assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "scripts/pi-bare-metal-package.sh");
-assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "bash scripts/pi-bare-metal-package.sh");
-assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "De-Koi-PreAlpha-pi-bare-metal-arm64");
-assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "gh release upload");
+assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "scripts/pi-bare-metal-package.sh");
+assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "bash scripts/pi-bare-metal-package.sh");
+assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "De-Koi-PreAlpha-pi-bare-metal-arm64");
+assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "gh release upload");
+assertNotContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "build-desktop");
+assertNotContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "build-android");
+assertNotContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "tauri-apps/tauri-action@v0");
+assertNotContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "pnpm tauri android build");
 
 console.log("Pi distribution config looks valid.");

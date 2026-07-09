@@ -16,7 +16,7 @@ Do not build De-Koi on the Pi for normal updates. Use the prebuilt
 
 ## Build The Release Asset
 
-From GitHub Actions, run **Pre-Alpha Platform Builds** on `main`. When the run
+From GitHub Actions, run **Pre-Alpha Pi Bare-Metal Build** on `main`. When the run
 succeeds, the draft pre-release includes:
 
 ```text
