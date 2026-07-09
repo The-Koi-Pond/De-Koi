@@ -7,6 +7,8 @@ describe("chat sidebar row layout", () => {
     expect(CHAT_ROW_ACTION_RAIL_CLASS_NAME).not.toContain("absolute");
     expect(CHAT_ROW_ACTION_RAIL_CLASS_NAME).toContain("ml-auto");
     expect(CHAT_ROW_ACTION_RAIL_CLASS_NAME).toContain("max-w-0");
+    expect(CHAT_ROW_ACTION_RAIL_CLASS_NAME).toContain("overflow-hidden");
+    expect(CHAT_ROW_ACTION_RAIL_CLASS_NAME).toContain("transition-[max-width,opacity,padding]");
     expect(CHAT_ROW_ACTION_RAIL_CLASS_NAME).toContain("group-hover:max-w-32");
   });
 
