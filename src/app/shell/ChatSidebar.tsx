@@ -930,8 +930,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
         )}
 
         {!multiSelectMode && (
-          <div className={cn(CHAT_ROW_ACTION_RAIL_CLASS_NAME, pinned && "pointer-events-auto opacity-100")}>
-            <span className="px-1 text-[0.625rem] text-[var(--muted-foreground)]">{cfg.shortLabel}</span>
+          <div className={cn(CHAT_ROW_ACTION_RAIL_CLASS_NAME, pinned && "pointer-events-auto max-w-32 px-1 opacity-100")}>
             <button
               onClick={(e) => {
                 e.stopPropagation();

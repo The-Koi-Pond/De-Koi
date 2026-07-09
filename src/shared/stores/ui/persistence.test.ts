@@ -5,7 +5,7 @@ import { migrateUiState, partializeUiState, UI_STORE_VERSION } from "./persisten
 
 describe("ui persistence migration", () => {
   it("bumps the store version for the chibi visit setting removal", () => {
-    expect(UI_STORE_VERSION).toBe(10);
+    expect(UI_STORE_VERSION).toBe(11);
   });
 
   it("drops legacy chibi visit settings during migration", () => {
@@ -61,6 +61,14 @@ describe("ui persistence migration", () => {
     });
 
     expect(migrated.conversationMessageStyle).toBe("classic");
+  });
+
+  it("restores conversation timestamps for persisted UI state", () => {
+    const migrated = migrateUiState({
+      showTimestamps: false,
+    });
+
+    expect(migrated.showTimestamps).toBe(true);
   });
 
   it("persists the Echo Chamber open state with its placement settings", () => {

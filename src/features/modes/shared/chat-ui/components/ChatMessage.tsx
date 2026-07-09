@@ -2205,7 +2205,7 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           >
             {/* Block metadata */}
-            <div className={cn("mari-message-meta flex items-baseline gap-2 px-1", isUser && "flex-row-reverse")}>
+            <div className="mari-message-meta flex items-baseline gap-2 px-1">
               {hiddenFromAIHeader}
               {!isGrouped &&
                 renderCharacterName(
@@ -2767,7 +2767,7 @@ export const ChatMessage = memo(function ChatMessage({
           )}
         >
           {/* Block metadata */}
-          <div className={cn("mari-message-meta flex items-center gap-2 px-3", isUser && "flex-row-reverse")}>
+          <div className="mari-message-meta flex items-center gap-2 px-3">
             {hiddenFromAIHeader}
             {!isGrouped &&
               !isUser &&

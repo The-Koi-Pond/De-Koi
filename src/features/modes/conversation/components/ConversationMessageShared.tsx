@@ -945,7 +945,6 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
       className={cn(
         "mari-message-meta flex items-baseline gap-2 mb-0.5",
         context.isBubbleStyle && "px-2",
-        context.isUser && "flex-row-reverse",
       )}
     >
       {context.hiddenFromAIHeader}

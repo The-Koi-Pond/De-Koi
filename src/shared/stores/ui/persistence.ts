@@ -26,7 +26,7 @@ import {
 import type { UIState } from "./model";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
-export const UI_STORE_VERSION = 10;
+export const UI_STORE_VERSION = 11;
 
 const LEGACY_SIDEBAR_WIDTH_DEFAULT = 280;
 
@@ -232,6 +232,7 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   );
   persisted.trackerPanelSectionOrder = normalizeTrackerPanelSectionOrder(persisted.trackerPanelSectionOrder);
   persisted.conversationMessageStyle = normalizeConversationMessageStyle(persisted.conversationMessageStyle);
+  persisted.showTimestamps = true;
   persisted.summaryPopoverSettings = normalizeSummaryPopoverSettings(persisted.summaryPopoverSettings);
   persisted.userQuickReplyActions = normalizeUserQuickReplyActions(persisted.userQuickReplyActions);
   persisted.quoteFormat = normalizeQuoteFormat(persisted.quoteFormat);

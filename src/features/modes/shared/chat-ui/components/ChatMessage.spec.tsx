@@ -138,6 +138,39 @@ describe("ChatMessage", () => {
       expect.objectContaining({ width: expect.any(Number) }),
     );
   });
+  it("renders persona metadata name before the timestamp in roleplay messages", () => {
+    const userMessage: Message = {
+      ...message,
+      id: "message-user-meta",
+      role: "user",
+      characterId: null,
+      content: "Hello from me.",
+      extra: {
+        displayText: null,
+        isGenerated: false,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={userMessage} chatMode="roleplay" personaInfo={{ name: "Chai" }} />
+        </QueryClientProvider>,
+      );
+    });
+
+    const meta = container!.querySelector<HTMLElement>(".mari-message-meta")!;
+    const name = meta.querySelector<HTMLElement>(".mari-message-name")!;
+    const timestamp = meta.querySelector<HTMLElement>(".mari-message-timestamp")!;
+    const children = Array.from(meta.children);
+
+    expect(name.textContent).toBe("Chai");
+    expect(children.indexOf(name)).toBeLessThan(children.indexOf(timestamp));
+  });
+
   it("uses the character dialogue color as the assistant fallback when attribution is missing", () => {
     const coloredCharacterMap = new Map([
       [
