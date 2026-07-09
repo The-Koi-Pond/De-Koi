@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { IntegrationGateway } from "../capabilities/integrations";
-import type { LlmGateway } from "../capabilities/llm";
+import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
 import { startGeneration } from "./start-generation";
@@ -172,6 +172,43 @@ describe("startGeneration group typing", () => {
       { characterId: "char-b", characterName: "Bea", index: 1, total: 2 },
     ]);
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-a", "char-b"]);
+  });
+
+  it("gives later responders same-send peer context without inviting repeated replies", async () => {
+    const { storage } = groupTypingStorage();
+    const requests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream(request) {
+        requests.push(request);
+        yield { type: "token", text: requests.length === 1 ? "Aki got here first." : "Bea adds something new." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm,
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, what do you both think?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(requests).toHaveLength(2);
+    const secondPrompt = requests[1]!.messages.map((message) => message.content).join("\n");
+    expect(secondPrompt).toContain("same-send peer contribution");
+    expect(secondPrompt).toContain("Aki: Aki got here first.");
+    expect(secondPrompt).toContain("Respond only as Bea");
+    expect(secondPrompt).toContain("Do not repeat");
+    expect(secondPrompt).not.toContain("Prefix each character's line");
   });
 
   it("lets smart conversation group selection choose multiple responders", async () => {

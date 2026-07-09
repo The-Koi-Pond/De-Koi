@@ -210,10 +210,12 @@ const DEFAULT_LOREBOOK_KEEPER_RUN_INTERVAL = BUILT_IN_AGENT_RUN_INTERVAL_DEFAULT
 const CONTINUE_ASSISTANT_RESPONSE_INSTRUCTION =
   "[Generation instruction: continue from the latest assistant message. Do not repeat or summarize the previous response; pick up naturally from where it stopped.]";
 const MAX_RANDOM_LLM_SEED_EXCLUSIVE = 4_294_967_295;
+const MAX_SAME_SEND_PEER_CONTEXT_CHARS = 4_000;
 
 type InternalStartGenerationOptions = {
   groupTurnChild?: boolean;
   latestUserInput?: string | null;
+  sameSendPeerContext?: string;
   skipUserMessageSave?: boolean;
 };
 
@@ -2175,6 +2177,7 @@ async function* runIndividualGroupTurnLoop(args: {
   latestUserInput: string;
   signal?: AbortSignal;
 }): AsyncGenerator<GenerationEvent> {
+  const priorResponderContributions: string[] = [];
   for (let index = 0; index < args.turnIds.length; index += 1) {
     throwIfAborted(args.signal);
     const characterId = args.turnIds[index]!;
@@ -2191,6 +2194,7 @@ async function* runIndividualGroupTurnLoop(args: {
     internalStartGenerationOptions.set(childInput, {
       groupTurnChild: true,
       latestUserInput: args.latestUserInput,
+      sameSendPeerContext: priorResponderContributions.join("\n").slice(0, MAX_SAME_SEND_PEER_CONTEXT_CHARS),
       skipUserMessageSave: true,
     });
 
@@ -2200,6 +2204,10 @@ async function* runIndividualGroupTurnLoop(args: {
         yield event;
         yield { type: "done" };
         return;
+      }
+      if (event.type === "assistant_message" && isRecord(event.data)) {
+        const content = readString(event.data.content).trim();
+        if (content) priorResponderContributions.push(`${characterName}: ${content}`);
       }
       yield event;
     }
@@ -4438,6 +4446,9 @@ export async function* startGeneration(
 ): AsyncGenerator<GenerationEvent> {
   const internalOptions = internalStartGenerationOptions.get(input) ?? {};
   input = normalizeStartGenerationInput(input);
+  if (internalOptions.sameSendPeerContext) {
+    input = { ...input, sameSendPeerContext: internalOptions.sameSendPeerContext };
+  }
   const chatId = readString(input.chatId).trim();
   if (!chatId) throw new Error("chatId is required");
   throwIfAborted(signal);

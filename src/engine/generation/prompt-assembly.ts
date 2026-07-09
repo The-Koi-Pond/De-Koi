@@ -1758,6 +1758,12 @@ function resolveConversationSystemPrompt(
 function groupConversationReplyGuidance(input: PromptAssemblyInput, characters: GenerationCharacterContext[]): string {
   const names = conversationCharacterNames(characters);
   if (names.length <= 1) return "";
+  const targetId = scopedConversationGroupTarget(input, characters);
+  if (targetId) {
+    const targetName =
+      characters.find((character) => character.id === targetId)?.name.trim() || "the requested character";
+    return `This is a group DM. Respond only as ${targetName} in this turn. Use the other participants as context, but do not write their messages or prefix the response with a speaker name.`;
+  }
   const metadata = parseRecord(input.chat.metadata);
   if (readString(metadata.groupResponseOrder, "sequential") === "manual") {
     return [
@@ -3392,9 +3398,13 @@ function conversationGroupTurnPromptMessage(
   if (parseRecord(input.chat.metadata).groupTurnPromptEnabled === false) return null;
   const character = characters.find((candidate) => candidate.id === targetId);
   const name = character?.name.trim() || "the requested character";
+  const sameSendPeerContext = readString(input.request.sameSendPeerContext).trim();
+  const peerGuidance = sameSendPeerContext
+    ? `\nSame-send peer contributions already generated for this user send:\n${sameSendPeerContext}\nDo not repeat, paraphrase, or overwrite a same-send peer contribution. Add only ${name}'s distinct response.`
+    : "";
   return {
     role: "system",
-    content: `Respond only as ${name}. Use the other attached character cards and recent messages as context, but do not speak as another character in this turn.`,
+    content: `Respond only as ${name}. Use the other attached character cards and recent messages as context, but do not speak as another character in this turn.${peerGuidance}`,
     contextKind: "prompt",
     displayName: "Turn",
   };
