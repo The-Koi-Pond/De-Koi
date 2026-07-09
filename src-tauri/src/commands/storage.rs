@@ -100,7 +100,11 @@ pub(crate) fn write_managed_file_atomically(path: &Path, bytes: &[u8]) -> AppRes
     let tmp = parent.join(format!(".{filename}.tmp-{}-{}", now_millis(), new_id()));
     let result = (|| -> AppResult<()> {
         fs::write(&tmp, bytes)?;
-        fs::OpenOptions::new().read(true).open(&tmp)?.sync_all()?;
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&tmp)?
+            .sync_all()?;
         fs::rename(&tmp, path)?;
         Ok(())
     })();

@@ -1,5 +1,6 @@
 mod cache;
 mod chat_summaries;
+mod journal;
 mod messages;
 mod projection;
 mod transaction;
@@ -7,6 +8,7 @@ mod write_gate;
 
 use cache::*;
 use chat_summaries::*;
+use journal::*;
 use marinara_core::{ensure_object, new_id, now_iso, AppError, AppResult};
 use marinara_security::validate_collection_name;
 use messages::*;
@@ -58,7 +60,10 @@ pub struct FileStorage {
 impl FileStorage {
     pub fn new(root: impl Into<PathBuf>) -> AppResult<Self> {
         let root = root.into();
-        fs::create_dir_all(root.join("collections"))?;
+        let collections = root.join("collections");
+        fs::create_dir_all(&collections)?;
+        recover_pending_collection_transactions(&collections)?;
+        recover_collection_journals(&collections)?;
         Ok(Self {
             root,
             lock: Arc::new(RwLock::new(())),
@@ -350,7 +355,13 @@ impl FileStorage {
         if write_immediately {
             self.write_collection_immediate(collection, &rows)?;
         } else {
-            self.write_collection(collection, &rows)?;
+            self.write_collection(
+                collection,
+                &rows,
+                CollectionMutation::UpsertMany {
+                    records: vec![record.clone()],
+                },
+            )?;
         }
         Ok(record)
     }
@@ -374,7 +385,13 @@ impl FileStorage {
         let record = Value::Object(object);
         rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(id));
         rows.push(record.clone());
-        self.write_collection(collection, &rows)?;
+        self.write_collection(
+            collection,
+            &rows,
+            CollectionMutation::UpsertMany {
+                records: vec![record.clone()],
+            },
+        )?;
         Ok(record)
     }
 
@@ -423,7 +440,13 @@ impl FileStorage {
             object.insert("updatedAt".to_string(), Value::String(now.clone()));
             updated.push(Value::Object(object.clone()));
         }
-        self.write_collection(collection, &rows)?;
+        self.write_collection(
+            collection,
+            &rows,
+            CollectionMutation::UpsertMany {
+                records: updated.clone(),
+            },
+        )?;
         Ok(updated)
     }
 
@@ -467,7 +490,13 @@ impl FileStorage {
         let Some(record) = patched else {
             return Ok(None);
         };
-        self.write_collection(collection, &rows)?;
+        self.write_collection(
+            collection,
+            &rows,
+            CollectionMutation::UpsertMany {
+                records: vec![record.clone()],
+            },
+        )?;
         Ok(Some(record))
     }
 
@@ -509,7 +538,13 @@ impl FileStorage {
                 "{collection}/{id} was not found"
             )));
         };
-        self.write_collection(collection, &rows)?;
+        self.write_collection(
+            collection,
+            &rows,
+            CollectionMutation::UpsertMany {
+                records: vec![record.clone()],
+            },
+        )?;
         Ok(record)
     }
 
@@ -524,7 +559,13 @@ impl FileStorage {
         rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(id));
         let deleted = rows.len() != before;
         if deleted {
-            self.write_collection(collection, &rows)?;
+            self.write_collection(
+                collection,
+                &rows,
+                CollectionMutation::DeleteIds {
+                    ids: vec![id.to_string()],
+                },
+            )?;
         }
         Ok(deleted)
     }
@@ -544,10 +585,28 @@ impl FileStorage {
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
         let mut rows = self.read_collection(collection)?;
         let before = rows.len();
-        rows.retain(|row| !predicate(row));
+        let mut deleted_ids = Vec::new();
+        rows.retain(|row| {
+            if !predicate(row) {
+                return true;
+            }
+            if let Some(id) = row.get("id").and_then(Value::as_str) {
+                deleted_ids.push(id.to_string());
+            }
+            false
+        });
         let deleted = before.saturating_sub(rows.len());
         if deleted > 0 {
-            self.write_collection(collection, &rows)?;
+            if deleted_ids.len() != deleted {
+                return Err(AppError::invalid_input(format!(
+                    "{collection} contains a record without a replayable id"
+                )));
+            }
+            self.write_collection(
+                collection,
+                &rows,
+                CollectionMutation::DeleteIds { ids: deleted_ids },
+            )?;
         }
         Ok(deleted)
     }
@@ -563,14 +622,31 @@ impl FileStorage {
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
         let mut rows = self.read_collection("messages")?;
         let before = rows.len();
+        let mut deleted_ids = Vec::new();
         rows.retain(|row| {
-            row.get("chatId")
+            let should_delete = row
+                .get("chatId")
                 .and_then(Value::as_str)
-                .is_none_or(|chat_id| !chat_ids.contains(chat_id))
+                .is_some_and(|chat_id| chat_ids.contains(chat_id));
+            if should_delete {
+                if let Some(id) = row.get("id").and_then(Value::as_str) {
+                    deleted_ids.push(id.to_string());
+                }
+            }
+            !should_delete
         });
         let deleted = before.saturating_sub(rows.len());
         if deleted > 0 {
-            self.write_collection("messages", &rows)?;
+            if deleted_ids.len() != deleted {
+                return Err(AppError::invalid_input(
+                    "messages contains a record without a replayable id",
+                ));
+            }
+            self.write_collection(
+                "messages",
+                &rows,
+                CollectionMutation::DeleteIds { ids: deleted_ids },
+            )?;
         }
         Ok(deleted)
     }
@@ -935,6 +1011,7 @@ impl FileStorage {
                 .cache
                 .write()
                 .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+            remove_collection_journal(&self.root.join("collections"), &collection)?;
             if let Some(cached) = cache.collections.get_mut(&collection) {
                 cached.dirty = false;
             }
@@ -2088,10 +2165,23 @@ impl FileStorage {
         Ok(())
     }
 
-    fn write_collection(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
+    fn write_collection(
+        &self,
+        collection: &str,
+        rows: &[Value],
+        mutation: CollectionMutation,
+    ) -> AppResult<()> {
+        validate_collection_name(collection)?;
+        // Fail before recording a durable mutation if the cache cannot accept it.
+        drop(
+            self.cache
+                .write()
+                .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?,
+        );
         if collection == "chats" {
             remove_chat_summary_read_model(&self.root)?;
         }
+        append_collection_mutation(&self.root.join("collections"), collection, &mutation)?;
         self.cache_collection(collection, rows, true)?;
         self.schedule_dirty_flush();
         Ok(())
@@ -2104,6 +2194,7 @@ impl FileStorage {
             let source_stamp = chat_summary_source_stamp(&path)?;
             rebuild_chat_summary_read_model(&self.root, source_stamp.as_deref(), rows)?;
         }
+        remove_collection_journal(&self.root.join("collections"), collection)?;
         self.invalidate_read_indexes_for_collection(collection)?;
         self.cache_collection(collection, rows, false)?;
         Ok(())
@@ -2224,6 +2315,19 @@ impl FileStorage {
             }
         }
 
+        let collections_dir = self.root.join("collections");
+        let manifest_path = match write_prepared_collection_transaction_manifest(
+            &collections_dir,
+            &transaction_id,
+            &pending,
+        ) {
+            Ok(path) => path,
+            Err(error) => {
+                cleanup_pending_collection_temps(&pending);
+                return Err(error);
+            }
+        };
+
         let mut backed_up = Vec::new();
         let mut installed = Vec::new();
         let result = (|| -> AppResult<()> {
@@ -2239,6 +2343,7 @@ impl FileStorage {
                 fs::rename(&item.tmp, &item.path)?;
                 installed.push(index);
             }
+            sync_directory(&collections_dir)?;
             Ok(())
         })();
 
@@ -2255,10 +2360,22 @@ impl FileStorage {
                 ));
             }
             cleanup_pending_collection_transaction_files(&pending);
+            remove_collection_transaction_manifest(&manifest_path)?;
             return Err(error);
         }
 
-        cleanup_pending_collection_transaction_files(&pending);
+        if let Err(error) = mark_collection_transaction_committed(&manifest_path) {
+            recover_pending_collection_transactions(&collections_dir)?;
+            return Err(error);
+        }
+        if let Err(error) = cleanup_pending_collection_transaction_files_checked(&pending) {
+            eprintln!(
+                "[storage] committed collection append cleanup will resume on startup: {}",
+                error.message
+            );
+        } else {
+            remove_collection_transaction_manifest(&manifest_path)?;
+        }
         self.append_cached_collection_rows(&appends)?;
         Ok(true)
     }
@@ -2438,6 +2555,7 @@ impl FileStorage {
                     .last()
                     .expect("pending collection replacement should exist");
                 fs::write(&item.tmp, serde_json::to_vec_pretty(rows)?)?;
+                sync_file(&item.tmp)?;
             }
             Ok(())
         })();
@@ -2445,6 +2563,19 @@ impl FileStorage {
             cleanup_pending_collection_temps(&pending);
             return Err(error);
         }
+
+        let collections_dir = self.root.join("collections");
+        let manifest_path = match write_prepared_collection_transaction_manifest(
+            &collections_dir,
+            &transaction_id,
+            &pending,
+        ) {
+            Ok(path) => path,
+            Err(error) => {
+                cleanup_pending_collection_temps(&pending);
+                return Err(error);
+            }
+        };
 
         let mut backed_up = Vec::new();
         let mut installed = Vec::new();
@@ -2461,6 +2592,7 @@ impl FileStorage {
                 installed.push(index);
             }
             after_install()?;
+            sync_directory(&collections_dir)?;
             Ok(())
         })();
 
@@ -2477,10 +2609,22 @@ impl FileStorage {
                 ));
             }
             cleanup_pending_collection_transaction_files(&pending);
+            remove_collection_transaction_manifest(&manifest_path)?;
             return Err(error);
         }
 
-        cleanup_pending_collection_transaction_files(&pending);
+        if let Err(error) = mark_collection_transaction_committed(&manifest_path) {
+            recover_pending_collection_transactions(&collections_dir)?;
+            return Err(error);
+        }
+        if let Err(error) = cleanup_pending_collection_transaction_files_checked(&pending) {
+            eprintln!(
+                "[storage] committed collection replacement cleanup will resume on startup: {}",
+                error.message
+            );
+        } else {
+            remove_collection_transaction_manifest(&manifest_path)?;
+        }
         for (collection, rows) in replacements {
             if collection == "chats" {
                 let path = self.collection_path(collection)?;
@@ -2577,6 +2721,409 @@ mod tests {
         ));
         fs::create_dir_all(&path).expect("temporary storage root should be created");
         path
+    }
+
+    fn write_test_collection(path: &Path, rows: Vec<Value>) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
+    }
+
+    fn write_test_transaction_manifest(
+        collections: &Path,
+        phase: &str,
+        entries: Value,
+    ) -> PathBuf {
+        let manifest = collections.join(".collection-transaction-test.json");
+        fs::write(
+            &manifest,
+            serde_json::to_vec_pretty(&json!({
+                "version": 1,
+                "phase": phase,
+                "entries": entries,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        manifest
+    }
+
+    #[test]
+    fn prepared_transaction_restores_old_collection_on_startup() {
+        let root = temp_storage_root("prepared-transaction-recovery");
+        let collections = root.join("collections");
+        let primary = collections.join("messages.json");
+        let staged = collections.join("messages.json.profile-import-test-0.tmp");
+        let backup = collections.join("messages.json.profile-import-test-0.backup");
+        write_test_collection(&primary, vec![json!({ "id": "new-message" })]);
+        write_test_collection(&staged, vec![json!({ "id": "new-message" })]);
+        write_test_collection(&backup, vec![json!({ "id": "old-message" })]);
+        let manifest = write_test_transaction_manifest(
+            &collections,
+            "prepared",
+            json!([{
+                "primary": "messages.json",
+                "staged": "messages.json.profile-import-test-0.tmp",
+                "backup": "messages.json.profile-import-test-0.backup",
+                "existed": true,
+            }]),
+        );
+
+        let storage = FileStorage::new(&root).expect("prepared transaction should recover");
+
+        assert_eq!(storage.list("messages").unwrap(), vec![json!({ "id": "old-message" })]);
+        assert!(!manifest.exists());
+        assert!(!staged.exists());
+        assert!(!backup.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn committed_transaction_keeps_new_collection_and_finishes_cleanup() {
+        let root = temp_storage_root("committed-transaction-recovery");
+        let collections = root.join("collections");
+        let primary = collections.join("messages.json");
+        let staged = collections.join("messages.json.profile-import-test-0.tmp");
+        let backup = collections.join("messages.json.profile-import-test-0.backup");
+        write_test_collection(&primary, vec![json!({ "id": "new-message" })]);
+        write_test_collection(&staged, vec![json!({ "id": "new-message" })]);
+        write_test_collection(&backup, vec![json!({ "id": "old-message" })]);
+        let manifest = write_test_transaction_manifest(
+            &collections,
+            "committed",
+            json!([{
+                "primary": "messages.json",
+                "staged": "messages.json.profile-import-test-0.tmp",
+                "backup": "messages.json.profile-import-test-0.backup",
+                "existed": true,
+            }]),
+        );
+
+        let storage = FileStorage::new(&root).expect("committed transaction should recover");
+
+        assert_eq!(storage.list("messages").unwrap(), vec![json!({ "id": "new-message" })]);
+        assert!(!manifest.exists());
+        assert!(!staged.exists());
+        assert!(!backup.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_transaction_manifest_fails_closed_and_preserves_evidence() {
+        let root = temp_storage_root("malformed-transaction-manifest");
+        let collections = root.join("collections");
+        let primary = collections.join("messages.json");
+        let manifest = collections.join(".collection-transaction-broken.json");
+        write_test_collection(&primary, vec![json!({ "id": "safe-message" })]);
+        fs::write(&manifest, b"{ not valid json").unwrap();
+
+        let error = match FileStorage::new(&root) {
+            Ok(_) => panic!("malformed transaction must block startup"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code, "storage_transaction_recovery_required");
+        assert!(manifest.exists());
+        assert_eq!(
+            parse_collection_file("messages", &primary).unwrap(),
+            vec![json!({ "id": "safe-message" })]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inconsistent_transaction_manifest_is_rejected_before_any_collection_changes() {
+        let root = temp_storage_root("inconsistent-transaction-manifest");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let personas = collections.join("personas.json");
+        write_test_collection(&messages, vec![json!({ "id": "safe-message" })]);
+        write_test_collection(&personas, vec![json!({ "id": "safe-persona" })]);
+        let manifest = write_test_transaction_manifest(
+            &collections,
+            "prepared",
+            json!([
+                {
+                    "primary": "messages.json",
+                    "staged": "personas.json",
+                    "backup": "messages.json.profile-import-test-0.backup",
+                    "existed": true,
+                },
+                {
+                    "primary": "personas.json",
+                    "staged": "personas.json.profile-import-test-1.tmp",
+                    "backup": "personas.json.profile-import-test-1.backup",
+                    "existed": false,
+                }
+            ]),
+        );
+
+        let error = match FileStorage::new(&root) {
+            Ok(_) => panic!("inconsistent transaction must block startup"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code, "storage_transaction_recovery_required");
+        assert!(manifest.exists());
+        assert_eq!(
+            parse_collection_file("messages", &messages).unwrap(),
+            vec![json!({ "id": "safe-message" })]
+        );
+        assert_eq!(
+            parse_collection_file("personas", &personas).unwrap(),
+            vec![json!({ "id": "safe-persona" })]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inconsistent_prepared_state_is_rejected_before_any_rollback() {
+        let root = temp_storage_root("inconsistent-prepared-state");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let message_backup = collections.join("messages.json.profile-import-test-0.backup");
+        let personas = collections.join("personas.json");
+        let persona_backup = collections.join("personas.json.profile-import-test-1.backup");
+        write_test_collection(&messages, vec![json!({ "id": "new-message" })]);
+        write_test_collection(&message_backup, vec![json!({ "id": "impossible-backup" })]);
+        write_test_collection(&personas, vec![json!({ "id": "new-persona" })]);
+        write_test_collection(&persona_backup, vec![json!({ "id": "old-persona" })]);
+        let manifest = write_test_transaction_manifest(
+            &collections,
+            "prepared",
+            json!([
+                {
+                    "primary": "messages.json",
+                    "staged": "messages.json.profile-import-test-0.tmp",
+                    "backup": "messages.json.profile-import-test-0.backup",
+                    "existed": false,
+                },
+                {
+                    "primary": "personas.json",
+                    "staged": "personas.json.profile-import-test-1.tmp",
+                    "backup": "personas.json.profile-import-test-1.backup",
+                    "existed": true,
+                }
+            ]),
+        );
+
+        let error = match FileStorage::new(&root) {
+            Ok(_) => panic!("inconsistent prepared state must block startup"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code, "storage_transaction_recovery_required");
+        assert!(manifest.exists());
+        assert_eq!(
+            parse_collection_file("personas", &personas).unwrap(),
+            vec![json!({ "id": "new-persona" })]
+        );
+        assert_eq!(
+            parse_collection_file("personas", &persona_backup).unwrap(),
+            vec![json!({ "id": "old-persona" })]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_orphan_backup_restores_missing_primary_on_startup() {
+        let root = temp_storage_root("legacy-orphan-transaction-backup");
+        let collections = root.join("collections");
+        let primary = collections.join("characters.json");
+        let backup = collections.join("characters.json.profile-import-legacy-0.backup");
+        write_test_collection(&backup, vec![json!({ "id": "restored-character" })]);
+
+        let storage = FileStorage::new(&root).expect("unambiguous orphan backup should recover");
+
+        assert_eq!(
+            storage.list("characters").unwrap(),
+            vec![json!({ "id": "restored-character" })]
+        );
+        assert!(primary.exists());
+        assert!(!backup.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn multi_collection_replace_persists_prepared_manifest_before_post_install() {
+        let root = temp_storage_root("replace-manifest-before-post-install");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all("messages", vec![json!({ "id": "old-message" })])
+            .unwrap();
+        storage
+            .replace_all("personas", vec![json!({ "id": "old-persona" })])
+            .unwrap();
+        let collections = root.join("collections");
+        let saw_prepared_manifest = std::cell::Cell::new(false);
+
+        storage
+            .replace_all_many_and_then(
+                vec![
+                    ("messages", vec![json!({ "id": "new-message" })]),
+                    ("personas", vec![json!({ "id": "new-persona" })]),
+                ],
+                || {
+                    let manifest = fs::read_dir(&collections)?
+                        .filter_map(Result::ok)
+                        .map(|entry| entry.path())
+                        .find(|path| {
+                            path.file_name()
+                                .and_then(|value| value.to_str())
+                                .is_some_and(|name| name.starts_with(".collection-transaction-"))
+                        })
+                        .ok_or_else(|| AppError::invalid_input("prepared manifest was not visible"))?;
+                    let value: Value = serde_json::from_slice(&fs::read(manifest)?)?;
+                    saw_prepared_manifest.set(value["phase"] == json!("prepared"));
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        assert!(saw_prepared_manifest.get());
+        assert!(fs::read_dir(&collections).unwrap().filter_map(Result::ok).all(|entry| {
+            !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".collection-transaction-")
+        }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_replays_acknowledged_collection_journal() {
+        let root = temp_storage_root("startup-replays-journal");
+        let collections = root.join("collections");
+        let primary = collections.join("characters.json");
+        write_test_collection(&primary, vec![json!({ "id": "existing", "name": "Before" })]);
+        journal::append_collection_mutation(
+            &collections,
+            "characters",
+            &journal::CollectionMutation::UpsertMany {
+                records: vec![json!({ "id": "existing", "name": "After" })],
+            },
+        )
+        .unwrap();
+
+        let storage = FileStorage::new(&root).expect("startup should replay valid journal");
+
+        assert_eq!(
+            storage.list("characters").unwrap(),
+            vec![json!({ "id": "existing", "name": "After" })]
+        );
+        assert!(!collections.join("characters.pending.jsonl").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn successful_mutation_has_journal_before_return() {
+        let root = temp_storage_root("mutation-journal-before-return");
+        let storage = FileStorage::new(&root).unwrap();
+
+        let created = storage
+            .create("characters", json!({ "id": "character-1", "name": "Koi" }))
+            .unwrap();
+
+        let journal_path = root.join("collections").join("characters.pending.jsonl");
+        let journal = fs::read_to_string(&journal_path)
+            .expect("successful mutation must leave durable replay evidence");
+        let entry: Value = serde_json::from_str(journal.lines().last().unwrap()).unwrap();
+        assert_eq!(entry["mutation"]["kind"], "upsert_many");
+        assert_eq!(entry["mutation"]["records"][0], created);
+        storage.flush().unwrap();
+        assert!(!journal_path.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_append_failure_does_not_mutate_cache_or_primary() {
+        let root = temp_storage_root("journal-append-failure");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all("characters", vec![json!({ "id": "character-1", "name": "Before" })])
+            .unwrap();
+        let journal_path = root.join("collections").join("characters.pending.jsonl");
+        fs::create_dir(&journal_path).unwrap();
+
+        let error = storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .expect_err("journal creation failure must reject the mutation");
+
+        assert_eq!(error.code, "io_error");
+        assert_eq!(
+            storage.list("characters").unwrap(),
+            vec![json!({ "id": "character-1", "name": "Before" })]
+        );
+        assert_eq!(
+            parse_collection_file(
+                "characters",
+                &root.join("collections").join("characters.json")
+            )
+            .unwrap(),
+            vec![json!({ "id": "character-1", "name": "Before" })]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_replays_journal_after_rolling_back_prepared_transaction() {
+        let root = temp_storage_root("transaction-before-journal-recovery");
+        let collections = root.join("collections");
+        let primary = collections.join("characters.json");
+        let staged = collections.join("characters.json.profile-import-test-0.tmp");
+        let backup = collections.join("characters.json.profile-import-test-0.backup");
+        write_test_collection(&primary, vec![json!({ "id": "character-1", "name": "Interrupted" })]);
+        write_test_collection(&staged, vec![json!({ "id": "character-1", "name": "Interrupted" })]);
+        write_test_collection(&backup, vec![json!({ "id": "character-1", "name": "Before" })]);
+        write_test_transaction_manifest(
+            &collections,
+            "prepared",
+            json!([{
+                "primary": "characters.json",
+                "staged": "characters.json.profile-import-test-0.tmp",
+                "backup": "characters.json.profile-import-test-0.backup",
+                "existed": true,
+            }]),
+        );
+        journal::append_collection_mutation(
+            &collections,
+            "characters",
+            &journal::CollectionMutation::UpsertMany {
+                records: vec![json!({ "id": "character-1", "name": "Journalled" })],
+            },
+        )
+        .unwrap();
+
+        let storage = FileStorage::new(&root).unwrap();
+
+        assert_eq!(
+            storage.list("characters").unwrap(),
+            vec![json!({ "id": "character-1", "name": "Journalled" })]
+        );
+        assert!(!collections.join("characters.pending.jsonl").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn corrupt_journal_blocks_startup_without_changing_primary() {
+        let root = temp_storage_root("corrupt-journal-startup");
+        let collections = root.join("collections");
+        let primary = collections.join("characters.json");
+        let journal_path = collections.join("characters.pending.jsonl");
+        write_test_collection(&primary, vec![json!({ "id": "safe" })]);
+        fs::write(&journal_path, b"{ not valid json\n").unwrap();
+
+        let error = match FileStorage::new(&root) {
+            Ok(_) => panic!("corrupt journal must block startup"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(
+            parse_collection_file("characters", &primary).unwrap(),
+            vec![json!({ "id": "safe" })]
+        );
+        assert!(journal_path.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn corruption_sentinel_count(root: &Path, file_name: &str) -> usize {
