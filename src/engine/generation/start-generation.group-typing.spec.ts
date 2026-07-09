@@ -32,6 +32,7 @@ function groupTypingStorage(
     "conn-1": { id: "conn-1", provider: "test-provider", model: "test-model" },
     "char-a": { id: "char-a", name: "Aki", data: { name: "Aki", personality: "warm" } },
     "char-b": { id: "char-b", name: "Bea", data: { name: "Bea", personality: "dry" } },
+    "char-c": { id: "char-c", name: "Cleo", data: { name: "Cleo", personality: "bright" } },
   };
   const messages: StoredMessage[] = [];
   let nextMessageId = 1;
@@ -48,7 +49,9 @@ function groupTypingStorage(
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "chats" && id === "chat-1") return records["chat-1"] as T;
       if (entity === "connections" && id === "conn-1") return records["conn-1"] as T;
-      if (entity === "characters" && (id === "char-a" || id === "char-b")) return records[id] as T;
+      if (entity === "characters" && (id === "char-a" || id === "char-b" || id === "char-c")) {
+        return records[id] as T;
+      }
       return null;
     },
     async create<T = unknown>(_entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
@@ -209,6 +212,74 @@ describe("startGeneration group typing", () => {
     expect(secondPrompt).toContain("Respond only as Bea");
     expect(secondPrompt).toContain("Do not repeat");
     expect(secondPrompt).not.toContain("Prefix each character's line");
+  });
+
+  it("keeps same-send peer guidance when the ordinary group turn prompt is disabled", async () => {
+    const { storage } = groupTypingStorage({
+      groupResponseOrder: "sequential",
+      groupTurnPromptEnabled: false,
+    });
+    const requests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream(request) {
+        requests.push(request);
+        yield { type: "token", text: requests.length === 1 ? "Aki already answered." : "Bea answers next." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, answer together.",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    const secondPrompt = requests[1]!.messages.map((message) => message.content).join("\n");
+    expect(secondPrompt).toContain("same-send peer contribution");
+    expect(secondPrompt).toContain("Aki: Aki already answered.");
+    expect(secondPrompt).toContain("Do not repeat");
+  });
+
+  it("preserves every prior responder identity when same-send context is bounded", async () => {
+    const { storage } = groupTypingStorage(
+      { groupResponseOrder: "sequential" },
+      { characterIds: ["char-a", "char-b", "char-c"] },
+    );
+    const requests: LlmRequest[] = [];
+    const responses = [`Aki starts ${"x".repeat(4_100)}`, "Bea gives the recent peer reply.", "Cleo responds."];
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream(request) {
+        requests.push(request);
+        yield { type: "token", text: responses[requests.length - 1] };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki, Bea, and Cleo: thoughts?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(requests).toHaveLength(3);
+    const thirdPrompt = requests[2]!.messages.map((message) => message.content).join("\n");
+    expect(thirdPrompt).toContain("Aki:");
+    expect(thirdPrompt).toContain("Bea: Bea gives the recent peer reply.");
+    expect(thirdPrompt).toContain("Respond only as Cleo");
   });
 
   it("lets smart conversation group selection choose multiple responders", async () => {

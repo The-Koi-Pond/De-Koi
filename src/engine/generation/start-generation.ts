@@ -212,6 +212,31 @@ const CONTINUE_ASSISTANT_RESPONSE_INSTRUCTION =
 const MAX_RANDOM_LLM_SEED_EXCLUSIVE = 4_294_967_295;
 const MAX_SAME_SEND_PEER_CONTEXT_CHARS = 4_000;
 
+type SameSendPeerContribution = {
+  characterName: string;
+  content: string;
+};
+
+function boundedSameSendPeerContext(contributions: SameSendPeerContribution[]): string {
+  if (contributions.length === 0) return "";
+  const labels = contributions.map(({ characterName }) => `${characterName}: `);
+  const fixedChars = labels.reduce((total, label) => total + label.length, contributions.length - 1);
+  const excerptBudget = Math.max(0, Math.floor((MAX_SAME_SEND_PEER_CONTEXT_CHARS - fixedChars) / contributions.length));
+  const context = contributions
+    .map(({ content }, index) => {
+      const label = labels[index]!;
+      const excerpt =
+        excerptBudget === 0
+          ? ""
+          : content.length <= excerptBudget
+            ? content
+            : `${content.slice(0, excerptBudget - 1)}…`;
+      return `${label}${excerpt}`;
+    })
+    .join("\n");
+  return context.slice(0, MAX_SAME_SEND_PEER_CONTEXT_CHARS);
+}
+
 type InternalStartGenerationOptions = {
   groupTurnChild?: boolean;
   latestUserInput?: string | null;
@@ -2177,7 +2202,7 @@ async function* runIndividualGroupTurnLoop(args: {
   latestUserInput: string;
   signal?: AbortSignal;
 }): AsyncGenerator<GenerationEvent> {
-  const priorResponderContributions: string[] = [];
+  const priorResponderContributions: SameSendPeerContribution[] = [];
   for (let index = 0; index < args.turnIds.length; index += 1) {
     throwIfAborted(args.signal);
     const characterId = args.turnIds[index]!;
@@ -2194,7 +2219,7 @@ async function* runIndividualGroupTurnLoop(args: {
     internalStartGenerationOptions.set(childInput, {
       groupTurnChild: true,
       latestUserInput: args.latestUserInput,
-      sameSendPeerContext: priorResponderContributions.join("\n").slice(0, MAX_SAME_SEND_PEER_CONTEXT_CHARS),
+      sameSendPeerContext: boundedSameSendPeerContext(priorResponderContributions),
       skipUserMessageSave: true,
     });
 
@@ -2207,7 +2232,7 @@ async function* runIndividualGroupTurnLoop(args: {
       }
       if (event.type === "assistant_message" && isRecord(event.data)) {
         const content = readString(event.data.content).trim();
-        if (content) priorResponderContributions.push(`${characterName}: ${content}`);
+        if (content) priorResponderContributions.push({ characterName, content });
       }
       yield event;
     }

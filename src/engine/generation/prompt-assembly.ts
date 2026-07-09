@@ -3395,16 +3395,20 @@ function conversationGroupTurnPromptMessage(
 ): ChatMLMessage | null {
   const targetId = scopedConversationGroupTarget(input, characters);
   if (!targetId) return null;
-  if (parseRecord(input.chat.metadata).groupTurnPromptEnabled === false) return null;
   const character = characters.find((candidate) => candidate.id === targetId);
   const name = character?.name.trim() || "the requested character";
   const sameSendPeerContext = readString(input.request.sameSendPeerContext).trim();
+  const turnPromptEnabled = parseRecord(input.chat.metadata).groupTurnPromptEnabled !== false;
+  if (!turnPromptEnabled && !sameSendPeerContext) return null;
   const peerGuidance = sameSendPeerContext
-    ? `\nSame-send peer contributions already generated for this user send:\n${sameSendPeerContext}\nDo not repeat, paraphrase, or overwrite a same-send peer contribution. Add only ${name}'s distinct response.`
+    ? `Same-send peer contributions already generated for this user send:\n${sameSendPeerContext}\nDo not repeat, paraphrase, or overwrite a same-send peer contribution. Add only ${name}'s distinct response.`
+    : "";
+  const turnGuidance = turnPromptEnabled
+    ? `Respond only as ${name}. Use the other attached character cards and recent messages as context, but do not speak as another character in this turn.`
     : "";
   return {
     role: "system",
-    content: `Respond only as ${name}. Use the other attached character cards and recent messages as context, but do not speak as another character in this turn.${peerGuidance}`,
+    content: [turnGuidance, peerGuidance].filter(Boolean).join("\n"),
     contextKind: "prompt",
     displayName: "Turn",
   };
