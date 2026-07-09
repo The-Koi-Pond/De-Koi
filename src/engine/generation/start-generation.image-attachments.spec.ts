@@ -36,7 +36,7 @@ function imageAttachmentStorage(connectionOverrides: Record<string, unknown> = {
       id: "message-1",
       chatId: "chat-1",
       role: "user",
-      content: "what is in this image?\n\n[Attached image: cat.png]",
+      content: "",
       characterId: null,
       activeSwipeIndex: 0,
       swipeCount: 1,
@@ -139,7 +139,7 @@ function imageAttachmentStorage(connectionOverrides: Record<string, unknown> = {
     },
   };
 
-  return { storage };
+  return { storage, messages };
 }
 
 function capturingLlm(requests: LlmRequest[]): LlmGateway {
@@ -181,6 +181,40 @@ describe("startGeneration image attachments", () => {
 
     expect(requests.flatMap((request) => request.messages.flatMap((message) => message.images ?? []))).toContain(
       IMAGE_DATA_URL,
+    );
+  });
+
+  it("keeps attachment metadata out of newly saved and forwarded message text", async () => {
+    const { storage, messages } = imageAttachmentStorage();
+    const requests: LlmRequest[] = [];
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm: capturingLlm(requests),
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "what is in this image?",
+          attachments: [
+            {
+              type: "image/png",
+              data: IMAGE_DATA_URL,
+              filename: "cat.png",
+              name: "cat.png",
+            },
+          ],
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(messages.filter((message) => message.role === "user").at(-1)?.content).toBe("what is in this image?");
+    expect(requests.flatMap((request) => request.messages.map((message) => message.content))).not.toContain(
+      "what is in this image?\n\n[Attached image: cat.png]",
     );
   });
 

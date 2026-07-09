@@ -3272,6 +3272,29 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
+    fn openai_chatgpt_responses_body_omits_empty_text_from_image_only_user_turns() {
+        let mut request = request_for("openai_chatgpt", "gpt-5.4-mini", json!({}));
+        let mut user = test_message("user", "");
+        user.images = vec!["data:image/png;base64,abc123".to_string()];
+        request.messages = vec![user];
+
+        let body = build_openai_responses_body(&request, false);
+
+        assert_eq!(
+            body["input"],
+            json!([
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_image", "image_url": "data:image/png;base64,abc123" }
+                    ]
+                }
+            ])
+        );
+    }
+
+    #[test]
     fn openai_chatgpt_responses_body_preserves_sparse_assistant_image_turns() {
         let mut request = request_for("openai_chatgpt", "gpt-5.4-mini", json!({}));
         let mut assistant = test_message("assistant", "");
