@@ -10,7 +10,7 @@ function stopChromeDrag(event: ReactMouseEvent<HTMLElement>) {
 }
 
 export function ChatTitleControls({
-  dekiOpen = false,
+  dekiOpen: _dekiOpen = false,
   leftSidebarPanel = "chats",
   onLeftSidebarPanelChange,
   onOpenDeki: _onOpenDeki,
@@ -36,7 +36,7 @@ export function ChatTitleControls({
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const chatSidebarOpen = leftSidebarPanel === "chats";
   const dekiSidebarOpen = leftSidebarPanel === "deki";
-  const dekiButtonActive = dekiOpen || dekiSidebarOpen;
+  const dekiButtonActive = dekiSidebarOpen;
 
   const toggleChatSidebar = () => {
     onLeftSidebarPanelChange?.(getToggledAppShellLeftSidebarPanel(leftSidebarPanel, "chats"));

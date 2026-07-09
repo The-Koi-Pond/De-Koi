@@ -107,6 +107,27 @@ describe("WindowTitleBar web mode", () => {
     expect(setLeftSidebarPanel).toHaveBeenCalledWith(null);
   });
 
+  it("keeps the Deki sidebar control active only for the left Deki panel", async () => {
+    const setLeftSidebarPanel = vi.fn();
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <WindowTitleBar dekiOpen webMode leftSidebarPanel="chats" onLeftSidebarPanelChange={setLeftSidebarPanel} />,
+      );
+    });
+
+    const dekiSidebarToggle = container!.querySelector<HTMLButtonElement>('button[aria-label="Deki-senpai"]');
+
+    expect(dekiSidebarToggle).toBeTruthy();
+    expect(dekiSidebarToggle?.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => {
+      dekiSidebarToggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(setLeftSidebarPanel).toHaveBeenCalledWith("deki");
+  });
+
   it("treats browser-hosted shells without desktop controls as web mode", async () => {
     await act(async () => {
       root = createRoot(container!);
