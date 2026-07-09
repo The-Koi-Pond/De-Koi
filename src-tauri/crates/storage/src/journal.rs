@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::transaction::{
     backup_path_for, parse_collection_file, preserve_corrupt_file, refresh_collection_backup,
-    sync_directory, write_file_atomically,
+    sync_directory, sync_file, unique_sibling_path, write_file_atomically,
 };
 use crate::validate_collection_name;
 
@@ -79,10 +79,13 @@ pub(crate) fn apply_collection_mutation(
     match mutation {
         CollectionMutation::UpsertMany { records } => {
             let record_ids = unique_record_ids(records)?;
-            for (record, id) in records.iter().zip(record_ids) {
-                rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(id));
-                rows.push(record.clone());
-            }
+            let record_ids = record_ids.into_iter().collect::<HashSet<_>>();
+            rows.retain(|row| {
+                row.get("id")
+                    .and_then(Value::as_str)
+                    .is_none_or(|id| !record_ids.contains(id))
+            });
+            rows.extend(records.iter().cloned());
         }
         CollectionMutation::DeleteIds { ids } => {
             let ids = ids
@@ -251,8 +254,24 @@ fn recover_collection_journal(
     }
     let primary = collections_dir.join(format!("{collection}.json"));
     refresh_collection_backup(&primary)?;
-    write_file_atomically(&primary, &serde_json::to_vec_pretty(&rows)?)?;
+    install_recovered_rows_atomically(&primary, &rows, |_| Ok(()))?;
     remove_collection_journal(collections_dir, collection)?;
+    Ok(())
+}
+
+fn install_recovered_rows_atomically(
+    primary: &Path,
+    rows: &[Value],
+    before_swap: impl FnOnce(&Path) -> AppResult<()>,
+) -> AppResult<()> {
+    let staged = unique_sibling_path(primary, "journal-recovery")?;
+    fs::write(&staged, serde_json::to_vec_pretty(rows)?)?;
+    sync_file(&staged)?;
+    before_swap(&staged)?;
+    fs::rename(&staged, primary)?;
+    if let Some(parent) = primary.parent() {
+        sync_directory(parent)?;
+    }
     Ok(())
 }
 
@@ -313,6 +332,28 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().any(|row| row == &json!({ "id": "existing", "name": "After" })));
         assert!(rows.iter().any(|row| row == &json!({ "id": "new", "name": "New" })));
+    }
+
+    #[test]
+    fn upsert_many_replaces_all_preexisting_rows_with_matching_id() {
+        let mutation = CollectionMutation::UpsertMany {
+            records: vec![json!({ "id": "duplicate", "name": "Replacement" })],
+        };
+        let mut rows = vec![
+            json!({ "id": "duplicate", "name": "Old A" }),
+            json!({ "id": "keep", "name": "Keep" }),
+            json!({ "id": "duplicate", "name": "Old B" }),
+        ];
+
+        apply_collection_mutation(&mut rows, &mutation).unwrap();
+
+        assert_eq!(
+            rows,
+            vec![
+                json!({ "id": "keep", "name": "Keep" }),
+                json!({ "id": "duplicate", "name": "Replacement" }),
+            ]
+        );
     }
 
     #[test]
@@ -446,6 +487,30 @@ mod tests {
         assert_eq!(error.code, "storage_journal_recovery_required");
         assert_eq!(fs::read(&primary).unwrap(), original);
         assert!(journal.exists());
+        fs::remove_dir_all(collections).unwrap();
+    }
+
+    #[test]
+    fn failed_recovery_swap_preserves_primary_and_staged_evidence() {
+        let collections = temp_collections("failed-swap");
+        let primary = collections.join("characters.json");
+        let original = serde_json::to_vec_pretty(&json!([{ "id": "safe" }])).unwrap();
+        fs::write(&primary, &original).unwrap();
+        let mut staged_path = None;
+
+        let error = install_recovered_rows_atomically(
+            &primary,
+            &[json!({ "id": "replacement" })],
+            |staged| {
+                staged_path = Some(staged.to_path_buf());
+                Err(AppError::io(std::io::Error::other("injected swap failure")))
+            },
+        )
+        .expect_err("swap failure must be returned");
+
+        assert_eq!(error.code, "io_error");
+        assert_eq!(fs::read(&primary).unwrap(), original);
+        assert!(staged_path.unwrap().exists());
         fs::remove_dir_all(collections).unwrap();
     }
 }
