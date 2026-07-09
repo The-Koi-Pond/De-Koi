@@ -306,6 +306,94 @@ describe("startGeneration group typing", () => {
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-b", "char-a"]);
   });
 
+  it("stops a later smart responder when an earlier mentioned character answered fully", async () => {
+    const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
+    const continuationRequests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      complete: vi.fn(async (request) => {
+        continuationRequests.push(request);
+        return '{"shouldRespond":false,"reason":"Aki already answered fully"}';
+      }),
+      async *stream() {
+        yield { type: "token", text: "Aki covered the whole answer." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm,
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, what do you both think?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    const continuationRequest = continuationRequests.find((request) =>
+      request.messages.some((message) => message.content.includes("hidden continuation orchestrator")),
+    );
+
+    expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-a"]);
+    expect(continuationRequest).toBeDefined();
+    expect(continuationRequest!.messages.map((message) => message.content).join("\n")).toContain(
+      "Aki covered the whole answer.",
+    );
+  });
+
+  it("keeps a later smart responder when the continuation decision is malformed", async () => {
+    const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm: groupTypingLlm("not json"), integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, what do you both think?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(messages.filter((message) => message.role === "assistant").map((message) => message.characterId)).toEqual([
+      "char-a",
+      "char-b",
+    ]);
+  });
+
+  it("keeps a later smart responder when the continuation decision errors", async () => {
+    const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
+    const llm = groupTypingLlm();
+    llm.complete = vi.fn(async () => {
+      throw new Error("selector unavailable");
+    });
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Aki and Bea, what do you both think?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(messages.filter((message) => message.role === "assistant").map((message) => message.characterId)).toEqual([
+      "char-a",
+      "char-b",
+    ]);
+  });
+
   it("defaults conversation group response order to smart selection", async () => {
     const { storage, messages } = groupTypingStorage({});
 

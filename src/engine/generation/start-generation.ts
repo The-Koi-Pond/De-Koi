@@ -2108,6 +2108,63 @@ async function smartRoleplayGroupTargets(args: {
   return [];
 }
 
+function parseSmartContinuationDecision(raw: string): boolean | null {
+  const { cleanText: stripped } = extractLeadingThinkingBlocks(raw);
+  let text = stripped.trim();
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) text = fenced[1].trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start >= 0 && end > start) text = text.slice(start, end + 1);
+  try {
+    const parsed = JSON.parse(text) as JsonRecord;
+    return typeof parsed.shouldRespond === "boolean" ? parsed.shouldRespond : null;
+  } catch {
+    return null;
+  }
+}
+
+async function shouldKeepSmartConversationResponder(args: {
+  deps: GenerationEngineDeps;
+  input: StartGenerationInput;
+  connection: JsonRecord;
+  storedMessages: JsonRecord[];
+  characterId: string;
+  characterName: string;
+  signal?: AbortSignal;
+}): Promise<boolean> {
+  let raw = "";
+  try {
+    raw = await args.deps.llm.complete(
+      {
+        connectionId: readString(args.connection.id).trim() || args.input.connectionId || null,
+        provider: readString(args.connection.provider).trim() || null,
+        model: readString(args.connection.model).trim() || null,
+        parameters: { maxTokens: 128 },
+        messages: [
+          {
+            role: "system",
+            content:
+              'You are a hidden continuation orchestrator for a conversation group chat. Decide whether the specified candidate still has a distinct, useful contribution after the replies already given. Return only JSON: {"shouldRespond":true,"reason":"short"}.',
+          },
+          {
+            role: "user",
+            content: [
+              `<candidate>${JSON.stringify({ id: args.characterId, name: args.characterName })}</candidate>`,
+              `<updated_transcript>\n${smartSelectorTranscript(args.storedMessages)}\n</updated_transcript>`,
+            ].join("\n\n"),
+          },
+        ],
+      },
+      args.signal,
+    );
+  } catch (error) {
+    if (isRecord(error) && readString(error.name) === "AbortError") throw error;
+    return true;
+  }
+  return parseSmartContinuationDecision(raw) ?? true;
+}
+
 async function resolveGroupTargetForGeneration(args: {
   deps: GenerationEngineDeps;
   input: StartGenerationInput;
@@ -2198,8 +2255,10 @@ async function resolveIndividualGroupTurnIds(args: {
 async function* runIndividualGroupTurnLoop(args: {
   deps: GenerationEngineDeps;
   input: StartGenerationInput;
+  connection: JsonRecord;
   turnIds: string[];
   latestUserInput: string;
+  revalidateLaterResponders: boolean;
   signal?: AbortSignal;
 }): AsyncGenerator<GenerationEvent> {
   const priorResponderContributions: SameSendPeerContribution[] = [];
@@ -2207,6 +2266,19 @@ async function* runIndividualGroupTurnLoop(args: {
     throwIfAborted(args.signal);
     const characterId = args.turnIds[index]!;
     const characterName = (await characterNameById(args.deps.storage, [], characterId)) ?? "Character";
+    if (index > 0 && args.revalidateLaterResponders) {
+      const storedMessages = await args.deps.storage.listChatMessages<JsonRecord>(args.input.chatId);
+      const shouldRespond = await shouldKeepSmartConversationResponder({
+        deps: args.deps,
+        input: args.input,
+        connection: args.connection,
+        storedMessages,
+        characterId,
+        characterName,
+        signal: args.signal,
+      });
+      if (!shouldRespond) continue;
+    }
     yield { type: "group_turn", data: { characterId, characterName, index, total: args.turnIds.length } };
 
     const childInput: StartGenerationInput = {
@@ -4603,7 +4675,19 @@ export async function* startGeneration(
         yield { type: "done" };
         return;
       }
-      yield* runIndividualGroupTurnLoop({ deps, input, turnIds: groupTurnIds, latestUserInput, signal });
+      const metadata = parseRecord(chat.metadata);
+      const revalidateLaterResponders =
+        readString(chat.mode || chat.chatMode).trim() === "conversation" &&
+        readString(metadata.groupResponseOrder, "smart") === "smart";
+      yield* runIndividualGroupTurnLoop({
+        deps,
+        input,
+        connection,
+        turnIds: groupTurnIds,
+        latestUserInput,
+        revalidateLaterResponders,
+        signal,
+      });
       return;
     }
   }
