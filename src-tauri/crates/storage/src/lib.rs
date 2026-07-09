@@ -3,6 +3,7 @@ mod chat_summaries;
 mod messages;
 mod projection;
 mod transaction;
+mod write_gate;
 
 use cache::*;
 use chat_summaries::*;
@@ -22,6 +23,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use transaction::*;
+use write_gate::WriteGate;
 
 const STORAGE_SAVE_DEBOUNCE_MS: u64 = 750;
 
@@ -50,7 +52,7 @@ pub struct FileStorage {
     lock: Arc<RwLock<()>>,
     cache: Arc<RwLock<StorageCache>>,
     flush_scheduled: Arc<AtomicBool>,
-    atomic_update_active: Arc<AtomicBool>,
+    write_gate: Arc<WriteGate>,
 }
 
 impl FileStorage {
@@ -62,7 +64,7 @@ impl FileStorage {
             lock: Arc::new(RwLock::new(())),
             cache: Arc::new(RwLock::new(StorageCache::default())),
             flush_scheduled: Arc::new(AtomicBool::new(false)),
-            atomic_update_active: Arc::new(AtomicBool::new(false)),
+            write_gate: Arc::new(WriteGate::default()),
         })
     }
 
@@ -71,6 +73,7 @@ impl FileStorage {
     }
 
     pub fn flush(&self) -> AppResult<()> {
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
@@ -285,22 +288,20 @@ impl FileStorage {
     }
 
     pub fn create(&self, collection: &str, value: Value) -> AppResult<Value> {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         self.create_locked(collection, value, false)
     }
 
     pub fn create_immediate(&self, collection: &str, value: Value) -> AppResult<Value> {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         self.create_locked(collection, value, true)
     }
 
@@ -355,12 +356,11 @@ impl FileStorage {
     }
 
     pub fn upsert_with_id(&self, collection: &str, id: &str, value: Value) -> AppResult<Value> {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         let mut rows = self.read_collection(collection)?;
         let mut object = ensure_object(value)?;
         let now = now_iso();
@@ -387,12 +387,11 @@ impl FileStorage {
         collection: &str,
         patches: Vec<(String, Value)>,
     ) -> AppResult<Vec<Value>> {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         let normalized_patches = patches
             .into_iter()
             .map(|(id, patch)| Ok((id, ensure_object(patch)?)))
@@ -437,12 +436,11 @@ impl FileStorage {
     where
         F: FnMut(&mut Map<String, Value>) -> AppResult<bool>,
     {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         let mut rows = self.read_collection(collection)?;
         let mut found = false;
         let mut patched = None;
@@ -483,12 +481,11 @@ impl FileStorage {
     where
         F: FnMut(&mut Map<String, Value>, &Map<String, Value>) -> AppResult<()>,
     {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         let mut rows = self.read_collection(collection)?;
         let patch = ensure_object(patch)?;
         let mut found = None;
@@ -517,12 +514,11 @@ impl FileStorage {
     }
 
     pub fn delete(&self, collection: &str, id: &str) -> AppResult<bool> {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         let mut rows = self.read_collection(collection)?;
         let before = rows.len();
         rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(id));
@@ -541,12 +537,11 @@ impl FileStorage {
     where
         F: FnMut(&Value) -> bool,
     {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         let mut rows = self.read_collection(collection)?;
         let before = rows.len();
         rows.retain(|row| !predicate(row));
@@ -561,12 +556,11 @@ impl FileStorage {
         if chat_ids.is_empty() {
             return Ok(0);
         }
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         let mut rows = self.read_collection("messages")?;
         let before = rows.len();
         rows.retain(|row| {
@@ -582,12 +576,11 @@ impl FileStorage {
     }
 
     pub fn replace_all(&self, collection: &str, rows: Vec<Value>) -> AppResult<()> {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         self.write_collection_immediate(collection, &rows)
     }
 
@@ -596,7 +589,6 @@ impl FileStorage {
     }
 
     pub fn append_many_uncached(&self, appends: Vec<(&str, Vec<Value>)>) -> AppResult<bool> {
-        self.ensure_writes_available()?;
         let appends = appends
             .into_iter()
             .filter(|(_, rows)| !rows.is_empty())
@@ -605,11 +597,11 @@ impl FileStorage {
             return Ok(true);
         }
 
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         if self.any_collection_dirty_cached(appends.iter().map(|(collection, _)| *collection))? {
             return Ok(false);
         }
@@ -625,7 +617,7 @@ impl FileStorage {
     where
         F: FnOnce(&mut [AtomicCollectionRows]) -> AppResult<T>,
     {
-        let _atomic_update = self.begin_atomic_update()?;
+        let _atomic_update = self.write_gate.begin_atomic_update()?;
         // Load the rows and capture each collection's file stamp under the SAME
         // write lock, so the conflict baseline reflects exactly the bytes the rows
         // were read from. Sampling the stamp after the lock is released would let a
@@ -689,22 +681,20 @@ impl FileStorage {
     where
         F: FnOnce() -> AppResult<()>,
     {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         self.replace_all_many_locked(replacements, after_install)
     }
 
     pub fn clear_all(&self) -> AppResult<()> {
-        self.ensure_writes_available()?;
+        let _write_permit = self.write_gate.begin_write()?;
         let _guard = self
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.ensure_writes_available()?;
         let collections = self.root.join("collections");
         if collections.exists() {
             fs::remove_dir_all(&collections)?;
@@ -720,30 +710,6 @@ impl FileStorage {
             .root
             .join("collections")
             .join(format!("{collection}.json")))
-    }
-
-    fn begin_atomic_update(&self) -> AppResult<AtomicUpdateGuard> {
-        self.atomic_update_active
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .map_err(|_| {
-                AppError::new(
-                    "storage_transaction_active",
-                    "Storage atomic update is already active",
-                )
-            })?;
-        Ok(AtomicUpdateGuard {
-            active: self.atomic_update_active.clone(),
-        })
-    }
-
-    fn ensure_writes_available(&self) -> AppResult<()> {
-        if self.atomic_update_active.load(Ordering::SeqCst) {
-            return Err(AppError::new(
-                "storage_transaction_active",
-                "Storage writes cannot run during an atomic collection update",
-            ));
-        }
-        Ok(())
     }
 
     fn cached_rows(&self, collection: &str) -> AppResult<Option<Vec<Value>>> {
@@ -992,16 +958,14 @@ impl FileStorage {
         match read_result {
             Ok(value) => Ok(value),
             Err(error) => {
-                if self.atomic_update_active.load(Ordering::SeqCst) {
+                if self.write_gate.atomic_update_active()? {
                     return Err(error);
                 }
+                let _write_permit = self.write_gate.begin_write()?;
                 let _guard = self
                     .lock
                     .write()
                     .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-                if self.atomic_update_active.load(Ordering::SeqCst) {
-                    return Err(error);
-                }
                 recover()
             }
         }
@@ -2423,7 +2387,8 @@ impl FileStorage {
                 "primaryPath": path.display().to_string(),
                 "primaryError": error.message,
             }),
-        ))    }
+        ))
+    }
 
     fn replace_all_many_locked<F>(
         &self,
@@ -3226,6 +3191,87 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn concurrent_message_append_waits_for_atomic_update_and_then_succeeds() {
+        use std::sync::mpsc::{self, RecvTimeoutError};
+        use std::thread;
+
+        let root = temp_storage_root("atomic-update-concurrent-message-append");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({
+                    "id": "assistant-1",
+                    "chatId": "chat-1",
+                    "role": "assistant"
+                })],
+            )
+            .unwrap();
+        storage.replace_all("message-swipes", Vec::new()).unwrap();
+
+        let atomic_storage = storage.clone();
+        let (atomic_started_tx, atomic_started_rx) = mpsc::channel();
+        let (release_atomic_tx, release_atomic_rx) = mpsc::channel();
+        let atomic_thread = thread::spawn(move || {
+            atomic_storage.update_collections_atomically(
+                vec!["messages", "message-swipes"],
+                move |collections| {
+                    atomic_started_tx.send(()).unwrap();
+                    release_atomic_rx.recv().unwrap();
+                    collections[0].rows_mut()[0]["extra"] =
+                        json!({ "dialogueAttributions": { "version": 1 } });
+                    Ok(())
+                },
+            )
+        });
+        atomic_started_rx.recv().unwrap();
+
+        let writer_storage = storage.clone();
+        let (writer_done_tx, writer_done_rx) = mpsc::channel();
+        let writer_thread = thread::spawn(move || {
+            let result = writer_storage.append_many_uncached(vec![
+                (
+                    "messages",
+                    vec![json!({
+                        "id": "user-1",
+                        "chatId": "chat-1",
+                        "role": "user",
+                        "content": "hello"
+                    })],
+                ),
+                (
+                    "message-swipes",
+                    vec![json!({
+                        "id": "user-1::swipe::0",
+                        "messageId": "user-1",
+                        "chatId": "chat-1",
+                        "index": 0
+                    })],
+                ),
+            ]);
+            writer_done_tx.send(result).unwrap();
+        });
+
+        assert!(matches!(
+            writer_done_rx.recv_timeout(Duration::from_millis(50)),
+            Err(RecvTimeoutError::Timeout)
+        ));
+        release_atomic_tx.send(()).unwrap();
+        atomic_thread.join().unwrap().unwrap();
+        assert!(writer_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .unwrap());
+        writer_thread.join().unwrap();
+
+        let messages = storage.list("messages").unwrap();
+        assert!(messages.iter().any(|row| row["id"] == json!("assistant-1")));
+        assert!(messages.iter().any(|row| row["id"] == json!("user-1")));
+        assert_eq!(storage.list("message-swipes").unwrap().len(), 1);
+
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn update_collections_atomically_rejects_reentrant_writes_without_side_effects() {
         let root = temp_storage_root("update-collections-reentrant");

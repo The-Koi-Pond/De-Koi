@@ -12,10 +12,6 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Cursor, ErrorKind, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
 use std::time::UNIX_EPOCH;
 
 #[cfg(test)]
@@ -94,16 +90,6 @@ pub(crate) struct CollectionContentStamp {
 pub(crate) struct CachedProjectedList {
     pub(crate) rows: Vec<Value>,
     pub(crate) stamp: Option<CollectionFastStamp>,
-}
-
-pub(crate) struct AtomicUpdateGuard {
-    pub(crate) active: Arc<AtomicBool>,
-}
-
-impl Drop for AtomicUpdateGuard {
-    fn drop(&mut self) {
-        self.active.store(false, Ordering::SeqCst);
-    }
 }
 
 pub(crate) fn row_matches_filters(row: &Value, filters: &Map<String, Value>) -> bool {
