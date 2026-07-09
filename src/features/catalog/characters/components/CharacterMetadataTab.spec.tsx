@@ -89,9 +89,6 @@ describe("CharacterMetadataTab public profile generation", () => {
           updateExtension={updateExtension}
           newTag=""
           setNewTag={vi.fn()}
-          addTag={vi.fn()}
-          removeTag={vi.fn()}
-          removeAllTags={vi.fn()}
           avatarPreview={null}
           imageConnections={[
             { id: "image-1", name: "Default Image", provider: "image_generation", defaultForAgents: true },
@@ -135,9 +132,6 @@ describe("CharacterMetadataTab public profile generation", () => {
           updateExtension={updateExtension}
           newTag=""
           setNewTag={vi.fn()}
-          addTag={vi.fn()}
-          removeTag={vi.fn()}
-          removeAllTags={vi.fn()}
           avatarPreview={null}
           imageConnections={[
             { id: "image-1", name: "Default Image", provider: "image_generation", defaultForAgents: true },
@@ -183,9 +177,6 @@ describe("CharacterMetadataTab public profile generation", () => {
           updateExtension={updateExtension}
           newTag=""
           setNewTag={vi.fn()}
-          addTag={vi.fn()}
-          removeTag={vi.fn()}
-          removeAllTags={vi.fn()}
           avatarPreview={null}
           imageConnections={[]}
         />,
@@ -246,9 +237,6 @@ describe("CharacterMetadataTab public profile generation", () => {
           updateExtension={updateExtension}
           newTag=""
           setNewTag={vi.fn()}
-          addTag={vi.fn()}
-          removeTag={vi.fn()}
-          removeAllTags={vi.fn()}
           avatarPreview={null}
           imageConnections={[]}
         />,

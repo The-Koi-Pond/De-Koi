@@ -52,6 +52,7 @@ import { confirmDiscardPendingAppWork } from "../../shared/lib/app-close-guard";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
+import { TagInput } from "../../shared/components/ui/TagInput";
 import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties, type DragEvent } from "react";
 import { toast } from "sonner";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
@@ -68,7 +69,6 @@ import {
 } from "./chat-sidebar-rows";
 import { buildChatSidebarCharacterLookup, type ChatSidebarCharacterAvatar } from "./chat-sidebar-character-avatars";
 import { CHAT_ROW_ACTION_RAIL_CLASS_NAME, CHAT_ROW_TITLE_CLASS_NAME } from "./chat-sidebar-row-layout";
-import { formatChatTagsDraft, normalizeChatTagsDraft } from "./chat-sidebar-tags";
 type ChatSortOption = ChatSidebarSortOption;
 export type ChatSidebarTab = "conversation" | "roleplay" | "game";
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
@@ -203,7 +203,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
   // Folder UI state
   const [movingChatId, setMovingChatId] = useState<string | null>(null);
   const [tagEditingChatId, setTagEditingChatId] = useState<string | null>(null);
-  const [tagDraft, setTagDraft] = useState("");
+  const [tagDraftTags, setTagDraftTags] = useState<string[]>([]);
+  const [tagDraftInput, setTagDraftInput] = useState("");
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
   const [chatDropTarget, setChatDropTarget] = useState<ChatDropTarget>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
@@ -581,18 +582,20 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
 
   const openTagEditor = useCallback((chat: ChatSidebarRow["chat"]) => {
     setTagEditingChatId(chat.id);
-    setTagDraft(formatChatTagsDraft(getChatTags(chat)));
+    setTagDraftTags(getChatTags(chat));
+    setTagDraftInput("");
   }, []);
 
   const closeTagEditor = useCallback(() => {
     setTagEditingChatId(null);
-    setTagDraft("");
+    setTagDraftTags([]);
+    setTagDraftInput("");
   }, []);
 
   const saveTagEditor = useCallback(() => {
     if (!tagEditingChatId) return;
     updateChatMetadata.mutate(
-      { id: tagEditingChatId, tags: normalizeChatTagsDraft(tagDraft) },
+      { id: tagEditingChatId, tags: tagDraftTags },
       {
         onSuccess: () => {
           toast.success("Chat tags updated.");
@@ -600,7 +603,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
       },
     );
     closeTagEditor();
-  }, [closeTagEditor, tagDraft, tagEditingChatId, updateChatMetadata]);
+  }, [closeTagEditor, tagDraftTags, tagEditingChatId, updateChatMetadata]);
 
   const clearChatDragState = useCallback(() => {
     setDraggedChatId(null);
@@ -1455,21 +1458,23 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
       <Modal open={tagEditingChatId !== null} onClose={closeTagEditor} title="Edit Tags" width="max-w-sm">
         {tagEditingChat && (
           <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--foreground)]">
-              Tags
-              <textarea
-                value={tagDraft}
-                onChange={(event) => setTagDraft(event.target.value)}
-                rows={3}
-                placeholder="story, urgent"
-                aria-label={`Tags for ${tagEditingChat.name}`}
-                className="min-h-20 resize-none rounded-xl border border-[var(--border)]/60 bg-[var(--background)] px-3 py-2 text-sm font-normal text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)]/65 focus:border-[var(--primary)]/45"
-              />
-            </label>
+            <TagInput
+              label="Tags"
+              tags={tagDraftTags}
+              inputValue={tagDraftInput}
+              onInputChange={setTagDraftInput}
+              onTagsChange={setTagDraftTags}
+              suggestions={allTags}
+              inputAriaLabel={`Tags for ${tagEditingChat.name}`}
+              separatorPattern={/[,.\n]/}
+            />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setTagDraft("")}
+                onClick={() => {
+                  setTagDraftTags([]);
+                  setTagDraftInput("");
+                }}
                 className="rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)]"
               >
                 Clear

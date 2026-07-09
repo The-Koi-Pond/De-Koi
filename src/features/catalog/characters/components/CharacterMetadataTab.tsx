@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Loader2, Maximize2, Tag, Wand2, X } from "lucide-react";
+import { Loader2, Maximize2, Wand2 } from "lucide-react";
 
 import type {
   CharacterData,
@@ -10,6 +10,7 @@ import type {
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
+import { TagInput } from "../../../../shared/components/ui/TagInput";
 import { galleryApi, imageGenerationApi } from "../../../../shared/api/image-generation-api";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
@@ -97,9 +98,6 @@ export function CharacterMetadataTab({
   updateExtension,
   newTag,
   setNewTag,
-  addTag,
-  removeTag,
-  removeAllTags,
   avatarPreview,
   imageConnections,
 }: {
@@ -110,9 +108,6 @@ export function CharacterMetadataTab({
   updateExtension: (key: string, value: unknown) => void;
   newTag: string;
   setNewTag: (value: string) => void;
-  addTag: () => void;
-  removeTag: (tag: string) => void;
-  removeAllTags: () => void;
   avatarPreview: string | null;
   imageConnections: ImageGenerationConnectionOption[];
 }) {
@@ -329,66 +324,25 @@ export function CharacterMetadataTab({
         </label>
       </div>
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-            Tags{" "}
-            <HelpTooltip text="Labels for organizing characters. Use tags like 'fantasy', 'sci-fi', 'OC' etc. to categorize and search." />
-          </span>
-          <div className="flex items-center gap-1">
-            <CharacterFieldGenerationButton
-              field="tags"
-              data={formData}
-              comment={characterComment}
-              mode="direct"
-              onApply={applyGeneratedTags}
-            />
-            {formData.tags.length > 0 && (
-              <button
-                type="button"
-                onClick={removeAllTags}
-                className="rounded-lg px-2 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-              >
-                Remove All
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {formData.tags.map((tag) => (
-            <span
-              key={tag}
-              className="flex items-center gap-1 rounded-full bg-[var(--primary)]/10 px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--primary)]"
-            >
-              <Tag size="0.625rem" />
-              {tag}
-              <button
-                type="button"
-                onClick={() => removeTag(tag)}
-                className="ml-0.5 rounded-full transition-colors hover:text-[var(--destructive)]"
-              >
-                <X size="0.625rem" />
-              </button>
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-1.5">
-          <input
-            value={newTag}
-            onChange={(event) => setNewTag(event.target.value)}
-            onKeyDown={(event) => event.key === "Enter" && addTag()}
-            placeholder="Add tag..."
-            className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs outline-none focus:border-[var(--primary)]/40"
+      <TagInput
+        label="Tags"
+        help={
+          <HelpTooltip text="Labels for organizing characters. Use tags like 'fantasy', 'sci-fi', 'OC' etc. to categorize and search." />
+        }
+        tags={formData.tags}
+        inputValue={newTag}
+        onInputChange={setNewTag}
+        onTagsChange={(tags) => updateField("tags", tags)}
+        toolbar={
+          <CharacterFieldGenerationButton
+            field="tags"
+            data={formData}
+            comment={characterComment}
+            mode="direct"
+            onApply={applyGeneratedTags}
           />
-          <button
-            type="button"
-            onClick={addTag}
-            className="rounded-xl bg-[var(--primary)]/15 px-3 py-1.5 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25"
-          >
-            Add
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-4">
         <SectionHeader title="Public Profile" subtitle="Outward-facing identity used by quick inspect cards." />
@@ -539,7 +493,10 @@ export function CharacterMetadataTab({
       </div>
 
       <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-4">
-        <SectionHeader title="Music Taste" subtitle="Character profile flavor and manual Music Player cues, not automatic scene music." />
+        <SectionHeader
+          title="Music Taste"
+          subtitle="Character profile flavor and manual Music Player cues, not automatic scene music."
+        />
         <label className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/70 p-3">
           <input
             type="checkbox"
@@ -557,7 +514,8 @@ export function CharacterMetadataTab({
         <label className="space-y-1.5 block">
           <div className="flex items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Favorite Songs <HelpTooltip text="One per line. Use Song - Artist, optionally followed by | YouTube URL. These feed profile/manual character cues, not the automatic scene DJ." />
+              Favorite Songs{" "}
+              <HelpTooltip text="One per line. Use Song - Artist, optionally followed by | YouTube URL. These feed profile/manual character cues, not the automatic scene DJ." />
             </span>
             <CharacterFieldGenerationButton
               field="music_favorite_songs"
