@@ -174,7 +174,7 @@ export const useUIStore = create<UIState>()(
 
       messageGrouping: true,
       conversationMessageStyle: "classic" as ConversationMessageStyle,
-      showTimestamps: false,
+      showTimestamps: true,
       showModelName: false,
       showTokenUsage: false,
       showMessageNumbers: false,
