@@ -2306,7 +2306,11 @@ impl SidecarProcessState {
             let args = sidecar_args(&config, &model_path, port, &plan);
             let (stdout, stderr) = open_sidecar_log(&log_path)?;
             let mut command = Command::new(&executable);
-            command.args(&args).stdout(stdout).stderr(stderr);
+            command
+                .args(&args)
+                .stdout(stdout)
+                .stderr(stderr)
+                .kill_on_drop(true);
             #[cfg(target_os = "windows")]
             {
                 command.creation_flags(CREATE_NO_WINDOW);
@@ -2522,7 +2526,20 @@ pub async fn start(state: &LocalSidecarState) -> AppResult<Value> {
 }
 
 pub async fn shutdown() -> AppResult<()> {
-    let mut process = SIDECAR_PROCESS.lock().await;
+    // Startup owns this mutex while it tries at most two 60-second readiness plans.
+    // Keep acquisition bounded without canceling stop_locked after it owns the child.
+    shutdown_with_lock_timeout(Duration::from_secs(180)).await
+}
+
+async fn shutdown_with_lock_timeout(lock_timeout: Duration) -> AppResult<()> {
+    let mut process = tokio::time::timeout(lock_timeout, SIDECAR_PROCESS.lock())
+        .await
+        .map_err(|_| {
+            AppError::new(
+                "sidecar_shutdown_timeout",
+                "Timed out waiting for managed local model state during shutdown",
+            )
+        })?;
     process.stop_locked().await
 }
 
@@ -2823,7 +2840,9 @@ mod tests {
     use super::*;
         use flate2::{write::GzEncoder, Compression};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tokio::io::AsyncReadExt;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+
+    static SIDECAR_PROCESS_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn temp_dir(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -2844,12 +2863,101 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_is_idempotent_without_a_managed_child() {
+        let _test_guard = SIDECAR_PROCESS_TEST_LOCK.lock().await;
         shutdown()
             .await
             .expect("shutdown without a managed child should succeed");
         shutdown()
             .await
             .expect("repeated shutdown without a managed child should succeed");
+    }
+
+    #[tokio::test]
+    async fn shutdown_bounds_managed_state_lock_acquisition() {
+        let _test_guard = SIDECAR_PROCESS_TEST_LOCK.lock().await;
+        let process_guard = SIDECAR_PROCESS.lock().await;
+
+        let error = shutdown_with_lock_timeout(Duration::from_millis(20))
+            .await
+            .expect_err("shutdown should time out while managed state is locked");
+
+        drop(process_guard);
+        assert_eq!(error.code, "sidecar_shutdown_timeout");
+    }
+
+    #[test]
+    fn blocking_sidecar_fixture() {
+        if std::env::var_os("DE_KOI_BLOCKING_SIDECAR_FIXTURE").is_none() {
+            return;
+        }
+
+        use std::io::Write as _;
+        println!("DE_KOI_BLOCKING_SIDECAR_READY");
+        std::io::stdout()
+            .flush()
+            .expect("fixture ready marker should flush");
+        loop {
+            std::thread::park_timeout(Duration::from_secs(60));
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_terminates_and_reaps_a_managed_child() {
+        let _test_guard = SIDECAR_PROCESS_TEST_LOCK.lock().await;
+        shutdown()
+            .await
+            .expect("test should begin without a managed child");
+
+        let mut command =
+            Command::new(std::env::current_exe().expect("test binary should resolve"));
+        command
+            .arg("--exact")
+            .arg("tests::blocking_sidecar_fixture")
+            .arg("--nocapture")
+            .env("DE_KOI_BLOCKING_SIDECAR_FIXTURE", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = command.spawn().expect("blocking fixture should start");
+        let stdout = child
+            .stdout
+            .take()
+            .expect("blocking fixture stdout should be piped");
+        let mut stdout = BufReader::new(stdout);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let mut line = String::new();
+            loop {
+                line.clear();
+                let bytes = stdout
+                    .read_line(&mut line)
+                    .await
+                    .expect("fixture stdout should be readable");
+                assert!(bytes > 0, "fixture exited before reporting ready");
+                if line.contains("DE_KOI_BLOCKING_SIDECAR_READY") {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("blocking fixture should report ready");
+
+        {
+            let mut process = SIDECAR_PROCESS.lock().await;
+            assert!(process.child.is_none(), "test state should be isolated");
+            process.child = Some(child);
+            process.status = "ready".to_string();
+        }
+
+        shutdown().await.expect("managed child should stop cleanly");
+
+        let mut remainder = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), stdout.read_to_end(&mut remainder))
+            .await
+            .expect("managed child stdout should close after shutdown")
+            .expect("managed child stdout should reach EOF");
+        let process = SIDECAR_PROCESS.lock().await;
+        assert!(process.child.is_none(), "managed child should be reaped");
+        assert_eq!(process.status, "stopped");
     }
 
     fn write_fake_bundled_runtime_install(

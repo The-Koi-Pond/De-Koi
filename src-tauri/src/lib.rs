@@ -30,6 +30,22 @@ enum ExitRequestDecision {
 }
 
 #[cfg(feature = "desktop")]
+#[derive(Debug, PartialEq, Eq)]
+enum ExitShutdownMode {
+    CoordinatedAsync,
+    Synchronous,
+}
+
+#[cfg(feature = "desktop")]
+fn exit_shutdown_mode(code: Option<i32>) -> ExitShutdownMode {
+    if code == Some(tauri::RESTART_EXIT_CODE) {
+        ExitShutdownMode::Synchronous
+    } else {
+        ExitShutdownMode::CoordinatedAsync
+    }
+}
+
+#[cfg(feature = "desktop")]
 struct ExitCoordinator {
     phase: std::sync::atomic::AtomicU8,
 }
@@ -103,6 +119,56 @@ mod exit_tests {
         assert!(coordinator.mark_exit_reissued());
         assert!(!coordinator.mark_exit_reissued());
         assert_eq!(coordinator.request_exit(), ExitRequestDecision::Allow);
+    }
+
+    #[test]
+    fn concurrent_exit_requests_start_shutdown_once() {
+        let coordinator = std::sync::Arc::new(ExitCoordinator::new());
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(9));
+        let requests = (0..8)
+            .map(|_| {
+                let coordinator = std::sync::Arc::clone(&coordinator);
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    coordinator.request_exit()
+                })
+            })
+            .collect::<Vec<_>>();
+
+        barrier.wait();
+        let decisions = requests
+            .into_iter()
+            .map(|request| request.join().expect("exit request thread should complete"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            decisions
+                .iter()
+                .filter(|decision| **decision == ExitRequestDecision::PreventAndShutdown)
+                .count(),
+            1
+        );
+        assert_eq!(
+            decisions
+                .iter()
+                .filter(|decision| **decision == ExitRequestDecision::Prevent)
+                .count(),
+            7
+        );
+    }
+
+    #[test]
+    fn restart_exit_uses_synchronous_shutdown_before_callback_returns() {
+        assert_eq!(
+            exit_shutdown_mode(Some(tauri::RESTART_EXIT_CODE)),
+            ExitShutdownMode::Synchronous
+        );
+        assert_eq!(exit_shutdown_mode(None), ExitShutdownMode::CoordinatedAsync);
+        assert_eq!(
+            exit_shutdown_mode(Some(7)),
+            ExitShutdownMode::CoordinatedAsync
+        );
     }
 }
 
@@ -449,27 +515,24 @@ pub fn run() {
                 match event {
                     tauri::RunEvent::ExitRequested { code, api, .. } => {
                         flush_pending_storage(app_handle);
+                        if exit_shutdown_mode(code) == ExitShutdownMode::Synchronous {
+                            // Tauri 2.11 ignores prevent_exit for RESTART_EXIT_CODE and restarts
+                            // immediately after this callback returns, so cleanup must finish here.
+                            if let Err(error) =
+                                tauri::async_runtime::block_on(marinara_sidecar::shutdown())
+                            {
+                                log::error!("failed to stop local model before restart: {error}");
+                            }
+                            return;
+                        }
                         match exit_coordinator.request_exit() {
                             ExitRequestDecision::PreventAndShutdown => {
                                 api.prevent_exit();
                                 let app_handle = app_handle.clone();
                                 let exit_coordinator = std::sync::Arc::clone(&exit_coordinator);
                                 tauri::async_runtime::spawn(async move {
-                                    match tokio::time::timeout(
-                                        std::time::Duration::from_secs(10),
-                                        marinara_sidecar::shutdown(),
-                                    )
-                                    .await
-                                    {
-                                        Ok(Ok(())) => {}
-                                        Ok(Err(error)) => {
-                                            log::error!(
-                                                "failed to stop local model on quit: {error}"
-                                            );
-                                        }
-                                        Err(_) => {
-                                            log::error!("timed out stopping local model on quit");
-                                        }
+                                    if let Err(error) = marinara_sidecar::shutdown().await {
+                                        log::error!("failed to stop local model on quit: {error}");
                                     }
                                     if exit_coordinator.mark_exit_reissued() {
                                         app_handle.exit(code.unwrap_or(0));
