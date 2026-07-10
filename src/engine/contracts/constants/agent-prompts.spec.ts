@@ -46,4 +46,13 @@ describe("default agent prompts", () => {
     expect(prompt).toContain('"constraints"');
     expect(prompt).not.toContain("spotify_play");
   });
+
+  it("keeps the Background agent generation-only", () => {
+    const prompt = DEFAULT_AGENT_PROMPTS.background;
+
+    expect(prompt).toContain("never select or apply an existing background");
+    expect(prompt).toContain("only when no current background is set");
+    expect(prompt).not.toContain("pick the closest match");
+    expect(prompt).not.toContain('"chosen": "filename.ext or null"');
+  });
 });

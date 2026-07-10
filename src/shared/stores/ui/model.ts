@@ -494,7 +494,6 @@ export interface UIState {
   /** Number of messages to load per page */
   messagesPerPage: number;
   /** Bold quoted dialogue in chat messages; color highlighting can still remain when this is off */
-  boldDialogue: boolean;
   /** Preferred quote style applied to user input and displayed model output. */
   quoteFormat: QuoteFormat;
   /** When true, model responses are trimmed back to the last complete sentence before saving. */
@@ -730,7 +729,6 @@ export interface UIState {
   setUserQuickReplyActions: (actions: UserQuickReplyActionConfig[]) => void;
   setConfirmBeforeDelete: (v: boolean) => void;
   setMessagesPerPage: (n: number) => void;
-  setBoldDialogue: (v: boolean) => void;
   setQuoteFormat: (v: QuoteFormat) => void;
   setTrimIncompleteModelOutput: (v: boolean) => void;
   setSpeechToTextEnabled: (v: boolean) => void;

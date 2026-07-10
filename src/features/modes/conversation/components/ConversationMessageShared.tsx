@@ -1,19 +1,9 @@
 import { memo, useMemo, type CSSProperties, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Brain, ChevronRight, EyeOff, RefreshCw, Trash2, User, X } from "lucide-react";
-import type {
-  DialogueAttributionsExtra,
-  Message,
-  MessageAttachment,
-  MessageExtra,
-  MessageSwipe,
-} from "../../../../engine/contracts/types/chat";
+import type { Message, MessageAttachment, MessageExtra, MessageSwipe } from "../../../../engine/contracts/types/chat";
 import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
-import {
-  DIALOGUE_QUOTE_PATTERN_SOURCE,
-  formatTextQuotes,
-  type QuoteFormat,
-} from "../../../../shared/lib/dialogue-quotes";
+import { formatTextQuotes, type QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
 import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
@@ -22,7 +12,6 @@ import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaIn
 import type { SaveMomentSource } from "../../shared/chat-ui/index";
 import {
   GenerationReplayDetailsModal,
-  splitSpeakerDialogueColorSegments,
   ImagePromptPanel,
   isImageMessageAttachment,
   MessageAttachmentImagePreview,
@@ -37,24 +26,10 @@ export const MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR =
 
 export type ConversationMessageExtra = Partial<MessageExtra> & { hiddenFromAI?: unknown; hiddenFromAi?: unknown };
 export const EMPTY_MESSAGE_EXTRA: ConversationMessageExtra = {};
-export function readDialogueAttributionsFromExtra(extra: unknown): DialogueAttributionsExtra | null {
-  if (!extra || typeof extra !== "object" || Array.isArray(extra)) return null;
-  const value = (extra as { dialogueAttributions?: unknown }).dialogueAttributions;
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as DialogueAttributionsExtra) : null;
-}
-
-export function resolveDialogueAttributionsForConversationMessage(
-  message: ConversationMessageData,
-  extra: ConversationMessageExtra,
-): DialogueAttributionsExtra | null {
-  const activeSwipe = message.swipes?.[message.activeSwipeIndex ?? 0];
-  return readDialogueAttributionsFromExtra(activeSwipe?.extra) ?? readDialogueAttributionsFromExtra(extra);
-}
-export type ConversationMessageData = Omit<Message, "extra"> & {
+type ConversationMessageData = Omit<Message, "extra"> & {
   extra: ConversationMessageExtra | string;
   swipes?: Array<Pick<MessageSwipe, "content" | "extra" | "characterId"> & { id?: string }>;
 };
-export type ConversationCharacterInfo = NonNullable<ReturnType<CharacterMap["get"]>>;
 
 export interface ConversationMessageProps {
   message: ConversationMessageData;
@@ -95,16 +70,6 @@ export interface ConversationMessageProps {
   bubbleGroupPosition?: "single" | "first" | "middle" | "last";
   originalContent?: string;
   typingLabel?: string;
-}
-
-export interface SpeakerSegment {
-  speaker: string | null;
-  text: string;
-}
-
-export interface GroupedSegment {
-  speaker: string | null;
-  lines: string[];
 }
 
 export interface ConversationAvatarRender {
@@ -149,9 +114,6 @@ export interface ConversationMessageRenderContext {
   messageTextStyle: CSSProperties;
   displayName: string;
   nameColor?: string;
-  dialogueColor?: string;
-  speakerColorMap?: Map<string, string>;
-  dialogueAttributions?: DialogueAttributionsExtra | null;
   conversationAvatar: ConversationAvatarRender;
   avatarUrl: string | null;
   avatarFilePath: string | null;
@@ -165,10 +127,6 @@ export interface ConversationMessageRenderContext {
   hasRenderedContent: boolean;
   typingLabel?: string;
   mentionNames: string[];
-  groupedSegments: GroupedSegment[] | null;
-  visibleSegments: number;
-  charByName: Map<string, ConversationCharacterInfo> | null;
-  charIdByName: Map<string, string> | null;
   attachments: MessageAttachment[];
   translatedText?: string | null;
   isTranslating: boolean;
@@ -212,7 +170,7 @@ export interface ConversationMessageRenderContext {
   showGenerationReplay: boolean;
 }
 
-export function nameColorStyle(color?: string): CSSProperties | undefined {
+function nameColorStyle(color?: string): CSSProperties | undefined {
   if (!color) return undefined;
   if (color.includes("gradient(")) {
     return {
@@ -262,7 +220,7 @@ export function resolveConversationAvatar(
   return { hide: false, emoji: null, url: resolved ?? fallbackUrl, isOverride: !!resolved };
 }
 
-export function formatTimestamp(dateStr: string): string {
+function formatTimestamp(dateStr: string): string {
   try {
     const date = new Date(dateStr);
     const now = new Date();
@@ -318,86 +276,25 @@ function renderInlineMessageTextSegment(content: string, mentionNames: string[],
     : applyInlineMarkdown(content, keyPrefix);
 }
 
-function renderInlineQuotedDialogue(
+function renderInlineMessageText(
   content: string,
   mentionNames: string[],
   keyPrefix: string,
-  dialogueColor?: string,
-): ReactNode[] {
-  if (!dialogueColor) return renderInlineMessageTextSegment(content, mentionNames, keyPrefix);
-
-  const quoteRe = new RegExp(DIALOGUE_QUOTE_PATTERN_SOURCE, "g");
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-  let quoteIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = quoteRe.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(
-        ...renderInlineMessageTextSegment(
-          content.slice(lastIndex, match.index),
-          mentionNames,
-          `${keyPrefix}t${quoteIndex}`,
-        ),
-      );
-    }
-    nodes.push(
-      <strong key={`${keyPrefix}dq${quoteIndex}`} style={{ color: dialogueColor }}>
-        {renderInlineMessageTextSegment(match[0], mentionNames, `${keyPrefix}dq${quoteIndex}`)}
-      </strong>,
-    );
-    quoteIndex += 1;
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (quoteIndex === 0) return renderInlineMessageTextSegment(content, mentionNames, keyPrefix);
-  if (lastIndex < content.length) {
-    nodes.push(...renderInlineMessageTextSegment(content.slice(lastIndex), mentionNames, `${keyPrefix}tail`));
-  }
-  return nodes;
-}
-
-export function renderInlineMessageText(
-  content: string,
-  mentionNames: string[],
-  keyPrefix: string,
-  dialogueColor?: string,
-  speakerColorMap?: Map<string, string>,
   quoteFormat: QuoteFormat = "straight",
-  dialogueAttributions?: DialogueAttributionsExtra | null,
 ): ReactNode[] {
-  if (!speakerColorMap?.size) {
-    return renderInlineQuotedDialogue(formatTextQuotes(content, quoteFormat), mentionNames, keyPrefix, dialogueColor);
-  }
-
-  const segments = splitSpeakerDialogueColorSegments(content, undefined, speakerColorMap, dialogueAttributions);
-  return segments.flatMap((segment, index) =>
-    renderInlineQuotedDialogue(
-      formatTextQuotes(segment.text, quoteFormat),
-      mentionNames,
-      `${keyPrefix}s${index}`,
-      segment.color,
-    ),
-  );
+  return renderInlineMessageTextSegment(formatTextQuotes(content, quoteFormat), mentionNames, keyPrefix);
 }
 
-export const MessageContent = memo(function MessageContent({
+const MessageContent = memo(function MessageContent({
   content,
   mentionNames,
   onImageOpen,
-  dialogueColor,
-  speakerColorMap,
   quoteFormat,
-  dialogueAttributions,
 }: {
   content: string;
   mentionNames?: string[];
   onImageOpen: (url: string) => void;
-  dialogueColor?: string;
-  speakerColorMap?: Map<string, string>;
   quoteFormat: QuoteFormat;
-  dialogueAttributions?: DialogueAttributionsExtra | null;
 }) {
   const trimmed = content.trim();
   const isImage = IMAGE_URL_RE.test(trimmed);
@@ -406,17 +303,9 @@ export const MessageContent = memo(function MessageContent({
     if (isImage) return null;
     const compacted = content.replace(/\n{3,}/g, "\n\n");
     const renderInline = (text: string, kp: string) =>
-      renderInlineMessageText(
-        text,
-        mentionNames ?? [],
-        kp,
-        dialogueColor,
-        speakerColorMap,
-        quoteFormat,
-        dialogueAttributions,
-      );
+      renderInlineMessageText(text, mentionNames ?? [], kp, quoteFormat);
     return renderMarkdownBlocks(compacted, renderInline);
-  }, [content, dialogueAttributions, dialogueColor, isImage, mentionNames, quoteFormat, speakerColorMap]);
+  }, [content, isImage, mentionNames, quoteFormat]);
 
   if (isImage) {
     return (
@@ -436,80 +325,6 @@ export const MessageContent = memo(function MessageContent({
 
   return <>{rendered}</>;
 });
-
-export function parseSpeakerTags(content: string, knownNames: Set<string>): SpeakerSegment[] | null {
-  const regex = /<speaker="([^"]*)">([\s\S]*?)<\/speaker>/g;
-  let match: RegExpExecArray | null;
-  const segments: SpeakerSegment[] = [];
-  let lastIndex = 0;
-  let foundTag = false;
-  while ((match = regex.exec(content)) !== null) {
-    foundTag = true;
-    const speakerName = match[1]!.trim();
-    const knownSpeaker = knownNames.has(speakerName.toLowerCase());
-    if (match.index > lastIndex) {
-      const before = content.slice(lastIndex, match.index).trim();
-      if (before) segments.push({ speaker: null, text: before });
-    }
-    segments.push({ speaker: knownSpeaker ? speakerName : null, text: match[2]!.trim() });
-    lastIndex = regex.lastIndex;
-  }
-  if (lastIndex < content.length) {
-    const after = content.slice(lastIndex).trim();
-    if (after) segments.push({ speaker: null, text: after });
-  }
-  return foundTag ? segments : null;
-}
-
-export function parseNamePrefixFormat(content: string, knownNames: Set<string>): SpeakerSegment[] | null {
-  if (!knownNames.size) return null;
-  const lines = content.split("\n");
-  const segments: SpeakerSegment[] = [];
-  let currentSpeaker: string | null = null;
-  let currentLines: string[] = [];
-  let found = false;
-  let inCodeFence = false;
-
-  for (const line of lines) {
-    const trimmedStart = line.trimStart();
-    const fenceMatch = /^`{3,}/.exec(trimmedStart);
-    if (fenceMatch && !trimmedStart.slice(fenceMatch[0].length).includes("`")) {
-      inCodeFence = !inCodeFence;
-      currentLines.push(line);
-      continue;
-    }
-
-    const colonIdx = inCodeFence ? -1 : line.indexOf(": ");
-    if (colonIdx > 0) {
-      const potentialName = line.slice(0, colonIdx).trim();
-      if (knownNames.has(potentialName.toLowerCase())) {
-        if (currentLines.length > 0) segments.push({ speaker: currentSpeaker, text: currentLines.join("\n") });
-        currentSpeaker = potentialName;
-        currentLines = [line.slice(colonIdx + 2)];
-        found = true;
-        continue;
-      }
-    }
-    currentLines.push(line);
-  }
-  if (currentLines.length > 0) segments.push({ speaker: currentSpeaker, text: currentLines.join("\n") });
-  if (!found) return null;
-  return segments.filter((s) => s.text.trim());
-}
-
-export function groupConsecutiveSegments(segments: SpeakerSegment[]): GroupedSegment[] {
-  const groups: GroupedSegment[] = [];
-  for (const seg of segments) {
-    const last = groups[groups.length - 1];
-    const trimmed = seg.text.replace(/^\n+|\n+$/g, "");
-    if (last && last.speaker && seg.speaker && last.speaker.toLowerCase() === seg.speaker.toLowerCase()) {
-      last.lines.push(trimmed);
-    } else {
-      groups.push({ speaker: seg.speaker, lines: [trimmed] });
-    }
-  }
-  return groups;
-}
 
 export function HiddenFromAIConversationButton({
   canCollapse,
@@ -618,7 +433,7 @@ function StreamingPendingIndicator({
   );
 }
 
-export function StreamingReveal({ children }: { children: ReactNode }) {
+function StreamingReveal({ children }: { children: ReactNode }) {
   return <div className="mari-streaming-reveal">{children}</div>;
 }
 function ConversationMessageEditForm({ context }: { context: ConversationMessageRenderContext }) {
@@ -709,8 +524,6 @@ export function ConversationMessageBodyContent({
                         content={part}
                         mentionNames={context.mentionNames}
                         onImageOpen={context.onImageOpen}
-                        dialogueColor={context.dialogueColor}
-                        speakerColorMap={context.speakerColorMap}
                         quoteFormat={context.quoteFormat}
                       />
                     </div>
@@ -721,10 +534,7 @@ export function ConversationMessageBodyContent({
                   content={context.renderedContent}
                   mentionNames={context.mentionNames}
                   onImageOpen={context.onImageOpen}
-                  dialogueColor={context.dialogueColor}
-                  speakerColorMap={context.speakerColorMap}
                   quoteFormat={context.quoteFormat}
-                  dialogueAttributions={context.dialogueAttributions}
                 />
               )}
             </StreamingReveal>
@@ -738,8 +548,6 @@ export function ConversationMessageBodyContent({
                     content={part}
                     mentionNames={context.mentionNames}
                     onImageOpen={context.onImageOpen}
-                    dialogueColor={context.dialogueColor}
-                    speakerColorMap={context.speakerColorMap}
                     quoteFormat={context.quoteFormat}
                   />
                 </div>
@@ -750,10 +558,7 @@ export function ConversationMessageBodyContent({
               content={context.renderedContent}
               mentionNames={context.mentionNames}
               onImageOpen={context.onImageOpen}
-              dialogueColor={context.dialogueColor}
-              speakerColorMap={context.speakerColorMap}
               quoteFormat={context.quoteFormat}
-              dialogueAttributions={context.dialogueAttributions}
             />
           )}
         </>
@@ -941,12 +746,7 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
   const showName = !context.isGrouped && !(context.isBubbleStyle && context.isUser && !context.hiddenFromAIHeader);
   if (!showName && context.hideTimestamp && !context.hiddenFromAIHeader) return null;
   return (
-    <div
-      className={cn(
-        "mari-message-meta flex items-baseline gap-2 mb-0.5",
-        context.isBubbleStyle && "px-2",
-      )}
-    >
+    <div className={cn("mari-message-meta flex items-baseline gap-2 mb-0.5", context.isBubbleStyle && "px-2")}>
       {context.hiddenFromAIHeader}
       {showName &&
         (context.canOpenCharacterProfile && context.onOpenCharacterProfile && context.message.characterId ? (

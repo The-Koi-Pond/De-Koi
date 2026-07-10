@@ -28,13 +28,7 @@ import {
   Play,
   Timer,
 } from "lucide-react";
-import type {
-  DialogueAttributionSegment,
-  DialogueAttributionsExtra,
-  Message,
-  MessageExtra,
-  MessageSwipe,
-} from "../../../../../engine/contracts/types/chat";
+import type { Message, MessageExtra, MessageSwipe } from "../../../../../engine/contracts/types/chat";
 import {
   memo,
   useState,
@@ -61,18 +55,12 @@ import { storageApi } from "../../../../../shared/api/storage-api";
 import { ttsService } from "../../../../../shared/lib/tts-service";
 import { useCachedTTSConfig } from "../../../../../shared/hooks/use-tts";
 import { isStreamingTTSActive, stopStreamingTTS, subscribeStreamingTTSActive } from "../hooks/use-streaming-tts";
-import { useLazyDialogueAttributionBackfill } from "../hooks/use-lazy-dialogue-attribution-backfill";
 import {
   buildTTSVoiceRequests,
   clientSidePlaybackRate,
   withTTSVoiceRequestCacheKeys,
 } from "../../../../../shared/lib/tts-dialogue";
-import {
-  DIALOGUE_QUOTE_PATTERN_SOURCE,
-  HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE,
-  formatTextQuotes,
-  type QuoteFormat,
-} from "../../../../../shared/lib/dialogue-quotes";
+import { formatTextQuotes, type QuoteFormat } from "../../../../../shared/lib/dialogue-quotes";
 import DOMPurify from "dompurify";
 import type {
   CharacterMap,
@@ -95,12 +83,6 @@ import { MessageAttachmentImagePreview } from "./MessageAttachmentImagePreview";
 import { MessageMemoryIndicators } from "./MessageMemoryIndicators";
 import { resolveAvatarFileUrl } from "../../../../../shared/api/local-file-api";
 import { mergedGroupDisplayLabel, mergedGroupNames } from "../lib/merged-group-label";
-import {
-  createSpeakerColorLookup,
-  hasSpeakerColor,
-  splitSpeakerDialogueColorSegments,
-  stripSpeakerTags,
-} from "../lib/speaker-dialogue-colors";
 
 const MESSAGE_ACTION_ICON_SIZE = "1em";
 const MESSAGE_SWIPE_ICON_SIZE = "1.15em";
@@ -108,36 +90,6 @@ const MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR =
   "button, a, textarea, input, select, label, [role='button'], [contenteditable='true'], .mari-message-actions";
 type ChatMessageExtra = Partial<MessageExtra> & { hiddenFromAi?: unknown };
 const EMPTY_CHAT_MESSAGE_EXTRA: ChatMessageExtra = {};
-
-function readDialogueAttributionsFromExtra(extra: unknown): DialogueAttributionsExtra | null {
-  if (!extra || typeof extra !== "object" || Array.isArray(extra)) return null;
-  const value = (extra as { dialogueAttributions?: unknown }).dialogueAttributions;
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as DialogueAttributionsExtra) : null;
-}
-
-const loggedMissingDialogueColorChats = new Set<string>();
-const ASSISTANT_DEFAULT_DIALOGUE_COLOR = "inherit";
-
-function missingDialogueColorSpeakers(
-  segments: readonly DialogueAttributionSegment[] | undefined,
-  speakerColorMap: Map<string, string> | undefined,
-): string[] {
-  const missing: string[] = [];
-  const seen = new Set<string>();
-  for (const segment of segments ?? []) {
-    const speakerName = segment.speakerName.trim();
-    const key = segment.speakerId?.trim() ? `id:${segment.speakerId.trim()}` : `name:${speakerName.toLowerCase()}`;
-    if (!speakerName || hasSpeakerColor(speakerColorMap, speakerName, segment.speakerId) || seen.has(key)) continue;
-    seen.add(key);
-    missing.push(speakerName);
-  }
-  return missing;
-}
-
-function resolveDialogueAttributionsForMessage(message: ChatMessageProps["message"], extra: ChatMessageExtra) {
-  const activeSwipe = message.swipes?.[message.activeSwipeIndex ?? 0];
-  return readDialogueAttributionsFromExtra(activeSwipe?.extra) ?? readDialogueAttributionsFromExtra(extra);
-}
 
 function formatEditableMessageText(value: string, quoteFormat: QuoteFormat): string {
   return formatTextQuotes(value, quoteFormat);
@@ -482,129 +434,6 @@ type MergedAvatar = {
 /** Regex to match a plain image URL as the entire content. */
 const IMAGE_URL_RE = /^https?:\/\/\S+\.(?:gif|png|jpe?g|webp)(?:\?[^\s]*)?$/i;
 
-const INLINE_MARKDOWN_CONTAINER_RE =
-  /\*\*\*[\s\S]+?\*\*\*|\*\*[\s\S]+?\*\*|__[\s\S]+?__|(?<!\*)\*(?!\*)[\s\S]+?(?<!\*)\*(?!\*)|==[\s\S]+?==|~~[\s\S]+?~~|(?<![_\w])_[^_]+?_(?![_\w])/g;
-
-/**
- * Render message text from persisted dialogue attribution spans.
- * Attribution is validated against the canonical, unformatted text first; quote
- * formatting happens only inside already-resolved segments.
- */
-function renderWithDialogueAttributions(
-  text: string,
-  defaultDialogueColor: string | undefined,
-  speakerColorMap: Map<string, string> | undefined,
-  attributions: DialogueAttributionsExtra | null | undefined,
-  quoteFormat: QuoteFormat,
-  boldDialogue = true,
-): ReactNode[] {
-  const segments = splitSpeakerDialogueColorSegments(text, defaultDialogueColor, speakerColorMap, attributions);
-  return segments.flatMap((segment) => {
-    const formatted = formatTextQuotes(segment.text, quoteFormat);
-    return renderMarkdownBlocks(formatted, (markdownSegment, _keyPrefix) =>
-      highlightDialogue(markdownSegment, segment.color, boldDialogue),
-    );
-  });
-}
-
-function collectInlineMarkdownRanges(text: string): Array<[number, number]> {
-  const ranges: Array<[number, number]> = [];
-  const regex = new RegExp(INLINE_MARKDOWN_CONTAINER_RE.source, INLINE_MARKDOWN_CONTAINER_RE.flags);
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
-    ranges.push([match.index, match.index + match[0].length]);
-  }
-  return ranges;
-}
-
-/**
- * Highlight quoted dialogue — text in supported dialogue quote pairs
- * like "", «», 「」, and 『』 gets bold + colored.
- *
- * Single quotes ('') are intentionally excluded because after curly-quote
- * normalization (' → ') they are indistinguishable from apostrophes,
- * causing false positives like "it's nice, isn't it" being partially bolded.
- *
- * Detects quote pairs on the RAW text first, then applies inline markdown
- * within each segment. This ensures that markdown syntax inside dialogue
- * (e.g. "A *long* day") doesn't split the quote across multiple nodes
- * and prevent dialogue bolding.
- *
- * Code spans (`…`), images (![…](…)), and links ([…](…)) are treated as
- * protected zones — quotes inside them are not matched as dialogue.
- */
-function highlightDialogue(text: string, dialogueColor?: string, boldDialogue = true): ReactNode[] {
-  // Step 1: Find protected zones where quotes should NOT trigger dialogue detection.
-  // Code spans, images, and links may legitimately contain quotation marks.
-  const protectedRanges: Array<[number, number]> = [];
-  const protectedRe = /`[^`\n]+`|!?\[[^\]]*\]\([^)]+\)/g;
-  let pm: RegExpExecArray | null;
-  while ((pm = protectedRe.exec(text)) !== null) {
-    protectedRanges.push([pm.index, pm.index + pm[0].length]);
-  }
-  const isProtected = (pos: number) => protectedRanges.some(([s, e]) => pos >= s && pos < e);
-  const markdownRanges = collectInlineMarkdownRanges(text);
-  const isInsideInlineMarkdown = (start: number, end: number) => markdownRanges.some(([s, e]) => start > s && end < e);
-
-  // Step 2: Find quote pairs, skipping protected zones and quotes already enclosed by inline markdown.
-  const quoteRe = new RegExp(`(?:${DIALOGUE_QUOTE_PATTERN_SOURCE})`, "g");
-  const quotePairs: Array<{ start: number; end: number }> = [];
-  let qm: RegExpExecArray | null;
-  while ((qm = quoteRe.exec(text)) !== null) {
-    const start = qm.index;
-    const end = qm.index + qm[0].length;
-    if (!isProtected(start) && !isInsideInlineMarkdown(start, end)) {
-      quotePairs.push({ start, end });
-    }
-  }
-
-  // No dialogue quotes found — just apply markdown and return.
-  if (quotePairs.length === 0) {
-    return applyInlineMarkdown(text, "m");
-  }
-
-  // Step 3: Split text into quoted / non-quoted segments and render.
-  const result: ReactNode[] = [];
-  let lastIndex = 0;
-  let key = 0;
-
-  for (const q of quotePairs) {
-    // Non-quoted text before this pair — apply markdown only
-    if (q.start > lastIndex) {
-      result.push(...applyInlineMarkdown(text.slice(lastIndex, q.start), `m${key}`));
-    }
-
-    const raw = text.slice(q.start, q.end);
-    const openQuote = raw[0];
-    const closeQuote = raw[raw.length - 1];
-    const inner = raw.slice(1, -1);
-    const DialogueTag = boldDialogue ? "strong" : "span";
-
-    // Apply markdown inside the quoted text, then wrap in a dialogue span/strong.
-    const innerNodes = applyInlineMarkdown(inner, `mq${key}`);
-    result.push(
-      <DialogueTag
-        key={`d${key++}`}
-        style={dialogueColor ? { color: dialogueColor } : undefined}
-        className={!dialogueColor ? "text-black dark:text-white" : undefined}
-      >
-        {openQuote}
-        {innerNodes}
-        {closeQuote}
-      </DialogueTag>,
-    );
-
-    lastIndex = q.end;
-  }
-
-  // Remaining text after the last quote pair
-  if (lastIndex < text.length) {
-    result.push(...applyInlineMarkdown(text.slice(lastIndex), `mt${key}`));
-  }
-
-  return result;
-}
-
 /** Check whether text contains meaningful HTML tags. */
 const HTML_TAG_RE =
   /<(?:div|span|style|table|p|br|img|a|ul|ol|li|h[1-6]|em|strong|b|i|pre|code|section|article|header|footer|nav|button|input|form|label|select|option|textarea|canvas|svg|video|audio|source|iframe|hr|blockquote|details|summary|figure|figcaption|main|aside|mark|small|sub|sup|del|ins|abbr|time|progress|meter|output|dialog|template|slot|ruby|rt|rp|bdi|bdo|wbr|area|map|track|embed|object|param|picture|portal|datalist|fieldset|legend|optgroup|caption|col|colgroup|thead|tbody|tfoot|th|td|dl|dt|dd|kbd|samp|var|cite|dfn|q|s|u|font|center)\b[^>]*>/i;
@@ -860,33 +689,19 @@ function scopeChatCss(css: string, scopeSelector: string): string {
   });
 }
 
-/**
- * Render message content, handling both plain text with dialogue highlighting
- * and HTML blocks that should be rendered as actual HTML.
- */
+/** Render ordinary markdown text or scoped HTML blocks. */
 function renderContent(
   text: string,
-  dialogueColor?: string,
-  speakerColorMap?: Map<string, string>,
-  attributions?: DialogueAttributionsExtra | null,
-  boldDialogue = true,
   htmlScopeClass = "mari-html-message-content",
   quoteFormat: QuoteFormat = "straight",
 ): ReactNode {
-  const withoutSpeakerTags = stripSpeakerTags(text);
-
-  if (!HTML_TAG_RE.test(withoutSpeakerTags)) {
-    return renderWithDialogueAttributions(
-      text,
-      dialogueColor,
-      speakerColorMap,
-      attributions,
-      quoteFormat,
-      boldDialogue,
+  if (!HTML_TAG_RE.test(text)) {
+    return renderMarkdownBlocks(formatTextQuotes(text, quoteFormat), (segment, keyPrefix) =>
+      applyInlineMarkdown(segment, keyPrefix),
     );
   }
 
-  const stripped = stripSpeakerTags(formatTextQuotes(text, quoteFormat));
+  const stripped = formatTextQuotes(text, quoteFormat);
 
   const { html: strippedWithoutStyleBlocks, css: rawStyleBlocks } = extractChatStyleBlocks(stripped);
 
@@ -917,48 +732,8 @@ function renderContent(
 
   const clean = sanitizeChatHtml(withImages, { allowStyle: true });
 
-  // Apply dialogue bolding inside sanitised HTML with per-speaker color support.
-  const withDialogue = (() => {
-    // Sanitize a CSS color value — only allow safe color formats
-    const safeColor = (c: string) =>
-      /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|rgba?\([\d,.\s%]+\)|hsla?\([\d,.\s%]+\))$/.test(c) ? c : "inherit";
-    // Helper: check if an offset is inside an HTML tag (attribute context)
-    const insideTag = (text: string, offset: number) => {
-      const before = text.slice(0, offset);
-      return before.lastIndexOf("<") > before.lastIndexOf(">");
-    };
-    const dialogueTag = boldDialogue ? "strong" : "span";
-    // Pass 1: color quotes inside speaker-annotated spans with their specific colors
-    const afterSpeaker = clean.replace(
-      /<span[^>]*\bdata-spk="([^"]*)"[^>]*>([\s\S]*?)<\/span>/g,
-      (_m: string, color: string, content: string) => {
-        const validColor = safeColor(color);
-        const speakerQuoteRe = new RegExp(`(?<![=\\w])(?:${HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE})`, "g");
-        return content.replace(speakerQuoteRe, (match: string, offset: number) => {
-          if (insideTag(content, offset)) return match;
-          return `<${dialogueTag} style="color:${validColor}">${match}</${dialogueTag}>`;
-        });
-      },
-    );
-    // Pass 2: color remaining quotes with default dialogue color, skipping already-wrapped text
-    const remainingQuoteRe = new RegExp(`(?<![=\\w])(?:${HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE})`, "g");
-    return afterSpeaker.replace(remainingQuoteRe, (match, offset) => {
-      if (insideTag(afterSpeaker, offset)) return match;
-      const before = afterSpeaker.slice(0, offset);
-      if (/<(?:strong|span)[^>]*>\s*$/.test(before.slice(Math.max(0, before.length - 300)))) return match;
-      // Skip if inside a <font> tag (author-specified colors take priority)
-      const lastFontOpen = before.lastIndexOf("<font ");
-      if (lastFontOpen !== -1) {
-        const lastFontClose = before.lastIndexOf("</font>");
-        if (lastFontClose < lastFontOpen) return match;
-      }
-      const highlightColor = dialogueColor ?? "white";
-      return `<${dialogueTag} style="color:${highlightColor}">${match}</${dialogueTag}>`;
-    });
-  })();
-
   // Convert *** and --- horizontal rules to <hr> tags in HTML path
-  const withHr = withDialogue.replace(
+  const withHr = clean.replace(
     /(?:^|(?<=<br[^>]*>))\s*(?:\*{3,}|-{3,})\s*(?:$|(?=<br[^>]*>))/g,
     '<hr style="margin:0.75em 0;border:0;border-top:1px solid var(--border)">',
   );
@@ -1044,7 +819,6 @@ export const ChatMessage = memo(function ChatMessage({
     showTokenUsage,
     showMessageNumbers,
     guideGenerations,
-    boldDialogue,
     theme,
     collapseHiddenMessages,
     editMessagesOnDoubleClick,
@@ -1064,7 +838,6 @@ export const ChatMessage = memo(function ChatMessage({
       showTokenUsage: s.showTokenUsage,
       showMessageNumbers: s.showMessageNumbers,
       guideGenerations: s.guideGenerations,
-      boldDialogue: s.boldDialogue ?? true,
       theme: s.theme,
       collapseHiddenMessages: s.summaryPopoverSettings.collapseHiddenMessages,
       editMessagesOnDoubleClick: s.editMessagesOnDoubleClick,
@@ -1260,7 +1033,6 @@ export const ChatMessage = memo(function ChatMessage({
       promptSnapshot: activePromptSnapshot,
     });
   }, [activePromptSnapshot, message.characterId, message.id, onPeekPrompt]);
-  const dialogueAttributions = useMemo(() => resolveDialogueAttributionsForMessage(message, extra), [message, extra]);
   const isHiddenExpanded =
     isHiddenFromAI && (!collapseHiddenMessages || manuallyExpandedHidden || editing || !!isStreaming);
   const isHiddenCollapsed = isHiddenFromAI && collapseHiddenMessages && !isHiddenExpanded;
@@ -1581,54 +1353,10 @@ export const ChatMessage = memo(function ChatMessage({
         }
       : personaInfo
     : charInfo;
-  const dialogueColor = isUser ? undefined : (charInfo?.dialogueColor ?? undefined);
   const boxBgColor = msgColors?.boxColor ?? undefined;
   const msgNameColor = msgColors?.nameColor ?? undefined;
   const roleplayBubbleBg = boxBgColor ? boxBgColor : isUser ? userBubbleBg : assistantBubbleBg;
 
-  const speakerColorMap = useMemo(() => {
-    const identities = [
-      ...(scopedCharacterMap
-        ? [...scopedCharacterMap.entries()].map(([id, info]) => ({
-            id,
-            color: info.dialogueColor,
-            names: [info.name, ...(info.speakerAliases ?? [])],
-          }))
-        : []),
-      ...(personaInfo?.name
-        ? [
-            {
-              id: personaInfo.id,
-              color: personaInfo.dialogueColor,
-              names: [personaInfo.name],
-            },
-          ]
-        : []),
-    ];
-    const map = createSpeakerColorLookup(identities);
-    return map.size > 0 ? map : undefined;
-  }, [personaInfo?.dialogueColor, personaInfo?.id, personaInfo?.name, scopedCharacterMap]);
-  useLazyDialogueAttributionBackfill({
-    message,
-    extra,
-    characterMap: scopedCharacterMap ?? undefined,
-    chatCharacterIds,
-    enabled: !isStreaming,
-  });
-
-  useEffect(() => {
-    if (!import.meta.env.DEV || !dialogueAttributions?.segments.length) return;
-    const chatId = message.chatId || "unknown";
-    if (loggedMissingDialogueColorChats.has(chatId)) return;
-    const speakers = missingDialogueColorSpeakers(dialogueAttributions.segments, speakerColorMap);
-    if (speakers.length === 0) return;
-    loggedMissingDialogueColorChats.add(chatId);
-    console.warn("[chat-ui] Dialogue attribution speaker missing color map.", {
-      chatId,
-      messageId: message.id,
-      speakers,
-    });
-  }, [dialogueAttributions, message.chatId, message.id, speakerColorMap]);
   // Merged group chat: cycling avatars + cycling name color
   const mergedAvatars = useMemo<MergedAvatar[]>(() => {
     if (!isMergedGroup || !characterMap || !chatCharacterIds) return [];
@@ -1765,7 +1493,7 @@ export const ChatMessage = memo(function ChatMessage({
       </span>
     ) : null;
 
-  // Render content with dialogue highlighting (or HTML rendering)
+  // Render ordinary markdown or scoped HTML without inferred speaker styling.
   const text = typeof displayContent === "string" ? displayContent : message.content;
   const isHtmlContent = HTML_TAG_RE.test(text);
   const htmlScopeClass = useMemo(() => {
@@ -1774,16 +1502,8 @@ export const ChatMessage = memo(function ChatMessage({
   }, [message.id]);
 
   const renderedContent = useMemo(() => {
-    return renderContent(
-      text,
-      isUser ? undefined : (dialogueColor ?? ASSISTANT_DEFAULT_DIALOGUE_COLOR),
-      speakerColorMap,
-      dialogueAttributions,
-      boldDialogue,
-      htmlScopeClass,
-      quoteFormat,
-    );
-  }, [text, dialogueColor, speakerColorMap, dialogueAttributions, boldDialogue, htmlScopeClass, quoteFormat]);
+    return renderContent(text, htmlScopeClass, quoteFormat);
+  }, [text, htmlScopeClass, quoteFormat]);
 
   const handleCopy = () => {
     copyToClipboard(message.content);

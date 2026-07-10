@@ -227,26 +227,6 @@ function TypingIndicatorRow({ names, cardCssId }: { names: string[]; cardCssId?:
   );
 }
 
-/** Check if a message's content uses "Name: text" format with known chat-member character names */
-function hasNamePrefixFormat(msg: Message, characterMap: CharacterMap, chatCharacterIds: string[]): boolean {
-  if (!msg.content) return false;
-  const chatNames = new Set(
-    chatCharacterIds
-      .map((id) => characterMap.get(id)?.name?.toLowerCase())
-      .filter((name): name is string => typeof name === "string" && name.length > 0),
-  );
-  if (!chatNames.size) return false;
-  const lines = msg.content.split("\n");
-  for (const line of lines) {
-    const colonIdx = line.indexOf(": ");
-    if (colonIdx > 0) {
-      const name = line.slice(0, colonIdx).trim();
-      if (chatNames.has(name.toLowerCase())) return true;
-    }
-  }
-  return false;
-}
-
 function isHiddenFromUser(message: Message) {
   try {
     const extra = typeof message.extra === "string" ? JSON.parse(message.extra) : (message.extra ?? {});
@@ -997,11 +977,9 @@ export function ConversationView({
       const nextGrouped = isGroupedWith(msg, next, false);
       const bubbleGroupPosition = grouped ? (nextGrouped ? "middle" : "last") : nextGrouped ? "first" : "single";
 
-      const hasGroupFormat = msg.content.includes("<speaker=") || hasNamePrefixFormat(msg, characterMap, chatCharIds);
       let contentParts: string[] | undefined;
       // Classic layout progressively reveals assistant paragraphs without splitting the real message.
-      // Group-chat merged formats stay intact for ConversationMessage's grouped renderer.
-      if (conversationMessageStyle === "classic" && msg.role === "assistant" && msg.content && !hasGroupFormat) {
+      if (conversationMessageStyle === "classic" && msg.role === "assistant" && msg.content) {
         const cleaned = stripTimestamps(msg.content);
         const charName = msg.characterId ? characterMap.get(msg.characterId)?.name : null;
         const lines = splitAssistantContentLines(cleaned, charName);

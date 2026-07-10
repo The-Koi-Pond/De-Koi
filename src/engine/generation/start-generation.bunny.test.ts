@@ -9,7 +9,6 @@ import {
 import { assembleGenerationPrompt } from "./prompt-assembly";
 import { dryRunGeneration, startGeneration } from "./start-generation";
 import type { JsonRecord } from "./runtime-records";
-import { createDialogueAttributionTextHash } from "../shared/text/dialogue-attribution";
 
 async function drain(generator: AsyncGenerator<unknown>): Promise<void> {
   for await (const _event of generator) {
@@ -537,10 +536,10 @@ describe("user-message regeneration review guards", () => {
     expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "assistant_action" })]));
   });
 
-  it("saves roleplay dialogue attribution metadata on fresh assistant messages", async () => {
+  it("saves fresh roleplay assistant prose without attribution rewriting", async () => {
     let modelCalls = 0;
     const createdMessages: Array<{ chatId: string; value: Record<string, unknown> }> = [];
-    const savedText = '"Ready."';
+    const savedText = '<speaker name="QA Character">"Ready."</speaker>';
     const storage = generationStorage({
       getTarget: (_call, target) => target,
       onCreate: (chatId, value) => {
@@ -572,20 +571,7 @@ describe("user-message regeneration review guards", () => {
     expect(modelCalls).toBe(1);
     expect(createdMessages).toHaveLength(1);
     expect(savedMessage).toMatchObject({ role: "assistant", characterId: "char-1", content: savedText });
-    expect(extra.dialogueAttributions).toMatchObject({
-      version: 1,
-      textHash: createDialogueAttributionTextHash(savedText),
-      segments: [
-        {
-          start: 0,
-          end: savedText.length,
-          speakerId: "char-1",
-          speakerName: "QA Character",
-          source: "speaker-tag",
-          confidence: "explicit",
-        },
-      ],
-    });
+    expect(extra).not.toHaveProperty("dialogueAttributions");
     expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "assistant_message" })]));
   });
 
@@ -627,12 +613,12 @@ describe("user-message regeneration review guards", () => {
     expect(extra).not.toHaveProperty("dialogueAttributions");
   });
 
-  it("saves roleplay dialogue attribution metadata on regenerated assistant swipes", async () => {
+  it("saves regenerated roleplay prose without attribution rewriting", async () => {
     let modelCalls = 0;
     const savedSwipes: string[] = [];
     const swipeOptions: unknown[] = [];
     const extraPatches: Array<Record<string, unknown>> = [];
-    const savedText = '"Again."';
+    const savedText = 'QA Character: "Again."';
     const storage = generationStorage({
       getTarget: (_call, target) => ({ ...target, role: "assistant", characterId: "char-1" }),
       onSwipe: (content, options) => {
@@ -664,21 +650,8 @@ describe("user-message regeneration review guards", () => {
 
     expect(modelCalls).toBe(1);
     expect(savedSwipes).toEqual([savedText]);
-    expect(savedSwipeExtra.dialogueAttributions).toMatchObject({
-      version: 1,
-      textHash: createDialogueAttributionTextHash(savedText),
-      segments: [
-        {
-          start: 0,
-          end: savedText.length,
-          speakerId: "char-1",
-          speakerName: "QA Character",
-          source: "name-prefix",
-          confidence: "explicit",
-        },
-      ],
-    });
-    expect(extraPatches[0]?.dialogueAttributions).toMatchObject(savedSwipeExtra.dialogueAttributions as object);
+    expect(savedSwipeExtra).not.toHaveProperty("dialogueAttributions");
+    expect(extraPatches[0]).not.toHaveProperty("dialogueAttributions");
   });
   it("dry-runs generation with prompt output and no chat-state writes", async () => {
     let modelCalls = 0;

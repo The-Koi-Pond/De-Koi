@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GenerationPromptSnapshot, Message } from "../../../../engine/contracts/types/chat";
-import { createDialogueAttributionTextHash } from "../../../../engine/shared/text/dialogue-attribution";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { ConversationMessage } from "./ConversationMessage";
@@ -37,13 +36,6 @@ const characterMap = new Map([
   ],
 ]);
 
-async function flushLegacyBackfill() {
-  await act(async () => {
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    await Promise.resolve();
-  });
-}
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
   valueSetter?.call(textarea, value);
@@ -503,7 +495,7 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(container!.textContent).not.toContain("Aster");
   });
 
-  it("keeps character CSS hooks on grouped speaker messages", () => {
+  it("renders name-prefixed text verbatim without inferring grouped speakers", () => {
     const groupedMessage: Message = {
       ...message,
       id: "message-grouped-speakers",
@@ -540,13 +532,13 @@ describe("ConversationMessage memo subscriptions", () => {
       );
     });
 
-    const asterContent = container!.querySelector<HTMLElement>('[data-card-css="character-1"] .mari-message-content');
-    const bramContent = container!.querySelector<HTMLElement>('[data-card-css="character-2"] .mari-message-content');
-    expect(asterContent?.textContent).toContain("hello there");
-    expect(bramContent?.textContent).toContain("pancakes?");
+    expect(container!.textContent).toContain("Aster: hello there");
+    expect(container!.textContent).toContain("Bram: pancakes?");
+    expect(container!.querySelector('[data-card-css="character-1"]')).toBeNull();
+    expect(container!.querySelector('[data-card-css="character-2"]')).toBeNull();
   });
 
-  it("colors grouped roleplay dialogue with the speaking character dialogue color", () => {
+  it("renders grouped roleplay dialogue without character quote colors", () => {
     const groupedMessage: Message = {
       ...message,
       id: "message-grouped-dialogue-colors",
@@ -591,14 +583,9 @@ describe("ConversationMessage memo subscriptions", () => {
       );
     });
 
-    const coloredQuotes = Array.from(container!.querySelectorAll<HTMLElement>("strong, span")).filter(
-      (el) => el.textContent?.includes("Good morning.") || el.textContent?.includes("After you."),
-    );
-
-    expect(coloredQuotes.map((el) => [el.textContent, el.style.color])).toEqual([
-      ['"Good morning."', "rgb(68, 204, 255)"],
-      ['"After you."', "rgb(255, 136, 68)"],
-    ]);
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
+    expect(container!.textContent).toContain('"Good morning."');
+    expect(container!.textContent).toContain('"After you."');
   });
   it("does not infer roleplay dialogue colors from prose without stored attribution", () => {
     const attributedMessage: Message = {
@@ -896,7 +883,7 @@ describe("ConversationMessage memo subscriptions", () => {
     });
   });
 
-  it("colors conversation quotes from active swipe dialogue attribution", () => {
+  it("ignores legacy dialogue attribution colors", () => {
     const content = 'Aster smiled. "Hi."';
     const attributedMessage = {
       ...message,
@@ -915,7 +902,7 @@ describe("ConversationMessage memo subscriptions", () => {
           extra: {
             dialogueAttributions: {
               version: 1,
-              textHash: createDialogueAttributionTextHash(content),
+              textHash: "legacy-attribution-hash",
               segments: [
                 {
                   start: 14,
@@ -949,47 +936,8 @@ describe("ConversationMessage memo subscriptions", () => {
       );
     });
 
-    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")?.style.color).toBe(
-      "rgb(51, 170, 255)",
-    );
-  });
-  it("stores an empty legacy backfill marker for ambiguous conversation prose", async () => {
-    const patchExtra = vi.spyOn(storageApi, "patchChatMessageExtra").mockResolvedValue({} as Message);
-    const content = '"Welcome."';
-
-    act(() => {
-      root = createRoot(container!);
-      root.render(
-        <QueryClientProvider client={queryClient!}>
-          <ConversationMessage
-            message={{
-              ...message,
-              id: "message-empty-legacy-backfill",
-              characterId: null,
-              content,
-              extra: {
-                displayText: null,
-                isGenerated: true,
-                tokenCount: null,
-                generationInfo: null,
-              },
-            }}
-            characterMap={characterMap}
-            chatCharacterIds={["character-1"]}
-          />
-        </QueryClientProvider>,
-      );
-    });
-
-    await flushLegacyBackfill();
-
-    expect(patchExtra).toHaveBeenCalledWith("message-empty-legacy-backfill", {
-      dialogueAttributions: {
-        version: 1,
-        textHash: createDialogueAttributionTextHash(content),
-        segments: [],
-      },
-    });
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
+    expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain(content);
   });
   it("does not apply persona dialogue color to user-authored conversation quotes", () => {
     const userMessage: Message = {

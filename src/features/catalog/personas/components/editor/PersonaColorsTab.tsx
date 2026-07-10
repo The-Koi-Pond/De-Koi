@@ -24,9 +24,8 @@ export function PersonaColorsTab({
     setExtracting(true);
     setExtractError(null);
     try {
-      const [nameColor, dialogueColor, boxColor] = await extractColorsFromImage(avatarUrl);
+      const [nameColor, , boxColor] = await extractColorsFromImage(avatarUrl);
       updateField("nameColor", nameColor);
-      updateField("dialogueColor", dialogueColor);
       updateField("boxColor", boxColor);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Avatar color extraction failed.";
@@ -41,7 +40,7 @@ export function PersonaColorsTab({
     <div className="space-y-6">
       <PersonaEditorSectionHeader
         title="Persona Colors"
-        subtitle="Customize how your persona appears in chats. Colors are applied to your name, dialogue, and message bubble."
+        subtitle="Customize how your persona name and message bubble appear in chats."
       />
 
       <button
@@ -101,11 +100,7 @@ export function PersonaColorsTab({
               }
             >
               <span className="text-neutral-100">*You step forward confidently.* </span>
-              <strong
-                style={formData.dialogueColor ? { color: formData.dialogueColor } : { color: "rgb(255, 255, 255)" }}
-              >
-                &ldquo;I&apos;m ready for this.&rdquo;
-              </strong>
+              <span className="text-neutral-100">&ldquo;I&apos;m ready for this.&rdquo;</span>
             </div>
           </div>
         </div>
@@ -117,15 +112,6 @@ export function PersonaColorsTab({
         gradient
         label="Name Display Color"
         helpText="The color (or gradient) used for your persona's name in chat messages and persona selectors. Supports gradients!"
-      />
-
-      <ColorPicker
-        value={formData.dialogueColor}
-        onChange={(value) => updateField("dialogueColor", value)}
-        label="Dialogue Highlight Color"
-        helpText={
-          'Text inside dialogue quotation marks ("", “”, «», 「」, 『』) will be automatically colored with this, and can also be bolded from Settings.'
-        }
       />
 
       <ColorPicker
@@ -141,10 +127,6 @@ export function PersonaColorsTab({
           <li>
             &bull; <strong className="text-[var(--foreground)]">Name color</strong> — Applied to your persona&apos;s
             display name in chat. Gradients use CSS linear-gradient.
-          </li>
-          <li>
-            &bull; <strong className="text-[var(--foreground)]">Dialogue color</strong> — All text inside dialogue
-            quotation marks is automatically colored with this value, and can optionally be bolded from Settings.
           </li>
           <li>
             &bull; <strong className="text-[var(--foreground)]">Box color</strong> — Sets the background color of your

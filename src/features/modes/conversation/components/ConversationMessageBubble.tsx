@@ -8,66 +8,11 @@ import {
   ConversationMessageOverlays,
   ConversationMessageSwipeControl,
   ConversationMessageTranslation,
-  MessageContent,
   MessageSelectCheckbox,
-  nameColorStyle,
   type ConversationMessageRenderContext,
 } from "./ConversationMessageShared";
 
-function ConversationMessageGroupedBubbleContent({ context }: { context: ConversationMessageRenderContext }) {
-  if (!context.groupedSegments || context.isUser) return null;
-
-  return (
-    <div className="space-y-2">
-      {context.groupedSegments.slice(0, context.visibleSegments).map((grp, index) => {
-        const combinedText = grp.lines.join("\n");
-        const segChar = grp.speaker && context.charByName ? context.charByName.get(grp.speaker.toLowerCase()) : null;
-        const segName = segChar?.name ?? grp.speaker ?? "";
-        const segColor = segChar?.nameColor;
-        const segDialogueColor = segChar?.dialogueColor;
-
-        if (!grp.speaker) {
-          return (
-            <div
-              key={index}
-              className={cn(
-                "text-[0.875rem] italic text-[var(--muted-foreground)]",
-                index > 0 && "border-t border-[var(--border)]/40 pt-2",
-              )}
-            >
-              <MessageContent
-                content={combinedText}
-                mentionNames={context.mentionNames}
-                onImageOpen={context.onImageOpen}
-                quoteFormat={context.quoteFormat}
-              />
-            </div>
-          );
-        }
-
-        return (
-          <div key={index} className={cn("min-w-0", index > 0 && "border-t border-[var(--border)]/40 pt-2")}>
-            <div className="mb-1 text-[0.75rem] font-semibold leading-tight" style={nameColorStyle(segColor)}>
-              {segName}
-            </div>
-            <MessageContent
-              content={combinedText}
-              mentionNames={context.mentionNames}
-              onImageOpen={context.onImageOpen}
-              dialogueColor={segDialogueColor}
-              quoteFormat={context.quoteFormat}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 export function ConversationMessageBubble({ context }: { context: ConversationMessageRenderContext }) {
-  const groupedBubbleContent =
-    context.groupedSegments && !context.isUser ? <ConversationMessageGroupedBubbleContent context={context} /> : null;
-
   return (
     <div
       className={cn(
@@ -118,7 +63,7 @@ export function ConversationMessageBubble({ context }: { context: ConversationMe
           )}
         >
           <ConversationMessageMeta context={context} />
-          <ConversationMessageBodyContent context={context} groupedBubbleContent={groupedBubbleContent} />
+          <ConversationMessageBodyContent context={context} />
           <ConversationMessageTranslation context={context} />
           <ConversationMessageAttachments context={context} className="mt-1.5 flex flex-col items-center gap-2" />
         </div>

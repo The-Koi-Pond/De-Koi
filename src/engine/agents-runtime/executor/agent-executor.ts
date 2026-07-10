@@ -2435,30 +2435,10 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
     if (availableSpritesBlock) parts.push(availableSpritesBlock);
   }
 
-  if (context.memory._availableBackgrounds) {
-    const bgs = context.memory._availableBackgrounds as Array<{
-      filename: string;
-      originalName?: string | null;
-      tags: string[];
-      source?: "user" | "game_asset";
-    }>;
-    parts.push(`<available_backgrounds>`);
-    for (const bg of bgs) {
-      const label = bg.originalName ? `${bg.filename} (${bg.originalName})` : bg.filename;
-      const source = bg.source === "game_asset" ? " [source: game asset]" : "";
-      const tagStr = bg.tags.length > 0 ? ` [tags: ${bg.tags.join(", ")}]` : "";
-      parts.push(`- ${label}${source}${tagStr}`);
-    }
-    parts.push(`</available_backgrounds>`);
-    if (context.memory._currentBackground) {
-      parts.push(`<current_background>${context.memory._currentBackground}</current_background>`);
-    }
-  }
-
   if (agentTypes.includes("background") && context.memory._backgroundGenerationEnabled === true) {
     parts.push(`<background_generation enabled="true">`);
     parts.push(
-      `If no listed background fits a changed or new location, request a generated reusable location background instead of forcing a weak match.`,
+      `No current background is set. Request one generated reusable location background when the scene has a concrete setting.`,
     );
     parts.push(`</background_generation>`);
   }

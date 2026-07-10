@@ -241,8 +241,6 @@ export interface ChatMetadata {
   agentVariables?: Record<string, string>;
   /** Group chat mode: "merged" (narrator) or "individual" (separate characters) */
   groupChatMode?: GroupChatMode;
-  /** Group individual mode: color dialogues with speaker tags */
-  groupSpeakerColors?: boolean;
   /** Group individual mode: prefix prompt history turns with speaker names. */
   groupSpeakerNamesInHistory?: boolean;
   /** Group individual mode response order: "smart" (default), "sequential", or "manual". */
@@ -497,32 +495,6 @@ export interface MessageAttachment {
   [key: string]: MessageAttachmentExtraValue;
 }
 
-export type DialogueAttributionSource =
-  | "speaker-tag"
-  | "name-prefix"
-  | "explicit-attribution"
-  | "sidecar-model"
-  | "heuristic"
-  | "model-annotation"
-  | "postprocess";
-
-export type DialogueAttributionConfidence = "explicit" | "derived";
-
-export interface DialogueAttributionSegment {
-  start: number;
-  end: number;
-  speakerName: string;
-  speakerId?: string | null;
-  source: DialogueAttributionSource;
-  confidence: DialogueAttributionConfidence;
-}
-
-export interface DialogueAttributionsExtra {
-  version: 1;
-  textHash: string;
-  segments: DialogueAttributionSegment[];
-}
-
 export interface MessageMemoryCaptureExtra {
   status: "completed";
   jobId: string;
@@ -549,8 +521,6 @@ export interface MessageExtra {
   reasoning_content?: string | null;
   /** User-provided or generated attachments rendered with the message. */
   attachments?: MessageAttachment[] | null;
-  /** Structured dialogue ownership ranges for deterministic speaker coloring. */
-  dialogueAttributions?: DialogueAttributionsExtra | null;
   memoryCapture?: MessageMemoryCaptureExtra | null;
   /** Per-swipe sprite expressions from the Expression Engine agent */
   spriteExpressions?: Record<string, string> | null;

@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
-import { createDialogueAttributionTextHash } from "../shared/text/dialogue-attribution";
 import type { GenerationEvent } from "./generation-events";
 import { startGeneration } from "./start-generation";
 
@@ -164,8 +163,8 @@ async function collectEvents(generator: AsyncGenerator<GenerationEvent>): Promis
   return events;
 }
 
-describe("startGeneration dialogue attribution", () => {
-  it("strips speaker tags, reads canonical saved text, and stores attribution on the active swipe", async () => {
+describe("startGeneration roleplay text persistence", () => {
+  it("saves model prose verbatim without speaker attribution metadata", async () => {
     const { storage, messages, calls } = roleplayAttributionStorage();
 
     await collectEvents(
@@ -186,21 +185,10 @@ describe("startGeneration dialogue attribution", () => {
 
     const assistant = messages.find((item) => item.role === "assistant");
     expect(assistant).toBeDefined();
-    expect(assistant!.content).toBe('"Hi."');
-    expect(calls).toEqual(
-      expect.arrayContaining([`getChatMessage:${assistant!.id}`, `patchChatMessageExtra:${assistant!.id}`]),
-    );
-    expect(calls.indexOf(`getChatMessage:${assistant!.id}`)).toBeLessThan(
-      calls.indexOf(`patchChatMessageExtra:${assistant!.id}`),
-    );
-    expect(assistant!.extra.dialogueAttributions).toEqual({
-      version: 1,
-      textHash: createDialogueAttributionTextHash('"Hi."'),
-      segments: [
-        { start: 0, end: 5, speakerName: "Aki", speakerId: "char-a", source: "speaker-tag", confidence: "explicit" },
-      ],
-    });
-    expect(assistant!.swipes[0]?.extra?.dialogueAttributions).toEqual(assistant!.extra.dialogueAttributions);
+    expect(assistant!.content).toBe('<speaker name="Aki">"Hi."</speaker>');
+    expect(calls).not.toContain(`patchChatMessageExtra:${assistant!.id}`);
+    expect(assistant!.extra).not.toHaveProperty("dialogueAttributions");
+    expect(assistant!.swipes[0]?.extra).not.toHaveProperty("dialogueAttributions");
   });
 
   it("preserves generated assistant blank lines when saving roleplay content", async () => {
@@ -226,70 +214,5 @@ describe("startGeneration dialogue attribution", () => {
     const assistant = messages.find((item) => item.role === "assistant");
     expect(assistant?.content).toBe(content);
     expect(assistant?.swipes[0]?.content).toBe(content);
-  });
-  it("stores Name-prefix attribution against the canonical saved text without a model call", async () => {
-    const { storage, messages, calls } = roleplayAttributionStorage();
-
-    await collectEvents(
-      startGeneration(
-        {
-          storage,
-          llm: roleplayLlm('Aki: "Hi."'),
-          integrations: {} as IntegrationGateway,
-        },
-        {
-          chatId: "chat-1",
-          connectionId: "conn-1",
-          userMessage: "say hello",
-          impersonateBlockAgents: true,
-        },
-      ),
-    );
-
-    const assistant = messages.find((item) => item.role === "assistant");
-    expect(assistant).toBeDefined();
-    expect(assistant!.content).toBe('"Hi."');
-    expect(calls).toEqual(
-      expect.arrayContaining([`getChatMessage:${assistant!.id}`, `patchChatMessageExtra:${assistant!.id}`]),
-    );
-    expect(assistant!.extra.dialogueAttributions).toEqual({
-      version: 1,
-      textHash: createDialogueAttributionTextHash('"Hi."'),
-      segments: [
-        { start: 0, end: 5, speakerName: "Aki", speakerId: "char-a", source: "name-prefix", confidence: "explicit" },
-      ],
-    });
-    expect(assistant!.swipes[0]?.extra?.dialogueAttributions).toEqual(assistant!.extra.dialogueAttributions);
-  });
-  it("uses the selected sidecar model for ambiguous quoted dialogue", async () => {
-    const { storage, messages } = roleplayAttributionStorage({ provider: "sidecar", model: "local-sidecar" });
-
-    await collectEvents(
-      startGeneration(
-        {
-          storage,
-          llm: roleplayLlm('Aki smiled. "Hi."', '[{"quote":"\\"Hi.\\"","speaker":"Aki"}]'),
-          integrations: {} as IntegrationGateway,
-        },
-        {
-          chatId: "chat-1",
-          connectionId: "conn-1",
-          userMessage: "say hello",
-          impersonateBlockAgents: true,
-        },
-      ),
-    );
-
-    const assistant = messages.find((item) => item.role === "assistant");
-    expect(assistant).toBeDefined();
-    expect(assistant!.content).toBe('Aki smiled. "Hi."');
-    expect(assistant!.extra.dialogueAttributions).toEqual({
-      version: 1,
-      textHash: createDialogueAttributionTextHash('Aki smiled. "Hi."'),
-      segments: [
-        { start: 12, end: 17, speakerName: "Aki", speakerId: "char-a", source: "sidecar-model", confidence: "derived" },
-      ],
-    });
-    expect(assistant!.swipes[0]?.extra?.dialogueAttributions).toEqual(assistant!.extra.dialogueAttributions);
   });
 });

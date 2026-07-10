@@ -1,4 +1,5 @@
 import type { ComponentType, KeyboardEvent } from "react";
+import { Blocks, Brush, Download, HeartPulse, Palette, Settings2, SlidersHorizontal, Wrench } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { HealthDiagnosticsSettings } from "../../diagnostics/shell";
@@ -13,14 +14,39 @@ import {
 } from "./settings/SettingsSurfaces";
 
 const TABS = [
-  { id: "general", label: "General" },
-  { id: "appearance", label: "Appearance" },
-  { id: "themes", label: "Themes" },
-  { id: "plugins", label: "Modules" },
-  { id: "extensions", label: "Extensions" },
-  { id: "import", label: "Import" },
-  { id: "health", label: "Health" },
-  { id: "advanced", label: "Advanced" },
+  {
+    id: "general",
+    label: "General",
+    description: "Everyday behavior, message controls, and generation defaults.",
+    icon: Settings2,
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    description: "Text, chat surfaces, roleplay art, and visual comfort.",
+    icon: Brush,
+  },
+  { id: "themes", label: "Themes", description: "Choose, import, and manage complete visual themes.", icon: Palette },
+  { id: "plugins", label: "Modules", description: "Turn bundled De-Koi capabilities on or off.", icon: Blocks },
+  { id: "extensions", label: "Extensions", description: "Manage installed extensions and their access.", icon: Wrench },
+  {
+    id: "import",
+    label: "Import",
+    description: "Bring compatible characters, chats, and settings into De-Koi.",
+    icon: Download,
+  },
+  {
+    id: "health",
+    label: "Health",
+    description: "Check app readiness and troubleshoot local services.",
+    icon: HeartPulse,
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    description: "Runtime, storage, diagnostics, and expert controls.",
+    icon: SlidersHorizontal,
+  },
 ] as const;
 
 type SettingsTabId = (typeof TABS)[number]["id"];
@@ -79,42 +105,60 @@ export function SettingsPanel() {
   };
 
   return (
-    <div className="de-koi-settings-panel flex h-full flex-col">
+    <div className="de-koi-settings-panel h-full min-h-0 lg:grid lg:grid-cols-[14rem_minmax(0,1fr)]">
       <div
-        className="de-koi-settings-tabs flex-shrink-0 border-b border-[var(--border)] bg-[var(--card)]/40"
+        className="de-koi-settings-tabs flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)]/45 p-2 lg:flex-col lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3"
         role="tablist"
         aria-label="Settings sections"
       >
-        {TABS.map((tab, tabIndex) => (
-          <button
-            key={tab.id}
-            id={getSettingsTabButtonId(tab.id)}
-            type="button"
-            role="tab"
-            aria-selected={activeTab.id === tab.id}
-            aria-controls={activeTab.id === tab.id ? `settings-panel-${tab.id}` : undefined}
-            tabIndex={activeTab.id === tab.id ? 0 : -1}
-            onClick={() => activateTab(tab.id)}
-            onKeyDown={(event) => handleTabKeyDown(event, tabIndex)}
-            className={cn(
-              "de-koi-settings-tab flex min-w-0 items-center justify-center px-2.5 py-2 text-center text-xs font-semibold transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)]",
-              activeTab.id === tab.id
-                ? "de-koi-settings-tab-active text-[var(--foreground)]"
-                : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
-            )}
-          >
-            <span className="min-w-0 truncate leading-tight">{tab.label}</span>
-          </button>
-        ))}
+        {TABS.map((tab, tabIndex) => {
+          const Icon = tab.icon;
+          const selected = activeTab.id === tab.id;
+          return (
+            <button
+              key={tab.id}
+              id={getSettingsTabButtonId(tab.id)}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              aria-controls={selected ? `settings-panel-${tab.id}` : undefined}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => activateTab(tab.id)}
+              onKeyDown={(event) => handleTabKeyDown(event, tabIndex)}
+              className={cn(
+                "de-koi-settings-tab flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] lg:w-full lg:items-start",
+                selected
+                  ? "de-koi-settings-tab-active bg-[var(--primary)]/12 text-[var(--foreground)] ring-1 ring-[var(--primary)]/35"
+                  : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/65 hover:text-[var(--foreground)]",
+              )}
+            >
+              <Icon size="0.95rem" className={cn("mt-px shrink-0", selected && "text-[var(--primary)]")} />
+              <span className="min-w-0">
+                <span className="block whitespace-nowrap text-xs font-semibold leading-tight">{tab.label}</span>
+                <span className="mt-1 hidden text-[0.625rem] font-normal leading-snug text-[var(--muted-foreground)] lg:block">
+                  {tab.description}
+                </span>
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <div
         id={`settings-panel-${activeTab.id}`}
-        className="de-koi-settings-body min-h-0 flex-1 overflow-y-auto p-3"
+        className="de-koi-settings-body min-h-0 overflow-y-auto"
         role="tabpanel"
         aria-labelledby={`settings-tab-${activeTab.id}`}
       >
-        <ActiveSettings />
+        <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
+          <header className="mb-5 border-b border-[var(--border)] pb-4">
+            <h2 className="text-lg font-semibold leading-tight text-[var(--foreground)]">{activeTab.label}</h2>
+            <p className="mt-1 max-w-[68ch] text-xs leading-relaxed text-[var(--muted-foreground)]">
+              {activeTab.description}
+            </p>
+          </header>
+          <ActiveSettings />
+        </div>
       </div>
     </div>
   );

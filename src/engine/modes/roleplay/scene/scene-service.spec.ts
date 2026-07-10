@@ -271,6 +271,27 @@ describe("createRoleplayScene", () => {
     expect(createdScene).not.toHaveProperty("folderId", "conversation-folder");
   });
 
+  it("never auto-applies a library background from the scene plan", async () => {
+    const { storage, createdRecords } = storageForScene({
+      chats: [{ id: "origin", name: "Dinner Chat", mode: "conversation", characterIds: ["char-1"], metadata: {} }],
+      messages: { origin: [{ id: "message-1", role: "user", content: "Begin the scene." }] },
+    });
+
+    await createRoleplayScene(
+      storage,
+      {
+        originChatId: "origin",
+        initiatorCharId: null,
+        connectionId: null,
+        plan: { ...basePlan, background: "castle.jpg" },
+      },
+      { listBackgrounds: async () => [{ filename: "castle.jpg" }] } as never,
+    );
+
+    const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
+    expect((createdScene?.metadata as JsonRecord | undefined)?.sceneBackground).toBeNull();
+  });
+
   it("starts spawned scenes on the De-Koi Universal preset with inferred choices", async () => {
     const { storage, createdRecords } = storageForScene({
       chats: [

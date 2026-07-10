@@ -44,7 +44,7 @@ export interface CharacterExtensions {
   appearance: string;
   /** De-Koi: Name display color/gradient (CSS value, e.g. "linear-gradient(90deg, #ff6b6b, #ffd93d)" or "#ff6b6b") */
   nameColor?: string;
-  /** De-Koi: Dialogue highlight color - text in quotation marks is bold + colored with this */
+  /** Legacy accent color retained for game/tracker presentation compatibility. */
   dialogueColor?: string;
   /** De-Koi: explicit names, titles, handles, or nicknames that may identify this character as a dialogue speaker */
   speakerAliases?: string[];

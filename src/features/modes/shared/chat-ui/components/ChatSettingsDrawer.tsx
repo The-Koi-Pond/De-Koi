@@ -656,7 +656,6 @@ function ChatSettingsDrawerInner({
   const spriteGenerationEnabled = isEnabledFlag(metadata.enableSpriteGeneration, false);
   const autonomousMessagesEnabled = isEnabledFlag(metadata.autonomousMessages, false);
   const characterExchangesEnabled = isEnabledFlag(metadata.characterExchanges, false);
-  const groupSpeakerColorsEnabled = isEnabledFlag(metadata.groupSpeakerColors, false);
   const groupSpeakerNamesInHistoryEnabled = isEnabledFlag(metadata.groupSpeakerNamesInHistory, false);
   const autoTranslateEnabled = isEnabledFlag(metadata.autoTranslate, false);
   const translateInputEnabled = isEnabledFlag(metadata.translateInput, false);
@@ -2953,42 +2952,6 @@ function ChatSettingsDrawerInner({
                 </div>
               )}
 
-              {/* Merged mode: speaker color option */}
-              {!isConversation && (metadata.groupChatMode ?? "merged") === "merged" && (
-                <div className="mt-2">
-                  <button
-                    onClick={() => updateMeta.mutate({ id: chat.id, groupSpeakerColors: !groupSpeakerColorsEnabled })}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
-                      groupSpeakerColorsEnabled
-                        ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                        : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
-                    )}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[0.6875rem] font-medium">Color Dialogues</span>
-                      <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                        Color character dialogues differently using the special tags. The colors are assigned based on
-                        what you chose in the Color tab for your Character.
-                      </p>
-                    </div>
-                    <div
-                      className={cn(
-                        "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                        groupSpeakerColorsEnabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-                          groupSpeakerColorsEnabled && "translate-x-3.5",
-                        )}
-                      />
-                    </div>
-                  </button>
-                </div>
-              )}
-
               {/* Individual mode: response order */}
               {!isConversation && metadata.groupChatMode === "individual" && (
                 <div className="mt-2 space-y-2">
@@ -4079,7 +4042,8 @@ function ChatSettingsDrawerInner({
                           <span>Music Player</span>
                         </div>
                         <p className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Automatic scene-aware YouTube picks for this game. Turn on the Music Player module separately when you want visible controls.
+                          Automatic scene-aware YouTube picks for this game. Turn on the Music Player module separately
+                          when you want visible controls.
                         </p>
                       </div>
                       <div
@@ -4101,7 +4065,10 @@ function ChatSettingsDrawerInner({
                       <div className="space-y-2 rounded-lg bg-[var(--background)]/55 p-3 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
                         <div>
                           <div className="font-medium text-[var(--foreground)]">Provider: YouTube</div>
-                          <div>No account, OAuth, or API key required. This controls automatic picks, not whether the mini player is visible.</div>
+                          <div>
+                            No account, OAuth, or API key required. This controls automatic picks, not whether the mini
+                            player is visible.
+                          </div>
                         </div>
                         <button
                           type="button"
@@ -4572,8 +4539,8 @@ function ChatSettingsDrawerInner({
                       <div className="min-w-0 flex-1">
                         <div className="text-[0.6875rem] font-medium">Music Player</div>
                         <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Automatic scene music is active. Use the shell Music Player for direct URLs, fresh
-                          picks, and volume.
+                          Automatic scene music is active. Use the shell Music Player for direct URLs, fresh picks, and
+                          volume.
                         </p>
                       </div>
                     </div>

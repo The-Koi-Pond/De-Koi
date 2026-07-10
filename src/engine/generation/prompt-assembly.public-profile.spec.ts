@@ -219,7 +219,7 @@ describe("merged roleplay prompt compaction", () => {
     expect(promptText).not.toContain("SABLE_EXAMPLES_SHOULD_NOT_BE_SENT");
   });
 
-  it("adds generic speaker tag guidance for multi-character roleplay", async () => {
+  it("does not add speaker metadata guidance to multi-character roleplay", async () => {
     const result = await assembleGenerationPrompt(
       promptStorage([
         {
@@ -253,12 +253,9 @@ describe("merged roleplay prompt compaction", () => {
 
     const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
 
-    expect(promptText).toContain(
-      "When one assistant response includes quoted dialogue from more than one known character",
-    );
-    expect(promptText).toContain('<speaker name="Mira Vale">"Example dialogue."</speaker>');
-    expect(promptText).toContain('<speaker name="Orin">"Example dialogue."</speaker>');
-    expect(promptText).not.toContain('<speaker="Archivist">');
+    expect(promptText).not.toContain("speaker tag");
+    expect(promptText).not.toContain("<speaker");
+    expect(promptText).not.toContain("Speaker Name:");
   });
 });
 

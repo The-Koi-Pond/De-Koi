@@ -1939,31 +1939,6 @@ function buildRoleplayNarratorStylePromptBlock(chat: JsonRecord, wrapFormat: Wra
   );
 }
 
-function buildRoleplaySpeakerTagPromptBlock(
-  input: PromptAssemblyInput,
-  characters: GenerationCharacterContext[],
-  wrapFormat: WrapFormat,
-): string | null {
-  const chatMode = readString(input.chat.mode || input.chat.chatMode, "conversation");
-  const metadata = parseRecord(input.chat.metadata);
-  if ((chatMode !== "roleplay" && readString(metadata.sceneStatus) !== "active") || characters.length <= 1) return null;
-
-  const names = conversationCharacterNames(characters);
-  if (names.length <= 1) return null;
-  const examples = names.slice(0, 2).map((name) => `<speaker name="${name}">"Example dialogue."</speaker>`);
-
-  return wrapContent(
-    [
-      "When one assistant response includes quoted dialogue from more than one known character, wrap each spoken quote in a speaker tag using the exact character name.",
-      "Do not use speaker tags for narration or for the user's own words.",
-      "If the speaker is ambiguous, leave the quote untagged instead of guessing.",
-      `Examples: ${examples.join(" ")}`,
-    ].join("\n"),
-    "speaker_tags",
-    wrapFormat,
-  );
-}
-
 function buildMergedRoleplayEnsemblePromptBlock(
   input: PromptAssemblyInput,
   characters: GenerationCharacterContext[],
@@ -4191,11 +4166,8 @@ export async function assembleGenerationPrompt(
   } else {
     const narratorStyleBlock = buildRoleplayNarratorStylePromptBlock(input.chat, wrapFormat);
     const sceneBlock = buildRoleplayScenePromptBlock(input.chat, wrapFormat);
-    const speakerTagBlock = buildRoleplaySpeakerTagPromptBlock(input, promptCharacters, wrapFormat);
     const ensembleBlock = buildMergedRoleplayEnsemblePromptBlock(input, promptCharacters, wrapFormat);
-    const roleplayBlocks = [narratorStyleBlock, sceneBlock, speakerTagBlock, ensembleBlock].filter(
-      (block): block is string => !!block,
-    );
+    const roleplayBlocks = [narratorStyleBlock, sceneBlock, ensembleBlock].filter((block): block is string => !!block);
     if (roleplayBlocks.length > 0) {
       const firstSystemIndex = messages.findIndex((message) => message.role === "system");
       messages.splice(firstSystemIndex >= 0 ? firstSystemIndex + 1 : 0, 0, {

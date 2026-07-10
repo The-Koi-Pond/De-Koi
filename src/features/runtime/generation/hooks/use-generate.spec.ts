@@ -151,6 +151,80 @@ describe("generateAndApplyBackgroundRequest", () => {
     expect(upload).not.toHaveBeenCalled();
     expect(applyChoice).not.toHaveBeenCalled();
   });
+
+  it("does not generate over a background that is already set", async () => {
+    const imageGenerate = vi.fn();
+    const upload = vi.fn();
+    const applyChoice = vi.fn();
+
+    const chosen = await generateAndApplyBackgroundRequest(
+      "chat-1",
+      backgroundResult({
+        location: "Moonlit Archive",
+        prompt: "Wide background of a moonlit archive, empty, no characters.",
+      }),
+      {
+        storage: {
+          async get(entity: string) {
+            if (entity === "chats") return { metadata: { background: "library/castle.png" } };
+            if (entity === "agents") return { settings: { imageConnectionId: "image-conn" } };
+            return null;
+          },
+          async list() {
+            return [];
+          },
+        } as never,
+        backgrounds: { upload: upload as never },
+        image: { generate: imageGenerate as never },
+        applyChoice,
+      },
+    );
+
+    expect(chosen).toBeNull();
+    expect(imageGenerate).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+    expect(applyChoice).not.toHaveBeenCalled();
+  });
+
+  it("does not apply a generated background when one is selected during generation", async () => {
+    let backgroundWasSelected = false;
+    const upload = vi.fn();
+    const applyChoice = vi.fn();
+    const imageGenerate = vi.fn(async () => {
+      backgroundWasSelected = true;
+      return { base64: "iVBORw0KGgo=", mimeType: "image/png", ext: "png" };
+    });
+
+    const chosen = await generateAndApplyBackgroundRequest(
+      "chat-1",
+      backgroundResult({
+        location: "Moonlit Archive",
+        prompt: "Wide background of a moonlit archive, empty, no characters.",
+      }),
+      {
+        storage: {
+          async get(entity: string) {
+            if (entity === "chats") {
+              return { metadata: backgroundWasSelected ? { background: "library/castle.png" } : {} };
+            }
+            if (entity === "agents") return { settings: { imageConnectionId: "image-conn" } };
+            return null;
+          },
+          async list() {
+            return [];
+          },
+        } as never,
+        backgrounds: { upload: upload as never },
+        image: { generate: imageGenerate as never },
+        applyChoice,
+      },
+    );
+
+    expect(chosen).toBeNull();
+    expect(imageGenerate).toHaveBeenCalledTimes(1);
+    expect(upload).not.toHaveBeenCalled();
+    expect(applyChoice).not.toHaveBeenCalled();
+  });
 });
 
 describe("handleGenerationDiagnosticEvent", () => {
@@ -506,5 +580,3 @@ describe("runGenerationWithUi", () => {
     queryClient.clear();
   });
 });
-
-

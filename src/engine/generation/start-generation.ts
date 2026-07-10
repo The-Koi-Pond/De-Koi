@@ -6,7 +6,6 @@ import {
 } from "../contracts/types/agent";
 import {
   getEffectiveMemoryRecallEnabled,
-  type DialogueAttributionsExtra,
   type GenerationContextAttribution,
   type GenerationPromptSnapshot,
   type GenerationPromptSnapshotMessage,
@@ -20,11 +19,6 @@ import type { SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual
 import { buildGenerationGuideMessages } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
-import {
-  buildDialogueAttributions,
-  createDialogueAttributionTextHash,
-  type DialogueAttributionSpeaker,
-} from "../shared/text/dialogue-attribution";
 import { normalizeUserTimeZone } from "../shared/time/timezone";
 import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-prompt";
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
@@ -3159,246 +3153,6 @@ function assistantMessageCharacterId(chat: JsonRecord, input: StartGenerationInp
       : null;
 }
 
-function isRoleplayChat(chat: JsonRecord): boolean {
-  const mode = readString(chat.mode || chat.chatMode).trim();
-  return mode === "roleplay" || mode === "rp";
-}
-
-function roleplayDialogueAttributionSpeakers(characters: GenerationCharacterContext[]): DialogueAttributionSpeaker[] {
-  return characters
-    .map((character): DialogueAttributionSpeaker | null => {
-      const name = readString(character.name).trim();
-      if (!name) return null;
-      return {
-        id: readString(character.id).trim() || null,
-        name,
-        aliases: roleplayDialogueAttributionAliases(character, name),
-      };
-    })
-    .filter((speaker): speaker is DialogueAttributionSpeaker => speaker !== null);
-}
-
-function roleplayDialogueAttributionAliases(character: GenerationCharacterContext, name: string): string[] {
-  const profile = character.publicProfile;
-  const handle = readString(profile?.handle).trim();
-  const aliases = [
-    readString(profile?.displayName).trim(),
-    handle,
-    handle.startsWith("@") ? handle.slice(1).trim() : "",
-  ];
-  const seen = new Set([name.toLowerCase()]);
-  return aliases.filter((alias) => {
-    const key = alias.toLowerCase();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function roleplayAssistantSaveContent(args: {
-  chat: JsonRecord;
-  characters: GenerationCharacterContext[];
-  content: string;
-}): string {
-  if (!isRoleplayChat(args.chat)) return args.content;
-  const speakers = roleplayDialogueAttributionSpeakers(args.characters);
-  if (speakers.length === 0) return args.content;
-  return buildDialogueAttributions(args.content, speakers, {
-    stripSpeakerTags: true,
-    stripLeadingSpeakerPrefix: true,
-    includeDerivedProse: false,
-  }).text;
-}
-
-function roleplayDeterministicDialogueAttributions(args: {
-  chat: JsonRecord;
-  characters: GenerationCharacterContext[];
-  sourceContent: string;
-  canonicalContent: string;
-}): DialogueAttributionsExtra | null {
-  if (!isRoleplayChat(args.chat)) return null;
-  const speakers = roleplayDialogueAttributionSpeakers(args.characters);
-  if (speakers.length === 0) return null;
-
-  const sourceResult = buildDialogueAttributions(args.sourceContent, speakers, {
-    stripSpeakerTags: true,
-    stripLeadingSpeakerPrefix: true,
-    includeDerivedProse: false,
-  });
-  const canonicalFromSource = collapseExcessBlankLines(sourceResult.text);
-  if (sourceResult.attributions && canonicalFromSource === args.canonicalContent) {
-    return {
-      version: 1,
-      textHash: createDialogueAttributionTextHash(args.canonicalContent),
-      segments: sourceResult.attributions.segments,
-    };
-  }
-
-  return buildDialogueAttributions(args.canonicalContent, speakers, {
-    stripSpeakerTags: false,
-    stripLeadingSpeakerPrefix: false,
-    includeDerivedProse: false,
-  }).attributions;
-}
-
-function shouldUseSelectedSidecarForDialogueAttribution(connection: JsonRecord): boolean {
-  return readString(connection.provider).trim() === "sidecar" || readString(connection.id).trim() === "sidecar:local";
-}
-
-function speakerForAttributionName(
-  speakers: DialogueAttributionSpeaker[],
-  name: string,
-): DialogueAttributionSpeaker | null {
-  const key = name.trim().toLowerCase();
-  if (!key) return null;
-  return (
-    speakers.find(
-      (speaker) =>
-        speaker.name.trim().toLowerCase() === key ||
-        (speaker.aliases ?? []).some((alias) => alias.trim().toLowerCase() === key),
-    ) ?? null
-  );
-}
-
-function parseSidecarDialogueAttributionResponse(raw: string): Array<{ quote: string; speaker: string | null }> {
-  const trimmed = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
-  const parsed = JSON.parse(trimmed) as unknown;
-  if (!Array.isArray(parsed)) return [];
-  return parsed
-    .map((item) => {
-      if (!isRecord(item)) return null;
-      const quote = readString(item.quote);
-      if (!quote) return null;
-      const speakerValue = item.speaker == null ? null : readString(item.speaker).trim() || null;
-      return { quote, speaker: speakerValue };
-    })
-    .filter((item): item is { quote: string; speaker: string | null } => item !== null);
-}
-
-async function roleplaySidecarDialogueAttributions(args: {
-  llm: LlmGateway;
-  connection: JsonRecord;
-  canonicalContent: string;
-  speakers: DialogueAttributionSpeaker[];
-}): Promise<DialogueAttributionsExtra | null> {
-  if (args.speakers.length === 0) return null;
-  const knownCharacters = args.speakers
-    .map((speaker) => [speaker.name, ...(speaker.aliases ?? [])].filter(Boolean).join(" / "))
-    .join(", ");
-  let raw = "";
-  try {
-    raw = await args.llm.complete({
-      connectionId: readString(args.connection.id) || null,
-      provider: readString(args.connection.provider) || null,
-      model: readString(args.connection.model) || null,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a dialogue attribution assistant. Given a roleplay message, identify which named character is speaking each quoted passage. Return only a JSON array. Each item must have quote and speaker. Do not include narration or unquoted text.",
-        },
-        {
-          role: "user",
-          content: `Message:\n${args.canonicalContent}\n\nKnown characters: ${knownCharacters}`,
-        },
-      ],
-      parameters: { temperature: 0, maxTokens: 512 },
-    });
-  } catch {
-    return null;
-  }
-
-  let parsed: Array<{ quote: string; speaker: string | null }>;
-  try {
-    parsed = parseSidecarDialogueAttributionResponse(raw);
-  } catch {
-    return null;
-  }
-
-  const segments: DialogueAttributionsExtra["segments"] = [];
-  let searchStart = 0;
-  for (const item of parsed) {
-    if (!item.speaker) continue;
-    const speaker = speakerForAttributionName(args.speakers, item.speaker);
-    if (!speaker) continue;
-    // Known limitation: repeated identical quote strings depend on the order
-    // returned by the sidecar. TODO: prefer the occurrence nearest to the
-    // attributed speaker's closest prose mention.
-    const start = args.canonicalContent.indexOf(item.quote, searchStart);
-    if (start < 0) continue;
-    const end = start + item.quote.length;
-    segments.push({
-      start,
-      end,
-      speakerName: speaker.name,
-      speakerId: speaker.id ?? null,
-      source: "sidecar-model",
-      confidence: "derived",
-    });
-    searchStart = end;
-  }
-
-  return segments.length > 0
-    ? { version: 1, textHash: createDialogueAttributionTextHash(args.canonicalContent), segments }
-    : null;
-}
-
-async function roleplayCanonicalDialogueAttributions(args: {
-  chat: JsonRecord;
-  characters: GenerationCharacterContext[];
-  sourceContent: string;
-  canonicalContent: string;
-  connection: JsonRecord;
-  llm: LlmGateway;
-}): Promise<DialogueAttributionsExtra | null> {
-  const deterministic = roleplayDeterministicDialogueAttributions(args);
-  if (deterministic) return deterministic;
-  const speakers = roleplayDialogueAttributionSpeakers(args.characters);
-  if (shouldUseSelectedSidecarForDialogueAttribution(args.connection)) {
-    const sidecar = await roleplaySidecarDialogueAttributions({
-      llm: args.llm,
-      connection: args.connection,
-      canonicalContent: args.canonicalContent,
-      speakers,
-    });
-    if (sidecar) return sidecar;
-  }
-  return buildDialogueAttributions(args.canonicalContent, speakers, {
-    stripSpeakerTags: false,
-    stripLeadingSpeakerPrefix: false,
-    includeDerivedProse: true,
-  }).attributions;
-}
-
-async function patchSavedRoleplayDialogueAttributions(args: {
-  storage: Pick<StorageGateway, "getChatMessage" | "patchChatMessageExtra">;
-  llm: LlmGateway;
-  connection: JsonRecord;
-  chat: JsonRecord;
-  characters: GenerationCharacterContext[];
-  messageId: string | null;
-  sourceContent: string;
-}): Promise<unknown | null> {
-  if (!args.messageId || !isRoleplayChat(args.chat)) return null;
-  const saved = await args.storage.getChatMessage<JsonRecord>(args.messageId, { fields: ["content"] });
-  const canonicalContent = readString(saved?.content);
-  if (!canonicalContent) return null;
-  const dialogueAttributions = await roleplayCanonicalDialogueAttributions({
-    llm: args.llm,
-    connection: args.connection,
-    chat: args.chat,
-    characters: args.characters,
-    sourceContent: args.sourceContent,
-    canonicalContent,
-  });
-  if (!dialogueAttributions) return null;
-  return args.storage.patchChatMessageExtra(args.messageId, { dialogueAttributions });
-}
-
 async function saveAssistantMessage(args: {
   storage: StorageGateway;
   chat: JsonRecord;
@@ -3496,17 +3250,11 @@ async function saveAssistantMessage(args: {
 
   if (regenerateMessageId) {
     const characterId = assistantMessageCharacterId(args.chat, args.input);
-    const assistantContent = roleplayAssistantSaveContent({ chat: args.chat, characters: args.characters, content });
     return saveRegeneratedMessage({
       storage: args.storage,
-      llm: args.llm,
-      connection: args.connection,
-      chat: args.chat,
-      characters: args.characters,
       chatId: args.input.chatId,
       messageId: regenerateMessageId,
-      content: assistantContent,
-      sourceContent: content,
+      content,
       ...(characterId ? { characterId } : {}),
       thinking: thinking || undefined,
       generationReplay,
@@ -3519,12 +3267,10 @@ async function saveAssistantMessage(args: {
   }
 
   const characterId = assistantMessageCharacterId(args.chat, args.input);
-  const assistantContent = roleplayAssistantSaveContent({ chat: args.chat, characters: args.characters, content });
-
   const saved = await args.storage.createChatMessage(args.input.chatId, {
     role: "assistant",
     characterId,
-    content: assistantContent,
+    content,
     extra: {
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
       ...(thinking ? { thinking } : {}),
@@ -3547,26 +3293,11 @@ async function saveAssistantMessage(args: {
       usage: args.usage ?? null,
     },
   });
-  return (
-    (await patchSavedRoleplayDialogueAttributions({
-      storage: args.storage,
-      llm: args.llm,
-      connection: args.connection,
-      chat: args.chat,
-      characters: args.characters,
-      messageId: messageId(saved),
-      sourceContent: content,
-    })) ?? saved
-  );
+  return saved;
 }
 
 async function saveRegeneratedMessage(args: {
   storage: StorageGateway;
-  llm?: LlmGateway;
-  connection?: JsonRecord;
-  chat?: JsonRecord;
-  characters?: GenerationCharacterContext[];
-  sourceContent?: string;
   chatId: string;
   messageId: string;
   content: string;
@@ -3588,37 +3319,12 @@ async function saveRegeneratedMessage(args: {
     spriteExpressions: args.spriteExpressions,
     agentExtra: args.agentExtra,
   });
-  if (args.chat && args.characters && args.sourceContent) {
-    const canonicalContent = args.content;
-    const deterministicAttributions = roleplayDeterministicDialogueAttributions({
-      chat: args.chat,
-      characters: args.characters,
-      sourceContent: args.sourceContent,
-      canonicalContent,
-    });
-    if (deterministicAttributions) swipeExtra.dialogueAttributions = deterministicAttributions;
-  }
   await args.storage.addChatMessageSwipe(
     args.chatId,
     args.messageId,
     args.content,
     swipeOptionsWithCharacterId(swipeExtra, args),
   );
-  let dialogueAttributions: DialogueAttributionsExtra | null = null;
-  if (args.chat && args.characters && args.sourceContent && args.llm && args.connection) {
-    const saved = await args.storage.getChatMessage<JsonRecord>(args.messageId, { fields: ["content"] });
-    const canonicalContent = readString(saved?.content);
-    if (canonicalContent) {
-      dialogueAttributions = await roleplayCanonicalDialogueAttributions({
-        llm: args.llm,
-        connection: args.connection,
-        chat: args.chat,
-        characters: args.characters,
-        sourceContent: args.sourceContent,
-        canonicalContent,
-      });
-    }
-  }
   const extraPatch = generationReplayExtraPatch({
     generationReplay: args.generationReplay,
     chatSummaryFingerprint: args.chatSummaryFingerprint,
@@ -3628,7 +3334,6 @@ async function saveRegeneratedMessage(args: {
     spriteExpressions: args.spriteExpressions,
     agentExtra: args.agentExtra,
   });
-  if (dialogueAttributions) extraPatch.dialogueAttributions = dialogueAttributions;
   return args.storage.patchChatMessageExtra(args.messageId, extraPatch);
 }
 
