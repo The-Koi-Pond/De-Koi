@@ -22,6 +22,95 @@ pub struct StreamingTransformReport {
     pub changed_records: usize,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct StreamingFilterReport {
+    pub input_records: usize,
+    pub output_records: usize,
+    pub deleted_records: usize,
+}
+
+fn write_row<W: Write>(writer: &mut W, output_index: usize, row: &Value) -> AppResult<()> {
+    if output_index > 0 {
+        writer.write_all(b",\n")?;
+    }
+    serde_json::to_writer(writer, row)?;
+    Ok(())
+}
+
+struct FilterVisitor<'a, F, W> {
+    keep: &'a mut F,
+    writer: &'a mut W,
+    filter_error: &'a mut Option<AppError>,
+}
+
+impl<'de, F, W> Visitor<'de> for FilterVisitor<'_, F, W>
+where
+    F: FnMut(usize, &Value) -> AppResult<bool>,
+    W: Write,
+{
+    type Value = StreamingFilterReport;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a JSON array")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        self.writer.write_all(b"[\n").map_err(A::Error::custom)?;
+        let mut report = StreamingFilterReport {
+            input_records: 0,
+            output_records: 0,
+            deleted_records: 0,
+        };
+        while let Some(row) = seq.next_element::<Value>()? {
+            let index = report.input_records;
+            let keep_row = match (self.keep)(index, &row) {
+                Ok(keep_row) => keep_row,
+                Err(error) => {
+                    *self.filter_error = Some(error);
+                    return Err(A::Error::custom("collection record filter failed"));
+                }
+            };
+            report.input_records += 1;
+            if keep_row {
+                write_row(self.writer, report.output_records, &row).map_err(A::Error::custom)?;
+                report.output_records += 1;
+            } else {
+                report.deleted_records += 1;
+            }
+        }
+        self.writer.write_all(b"\n]\n").map_err(A::Error::custom)?;
+        Ok(report)
+    }
+}
+
+fn filter_json_array<R, W, F>(
+    reader: R,
+    writer: &mut W,
+    keep: &mut F,
+) -> AppResult<StreamingFilterReport>
+where
+    R: std::io::Read,
+    W: Write,
+    F: FnMut(usize, &Value) -> AppResult<bool>,
+{
+    let mut filter_error = None;
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    let result = (&mut deserializer).deserialize_seq(FilterVisitor {
+        keep,
+        writer,
+        filter_error: &mut filter_error,
+    });
+    if let Some(error) = filter_error {
+        return Err(error);
+    }
+    let report = result?;
+    deserializer.end()?;
+    Ok(report)
+}
+
 struct TransformVisitor<'a, F, W> {
     transform: &'a mut F,
     writer: &'a mut W,
@@ -147,6 +236,19 @@ where
 }
 
 impl FileStorage {
+    fn invalidate_collection_caches(&self, collection: &str) -> AppResult<()> {
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+        cache.collections.remove(collection);
+        cache.id_indexes.remove(collection);
+        cache
+            .projected_lists
+            .retain(|key, _| key.collection != collection);
+        Ok(())
+    }
+
     pub fn visit_collection_streaming<V>(&self, collection: &str, mut visit: V) -> AppResult<usize>
     where
         V: FnMut(usize, &Value) -> AppResult<()>,
@@ -162,6 +264,143 @@ impl FileStorage {
             return Ok(0);
         }
         validate_json_array_file(&path, &mut visit)
+    }
+
+    pub fn filter_collection_streaming<F>(
+        &self,
+        collection: &str,
+        operation_suffix: &str,
+        mut keep: F,
+    ) -> AppResult<StreamingFilterReport>
+    where
+        F: FnMut(usize, &Value) -> AppResult<bool>,
+    {
+        if operation_suffix.is_empty()
+            || !operation_suffix
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err(AppError::invalid_input("Invalid operation suffix"));
+        }
+
+        let _write_permit = self.write_gate.begin_write()?;
+        let _guard = self
+            .lock
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        self.flush_dirty_collections_locked()?;
+
+        let path = self.collection_path(collection)?;
+        if !path.exists() {
+            return Ok(StreamingFilterReport {
+                input_records: 0,
+                output_records: 0,
+                deleted_records: 0,
+            });
+        }
+        let source_stamp = collection_content_stamp(&path)?;
+        let transaction_id = format!("{}-{operation_suffix}", storage_transaction_id());
+        let tmp = collection_transaction_path(&path, &transaction_id, 0, "tmp")?;
+        let backup = collection_transaction_path(&path, &transaction_id, 0, "backup")?;
+        let collections_dir = path
+            .parent()
+            .ok_or_else(|| AppError::invalid_input("Collection path has no parent"))?;
+        remove_path_if_exists(&tmp)?;
+
+        let filter_result = (|| -> AppResult<StreamingFilterReport> {
+            let reader = BufReader::new(fs::File::open(&path)?);
+            let mut writer = BufWriter::new(fs::File::create(&tmp)?);
+            let report = filter_json_array(reader, &mut writer, &mut keep)?;
+            writer.flush()?;
+            drop(writer);
+            sync_file(&tmp)?;
+            if report.input_records != report.output_records + report.deleted_records {
+                return Err(AppError::new(
+                    "streaming_filter_validation_failed",
+                    "Filtered collection record counts were inconsistent",
+                ));
+            }
+            let staged_records = validate_json_array_file(&tmp, &mut |_index, _row| Ok(()))?;
+            if staged_records != report.output_records {
+                return Err(AppError::new(
+                    "streaming_filter_validation_failed",
+                    "Filtered collection record count did not match the staged output",
+                ));
+            }
+            if collection_content_stamp(&path)? != source_stamp {
+                self.invalidate_collection_caches(collection)?;
+                return Err(AppError::new(
+                    "storage_source_changed",
+                    "Collection changed while streaming filter was running",
+                ));
+            }
+            Ok(report)
+        })();
+
+        let report = match filter_result {
+            Ok(report) => report,
+            Err(error) => {
+                let _ = remove_path_if_exists(&tmp);
+                return Err(error);
+            }
+        };
+        if report.deleted_records == 0 {
+            remove_path_if_exists(&tmp)?;
+            return Ok(report);
+        }
+
+        let pending = vec![PendingCollectionReplacement {
+            path: path.clone(),
+            tmp,
+            backup,
+            existed: true,
+        }];
+        let manifest_path = match write_prepared_collection_transaction_manifest(
+            collections_dir,
+            &transaction_id,
+            &pending,
+        ) {
+            Ok(path) => path,
+            Err(error) => {
+                cleanup_pending_collection_transaction_files(&pending);
+                return Err(error);
+            }
+        };
+        let mut backed_up = Vec::new();
+        let mut installed = Vec::new();
+        let install_result = (|| -> AppResult<()> {
+            refresh_collection_backup(&path)?;
+            fs::rename(&path, &pending[0].backup)?;
+            backed_up.push(0);
+            fs::rename(&pending[0].tmp, &path)?;
+            installed.push(0);
+            sync_directory(collections_dir)
+        })();
+        if let Err(error) = install_result {
+            if let Err(rollback_error) =
+                rollback_collection_replacements(&pending, &backed_up, &installed)
+            {
+                cleanup_pending_collection_transaction_files(&pending);
+                return Err(AppError::new(
+                    "storage_rollback_failed",
+                    format!(
+                        "{error}; additionally failed to roll back streaming filter: {rollback_error}"
+                    ),
+                ));
+            }
+            cleanup_pending_collection_transaction_files(&pending);
+            remove_collection_transaction_manifest(&manifest_path)?;
+            return Err(error);
+        }
+        if let Err(error) = mark_collection_transaction_committed(&manifest_path) {
+            recover_pending_collection_transactions(collections_dir)?;
+            return Err(error);
+        }
+        if cleanup_pending_collection_transaction_files_checked(&pending).is_ok() {
+            remove_collection_transaction_manifest(&manifest_path)?;
+        }
+        self.invalidate_collection_caches(collection)?;
+        Ok(report)
     }
 
     pub fn transform_collection_streaming<F, V>(
@@ -319,7 +558,7 @@ impl FileStorage {
 
 #[cfg(test)]
 mod tests {
-    use crate::FileStorage;
+    use crate::{FileStorage, StreamingFilterReport};
     use marinara_core::AppError;
     use serde_json::json;
     use std::fs;
@@ -335,6 +574,83 @@ mod tests {
         ));
         fs::create_dir_all(&root).expect("temporary storage root should be created");
         root
+    }
+
+    #[test]
+    fn streaming_filter_removes_selected_rows_and_reports_counts() {
+        let root = temp_storage_root("stream-filter-success");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "character-versions",
+                vec![
+                    json!({"id":"keep-1","payload":"a".repeat(4096)}),
+                    json!({"id":"delete-1","payload":"b".repeat(4096)}),
+                    json!({"id":"keep-2","payload":"c".repeat(4096)}),
+                ],
+            )
+            .unwrap();
+
+        let report = storage
+            .filter_collection_streaming("character-versions", "retention-v1", |_index, row| {
+                Ok(row["id"] != "delete-1")
+            })
+            .unwrap();
+
+        assert_eq!(
+            report,
+            StreamingFilterReport {
+                input_records: 3,
+                output_records: 2,
+                deleted_records: 1,
+            }
+        );
+        assert_eq!(
+            storage
+                .list("character-versions")
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["keep-1", "keep-2"]
+        );
+    }
+
+    #[test]
+    fn streaming_filter_preserves_original_on_callback_or_source_change_failure() {
+        let root = temp_storage_root("stream-filter-failure");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "character-versions",
+                vec![json!({"id":"v1"}), json!({"id":"v2"}), json!({"id":"v3"})],
+            )
+            .unwrap();
+        let collection = root.join("collections/character-versions.json");
+        let before = fs::read(&collection).unwrap();
+        let error = storage
+            .filter_collection_streaming("character-versions", "retention-v1", |index, _row| {
+                if index == 1 {
+                    return Err(AppError::new("forced_failure", "stop"));
+                }
+                Ok(true)
+            })
+            .unwrap_err();
+        assert_eq!(error.code, "forced_failure");
+        assert_eq!(fs::read(&collection).unwrap(), before);
+
+        let changed_collection = collection.clone();
+        let error = storage
+            .filter_collection_streaming(
+                "character-versions",
+                "retention-v1-source-change",
+                move |_index, row| {
+                    fs::write(&changed_collection, b"[{\"id\":\"external\"}]")?;
+                    Ok(row["id"] != "v2")
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error.code, "storage_source_changed");
     }
 
     #[test]
