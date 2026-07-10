@@ -19,7 +19,9 @@ const extensionKeys = {
 function isInstalledExtension(value: unknown): value is InstalledExtension {
   if (!value || typeof value !== "object") return false;
   const extension = value as Partial<InstalledExtension>;
-  return typeof extension.id === "string" && typeof extension.name === "string" && typeof extension.enabled === "boolean";
+  return (
+    typeof extension.id === "string" && typeof extension.name === "string" && typeof extension.enabled === "boolean"
+  );
 }
 
 export function useExtensions() {
@@ -29,10 +31,9 @@ export function useExtensions() {
       const rows = await storageApi.list<unknown>("extensions");
       return rows.filter(isInstalledExtension);
     },
-    staleTime: 0,
+    staleTime: 60_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    refetchInterval: () => (document.hidden ? false : 15_000),
   });
 }
 
