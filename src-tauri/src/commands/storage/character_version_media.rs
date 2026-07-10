@@ -49,7 +49,7 @@ pub(crate) fn normalize_character_version_media(
     };
 
     let (mime, bytes) = decode_bounded_image(&source_value, source_field)?;
-    let optimized = optimize_avatar_image_bytes(&bytes, &mime).unwrap_or(bytes);
+    let optimized = optimize_avatar_image_bytes(&bytes, &mime)?;
     if optimized.len() > MAX_CHARACTER_VERSION_IMAGE_BYTES {
         return Err(character_version_image_too_large(source_field));
     }
@@ -66,8 +66,7 @@ pub(crate) fn normalize_character_version_media(
             continue;
         }
         let (other_mime, other_bytes) = decode_bounded_image(other, field)?;
-        let other_optimized =
-            optimize_avatar_image_bytes(&other_bytes, &other_mime).unwrap_or(other_bytes);
+        let other_optimized = optimize_avatar_image_bytes(&other_bytes, &other_mime)?;
         if other_optimized != optimized {
             return Err(AppError::new(
                 "conflicting_character_version_media",
@@ -97,18 +96,35 @@ pub(crate) fn normalize_character_version_media(
         }
     } else {
         let temp = target_dir.join(format!(".{filename}.{}.tmp", new_id()));
-        let write_result = (|| -> AppResult<()> {
+        let write_result = (|| -> AppResult<bool> {
             let mut file = fs::File::create(&temp)?;
             file.write_all(&optimized)?;
             file.sync_all()?;
-            fs::rename(&temp, &target)?;
-            Ok(())
+            match fs::hard_link(&temp, &target) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if fs::read(&target)? != optimized {
+                        return Err(AppError::new(
+                            "character_version_image_hash_collision",
+                            "Managed character version image fingerprint matched different bytes",
+                        ));
+                    }
+                    fs::remove_file(&temp)?;
+                    return Ok(false);
+                }
+                Err(error) => return Err(error.into()),
+            }
+            fs::remove_file(&temp)?;
+            Ok(true)
         })();
-        if let Err(error) = write_result {
-            let _ = fs::remove_file(&temp);
-            return Err(error);
+        match write_result {
+            Ok(true) => created_files.push(target.clone()),
+            Ok(false) => {}
+            Err(error) => {
+                let _ = fs::remove_file(&temp);
+                return Err(error);
+            }
         }
-        created_files.push(target.clone());
     }
 
     let asset_url = file_path_asset_url(&target);
@@ -127,15 +143,11 @@ pub(crate) fn normalize_character_version_media(
 }
 
 pub(crate) fn rollback_character_version_media_files(paths: &[PathBuf]) {
-    for path in paths.iter().rev() {
-        if let Err(error) = fs::remove_file(path) {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                log::warn!(
-                    "could not remove rolled-back character version image {}: {error}",
-                    path.display()
-                );
-            }
-        }
+    if !paths.is_empty() {
+        log::debug!(
+            "retaining {} content-addressed character version image(s) after rollback because concurrent records may reference them",
+            paths.len()
+        );
     }
 }
 
@@ -169,7 +181,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     const TINY_PNG: &str =
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 
     fn temp_dir(label: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()
@@ -263,6 +275,25 @@ mod tests {
             normalize_character_version_media(&root, &mut oversized, &mut created_files)
                 .expect_err("oversized image should fail");
         assert_eq!(oversized_error.code, "character_version_image_too_large");
+        assert!(created_files.is_empty());
+    }
+
+    #[test]
+    fn character_version_media_rejects_sniffable_but_undecodable_images() {
+        let root = temp_dir("undecodable");
+        let truncated_png = general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n");
+        let mut record = json!({
+            "avatarPath": format!("data:image/png;base64,{truncated_png}")
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let mut created_files = Vec::new();
+
+        let error = normalize_character_version_media(&root, &mut record, &mut created_files)
+            .expect_err("truncated image should fail full decode");
+
+        assert_eq!(error.code, "invalid_input");
         assert!(created_files.is_empty());
     }
 

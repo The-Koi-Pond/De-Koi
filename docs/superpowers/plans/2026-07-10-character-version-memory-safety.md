@@ -22,7 +22,7 @@
 
 - Create `src-tauri/crates/storage/src/streaming.rs`: record-at-a-time top-level JSON-array transformation and validation helpers.
 - Modify `src-tauri/crates/storage/src/lib.rs`: expose a write-gated `transform_collection_streaming` method and invalidate affected caches after atomic installation.
-- Create `src-tauri/src/commands/storage/character_version_media.rs`: canonical inline-avatar detection, content-addressed managed asset persistence, field normalization, and rollback tracking.
+- Create `src-tauri/src/commands/storage/character_version_media.rs`: canonical inline-avatar detection, content-addressed managed asset persistence, field normalization, and safe failed-attempt retention.
 - Modify `src-tauri/src/commands/storage.rs`: register the focused character-version media module.
 - Modify `src-tauri/src/commands/storage/startup_migrations.rs`: run the streaming character-version migration and focused migration tests.
 - Modify `src-tauri/src/state.rs`: add the new independent migration marker and invoke it after existing media migrations.
@@ -68,8 +68,9 @@ fn streaming_transform_preserves_original_on_mid_record_failure() {
         "inline-media-v2",
         |index, row| {
             if index == 1 { return Err(AppError::new("forced_failure", "stop")); }
-            Ok(row)
+            Ok(!row.is_null())
         },
+        |_index, _row| Ok(()),
     ).expect_err("transform should fail");
 
     assert_eq!(error.code, "forced_failure");
@@ -126,7 +127,7 @@ Run: `cargo test --manifest-path src-tauri/Cargo.toml character_version_media --
 
 Expected: compilation fails because the new module and functions do not exist.
 
-- [ ] **Step 3: Implement normalization and rollback accounting**
+- [ ] **Step 3: Implement normalization and failed-attempt accounting**
 
 Decode only `avatarPath`, `avatar`, and `avatarUrl`. Optimize through the existing avatar path, hash the final bytes using `sha2::{Digest, Sha256}`, and write `version-<sha256>.<ext>` atomically inside `avatars/characters/versions`. Reuse an existing file only after its bytes match. Set `avatarPath`, present mirror fields, `avatarFilePath`, and `avatarFilename` coherently. Push only newly created paths into `created_files`.
 
@@ -136,7 +137,7 @@ Decode only `avatarPath`, `avatar`, and `avatarUrl`. Optimize through the existi
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml character_version_media -- --nocapture`
 
-Expected: all normalizer, deduplication, validation, and rollback-accounting tests pass.
+Expected: all normalizer, deduplication, validation, and failed-attempt accounting tests pass.
 
 - [ ] **Step 5: Commit the media owner**
 
@@ -170,7 +171,7 @@ Expected: tests fail because the V2 migration and marker are absent.
 
 - [ ] **Step 3: Implement migration orchestration**
 
-Call the streaming transform with suffix `character-version-inline-media-v2`. Normalize each record through the focused media owner. On error, remove only paths recorded as newly created during this attempt. Allow valid records without inline media to pass byte-semantically unchanged. Register the migration independently after existing inline image migrations so a previously set V1 marker cannot suppress it.
+Call the streaming transform with suffix `character-version-inline-media-v2`. Normalize each record through the focused media owner. On error, retain content-addressed files because a concurrent successful operation may already reference them. Allow valid records without inline media to pass byte-semantically unchanged. Register the migration independently immediately after seeding, before any older full-collection migration can load `character-versions`, so a previously set V1 marker cannot suppress it or an unmarked legacy pass reproduce the OOM.
 
 Do not automatically delete `character-versions.json.tmp-*` or the pre-migration backup.
 
@@ -213,7 +214,7 @@ Expected: at least the import/direct-write tests fail because current paths acce
 
 - [ ] **Step 3: Route owner paths through the normalizer**
 
-Normalize before creating snapshots or installing imported version rows. Roll back newly created assets when the following storage mutation fails. On restore, normalize the version row before constructing the live-character patch. Add the direct-write rejection immediately after entity contract validation and before any mutation.
+Normalize before creating snapshots or installing imported version rows. Retain content-addressed assets when a following mutation fails so concurrent successful records cannot lose shared media. On restore, normalize the version row before constructing the live-character patch. Add the direct-write rejection immediately after entity contract validation and before any mutation.
 
 - [ ] **Step 4: Run boundary tests and verify GREEN**
 

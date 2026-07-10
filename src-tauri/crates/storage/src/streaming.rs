@@ -8,7 +8,7 @@ use crate::{
     write_prepared_collection_transaction_manifest, FileStorage, PendingCollectionReplacement,
 };
 use marinara_core::{AppError, AppResult};
-use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
+use serde::de::{Error as _, SeqAccess, Visitor};
 use serde::Deserializer as _;
 use serde_json::Value;
 use std::fmt;
@@ -96,9 +96,15 @@ where
     Ok(report)
 }
 
-struct CountVisitor;
+struct ValidateVisitor<'a, V> {
+    validate: &'a mut V,
+    validation_error: &'a mut Option<AppError>,
+}
 
-impl<'de> Visitor<'de> for CountVisitor {
+impl<'de, V> Visitor<'de> for ValidateVisitor<'_, V>
+where
+    V: FnMut(usize, &Value) -> AppResult<()>,
+{
     type Value = usize;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -110,30 +116,47 @@ impl<'de> Visitor<'de> for CountVisitor {
         A: SeqAccess<'de>,
     {
         let mut count = 0;
-        while seq.next_element::<IgnoredAny>()?.is_some() {
+        while let Some(row) = seq.next_element::<Value>()? {
+            if let Err(error) = (self.validate)(count, &row) {
+                *self.validation_error = Some(error);
+                return Err(A::Error::custom("collection record validation failed"));
+            }
             count += 1;
         }
         Ok(count)
     }
 }
 
-fn validate_json_array_file(path: &std::path::Path) -> AppResult<usize> {
+fn validate_json_array_file<V>(path: &std::path::Path, validate: &mut V) -> AppResult<usize>
+where
+    V: FnMut(usize, &Value) -> AppResult<()>,
+{
     let reader = BufReader::new(fs::File::open(path)?);
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
-    let count = (&mut deserializer).deserialize_seq(CountVisitor)?;
+    let mut validation_error = None;
+    let result = (&mut deserializer).deserialize_seq(ValidateVisitor {
+        validate,
+        validation_error: &mut validation_error,
+    });
+    if let Some(error) = validation_error {
+        return Err(error);
+    }
+    let count = result?;
     deserializer.end()?;
     Ok(count)
 }
 
 impl FileStorage {
-    pub fn transform_collection_streaming<F>(
+    pub fn transform_collection_streaming<F, V>(
         &self,
         collection: &str,
         migration_suffix: &str,
         mut transform: F,
+        mut validate: V,
     ) -> AppResult<StreamingTransformReport>
     where
         F: FnMut(usize, &mut Value) -> AppResult<bool>,
+        V: FnMut(usize, &Value) -> AppResult<()>,
     {
         if migration_suffix.is_empty()
             || !migration_suffix
@@ -174,7 +197,7 @@ impl FileStorage {
             writer.flush()?;
             drop(writer);
             sync_file(&tmp)?;
-            let validated_records = validate_json_array_file(&tmp)?;
+            let validated_records = validate_json_array_file(&tmp, &mut validate)?;
             if validated_records != report.output_records
                 || report.input_records != report.output_records
             {
@@ -324,6 +347,7 @@ mod tests {
                     }
                     Ok(false)
                 },
+                |_index, _row| Ok(()),
             )
             .expect_err("transform should fail");
 
@@ -361,6 +385,7 @@ mod tests {
                     }
                     Ok(false)
                 },
+                |_index, _row| Ok(()),
             )
             .expect("transform should succeed");
 
@@ -371,6 +396,41 @@ mod tests {
             storage.list("character-versions").unwrap()[0]["avatar"],
             "managed"
         );
+        fs::remove_dir_all(root).expect("temporary storage root should clean up");
+    }
+
+    #[test]
+    fn streaming_transform_preserves_original_when_output_validation_fails() {
+        let root = temp_storage_root("stream-transform-validation");
+        let storage = FileStorage::new(&root).expect("storage should initialize");
+        storage
+            .replace_all(
+                "character-versions",
+                vec![json!({"id":"v1","avatar":"inline"})],
+            )
+            .expect("fixture should persist");
+        let collection = root.join("collections/character-versions.json");
+        let before = fs::read(&collection).expect("fixture should be readable");
+
+        let error = storage
+            .transform_collection_streaming(
+                "character-versions",
+                "inline-media-v2",
+                |_index, row| {
+                    row["avatar"] = json!("managed-outside-root");
+                    Ok(true)
+                },
+                |_index, _row| {
+                    Err(AppError::new(
+                        "forced_validation_failure",
+                        "managed path escaped",
+                    ))
+                },
+            )
+            .expect_err("validation should fail");
+
+        assert_eq!(error.code, "forced_validation_failure");
+        assert_eq!(fs::read(collection).unwrap(), before);
         fs::remove_dir_all(root).expect("temporary storage root should clean up");
     }
 
@@ -389,6 +449,7 @@ mod tests {
                 "character-versions",
                 "inline-media-v2",
                 |_index, _row| Ok(false),
+                |_index, _row| Ok(()),
             )
             .expect("no-op transform should succeed");
 
@@ -420,6 +481,7 @@ mod tests {
                     row["avatar"] = json!("managed");
                     Ok(true)
                 },
+                |_index, _row| Ok(()),
             )
             .expect("transform should succeed");
 
@@ -435,9 +497,12 @@ mod tests {
         let root = temp_storage_root("stream-transform-suffix");
         let storage = FileStorage::new(&root).expect("storage should initialize");
         let error = storage
-            .transform_collection_streaming("character-versions", "../escape", |_index, _row| {
-                Ok(false)
-            })
+            .transform_collection_streaming(
+                "character-versions",
+                "../escape",
+                |_index, _row| Ok(false),
+                |_index, _row| Ok(()),
+            )
             .expect_err("unsafe suffix should fail");
         assert_eq!(error.code, "invalid_input");
         fs::remove_dir_all(root).expect("temporary storage root should clean up");
@@ -462,6 +527,7 @@ mod tests {
                     row["changed"] = json!(true);
                     Ok(true)
                 },
+                |_index, _row| Ok(()),
             )
             .expect_err("source change should fail");
 

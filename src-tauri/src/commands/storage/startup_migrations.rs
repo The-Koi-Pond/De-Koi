@@ -1,6 +1,7 @@
 use super::{
     character_version_media::{
-        normalize_character_version_media, rollback_character_version_media_files,
+        normalize_character_version_media, reject_inline_character_version_media,
+        rollback_character_version_media_files,
     },
     media_uploads::{
         decode_image_payload, extension_for_image_mime, file_path_asset_url,
@@ -50,6 +51,19 @@ pub(crate) fn migrate_character_version_inline_media(
                 AppError::invalid_input("Character version record must be a JSON object")
             })?;
             normalize_character_version_media(data_dir, object, &mut created_files)
+        },
+        |_index, row| {
+            reject_inline_character_version_media(row)?;
+            if let Some(path) = row.get("avatarFilePath").and_then(Value::as_str) {
+                let managed_root = data_dir.join("avatars/characters/versions");
+                if !Path::new(path).starts_with(&managed_root) {
+                    return Err(AppError::new(
+                        "character_version_media_validation_failed",
+                        "Migrated character version image path escaped the managed version directory",
+                    ));
+                }
+            }
+            Ok(())
         },
     );
     if result.is_err() {
@@ -774,7 +788,7 @@ mod character_version_inline_media_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     const TINY_PNG: &str =
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 
     fn temp_dir(label: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()
@@ -823,7 +837,8 @@ mod character_version_inline_media_tests {
     }
 
     #[test]
-    fn character_version_inline_media_migration_rolls_back_assets_and_primary_on_error() {
+    fn character_version_inline_media_migration_preserves_primary_and_retains_safe_assets_on_error()
+    {
         let root = temp_dir("rollback");
         let storage = FileStorage::new(root.join("data")).expect("storage should initialize");
         let inline = format!("data:image/png;base64,{TINY_PNG}");
@@ -845,7 +860,7 @@ mod character_version_inline_media_tests {
         assert_eq!(error.code, "invalid_input");
         assert_eq!(fs::read(collection).unwrap(), before);
         let asset_dir = root.join("avatars/characters/versions");
-        assert!(!asset_dir.exists() || fs::read_dir(asset_dir).unwrap().next().is_none());
+        assert_eq!(fs::read_dir(asset_dir).unwrap().count(), 1);
         fs::remove_dir_all(root).expect("temporary directory should clean up");
     }
 }

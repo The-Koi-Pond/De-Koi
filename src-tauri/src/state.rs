@@ -88,44 +88,7 @@ impl AppState {
         let backgrounds = AssetService::new(data_dir.join("backgrounds"))?;
         let default_data_roots = existing_default_data_roots(default_data_roots);
         Self::seed_defaults(&storage, &default_data_roots)?;
-        // Default seeding and FileStorage load-time recovery remain always-on. The
-        // following gates cover legacy full-collection passes that only need one
-        // successful run per normalized data directory.
-        run_startup_migration_once(
-            &storage,
-            STORAGE_JSON_FIELDS_MIGRATION_KEY,
-            migrate_storage_json_fields,
-        )?;
-        migrate_message_prompt_snapshots_once(&storage)?;
-        run_startup_migration_once(
-            &storage,
-            NESTED_MESSAGE_SWIPES_MIGRATION_KEY,
-            crate::storage_commands::message_swipes::migrate_nested_message_swipes,
-        )?;
-        run_startup_migration_once(
-            &storage,
-            AGENT_RUN_ROWS_MIGRATION_KEY,
-            migrate_agent_run_rows,
-        )?;
-        run_startup_migration_once(
-            &storage,
-            LEGACY_CHAT_GROUP_ROOTS_MIGRATION_KEY,
-            migrate_legacy_chat_group_roots,
-        )?;
-        run_startup_migration_once(&storage, LOCAL_MEDIA_REFERENCES_MIGRATION_KEY, |storage| {
-            migrate_local_media_references(storage, &data_dir)
-        })?;
-        run_startup_migration_once(
-            &storage,
-            LEGACY_CHAT_GALLERY_FILES_MIGRATION_KEY,
-            |storage| recover_legacy_chat_gallery_files(storage, &data_dir),
-        )?;
-        run_startup_migration_once(&storage, INLINE_IMAGE_REFERENCES_MIGRATION_KEY, |storage| {
-            crate::storage_commands::startup_migrations::migrate_inline_image_references(
-                storage, &data_dir,
-            )
-        })?;
-        if let Err(error) = run_startup_migration_once(
+        let character_version_media_ready = match run_startup_migration_once(
             &storage,
             CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY,
             |storage| {
@@ -135,10 +98,59 @@ impl AppState {
                 .map(|_| ())
             },
         ) {
-            log::warn!(
-                "character version inline media migration remains pending: code={}",
-                error.code
-            );
+            Ok(()) => true,
+            Err(error) => {
+                log::warn!(
+                    "character version inline media migration remains pending: code={}",
+                    error.code
+                );
+                false
+            }
+        };
+        // Default seeding and FileStorage load-time recovery remain always-on. The
+        // following gates cover legacy full-collection passes that only need one
+        // successful run per normalized data directory.
+        if character_version_media_ready {
+            run_startup_migration_once(
+                &storage,
+                STORAGE_JSON_FIELDS_MIGRATION_KEY,
+                migrate_storage_json_fields,
+            )?;
+            migrate_message_prompt_snapshots_once(&storage)?;
+            run_startup_migration_once(
+                &storage,
+                NESTED_MESSAGE_SWIPES_MIGRATION_KEY,
+                crate::storage_commands::message_swipes::migrate_nested_message_swipes,
+            )?;
+            run_startup_migration_once(
+                &storage,
+                AGENT_RUN_ROWS_MIGRATION_KEY,
+                migrate_agent_run_rows,
+            )?;
+            run_startup_migration_once(
+                &storage,
+                LEGACY_CHAT_GROUP_ROOTS_MIGRATION_KEY,
+                migrate_legacy_chat_group_roots,
+            )?;
+            run_startup_migration_once(
+                &storage,
+                LOCAL_MEDIA_REFERENCES_MIGRATION_KEY,
+                |storage| migrate_local_media_references(storage, &data_dir),
+            )?;
+            run_startup_migration_once(
+                &storage,
+                LEGACY_CHAT_GALLERY_FILES_MIGRATION_KEY,
+                |storage| recover_legacy_chat_gallery_files(storage, &data_dir),
+            )?;
+            run_startup_migration_once(
+                &storage,
+                INLINE_IMAGE_REFERENCES_MIGRATION_KEY,
+                |storage| {
+                    crate::storage_commands::startup_migrations::migrate_inline_image_references(
+                        storage, &data_dir,
+                    )
+                },
+            )?;
         }
 
         Ok(Self {
@@ -1215,7 +1227,7 @@ mod tests {
     #[test]
     fn app_state_runs_character_version_inline_media_v2_once() {
         const TINY_PNG: &str =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
         let root = temp_root("character-version-inline-media-v2");
         let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
         storage

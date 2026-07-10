@@ -141,7 +141,7 @@ This limit is applied only after the streaming migration is available; otherwise
 6. Re-running a completed migration is a no-op.
 7. Import and snapshot entrypoints persist no inline avatar fields.
 8. A direct invalid `character-versions` write is rejected at the focused contract boundary.
-9. Managed asset rollback removes only files created by the failed attempt.
+9. Failed attempts retain content-addressed assets because another concurrent record may already reference the same file; this prefers a harmless orphan over deleting shared user media.
 
 The streaming test uses an instrumented reader or migration seam to prove record-at-a-time processing. It must not depend on unstable process-RSS assertions or commit a hundreds-of-megabytes fixture.
 

@@ -1230,7 +1230,7 @@ mod tests {
     #[test]
     fn legacy_profile_import_externalizes_character_version_inline_media() {
         const TINY_PNG: &str =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
         let state = test_state("character-version-inline-media");
         let mut tables = Map::new();
         tables.insert(
@@ -1243,31 +1243,24 @@ mod tests {
             }]),
         );
 
-        import_legacy_profile_tables_with_restored_assets(
-            &state,
-            &tables,
-            0,
-            None,
-            || Ok(()),
-        )
-        .expect("legacy profile should import");
-        let version = state
-            .storage
-            .list("character-versions")
-            .unwrap()
-            .remove(0);
+        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+            .expect("legacy profile should import");
+        let version = state.storage.list("character-versions").unwrap().remove(0);
 
         assert!(!version["avatarPath"]
             .as_str()
             .unwrap()
             .starts_with("data:image"));
-        assert!(version["avatarFilePath"].as_str().unwrap().contains("versions"));
+        assert!(version["avatarFilePath"]
+            .as_str()
+            .unwrap()
+            .contains("versions"));
     }
 
     #[test]
-    fn legacy_profile_progress_failure_rolls_back_new_character_version_media() {
+    fn legacy_profile_progress_failure_retains_content_addressed_version_media() {
         const TINY_PNG: &str =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
         let state = test_state("character-version-progress-rollback");
         let mut tables = Map::new();
         tables.insert(
@@ -1300,7 +1293,7 @@ mod tests {
             .join("avatars")
             .join("characters")
             .join("versions");
-        assert!(!asset_dir.exists() || std::fs::read_dir(asset_dir).unwrap().next().is_none());
+        assert_eq!(std::fs::read_dir(asset_dir).unwrap().count(), 1);
     }
 
     #[test]
