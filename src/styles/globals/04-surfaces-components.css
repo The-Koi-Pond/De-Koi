@@ -230,6 +230,10 @@
   animation-duration: 6s;
 }
 
+[data-de-koi-page-activity="inactive"] :is(.y2k-star, .y2k-star-md, .y2k-star-lg, .koi-home-splash-letter) {
+  animation-play-state: paused;
+}
+
 @keyframes pulse-glow {
   0%,
   100% {
@@ -312,7 +316,7 @@
 .koi-home-splash-letter {
   display: inline-block;
   transform: translateY(0);
-  animation: koi-home-splash-letter-bounce 3.2s ease-in-out infinite;
+  animation: koi-home-splash-letter-bounce 3.2s ease-in-out 2;
   animation-delay: calc(var(--splash-letter-index) * 42ms);
 }
 

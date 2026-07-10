@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { useGameModeStore } from "../stores/game-mode.store";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
+import { usePageActivity } from "../../../../shared/hooks/use-page-activity";
 
 interface PartyBarMember {
   id: string;
@@ -81,6 +82,7 @@ export function GamePartyBar({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const isPageActive = usePageActivity();
 
   const memberVisuals = useMemo(
     () =>
@@ -101,12 +103,12 @@ export function GamePartyBar({
   }, [memberVisuals.length]);
 
   useEffect(() => {
-    if (memberVisuals.length <= 1) return undefined;
+    if (memberVisuals.length <= 1 || !isPageActive) return undefined;
     const intervalId = window.setInterval(() => {
       setPreviewIndex((index) => (index + 1) % memberVisuals.length);
     }, 2500);
     return () => window.clearInterval(intervalId);
-  }, [memberVisuals.length]);
+  }, [isPageActive, memberVisuals.length]);
 
   useEffect(() => {
     if (!mobileMenuOpen) return undefined;

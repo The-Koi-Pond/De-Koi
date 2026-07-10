@@ -1,5 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HOME_SPLASH_TEXTS, ModeHomeSurface, pickHomeSplashText } from "./ModeHomeSurface";
@@ -89,6 +91,15 @@ describe("ModeHomeSurface launch splash", () => {
       splash?.getAttribute("aria-label") ?? "",
     );
     expect(splash?.querySelectorAll(".koi-home-splash-letter").length).toBeGreaterThan(0);
+  });
+
+  it("runs the splash bounce twice while retaining reduced-motion opt out", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/styles/globals/04-surfaces-components.css"), "utf8");
+
+    expect(css).toMatch(/\.koi-home-splash-letter\s*\{[^}]*animation:[^;]* 2;/);
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.koi-home-splash-letter\s*\{[^}]*animation:\s*none;/,
+    );
   });
 });
 

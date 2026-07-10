@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { TrackerPanelIcon } from "../../../../shared/components/ui/TrackerPanelIcon";
 import { cn } from "../../../../shared/lib/utils";
 import type { HudPosition } from "../../../../shared/stores/ui.store";
+import { usePageActivity } from "../../../../shared/hooks/use-page-activity";
 
 /** Common mobile HUD button sizing used by strip buttons. */
 export const MOBILE_HUD_BTN =
@@ -44,15 +45,16 @@ export function getWidgetPreviewFontSize(label: string, min = 3.5, max = 6, widt
 export function useCyclingWidgetIndex(itemCount: number, intervalMs = 3000) {
   const [cycleIdx, setCycleIdx] = useState(0);
   const [animKey, setAnimKey] = useState(0);
+  const isPageActive = usePageActivity();
 
   useEffect(() => {
-    if (itemCount <= 1) return;
+    if (itemCount <= 1 || !isPageActive) return;
     const timer = setInterval(() => {
       setCycleIdx((prev) => (prev + 1) % itemCount);
       setAnimKey((prev) => prev + 1);
     }, intervalMs);
     return () => clearInterval(timer);
-  }, [intervalMs, itemCount]);
+  }, [intervalMs, isPageActive, itemCount]);
 
   useEffect(() => {
     if (cycleIdx >= itemCount) setCycleIdx(0);
