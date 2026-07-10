@@ -40,26 +40,26 @@ describe("connection query policy", () => {
 
   it("keeps every connection mutation wired to the list query family", () => {
     const mutations = [
-      [useCreateConnection, (options: Record<string, (...args: unknown[]) => void>) => options.onSuccess()],
+      [useCreateConnection(), (options: Record<string, (...args: unknown[]) => void>) => options.onSuccess()],
       [
-        useUpdateConnection,
+        useUpdateConnection(),
         (options: Record<string, (...args: unknown[]) => void>) => options.onSuccess(undefined, { id: "c1" }),
       ],
-      [useDuplicateConnection, (options: Record<string, (...args: unknown[]) => void>) => options.onSuccess()],
-      [useDeleteConnection, (options: Record<string, (...args: unknown[]) => void>) => options.onSuccess({}, "c1")],
+      [useDuplicateConnection(), (options: Record<string, (...args: unknown[]) => void>) => options.onSuccess()],
+      [useDeleteConnection(), (options: Record<string, (...args: unknown[]) => void>) => options.onSuccess({}, "c1")],
       [
-        useSaveConnectionDefaults,
+        useSaveConnectionDefaults(),
         (options: Record<string, (...args: unknown[]) => void>) => options.onSuccess(undefined, { id: "c1" }),
       ],
       [
-        useUploadConnectionImage,
+        useUploadConnectionImage(),
         (options: Record<string, (...args: unknown[]) => void>) => options.onSuccess(undefined, { id: "c1" }),
       ],
     ] as const;
 
-    for (const [useMutationHook, invokeSuccess] of mutations) {
+    for (const [mutationOptions, invokeSuccess] of mutations) {
       queryClientMock.invalidateQueries.mockClear();
-      const options = useMutationHook() as unknown as Record<string, (...args: unknown[]) => void>;
+      const options = mutationOptions as unknown as Record<string, (...args: unknown[]) => void>;
       invokeSuccess(options);
       expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith({ queryKey: connectionKeys.list() });
     }

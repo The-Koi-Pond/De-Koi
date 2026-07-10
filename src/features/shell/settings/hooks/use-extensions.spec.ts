@@ -30,15 +30,15 @@ describe("extension query policy", () => {
   });
 
   it("keeps every extension mutation wired to the extension query family", () => {
-    const mutationHooks = [useCreateExtension, useUpdateExtension, useDeleteExtension] as const;
+    const mutationOptions = [useCreateExtension(), useUpdateExtension(), useDeleteExtension()] as const;
 
-    for (const useMutationHook of mutationHooks) {
+    for (const mutationOption of mutationOptions) {
       queryClientMock.invalidateQueries.mockClear();
-      const options = useMutationHook() as unknown as { onSuccess: () => void };
+      const options = mutationOption as unknown as { onSuccess: () => void };
       options.onSuccess();
       expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["extensions"] });
     }
 
-    expect(useMutation).toHaveBeenCalledTimes(mutationHooks.length);
+    expect(useMutation).toHaveBeenCalledTimes(mutationOptions.length);
   });
 });

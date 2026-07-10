@@ -39,7 +39,7 @@ describe("shell performance mode", () => {
     const css = readFileSync(cssPath, "utf8");
 
     expect(css).toMatch(
-      /\[data-de-koi-page-activity="inactive"\][^{]*y2k-star[^\{]*koi-home-splash-letter[^\{]*\{[^}]*animation-play-state:\s*paused/,
+      /\[data-de-koi-page-activity="inactive"\][^{]*y2k-star[^{]*koi-home-splash-letter[^{]*{[^}]*animation-play-state:\s*paused/,
     );
   });
 });

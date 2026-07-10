@@ -306,13 +306,16 @@ describe("ChatMessage", () => {
     vi.advanceTimersByTime(2_000);
     let observerCallback: IntersectionObserverCallback | null = null;
     let observer: IntersectionObserver | null = null;
+    const captureObserver = (value: IntersectionObserver) => {
+      observer = value;
+    };
     class TestIntersectionObserver implements IntersectionObserver {
       readonly root = null;
       readonly rootMargin = "0px";
       readonly thresholds = [0];
       constructor(callback: IntersectionObserverCallback) {
         observerCallback = callback;
-        observer = this;
+        captureObserver(this);
       }
       disconnect = vi.fn();
       observe = vi.fn();
@@ -436,6 +439,9 @@ describe("ChatMessage", () => {
     const removeEventListener = vi.spyOn(document, "removeEventListener");
     let observerCallback: IntersectionObserverCallback | null = null;
     let observer: IntersectionObserver | null = null;
+    const captureObserver = (value: IntersectionObserver) => {
+      observer = value;
+    };
     class TestIntersectionObserver implements IntersectionObserver {
       readonly root = null;
       readonly rootMargin = "0px";
@@ -446,7 +452,7 @@ describe("ChatMessage", () => {
       unobserve = vi.fn();
       constructor(callback: IntersectionObserverCallback) {
         observerCallback = callback;
-        observer = this;
+        captureObserver(this);
       }
     }
     vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
