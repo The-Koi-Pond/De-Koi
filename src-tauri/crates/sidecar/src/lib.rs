@@ -2521,6 +2521,11 @@ pub async fn start(state: &LocalSidecarState) -> AppResult<Value> {
     status_payload(state).await
 }
 
+pub async fn shutdown() -> AppResult<()> {
+    let mut process = SIDECAR_PROCESS.lock().await;
+    process.stop_locked().await
+}
+
 pub async fn stop(state: &LocalSidecarState) -> AppResult<Value> {
     let mut process = SIDECAR_PROCESS.lock().await;
     process.stop_locked().await?;
@@ -2835,6 +2840,16 @@ mod tests {
 
     fn test_state(label: &str) -> LocalSidecarState {
         LocalSidecarState::new(temp_dir(label))
+    }
+
+    #[tokio::test]
+    async fn shutdown_is_idempotent_without_a_managed_child() {
+        shutdown()
+            .await
+            .expect("shutdown without a managed child should succeed");
+        shutdown()
+            .await
+            .expect("repeated shutdown without a managed child should succeed");
     }
 
     fn write_fake_bundled_runtime_install(

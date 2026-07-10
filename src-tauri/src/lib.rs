@@ -14,6 +14,98 @@ pub(crate) mod storage_commands;
 #[cfg(feature = "desktop")]
 use tauri::Manager;
 
+#[cfg(feature = "desktop")]
+const EXIT_IDLE: u8 = 0;
+#[cfg(feature = "desktop")]
+const EXIT_SHUTTING_DOWN: u8 = 1;
+#[cfg(feature = "desktop")]
+const EXIT_REISSUED: u8 = 2;
+
+#[cfg(feature = "desktop")]
+#[derive(Debug, PartialEq, Eq)]
+enum ExitRequestDecision {
+    PreventAndShutdown,
+    Prevent,
+    Allow,
+}
+
+#[cfg(feature = "desktop")]
+struct ExitCoordinator {
+    phase: std::sync::atomic::AtomicU8,
+}
+
+#[cfg(feature = "desktop")]
+impl ExitCoordinator {
+    fn new() -> Self {
+        Self {
+            phase: std::sync::atomic::AtomicU8::new(EXIT_IDLE),
+        }
+    }
+
+    fn request_exit(&self) -> ExitRequestDecision {
+        loop {
+            match self.phase.load(std::sync::atomic::Ordering::Acquire) {
+                EXIT_IDLE => {
+                    if self
+                        .phase
+                        .compare_exchange(
+                            EXIT_IDLE,
+                            EXIT_SHUTTING_DOWN,
+                            std::sync::atomic::Ordering::AcqRel,
+                            std::sync::atomic::Ordering::Acquire,
+                        )
+                        .is_ok()
+                    {
+                        return ExitRequestDecision::PreventAndShutdown;
+                    }
+                }
+                EXIT_SHUTTING_DOWN => return ExitRequestDecision::Prevent,
+                EXIT_REISSUED => return ExitRequestDecision::Allow,
+                _ => unreachable!("exit coordinator phase must be valid"),
+            }
+        }
+    }
+
+    fn mark_exit_reissued(&self) -> bool {
+        self.phase
+            .compare_exchange(
+                EXIT_SHUTTING_DOWN,
+                EXIT_REISSUED,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .is_ok()
+    }
+}
+
+#[cfg(feature = "desktop")]
+fn flush_pending_storage(app_handle: &tauri::AppHandle) {
+    if let Some(state) = app_handle.try_state::<crate::state::AppState>() {
+        if let Err(error) = state.storage.flush() {
+            log::error!("failed to flush pending storage writes on quit: {error}");
+        }
+    }
+}
+
+#[cfg(all(test, feature = "desktop"))]
+mod exit_tests {
+    use super::*;
+
+    #[test]
+    fn exit_coordinator_allows_only_one_shutdown_and_reissued_exit() {
+        let coordinator = ExitCoordinator::new();
+
+        assert_eq!(
+            coordinator.request_exit(),
+            ExitRequestDecision::PreventAndShutdown
+        );
+        assert_eq!(coordinator.request_exit(), ExitRequestDecision::Prevent);
+        assert!(coordinator.mark_exit_reissued());
+        assert!(!coordinator.mark_exit_reissued());
+        assert_eq!(coordinator.request_exit(), ExitRequestDecision::Allow);
+    }
+}
+
 #[cfg(all(
     feature = "desktop",
     not(any(target_os = "android", target_os = "ios"))
@@ -349,19 +441,47 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            // Flush pending debounced storage writes on quit so writes made inside the
-            // 750ms debounce window aren't lost when the app closes (#2319).
-            if matches!(
-                event,
-                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
-            ) {
-                if let Some(state) = app_handle.try_state::<crate::state::AppState>() {
-                    if let Err(error) = state.storage.flush() {
-                        // Best-effort: a failed quit-time flush must not block shutdown, but it
-                        // must not be silent either, so a dropped write is diagnosable.
-                        log::error!("failed to flush pending storage writes on quit: {error}");
+        .run({
+            let exit_coordinator = std::sync::Arc::new(ExitCoordinator::new());
+            move |app_handle, event| {
+                // Flush pending debounced storage writes on quit so writes made inside the
+                // 750ms debounce window aren't lost when the app closes (#2319).
+                match event {
+                    tauri::RunEvent::ExitRequested { code, api, .. } => {
+                        flush_pending_storage(app_handle);
+                        match exit_coordinator.request_exit() {
+                            ExitRequestDecision::PreventAndShutdown => {
+                                api.prevent_exit();
+                                let app_handle = app_handle.clone();
+                                let exit_coordinator = std::sync::Arc::clone(&exit_coordinator);
+                                tauri::async_runtime::spawn(async move {
+                                    match tokio::time::timeout(
+                                        std::time::Duration::from_secs(10),
+                                        marinara_sidecar::shutdown(),
+                                    )
+                                    .await
+                                    {
+                                        Ok(Ok(())) => {}
+                                        Ok(Err(error)) => {
+                                            log::error!(
+                                                "failed to stop local model on quit: {error}"
+                                            );
+                                        }
+                                        Err(_) => {
+                                            log::error!("timed out stopping local model on quit");
+                                        }
+                                    }
+                                    if exit_coordinator.mark_exit_reissued() {
+                                        app_handle.exit(code.unwrap_or(0));
+                                    }
+                                });
+                            }
+                            ExitRequestDecision::Prevent => api.prevent_exit(),
+                            ExitRequestDecision::Allow => {}
+                        }
                     }
+                    tauri::RunEvent::Exit => flush_pending_storage(app_handle),
+                    _ => {}
                 }
             }
         });
