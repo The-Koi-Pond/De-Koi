@@ -53,6 +53,7 @@ const LEGACY_CHAT_GROUP_ROOTS_MIGRATION_KEY: &str = "legacyChatGroupRootsV1";
 const LOCAL_MEDIA_REFERENCES_MIGRATION_KEY: &str = "localMediaReferencesV1";
 const LEGACY_CHAT_GALLERY_FILES_MIGRATION_KEY: &str = "legacyChatGalleryFilesV1";
 const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
+const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInlineMediaV2";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const USER_BACKGROUND_GAME_ASSET_PREFIX: &str = "__user_bg__/";
 
@@ -124,6 +125,21 @@ impl AppState {
                 storage, &data_dir,
             )
         })?;
+        if let Err(error) = run_startup_migration_once(
+            &storage,
+            CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY,
+            |storage| {
+                crate::storage_commands::startup_migrations::migrate_character_version_inline_media(
+                    storage, &data_dir,
+                )
+                .map(|_| ())
+            },
+        ) {
+            log::warn!(
+                "character version inline media migration remains pending: code={}",
+                error.code
+            );
+        }
 
         Ok(Self {
             storage,
@@ -1194,6 +1210,42 @@ mod tests {
             startup_migration_applied(&storage, "testMigrationFailureV1")
                 .expect("migration marker should load")
         );
+    }
+
+    #[test]
+    fn app_state_runs_character_version_inline_media_v2_once() {
+        const TINY_PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+        let root = temp_root("character-version-inline-media-v2");
+        let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
+        storage
+            .replace_all(
+                "character-versions",
+                vec![json!({
+                    "id": "version-1",
+                    "avatarPath": format!("data:image/png;base64,{TINY_PNG}")
+                })],
+            )
+            .expect("fixture should persist");
+        drop(storage);
+
+        let first = AppState::from_data_dir(&root.0, vec![]).expect("state should initialize");
+        let first_row = first.storage.list("character-versions").unwrap().remove(0);
+        assert!(!first_row["avatarPath"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image"));
+        assert!(startup_migration_applied(
+            &first.storage,
+            CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY
+        )
+        .unwrap());
+        let first_path = first_row["avatarFilePath"].as_str().unwrap().to_string();
+        drop(first);
+
+        let second = AppState::from_data_dir(&root.0, vec![]).expect("second startup should work");
+        let second_row = second.storage.list("character-versions").unwrap().remove(0);
+        assert_eq!(second_row["avatarFilePath"], first_path);
     }
     #[test]
     fn llm_stream_pending_cancellations_inside_ttl_are_retained() {

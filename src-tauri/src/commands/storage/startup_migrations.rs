@@ -1,4 +1,7 @@
 use super::{
+    character_version_media::{
+        normalize_character_version_media, rollback_character_version_media_files,
+    },
     media_uploads::{
         decode_image_payload, extension_for_image_mime, file_path_asset_url,
         is_inline_image_data_url, optimize_avatar_image_bytes, safe_filename, unique_file_path,
@@ -6,7 +9,7 @@ use super::{
     message_swipes,
 };
 use marinara_core::{new_id, now_iso, AppError, AppResult};
-use marinara_storage::FileStorage;
+use marinara_storage::{FileStorage, StreamingTransformReport};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
@@ -32,6 +35,27 @@ struct InlineAttachmentBackfillContext<'a> {
     gallery_rows: &'a mut Vec<Value>,
     gallery_urls: &'a mut HashMap<String, String>,
     created_files: &'a mut Vec<PathBuf>,
+}
+
+pub(crate) fn migrate_character_version_inline_media(
+    storage: &FileStorage,
+    data_dir: &Path,
+) -> AppResult<StreamingTransformReport> {
+    let mut created_files = Vec::new();
+    let result = storage.transform_collection_streaming(
+        "character-versions",
+        "character-version-inline-media-v2",
+        |_index, row| {
+            let object = row.as_object_mut().ok_or_else(|| {
+                AppError::invalid_input("Character version record must be a JSON object")
+            })?;
+            normalize_character_version_media(data_dir, object, &mut created_files)
+        },
+    );
+    if result.is_err() {
+        rollback_character_version_media_files(&created_files);
+    }
+    result
 }
 
 pub(crate) fn migrate_inline_image_references(
@@ -739,4 +763,89 @@ fn attachment_filename_hint(
         }
     }
     format!("{message_id}-attachment-{}", index + 1)
+}
+
+#[cfg(test)]
+mod character_version_inline_media_tests {
+    use super::*;
+    use marinara_storage::FileStorage;
+    use serde_json::json;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    const TINY_PNG: &str =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    fn temp_dir(label: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should follow the Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("de-koi-version-migration-{label}-{nonce}"))
+    }
+
+    #[test]
+    fn character_version_inline_media_migration_preserves_rows_and_deduplicates_assets() {
+        let root = temp_dir("success");
+        let storage = FileStorage::new(root.join("data")).expect("storage should initialize");
+        let inline = format!("data:image/png;base64,{TINY_PNG}");
+        storage
+            .replace_all(
+                "character-versions",
+                vec![
+                    json!({"id":"version-1","characterId":"char-1","avatarPath":inline,"data":{"name":"First"}}),
+                    json!({"id":"version-2","characterId":"char-1","avatarPath":inline,"data":{"name":"Second"}}),
+                ],
+            )
+            .expect("fixture should persist");
+
+        let report = migrate_character_version_inline_media(&storage, &root)
+            .expect("migration should succeed");
+        let rows = storage.list("character-versions").unwrap();
+
+        assert_eq!(report.input_records, 2);
+        assert_eq!(report.output_records, 2);
+        assert_eq!(report.changed_records, 2);
+        assert_eq!(rows[0]["id"], "version-1");
+        assert_eq!(rows[1]["data"]["name"], "Second");
+        assert_eq!(rows[0]["avatarPath"], rows[1]["avatarPath"]);
+        assert!(!rows[0]["avatarPath"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image"));
+        assert_eq!(
+            fs::read_dir(root.join("avatars/characters/versions"))
+                .unwrap()
+                .count(),
+            1
+        );
+        fs::remove_dir_all(root).expect("temporary directory should clean up");
+    }
+
+    #[test]
+    fn character_version_inline_media_migration_rolls_back_assets_and_primary_on_error() {
+        let root = temp_dir("rollback");
+        let storage = FileStorage::new(root.join("data")).expect("storage should initialize");
+        let inline = format!("data:image/png;base64,{TINY_PNG}");
+        storage
+            .replace_all(
+                "character-versions",
+                vec![
+                    json!({"id":"version-1","avatarPath":inline}),
+                    json!({"id":"version-2","avatarPath":"data:image/png;base64,bm9wZQ=="}),
+                ],
+            )
+            .expect("fixture should persist");
+        let collection = root.join("data/collections/character-versions.json");
+        let before = fs::read(&collection).unwrap();
+
+        let error = migrate_character_version_inline_media(&storage, &root)
+            .expect_err("invalid second row should fail");
+
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(fs::read(collection).unwrap(), before);
+        let asset_dir = root.join("avatars/characters/versions");
+        assert!(!asset_dir.exists() || fs::read_dir(asset_dir).unwrap().next().is_none());
+        fs::remove_dir_all(root).expect("temporary directory should clean up");
+    }
 }
