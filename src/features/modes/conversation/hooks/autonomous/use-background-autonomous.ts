@@ -54,19 +54,16 @@ export function useBackgroundAutonomousPolling() {
     [activeChatId, chatSummaries],
   );
   const eligibleChatIdsKey = JSON.stringify(eligibleChatIds);
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const busyDelayTimers = useRef<Map<ReturnType<typeof setTimeout>, { chatId: string; startedAt: number }>>(new Map());
   const generatingForRef = useRef<Set<string>>(new Set());
-  const mountedRef = useRef(true);
 
   useEffect(() => {
-    mountedRef.current = true;
-    const delayTimers = busyDelayTimers.current;
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    const delayTimers = new Map<ReturnType<typeof setTimeout>, { chatId: string; startedAt: number }>();
     const backgroundChats = (JSON.parse(eligibleChatIdsKey) as string[]).map((id) => ({ id }));
-    if (backgroundChats.length === 0) return;
 
     const poll = async () => {
-      if (!mountedRef.current) return;
+      if (cancelled) return;
 
       // Don't trigger autonomous messages when user is DND
       if (useUIStore.getState().userStatus === "dnd") {
@@ -85,6 +82,7 @@ export function useBackgroundAutonomousPolling() {
             chatId: chat.id,
             userStatus: useUIStore.getState().userStatus,
           });
+          if (cancelled) return;
 
           if (result.shouldTrigger && result.characterIds.length > 0) {
             const characterId = result.characterIds[0]!;
@@ -92,6 +90,10 @@ export function useBackgroundAutonomousPolling() {
 
             // Check busy delay
             const delay = await getConversationBusyDelay(storageApi, { chatId: chat.id, characterId });
+            if (cancelled) {
+              clearGenerationInProgress(chat.id, startedAt);
+              return;
+            }
 
             // Generate in background (after optional delay)
             generatingForRef.current.add(chat.id);
@@ -194,10 +196,15 @@ export function useBackgroundAutonomousPolling() {
 
             if (delay.delayMs > 0) {
               const timerId = setTimeout(() => {
-                busyDelayTimers.current.delete(timerId);
+                delayTimers.delete(timerId);
+                if (cancelled) {
+                  generatingForRef.current.delete(chat.id);
+                  clearGenerationInProgress(chat.id, startedAt);
+                  return;
+                }
                 doGenerate();
               }, delay.delayMs);
-              busyDelayTimers.current.set(timerId, { chatId: chat.id, startedAt });
+              delayTimers.set(timerId, { chatId: chat.id, startedAt });
             } else {
               doGenerate();
             }
@@ -211,20 +218,21 @@ export function useBackgroundAutonomousPolling() {
     };
 
     const schedulePoll = () => {
-      if (!mountedRef.current) return;
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = setTimeout(poll, 30_000);
+      if (cancelled) return;
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(poll, 30_000);
     };
 
     // Start polling after an initial delay (staggered from active autonomous polling at 10s)
-    pollTimerRef.current = setTimeout(poll, 20_000);
+    if (backgroundChats.length > 0) pollTimer = setTimeout(poll, 20_000);
 
     return () => {
-      mountedRef.current = false;
-      clearTimeout(pollTimerRef.current);
+      cancelled = true;
+      clearTimeout(pollTimer);
       for (const [timer, lock] of delayTimers) {
         clearTimeout(timer);
         clearGenerationInProgress(lock.chatId, lock.startedAt);
+        generatingForRef.current.delete(lock.chatId);
       }
       delayTimers.clear();
     };

@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
     metadata: { autonomousMessages?: boolean };
   }>,
   checkConversationAutonomous: vi.fn(),
+  clearGenerationInProgress: vi.fn(),
+  getConversationBusyDelay: vi.fn(),
+  markGenerationInProgress: vi.fn(),
+  startGeneration: vi.fn(),
   storageList: vi.fn(),
 }));
 
@@ -25,10 +29,14 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("../../../../../engine/modes/chat/autonomous/autonomous.service", () => ({
   checkConversationAutonomous: mocks.checkConversationAutonomous,
-  clearGenerationInProgress: vi.fn(),
-  getConversationBusyDelay: vi.fn(),
-  markGenerationInProgress: vi.fn(),
+  clearGenerationInProgress: mocks.clearGenerationInProgress,
+  getConversationBusyDelay: mocks.getConversationBusyDelay,
+  markGenerationInProgress: mocks.markGenerationInProgress,
   recordAssistantActivity: vi.fn(),
+}));
+
+vi.mock("../../../../../engine/generation/start-generation", () => ({
+  startGeneration: mocks.startGeneration,
 }));
 
 vi.mock("../../../../../shared/api/storage-api", () => ({
@@ -48,6 +56,14 @@ function Harness({ revision: _revision }: { revision: number }) {
   return null;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("useBackgroundAutonomousPolling", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -60,6 +76,10 @@ describe("useBackgroundAutonomousPolling", () => {
       shouldTrigger: false,
       characterIds: [],
     });
+    mocks.clearGenerationInProgress.mockReset();
+    mocks.getConversationBusyDelay.mockReset().mockResolvedValue({ delayMs: 0 });
+    mocks.markGenerationInProgress.mockReset().mockReturnValue(123);
+    mocks.startGeneration.mockReset().mockImplementation(async function* () {});
     useChatStore.setState({ activeChatId: null });
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -110,5 +130,49 @@ describe("useBackgroundAutonomousPolling", () => {
     useChatStore.setState({ activeChatId: "chat-1" });
     act(() => root.render(<Harness revision={2} />));
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not resume a retired poll after eligibility changes while its check is pending", async () => {
+    const pendingCheck = deferred<{ shouldTrigger: boolean; characterIds: string[] }>();
+    mocks.checkConversationAutonomous.mockReturnValueOnce(pendingCheck.promise);
+    mocks.summaries = [{ id: "chat-1", mode: "conversation", metadata: { autonomousMessages: true } }];
+    act(() => root.render(<Harness revision={0} />));
+
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(mocks.checkConversationAutonomous).toHaveBeenCalledTimes(1);
+
+    mocks.summaries = [];
+    act(() => root.render(<Harness revision={1} />));
+    pendingCheck.resolve({ shouldTrigger: true, characterIds: ["character-1"] });
+    await act(async () => Promise.resolve());
+
+    expect(mocks.getConversationBusyDelay).not.toHaveBeenCalled();
+    expect(mocks.startGeneration).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("releases a cancelled busy-delay guard so the chat can be scheduled again", async () => {
+    mocks.checkConversationAutonomous.mockResolvedValue({
+      shouldTrigger: true,
+      characterIds: ["character-1"],
+    });
+    mocks.getConversationBusyDelay.mockResolvedValue({ delayMs: 5_000 });
+    mocks.summaries = [{ id: "chat-1", mode: "conversation", metadata: { autonomousMessages: true } }];
+    act(() => root.render(<Harness revision={0} />));
+
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(mocks.getConversationBusyDelay).toHaveBeenCalledTimes(1);
+
+    mocks.summaries = [];
+    act(() => root.render(<Harness revision={1} />));
+    expect(vi.getTimerCount()).toBe(0);
+
+    mocks.summaries = [{ id: "chat-1", mode: "conversation", metadata: { autonomousMessages: true } }];
+    act(() => root.render(<Harness revision={2} />));
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+
+    expect(mocks.checkConversationAutonomous).toHaveBeenCalledTimes(2);
+    expect(mocks.getConversationBusyDelay).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(2);
   });
 });
