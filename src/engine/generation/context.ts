@@ -24,6 +24,7 @@ const GENERATION_MESSAGE_EXTRA_FIELDS = [
   "thinking",
   "reasoning",
   "reasoning_content",
+  "attachments",
   "contextInjections",
   "cyoaChoices",
   "spriteExpressions",
