@@ -1,3 +1,6 @@
+use super::character_version_media::{
+    normalize_character_version_media, rollback_character_version_media_files,
+};
 use super::media_uploads::{
     managed_record_file_path, persist_image_file_copy, remove_copied_file_path, safe_filename,
     StoredManagedImage,
@@ -125,12 +128,24 @@ pub(crate) fn create_character_version_snapshot_from_record(
     );
     snapshot.insert("reason".to_string(), Value::String(reason.to_string()));
 
+    let mut created_version_media = Vec::new();
+    if let Err(error) =
+        normalize_character_version_media(&state.data_dir, &mut snapshot, &mut created_version_media)
+    {
+        remove_copied_file_path(
+            copied_avatar_path.as_deref(),
+            "rolled-back character version avatar copy",
+        );
+        return Err(error);
+    }
+
     match state
         .storage
         .create("character-versions", Value::Object(snapshot))
     {
         Ok(created) => Ok(created),
         Err(error) => {
+            rollback_character_version_media_files(&created_version_media);
             remove_copied_file_path(
                 copied_avatar_path.as_deref(),
                 "rolled-back character version avatar copy",
@@ -810,6 +825,35 @@ mod tests {
             .storage
             .list("character-versions")
             .expect("versions should list")
+    }
+
+    #[test]
+    fn character_version_snapshot_externalizes_inline_avatar_media() {
+        const TINY_PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+        let state = test_state("snapshot-inline-avatar");
+        let record = json!({
+            "id": "char-inline",
+            "data": { "name": "Inline", "character_version": "1.0" },
+            "avatarPath": format!("data:image/png;base64,{TINY_PNG}"),
+            "avatar": format!("data:image/png;base64,{TINY_PNG}")
+        });
+
+        let snapshot = create_character_version_snapshot_from_record(
+            &state,
+            "char-inline",
+            &record,
+            "manual",
+            "proof",
+        )
+        .expect("snapshot should persist");
+
+        assert!(!snapshot["avatarPath"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image"));
+        assert_eq!(snapshot["avatar"], snapshot["avatarPath"]);
+        assert!(snapshot["avatarFilePath"].as_str().unwrap().contains("versions"));
     }
 
     #[test]
