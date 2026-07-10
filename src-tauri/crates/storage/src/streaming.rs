@@ -147,6 +147,23 @@ where
 }
 
 impl FileStorage {
+    pub fn visit_collection_streaming<V>(&self, collection: &str, mut visit: V) -> AppResult<usize>
+    where
+        V: FnMut(usize, &Value) -> AppResult<()>,
+    {
+        let _write_permit = self.write_gate.begin_write()?;
+        let _guard = self
+            .lock
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        self.flush_dirty_collections_locked()?;
+        let path = self.collection_path(collection)?;
+        if !path.exists() {
+            return Ok(0);
+        }
+        validate_json_array_file(&path, &mut visit)
+    }
+
     pub fn transform_collection_streaming<F, V>(
         &self,
         collection: &str,

@@ -161,32 +161,27 @@ pub(crate) fn cleanup_orphaned_character_version_media(
     if !target_dir.is_dir() {
         return Ok(0);
     }
-    let referenced = storage
-        .list("character-versions")?
-        .into_iter()
-        .filter_map(|row| {
-            row.get("avatarFilename")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
+    let mut candidates = fs::read_dir(&target_dir)?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|filename| is_content_addressed_version_filename(filename))
         .collect::<HashSet<_>>();
+    storage.visit_collection_streaming("character-versions", |_index, row| {
+        if let Some(filename) = row.get("avatarFilename").and_then(Value::as_str) {
+            candidates.remove(filename);
+        }
+        Ok(())
+    })?;
     let mut removed = 0;
-    for entry in fs::read_dir(&target_dir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_file() {
-            continue;
-        }
-        let filename = entry.file_name().to_string_lossy().to_string();
-        if !is_content_addressed_version_filename(&filename) || referenced.contains(&filename) {
-            continue;
-        }
-        fs::remove_file(entry.path())?;
+    for filename in candidates {
+        fs::remove_file(target_dir.join(filename))?;
         removed += 1;
     }
     Ok(removed)
 }
 
-fn is_content_addressed_version_filename(filename: &str) -> bool {
+pub(super) fn is_content_addressed_version_filename(filename: &str) -> bool {
     let Some((hash, extension)) = filename
         .strip_prefix("version-")
         .and_then(|value| value.rsplit_once('.'))

@@ -12,9 +12,7 @@ use super::{
 use marinara_core::{new_id, now_iso, AppError, AppResult};
 use marinara_storage::{FileStorage, StreamingTransformReport};
 use serde_json::{json, Map, Value};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -45,23 +43,23 @@ pub(crate) fn migrate_character_version_inline_media(
     data_dir: &Path,
 ) -> AppResult<StreamingTransformReport> {
     let mut created_files = Vec::new();
-    let rewritten_rows = RefCell::new(HashSet::new());
     let result = storage.transform_collection_streaming(
         "character-versions",
         "character-version-inline-media-v2",
-        |index, row| {
+        |_index, row| {
             let object = row.as_object_mut().ok_or_else(|| {
                 AppError::invalid_input("Character version record must be a JSON object")
             })?;
             let changed = normalize_character_version_media(data_dir, object, &mut created_files)?;
-            if changed {
-                rewritten_rows.borrow_mut().insert(index);
-            }
             Ok(changed)
         },
-        |index, row| {
+        |_index, row| {
             reject_inline_character_version_media(row)?;
-            if rewritten_rows.borrow().contains(&index) {
+            if row
+                .get("avatarFilename")
+                .and_then(Value::as_str)
+                .is_some_and(super::character_version_media::is_content_addressed_version_filename)
+            {
                 let path = row
                     .get("avatarFilePath")
                     .and_then(Value::as_str)
