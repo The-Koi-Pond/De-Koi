@@ -1,5 +1,19 @@
 import type { ChatMLMessage } from "../../contracts/types/prompt";
 
+function logicalSegments(message: ChatMLMessage) {
+  return message.contextSegments?.length
+    ? message.contextSegments.map((segment) => ({ ...segment }))
+    : [
+        {
+          role: message.role,
+          content: message.content,
+          ...(message.contextKind ? { contextKind: message.contextKind } : {}),
+          ...(message.contextPriority != null ? { contextPriority: message.contextPriority } : {}),
+          ...(message.displayName ? { displayName: message.displayName } : {}),
+        },
+      ];
+}
+
 export function mergePromptContextKind(
   a?: ChatMLMessage["contextKind"],
   b?: ChatMLMessage["contextKind"],
@@ -53,6 +67,7 @@ export function mergeAdjacentMessages(messages: ChatMLMessage[]): ChatMLMessage[
         ...(current.characterId ? { characterId: current.characterId } : {}),
         ...(mergedImages ? { images: mergedImages } : {}),
         ...(mergedMeta ? { providerMetadata: mergedMeta } : {}),
+        contextSegments: [...logicalSegments(current), ...logicalSegments(msg)],
       };
     } else {
       // Different role — push current and start new accumulator
@@ -91,12 +106,14 @@ export function squashLeadingSystemMessages(messages: ChatMLMessage[]): ChatMLMe
       .map((m) => m.contextKind)
       .filter(Boolean),
   );
+  const contextSegments = messages.slice(0, systemEnd).flatMap(logicalSegments);
 
   return [
     {
       role: "system",
       content: combinedContent,
       ...(contextKinds.size === 1 ? { contextKind: [...contextKinds][0] } : {}),
+      contextSegments,
     },
     ...messages.slice(systemEnd),
   ];

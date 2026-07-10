@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
-import { assembleGenerationPrompt } from "./prompt-assembly";
+import { fitLlmRequestToContextWindow } from "./context-window";
+import { assembleGenerationPrompt, collapseToSingleUserMessage } from "./prompt-assembly";
 
 function asStorageValue<T>(value: unknown): T {
   return value as T;
@@ -10,15 +11,25 @@ function asStorageValue<T>(value: unknown): T {
 function contextPriorityStorage(options: {
   character: Record<string, unknown>;
   memories: Record<string, unknown>[];
+  regexScripts?: Record<string, unknown>[];
+  promptBundle?: {
+    preset: Record<string, unknown>;
+    sections: Record<string, unknown>[];
+    groups?: Record<string, unknown>[];
+  };
 }): StorageGateway {
   return {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
-      if (entity === "prompts") return [];
-      if (["personas", "regex-scripts", "lorebooks", "agents"].includes(entity)) return [];
+      if (entity === "prompts") return asStorageValue<T[]>(options.promptBundle ? [options.promptBundle.preset] : []);
+      if (entity === "regex-scripts") return asStorageValue<T[]>(options.regexScripts ?? []);
+      if (["personas", "lorebooks", "agents"].includes(entity)) return [];
       return [];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "characters" && options.character.id === id) return asStorageValue<T>(options.character);
+      if (entity === "prompts" && options.promptBundle?.preset.id === id) {
+        return asStorageValue<T>(options.promptBundle.preset);
+      }
       return null;
     },
     async create() {
@@ -75,8 +86,14 @@ function contextPriorityStorage(options: {
     async createLorebookEntries() {
       return [];
     },
-    async promptFull() {
-      return null;
+    async promptFull<T = unknown>() {
+      if (!options.promptBundle) return null;
+      return asStorageValue<T>({
+        preset: options.promptBundle.preset,
+        sections: options.promptBundle.sections,
+        groups: options.promptBundle.groups ?? [],
+        choiceBlocks: [],
+      });
     },
   };
 }
@@ -86,6 +103,255 @@ function todayIso(): string {
 }
 
 describe("prompt context priority", () => {
+  it("does not resurrect regex-removed prompt text when overflow drops another segment", async () => {
+    const summaryText = Array.from({ length: 80 }, (_, index) => `Optional continuity ${index + 1}.`).join("\n\n");
+    const assembly = await assembleGenerationPrompt(
+      contextPriorityStorage({
+        character: {
+          id: "mira",
+          data: {
+            name: "Mira",
+            description: "Mira is a guide. REMOVE_THIS_PRIVATE_NOTE {{// REMOVE_THIS_PROMPT_COMMENT}}",
+          },
+        },
+        memories: [],
+        regexScripts: [
+          {
+            id: "remove-private-note",
+            enabled: true,
+            promptOnly: true,
+            placement: ["ai_output"],
+            findRegex: "REMOVE_THIS_PRIVATE_NOTE",
+            replaceString: "",
+            flags: "g",
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-regex-overflow",
+          mode: "conversation",
+          characterIds: ["mira"],
+          metadata: { enableMemoryRecall: false, conversationSummary: summaryText },
+        },
+        storedMessages: [
+          ...Array.from({ length: 6 }, (_, index) => [
+            { id: `old-user-${index}`, role: "user", content: `Old question ${index}. ${"detail ".repeat(40)}` },
+            {
+              id: `old-assistant-${index}`,
+              role: "assistant",
+              content: `Old answer ${index}. ${"detail ".repeat(40)}`,
+            },
+          ]).flat(),
+          { id: "current", role: "user", content: "Continue safely." },
+        ],
+        connection: { maxContext: 2_000 },
+        request: {},
+        latestUserInput: "Continue safely.",
+      },
+    );
+
+    expect(assembly.messages.map((message) => message.content).join("\n")).not.toContain("REMOVE_THIS_PRIVATE_NOTE");
+    expect(assembly.messages.map((message) => message.content).join("\n")).not.toContain("REMOVE_THIS_PROMPT_COMMENT");
+
+    const fitted = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 400 }, { maxContext: 2_000 });
+    const fittedText = fitted.messages.map((message) => message.content).join("\n");
+    expect(fittedText).not.toContain("REMOVE_THIS_PRIVATE_NOTE");
+    expect(fittedText).not.toContain("REMOVE_THIS_PROMPT_COMMENT");
+    expect(fittedText).toContain("Mira is a guide.");
+    expect(fittedText).toContain("Continue safely.");
+    expect(fitted.decision?.removedMessages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ contextKind: "history" })]),
+    );
+  });
+
+  it("retains character and required preset depth instructions during overflow", async () => {
+    const summaryText = Array.from({ length: 120 }, (_, index) => `Optional old summary ${index + 1}.`).join("\n\n");
+    const oldHistory = Array.from({ length: 8 }, (_, index) => [
+      { id: `old-user-${index}`, role: "user", content: `Old question ${index}. ${"detail ".repeat(30)}` },
+      { id: `old-assistant-${index}`, role: "assistant", content: `Old answer ${index}. ${"detail ".repeat(30)}` },
+    ]).flat();
+    const assembly = await assembleGenerationPrompt(
+      contextPriorityStorage({
+        character: {
+          id: "mira",
+          data: {
+            name: "Mira",
+            description: "Mira guides the festival.",
+            depth_prompt: { prompt: "REQUIRED CHARACTER DEPTH INSTRUCTION", depth: 1, role: "system" },
+          },
+        },
+        memories: [],
+        promptBundle: {
+          preset: { id: "depth-preset", parameters: { strictRoleFormatting: true } },
+          sections: [
+            {
+              id: "core",
+              enabled: true,
+              sortOrder: 1,
+              name: "Core",
+              role: "system",
+              content: "REQUIRED CORE PRESET",
+            },
+            {
+              id: "depth-directive",
+              enabled: true,
+              sortOrder: 2,
+              name: "Required Depth Directive",
+              role: "system",
+              content: "REQUIRED PRESET DEPTH DIRECTIVE",
+              injectionPosition: "depth",
+              injectionDepth: 1,
+            },
+          ],
+        },
+      }),
+      {
+        chat: {
+          id: "chat-depth",
+          mode: "roleplay",
+          characterIds: ["mira"],
+          promptPresetId: "depth-preset",
+          metadata: { enableMemoryRecall: false, conversationSummary: summaryText },
+        },
+        storedMessages: [...oldHistory, { id: "current", role: "user", content: "Continue the festival." }],
+        connection: { maxContext: 1_200 },
+        request: { promptPresetId: "depth-preset" },
+        latestUserInput: "Continue the festival.",
+      },
+    );
+
+    const fitted = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 500 }, { maxContext: 1_200 });
+    const text = fitted.messages.map((message) => message.content).join("\n");
+    expect(text).toContain("REQUIRED CHARACTER DEPTH INSTRUCTION");
+    expect(text).toContain("REQUIRED PRESET DEPTH DIRECTIVE");
+    expect(text).toContain("Continue the festival.");
+    expect(fitted.decision?.removedMessages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ contextKind: "history" })]),
+    );
+  });
+
+  it("keeps optional classification after single-user provider formatting", () => {
+    const formatted = collapseToSingleUserMessage([
+      { role: "system", content: "Required system", contextKind: "prompt" },
+      { role: "system", content: "Optional summary. ".repeat(160), contextKind: "summary" },
+      { role: "user", content: "Current request", contextKind: "history" },
+    ]);
+
+    const fitted = fitLlmRequestToContextWindow(formatted, { maxTokens: 400 }, { maxContext: 1_200 });
+
+    expect(fitted.messages).toHaveLength(1);
+    expect(fitted.messages[0]?.role).toBe("user");
+    expect(fitted.messages[0]?.content).toContain("[SYSTEM]\nRequired system");
+    expect(fitted.messages[0]?.content).toContain("Current request");
+    expect(fitted.messages[0]?.content).not.toContain("Optional summary");
+  });
+
+  it("keeps default strict-role requests provider-equivalent under budget and removes fallback summary first on overflow", async () => {
+    const summaryText = Array.from({ length: 40 }, (_, index) => `Festival continuity paragraph ${index + 1}.`).join(
+      "\n\n",
+    );
+    const assembly = await assembleGenerationPrompt(
+      contextPriorityStorage({
+        character: { id: "mira", data: { name: "Mira", description: "Mira is a careful festival guide." } },
+        memories: [],
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "conversation",
+          characterIds: ["mira"],
+          metadata: {
+            enableMemoryRecall: false,
+            conversationSummary: summaryText,
+          },
+        },
+        storedMessages: [
+          { id: "old-user", role: "user", content: "Tell me about the preparations." },
+          { id: "old-assistant", role: "assistant", content: "The lanterns are ready." },
+          { id: "current", role: "user", content: "What happens next?" },
+        ],
+        connection: { maxContext: 1_600 },
+        request: {},
+        latestUserInput: "What happens next?",
+      },
+    );
+    const originalText = assembly.messages.map((message) => message.content).join("\n---\n");
+    expect(
+      assembly.messages.some((message) =>
+        message.contextSegments?.some((segment) => segment.contextKind === "summary"),
+      ),
+    ).toBe(true);
+
+    const underBudget = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 400 }, { maxContext: 8_000 });
+    expect(underBudget.messages).toBe(assembly.messages);
+    expect(underBudget.messages.map((message) => message.content).join("\n---\n")).toBe(originalText);
+
+    const fitted = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 500 }, { maxContext: 1_600 });
+    const fittedText = fitted.messages.map((message) => message.content).join("\n");
+    expect(fittedText).not.toContain("Festival continuity paragraph 1.");
+    expect(fittedText).toContain("Mira is a careful festival guide.");
+    expect(fittedText).toContain("What happens next?");
+    expect(fitted.decision?.removedMessages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ contextKind: "summary" })]),
+    );
+  });
+
+  it("keeps full history when summary metadata cannot prove contiguous coverage", async () => {
+    const storedMessages = Array.from({ length: 12 }, (_, index) => ({
+      id: `message-${index + 1}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `history ${index + 1}`,
+    }));
+    const summaryEntry = {
+      id: "continuity",
+      kind: "rolling",
+      origin: "manual",
+      title: "Continuity",
+      content: "The lantern promise remains unresolved.",
+      enabled: true,
+      sourceMode: "last",
+      tokenEstimate: 10,
+      createdAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+    const assemble = (entry: Record<string, unknown>) =>
+      assembleGenerationPrompt(
+        contextPriorityStorage({
+          character: { id: "mira", data: { name: "Mira", description: "Mira remembers promises." } },
+          memories: [],
+        }),
+        {
+          chat: {
+            id: "chat-1",
+            mode: "conversation",
+            characterIds: ["mira"],
+            metadata: {
+              enableMemoryRecall: false,
+              summaryTailMessages: 2,
+              summaryEntries: [entry],
+            },
+          },
+          storedMessages,
+          connection: { provider: "openai", model: "qa-model" },
+          request: {},
+          latestUserInput: "What happens next?",
+        },
+      );
+
+    const manual = await assemble(summaryEntry);
+    const covered = await assemble({
+      ...summaryEntry,
+      messageIds: storedMessages.slice(0, 10).map((message) => message.id),
+    });
+    const historyCount = (result: Awaited<ReturnType<typeof assembleGenerationPrompt>>) =>
+      result.previewMessages.filter((message) => message.contextKind === "history").length;
+
+    expect(historyCount(manual)).toBe(12);
+    expect(historyCount(covered)).toBe(12);
+    expect(covered.previewMessages.map((message) => message.content).join("\n")).toContain("history 12");
+  });
+
   it("skips recalled memories already present in same-day character memories while keeping distinct recall", async () => {
     const result = await assembleGenerationPrompt(
       contextPriorityStorage({

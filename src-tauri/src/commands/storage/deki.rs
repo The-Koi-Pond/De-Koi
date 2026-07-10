@@ -5,7 +5,7 @@ use autoagents::async_trait;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::ReActAgent;
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, DirectAgent};
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, DirectAgent};
 use autoagents::core::tool::{ToolCallError, ToolRuntime};
 use autoagents::llm::chat::{
     ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat, Tool,
@@ -15,7 +15,7 @@ use autoagents::llm::embedding::EmbeddingProvider;
 use autoagents::llm::error::LLMError;
 use autoagents::llm::models::{ModelListRequest, ModelListResponse, ModelsProvider};
 use autoagents::llm::{FunctionCall, LLMProvider, ToolCall};
-use autoagents::prelude::{agent, tool, AgentHooks, ToolInput, ToolInputT, ToolT};
+use autoagents::prelude::{tool, AgentHooks, ToolInput, ToolInputT, ToolT};
 use marinara_core::{now_iso, AppError, AppResult};
 use marinara_security::{assert_inside_dir, assert_relative_safe_path};
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ use std::fmt;
 use std::fs;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[path = "deki/chat_access.rs"]
@@ -77,6 +77,7 @@ const DEKI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
     "csv", "json", "jsonl", "log", "md", "markdown", "txt", "xml", "yaml", "yml",
 ];
 const DEKI_INITIAL_MAX_TOKENS: u64 = 8192;
+const DEKI_FORCED_TOOL_MAX_TOKENS: u64 = 512;
 const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
 const DEKI_AGENT_MAX_TURNS: usize = 10;
 const DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT: u64 = 200;
@@ -114,6 +115,286 @@ struct DekiPromptRequest {
     #[serde(default)]
     chat_access_grants: Vec<chat_access::DekiChatAccessGrant>,
     web_research_grants: Vec<DekiWebResearchGrant>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DekiToolBundle {
+    Code,
+    Library,
+    Chat,
+    Web,
+    Creation,
+    ReadOnlyGeneral,
+    Broad,
+}
+
+fn looks_like_code_write_request(message: &str) -> bool {
+    let mut request = message.trim().to_ascii_lowercase();
+    let polite_prefixes = [
+        "please ",
+        "can you ",
+        "could you ",
+        "would you ",
+        "i need you to ",
+        "i want you to ",
+        "go ahead and ",
+    ];
+    loop {
+        let Some(prefix) = polite_prefixes
+            .iter()
+            .find(|prefix| request.starts_with(**prefix))
+        else {
+            break;
+        };
+        request = request[prefix.len()..].trim_start().to_string();
+    }
+    let first_word = request
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .next()
+        .unwrap_or_default();
+    [
+        "add",
+        "change",
+        "create",
+        "delete",
+        "edit",
+        "fix",
+        "implement",
+        "modify",
+        "patch",
+        "refactor",
+        "remove",
+        "rename",
+        "update",
+        "write",
+    ]
+    .contains(&first_word)
+}
+
+fn looks_like_extension_creation_request(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("extension") && looks_like_creation_imperative(message)
+}
+
+fn looks_like_custom_agent_creation_request(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("custom agent") && looks_like_creation_imperative(message)
+}
+
+fn looks_like_creation_imperative(message: &str) -> bool {
+    let mut request = message.trim().to_ascii_lowercase();
+    let polite_prefixes = [
+        "please ",
+        "can you ",
+        "could you ",
+        "would you ",
+        "i need you to ",
+        "i want you to ",
+        "go ahead and ",
+    ];
+    loop {
+        let Some(prefix) = polite_prefixes
+            .iter()
+            .find(|prefix| request.starts_with(**prefix))
+        else {
+            break;
+        };
+        request = request[prefix.len()..].trim_start().to_string();
+    }
+    let first_word = request
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .next()
+        .unwrap_or_default();
+    ["build", "create", "make", "scaffold"].contains(&first_word)
+}
+
+fn looks_like_creation_tool_request(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("extension") || lower.contains("custom agent")
+}
+
+fn looks_like_referential_mutation_request(message: &str) -> bool {
+    let lower = message.trim().to_ascii_lowercase();
+    [
+        "do it",
+        "do it.",
+        "do that",
+        "do that.",
+        "please do it",
+        "please do it.",
+        "please do that",
+        "please do that.",
+        "go ahead",
+        "go ahead.",
+        "please proceed",
+        "please proceed.",
+        "proceed",
+        "proceed.",
+    ]
+    .contains(&lower.as_str())
+}
+
+fn looks_like_code_tool_request(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    let words = lower
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .collect::<Vec<_>>();
+    [
+        "architecture",
+        "bug",
+        "code",
+        "codebase",
+        "component",
+        "engine",
+        "file",
+        "module",
+        "repo",
+        "rust",
+        "source",
+        "tauri",
+        "ui",
+    ]
+    .iter()
+    .any(|needle| words.contains(needle))
+        || lower.contains("src/")
+}
+
+fn select_deki_tool_bundle(input: &DekiPromptRequest) -> DekiToolBundle {
+    let message = deki_recent_routing_context(input);
+    let message = message.as_str();
+    let creation = looks_like_creation_tool_request(message);
+    let domains = [
+        (DekiToolBundle::Creation, creation),
+        (
+            DekiToolBundle::Web,
+            !input.web_research_grants.is_empty() || looks_like_approved_web_research_task(message),
+        ),
+        (
+            DekiToolBundle::Chat,
+            looks_like_chat_context_question(message),
+        ),
+        (DekiToolBundle::Code, looks_like_code_tool_request(message)),
+        (
+            DekiToolBundle::Library,
+            looks_like_library_question(message),
+        ),
+    ];
+    let matched = domains
+        .iter()
+        .filter_map(|(bundle, matches)| matches.then_some(*bundle))
+        .collect::<Vec<_>>();
+    match matched.as_slice() {
+        [] => DekiToolBundle::ReadOnlyGeneral,
+        [bundle] => *bundle,
+        _ => DekiToolBundle::Broad,
+    }
+}
+
+fn deki_tool_names_for_bundle(bundle: DekiToolBundle, allow_code_edit: bool) -> Vec<&'static str> {
+    let mut names = match bundle {
+        DekiToolBundle::Code => vec!["search_deki_code", "read_deki_code_file"],
+        DekiToolBundle::Library => vec!["read_deki_library", "read_deki_library_items"],
+        DekiToolBundle::Chat => vec!["read_deki_chats", "read_deki_chat_messages"],
+        DekiToolBundle::Web => vec!["search_deki_web", "read_deki_web_page"],
+        DekiToolBundle::Creation => vec!["read_deki_library", "read_deki_library_items"],
+        DekiToolBundle::ReadOnlyGeneral => vec![
+            "search_deki_code",
+            "read_deki_code_file",
+            "read_deki_library",
+        ],
+        DekiToolBundle::Broad => vec![
+            "read_deki_library",
+            "read_deki_library_items",
+            "read_deki_chats",
+            "read_deki_chat_messages",
+            "search_deki_web",
+            "read_deki_web_page",
+            "search_deki_code",
+            "read_deki_code_file",
+        ],
+    };
+    if bundle == DekiToolBundle::Code && allow_code_edit {
+        names.push("edit_deki_code_file");
+    }
+    names
+}
+
+fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
+    let bundle = select_deki_tool_bundle(input);
+    let latest = deki_prompt_routing_message(&input.user_message);
+    let direct_extension = looks_like_extension_creation_request(latest);
+    let direct_custom_agent = looks_like_custom_agent_creation_request(latest);
+    let mut allow_code_edit = looks_like_code_write_request(latest)
+        && looks_like_code_tool_request(latest)
+        && !direct_extension
+        && !direct_custom_agent;
+    let mut allow_extension = direct_extension;
+    let mut allow_custom_agent = direct_custom_agent;
+
+    let latest_is_referential_mutation = looks_like_referential_mutation_request(latest);
+    let latest_is_contextual_code_mutation = looks_like_code_write_request(latest)
+        && !looks_like_code_tool_request(latest)
+        && !direct_extension
+        && !direct_custom_agent;
+    let latest_is_contextual_mutation =
+        latest_is_referential_mutation || latest_is_contextual_code_mutation;
+    if latest_is_contextual_mutation && !allow_code_edit && !allow_extension && !allow_custom_agent
+    {
+        let prior = deki_prior_routing_context(input);
+        let prior_code = looks_like_code_tool_request(&prior);
+        let prior_extension = prior.to_ascii_lowercase().contains("extension");
+        let prior_custom_agent = prior.to_ascii_lowercase().contains("custom agent");
+        let prior_domain_count = [prior_code, prior_extension, prior_custom_agent]
+            .into_iter()
+            .filter(|matches| *matches)
+            .count();
+        if prior_domain_count == 1 {
+            if latest_is_referential_mutation {
+                allow_code_edit = prior_code;
+                allow_extension = prior_extension;
+                allow_custom_agent = prior_custom_agent;
+            } else if latest_is_contextual_code_mutation && prior_code {
+                allow_code_edit = true;
+            }
+        }
+    }
+
+    let mut names = deki_tool_names_for_bundle(bundle, false);
+    if allow_code_edit {
+        names.push("edit_deki_code_file");
+    }
+    if allow_extension {
+        names.push("create_deki_extension");
+    }
+    if allow_custom_agent {
+        names.push("create_deki_custom_agent");
+    }
+    names
+}
+
+const DEKI_ROUTING_HISTORY_LIMIT: usize = 6;
+
+fn deki_prior_routing_context(input: &DekiPromptRequest) -> String {
+    let mut recent = input
+        .messages
+        .iter()
+        .rev()
+        .take(DEKI_ROUTING_HISTORY_LIMIT)
+        .map(|message| deki_prompt_routing_message(&message.content).trim())
+        .filter(|message| !message.is_empty())
+        .collect::<Vec<_>>();
+    recent.reverse();
+    recent.join("\n")
+}
+
+fn deki_recent_routing_context(input: &DekiPromptRequest) -> String {
+    let prior = deki_prior_routing_context(input);
+    let latest = deki_prompt_routing_message(&input.user_message).trim();
+    match (prior.is_empty(), latest.is_empty()) {
+        (true, _) => latest.to_string(),
+        (_, true) => prior,
+        (false, false) => format!("{prior}\n{latest}"),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -167,6 +448,152 @@ struct DekiWebResearchScope {
 #[derive(Clone, Debug)]
 struct DekiLlmProvider {
     connection: marinara_llm::LlmConnection,
+    usage: Arc<Mutex<Vec<Value>>>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DekiTokenUsage {
+    prompt_tokens: Option<u64>,
+    completion_tokens: Option<u64>,
+    cached_prompt_tokens: Option<u64>,
+    cache_write_prompt_tokens: Option<u64>,
+    total_tokens: Option<u64>,
+}
+
+fn deki_usage_count(value: Option<&Value>) -> Option<u64> {
+    value.and_then(Value::as_u64)
+}
+
+fn deki_first_usage_count(value: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter().find_map(|key| deki_usage_count(value.get(key)))
+}
+
+fn deki_nested_usage_count(value: &Value, parent_keys: &[&str], keys: &[&str]) -> Option<u64> {
+    parent_keys.iter().find_map(|parent| {
+        value
+            .get(parent)
+            .and_then(|nested| deki_first_usage_count(nested, keys))
+    })
+}
+
+fn normalize_deki_token_usage(value: &Value) -> DekiTokenUsage {
+    let prompt_tokens = deki_first_usage_count(
+        value,
+        &[
+            "promptTokens",
+            "prompt_tokens",
+            "inputTokens",
+            "input_tokens",
+            "promptTokenCount",
+        ],
+    );
+    let completion_tokens = deki_first_usage_count(
+        value,
+        &[
+            "completionTokens",
+            "completion_tokens",
+            "outputTokens",
+            "output_tokens",
+            "candidatesTokenCount",
+        ],
+    );
+    let cached_prompt_tokens = deki_first_usage_count(
+        value,
+        &[
+            "cachedPromptTokens",
+            "cached_prompt_tokens",
+            "cacheReadInputTokens",
+            "cache_read_input_tokens",
+            "cachedContentTokenCount",
+        ],
+    )
+    .or_else(|| {
+        deki_nested_usage_count(
+            value,
+            &[
+                "promptTokensDetails",
+                "prompt_tokens_details",
+                "inputTokensDetails",
+                "input_tokens_details",
+            ],
+            &["cachedTokens", "cached_tokens"],
+        )
+    });
+    let cache_write_prompt_tokens = deki_first_usage_count(
+        value,
+        &[
+            "cacheWritePromptTokens",
+            "cache_write_prompt_tokens",
+            "cacheCreationInputTokens",
+            "cache_creation_input_tokens",
+        ],
+    );
+    let total_tokens =
+        deki_first_usage_count(value, &["totalTokens", "total_tokens", "totalTokenCount"]).or_else(
+            || {
+                prompt_tokens
+                    .zip(completion_tokens)
+                    .and_then(|(prompt, completion)| prompt.checked_add(completion))
+            },
+        );
+    DekiTokenUsage {
+        prompt_tokens,
+        completion_tokens,
+        cached_prompt_tokens,
+        cache_write_prompt_tokens,
+        total_tokens,
+    }
+}
+
+fn sum_complete_deki_usage(values: &[Option<u64>]) -> Option<u64> {
+    if values.is_empty() || values.iter().any(Option::is_none) {
+        return None;
+    }
+    values
+        .iter()
+        .copied()
+        .flatten()
+        .try_fold(0_u64, u64::checked_add)
+}
+
+fn aggregate_deki_token_usage(values: &[Value]) -> DekiTokenUsage {
+    let normalized = values
+        .iter()
+        .map(normalize_deki_token_usage)
+        .collect::<Vec<_>>();
+    DekiTokenUsage {
+        prompt_tokens: sum_complete_deki_usage(
+            &normalized
+                .iter()
+                .map(|usage| usage.prompt_tokens)
+                .collect::<Vec<_>>(),
+        ),
+        completion_tokens: sum_complete_deki_usage(
+            &normalized
+                .iter()
+                .map(|usage| usage.completion_tokens)
+                .collect::<Vec<_>>(),
+        ),
+        cached_prompt_tokens: sum_complete_deki_usage(
+            &normalized
+                .iter()
+                .map(|usage| usage.cached_prompt_tokens)
+                .collect::<Vec<_>>(),
+        ),
+        cache_write_prompt_tokens: sum_complete_deki_usage(
+            &normalized
+                .iter()
+                .map(|usage| usage.cache_write_prompt_tokens)
+                .collect::<Vec<_>>(),
+        ),
+        total_tokens: sum_complete_deki_usage(
+            &normalized
+                .iter()
+                .map(|usage| usage.total_tokens)
+                .collect::<Vec<_>>(),
+        ),
+    }
 }
 
 #[derive(Debug)]
@@ -219,6 +646,14 @@ impl ChatProvider for DekiLlmProvider {
         let response = marinara_llm::complete_rich(request)
             .await
             .map_err(|error| LLMError::ProviderError(error.to_string()))?;
+        if let Some(usage) = response.usage.clone() {
+            self.usage
+                .lock()
+                .map_err(|_| {
+                    LLMError::ProviderError("Deki usage collector lock was poisoned".to_string())
+                })?
+                .push(usage);
+        }
         let mut tool_calls = response
             .tool_calls
             .into_iter()
@@ -266,20 +701,32 @@ fn deki_request_parameters(
         .map(|message| message.content.as_str())
         .unwrap_or_default();
     let routing_message = deki_prompt_routing_message(latest_user);
-    if !has_tool_result
+    let forced_tool_name = if has_tool_result {
+        None
+    } else if looks_like_approved_web_research_task(latest_user)
         && has_deki_tool(tools, "search_deki_web")
-        && looks_like_approved_web_research_task(latest_user)
     {
-        parameters["toolChoice"] = deki_forced_tool_choice(connection, "search_deki_web");
-    } else if !tools.is_empty() && !has_tool_result && looks_like_codebase_question(routing_message)
+        Some("search_deki_web")
+    } else if looks_like_chat_context_question(routing_message)
+        && has_deki_tool(tools, "read_deki_chats")
     {
-        parameters["toolChoice"] = deki_forced_tool_choice(connection, "search_deki_code");
-    } else if !tools.is_empty()
-        && !has_tool_result
-        && !looks_like_chat_context_question(routing_message)
-        && looks_like_library_question(routing_message)
+        Some("read_deki_chats")
+    } else if looks_like_codebase_question(routing_message)
+        && has_deki_tool(tools, "search_deki_code")
     {
-        parameters["toolChoice"] = deki_forced_tool_choice(connection, "read_deki_library");
+        Some("search_deki_code")
+    } else if looks_like_library_question(routing_message)
+        && has_deki_tool(tools, "read_deki_library")
+    {
+        Some("read_deki_library")
+    } else {
+        None
+    };
+    if let Some(tool_name) = forced_tool_name {
+        if let Some(tool_choice) = deki_forced_tool_choice(connection, tool_name) {
+            parameters["toolChoice"] = tool_choice;
+            parameters["maxTokens"] = json!(DEKI_FORCED_TOOL_MAX_TOKENS);
+        }
     }
     parameters
 }
@@ -292,20 +739,22 @@ fn looks_like_approved_web_research_task(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     lower.contains("approved web research grants") && lower.contains("search_deki_web")
 }
-fn deki_forced_tool_choice(connection: &marinara_llm::LlmConnection, tool_name: &str) -> Value {
-    if connection.provider == "custom" {
-        return json!("required");
-    }
-    if connection.provider == "openai_chatgpt" {
-        return json!({
+fn deki_forced_tool_choice(
+    connection: &marinara_llm::LlmConnection,
+    tool_name: &str,
+) -> Option<Value> {
+    match connection.provider.as_str() {
+        "custom" | "cohere" => Some(json!("required")),
+        "openai_chatgpt" => Some(json!({
             "type": "function",
             "name": tool_name
-        });
+        })),
+        "openai" | "openrouter" | "xai" | "mistral" | "nanogpt" => Some(json!({
+            "type": "function",
+            "function": { "name": tool_name }
+        })),
+        _ => None,
     }
-    json!({
-        "type": "function",
-        "function": { "name": tool_name }
-    })
 }
 
 fn deki_requested_tool_choice_name(parameters: &Value) -> Option<&str> {
@@ -766,28 +1215,73 @@ impl ToolRuntime for ReadDekiChatMessagesTool {
     }
 }
 
-#[agent(
-    name = "deki",
-    description = "You are Deki-senpai, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, inspect the creative library, and read approved chat context through tools. Use tools for factual answers about De-Koi internals.",
-    tools = [
-        ReadDekiLibraryTool { state: self.state.clone() },
-        ReadDekiLibraryItemsTool { state: self.state.clone() },
-        ReadDekiChatsTool { state: self.state.clone(), grants: self.chat_access_grants.clone() },
-        ReadDekiChatMessagesTool { state: self.state.clone(), grants: self.chat_access_grants.clone() },
-        SearchDekiWebTool { grants: self.web_research_grants.clone() },
-        ReadDekiWebPageTool { grants: self.web_research_grants.clone() },
-        SearchDekiCodeTool {},
-        ReadDekiCodeFileTool {},
-        EditDekiCodeFileTool {},
-        CreateDekiExtensionTool { state: self.state.clone() },
-        CreateDekiCustomAgentTool { state: self.state.clone() },
-    ],
-)]
 #[derive(Clone, AgentHooks)]
 struct DekiAgent {
     state: AppState,
     chat_access_grants: Vec<chat_access::DekiChatAccessGrant>,
     web_research_grants: Vec<DekiWebResearchGrant>,
+    tool_names: Vec<&'static str>,
+}
+
+impl AgentDeriveT for DekiAgent {
+    type Output = String;
+
+    fn name(&self) -> &'static str {
+        "deki"
+    }
+
+    fn output_schema(&self) -> Option<Value> {
+        None
+    }
+
+    fn description(&self) -> &'static str {
+        "You are Deki-senpai, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, inspect the creative library, and read approved chat context through tools. Use tools for factual answers about De-Koi internals."
+    }
+
+    fn tools(&self) -> Vec<Box<dyn ToolT>> {
+        self.tool_names
+            .iter()
+            .copied()
+            .map(|name| match name {
+                "read_deki_library" => Box::new(ReadDekiLibraryTool {
+                    state: self.state.clone(),
+                }) as Box<dyn ToolT>,
+                "read_deki_library_items" => Box::new(ReadDekiLibraryItemsTool {
+                    state: self.state.clone(),
+                }) as Box<dyn ToolT>,
+                "read_deki_chats" => Box::new(ReadDekiChatsTool {
+                    state: self.state.clone(),
+                    grants: self.chat_access_grants.clone(),
+                }) as Box<dyn ToolT>,
+                "read_deki_chat_messages" => Box::new(ReadDekiChatMessagesTool {
+                    state: self.state.clone(),
+                    grants: self.chat_access_grants.clone(),
+                }) as Box<dyn ToolT>,
+                "search_deki_web" => Box::new(SearchDekiWebTool {
+                    grants: self.web_research_grants.clone(),
+                }) as Box<dyn ToolT>,
+                "read_deki_web_page" => Box::new(ReadDekiWebPageTool {
+                    grants: self.web_research_grants.clone(),
+                }) as Box<dyn ToolT>,
+                "search_deki_code" => Box::new(SearchDekiCodeTool {}) as Box<dyn ToolT>,
+                "read_deki_code_file" => Box::new(ReadDekiCodeFileTool {}) as Box<dyn ToolT>,
+                "edit_deki_code_file" => Box::new(EditDekiCodeFileTool {}) as Box<dyn ToolT>,
+                "create_deki_extension" => Box::new(CreateDekiExtensionTool {
+                    state: self.state.clone(),
+                }) as Box<dyn ToolT>,
+                "create_deki_custom_agent" => Box::new(CreateDekiCustomAgentTool {
+                    state: self.state.clone(),
+                }) as Box<dyn ToolT>,
+                _ => unreachable!("unassigned Deki tool name: {name}"),
+            })
+            .collect()
+    }
+}
+
+impl fmt::Debug for DekiAgent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("deki")
+    }
 }
 
 pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Value> {
@@ -830,13 +1324,19 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
         repo_guidance.as_deref(),
         approved_chat_context.as_deref(),
     );
-    let provider: Arc<dyn LLMProvider> = Arc::new(DekiLlmProvider { connection });
+    let tool_names = deki_tool_names_for_request(&input);
+    let collected_usage = Arc::new(Mutex::new(Vec::new()));
+    let provider: Arc<dyn LLMProvider> = Arc::new(DekiLlmProvider {
+        connection,
+        usage: collected_usage.clone(),
+    });
     let memory = Box::new(SlidingWindowMemory::new(12));
     let agent = ReActAgent::with_max_turns(
         DekiAgent {
             state: state.clone(),
             chat_access_grants: input.chat_access_grants.clone(),
             web_research_grants: input.web_research_grants.clone(),
+            tool_names,
         },
         DEKI_AGENT_MAX_TURNS,
     );
@@ -862,10 +1362,23 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
         ));
     }
 
+    let usage_values = collected_usage.lock().map_err(|_| {
+        AppError::new(
+            "deki_usage_collection_failed",
+            "Deki usage collector lock was poisoned",
+        )
+    })?;
+    let usage = if usage_values.is_empty() {
+        None
+    } else {
+        Some(aggregate_deki_token_usage(&usage_values))
+    };
+
     Ok(json!({
         "content": content,
         "createdAt": chrono::Utc::now().to_rfc3339(),
         "action": action,
+        "usage": usage,
     }))
 }
 
@@ -3642,6 +4155,67 @@ mod tests {
     }
 
     #[test]
+    fn deki_usage_aggregates_two_provider_turns() {
+        let usage = aggregate_deki_token_usage(&[
+            json!({
+                "prompt_tokens": 10,
+                "completion_tokens": 4,
+                "prompt_tokens_details": { "cached_tokens": 3 },
+                "cache_creation_input_tokens": 2,
+                "total_tokens": 14,
+            }),
+            json!({
+                "inputTokens": 8,
+                "outputTokens": 2,
+                "cacheReadInputTokens": 1,
+                "cacheCreationInputTokens": 5,
+            }),
+        ]);
+
+        assert_eq!(
+            serde_json::to_value(usage).unwrap(),
+            json!({
+                "promptTokens": 18,
+                "completionTokens": 6,
+                "cachedPromptTokens": 4,
+            "cacheWritePromptTokens": 7,
+                "totalTokens": 24,
+            })
+        );
+    }
+
+    #[test]
+    fn deki_usage_normalizes_google_gemini_metadata() {
+        let usage = normalize_deki_token_usage(&json!({
+            "promptTokenCount": 10,
+            "candidatesTokenCount": 4,
+            "cachedContentTokenCount": 3,
+            "totalTokenCount": 14,
+        }));
+
+        assert_eq!(
+            serde_json::to_value(usage).unwrap(),
+            json!({
+                "promptTokens": 10,
+                "completionTokens": 4,
+                "cachedPromptTokens": 3,
+                "cacheWritePromptTokens": null,
+                "totalTokens": 14,
+            })
+        );
+    }
+
+    #[test]
+    fn deki_usage_derivation_rejects_total_overflow() {
+        let usage = normalize_deki_token_usage(&json!({
+            "promptTokens": u64::MAX,
+            "completionTokens": 1,
+        }));
+
+        assert_eq!(usage.total_tokens, None);
+    }
+
+    #[test]
     fn deki_tool_result_conversion_preserves_all_tool_outputs() {
         let message = ChatMessage {
             role: ChatRole::Tool,
@@ -3689,6 +4263,34 @@ mod tests {
                 }),
             },
         }
+    }
+
+    fn test_deki_prompt_request(user_message: &str) -> DekiPromptRequest {
+        DekiPromptRequest {
+            user_message: user_message.to_string(),
+            messages: Vec::new(),
+            compacted_summary: None,
+            connection_id: Some("connection".to_string()),
+            persona: None,
+            attachments: Vec::new(),
+            chat_access_grants: Vec::new(),
+            web_research_grants: Vec::new(),
+        }
+    }
+
+    fn test_deki_prompt_request_with_messages(
+        user_message: &str,
+        messages: &[(&str, &str)],
+    ) -> DekiPromptRequest {
+        let mut request = test_deki_prompt_request(user_message);
+        request.messages = messages
+            .iter()
+            .map(|(role, content)| DekiPromptMessage {
+                role: (*role).to_string(),
+                content: (*content).to_string(),
+            })
+            .collect();
+        request
     }
 
     #[test]
@@ -4167,7 +4769,10 @@ mod tests {
 
         let parameters = deki_request_parameters(&connection, &messages, &tools);
 
-        assert!(parameters.get("toolChoice").is_none());
+        assert_eq!(
+            deki_requested_tool_choice_name(&parameters),
+            Some("read_deki_chats")
+        );
         assert!(task_prompt.contains("Chat context assessment"));
         assert!(task_prompt.contains("must request scoped chat access"));
         assert!(looks_like_chat_context_question(&input.user_message));
@@ -4212,7 +4817,10 @@ mod tests {
         assert!(task_prompt.contains("Do not greet the user"));
         assert!(task_prompt.contains("Approved chat context snapshot"));
         assert!(task_prompt.contains("Rina mentioned liking piano"));
-        assert!(parameters.get("toolChoice").is_none());
+        assert_eq!(
+            deki_requested_tool_choice_name(&parameters),
+            Some("read_deki_chats")
+        );
     }
 
     #[test]
@@ -4259,7 +4867,10 @@ mod tests {
 
         assert!(task_prompt.contains("Approved chat context snapshot"));
         assert!(task_prompt.contains("Makima discussed calm orchestral music"));
-        assert!(parameters.get("toolChoice").is_none());
+        assert_eq!(
+            deki_requested_tool_choice_name(&parameters),
+            Some("read_deki_chats")
+        );
     }
 
     #[test]
@@ -4934,6 +5545,249 @@ Extra visible text."#;
     }
 
     #[test]
+    fn deki_routes_requests_to_the_smallest_relevant_tool_bundle() {
+        let cases = [
+            ("Explain how src/engine/generation works", DekiToolBundle::Code),
+            ("Edit src/app/App.tsx", DekiToolBundle::Code),
+            ("What personas are in my library?", DekiToolBundle::Library),
+            ("Build me a lorebook profile", DekiToolBundle::Library),
+            ("What did we discuss in our previous chat?", DekiToolBundle::Chat),
+            (
+                "Approved web research grants for this turn. search_deki_web may be used for this query.",
+                DekiToolBundle::Web,
+            ),
+            ("Create a De-Koi extension for quick notes", DekiToolBundle::Creation),
+            ("Create a custom agent for expression selection", DekiToolBundle::Creation),
+            ("Hello, Deki!", DekiToolBundle::ReadOnlyGeneral),
+            (
+                "Compare my library personas with the implementation in src/engine",
+                DekiToolBundle::Broad,
+            ),
+        ];
+
+        for (message, expected) in cases {
+            assert_eq!(
+                select_deki_tool_bundle(&test_deki_prompt_request(message)),
+                expected,
+                "unexpected bundle for {message:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deki_read_only_bundles_never_include_write_tools() {
+        for bundle in [
+            DekiToolBundle::Library,
+            DekiToolBundle::Chat,
+            DekiToolBundle::Web,
+            DekiToolBundle::ReadOnlyGeneral,
+        ] {
+            let names = deki_tool_names_for_bundle(bundle, false);
+            assert!(!names.contains(&"edit_deki_code_file"), "{bundle:?}");
+            assert!(!names.contains(&"create_deki_extension"), "{bundle:?}");
+            assert!(!names.contains(&"create_deki_custom_agent"), "{bundle:?}");
+        }
+    }
+
+    #[test]
+    fn deki_code_and_creation_writes_require_explicit_intent() {
+        let explain = deki_tool_names_for_request(&test_deki_prompt_request(
+            "Explain src/engine/generation.",
+        ));
+        assert!(!explain.contains(&"edit_deki_code_file"));
+
+        let edit = deki_tool_names_for_request(&test_deki_prompt_request(
+            "Edit src/engine/generation to fix the bug.",
+        ));
+        assert!(edit.contains(&"edit_deki_code_file"));
+
+        let extension = deki_tool_names_for_request(&test_deki_prompt_request(
+            "Create a De-Koi extension for quick notes.",
+        ));
+        assert!(extension.contains(&"create_deki_extension"));
+        assert!(!extension.contains(&"create_deki_custom_agent"));
+
+        let custom_agent = deki_tool_names_for_request(&test_deki_prompt_request(
+            "Create a custom agent for expression selection.",
+        ));
+        assert!(!custom_agent.contains(&"create_deki_extension"));
+        assert!(custom_agent.contains(&"create_deki_custom_agent"));
+    }
+
+    #[test]
+    fn deki_code_write_tools_require_imperative_action_intent() {
+        for message in [
+            "How do I fix src/engine/generation?",
+            "How would I implement this module?",
+            "Explain how to update this code.",
+            "What should I change in this file?",
+        ] {
+            let names = deki_tool_names_for_request(&test_deki_prompt_request(message));
+            assert!(!names.contains(&"edit_deki_code_file"), "{message:?}");
+        }
+
+        for message in [
+            "Fix src/engine/generation.",
+            "Please edit this code file.",
+            "Can you implement this module?",
+            "I need you to update src/app/App.tsx.",
+        ] {
+            let names = deki_tool_names_for_request(&test_deki_prompt_request(message));
+            assert!(names.contains(&"edit_deki_code_file"), "{message:?}");
+        }
+    }
+
+    #[test]
+    fn deki_creation_cross_domain_requests_use_the_broad_bundle() {
+        for message in [
+            "Create an extension by editing src/engine code.",
+            "Create an extension based on our previous chat.",
+            "Create an extension based on my persona library.",
+        ] {
+            assert_eq!(
+                select_deki_tool_bundle(&test_deki_prompt_request(message)),
+                DekiToolBundle::Broad,
+                "{message:?}"
+            );
+        }
+
+        let mut web_input = test_deki_prompt_request("Create an extension from current facts.");
+        web_input.web_research_grants = vec![test_web_research_grant()];
+        assert_eq!(select_deki_tool_bundle(&web_input), DekiToolBundle::Broad);
+    }
+
+    #[test]
+    fn deki_approved_web_grant_selects_the_web_bundle() {
+        let mut input = test_deki_prompt_request("Check the latest facts for me.");
+        input.web_research_grants = vec![test_web_research_grant()];
+
+        assert_eq!(select_deki_tool_bundle(&input), DekiToolBundle::Web);
+    }
+
+    fn test_web_research_grant() -> DekiWebResearchGrant {
+        DekiWebResearchGrant {
+            id: "grant-1".to_string(),
+            action_message_id: "message-1".to_string(),
+            scope: DekiWebResearchScope {
+                scope_type: "query".to_string(),
+                query: "De-Koi source".to_string(),
+                allowed_domains: Vec::new(),
+            },
+            granted_at: "2026-07-10T12:00:00Z".to_string(),
+            expires_at: None,
+        }
+    }
+
+    #[test]
+    fn deki_broad_bundle_contains_every_read_tool_exactly_once_and_no_writes() {
+        let names = deki_tool_names_for_bundle(DekiToolBundle::Broad, true);
+        let expected = [
+            "read_deki_library",
+            "read_deki_library_items",
+            "read_deki_chats",
+            "read_deki_chat_messages",
+            "search_deki_web",
+            "read_deki_web_page",
+            "search_deki_code",
+            "read_deki_code_file",
+        ];
+
+        assert_eq!(names.len(), expected.len());
+        for name in expected {
+            assert_eq!(
+                names.iter().filter(|candidate| **candidate == name).count(),
+                1
+            );
+        }
+        assert!(!names.contains(&"edit_deki_code_file"));
+        assert!(!names.contains(&"create_deki_extension"));
+        assert!(!names.contains(&"create_deki_custom_agent"));
+    }
+
+    #[test]
+    fn deki_referential_follow_up_uses_recent_context_but_latest_turn_authorizes_write() {
+        let code = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
+            "Please fix it.",
+            &[
+                ("user", "Find the bug in src/engine/generation."),
+                ("assistant", "The bug is in the prompt assembly module."),
+            ],
+        ));
+        assert!(code.contains(&"edit_deki_code_file"));
+        assert!(!code.contains(&"create_deki_extension"));
+        assert!(!code.contains(&"create_deki_custom_agent"));
+
+        let extension = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
+            "Do it.",
+            &[(
+                "assistant",
+                "I can create a De-Koi extension for that workflow.",
+            )],
+        ));
+        assert!(extension.contains(&"create_deki_extension"));
+        assert!(!extension.contains(&"edit_deki_code_file"));
+        assert!(!extension.contains(&"create_deki_custom_agent"));
+
+        let custom_agent = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
+            "Do it.",
+            &[(
+                "assistant",
+                "I can create a custom agent for expression selection.",
+            )],
+        ));
+        assert!(custom_agent.contains(&"create_deki_custom_agent"));
+        assert!(!custom_agent.contains(&"edit_deki_code_file"));
+        assert!(!custom_agent.contains(&"create_deki_extension"));
+    }
+
+    #[test]
+    fn deki_latest_exploratory_turn_never_inherits_write_authority() {
+        for request in [
+            test_deki_prompt_request_with_messages(
+                "How would that work?",
+                &[("user", "Create a De-Koi extension for quick notes.")],
+            ),
+            test_deki_prompt_request_with_messages(
+                "What should I change?",
+                &[("user", "Find the bug in src/engine/generation.")],
+            ),
+            test_deki_prompt_request("How would I create a De-Koi extension?"),
+        ] {
+            let names = deki_tool_names_for_request(&request);
+            assert!(!names.contains(&"edit_deki_code_file"));
+            assert!(!names.contains(&"create_deki_extension"));
+            assert!(!names.contains(&"create_deki_custom_agent"));
+        }
+    }
+
+    #[test]
+    fn deki_ambiguous_referential_follow_up_does_not_guess_a_mutation() {
+        let names = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
+            "Do it.",
+            &[
+                ("user", "Would an extension or a custom agent work better?"),
+                ("assistant", "Either could support the workflow."),
+            ],
+        ));
+
+        assert!(!names.contains(&"edit_deki_code_file"));
+        assert!(!names.contains(&"create_deki_extension"));
+        assert!(!names.contains(&"create_deki_custom_agent"));
+    }
+
+    #[test]
+    fn deki_code_action_verbs_do_not_authorize_creation_tools_by_reference() {
+        let names = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
+            "Please remove it.",
+            &[("assistant", "The current approach uses a De-Koi extension.")],
+        ));
+
+        assert!(!names.contains(&"edit_deki_code_file"));
+        assert!(!names.contains(&"create_deki_extension"));
+        assert!(!names.contains(&"create_deki_custom_agent"));
+    }
+
+    #[test]
     fn deki_initial_tool_request_uses_action_sized_output_budget() {
         let connection = test_connection("custom");
         let messages = [text_message("What lorebooks are in my library?")];
@@ -4941,7 +5795,102 @@ Extra visible text."#;
 
         let parameters = deki_request_parameters(&connection, &messages, &tools);
 
+        assert_eq!(parameters["maxTokens"], json!(512));
+    }
+
+    #[test]
+    fn deki_forced_choice_is_always_one_of_the_selected_request_tools() {
+        let creation_message = "Create a De-Koi extension for quick notes.";
+        let creation_input = test_deki_prompt_request(creation_message);
+        let creation_tools = deki_tool_names_for_request(&creation_input)
+            .into_iter()
+            .map(test_tool)
+            .collect::<Vec<_>>();
+        let creation_parameters = deki_request_parameters(
+            &test_connection("openai"),
+            &[text_message(creation_message)],
+            &creation_tools,
+        );
+        assert!(creation_parameters.get("toolChoice").is_none());
+        assert_eq!(creation_parameters["maxTokens"], json!(8192));
+
+        let legacy_message = "Where is the shell feature implemented in the repo?";
+        let legacy_input = test_deki_prompt_request(legacy_message);
+        let legacy_tools = deki_tool_names_for_request(&legacy_input)
+            .into_iter()
+            .map(test_tool)
+            .collect::<Vec<_>>();
+        let legacy_parameters = deki_request_parameters(
+            &test_connection("openai"),
+            &[text_message(legacy_message)],
+            &legacy_tools,
+        );
+        let forced_name = deki_requested_tool_choice_name(&legacy_parameters)
+            .expect("legacy code wording should force an advertised search tool");
+        assert!(has_deki_tool(&legacy_tools, forced_name));
+        assert_eq!(legacy_parameters["maxTokens"], json!(512));
+    }
+
+    #[test]
+    fn deki_does_not_force_or_shrink_for_an_unadvertised_tool() {
+        let messages = [text_message("What does src/app/App.tsx do?")];
+        let tools = [test_tool("read_deki_library")];
+
+        let parameters = deki_request_parameters(&test_connection("openai"), &messages, &tools);
+
+        assert!(parameters.get("toolChoice").is_none());
         assert_eq!(parameters["maxTokens"], json!(8192));
+    }
+
+    #[test]
+    fn deki_cohere_forcing_uses_supported_required_semantics() {
+        let messages = [text_message("What does src/app/App.tsx do?")];
+        let tools = [test_tool("search_deki_code")];
+
+        let parameters = deki_request_parameters(&test_connection("cohere"), &messages, &tools);
+
+        assert_eq!(parameters["toolChoice"], json!("required"));
+        assert_eq!(parameters["maxTokens"], json!(512));
+    }
+
+    #[test]
+    fn deki_does_not_shrink_when_provider_cannot_honor_forcing() {
+        let messages = [text_message("What does src/app/App.tsx do?")];
+        let tools = [test_tool("search_deki_code")];
+
+        let parameters = deki_request_parameters(&test_connection("anthropic"), &messages, &tools);
+
+        assert!(parameters.get("toolChoice").is_none());
+        assert_eq!(parameters["maxTokens"], json!(8192));
+    }
+
+    #[test]
+    fn deki_chat_only_first_turn_forces_the_advertised_overview_tool() {
+        let messages = [text_message("What happened in our previous chat?")];
+        let tools = [
+            test_tool("read_deki_chats"),
+            test_tool("read_deki_chat_messages"),
+        ];
+
+        let parameters = deki_request_parameters(&test_connection("openai"), &messages, &tools);
+
+        assert_eq!(
+            deki_requested_tool_choice_name(&parameters),
+            Some("read_deki_chats")
+        );
+        assert_eq!(parameters["maxTokens"], json!(512));
+    }
+
+    #[test]
+    fn deki_non_forced_initial_response_keeps_full_output_budget() {
+        let connection = test_connection("custom");
+        let messages = [text_message("Hello, Deki!")];
+        let tools = [test_tool("search_deki_code")];
+
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
+
+        assert_eq!(parameters["maxTokens"], json!(8192));
+        assert!(parameters.get("toolChoice").is_none());
     }
 
     #[test]

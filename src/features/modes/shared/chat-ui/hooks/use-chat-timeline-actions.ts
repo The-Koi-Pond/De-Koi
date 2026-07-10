@@ -14,6 +14,8 @@ import { useGenerate } from "../../../../runtime/generation/index";
 import { useGameStateStore, worldStateApi, type WorldStateTarget } from "../../../../runtime/world-state/index";
 import { BUILT_IN_AGENTS } from "../../../../../engine/contracts/types/agent";
 import { buildGuidedGenerationInstructionMessage } from "../../../../../engine/shared/text/generation-guide";
+import { buildPromptBudgetEstimate } from "../../../../../engine/generation/prompt-budget";
+import type { ContextFitDecision } from "../../../../../engine/generation/context-window";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
@@ -32,7 +34,20 @@ import type { SaveMomentSource } from "../lib/save-moment";
 const TRACKER_AGENT_IDS = new Set(
   BUILT_IN_AGENTS.filter((agent) => agent.category === "tracker").map((agent) => agent.id),
 );
-const PEEK_PROMPT_CONTEXT_KINDS = new Set(["prompt", "history", "injection"]);
+const PEEK_PROMPT_CONTEXT_KINDS = new Set([
+  "prompt",
+  "history",
+  "injection",
+  "summary",
+  "canonical_memory",
+  "memory",
+  "memory_recall",
+  "lorebook",
+  "character",
+  "agent",
+  "directive",
+  "optional",
+]);
 
 type UseChatTimelineActionsOptions = {
   activeChatId: string;
@@ -71,7 +86,7 @@ function promptSnapshotMessagesToPeekMessages(value: unknown): PeekPromptData["m
             role,
             content,
             ...(PEEK_PROMPT_CONTEXT_KINDS.has(contextKind)
-              ? { contextKind: contextKind as "prompt" | "history" | "injection" }
+              ? { contextKind: contextKind as NonNullable<PeekPromptData["messages"][number]["contextKind"]> }
               : {}),
             ...(displayName ? { displayName } : {}),
             ...(images.length ? { images } : {}),
@@ -81,20 +96,66 @@ function promptSnapshotMessagesToPeekMessages(value: unknown): PeekPromptData["m
     .filter((message): message is PeekPromptData["messages"][number] => !!message);
 }
 
-function promptSnapshotToPeekPromptData(value: unknown): PeekPromptData | null {
+function contextFitDecisionFromSnapshot(value: unknown): ContextFitDecision | null {
+  const record = readRecord(value);
+  const removedMessages = Array.isArray(record.removedMessages) ? record.removedMessages : [];
+  const truncatedMessages = Array.isArray(record.truncatedMessages) ? record.truncatedMessages : [];
+  const originalEstimatedTokens = Number(record.originalEstimatedTokens) || 0;
+  const fittedEstimatedTokens = Number(record.fittedEstimatedTokens) || 0;
+  const inputBudgetTokens = Number(record.inputBudgetTokens) || 0;
+  if (
+    removedMessages.length === 0 &&
+    truncatedMessages.length === 0 &&
+    originalEstimatedTokens === 0 &&
+    fittedEstimatedTokens === 0 &&
+    inputBudgetTokens === 0
+  ) {
+    return null;
+  }
+  return {
+    removedMessages: removedMessages.map((entry) => {
+      const item = readRecord(entry);
+      return {
+        contextKind: readString(item.contextKind).trim() || "unknown",
+        ...(readString(item.displayName).trim() ? { displayName: readString(item.displayName).trim() } : {}),
+        estimatedTokens: Number(item.estimatedTokens) || 0,
+      };
+    }),
+    truncatedMessages: truncatedMessages.map((entry) => {
+      const item = readRecord(entry);
+      return {
+        contextKind: readString(item.contextKind).trim() || "unknown",
+        removedEstimatedTokens: Number(item.removedEstimatedTokens) || 0,
+      };
+    }),
+    originalEstimatedTokens,
+    fittedEstimatedTokens,
+    inputBudgetTokens,
+  };
+}
+
+export function promptSnapshotToPeekPromptData(value: unknown): PeekPromptData | null {
   const snapshot = readRecord(value);
   const messages = promptSnapshotMessagesToPeekMessages(snapshot.messages);
   const previewMessages = promptSnapshotMessagesToPeekMessages(snapshot.previewMessages);
   if (messages.length === 0) return null;
+  const parameters = readRecord(snapshot.parameters);
+  const contextFitDecision = contextFitDecisionFromSnapshot(snapshot.contextFitDecision);
+  const budget = buildPromptBudgetEstimate({
+    messages: messages as Parameters<typeof buildPromptBudgetEstimate>[0]["messages"],
+    parameters,
+    contextFitDecision,
+  });
   return {
     messages,
     ...(previewMessages.length ? { previewMessages } : {}),
-    parameters: snapshot.parameters ?? null,
+    parameters,
     promptPresetId: readString(snapshot.promptPresetId).trim() || null,
     source: "cached",
     exact: true,
     contextAttribution: snapshot.contextAttribution as PeekPromptData["contextAttribution"],
     generationInfo: readRecord(snapshot.generationInfo) as PeekPromptData["generationInfo"],
+    budget,
     agentNote: "This is the cached text prompt saved after provider preparation for the active assistant swipe.",
   };
 }

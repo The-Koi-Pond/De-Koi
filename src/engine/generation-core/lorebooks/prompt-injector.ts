@@ -1,11 +1,12 @@
 import type { LorebookRole } from "../../contracts/types/lorebook";
+import type { ChatMLMessage } from "../../contracts/types/prompt";
 import type { ActivatedEntry } from "./keyword-scanner.js";
 
 /** A prompt message ready for injection. */
 export interface PromptMessage {
   role: "system" | "user" | "assistant";
   content: string;
-  contextKind?: "prompt" | "history" | "injection";
+  contextKind?: ChatMLMessage["contextKind"];
   /** Optional name for multi-character */
   name?: string;
 }
@@ -79,19 +80,41 @@ function getDepthInjectedEntries(activatedEntries: ActivatedEntry[]): Array<{
  */
 export function injectAtDepth(
   messages: PromptMessage[],
-  depthEntries: Array<{ content: string; role: LorebookRole; depth: number }>,
+  depthEntries: Array<{
+    content: string;
+    role: LorebookRole;
+    depth: number;
+    contextKind?: ChatMLMessage["contextKind"];
+    contextPriority?: number;
+    displayName?: string;
+  }>,
   options: InjectAtDepthOptions = {},
 ): PromptMessage[] {
   if (depthEntries.length === 0) return messages;
 
   const anchorIndex = Math.max(0, Math.min(messages.length, Math.floor(options.anchorIndex ?? messages.length)));
   const minIndex = Math.max(0, Math.min(anchorIndex, Math.floor(options.minIndex ?? 0)));
-  const byInsertionIndex = new Map<number, Array<{ content: string; role: LorebookRole }>>();
+  const byInsertionIndex = new Map<
+    number,
+    Array<{
+      content: string;
+      role: LorebookRole;
+      contextKind?: ChatMLMessage["contextKind"];
+      contextPriority?: number;
+      displayName?: string;
+    }>
+  >();
   for (const entry of depthEntries) {
     const depth = Math.max(0, Math.floor(entry.depth));
     const insertionIndex = Math.max(minIndex, anchorIndex - depth);
     const list = byInsertionIndex.get(insertionIndex) ?? [];
-    list.push({ content: entry.content, role: entry.role });
+    list.push({
+      content: entry.content,
+      role: entry.role,
+      contextKind: entry.contextKind,
+      contextPriority: entry.contextPriority,
+      displayName: entry.displayName,
+    });
     byInsertionIndex.set(insertionIndex, list);
   }
 
@@ -102,7 +125,9 @@ export function injectAtDepth(
       ...entries.map((entry) => ({
         role: entry.role,
         content: entry.content,
-        contextKind: "injection" as const,
+        contextKind: entry.contextKind ?? ("injection" as const),
+        ...(entry.contextPriority != null ? { contextPriority: entry.contextPriority } : {}),
+        ...(entry.displayName ? { displayName: entry.displayName } : {}),
       })),
     );
 
