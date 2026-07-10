@@ -2395,6 +2395,15 @@ pub async fn status(state: &LocalSidecarState) -> AppResult<Value> {
     status_payload(state).await
 }
 
+fn should_stop_for_config_update(
+    has_child: bool,
+    current_signature: Option<&str>,
+    next_enabled: bool,
+    next_signature: &str,
+) -> bool {
+    has_child && (!next_enabled || current_signature != Some(next_signature))
+}
+
 pub async fn update_config(state: &LocalSidecarState, body: Value) -> AppResult<Value> {
     let current = read_config(state)?;
     let next = patch_config(current, body)?;
@@ -2402,9 +2411,13 @@ pub async fn update_config(state: &LocalSidecarState, body: Value) -> AppResult<
 
     let mut process = SIDECAR_PROCESS.lock().await;
     process.refresh_exit()?;
-    if process.child.is_some()
-        && process.signature.as_deref() != Some(config_signature(state, &next).as_str())
-    {
+    let next_signature = config_signature(state, &next);
+    if should_stop_for_config_update(
+        process.child.is_some(),
+        process.signature.as_deref(),
+        next.enabled,
+        &next_signature,
+    ) {
         process.stop_locked().await?;
     }
     drop(process);
@@ -2914,6 +2927,34 @@ mod tests {
         assert_eq!(tail["truncated"], true);
         assert_eq!(tail["lines"], json!(["line 3", "line 4"]));
         assert_eq!(tail["path"].as_str(), Some(path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn config_update_stops_only_a_resident_child_that_is_disabled_or_changed() {
+        assert!(should_stop_for_config_update(
+            true,
+            Some("same-signature"),
+            false,
+            "same-signature"
+        ));
+        assert!(!should_stop_for_config_update(
+            true,
+            Some("same-signature"),
+            true,
+            "same-signature"
+        ));
+        assert!(should_stop_for_config_update(
+            true,
+            Some("old-signature"),
+            true,
+            "new-signature"
+        ));
+        assert!(!should_stop_for_config_update(
+            false,
+            Some("old-signature"),
+            false,
+            "new-signature"
+        ));
     }
 
     #[tokio::test]
