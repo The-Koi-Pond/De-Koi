@@ -105,59 +105,61 @@ export function SettingsPanel() {
   };
 
   return (
-    <div className="de-koi-settings-panel h-full min-h-0 lg:grid lg:grid-cols-[14rem_minmax(0,1fr)]">
-      <div
-        className="de-koi-settings-tabs flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)]/45 p-2 lg:flex-col lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3"
-        role="tablist"
-        aria-label="Settings sections"
-      >
-        {TABS.map((tab, tabIndex) => {
-          const Icon = tab.icon;
-          const selected = activeTab.id === tab.id;
-          return (
-            <button
-              key={tab.id}
-              id={getSettingsTabButtonId(tab.id)}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              aria-controls={selected ? `settings-panel-${tab.id}` : undefined}
-              tabIndex={selected ? 0 : -1}
-              onClick={() => activateTab(tab.id)}
-              onKeyDown={(event) => handleTabKeyDown(event, tabIndex)}
-              className={cn(
-                "de-koi-settings-tab flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] lg:w-full lg:items-start",
-                selected
-                  ? "de-koi-settings-tab-active bg-[var(--primary)]/12 text-[var(--foreground)] ring-1 ring-[var(--primary)]/35"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/65 hover:text-[var(--foreground)]",
-              )}
-            >
-              <Icon size="0.95rem" className={cn("mt-px shrink-0", selected && "text-[var(--primary)]")} />
-              <span className="min-w-0">
-                <span className="block whitespace-nowrap text-xs font-semibold leading-tight">{tab.label}</span>
-                <span className="mt-1 hidden text-[0.625rem] font-normal leading-snug text-[var(--muted-foreground)] lg:block">
-                  {tab.description}
+    <div className="de-koi-settings-panel @container h-full min-h-0">
+      <div className="de-koi-settings-layout h-full min-h-0 @3xl:grid @3xl:grid-cols-[14rem_minmax(0,1fr)]">
+        <div
+          className="de-koi-settings-tabs flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)]/45 p-2 @3xl:flex-col @3xl:overflow-y-auto @3xl:border-b-0 @3xl:border-r @3xl:p-3"
+          role="tablist"
+          aria-label="Settings sections"
+        >
+          {TABS.map((tab, tabIndex) => {
+            const Icon = tab.icon;
+            const selected = activeTab.id === tab.id;
+            return (
+              <button
+                key={tab.id}
+                id={getSettingsTabButtonId(tab.id)}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls={selected ? `settings-panel-${tab.id}` : undefined}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => activateTab(tab.id)}
+                onKeyDown={(event) => handleTabKeyDown(event, tabIndex)}
+                className={cn(
+                  "de-koi-settings-tab flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] @3xl:w-full @3xl:items-start",
+                  selected
+                    ? "de-koi-settings-tab-active bg-[var(--primary)]/12 text-[var(--foreground)] ring-1 ring-[var(--primary)]/35"
+                    : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/65 hover:text-[var(--foreground)]",
+                )}
+              >
+                <Icon size="0.95rem" className={cn("mt-px shrink-0", selected && "text-[var(--primary)]")} />
+                <span className="min-w-0">
+                  <span className="block whitespace-nowrap text-xs font-semibold leading-tight">{tab.label}</span>
+                  <span className="mt-1 hidden text-[0.625rem] font-normal leading-snug text-[var(--muted-foreground)] @3xl:block">
+                    {tab.description}
+                  </span>
                 </span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
 
-      <div
-        id={`settings-panel-${activeTab.id}`}
-        className="de-koi-settings-body min-h-0 overflow-y-auto"
-        role="tabpanel"
-        aria-labelledby={`settings-tab-${activeTab.id}`}
-      >
-        <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
-          <header className="mb-5 border-b border-[var(--border)] pb-4">
-            <h2 className="text-lg font-semibold leading-tight text-[var(--foreground)]">{activeTab.label}</h2>
-            <p className="mt-1 max-w-[68ch] text-xs leading-relaxed text-[var(--muted-foreground)]">
-              {activeTab.description}
-            </p>
-          </header>
-          <ActiveSettings />
+        <div
+          id={`settings-panel-${activeTab.id}`}
+          className="de-koi-settings-body min-h-0 overflow-y-auto"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${activeTab.id}`}
+        >
+          <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
+            <header className="mb-5 border-b border-[var(--border)] pb-4">
+              <h2 className="text-lg font-semibold leading-tight text-[var(--foreground)]">{activeTab.label}</h2>
+              <p className="mt-1 max-w-[68ch] text-xs leading-relaxed text-[var(--muted-foreground)]">
+                {activeTab.description}
+              </p>
+            </header>
+            <ActiveSettings />
+          </div>
         </div>
       </div>
     </div>
