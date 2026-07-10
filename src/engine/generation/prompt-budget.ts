@@ -1,5 +1,5 @@
 import type { LlmMessage } from "../capabilities/llm";
-import { effectiveMaxContext, estimateLlmMessageTokens } from "./context-window";
+import { effectiveMaxContext, estimateLlmMessageTokens, type ContextFitDecision } from "./context-window";
 import { readNumber, readString } from "./runtime-records";
 
 const DEFAULT_RESPONSE_TOKENS = 4096;
@@ -27,6 +27,8 @@ type PromptBudgetWarningKind =
   | "large_section"
   | "lorebook_skipped"
   | "history_trim"
+  | "context_removed"
+  | "context_truncated"
   | "context_overlap";
 
 interface PromptBudgetSection {
@@ -58,16 +60,14 @@ export interface PromptBudgetEstimate {
   warnings: PromptBudgetWarning[];
 }
 
-interface PromptBudgetMessage extends LlmMessage {
-  contextKind?: unknown;
-  displayName?: unknown;
-}
+type PromptBudgetMessage = LlmMessage;
 
 interface PromptBudgetInput {
   messages: LlmMessage[];
   connection?: Record<string, unknown> | null;
   parameters?: Record<string, unknown> | null;
   budgetSkippedLorebookEntries?: Array<{ name?: unknown; id?: unknown; lorebookId?: unknown }> | null;
+  contextFitDecision?: ContextFitDecision | null;
 }
 
 function normalizedLabel(message: PromptBudgetMessage): string {
@@ -84,6 +84,9 @@ function classifyPromptMessage(message: PromptBudgetMessage): PromptBudgetSectio
   if (contextKind === "history") return "history";
   if (message.images?.length) return "attachment";
   if (contextKind === "injection") return "injection";
+  if (contextKind === "lorebook") return "lorebook";
+  if (contextKind === "character") return "character";
+  if (["summary", "canonical_memory", "memory", "memory_recall"].includes(contextKind)) return "memory";
   if (/\b(lorebook|world info|world_info|world facts?)\b/.test(text)) return "lorebook";
   if (/\b(character|char card|character info|character_info)\b/.test(text)) return "character";
   if (/\b(persona|user profile)\b/.test(text)) return "persona";
@@ -213,12 +216,20 @@ const OVERLAP_STOP_WORDS = new Set([
 ]);
 
 function overlapLabel(label: string): string {
-  return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "context";
+  return (
+    label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "context"
+  );
 }
 
 function overlapSourceKind(label: string, fallbackMessage: PromptBudgetMessage): PromptBudgetSectionKind {
   const normalized = overlapLabel(label);
-  if (/\b(public_profile|appearance|personality|character|character_info|backstory|scenario|example)\b/.test(normalized)) {
+  if (
+    /\b(public_profile|appearance|personality|character|character_info|backstory|scenario|example)\b/.test(normalized)
+  ) {
     return "character";
   }
   if (/\b(persona|user_profile)\b/.test(normalized)) return "persona";
@@ -328,7 +339,10 @@ function buildContextOverlapWarnings(messages: LlmMessage[]): PromptBudgetWarnin
 
   return [...phraseSources]
     .filter(([, sources]) => sources.length >= 2)
-    .sort(([phraseA, sourcesA], [phraseB, sourcesB]) => sourcesB.length - sourcesA.length || phraseB.length - phraseA.length)
+    .sort(
+      ([phraseA, sourcesA], [phraseB, sourcesB]) =>
+        sourcesB.length - sourcesA.length || phraseB.length - phraseA.length,
+    )
     .slice(0, MAX_CONTEXT_OVERLAP_WARNINGS)
     .map(([phrase, sources]) => {
       const sectionKind = overlapWarningSectionKind(sources);
@@ -350,13 +364,47 @@ export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudge
   const estimatedPromptTokens = input.messages.reduce((total, message) => total + estimateLlmMessageTokens(message), 0);
   const outputReserveTokens = contextLimit == null ? null : outputReserve(parameters);
   const safetyReserveTokens = contextLimit == null ? null : CONTEXT_SAFETY_TOKENS;
-  const inputBudgetTokens =
+  const computedInputBudgetTokens =
     contextLimit == null || outputReserveTokens == null
       ? null
       : Math.max(0, contextLimit - outputReserveTokens - CONTEXT_SAFETY_TOKENS);
+  const inputBudgetTokens =
+    computedInputBudgetTokens ??
+    (input.contextFitDecision && input.contextFitDecision.inputBudgetTokens > 0
+      ? input.contextFitDecision.inputBudgetTokens
+      : null);
   const remainingTokens = inputBudgetTokens == null ? null : inputBudgetTokens - estimatedPromptTokens;
   const sections = buildSections(input.messages, inputBudgetTokens, remainingTokens);
   const warnings: PromptBudgetWarning[] = [];
+
+  for (const removed of input.contextFitDecision?.removedMessages ?? []) {
+    const label =
+      removed.displayName?.trim() ||
+      sectionLabel(
+        classifyPromptMessage({
+          role: "system",
+          content: "",
+          contextKind: removed.contextKind,
+        }),
+      );
+    warnings.push({
+      kind: "context_removed",
+      sectionLabel: label,
+      tokens: removed.estimatedTokens,
+      message: `${label} was removed to fit the selected model's context window.`,
+    });
+  }
+  for (const truncated of input.contextFitDecision?.truncatedMessages ?? []) {
+    const kind = classifyPromptMessage({ role: "system", content: "", contextKind: truncated.contextKind });
+    const label = sectionLabel(kind);
+    warnings.push({
+      kind: "context_truncated",
+      sectionKind: kind,
+      sectionLabel: label,
+      tokens: truncated.removedEstimatedTokens,
+      message: `${label} was shortened to fit the selected model's context window.`,
+    });
+  }
 
   if (contextLimit == null) {
     warnings.push({

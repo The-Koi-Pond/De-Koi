@@ -80,7 +80,7 @@ import {
   metadataStringArray,
   metadataTranslationProvider,
 } from "../lib/chat-settings-metadata";
-import { toggleChatAgent } from "../lib/chat-settings-actions";
+import { chatToolSelectionMode, chatToolStatusDescription, toggleChatAgent } from "../lib/chat-settings-actions";
 import { buildContinuityOverviewViewModel } from "../lib/continuity-overview";
 import {
   AgentCategorySection,
@@ -652,6 +652,7 @@ function ChatSettingsDrawerInner({
   const activeToolIds = metadataStringArray(metadata.activeToolIds);
   const agentsEnabled = activeAgentIds.length > 0;
   const toolsEnabled = isEnabledFlag(metadata.enableTools, false);
+  const toolSelectionMode = chatToolSelectionMode(metadata, toolsEnabled);
   const manualTrackersEnabled = isEnabledFlag(metadata.manualTrackers, false);
   const spriteGenerationEnabled = isEnabledFlag(metadata.enableSpriteGeneration, false);
   const autonomousMessagesEnabled = isEnabledFlag(metadata.autonomousMessages, false);
@@ -1359,7 +1360,7 @@ function ChatSettingsDrawerInner({
     const idx = current.indexOf(toolId);
     if (idx >= 0) current.splice(idx, 1);
     else current.push(toolId);
-    updateMeta.mutate({ id: chat.id, activeToolIds: current });
+    updateMeta.mutate({ id: chat.id, activeToolIds: current, toolSelectionMode: "explicit" });
   };
 
   const currentPromptPresetHasVariables = (currentPromptPresetFull?.choiceBlocks?.length ?? 0) > 0;
@@ -4079,7 +4080,8 @@ function ChatSettingsDrawerInner({
                           <span>Music Player</span>
                         </div>
                         <p className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Automatic scene-aware YouTube picks for this game. Turn on the Music Player module separately when you want visible controls.
+                          Automatic scene-aware YouTube picks for this game. Turn on the Music Player module separately
+                          when you want visible controls.
                         </p>
                       </div>
                       <div
@@ -4101,7 +4103,10 @@ function ChatSettingsDrawerInner({
                       <div className="space-y-2 rounded-lg bg-[var(--background)]/55 p-3 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
                         <div>
                           <div className="font-medium text-[var(--foreground)]">Provider: YouTube</div>
-                          <div>No account, OAuth, or API key required. This controls automatic picks, not whether the mini player is visible.</div>
+                          <div>
+                            No account, OAuth, or API key required. This controls automatic picks, not whether the mini
+                            player is visible.
+                          </div>
                         </div>
                         <button
                           type="button"
@@ -4572,8 +4577,8 @@ function ChatSettingsDrawerInner({
                       <div className="min-w-0 flex-1">
                         <div className="text-[0.6875rem] font-medium">Music Player</div>
                         <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Automatic scene music is active. Use the shell Music Player for direct URLs, fresh
-                          picks, and volume.
+                          Automatic scene music is active. Use the shell Music Player for direct URLs, fresh picks, and
+                          volume.
                         </p>
                       </div>
                     </div>
@@ -5382,7 +5387,11 @@ function ChatSettingsDrawerInner({
             <div className="space-y-2">
               <button
                 onClick={() => {
-                  updateMeta.mutate({ id: chat.id, enableTools: !toolsEnabled });
+                  updateMeta.mutate({
+                    id: chat.id,
+                    enableTools: !toolsEnabled,
+                    toolSelectionMode,
+                  });
                 }}
                 className={cn(
                   "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
@@ -5412,9 +5421,7 @@ function ChatSettingsDrawerInner({
                 </div>
               </button>
               <p className="text-[0.625rem] text-[var(--muted-foreground)] px-1">
-                {toolsEnabled
-                  ? "If enabled, this chat can use globally enabled tools (or any tools you add below)."
-                  : "If disabled, no functions will be available."}
+                {chatToolStatusDescription(toolsEnabled, toolSelectionMode, activeToolIds.length)}
               </p>
 
               {/* Per-chat tool list */}
@@ -5422,8 +5429,9 @@ function ChatSettingsDrawerInner({
                 <>
                   {activeToolIds.length === 0 ? (
                     <p className="text-[0.6875rem] text-[var(--muted-foreground)] px-1">
-                      All globally enabled tools are available to this chat. Add tools below to restrict this chat to a
-                      specific set.
+                      {toolSelectionMode === "all"
+                        ? "All globally enabled tools are available to this chat. Add tools below to restrict this chat to a specific set."
+                        : "No functions are selected for this chat. Add functions below to make them available."}
                     </p>
                   ) : (
                     <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
@@ -5476,7 +5484,11 @@ function ChatSettingsDrawerInner({
                             <button
                               onClick={() => {
                                 const next = [...activeToolIds, ...pendingToolIds];
-                                updateMeta.mutate({ id: chat.id, activeToolIds: next });
+                                updateMeta.mutate({
+                                  id: chat.id,
+                                  activeToolIds: next,
+                                  toolSelectionMode: "explicit",
+                                });
                                 setPendingToolIds([]);
                                 setShowToolPicker(false);
                               }}

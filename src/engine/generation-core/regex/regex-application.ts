@@ -20,6 +20,13 @@ export type RegexMessageLike = {
   role: string;
   content: string;
   contextKind?: string;
+  contextSegments?: Array<{
+    role?: string;
+    content: string;
+    contextKind?: string;
+    contextPriority?: number;
+    displayName?: string;
+  }>;
 };
 
 type RegexMacroResolver = (value: string) => string;
@@ -148,6 +155,18 @@ export function applyRegexScriptsToPromptMessages<T extends RegexMessageLike>(
     const message = messages[index]!;
     const placement = message.role === "user" ? "user_input" : "ai_output";
     const depth = totalMessages - 1 - index;
-    message.content = applyRegexScriptsToPromptText(message.content, scripts, placement, depth, options);
+    const transformedContent = applyRegexScriptsToPromptText(message.content, scripts, placement, depth, options);
+    if (message.contextSegments?.length && transformedContent !== message.content) {
+      const transformedSegments = message.contextSegments.map((segment) => ({
+        ...segment,
+        content: applyRegexScriptsToPromptText(segment.content, scripts, placement, depth, options),
+      }));
+      if (transformedSegments.map((segment) => segment.content).join("\n\n") === transformedContent) {
+        message.contextSegments = transformedSegments;
+      } else {
+        delete message.contextSegments;
+      }
+    }
+    message.content = transformedContent;
   }
 }

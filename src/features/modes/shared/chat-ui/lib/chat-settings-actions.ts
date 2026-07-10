@@ -5,6 +5,30 @@ export type ChatSettingsMetadataPatch = Record<string, unknown>;
 
 export type ModePromptField = "narratorStyleInstructions" | "gameExtraPrompt" | "sceneSystemPrompt";
 
+export function chatToolSelectionMode(metadata: Record<string, unknown>, toolsEnabled: boolean): "explicit" | "all" {
+  if (metadata.toolSelectionMode === "all" || metadata.toolSelectionMode === "explicit") {
+    return metadata.toolSelectionMode;
+  }
+  if (
+    Array.isArray(metadata.activeToolIds) &&
+    metadata.activeToolIds.some((id) => typeof id === "string" && id.trim())
+  ) {
+    return "explicit";
+  }
+  return toolsEnabled ? "all" : "explicit";
+}
+
+export function chatToolStatusDescription(
+  toolsEnabled: boolean,
+  selectionMode: "explicit" | "all",
+  selectedToolCount: number,
+): string {
+  if (!toolsEnabled) return "If disabled, no functions will be available.";
+  if (selectionMode === "all") return "This chat can use all globally enabled tools.";
+  if (selectedToolCount === 0) return "Tool use is enabled, but no functions are selected for this chat.";
+  return `This chat can use its ${selectedToolCount} selected function${selectedToolCount === 1 ? "" : "s"}.`;
+}
+
 export function buildModePromptMetadataPatch({
   field,
   draft,

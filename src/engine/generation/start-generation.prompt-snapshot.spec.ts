@@ -9,6 +9,26 @@ const connection = {
 };
 
 describe("buildSavedGenerationPromptSnapshot", () => {
+  it("preserves the final context fit decision", () => {
+    const contextFitDecision = {
+      removedMessages: [{ contextKind: "injection", displayName: "Trackers", estimatedTokens: 320 }],
+      truncatedMessages: [],
+      originalEstimatedTokens: 500,
+      fittedEstimatedTokens: 180,
+      inputBudgetTokens: 300,
+    };
+    const snapshot = buildSavedGenerationPromptSnapshot({
+      connection,
+      promptSnapshot: {
+        messages: [{ role: "user", content: "What happened?" }],
+        parameters: { maxTokens: 400 },
+        contextFitDecision,
+      },
+    });
+
+    expect(snapshot?.contextFitDecision).toEqual(contextFitDecision);
+  });
+
   it("preserves context attribution from the main request snapshot", () => {
     const snapshot = buildSavedGenerationPromptSnapshot({
       connection,

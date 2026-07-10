@@ -1,12 +1,13 @@
 import type { GenerationContextAttribution, Message, MessageSwipe } from "../../../../engine/contracts/types/chat";
 import type { PromptBudgetEstimate } from "../../../../engine/generation/prompt-budget";
+import type { ChatMLMessage } from "../../../../engine/contracts/types/prompt";
 import type { PromptAttachment } from "../../../../engine/shared/attachments/image-attachments";
 export type { CharacterMap, PersonaInfo } from "../../../runtime/visuals/types";
 
 type PeekPromptMessage = {
   role: string;
   content: string;
-  contextKind?: "prompt" | "history" | "injection";
+  contextKind?: ChatMLMessage["contextKind"];
   displayName?: string;
   images?: string[];
 };

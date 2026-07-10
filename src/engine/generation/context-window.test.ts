@@ -30,7 +30,7 @@ describe("context window fitting", () => {
       history("second history ".repeat(18)),
       history("latest history ".repeat(18)),
     ];
-    const connection = { maxContext: 620 };
+    const connection = { maxContext: 700 };
     const parameters = { maxTokens: 80 };
 
     const withoutTools = fitLlmRequestToContextWindow(messages, parameters, connection).messages;
@@ -43,17 +43,18 @@ describe("context window fitting", () => {
     expect(withTools.at(-1)?.content).toContain("latest history");
   });
 
-  it("reduces output tokens when tools and irreducible prompt content consume the window", () => {
+  it("fails clearly when tools and irreducible prompt content leave less than the output floor", () => {
     const messages: LlmMessage[] = [
       { role: "system", content: "Authoritative system guidance. ".repeat(10) },
       history("only history row ".repeat(8)),
     ];
 
-    const fitted = fitLlmRequestToContextWindow(messages, { maxTokens: 120 }, { maxContext: 560 }, {
-      tools: repeatedToolSchema(720),
-    });
-
-    expect(fitted.parameters.maxTokens).toBeLessThan(120);
-    expect(fitted.parameters.maxTokens).toBeGreaterThanOrEqual(1);
+    expect(() =>
+      fitLlmRequestToContextWindow(messages, { maxTokens: 120 }, { maxContext: 560 }, {
+        tools: repeatedToolSchema(720),
+      }),
+    ).toThrow(
+      "Generation context exceeds the selected model window; reduce required prompt sections or choose a larger-context model.",
+    );
   });
 });

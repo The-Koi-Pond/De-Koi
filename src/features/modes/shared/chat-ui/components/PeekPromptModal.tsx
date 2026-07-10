@@ -8,6 +8,7 @@ import { cn } from "../../../../../shared/lib/utils";
 import { buildPromptAttributionViewModel, type PromptAttributionViewModel } from "../lib/prompt-attribution";
 import { usePresetSummaries } from "../../../../catalog/presets/index";
 import type { PromptBudgetEstimate } from "../../../../../engine/generation/prompt-budget";
+import type { ChatMLMessage } from "../../../../../engine/contracts/types/prompt";
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -42,7 +43,7 @@ interface GenerationInfo {
 type PeekPromptMessage = {
   role: string;
   content: string;
-  contextKind?: "prompt" | "history" | "injection";
+  contextKind?: ChatMLMessage["contextKind"];
   displayName?: string;
   images?: string[];
 };
