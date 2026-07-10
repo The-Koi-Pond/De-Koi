@@ -321,5 +321,3 @@ Save and restore representative characters repeatedly while sampling RSS and req
 - [ ] **Step 6: Mark ready and merge**
 
 After local checks, Bunny, CI, and Pi proof are all clean, mark the PR ready, merge it into `main` using the repository's allowed merge strategy, then verify `origin/main` contains the merge and the Pi is running the merged image. Report the PR URL, merged state, checks, Bunny, health gate, remaining rollback file, and vault classification.
-
-

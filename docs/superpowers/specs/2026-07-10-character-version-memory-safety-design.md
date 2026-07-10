@@ -191,5 +191,3 @@ The streaming test uses an instrumented reader or migration seam to prove record
 - Character version creation and restoration no longer rewrite hundreds of megabytes caused by embedded media.
 - A future server memory regression cannot exhaust the Pi host and take down remote administration.
 - Local checks and the live Pi proof pass without modifying unrelated user work.
-
-
