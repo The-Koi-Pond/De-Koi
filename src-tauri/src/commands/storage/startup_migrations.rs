@@ -59,19 +59,27 @@ pub(crate) fn migrate_character_version_inline_media(
                 ("avatarFilename", "avatarFilePath"),
                 ("bannerImageFilename", "bannerImageFilePath"),
             ] {
-                if !row
-                    .get(filename_field)
-                    .and_then(Value::as_str)
-                    .is_some_and(
+                let filename = row.get(filename_field).and_then(Value::as_str);
+                let path = row.get(path_field).and_then(Value::as_str);
+                if filename.is_none() && path.is_none() {
+                    continue;
+                }
+                if filename_field == "bannerImageFilename"
+                    && !filename.is_some_and(
                         super::character_version_media::is_content_addressed_version_filename,
                     )
                 {
+                    return Err(AppError::new(
+                        "character_version_media_validation_failed",
+                        "Migrated character version banner filename is missing or invalid",
+                    ));
+                }
+                if !filename.is_some_and(
+                    super::character_version_media::is_content_addressed_version_filename,
+                ) {
                     continue;
                 }
-                let path = row
-                    .get(path_field)
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
+                let path = path.ok_or_else(|| {
                         AppError::new(
                             "character_version_media_validation_failed",
                             "Migrated character version image is missing its managed file path",
@@ -908,5 +916,26 @@ mod character_version_inline_media_tests {
         let asset_dir = root.join("avatars/characters/versions");
         assert!(!asset_dir.exists() || fs::read_dir(asset_dir).unwrap().next().is_none());
         fs::remove_dir_all(root).expect("temporary directory should clean up");
+    }
+
+    #[test]
+    fn character_version_inline_media_migration_rejects_partial_banner_metadata() {
+        let root = temp_dir("partial-banner-metadata");
+        let storage = FileStorage::new(root.join("data")).unwrap();
+        storage
+            .replace_all(
+                "character-versions",
+                vec![json!({
+                    "id":"version-1",
+                    "bannerImageFilePath":root.join("avatars/characters/versions/missing.png")
+                })],
+            )
+            .unwrap();
+
+        let error = migrate_character_version_inline_media(&storage, &root)
+            .expect_err("partial banner metadata should fail validation");
+
+        assert_eq!(error.code, "character_version_media_validation_failed");
+        fs::remove_dir_all(root).unwrap();
     }
 }
