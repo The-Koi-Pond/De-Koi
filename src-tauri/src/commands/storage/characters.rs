@@ -491,13 +491,7 @@ fn record_references_managed_version_media(
     Ok(record
         .pointer("/data/extensions/publicProfile/bannerImage")
         .and_then(Value::as_str)
-        .is_some_and(|banner| {
-            banner == file_path_asset_url(path)
-                || path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|filename| banner.contains(filename))
-        }))
+        .is_some_and(|banner| banner == file_path_asset_url(path)))
 }
 
 pub(crate) fn restore_character_version(

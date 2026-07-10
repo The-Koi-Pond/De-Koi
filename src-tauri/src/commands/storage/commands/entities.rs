@@ -5168,7 +5168,8 @@ mod tests {
         std::fs::create_dir_all(&media_dir).unwrap();
         let media_path = media_dir.join(format!("version-{}.png", "a".repeat(64)));
         std::fs::write(&media_path, b"shared").unwrap();
-        let media_url = super::super::media_uploads::file_path_asset_url(&media_path);
+        let canonical_media_path = std::fs::canonicalize(&media_path).unwrap();
+        let media_url = super::super::media_uploads::file_path_asset_url(&canonical_media_path);
         let filename = media_path
             .file_name()
             .unwrap()
