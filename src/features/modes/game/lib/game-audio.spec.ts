@@ -299,4 +299,34 @@ describe("game audio disposal", () => {
     expect(context.state).toBe("suspended");
     expect(onStarted).not.toHaveBeenCalled();
   });
+
+  it("keeps a new same-tag ambient layer owned when the old generation resolves later", async () => {
+    const context = createAudioContextStub();
+    let resolveOldDecode!: (buffer: object) => void;
+    context.decodeAudioData.mockImplementationOnce(
+      () =>
+        new Promise<object>((resolve) => {
+          resolveOldDecode = resolve;
+        }),
+    );
+    vi.stubGlobal("AudioContext", vi.fn(function () {
+      return context;
+    }));
+    const { audioManager } = await import("./game-audio");
+    audioManager.unlock();
+    audioManager.playAmbient("ambient:same-tag");
+    await expect.poll(() => context.decodeAudioData.mock.calls.length).toBe(1);
+
+    audioManager.dispose();
+    audioManager.playAmbient("ambient:same-tag");
+    await expect.poll(() => context.createBufferSource.mock.calls.length).toBe(2);
+    for (let index = 0; index < 3; index++) await Promise.resolve();
+
+    resolveOldDecode({});
+    for (let index = 0; index < 6; index++) await Promise.resolve();
+    audioManager.dispose();
+
+    const liveNewSource = context.createBufferSource.mock.results[1]!.value;
+    expect(liveNewSource.stop).toHaveBeenCalledOnce();
+  });
 });

@@ -84,6 +84,7 @@ class GameAudioManager {
   private musicElement: LoopingAudioLayer | null = null;
   private nextMusicElement: LoopingAudioLayer | null = null;
   private ambientElement: LoopingAudioLayer | null = null;
+  private pendingAmbientElement: LoopingAudioLayer | null = null;
   private sfxPool: HTMLAudioElement[] = [];
   private sfxIndex = 0;
   private audioLifecycleGeneration = 0;
@@ -798,7 +799,7 @@ class GameAudioManager {
 
         newAudio.ready
           .then(() => {
-            if (this.nextMusicElement !== newAudio) {
+            if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.nextMusicElement !== newAudio) {
               newAudio.stop();
               return;
             }
@@ -840,7 +841,7 @@ class GameAudioManager {
             this.fadeInterval = interval;
           })
           .catch(() => {
-            if (this.nextMusicElement !== newAudio) {
+            if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.nextMusicElement !== newAudio) {
               newAudio.stop();
               return;
             }
@@ -968,10 +969,18 @@ class GameAudioManager {
           this.isMuted,
           expectedGeneration,
         );
+        if (this.pendingAmbientElement && this.pendingAmbientElement !== nextAmbient) {
+          this.pendingAmbientElement.stop();
+        }
+        this.pendingAmbientElement = nextAmbient;
 
         return nextAmbient.ready
           .then(() => {
-            if (this.currentAmbientTag !== tag) {
+            if (
+              !this.isAudioLifecycleCurrent(expectedGeneration) ||
+              this.currentAmbientTag !== tag ||
+              this.pendingAmbientElement !== nextAmbient
+            ) {
               nextAmbient.stop();
               return;
             }
@@ -980,9 +989,13 @@ class GameAudioManager {
               previousAmbient.stop();
             }
             this.ambientElement = nextAmbient;
+            this.pendingAmbientElement = null;
             this.pendingAmbient = null;
           })
           .catch((err) => {
+            if (this.pendingAmbientElement === nextAmbient) {
+              this.pendingAmbientElement = null;
+            }
             nextAmbient.stop();
             throw err;
           });
@@ -1005,6 +1018,10 @@ class GameAudioManager {
   stopAmbient(): void {
     this.currentAmbientTag = null;
     this.pendingAmbient = null;
+    if (this.pendingAmbientElement) {
+      this.pendingAmbientElement.stop();
+      this.pendingAmbientElement = null;
+    }
     if (this.ambientElement) {
       this.ambientElement.stop();
       this.ambientElement = null;
