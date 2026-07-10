@@ -83,6 +83,7 @@ import { MessageAttachmentImagePreview } from "./MessageAttachmentImagePreview";
 import { MessageMemoryIndicators } from "./MessageMemoryIndicators";
 import { resolveAvatarFileUrl } from "../../../../../shared/api/local-file-api";
 import { mergedGroupDisplayLabel, mergedGroupNames } from "../lib/merged-group-label";
+import { subscribeMergedMessageCycle } from "../lib/merged-message-cycle-clock";
 
 const MESSAGE_ACTION_ICON_SIZE = "1em";
 const MESSAGE_SWIPE_ICON_SIZE = "1.15em";
@@ -1384,9 +1385,9 @@ export const ChatMessage = memo(function ChatMessage({
       return raw || fallbackPalette[i % fallbackPalette.length]!;
     });
   }, [isMergedGroup, characterMap, chatCharacterIds]);
-  // Cycle index for merged group avatars/names — driven by a ref + RAF to avoid re-renders
+  // Cycle index for merged group avatars/names — driven by a shared clock and refs to avoid re-renders
   const cycleIndexRef = useRef(0);
-  const cycleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mergedIdentityVisibleRef = useRef(true);
   const mergedNameRef = useRef<HTMLSpanElement>(null);
   const mergedAvatarRefs = useRef<(HTMLImageElement | null)[]>([]);
   const mergedAvatarTailRefs = useRef<(HTMLImageElement | null)[]>([]);
@@ -1429,8 +1430,22 @@ export const ChatMessage = memo(function ChatMessage({
     const mergedNameCycleCount = Math.max(1, mergedNames.length);
     const total = Math.max(mergedAvatars.length, mergedNameColors.length, mergedNameCycleCount);
     if (total <= 1) return;
-    cycleTimerRef.current = setInterval(() => {
-      cycleIndexRef.current = (cycleIndexRef.current + 1) % total;
+    const identityBlock = mergedNameRef.current;
+    let observer: IntersectionObserver | null = null;
+    if (identityBlock && typeof IntersectionObserver === "function") {
+      mergedIdentityVisibleRef.current = false;
+      observer = new IntersectionObserver((entries) => {
+        const identityEntry = entries.find((entry) => entry.target === identityBlock) ?? entries[0];
+        mergedIdentityVisibleRef.current = identityEntry?.isIntersecting ?? false;
+      });
+      observer.observe(identityBlock);
+    } else {
+      mergedIdentityVisibleRef.current = true;
+    }
+
+    const unsubscribe = subscribeMergedMessageCycle((tick) => {
+      if (!mergedIdentityVisibleRef.current) return;
+      cycleIndexRef.current = tick % total;
       const idx = cycleIndexRef.current;
       // Update avatar opacity via DOM directly (no re-render)
       mergedAvatarRefs.current.forEach((img, i) => {
@@ -1447,9 +1462,11 @@ export const ChatMessage = memo(function ChatMessage({
           span.style.opacity = i === idx % mergedNameCycleCount ? "1" : "0";
         });
       }
-    }, 2000);
+    });
     return () => {
-      if (cycleTimerRef.current) clearInterval(cycleTimerRef.current);
+      unsubscribe();
+      observer?.disconnect();
+      mergedIdentityVisibleRef.current = true;
     };
   }, [isMergedGroup, mergedAvatars.length, mergedNameColors.length, mergedNames.length]);
 

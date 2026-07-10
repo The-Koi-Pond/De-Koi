@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -97,6 +97,8 @@ describe("ChatMessage", () => {
     container = null;
     resetChatMessageUiState();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("opens the character profile from the assistant name", () => {
@@ -292,6 +294,125 @@ describe("ChatMessage", () => {
     expect(avatars).toHaveLength(2);
     expect(avatars[0]?.dataset.crop).toBe(JSON.stringify(avatarCrop));
     expect(avatars[0]?.dataset.className).toContain("object-cover");
+  });
+
+  it("does not update merged identity opacity while the identity block is offscreen", () => {
+    vi.useFakeTimers();
+    let observerCallback: IntersectionObserverCallback | null = null;
+    let observer: IntersectionObserver | null = null;
+    class TestIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0];
+      constructor(callback: IntersectionObserverCallback) {
+        observerCallback = callback;
+        observer = this;
+      }
+      disconnect = vi.fn();
+      observe = vi.fn();
+      takeRecords = vi.fn(() => []);
+      unobserve = vi.fn();
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    const groupCharacterMap: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+      ["cinder", { name: "Cinder", avatarUrl: "asset://cinder", nameColor: "#0000ff" }],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{ ...message, id: "message-offscreen-cycle", characterId: null }}
+            chatMode="roleplay"
+            groupChatMode="merged"
+            characterMap={groupCharacterMap}
+            chatCharacterIds={["aster", "briar", "cinder"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(observer).not.toBeNull();
+    const identityBlock = container!.querySelector<HTMLElement>("[data-cycle-name]")?.parentElement;
+    expect(observer!.observe as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(identityBlock);
+    act(() => {
+      observerCallback!([{ isIntersecting: false } as IntersectionObserverEntry], observer!);
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const names = container!.querySelectorAll<HTMLElement>("[data-cycle-name]");
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["1", "0", "0"]);
+
+    act(() => {
+      observerCallback!([{ isIntersecting: true } as IntersectionObserverEntry], observer!);
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["0", "0", "1"]);
+  });
+
+  it("derives different participant totals from the shared tick when observers are unavailable", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const twoCharacters: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+    ]);
+    const threeCharacters: CharacterMap = new Map([
+      ...twoCharacters,
+      ["cinder", { name: "Cinder", avatarUrl: "asset://cinder", nameColor: "#0000ff" }],
+    ]);
+
+    const renderMessages = (includeSecond: boolean) => (
+      <StrictMode>
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            key="two"
+            message={{ ...message, id: "message-cycle-two", characterId: null }}
+            chatMode="roleplay"
+            groupChatMode="merged"
+            characterMap={twoCharacters}
+            chatCharacterIds={["aster", "briar"]}
+          />
+          {includeSecond && (
+            <ChatMessage
+              key="three"
+              message={{ ...message, id: "message-cycle-three", characterId: null }}
+              chatMode="roleplay"
+              groupChatMode="merged"
+              characterMap={threeCharacters}
+              chatCharacterIds={["aster", "briar", "cinder"]}
+            />
+          )}
+        </QueryClientProvider>
+      </StrictMode>
+    );
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(renderMessages(false));
+    });
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    act(() => {
+      root!.render(renderMessages(true));
+    });
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const firstNames = container!.querySelectorAll<HTMLElement>(
+      '[data-message-id="message-cycle-two"] [data-cycle-name]',
+    );
+    const secondNames = container!.querySelectorAll<HTMLElement>(
+      '[data-message-id="message-cycle-three"] [data-cycle-name]',
+    );
+    expect(Array.from(firstNames, (name) => name.style.opacity)).toEqual(["1", "0"]);
+    expect(Array.from(secondNames, (name) => name.style.opacity)).toEqual(["0", "0", "1"]);
   });
 
   it("does not apply persona dialogue color to user-authored quotes", () => {
