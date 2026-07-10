@@ -7,3 +7,4 @@ export * from "./components/CharacterAvatarImage";
 export * from "./components/CharacterPublicProfileCard";
 export * from "./components/CharacterPublicProfilePopover";
 export * from "./lib/character-music-profile";
+export * from "./lib/character-token-count";

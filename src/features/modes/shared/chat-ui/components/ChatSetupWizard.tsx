@@ -28,13 +28,11 @@ import { usePresets, usePresetFull, useDefaultPresetSummary } from "../../../../
 import {
   CharacterAvatarImage as CatalogCharacterAvatarImage,
   characterAvatarUrl,
+  estimateCharacterCardTokens,
   useCharacterSummaries,
   useCharacterSummariesByIds,
-} from "../../../../catalog/characters/index";
-import {
-  estimateCharacterCardTokens,
   type CharacterTokenData,
-} from "../../../../catalog/characters/lib/character-token-count";
+} from "../../../../catalog/characters/index";
 import { getInlineCardTokenWarning } from "../../../../catalog/lib/card-token-recommendation";
 import { PersonaAvatarImage, usePersonaSummaries } from "../../../../catalog/personas/index";
 import { useLorebooks } from "../../../../catalog/lorebooks/index";

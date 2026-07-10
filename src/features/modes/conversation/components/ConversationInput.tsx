@@ -16,8 +16,6 @@ import {
   Loader2,
   FileText,
   RefreshCw,
-  Bookmark,
-  Trash2,
   WandSparkles,
 } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -44,12 +42,7 @@ import {
   invalidateGalleryImagesForChat,
   invalidateGalleryImagesForManagedAttachments,
 } from "../../../catalog/gallery/index";
-import {
-  personaKeys,
-  useActivePersonaSummary,
-  usePersonaSummary,
-  useUpdatePersona,
-} from "../../../catalog/personas/index";
+import { personaKeys } from "../../../catalog/personas/index";
 import {
   matchSlashCommand,
   getSlashCompletions,
@@ -113,16 +106,6 @@ const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "yml",
 ]);
 
-const SAVED_STATUS_LIMIT = 12;
-const SAVED_STATUS_MAX_LENGTH = 120;
-
-interface PersonaStatusRow {
-  id: string;
-  name?: string;
-  isActive?: string | boolean;
-  savedStatusOptions?: string | string[] | null;
-}
-
 function getFileExtension(fileName: string): string {
   const match = fileName.toLowerCase().match(/\.([a-z0-9]+)$/);
   return match?.[1] ?? "";
@@ -153,32 +136,6 @@ function isSupportedChatAttachment(file: File): boolean {
     return true;
   }
   return TEXT_ATTACHMENT_EXTENSIONS.has(getFileExtension(file.name));
-}
-
-function normalizeSavedStatus(value: string): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, SAVED_STATUS_MAX_LENGTH);
-}
-
-function parseSavedStatusOptions(value: PersonaStatusRow["savedStatusOptions"]): string[] {
-  const raw = (() => {
-    if (Array.isArray(value)) return value;
-    if (typeof value !== "string" || !value.trim()) return [];
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  })();
-
-  const byKey = new Map<string, string>();
-  for (const item of raw) {
-    if (typeof item !== "string") continue;
-    const normalized = normalizeSavedStatus(item);
-    if (!normalized) continue;
-    byKey.set(normalized.toLowerCase(), normalized);
-  }
-  return [...byKey.values()].slice(0, SAVED_STATUS_LIMIT);
 }
 
 interface ConversationInputProps {
@@ -221,15 +178,11 @@ export function ConversationInput({
   const [mentionStartPos, setMentionStartPos] = useState(0);
   const [charPickerOpen, setCharPickerOpen] = useState(false);
   const [charPickerPos, setCharPickerPos] = useState<{ left: number; top: number } | null>(null);
-  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
-  const [statusMenuPos, setStatusMenuPos] = useState<{ left: number; top: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const gifButtonRef = useRef<HTMLButtonElement>(null);
-  const statusButtonRef = useRef<HTMLButtonElement>(null);
-  const statusMenuRef = useRef<HTMLDivElement>(null);
   const charPickerBtnRef = useRef<HTMLButtonElement>(null);
   const charPickerMenuRef = useRef<HTMLDivElement>(null);
   const inputBarRef = useRef<HTMLDivElement>(null);
@@ -260,16 +213,9 @@ export function ConversationInput({
   const userQuickReplyActions = useUIStore((s) => s.userQuickReplyActions);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
-  const userActivity = useUIStore((s) => s.userActivity);
-  const setUserActivity = useUIStore((s) => s.setUserActivity);
   const createMessage = useCreateMessage(activeChatId);
   const deleteMessage = useDeleteMessage(activeChatId);
   const updateMessageExtra = useUpdateMessageExtra(activeChatId);
-  const activeChatPersonaId =
-    typeof activeChat?.personaId === "string" && activeChat.personaId.trim() ? activeChat.personaId.trim() : null;
-  const { data: chatPersona } = usePersonaSummary(activeChatPersonaId, !!activeChatPersonaId);
-  const { data: fallbackPersona } = useActivePersonaSummary(!activeChatPersonaId && activeChat?.mode !== "game");
-  const updatePersona = useUpdatePersona();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingAttachmentReads = activeChatId ? (pendingAttachmentReadsByChat[activeChatId] ?? 0) : 0;
@@ -1558,23 +1504,6 @@ export function ConversationInput({
   }, [charPickerOpen]);
 
   useEffect(() => {
-    if (!statusMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (
-        statusMenuRef.current &&
-        !statusMenuRef.current.contains(target) &&
-        statusButtonRef.current &&
-        !statusButtonRef.current.contains(target)
-      ) {
-        setStatusMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [statusMenuOpen]);
-
-  useEffect(() => {
     if (!charPickerOpen || !charPickerBtnRef.current) return;
     const rect = charPickerBtnRef.current.getBoundingClientRect();
     const inputBox = charPickerBtnRef.current.closest(".rounded-2xl") as HTMLElement | null;
@@ -1590,13 +1519,6 @@ export function ConversationInput({
   }, [charPickerOpen]);
 
   const showCharPicker = groupResponseOrder === "manual" && !!chatCharacters && chatCharacters.length > 1;
-  const activePersona = (chatPersona ?? fallbackPersona) as PersonaStatusRow | undefined;
-  const savedStatusOptions = parseSavedStatusOptions(activePersona?.savedStatusOptions);
-  const normalizedUserActivity = normalizeSavedStatus(userActivity);
-  const canSaveCurrentStatus =
-    !!activePersona &&
-    !!normalizedUserActivity &&
-    !savedStatusOptions.some((option) => option.toLowerCase() === normalizedUserActivity.toLowerCase());
   const chatMetadata = activeChat?.metadata
     ? typeof activeChat.metadata === "string"
       ? (() => {
@@ -1609,21 +1531,6 @@ export function ConversationInput({
       : (activeChat.metadata as Record<string, unknown>)
     : {};
   const showDraftTranslateButton = chatMetadata.showInputTranslateButton === true;
-
-  useEffect(() => {
-    if (!statusMenuOpen || !statusButtonRef.current) return;
-    const rect = statusButtonRef.current.getBoundingClientRect();
-    const inputBox = statusButtonRef.current.closest(".rounded-2xl") as HTMLElement | null;
-    const anchorTop = inputBox ? inputBox.getBoundingClientRect().top : rect.top;
-    requestAnimationFrame(() => {
-      const menuEl = statusMenuRef.current;
-      const menuHeight = menuEl?.offsetHeight || 260;
-      const menuWidth = menuEl?.offsetWidth || 260;
-      let left = rect.right - menuWidth;
-      if (left < 8) left = 8;
-      setStatusMenuPos({ left, top: Math.max(8, anchorTop - menuHeight - 4) });
-    });
-  }, [statusMenuOpen, savedStatusOptions.length, canSaveCurrentStatus]);
 
   const handleTranslateDraft = useCallback(async () => {
     if (!activeChatId || isTranslatingDraft) return;
@@ -1645,47 +1552,6 @@ export function ConversationInput({
       setIsTranslatingDraft(false);
     }
   }, [activeChatId, isTranslatingDraft, quoteFormat, setInputDraft, syncInputState]);
-
-  const persistSavedStatusOptions = useCallback(
-    async (nextOptions: string[]) => {
-      if (!activePersona) {
-        toast.info("Choose a persona before saving status options.");
-        return;
-      }
-      await updatePersona.mutateAsync({
-        id: activePersona.id,
-        savedStatusOptions: nextOptions.slice(0, SAVED_STATUS_LIMIT),
-      });
-    },
-    [activePersona, updatePersona],
-  );
-
-  const handleSaveCurrentStatus = useCallback(async () => {
-    if (!normalizedUserActivity || !activePersona) return;
-    const nextOptions = [
-      normalizedUserActivity,
-      ...savedStatusOptions.filter((option) => option.toLowerCase() !== normalizedUserActivity.toLowerCase()),
-    ];
-    await persistSavedStatusOptions(nextOptions);
-    toast.success("Saved status for this persona");
-  }, [activePersona, normalizedUserActivity, persistSavedStatusOptions, savedStatusOptions]);
-
-  const handleApplySavedStatus = useCallback(
-    (status: string) => {
-      setUserActivity(status);
-      setStatusMenuOpen(false);
-    },
-    [setUserActivity],
-  );
-
-  const handleDeleteSavedStatus = useCallback(
-    async (status: string) => {
-      const nextOptions = savedStatusOptions.filter((option) => option.toLowerCase() !== status.toLowerCase());
-      await persistSavedStatusOptions(nextOptions);
-      toast.success("Removed saved status");
-    },
-    [persistSavedStatusOptions, savedStatusOptions],
-  );
 
   const handleSpeechTranscript = useCallback(
     (transcript: string) => {
@@ -1984,24 +1850,6 @@ export function ConversationInput({
             />
           )}
 
-          <button
-            ref={statusButtonRef}
-            type="button"
-            onClick={() => setStatusMenuOpen((v) => !v)}
-            disabled={!activePersona}
-            className={cn(
-              CHAT_INPUT_ICON_BUTTON_CLASS,
-              statusMenuOpen
-                ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS
-                : activePersona
-                  ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
-                  : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
-            )}
-            title={activePersona ? "Saved persona statuses" : "Choose a persona to save statuses"}
-          >
-            <Bookmark size="1rem" />
-          </button>
-
           {showQuickRepliesMenu && quickReplyActions.length > 0 && (
             <QuickReplyMenu
               actions={quickReplyActions}
@@ -2033,63 +1881,6 @@ export function ConversationInput({
           </button>
         </div>
       </div>
-      {statusMenuOpen &&
-        createPortal(
-          <div
-            ref={statusMenuRef}
-            className="fixed z-[9999] flex max-h-[320px] min-w-[240px] max-w-[300px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-2xl"
-            style={
-              statusMenuPos ? { left: statusMenuPos.left, top: statusMenuPos.top } : { visibility: "hidden" as const }
-            }
-          >
-            <div className="border-b border-[var(--border)] px-3 py-2">
-              <div className="truncate text-xs font-semibold">Saved Statuses</div>
-              <div className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                {activePersona?.name ?? "No persona selected"}
-              </div>
-            </div>
-            <div className="min-h-0 overflow-y-auto p-1">
-              {canSaveCurrentStatus && (
-                <button
-                  type="button"
-                  onClick={() => void handleSaveCurrentStatus()}
-                  disabled={updatePersona.isPending}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--primary)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
-                >
-                  <Plus size="0.875rem" className="shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">Save &quot;{normalizedUserActivity}&quot;</span>
-                </button>
-              )}
-              {savedStatusOptions.length > 0 ? (
-                savedStatusOptions.map((status) => (
-                  <div key={status} className="group flex items-center gap-1 rounded-lg hover:bg-[var(--accent)]">
-                    <button
-                      type="button"
-                      onClick={() => handleApplySavedStatus(status)}
-                      className="min-w-0 flex-1 px-3 py-2 text-left text-xs"
-                    >
-                      <span className="block truncate">{status}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteSavedStatus(status)}
-                      disabled={updatePersona.isPending}
-                      className="mr-1 rounded-md p-1.5 text-[var(--muted-foreground)] opacity-70 transition-colors hover:text-[var(--destructive)] disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
-                      title="Remove saved status"
-                    >
-                      <Trash2 size="0.75rem" />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="px-3 py-4 text-center text-[0.6875rem] text-[var(--muted-foreground)]">
-                  No saved statuses yet
-                </div>
-              )}
-            </div>
-          </div>,
-          document.body,
-        )}
       {showCharPicker &&
         charPickerOpen &&
         createPortal(

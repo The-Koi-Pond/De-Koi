@@ -22,7 +22,6 @@ export type PersonaSummary = {
   backstory?: string;
   appearance?: string;
   altDescriptions?: Array<{ active?: boolean; content?: string }>;
-  savedStatusOptions?: string | string[] | null;
   tags?: string[];
   avatarPath?: string | null;
   avatarFilePath?: string | null;
@@ -40,7 +39,7 @@ const PERSONA_SUMMARY_OPTIONS = {
   fields: [...PERSONA_SUMMARY_FIELDS],
 };
 const PERSONA_CHAT_SUMMARY_OPTIONS = {
-  fields: [...PERSONA_SUMMARY_FIELDS, "altDescriptions", "savedStatusOptions"],
+  fields: [...PERSONA_SUMMARY_FIELDS, "altDescriptions"],
 };
 
 function personaIsActive(persona: PersonaSummary): boolean {
@@ -160,7 +159,6 @@ export function useCreatePersona() {
       personaStats?: unknown;
       altDescriptions?: unknown[];
       tags?: string[];
-      savedStatusOptions?: string[];
       avatarCrop?: unknown;
     }) => storageApi.create("personas", data),
     onSuccess: () => {
@@ -190,7 +188,6 @@ export function useUpdatePersona() {
       trackerCardColors?: string;
       tags?: string[];
       altDescriptions?: unknown[];
-      savedStatusOptions?: string[];
       avatarCrop?: unknown;
       personaStats?: unknown;
     }) => storageApi.update("personas", id, data),

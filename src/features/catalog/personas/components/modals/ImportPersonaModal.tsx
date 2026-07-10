@@ -110,7 +110,6 @@ export function ImportPersonaModal({ open, onClose }: Props) {
           personaStats: jsonObjectStringField(json.personaStats, ""),
           altDescriptions: jsonStringField(json.altDescriptions, "[]"),
           tags: jsonStringField(json.tags, "[]"),
-          savedStatusOptions: jsonStringField(json.savedStatusOptions, "[]"),
           avatarCrop: jsonStringField(json.avatarCrop, ""),
           createdAt: file.lastModified,
           updatedAt: file.lastModified,
