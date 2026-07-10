@@ -139,13 +139,10 @@ fn looks_like_code_write_request(message: &str) -> bool {
         "i want you to ",
         "go ahead and ",
     ];
-    loop {
-        let Some(prefix) = polite_prefixes
-            .iter()
-            .find(|prefix| request.starts_with(**prefix))
-        else {
-            break;
-        };
+    while let Some(prefix) = polite_prefixes
+        .iter()
+        .find(|prefix| request.starts_with(**prefix))
+    {
         request = request[prefix.len()..].trim_start().to_string();
     }
     let first_word = request
@@ -192,13 +189,10 @@ fn looks_like_creation_imperative(message: &str) -> bool {
         "i want you to ",
         "go ahead and ",
     ];
-    loop {
-        let Some(prefix) = polite_prefixes
-            .iter()
-            .find(|prefix| request.starts_with(**prefix))
-        else {
-            break;
-        };
+    while let Some(prefix) = polite_prefixes
+        .iter()
+        .find(|prefix| request.starts_with(**prefix))
+    {
         request = request[prefix.len()..].trim_start().to_string();
     }
     let first_word = request
@@ -379,6 +373,7 @@ fn deki_prior_routing_context(input: &DekiPromptRequest) -> String {
         .messages
         .iter()
         .rev()
+        .filter(|message| message.role.eq_ignore_ascii_case("user"))
         .take(DEKI_ROUTING_HISTORY_LIMIT)
         .map(|message| deki_prompt_routing_message(&message.content).trim())
         .filter(|message| !message.is_empty())
@@ -5719,10 +5714,13 @@ Extra visible text."#;
 
         let extension = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
             "Do it.",
-            &[(
-                "assistant",
-                "I can create a De-Koi extension for that workflow.",
-            )],
+            &[
+                ("user", "Would a De-Koi extension fit this workflow?"),
+                (
+                    "assistant",
+                    "I can create a De-Koi extension for that workflow.",
+                ),
+            ],
         ));
         assert!(extension.contains(&"create_deki_extension"));
         assert!(!extension.contains(&"edit_deki_code_file"));
@@ -5730,10 +5728,13 @@ Extra visible text."#;
 
         let custom_agent = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
             "Do it.",
-            &[(
-                "assistant",
-                "I can create a custom agent for expression selection.",
-            )],
+            &[
+                ("user", "Would a custom agent handle expression selection?"),
+                (
+                    "assistant",
+                    "I can create a custom agent for expression selection.",
+                ),
+            ],
         ));
         assert!(custom_agent.contains(&"create_deki_custom_agent"));
         assert!(!custom_agent.contains(&"edit_deki_code_file"));
@@ -5773,6 +5774,24 @@ Extra visible text."#;
         assert!(!names.contains(&"edit_deki_code_file"));
         assert!(!names.contains(&"create_deki_extension"));
         assert!(!names.contains(&"create_deki_custom_agent"));
+    }
+
+    #[test]
+    fn deki_assistant_history_cannot_authorize_a_referential_mutation() {
+        for assistant_proposal in [
+            "I can edit the De-Koi source code for that.",
+            "I can create a De-Koi extension for that workflow.",
+            "I can create a custom agent for expression selection.",
+        ] {
+            let names = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
+                "Do it.",
+                &[("assistant", assistant_proposal)],
+            ));
+
+            assert!(!names.contains(&"edit_deki_code_file"));
+            assert!(!names.contains(&"create_deki_extension"));
+            assert!(!names.contains(&"create_deki_custom_agent"));
+        }
     }
 
     #[test]
