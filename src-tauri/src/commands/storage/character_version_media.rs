@@ -32,10 +32,66 @@ pub(crate) fn reject_inline_character_version_media(record: &Value) -> AppResult
             ));
         }
     }
+    if record
+        .pointer("/data/extensions/publicProfile/bannerImage")
+        .and_then(Value::as_str)
+        .is_some_and(is_inline_image_data_url)
+    {
+        return Err(AppError::new(
+            "inline_character_version_media",
+            "Character version public profile banner must use a managed image reference",
+        ));
+    }
     Ok(())
 }
 
 pub(crate) fn normalize_character_version_media(
+    data_dir: &Path,
+    record: &mut Map<String, Value>,
+    created_files: &mut Vec<PathBuf>,
+) -> AppResult<bool> {
+    let avatar_changed = normalize_character_version_avatar_media(data_dir, record, created_files)?;
+    let banner = record
+        .get("data")
+        .and_then(|value| value.pointer("/extensions/publicProfile/bannerImage"))
+        .and_then(Value::as_str)
+        .filter(|value| is_inline_image_data_url(value))
+        .map(str::to_string);
+    let Some(banner) = banner else {
+        return Ok(avatar_changed);
+    };
+    let mut media = Map::new();
+    media.insert("avatarPath".to_string(), Value::String(banner));
+    normalize_character_version_avatar_media(data_dir, &mut media, created_files)?;
+    let managed_url = media.remove("avatarPath").ok_or_else(|| {
+        AppError::new(
+            "storage_error",
+            "Managed character version banner URL is missing",
+        )
+    })?;
+    let managed_path = media.remove("avatarFilePath").ok_or_else(|| {
+        AppError::new(
+            "storage_error",
+            "Managed character version banner path is missing",
+        )
+    })?;
+    let managed_filename = media.remove("avatarFilename").ok_or_else(|| {
+        AppError::new(
+            "storage_error",
+            "Managed character version banner filename is missing",
+        )
+    })?;
+    let banner_slot = record
+        .get_mut("data")
+        .and_then(|value| value.pointer_mut("/extensions/publicProfile/bannerImage"))
+        .ok_or_else(|| AppError::invalid_input("Character version banner path is invalid"))?;
+    *banner_slot = managed_url;
+    record.insert("bannerImageFilePath".to_string(), managed_path);
+    record.insert("bannerImageFilename".to_string(), managed_filename);
+    Ok(true)
+}
+
+fn normalize_character_version_avatar_media(
     data_dir: &Path,
     record: &mut Map<String, Value>,
     created_files: &mut Vec<PathBuf>,
@@ -158,11 +214,18 @@ pub(crate) fn rollback_character_version_media_files(
         return Ok(());
     }
     storage.visit_collection_streaming("character-versions", |_index, row| {
-        if let Some(filename) = row.get("avatarFilename").and_then(Value::as_str) {
-            candidates.remove(filename);
+        for field in ["avatarFilename", "bannerImageFilename"] {
+            if let Some(filename) = row.get(field).and_then(Value::as_str) {
+                candidates.remove(filename);
+            }
         }
         Ok(())
     })?;
+    remove_live_character_banner_references(
+        storage,
+        &mut candidates,
+        paths.first().and_then(|path| path.parent()),
+    )?;
     for path in paths {
         if path
             .file_name()
@@ -194,17 +257,41 @@ pub(crate) fn cleanup_orphaned_character_version_media(
         .filter(|filename| is_content_addressed_version_filename(filename))
         .collect::<HashSet<_>>();
     storage.visit_collection_streaming("character-versions", |_index, row| {
-        if let Some(filename) = row.get("avatarFilename").and_then(Value::as_str) {
-            candidates.remove(filename);
+        for field in ["avatarFilename", "bannerImageFilename"] {
+            if let Some(filename) = row.get(field).and_then(Value::as_str) {
+                candidates.remove(filename);
+            }
         }
         Ok(())
     })?;
+    remove_live_character_banner_references(storage, &mut candidates, Some(&target_dir))?;
     let mut removed = 0;
     for filename in candidates {
         fs::remove_file(target_dir.join(filename))?;
         removed += 1;
     }
     Ok(removed)
+}
+
+fn remove_live_character_banner_references(
+    storage: &FileStorage,
+    candidates: &mut HashSet<String>,
+    target_dir: Option<&Path>,
+) -> AppResult<()> {
+    let Some(target_dir) = target_dir else {
+        return Ok(());
+    };
+    storage.visit_collection_streaming("characters", |_index, row| {
+        let Some(banner) = row
+            .pointer("/data/extensions/publicProfile/bannerImage")
+            .and_then(Value::as_str)
+        else {
+            return Ok(());
+        };
+        candidates.retain(|filename| file_path_asset_url(&target_dir.join(filename)) != banner);
+        Ok(())
+    })?;
+    Ok(())
 }
 
 pub(super) fn is_content_addressed_version_filename(filename: &str) -> bool {
@@ -301,6 +388,46 @@ mod tests {
     }
 
     #[test]
+    fn character_version_media_externalizes_nested_public_profile_banner() {
+        let root = temp_dir("public-profile-banner");
+        let mut record = json!({
+            "id": "version-banner",
+            "data": {
+                "extensions": {
+                    "publicProfile": {
+                        "bannerImage": format!("data:image/png;base64,{TINY_PNG}")
+                    }
+                }
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let mut created_files = Vec::new();
+
+        let changed = normalize_character_version_media(&root, &mut record, &mut created_files)
+            .expect("inline public profile banner should normalize");
+
+        assert!(changed);
+        assert_eq!(created_files.len(), 1);
+        assert!(
+            !record["data"]["extensions"]["publicProfile"]["bannerImage"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image")
+        );
+        assert!(record["bannerImageFilePath"]
+            .as_str()
+            .unwrap()
+            .contains("versions"));
+        assert!(record["bannerImageFilename"]
+            .as_str()
+            .unwrap()
+            .starts_with("version-"));
+        fs::remove_dir_all(root).expect("temporary directory should clean up");
+    }
+
+    #[test]
     fn character_version_media_reuses_identical_content() {
         let root = temp_dir("dedupe");
         let data_url = format!("data:image/png;base64,{TINY_PNG}");
@@ -377,6 +504,17 @@ mod tests {
         assert_eq!(error.code, "inline_character_version_media");
         assert!(error.message.contains("avatarUrl"));
         assert!(!error.message.contains(TINY_PNG));
+
+        let banner_record = json!({
+            "data": {"extensions": {"publicProfile": {
+                "bannerImage": format!("data:image/png;base64,{TINY_PNG}")
+            }}}
+        });
+        let banner_error = reject_inline_character_version_media(&banner_record)
+            .expect_err("inline public profile banner should be rejected");
+        assert_eq!(banner_error.code, "inline_character_version_media");
+        assert!(banner_error.message.contains("banner"));
+        assert!(!banner_error.message.contains(TINY_PNG));
     }
 
     #[test]
@@ -387,8 +525,10 @@ mod tests {
         fs::create_dir_all(&asset_dir).unwrap();
         let kept = format!("version-{}.png", "a".repeat(64));
         let orphan = format!("version-{}.png", "b".repeat(64));
+        let live_banner = format!("version-{}.png", "c".repeat(64));
         fs::write(asset_dir.join(&kept), b"kept").unwrap();
         fs::write(asset_dir.join(&orphan), b"orphan").unwrap();
+        fs::write(asset_dir.join(&live_banner), b"live").unwrap();
         fs::write(asset_dir.join("user-file.png"), b"unmanaged").unwrap();
         storage
             .replace_all(
@@ -396,11 +536,23 @@ mod tests {
                 vec![json!({"id":"v1","avatarFilename":kept})],
             )
             .unwrap();
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({
+                    "id":"char-1",
+                    "data":{"extensions":{"publicProfile":{
+                        "bannerImage":file_path_asset_url(&asset_dir.join(&live_banner))
+                    }}}
+                })],
+            )
+            .unwrap();
 
         let removed = cleanup_orphaned_character_version_media(&storage, &root).unwrap();
 
         assert_eq!(removed, 1);
         assert!(asset_dir.join(&kept).is_file());
+        assert!(asset_dir.join(&live_banner).is_file());
         assert!(!asset_dir.join(&orphan).exists());
         assert!(asset_dir.join("user-file.png").is_file());
         fs::remove_dir_all(root).unwrap();

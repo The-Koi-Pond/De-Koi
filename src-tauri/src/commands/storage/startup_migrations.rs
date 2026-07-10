@@ -45,7 +45,7 @@ pub(crate) fn migrate_character_version_inline_media(
     let mut created_files = Vec::new();
     let result = storage.transform_collection_streaming(
         "character-versions",
-        "character-version-inline-media-v2",
+        "character-version-inline-media-v3",
         |_index, row| {
             let object = row.as_object_mut().ok_or_else(|| {
                 AppError::invalid_input("Character version record must be a JSON object")
@@ -55,15 +55,31 @@ pub(crate) fn migrate_character_version_inline_media(
         },
         |_index, row| {
             reject_inline_character_version_media(row)?;
-            if row
-                .get("avatarFilename")
-                .and_then(Value::as_str)
-                .is_some_and(super::character_version_media::is_content_addressed_version_filename)
-            {
-                let path = row
-                    .get("avatarFilePath")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
+            for (filename_field, path_field) in [
+                ("avatarFilename", "avatarFilePath"),
+                ("bannerImageFilename", "bannerImageFilePath"),
+            ] {
+                let filename = row.get(filename_field).and_then(Value::as_str);
+                let path = row.get(path_field).and_then(Value::as_str);
+                if filename.is_none() && path.is_none() {
+                    continue;
+                }
+                if filename_field == "bannerImageFilename"
+                    && !filename.is_some_and(
+                        super::character_version_media::is_content_addressed_version_filename,
+                    )
+                {
+                    return Err(AppError::new(
+                        "character_version_media_validation_failed",
+                        "Migrated character version banner filename is missing or invalid",
+                    ));
+                }
+                if !filename.is_some_and(
+                    super::character_version_media::is_content_addressed_version_filename,
+                ) {
+                    continue;
+                }
+                let path = path.ok_or_else(|| {
                         AppError::new(
                             "character_version_media_validation_failed",
                             "Migrated character version image is missing its managed file path",
@@ -831,6 +847,11 @@ mod character_version_inline_media_tests {
                         "avatarPath":"http://asset.localhost/legacy.png",
                         "avatarFilePath":root.join("avatars/characters/legacy.png").to_string_lossy()
                     }),
+                    json!({
+                        "id":"version-4",
+                        "characterId":"char-1",
+                        "data":{"extensions":{"publicProfile":{"bannerImage":inline}}}
+                    }),
                 ],
             )
             .expect("fixture should persist");
@@ -839,9 +860,9 @@ mod character_version_inline_media_tests {
             .expect("migration should succeed");
         let rows = storage.list("character-versions").unwrap();
 
-        assert_eq!(report.input_records, 3);
-        assert_eq!(report.output_records, 3);
-        assert_eq!(report.changed_records, 2);
+        assert_eq!(report.input_records, 4);
+        assert_eq!(report.output_records, 4);
+        assert_eq!(report.changed_records, 3);
         assert_eq!(rows[0]["id"], "version-1");
         assert_eq!(rows[1]["data"]["name"], "Second");
         assert!(rows[2]["avatarFilePath"]
@@ -853,6 +874,13 @@ mod character_version_inline_media_tests {
             .as_str()
             .unwrap()
             .starts_with("data:image"));
+        assert!(
+            !rows[3]["data"]["extensions"]["publicProfile"]["bannerImage"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image")
+        );
+        assert_eq!(rows[3]["bannerImageFilename"], rows[0]["avatarFilename"]);
         assert_eq!(
             fs::read_dir(root.join("avatars/characters/versions"))
                 .unwrap()
@@ -888,5 +916,26 @@ mod character_version_inline_media_tests {
         let asset_dir = root.join("avatars/characters/versions");
         assert!(!asset_dir.exists() || fs::read_dir(asset_dir).unwrap().next().is_none());
         fs::remove_dir_all(root).expect("temporary directory should clean up");
+    }
+
+    #[test]
+    fn character_version_inline_media_migration_rejects_partial_banner_metadata() {
+        let root = temp_dir("partial-banner-metadata");
+        let storage = FileStorage::new(root.join("data")).unwrap();
+        storage
+            .replace_all(
+                "character-versions",
+                vec![json!({
+                    "id":"version-1",
+                    "bannerImageFilePath":root.join("avatars/characters/versions/missing.png")
+                })],
+            )
+            .unwrap();
+
+        let error = migrate_character_version_inline_media(&storage, &root)
+            .expect_err("partial banner metadata should fail validation");
+
+        assert_eq!(error.code, "character_version_media_validation_failed");
+        fs::remove_dir_all(root).unwrap();
     }
 }

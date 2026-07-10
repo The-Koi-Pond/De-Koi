@@ -5158,6 +5158,73 @@ mod tests {
     }
 
     #[test]
+    fn deleting_character_version_preserves_media_used_by_version_or_live_banner() {
+        let state = test_state("character-version-delete-shared-banner");
+        let media_dir = state
+            .data_dir
+            .join("avatars")
+            .join("characters")
+            .join("versions");
+        std::fs::create_dir_all(&media_dir).unwrap();
+        let media_path = media_dir.join(format!("version-{}.png", "a".repeat(64)));
+        std::fs::write(&media_path, b"shared").unwrap();
+        let canonical_media_path = std::fs::canonicalize(&media_path).unwrap();
+        let media_url = super::super::media_uploads::file_path_asset_url(&canonical_media_path);
+        let filename = media_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id":"char-1",
+                    "data":{"extensions":{"publicProfile":{"bannerImage":media_url}}}
+                }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                "character-versions",
+                json!({
+                    "id":"version-avatar",
+                    "characterId":"char-1",
+                    "avatarPath":media_url,
+                    "avatarFilePath":media_path.to_string_lossy(),
+                    "avatarFilename":filename
+                }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                "character-versions",
+                json!({
+                    "id":"version-banner",
+                    "characterId":"char-1",
+                    "data":{"extensions":{"publicProfile":{"bannerImage":media_url}}},
+                    "bannerImageFilePath":media_path.to_string_lossy(),
+                    "bannerImageFilename":filename
+                }),
+            )
+            .unwrap();
+
+        delete_entity(&state, "character-versions", "version-avatar", false).unwrap();
+        assert!(
+            media_path.is_file(),
+            "saved version banner still references media"
+        );
+        delete_entity(&state, "character-versions", "version-banner", false).unwrap();
+        assert!(
+            media_path.is_file(),
+            "live character banner still references media"
+        );
+    }
+
+    #[test]
     fn deleting_character_removes_its_sprite_directory() {
         let state = test_state("character-delete-sprites");
         let sprite_dir = state.data_dir.join("sprites").join("char-1");
