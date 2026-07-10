@@ -42,7 +42,8 @@ import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
-import { shouldUseLowPowerShellMode } from "./shell-performance";
+import { shouldUseLowPowerShellMode, syncShellRootAttributes } from "./shell-performance";
+import { usePageActivity } from "../../shared/hooks/use-page-activity";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { HelpCircle, Loader2 } from "lucide-react";
@@ -246,6 +247,7 @@ function SidePanelFallback() {
 export function AppShell() {
   // Auto idle detection (10 min inactivity -> idle, activity -> active)
   useIdleDetection();
+  const isPageActive = usePageActivity();
 
   useEffect(() => {
     markPerformanceMilestoneOnce("shell.ready");
@@ -331,16 +333,12 @@ export function AppShell() {
 
   useEffect(() => {
     const root = document.documentElement;
-    if (lowPowerShellMode) {
-      root.dataset.deKoiShellPerformance = "low";
-      return () => {
-        if (root.dataset.deKoiShellPerformance === "low") delete root.dataset.deKoiShellPerformance;
-      };
-    }
-
-    if (root.dataset.deKoiShellPerformance === "low") delete root.dataset.deKoiShellPerformance;
-    return undefined;
-  }, [lowPowerShellMode]);
+    syncShellRootAttributes(root, { isPageActive, lowPowerShellMode });
+    return () => {
+      delete root.dataset.deKoiPageActivity;
+      if (root.dataset.deKoiShellPerformance === "low") delete root.dataset.deKoiShellPerformance;
+    };
+  }, [isPageActive, lowPowerShellMode]);
 
   useEffect(() => {
     if (chatNotificationCount > 0) {

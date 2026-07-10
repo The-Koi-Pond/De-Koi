@@ -34,8 +34,8 @@ export type ClaudeSubscriptionDiagnosis = {
 };
 
 type CreateConnectionVariables = Partial<CreateConnectionInput> & Pick<CreateConnectionInput, "name" | "provider">;
-const CONNECTION_LIST_STALE_TIME_MS = 5_000;
-const CONNECTION_LIST_REFETCH_INTERVAL_MS = 5_000;
+const CONNECTION_LIST_STALE_TIME_MS = 60_000;
+const CONNECTION_LIST_REFETCH_INTERVAL_MS = 60_000;
 const CONNECTION_REF_AGENT_QUERY_KEY = ["agents"] as const;
 
 const CONNECTION_SUMMARY_OPTIONS = {
@@ -138,6 +138,7 @@ export function useConnections(enabled = true) {
     staleTime: CONNECTION_LIST_STALE_TIME_MS,
     refetchInterval: CONNECTION_LIST_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 

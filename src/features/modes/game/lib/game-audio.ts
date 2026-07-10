@@ -84,9 +84,13 @@ class GameAudioManager {
   private musicElement: LoopingAudioLayer | null = null;
   private nextMusicElement: LoopingAudioLayer | null = null;
   private ambientElement: LoopingAudioLayer | null = null;
+  private pendingAmbientElement: LoopingAudioLayer | null = null;
   private sfxPool: HTMLAudioElement[] = [];
   private sfxIndex = 0;
+  private audioLifecycleGeneration = 0;
   private sfxAudioContext: AudioContext | null = null;
+  private pendingSfxSuspend: Promise<void> | null = null;
+  private pendingSfxResume: Promise<void> | null = null;
   private mediaUnlockElement: HTMLAudioElement | null = null;
   private mediaNodes = new WeakMap<HTMLAudioElement, { source: MediaElementAudioSourceNode; gain: GainNode }>();
   private audioContextUnlocked = false;
@@ -101,9 +105,11 @@ class GameAudioManager {
   private pendingMusic: { tag: string; manifest?: Record<string, { path: string }> | null } | null = null;
   private pendingAmbient: { tag: string; manifest?: Record<string, { path: string }> | null } | null = null;
   private gestureListenerAttached = false;
+  private gestureHandler: (() => void) | null = null;
   /** True after the user has interacted with the page (click/touch/key). */
   private userHasInteracted = false;
   private interactionListenerAttached = false;
+  private interactionHandler: (() => void) | null = null;
 
   constructor() {
     setAmbientAudioSession();
@@ -121,18 +127,26 @@ class GameAudioManager {
     if (this.interactionListenerAttached) return;
     this.interactionListenerAttached = true;
     const handler = () => {
+      this.removeInteractionListener();
       this.unlock();
-      document.removeEventListener("click", handler, true);
-      document.removeEventListener("touchstart", handler, true);
-      document.removeEventListener("keydown", handler, true);
-      document.removeEventListener("pointerdown", handler, true);
       // Retry any pending audio now that the user has interacted
       this.retryPending();
     };
+    this.interactionHandler = handler;
     document.addEventListener("click", handler, true);
     document.addEventListener("touchstart", handler, true);
     document.addEventListener("keydown", handler, true);
     document.addEventListener("pointerdown", handler, true);
+  }
+
+  private removeInteractionListener(): void {
+    if (!this.interactionHandler) return;
+    document.removeEventListener("click", this.interactionHandler, true);
+    document.removeEventListener("touchstart", this.interactionHandler, true);
+    document.removeEventListener("keydown", this.interactionHandler, true);
+    document.removeEventListener("pointerdown", this.interactionHandler, true);
+    this.interactionHandler = null;
+    this.interactionListenerAttached = false;
   }
 
   /** Attach a one-time user gesture listener to retry blocked audio. */
@@ -140,18 +154,25 @@ class GameAudioManager {
     if (this.gestureListenerAttached) return;
     this.gestureListenerAttached = true;
     const handler = () => {
-      document.removeEventListener("click", handler, true);
-      document.removeEventListener("touchstart", handler, true);
-      document.removeEventListener("keydown", handler, true);
-      document.removeEventListener("pointerdown", handler, true);
-      this.gestureListenerAttached = false;
+      this.removeGestureListener();
       this.unlock();
       this.retryPending();
     };
+    this.gestureHandler = handler;
     document.addEventListener("click", handler, true);
     document.addEventListener("touchstart", handler, true);
     document.addEventListener("keydown", handler, true);
     document.addEventListener("pointerdown", handler, true);
+  }
+
+  private removeGestureListener(): void {
+    if (!this.gestureHandler) return;
+    document.removeEventListener("click", this.gestureHandler, true);
+    document.removeEventListener("touchstart", this.gestureHandler, true);
+    document.removeEventListener("keydown", this.gestureHandler, true);
+    document.removeEventListener("pointerdown", this.gestureHandler, true);
+    this.gestureHandler = null;
+    this.gestureListenerAttached = false;
   }
 
   /** Retry any autoplay-blocked audio. Call from a user gesture for best results. */
@@ -196,19 +217,56 @@ class GameAudioManager {
       if (!AudioContextCtor) return null;
       this.sfxAudioContext = new AudioContextCtor();
     }
-    if (this.sfxAudioContext.state === "suspended") {
-      void this.sfxAudioContext.resume().catch(() => {});
-    }
     return this.sfxAudioContext;
   }
 
-  private async resumeAudioContext(ctx: AudioContext): Promise<boolean> {
+  private isAudioLifecycleCurrent(expectedGeneration: number): boolean {
+    return expectedGeneration === this.audioLifecycleGeneration;
+  }
+
+  private suspendSfxAudioContext(ctx: AudioContext): Promise<void> {
+    if (this.pendingSfxSuspend) return this.pendingSfxSuspend;
+    if (ctx.state !== "running") return Promise.resolve();
+
+    const pendingSuspend = ctx.suspend().catch(() => {});
+    this.pendingSfxSuspend = pendingSuspend;
+    void pendingSuspend.finally(() => {
+      if (this.pendingSfxSuspend === pendingSuspend) {
+        this.pendingSfxSuspend = null;
+      }
+    });
+    return pendingSuspend;
+  }
+
+  private async resumeAudioContext(ctx: AudioContext, expectedGeneration: number): Promise<boolean> {
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return false;
+    const pendingResume = this.pendingSfxResume;
+    if (pendingResume) {
+      await pendingResume;
+    }
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return false;
+    const pendingSuspend = this.pendingSfxSuspend;
+    if (pendingSuspend) {
+      await pendingSuspend;
+    }
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return false;
     if (ctx.state === "running") {
       this.audioContextUnlocked = true;
       return true;
     }
 
-    await ctx.resume().catch(() => undefined);
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return false;
+    const resumePromise = ctx.resume().catch(() => undefined);
+    this.pendingSfxResume = resumePromise;
+    await resumePromise;
+    if (this.pendingSfxResume === resumePromise) {
+      this.pendingSfxResume = null;
+    }
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) {
+      this.audioContextUnlocked = false;
+      await this.suspendSfxAudioContext(ctx);
+      return false;
+    }
     this.audioContextUnlocked = (ctx.state as string) === "running";
     return this.audioContextUnlocked;
   }
@@ -254,12 +312,25 @@ class GameAudioManager {
 
   /** Unlock Web Audio from a user gesture, especially for mobile Safari. */
   unlock(): void {
+    const expectedGeneration = this.audioLifecycleGeneration;
     this.userHasInteracted = true;
     setAmbientAudioSession();
     this.primeMediaElement();
     const ctx = this.getSfxAudioContext();
-    if (!ctx || (this.audioContextUnlocked && ctx.state === "running")) return;
+    if (!ctx) return;
+    if (this.pendingSfxSuspend) {
+      void this.resumeAudioContext(ctx, expectedGeneration).then((running) => {
+        if (running) this.primeSfxAudioContext(ctx, expectedGeneration);
+      });
+      return;
+    }
+    if (this.audioContextUnlocked && ctx.state === "running") return;
 
+    this.primeSfxAudioContext(ctx, expectedGeneration);
+  }
+
+  private primeSfxAudioContext(ctx: AudioContext, expectedGeneration: number): void {
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return;
     try {
       const source = ctx.createBufferSource();
       source.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
@@ -268,10 +339,9 @@ class GameAudioManager {
       if (ctx.state === "running") {
         this.audioContextUnlocked = true;
       } else {
-        void ctx
-          .resume()
-          .then(() => {
-            this.audioContextUnlocked = ctx.state === "running";
+        void this.resumeAudioContext(ctx, expectedGeneration)
+          .then((running) => {
+            this.audioContextUnlocked = running && this.isAudioLifecycleCurrent(expectedGeneration);
           })
           .catch(() => {
             this.audioContextUnlocked = false;
@@ -316,7 +386,12 @@ class GameAudioManager {
     audio.volume = nextVolume;
   }
 
-  private createLoopingAudioLayer(url: string, volume: number, muted: boolean): LoopingAudioLayer {
+  private createLoopingAudioLayer(
+    url: string,
+    volume: number,
+    muted: boolean,
+    expectedGeneration: number,
+  ): LoopingAudioLayer {
     let currentVolume = clampUnit(volume);
     let currentMuted = muted;
     let stopped = false;
@@ -336,11 +411,25 @@ class GameAudioManager {
     };
 
     const startFallbackAudio = async () => {
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
       const audio = new Audio(url);
       audio.loop = true;
       fallbackAudio = audio;
+      const discardAudio = () => {
+        if (fallbackAudio !== audio) return;
+        releaseAudio(audio);
+        fallbackAudio = null;
+      };
       applyVolume();
+      if (this.sfxAudioContext) {
+        await this.resumeAudioContext(this.sfxAudioContext, expectedGeneration);
+      }
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) {
+        discardAudio();
+        return;
+      }
       await audio.play();
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) discardAudio();
     };
 
     const ready = (async () => {
@@ -352,10 +441,12 @@ class GameAudioManager {
 
       try {
         const buffer = await ctx.decodeAudioData(await loadUrlArrayBuffer(url, { errorMessage: "Audio load failed" }));
-        if (stopped) return;
-        if (!(await this.resumeAudioContext(ctx))) {
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
+        if (!(await this.resumeAudioContext(ctx, expectedGeneration))) {
+          if (!this.isAudioLifecycleCurrent(expectedGeneration)) return;
           throw new Error("Audio context is not running");
         }
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
 
         const nextSource = ctx.createBufferSource();
         const nextGain = ctx.createGain();
@@ -368,7 +459,7 @@ class GameAudioManager {
         applyVolume();
         nextSource.start();
       } catch {
-        if (stopped) return;
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
         await startFallbackAudio();
       }
     })();
@@ -408,6 +499,7 @@ class GameAudioManager {
   }
 
   playOneShot(url: string, options: OneShotAudioOptions): OneShotAudioLayer {
+    const expectedGeneration = this.audioLifecycleGeneration;
     let currentVolume = clampUnit(options.volume);
     let currentMuted = options.muted ?? false;
     let stopped = false;
@@ -466,12 +558,26 @@ class GameAudioManager {
     };
 
     const startFallbackAudio = async () => {
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
       const audio = new Audio(url);
       fallbackAudio = audio;
       audio.onended = finish;
       audio.onerror = fail;
       applyVolume();
+      if (this.sfxAudioContext) {
+        await this.resumeAudioContext(this.sfxAudioContext, expectedGeneration);
+      }
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) {
+        stopped = true;
+        cleanup();
+        return;
+      }
       await audio.play();
+      if (!this.isAudioLifecycleCurrent(expectedGeneration)) {
+        stopped = true;
+        cleanup();
+        return;
+      }
       markStarted();
     };
 
@@ -484,10 +590,12 @@ class GameAudioManager {
 
       try {
         const buffer = await ctx.decodeAudioData(await loadUrlArrayBuffer(url, { errorMessage: "Audio load failed" }));
-        if (stopped) return;
-        if (!(await this.resumeAudioContext(ctx))) {
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
+        if (!(await this.resumeAudioContext(ctx, expectedGeneration))) {
+          if (!this.isAudioLifecycleCurrent(expectedGeneration)) return;
           throw new Error("Audio context is not running");
         }
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
 
         const nextSource = ctx.createBufferSource();
         const nextGain = ctx.createGain();
@@ -501,7 +609,7 @@ class GameAudioManager {
         nextSource.start();
         markStarted();
       } catch {
-        if (stopped) return;
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
         await startFallbackAudio();
       }
     })().catch(() => {
@@ -587,10 +695,13 @@ class GameAudioManager {
     source.start(now);
   }
 
-  private playProceduralSfx(tag: string): boolean {
+  private async playProceduralSfx(tag: string, generation: number): Promise<boolean> {
+    if (!this.isAudioLifecycleCurrent(generation)) return false;
     if (this.isMuted || this.sfxVolume <= 0 || !this.userHasInteracted) return false;
     const ctx = this.getSfxAudioContext();
     if (!ctx) return false;
+    if (!(await this.resumeAudioContext(ctx, generation))) return false;
+    if (!this.isAudioLifecycleCurrent(generation)) return false;
     const normalizedTag = normalizeAssetTag(tag);
 
     if (/menu-hover$/.test(normalizedTag)) {
@@ -653,20 +764,22 @@ class GameAudioManager {
 
   /** Play background music with crossfade. */
   playMusic(tag: string, manifest?: Record<string, { path: string }> | null): void {
+    const expectedGeneration = this.audioLifecycleGeneration;
     if (tag === this.currentMusicTag) return;
     const previousMusicTag = this.currentMusicTag;
     this.currentMusicTag = tag;
 
     // Defer playback if the user hasn't interacted yet (avoids autoplay warnings)
     if (!this.userHasInteracted) {
+      this.attachInteractionListener();
       this.pendingMusic = { tag, manifest };
       return;
     }
 
     void this.resolveAssetUrl(tag, manifest)
       .then((url) => {
-        if (this.currentMusicTag !== tag) return;
-        const newAudio = this.createLoopingAudioLayer(url, 0, this.isMuted);
+        if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.currentMusicTag !== tag) return;
+        const newAudio = this.createLoopingAudioLayer(url, 0, this.isMuted, expectedGeneration);
 
         if (this.fadeInterval) {
           clearInterval(this.fadeInterval);
@@ -686,7 +799,7 @@ class GameAudioManager {
 
         newAudio.ready
           .then(() => {
-            if (this.nextMusicElement !== newAudio) {
+            if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.nextMusicElement !== newAudio) {
               newAudio.stop();
               return;
             }
@@ -728,7 +841,7 @@ class GameAudioManager {
             this.fadeInterval = interval;
           })
           .catch(() => {
-            if (this.nextMusicElement !== newAudio) {
+            if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.nextMusicElement !== newAudio) {
               newAudio.stop();
               return;
             }
@@ -747,7 +860,7 @@ class GameAudioManager {
           });
       })
       .catch(() => {
-        if (this.currentMusicTag !== tag) return;
+        if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.currentMusicTag !== tag) return;
         this.pendingMusic = { tag, manifest };
         this.currentMusicTag = previousMusicTag;
         if (this.musicElement) {
@@ -793,31 +906,46 @@ class GameAudioManager {
 
   /** Play a one-shot sound effect. */
   playSfx(tag: string, manifest?: AssetMap | null): void {
+    const generation = this.audioLifecycleGeneration;
+    const isCurrent = () => this.isAudioLifecycleCurrent(generation);
     if (this.isMuted || this.sfxVolume <= 0 || !this.userHasInteracted) return;
     void this.resolveAssetUrl(tag, manifest)
-      .then((url) => {
-        if (this.isMuted || this.sfxVolume <= 0) return;
+      .then(async (url) => {
+        if (!isCurrent() || this.isMuted || this.sfxVolume <= 0) return;
         const audio = this.sfxPool[this.sfxIndex % SFX_POOL_SIZE]!;
         this.sfxIndex++;
         audio.onerror = () => {
           audio.onerror = null;
-          this.playProceduralSfx(tag);
+          if (!isCurrent()) return;
+          void this.playProceduralSfx(tag, generation);
         };
         audio.src = url;
         this.setElementLayerVolume(audio, this.sfxVolume);
+        if (this.sfxAudioContext) {
+          const resumed = await this.resumeAudioContext(this.sfxAudioContext, generation);
+          if (!isCurrent()) return;
+          if (!resumed) {
+            void this.playProceduralSfx(tag, generation);
+            return;
+          }
+        }
+        if (!isCurrent()) return;
         audio.muted = this.isMuted;
         audio.currentTime = 0;
         audio.play().catch(() => {
-          this.playProceduralSfx(tag);
+          if (!isCurrent()) return;
+          void this.playProceduralSfx(tag, generation);
         });
       })
       .catch(() => {
-        this.playProceduralSfx(tag);
+        if (!isCurrent()) return;
+        void this.playProceduralSfx(tag, generation);
       });
   }
 
   /** Set looping ambient sound. */
   playAmbient(tag: string, manifest?: Record<string, { path: string }> | null): void {
+    const expectedGeneration = this.audioLifecycleGeneration;
     if (tag === this.currentAmbientTag) return;
     const previousAmbientTag = this.currentAmbientTag;
     const previousAmbient = this.ambientElement;
@@ -825,20 +953,34 @@ class GameAudioManager {
 
     // Defer playback if the user hasn't interacted yet (avoids autoplay warnings)
     if (!this.userHasInteracted) {
+      this.attachInteractionListener();
       this.pendingAmbient = { tag, manifest };
       return;
     }
 
     void this.resolveAssetUrl(tag, manifest)
       .then((url) => {
-        if (this.currentAmbientTag !== tag) {
+        if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.currentAmbientTag !== tag) {
           return;
         }
-        const nextAmbient = this.createLoopingAudioLayer(url, this.ambientVolume, this.isMuted);
+        const nextAmbient = this.createLoopingAudioLayer(
+          url,
+          this.ambientVolume,
+          this.isMuted,
+          expectedGeneration,
+        );
+        if (this.pendingAmbientElement && this.pendingAmbientElement !== nextAmbient) {
+          this.pendingAmbientElement.stop();
+        }
+        this.pendingAmbientElement = nextAmbient;
 
         return nextAmbient.ready
           .then(() => {
-            if (this.currentAmbientTag !== tag) {
+            if (
+              !this.isAudioLifecycleCurrent(expectedGeneration) ||
+              this.currentAmbientTag !== tag ||
+              this.pendingAmbientElement !== nextAmbient
+            ) {
               nextAmbient.stop();
               return;
             }
@@ -847,15 +989,19 @@ class GameAudioManager {
               previousAmbient.stop();
             }
             this.ambientElement = nextAmbient;
+            this.pendingAmbientElement = null;
             this.pendingAmbient = null;
           })
           .catch((err) => {
+            if (this.pendingAmbientElement === nextAmbient) {
+              this.pendingAmbientElement = null;
+            }
             nextAmbient.stop();
             throw err;
           });
       })
       .catch((err) => {
-        if (this.currentAmbientTag !== tag) return;
+        if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.currentAmbientTag !== tag) return;
         console.warn("[audio] Ambient playback failed:", tag, err);
         this.pendingAmbient = { tag, manifest };
         this.currentAmbientTag = previousAmbientTag;
@@ -872,6 +1018,10 @@ class GameAudioManager {
   stopAmbient(): void {
     this.currentAmbientTag = null;
     this.pendingAmbient = null;
+    if (this.pendingAmbientElement) {
+      this.pendingAmbientElement.stop();
+      this.pendingAmbientElement = null;
+    }
     if (this.ambientElement) {
       this.ambientElement.stop();
       this.ambientElement = null;
@@ -926,10 +1076,17 @@ class GameAudioManager {
 
   /** Stop everything and clean up. */
   dispose(): void {
+    this.audioLifecycleGeneration++;
     this.stopMusic();
     this.stopAmbient();
     for (const el of this.sfxPool) {
       releaseAudio(el);
+    }
+    this.removeInteractionListener();
+    this.removeGestureListener();
+    this.audioContextUnlocked = false;
+    if (this.sfxAudioContext) {
+      void this.suspendSfxAudioContext(this.sfxAudioContext);
     }
   }
 

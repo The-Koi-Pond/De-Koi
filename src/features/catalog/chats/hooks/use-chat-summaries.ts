@@ -24,6 +24,7 @@ export const CHAT_SUMMARY_FIELDS = [
 ] as const;
 
 const CHAT_SUMMARY_METADATA_FIELDS = [
+  "autonomousMessages",
   "autonomousUnreadAt",
   "autonomousUnreadCharacterIds",
   "autonomousUnreadCount",

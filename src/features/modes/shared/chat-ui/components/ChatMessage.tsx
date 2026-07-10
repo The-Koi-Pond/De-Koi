@@ -83,6 +83,7 @@ import { MessageAttachmentImagePreview } from "./MessageAttachmentImagePreview";
 import { MessageMemoryIndicators } from "./MessageMemoryIndicators";
 import { resolveAvatarFileUrl } from "../../../../../shared/api/local-file-api";
 import { mergedGroupDisplayLabel, mergedGroupNames } from "../lib/merged-group-label";
+import { subscribeMergedMessageCycle } from "../lib/merged-message-cycle-clock";
 
 const MESSAGE_ACTION_ICON_SIZE = "1em";
 const MESSAGE_SWIPE_ICON_SIZE = "1.15em";
@@ -1384,10 +1385,12 @@ export const ChatMessage = memo(function ChatMessage({
       return raw || fallbackPalette[i % fallbackPalette.length]!;
     });
   }, [isMergedGroup, characterMap, chatCharacterIds]);
-  // Cycle index for merged group avatars/names — driven by a ref + RAF to avoid re-renders
+  // Cycle index for merged group avatars/names — driven by a shared clock and refs to avoid re-renders
   const cycleIndexRef = useRef(0);
-  const cycleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mergedNameRef = useRef<HTMLSpanElement>(null);
+  const [mergedIdentityElement, setMergedIdentityElement] = useState<HTMLSpanElement | null>(null);
+  const setMergedIdentityRef = useCallback((element: HTMLSpanElement | null) => {
+    setMergedIdentityElement(element);
+  }, []);
   const mergedAvatarRefs = useRef<(HTMLImageElement | null)[]>([]);
   const mergedAvatarTailRefs = useRef<(HTMLImageElement | null)[]>([]);
   const resolvedMergedAvatarUrlsRef = useRef(new Map<string, string>());
@@ -1428,9 +1431,14 @@ export const ChatMessage = memo(function ChatMessage({
     if (!isMergedGroup) return;
     const mergedNameCycleCount = Math.max(1, mergedNames.length);
     const total = Math.max(mergedAvatars.length, mergedNameColors.length, mergedNameCycleCount);
-    if (total <= 1) return;
-    cycleTimerRef.current = setInterval(() => {
-      cycleIndexRef.current = (cycleIndexRef.current + 1) % total;
+    if (total <= 1 || !mergedIdentityElement) return;
+    const identityBlock = mergedIdentityElement;
+    let observer: IntersectionObserver | null = null;
+    let unsubscribe: (() => void) | null = null;
+    let disposed = false;
+    const applyTick = (tick: number) => {
+      if (document.visibilityState === "hidden") return;
+      cycleIndexRef.current = tick % total;
       const idx = cycleIndexRef.current;
       // Update avatar opacity via DOM directly (no re-render)
       mergedAvatarRefs.current.forEach((img, i) => {
@@ -1440,18 +1448,37 @@ export const ChatMessage = memo(function ChatMessage({
         if (img) img.style.opacity = i === idx ? "1" : "0";
       });
       // Update name color opacity via DOM directly
-      const nameEl = mergedNameRef.current;
-      if (nameEl) {
-        const spans = nameEl.querySelectorAll<HTMLSpanElement>("[data-cycle-name]");
-        spans.forEach((span, i) => {
-          span.style.opacity = i === idx % mergedNameCycleCount ? "1" : "0";
-        });
-      }
-    }, 2000);
-    return () => {
-      if (cycleTimerRef.current) clearInterval(cycleTimerRef.current);
+      const spans = identityBlock.querySelectorAll<HTMLSpanElement>("[data-cycle-name]");
+      spans.forEach((span, i) => {
+        span.style.opacity = i === idx % mergedNameCycleCount ? "1" : "0";
+      });
     };
-  }, [isMergedGroup, mergedAvatars.length, mergedNameColors.length, mergedNames.length]);
+    const startSubscription = () => {
+      if (!disposed && !unsubscribe) unsubscribe = subscribeMergedMessageCycle(applyTick);
+    };
+    const stopSubscription = () => {
+      unsubscribe?.();
+      unsubscribe = null;
+    };
+
+    if (typeof IntersectionObserver === "function") {
+      observer = new IntersectionObserver((entries) => {
+        if (disposed) return;
+        const identityEntry = entries.find((entry) => entry.target === identityBlock) ?? entries[0];
+        if (identityEntry?.isIntersecting) startSubscription();
+        else stopSubscription();
+      });
+      observer.observe(identityBlock);
+    } else {
+      startSubscription();
+    }
+
+    return () => {
+      disposed = true;
+      observer?.disconnect();
+      stopSubscription();
+    };
+  }, [isMergedGroup, mergedAvatars.length, mergedNameColors.length, mergedNames.length, mergedIdentityElement]);
 
   /** Build a stable style object for a given name color (gradient or plain). */
   function nameColorToStyle(c: string): React.CSSProperties {
@@ -1473,7 +1500,7 @@ export const ChatMessage = memo(function ChatMessage({
   /** Render a stack of absolutely-positioned merged group labels that crossfade via opacity. */
   const mergedNameElement =
     isMergedGroup && mergedNameColors.length > 0 ? (
-      <span ref={mergedNameRef} className="relative inline-block">
+      <span ref={setMergedIdentityRef} className="relative inline-block">
         {/* Invisible sizer so the parent reserves the right width */}
         <span className="invisible">{mergedDisplayName}</span>
         {(mergedNames.length > 0 ? mergedNames : [mergedDisplayName]).map((name, i) => (

@@ -5,7 +5,7 @@
 // Lives at the AppShell level so it persists across chat switches.
 // The active chat's autonomous messaging is handled by ConversationView.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { Chat } from "../../../../../engine/contracts/types/chat";
 import type { AvatarCropValue } from "../../../../../shared/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -25,15 +25,8 @@ import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { showConversationLocalNotification } from "../../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../../shared/lib/notification-sound";
-import { chatKeys } from "../../../../catalog/chats/index";
+import { chatKeys, useChatSummaries } from "../../../../catalog/chats/index";
 import { invalidateCharacterCollectionQueries } from "../../../../catalog/characters/index";
-
-interface RawChat {
-  id: string;
-  name: string;
-  mode?: string;
-  metadata?: string | Record<string, unknown>;
-}
 
 interface RawCharacter {
   id: string;
@@ -42,67 +35,45 @@ interface RawCharacter {
 }
 
 /**
- * Parse chat metadata safely from either a JSON string or an object.
- */
-function parseMeta(chat: RawChat): Record<string, unknown> {
-  const raw = chat.metadata;
-  if (!raw) return {};
-  return typeof raw === "string" ? JSON.parse(raw) : raw;
-}
-
-/**
  * Background polling for autonomous messages on inactive conversation chats.
- * Fetches the chat list on each tick so the effect doesn't depend on
- * external React state (which would reset the timer on every re-render).
+ * Eligibility comes from the catalog-owned summary cache so an idle host can
+ * remain completely quiescent until a metadata mutation makes work eligible.
  */
 export function useBackgroundAutonomousPolling() {
   const qc = useQueryClient();
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const busyDelayTimers = useRef<Map<ReturnType<typeof setTimeout>, { chatId: string; startedAt: number }>>(new Map());
+  const { data: chatSummaries } = useChatSummaries();
+  const activeChatId = useChatStore((state) => state.activeChatId);
+  const eligibleChatIds = useMemo(
+    () =>
+      (chatSummaries ?? [])
+        .filter(
+          (chat) =>
+            chat.id !== activeChatId && chat.mode === "conversation" && chat.metadata.autonomousMessages === true,
+        )
+        .map((chat) => chat.id),
+    [activeChatId, chatSummaries],
+  );
+  const eligibleChatIdsKey = JSON.stringify(eligibleChatIds);
   const generatingForRef = useRef<Set<string>>(new Set());
-  const mountedRef = useRef(true);
 
   useEffect(() => {
-    mountedRef.current = true;
-    const delayTimers = busyDelayTimers.current;
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    const delayTimers = new Map<ReturnType<typeof setTimeout>, { chatId: string; startedAt: number }>();
+    const backgroundChats = (JSON.parse(eligibleChatIdsKey) as string[]).map((id) => ({ id }));
 
     const poll = async () => {
-      if (!mountedRef.current) return;
-
-      const activeChatId = useChatStore.getState().activeChatId;
-
-      // Fetch the current chat list directly from the API each tick.
-      // This avoids the effect depending on useChats() data which would
-      // cause frequent timer restarts.
-      let allChats: RawChat[];
-      try {
-        allChats = await storageApi.list<RawChat>("chats");
-      } catch {
-        schedulePoll();
-        return;
-      }
-
-      // Find conversation chats with autonomous messaging enabled, excluding active chat
-      const backgroundChats = allChats.filter((chat) => {
-        if (chat.id === activeChatId) return false;
-        if (generatingForRef.current.has(chat.id)) return false;
-        if (chat.mode !== "conversation") return false;
-        try {
-          const meta = parseMeta(chat);
-          return !!meta.autonomousMessages;
-        } catch {
-          return false;
-        }
-      });
+      if (cancelled) return;
 
       // Don't trigger autonomous messages when user is DND
-      if (useUIStore.getState().userStatus === "dnd" || backgroundChats.length === 0) {
+      if (useUIStore.getState().userStatus === "dnd") {
         schedulePoll();
         return;
       }
 
       // Check each background chat (sequentially to avoid hammering the server)
       for (const chat of backgroundChats) {
+        if (generatingForRef.current.has(chat.id)) continue;
         // Don't proceed if this chat already has an in-flight generation
         if (useChatStore.getState().abortControllers.has(chat.id)) continue;
 
@@ -111,6 +82,7 @@ export function useBackgroundAutonomousPolling() {
             chatId: chat.id,
             userStatus: useUIStore.getState().userStatus,
           });
+          if (cancelled) return;
 
           if (result.shouldTrigger && result.characterIds.length > 0) {
             const characterId = result.characterIds[0]!;
@@ -118,6 +90,10 @@ export function useBackgroundAutonomousPolling() {
 
             // Check busy delay
             const delay = await getConversationBusyDelay(storageApi, { chatId: chat.id, characterId });
+            if (cancelled) {
+              clearGenerationInProgress(chat.id, startedAt);
+              return;
+            }
 
             // Generate in background (after optional delay)
             generatingForRef.current.add(chat.id);
@@ -220,10 +196,15 @@ export function useBackgroundAutonomousPolling() {
 
             if (delay.delayMs > 0) {
               const timerId = setTimeout(() => {
-                busyDelayTimers.current.delete(timerId);
+                delayTimers.delete(timerId);
+                if (cancelled) {
+                  generatingForRef.current.delete(chat.id);
+                  clearGenerationInProgress(chat.id, startedAt);
+                  return;
+                }
                 doGenerate();
               }, delay.delayMs);
-              busyDelayTimers.current.set(timerId, { chatId: chat.id, startedAt });
+              delayTimers.set(timerId, { chatId: chat.id, startedAt });
             } else {
               doGenerate();
             }
@@ -237,22 +218,23 @@ export function useBackgroundAutonomousPolling() {
     };
 
     const schedulePoll = () => {
-      if (!mountedRef.current) return;
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = setTimeout(poll, 30_000);
+      if (cancelled) return;
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(poll, 30_000);
     };
 
     // Start polling after an initial delay (staggered from active autonomous polling at 10s)
-    pollTimerRef.current = setTimeout(poll, 20_000);
+    if (backgroundChats.length > 0) pollTimer = setTimeout(poll, 20_000);
 
     return () => {
-      mountedRef.current = false;
-      clearTimeout(pollTimerRef.current);
+      cancelled = true;
+      clearTimeout(pollTimer);
       for (const [timer, lock] of delayTimers) {
         clearTimeout(timer);
         clearGenerationInProgress(lock.chatId, lock.startedAt);
+        generatingForRef.current.delete(lock.chatId);
       }
       delayTimers.clear();
     };
-  }, [qc]); // Only depends on qc (which is stable) — timer lifecycle is self-managed
+  }, [eligibleChatIdsKey, qc]);
 }

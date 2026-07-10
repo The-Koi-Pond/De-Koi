@@ -1,10 +1,11 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GenerationPromptSnapshot, Message } from "../../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
+import { subscribeMergedMessageCycle } from "../lib/merged-message-cycle-clock";
 import type { CharacterMap } from "../types";
 import { ChatMessage } from "./ChatMessage";
 
@@ -75,6 +76,7 @@ describe("ChatMessage", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
   let queryClient: QueryClient | null = null;
+  const cycleUnsubscribers: Array<() => void> = [];
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -91,12 +93,15 @@ describe("ChatMessage", () => {
       });
     }
     root = null;
+    while (cycleUnsubscribers.length > 0) cycleUnsubscribers.pop()?.();
     queryClient?.clear();
     queryClient = null;
     container?.remove();
     container = null;
     resetChatMessageUiState();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("opens the character profile from the assistant name", () => {
@@ -292,6 +297,335 @@ describe("ChatMessage", () => {
     expect(avatars).toHaveLength(2);
     expect(avatars[0]?.dataset.crop).toBe(JSON.stringify(avatarCrop));
     expect(avatars[0]?.dataset.className).toContain("object-cover");
+  });
+
+  it("does not update merged identity opacity while the identity block is offscreen", () => {
+    vi.useFakeTimers();
+    const unsubscribeVisibleKeeper = subscribeMergedMessageCycle(vi.fn());
+    cycleUnsubscribers.push(unsubscribeVisibleKeeper);
+    vi.advanceTimersByTime(2_000);
+    let observerCallback: IntersectionObserverCallback | null = null;
+    let observer: IntersectionObserver | null = null;
+    const captureObserver = (value: IntersectionObserver) => {
+      observer = value;
+    };
+    class TestIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0];
+      constructor(callback: IntersectionObserverCallback) {
+        observerCallback = callback;
+        captureObserver(this);
+      }
+      disconnect = vi.fn();
+      observe = vi.fn();
+      takeRecords = vi.fn(() => []);
+      unobserve = vi.fn();
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    const groupCharacterMap: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+      ["cinder", { name: "Cinder", avatarUrl: "asset://cinder", nameColor: "#0000ff" }],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{ ...message, id: "message-offscreen-cycle", characterId: null }}
+            chatMode="roleplay"
+            groupChatMode="merged"
+            characterMap={groupCharacterMap}
+            chatCharacterIds={["aster", "briar", "cinder"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(observer).not.toBeNull();
+    const identityBlock = container!.querySelector<HTMLElement>("[data-cycle-name]")?.parentElement;
+    expect(observer!.observe as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(identityBlock);
+    act(() => {
+      observerCallback!([{ isIntersecting: false } as IntersectionObserverEntry], observer!);
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const names = container!.querySelectorAll<HTMLElement>("[data-cycle-name]");
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["1", "0", "0"]);
+
+    unsubscribeVisibleKeeper();
+    expect(vi.getTimerCount()).toBe(0);
+
+    act(() => {
+      observerCallback!([{ isIntersecting: true } as IntersectionObserverEntry], observer!);
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["0", "1", "0"]);
+  });
+
+  it("replaces the observed merged identity target when grouping changes the render path", () => {
+    vi.useFakeTimers();
+    const observers: Array<{
+      callback: IntersectionObserverCallback;
+      observer: IntersectionObserver;
+    }> = [];
+    class TestIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0];
+      disconnect = vi.fn();
+      observe = vi.fn();
+      takeRecords = vi.fn(() => []);
+      unobserve = vi.fn();
+      constructor(callback: IntersectionObserverCallback) {
+        observers.push({ callback, observer: this });
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    const groupCharacterMap: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+    ]);
+    const renderMessage = (isGrouped: boolean) => (
+      <QueryClientProvider client={queryClient!}>
+        <ChatMessage
+          message={{ ...message, id: "message-replaced-cycle-target", characterId: null }}
+          chatMode="roleplay"
+          groupChatMode="merged"
+          characterMap={groupCharacterMap}
+          chatCharacterIds={["aster", "briar"]}
+          isGrouped={isGrouped}
+        />
+      </QueryClientProvider>
+    );
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(renderMessage(false));
+    });
+    expect(observers).toHaveLength(1);
+    const firstTarget = container!.querySelector<HTMLElement>("[data-cycle-name]")!.parentElement!;
+    expect((observers[0]!.observer.observe as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(firstTarget);
+
+    act(() => {
+      root!.render(renderMessage(true));
+    });
+    expect(observers[0]!.observer.disconnect).toHaveBeenCalledOnce();
+
+    act(() => {
+      root!.render(renderMessage(false));
+    });
+    expect(observers).toHaveLength(2);
+    const secondTarget = container!.querySelector<HTMLElement>("[data-cycle-name]")!.parentElement!;
+    expect(secondTarget).not.toBe(firstTarget);
+    expect((observers[1]!.observer.observe as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(secondTarget);
+
+    act(() => {
+      observers[1]!.callback(
+        [{ target: secondTarget, isIntersecting: false } as unknown as IntersectionObserverEntry],
+        observers[1]!.observer,
+      );
+      vi.advanceTimersByTime(2_000);
+    });
+    const names = secondTarget.querySelectorAll<HTMLElement>("[data-cycle-name]");
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["1", "0"]);
+  });
+
+  it("ignores a stale intersecting callback after its identity target is unmounted", () => {
+    vi.useFakeTimers();
+    const addEventListener = vi.spyOn(document, "addEventListener");
+    const removeEventListener = vi.spyOn(document, "removeEventListener");
+    let observerCallback: IntersectionObserverCallback | null = null;
+    let observer: IntersectionObserver | null = null;
+    const captureObserver = (value: IntersectionObserver) => {
+      observer = value;
+    };
+    class TestIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0];
+      disconnect = vi.fn();
+      observe = vi.fn();
+      takeRecords = vi.fn(() => []);
+      unobserve = vi.fn();
+      constructor(callback: IntersectionObserverCallback) {
+        observerCallback = callback;
+        captureObserver(this);
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    const groupCharacterMap: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+    ]);
+    const renderMessage = (isGrouped: boolean) => (
+      <QueryClientProvider client={queryClient!}>
+        <ChatMessage
+          message={{ ...message, id: "message-stale-cycle-target", characterId: null }}
+          chatMode="roleplay"
+          groupChatMode="merged"
+          characterMap={groupCharacterMap}
+          chatCharacterIds={["aster", "briar"]}
+          isGrouped={isGrouped}
+        />
+      </QueryClientProvider>
+    );
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(renderMessage(false));
+    });
+    const staleTarget = container!.querySelector<HTMLElement>("[data-cycle-name]")!.parentElement!;
+    act(() => {
+      observerCallback!([{ target: staleTarget, isIntersecting: true } as unknown as IntersectionObserverEntry], observer!);
+      vi.advanceTimersByTime(2_000);
+    });
+    const staleNames = staleTarget.querySelectorAll<HTMLElement>("[data-cycle-name]");
+    expect(Array.from(staleNames, (name) => name.style.opacity)).toEqual(["0", "1"]);
+
+    act(() => {
+      root!.render(renderMessage(true));
+    });
+    expect(observer!.disconnect).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    const visibilityAddsBeforeStaleCallback = addEventListener.mock.calls.filter(
+      ([eventName]) => eventName === "visibilitychange",
+    ).length;
+    const visibilityRemovesBeforeStaleCallback = removeEventListener.mock.calls.filter(
+      ([eventName]) => eventName === "visibilitychange",
+    ).length;
+    expect(visibilityRemovesBeforeStaleCallback).toBe(visibilityAddsBeforeStaleCallback);
+
+    act(() => {
+      observerCallback!([{ target: staleTarget, isIntersecting: true } as unknown as IntersectionObserverEntry], observer!);
+    });
+    const timerCountAfterStaleCallback = vi.getTimerCount();
+    const visibilityAddsAfterStaleCallback = addEventListener.mock.calls.filter(
+      ([eventName]) => eventName === "visibilitychange",
+    ).length;
+    const visibilityRemovesAfterStaleCallback = removeEventListener.mock.calls.filter(
+      ([eventName]) => eventName === "visibilitychange",
+    ).length;
+    const staleOpacityAfterCallback = Array.from(staleNames, (name) => name.style.opacity);
+
+    act(() => {
+      observerCallback!([{ target: staleTarget, isIntersecting: false } as unknown as IntersectionObserverEntry], observer!);
+    });
+
+    expect(timerCountAfterStaleCallback).toBe(0);
+    expect(visibilityAddsAfterStaleCallback).toBe(visibilityAddsBeforeStaleCallback);
+    expect(visibilityRemovesAfterStaleCallback).toBe(visibilityRemovesBeforeStaleCallback);
+    expect(staleOpacityAfterCallback).toEqual(["0", "1"]);
+  });
+
+  it("derives different participant totals from the shared tick when observers are unavailable", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const twoCharacters: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+    ]);
+    const threeCharacters: CharacterMap = new Map([
+      ...twoCharacters,
+      ["cinder", { name: "Cinder", avatarUrl: "asset://cinder", nameColor: "#0000ff" }],
+    ]);
+
+    const renderMessages = (includeSecond: boolean) => (
+      <StrictMode>
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            key="two"
+            message={{ ...message, id: "message-cycle-two", characterId: null }}
+            chatMode="roleplay"
+            groupChatMode="merged"
+            characterMap={twoCharacters}
+            chatCharacterIds={["aster", "briar"]}
+          />
+          {includeSecond && (
+            <ChatMessage
+              key="three"
+              message={{ ...message, id: "message-cycle-three", characterId: null }}
+              chatMode="roleplay"
+              groupChatMode="merged"
+              characterMap={threeCharacters}
+              chatCharacterIds={["aster", "briar", "cinder"]}
+            />
+          )}
+        </QueryClientProvider>
+      </StrictMode>
+    );
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(renderMessages(false));
+    });
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    act(() => {
+      root!.render(renderMessages(true));
+    });
+    const lateNames = container!.querySelectorAll<HTMLElement>(
+      '[data-message-id="message-cycle-three"] [data-cycle-name]',
+    );
+    expect(Array.from(lateNames, (name) => name.style.opacity)).toEqual(["0", "1", "0"]);
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const firstNames = container!.querySelectorAll<HTMLElement>(
+      '[data-message-id="message-cycle-two"] [data-cycle-name]',
+    );
+    const secondNames = container!.querySelectorAll<HTMLElement>(
+      '[data-message-id="message-cycle-three"] [data-cycle-name]',
+    );
+    expect(Array.from(firstNames, (name) => name.style.opacity)).toEqual(["1", "0"]);
+    expect(Array.from(secondNames, (name) => name.style.opacity)).toEqual(["0", "0", "1"]);
+  });
+
+  it("defers immediate phase writes while hidden and synchronizes on visibility resume", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    let visibilityState: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibilityState);
+    const unsubscribeVisibleKeeper = subscribeMergedMessageCycle(vi.fn());
+    cycleUnsubscribers.push(unsubscribeVisibleKeeper);
+    vi.advanceTimersByTime(2_000);
+    visibilityState = "hidden";
+    document.dispatchEvent(new Event("visibilitychange"));
+    const groupCharacterMap: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+      ["cinder", { name: "Cinder", avatarUrl: "asset://cinder", nameColor: "#0000ff" }],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{ ...message, id: "message-hidden-phase", characterId: null }}
+            chatMode="roleplay"
+            groupChatMode="merged"
+            characterMap={groupCharacterMap}
+            chatCharacterIds={["aster", "briar", "cinder"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const names = container!.querySelectorAll<HTMLElement>("[data-cycle-name]");
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["1", "0", "0"]);
+
+    act(() => {
+      visibilityState = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["0", "1", "0"]);
+    unsubscribeVisibleKeeper();
   });
 
   it("does not apply persona dialogue color to user-authored quotes", () => {

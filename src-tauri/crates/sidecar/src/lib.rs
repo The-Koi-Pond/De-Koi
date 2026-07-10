@@ -2306,7 +2306,11 @@ impl SidecarProcessState {
             let args = sidecar_args(&config, &model_path, port, &plan);
             let (stdout, stderr) = open_sidecar_log(&log_path)?;
             let mut command = Command::new(&executable);
-            command.args(&args).stdout(stdout).stderr(stderr);
+            command
+                .args(&args)
+                .stdout(stdout)
+                .stderr(stderr)
+                .kill_on_drop(true);
             #[cfg(target_os = "windows")]
             {
                 command.creation_flags(CREATE_NO_WINDOW);
@@ -2395,6 +2399,20 @@ pub async fn status(state: &LocalSidecarState) -> AppResult<Value> {
     status_payload(state).await
 }
 
+fn should_stop_for_config_update(
+    has_child: bool,
+    current_signature: Option<&str>,
+    next_enabled: bool,
+    next_signature: &str,
+) -> bool {
+    // A resident child must stop when it is disabled or when any launch/runtime
+    // field changes. The next signature is the single inventory of those fields:
+    // executable/runtime install, model path/name, context and token limits,
+    // sampling values, and GPU layers. New config fields that affect the child
+    // command must be added to config_signature and its tests.
+    has_child && (!next_enabled || current_signature != Some(next_signature))
+}
+
 pub async fn update_config(state: &LocalSidecarState, body: Value) -> AppResult<Value> {
     let current = read_config(state)?;
     let next = patch_config(current, body)?;
@@ -2402,9 +2420,13 @@ pub async fn update_config(state: &LocalSidecarState, body: Value) -> AppResult<
 
     let mut process = SIDECAR_PROCESS.lock().await;
     process.refresh_exit()?;
-    if process.child.is_some()
-        && process.signature.as_deref() != Some(config_signature(state, &next).as_str())
-    {
+    let next_signature = config_signature(state, &next);
+    if should_stop_for_config_update(
+        process.child.is_some(),
+        process.signature.as_deref(),
+        next.enabled,
+        &next_signature,
+    ) {
         process.stop_locked().await?;
     }
     drop(process);
@@ -2506,6 +2528,24 @@ pub async fn start(state: &LocalSidecarState) -> AppResult<Value> {
     process.ensure_ready_locked(state, false).await?;
     drop(process);
     status_payload(state).await
+}
+
+pub async fn shutdown() -> AppResult<()> {
+    // Startup owns this mutex while it tries at most two 60-second readiness plans.
+    // Keep acquisition bounded without canceling stop_locked after it owns the child.
+    shutdown_with_lock_timeout(Duration::from_secs(180)).await
+}
+
+async fn shutdown_with_lock_timeout(lock_timeout: Duration) -> AppResult<()> {
+    let mut process = tokio::time::timeout(lock_timeout, SIDECAR_PROCESS.lock())
+        .await
+        .map_err(|_| {
+            AppError::new(
+                "sidecar_shutdown_timeout",
+                "Timed out waiting for managed local model state during shutdown",
+            )
+        })?;
+    process.stop_locked().await
 }
 
 pub async fn stop(state: &LocalSidecarState) -> AppResult<Value> {
@@ -2805,7 +2845,9 @@ mod tests {
     use super::*;
         use flate2::{write::GzEncoder, Compression};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tokio::io::AsyncReadExt;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+
+    static SIDECAR_PROCESS_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn temp_dir(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -2822,6 +2864,105 @@ mod tests {
 
     fn test_state(label: &str) -> LocalSidecarState {
         LocalSidecarState::new(temp_dir(label))
+    }
+
+    #[tokio::test]
+    async fn shutdown_is_idempotent_without_a_managed_child() {
+        let _test_guard = SIDECAR_PROCESS_TEST_LOCK.lock().await;
+        shutdown()
+            .await
+            .expect("shutdown without a managed child should succeed");
+        shutdown()
+            .await
+            .expect("repeated shutdown without a managed child should succeed");
+    }
+
+    #[tokio::test]
+    async fn shutdown_bounds_managed_state_lock_acquisition() {
+        let _test_guard = SIDECAR_PROCESS_TEST_LOCK.lock().await;
+        let process_guard = SIDECAR_PROCESS.lock().await;
+
+        let error = shutdown_with_lock_timeout(Duration::from_millis(20))
+            .await
+            .expect_err("shutdown should time out while managed state is locked");
+
+        drop(process_guard);
+        assert_eq!(error.code, "sidecar_shutdown_timeout");
+    }
+
+    #[test]
+    fn blocking_sidecar_fixture() {
+        if std::env::var_os("DE_KOI_BLOCKING_SIDECAR_FIXTURE").is_none() {
+            return;
+        }
+
+        use std::io::Write as _;
+        println!("DE_KOI_BLOCKING_SIDECAR_READY");
+        std::io::stdout()
+            .flush()
+            .expect("fixture ready marker should flush");
+        loop {
+            std::thread::park_timeout(Duration::from_secs(60));
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_terminates_and_reaps_a_managed_child() {
+        let _test_guard = SIDECAR_PROCESS_TEST_LOCK.lock().await;
+        shutdown()
+            .await
+            .expect("test should begin without a managed child");
+
+        let mut command =
+            Command::new(std::env::current_exe().expect("test binary should resolve"));
+        command
+            .arg("--exact")
+            .arg("tests::blocking_sidecar_fixture")
+            .arg("--nocapture")
+            .env("DE_KOI_BLOCKING_SIDECAR_FIXTURE", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = command.spawn().expect("blocking fixture should start");
+        let stdout = child
+            .stdout
+            .take()
+            .expect("blocking fixture stdout should be piped");
+        let mut stdout = BufReader::new(stdout);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let mut line = String::new();
+            loop {
+                line.clear();
+                let bytes = stdout
+                    .read_line(&mut line)
+                    .await
+                    .expect("fixture stdout should be readable");
+                assert!(bytes > 0, "fixture exited before reporting ready");
+                if line.contains("DE_KOI_BLOCKING_SIDECAR_READY") {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("blocking fixture should report ready");
+
+        {
+            let mut process = SIDECAR_PROCESS.lock().await;
+            assert!(process.child.is_none(), "test state should be isolated");
+            process.child = Some(child);
+            process.status = "ready".to_string();
+        }
+
+        shutdown().await.expect("managed child should stop cleanly");
+
+        let mut remainder = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), stdout.read_to_end(&mut remainder))
+            .await
+            .expect("managed child stdout should close after shutdown")
+            .expect("managed child stdout should reach EOF");
+        let process = SIDECAR_PROCESS.lock().await;
+        assert!(process.child.is_none(), "managed child should be reaped");
+        assert_eq!(process.status, "stopped");
     }
 
     fn write_fake_bundled_runtime_install(
@@ -2914,6 +3055,34 @@ mod tests {
         assert_eq!(tail["truncated"], true);
         assert_eq!(tail["lines"], json!(["line 3", "line 4"]));
         assert_eq!(tail["path"].as_str(), Some(path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn config_update_stops_only_a_resident_child_that_is_disabled_or_changed() {
+        assert!(should_stop_for_config_update(
+            true,
+            Some("same-signature"),
+            false,
+            "same-signature"
+        ));
+        assert!(!should_stop_for_config_update(
+            true,
+            Some("same-signature"),
+            true,
+            "same-signature"
+        ));
+        assert!(should_stop_for_config_update(
+            true,
+            Some("old-signature"),
+            true,
+            "new-signature"
+        ));
+        assert!(!should_stop_for_config_update(
+            false,
+            Some("old-signature"),
+            false,
+            "new-signature"
+        ));
     }
 
     #[tokio::test]

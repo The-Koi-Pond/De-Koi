@@ -5,6 +5,8 @@ import type { Chat } from "../../../../engine/contracts/types/chat";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { chatKeys } from "../query-keys";
 import {
+  applyChatMetadataPatch,
+  setChatCacheRecord,
   syncBranchedChatCacheRecord,
   syncChatBranchCacheRows,
   upsertChatCacheRecord,
@@ -21,6 +23,19 @@ afterEach(() => {
 });
 
 describe("chat cache helpers", () => {
+  it("propagates metadata patches into loaded chat summaries", () => {
+    const qc = new QueryClient();
+    qc.setQueryData(chatKeys.summaries(), [
+      { ...record("chat-1"), metadata: { autonomousMessages: false, pinned: true } },
+    ]);
+
+    setChatCacheRecord(qc, "chat-1", (chat) => applyChatMetadataPatch(chat, { autonomousMessages: true }));
+
+    expect(qc.getQueryData<ChatCacheRecord[]>(chatKeys.summaries())).toEqual([
+      { ...record("chat-1"), metadata: { autonomousMessages: true, pinned: true } },
+    ]);
+  });
+
   it("upserts created chats into loaded list, group, and detail caches", () => {
     const qc = new QueryClient();
     const chat = record("new-chat", "group-1");
