@@ -2405,6 +2405,11 @@ fn should_stop_for_config_update(
     next_enabled: bool,
     next_signature: &str,
 ) -> bool {
+    // A resident child must stop when it is disabled or when any launch/runtime
+    // field changes. The next signature is the single inventory of those fields:
+    // executable/runtime install, model path/name, context and token limits,
+    // sampling values, and GPU layers. New config fields that affect the child
+    // command must be added to config_signature and its tests.
     has_child && (!next_enabled || current_signature != Some(next_signature))
 }
 

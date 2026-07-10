@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WeatherEffects } from "./WeatherEffects";
+import { capWeatherParticleMotionFrames, WeatherEffects } from "./WeatherEffects";
 
 type RafCallback = FrameRequestCallback;
 
@@ -91,6 +91,12 @@ describe("WeatherEffects", () => {
     rafCallbacks.delete(id);
     act(() => callback(timestamp));
   }
+
+  it("caps particle motion after a long redraw gap", () => {
+    expect(capWeatherParticleMotionFrames(2)).toBe(2);
+    expect(capWeatherParticleMotionFrames(60)).toBe(4);
+    expect(capWeatherParticleMotionFrames(-1)).toBe(0);
+  });
 
   afterEach(() => {
     if (root) {

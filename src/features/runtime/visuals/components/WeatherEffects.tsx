@@ -43,6 +43,11 @@ const MAX_CANVAS_SIDE = 4096;
 const MAX_CANVAS_PIXELS = 16_777_216;
 const FRAME_DURATION_MS = 1000 / 60;
 const DRAW_INTERVAL_MS = 1000 / 30;
+const MAX_PARTICLE_MOTION_FRAMES = 4;
+
+export function capWeatherParticleMotionFrames(elapsedFrames: number): number {
+  return Math.min(Math.max(elapsedFrames, 0), MAX_PARTICLE_MOTION_FRAMES);
+}
 
 function clampCanvasDimension(value: number, viewportValue: number): number {
   const size = Number.isFinite(value) ? value : 0;
@@ -821,6 +826,7 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
       const elapsedSinceDraw =
         lastDrawTimestamp === null ? FRAME_DURATION_MS : Math.max(0, timestamp - lastDrawTimestamp);
       const elapsedFrames = shouldAnimate ? elapsedSinceDraw / FRAME_DURATION_MS : 0;
+      const particleMotionFrames = capWeatherParticleMotionFrames(elapsedFrames);
       if (lastDrawTimestamp !== null) animationElapsedMs += elapsedSinceDraw;
       lastDrawTimestamp = timestamp;
 
@@ -876,25 +882,25 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
 
         for (let i = particles.length - 1; i >= 0; i--) {
           const p = particles[i];
-          p.life += elapsedFrames;
+          p.life += particleMotionFrames;
 
           // Update position
-          p.x += p.vx * elapsedFrames;
-          p.y += p.vy * elapsedFrames;
+          p.x += p.vx * particleMotionFrames;
+          p.y += p.vy * particleMotionFrames;
 
           // Wobble for organic movement
           if (p.type === "snow" || p.type === "leaf" || p.type === "petal" || p.type === "ash") {
-            p.wobble += 0.02 * elapsedFrames;
-            p.x += Math.sin(p.wobble) * 0.5 * elapsedFrames;
+            p.wobble += 0.02 * particleMotionFrames;
+            p.x += Math.sin(p.wobble) * 0.5 * particleMotionFrames;
           }
           if (p.type === "ember") {
-            p.wobble += 0.04 * elapsedFrames;
-            p.x += Math.sin(p.wobble) * 0.6 * elapsedFrames;
+            p.wobble += 0.04 * particleMotionFrames;
+            p.x += Math.sin(p.wobble) * 0.6 * particleMotionFrames;
           }
           if (p.type === "firefly") {
-            p.wobble += 0.03 * elapsedFrames;
-            p.x += Math.sin(p.wobble) * 0.8 * elapsedFrames;
-            p.y += Math.cos(p.wobble * 0.7) * 0.4 * elapsedFrames;
+            p.wobble += 0.03 * particleMotionFrames;
+            p.x += Math.sin(p.wobble) * 0.8 * particleMotionFrames;
+            p.y += Math.cos(p.wobble * 0.7) * 0.4 * particleMotionFrames;
           }
 
           drawParticle(activeCtx, p);
