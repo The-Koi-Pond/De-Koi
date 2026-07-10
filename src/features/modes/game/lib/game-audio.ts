@@ -86,9 +86,10 @@ class GameAudioManager {
   private ambientElement: LoopingAudioLayer | null = null;
   private sfxPool: HTMLAudioElement[] = [];
   private sfxIndex = 0;
-  private sfxGeneration = 0;
+  private audioLifecycleGeneration = 0;
   private sfxAudioContext: AudioContext | null = null;
   private pendingSfxSuspend: Promise<void> | null = null;
+  private pendingSfxResume: Promise<void> | null = null;
   private mediaUnlockElement: HTMLAudioElement | null = null;
   private mediaNodes = new WeakMap<HTMLAudioElement, { source: MediaElementAudioSourceNode; gain: GainNode }>();
   private audioContextUnlocked = false;
@@ -218,17 +219,53 @@ class GameAudioManager {
     return this.sfxAudioContext;
   }
 
-  private async resumeAudioContext(ctx: AudioContext): Promise<boolean> {
+  private isAudioLifecycleCurrent(expectedGeneration: number): boolean {
+    return expectedGeneration === this.audioLifecycleGeneration;
+  }
+
+  private suspendSfxAudioContext(ctx: AudioContext): Promise<void> {
+    if (this.pendingSfxSuspend) return this.pendingSfxSuspend;
+    if (ctx.state !== "running") return Promise.resolve();
+
+    const pendingSuspend = ctx.suspend().catch(() => {});
+    this.pendingSfxSuspend = pendingSuspend;
+    void pendingSuspend.finally(() => {
+      if (this.pendingSfxSuspend === pendingSuspend) {
+        this.pendingSfxSuspend = null;
+      }
+    });
+    return pendingSuspend;
+  }
+
+  private async resumeAudioContext(ctx: AudioContext, expectedGeneration: number): Promise<boolean> {
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return false;
+    const pendingResume = this.pendingSfxResume;
+    if (pendingResume) {
+      await pendingResume;
+    }
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return false;
     const pendingSuspend = this.pendingSfxSuspend;
     if (pendingSuspend) {
       await pendingSuspend;
     }
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return false;
     if (ctx.state === "running") {
       this.audioContextUnlocked = true;
       return true;
     }
 
-    await ctx.resume().catch(() => undefined);
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return false;
+    const resumePromise = ctx.resume().catch(() => undefined);
+    this.pendingSfxResume = resumePromise;
+    await resumePromise;
+    if (this.pendingSfxResume === resumePromise) {
+      this.pendingSfxResume = null;
+    }
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) {
+      this.audioContextUnlocked = false;
+      await this.suspendSfxAudioContext(ctx);
+      return false;
+    }
     this.audioContextUnlocked = (ctx.state as string) === "running";
     return this.audioContextUnlocked;
   }
@@ -274,23 +311,25 @@ class GameAudioManager {
 
   /** Unlock Web Audio from a user gesture, especially for mobile Safari. */
   unlock(): void {
+    const expectedGeneration = this.audioLifecycleGeneration;
     this.userHasInteracted = true;
     setAmbientAudioSession();
     this.primeMediaElement();
     const ctx = this.getSfxAudioContext();
     if (!ctx) return;
     if (this.pendingSfxSuspend) {
-      void this.resumeAudioContext(ctx).then((running) => {
-        if (running) this.primeSfxAudioContext(ctx);
+      void this.resumeAudioContext(ctx, expectedGeneration).then((running) => {
+        if (running) this.primeSfxAudioContext(ctx, expectedGeneration);
       });
       return;
     }
     if (this.audioContextUnlocked && ctx.state === "running") return;
 
-    this.primeSfxAudioContext(ctx);
+    this.primeSfxAudioContext(ctx, expectedGeneration);
   }
 
-  private primeSfxAudioContext(ctx: AudioContext): void {
+  private primeSfxAudioContext(ctx: AudioContext, expectedGeneration: number): void {
+    if (!this.isAudioLifecycleCurrent(expectedGeneration)) return;
     try {
       const source = ctx.createBufferSource();
       source.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
@@ -299,9 +338,9 @@ class GameAudioManager {
       if (ctx.state === "running") {
         this.audioContextUnlocked = true;
       } else {
-        void this.resumeAudioContext(ctx)
-          .then(() => {
-            this.audioContextUnlocked = ctx.state === "running";
+        void this.resumeAudioContext(ctx, expectedGeneration)
+          .then((running) => {
+            this.audioContextUnlocked = running && this.isAudioLifecycleCurrent(expectedGeneration);
           })
           .catch(() => {
             this.audioContextUnlocked = false;
@@ -346,7 +385,12 @@ class GameAudioManager {
     audio.volume = nextVolume;
   }
 
-  private createLoopingAudioLayer(url: string, volume: number, muted: boolean): LoopingAudioLayer {
+  private createLoopingAudioLayer(
+    url: string,
+    volume: number,
+    muted: boolean,
+    expectedGeneration: number,
+  ): LoopingAudioLayer {
     let currentVolume = clampUnit(volume);
     let currentMuted = muted;
     let stopped = false;
@@ -366,14 +410,25 @@ class GameAudioManager {
     };
 
     const startFallbackAudio = async () => {
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
       const audio = new Audio(url);
       audio.loop = true;
       fallbackAudio = audio;
+      const discardAudio = () => {
+        if (fallbackAudio !== audio) return;
+        releaseAudio(audio);
+        fallbackAudio = null;
+      };
       applyVolume();
       if (this.sfxAudioContext) {
-        await this.resumeAudioContext(this.sfxAudioContext);
+        await this.resumeAudioContext(this.sfxAudioContext, expectedGeneration);
+      }
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) {
+        discardAudio();
+        return;
       }
       await audio.play();
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) discardAudio();
     };
 
     const ready = (async () => {
@@ -385,10 +440,12 @@ class GameAudioManager {
 
       try {
         const buffer = await ctx.decodeAudioData(await loadUrlArrayBuffer(url, { errorMessage: "Audio load failed" }));
-        if (stopped) return;
-        if (!(await this.resumeAudioContext(ctx))) {
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
+        if (!(await this.resumeAudioContext(ctx, expectedGeneration))) {
+          if (!this.isAudioLifecycleCurrent(expectedGeneration)) return;
           throw new Error("Audio context is not running");
         }
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
 
         const nextSource = ctx.createBufferSource();
         const nextGain = ctx.createGain();
@@ -401,7 +458,7 @@ class GameAudioManager {
         applyVolume();
         nextSource.start();
       } catch {
-        if (stopped) return;
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
         await startFallbackAudio();
       }
     })();
@@ -441,6 +498,7 @@ class GameAudioManager {
   }
 
   playOneShot(url: string, options: OneShotAudioOptions): OneShotAudioLayer {
+    const expectedGeneration = this.audioLifecycleGeneration;
     let currentVolume = clampUnit(options.volume);
     let currentMuted = options.muted ?? false;
     let stopped = false;
@@ -499,15 +557,26 @@ class GameAudioManager {
     };
 
     const startFallbackAudio = async () => {
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
       const audio = new Audio(url);
       fallbackAudio = audio;
       audio.onended = finish;
       audio.onerror = fail;
       applyVolume();
       if (this.sfxAudioContext) {
-        await this.resumeAudioContext(this.sfxAudioContext);
+        await this.resumeAudioContext(this.sfxAudioContext, expectedGeneration);
+      }
+      if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) {
+        stopped = true;
+        cleanup();
+        return;
       }
       await audio.play();
+      if (!this.isAudioLifecycleCurrent(expectedGeneration)) {
+        stopped = true;
+        cleanup();
+        return;
+      }
       markStarted();
     };
 
@@ -520,10 +589,12 @@ class GameAudioManager {
 
       try {
         const buffer = await ctx.decodeAudioData(await loadUrlArrayBuffer(url, { errorMessage: "Audio load failed" }));
-        if (stopped) return;
-        if (!(await this.resumeAudioContext(ctx))) {
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
+        if (!(await this.resumeAudioContext(ctx, expectedGeneration))) {
+          if (!this.isAudioLifecycleCurrent(expectedGeneration)) return;
           throw new Error("Audio context is not running");
         }
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
 
         const nextSource = ctx.createBufferSource();
         const nextGain = ctx.createGain();
@@ -537,7 +608,7 @@ class GameAudioManager {
         nextSource.start();
         markStarted();
       } catch {
-        if (stopped) return;
+        if (stopped || !this.isAudioLifecycleCurrent(expectedGeneration)) return;
         await startFallbackAudio();
       }
     })().catch(() => {
@@ -624,12 +695,12 @@ class GameAudioManager {
   }
 
   private async playProceduralSfx(tag: string, generation: number): Promise<boolean> {
-    if (generation !== this.sfxGeneration) return false;
+    if (!this.isAudioLifecycleCurrent(generation)) return false;
     if (this.isMuted || this.sfxVolume <= 0 || !this.userHasInteracted) return false;
     const ctx = this.getSfxAudioContext();
     if (!ctx) return false;
-    if (!(await this.resumeAudioContext(ctx))) return false;
-    if (generation !== this.sfxGeneration) return false;
+    if (!(await this.resumeAudioContext(ctx, generation))) return false;
+    if (!this.isAudioLifecycleCurrent(generation)) return false;
     const normalizedTag = normalizeAssetTag(tag);
 
     if (/menu-hover$/.test(normalizedTag)) {
@@ -692,6 +763,7 @@ class GameAudioManager {
 
   /** Play background music with crossfade. */
   playMusic(tag: string, manifest?: Record<string, { path: string }> | null): void {
+    const expectedGeneration = this.audioLifecycleGeneration;
     if (tag === this.currentMusicTag) return;
     const previousMusicTag = this.currentMusicTag;
     this.currentMusicTag = tag;
@@ -705,8 +777,8 @@ class GameAudioManager {
 
     void this.resolveAssetUrl(tag, manifest)
       .then((url) => {
-        if (this.currentMusicTag !== tag) return;
-        const newAudio = this.createLoopingAudioLayer(url, 0, this.isMuted);
+        if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.currentMusicTag !== tag) return;
+        const newAudio = this.createLoopingAudioLayer(url, 0, this.isMuted, expectedGeneration);
 
         if (this.fadeInterval) {
           clearInterval(this.fadeInterval);
@@ -787,7 +859,7 @@ class GameAudioManager {
           });
       })
       .catch(() => {
-        if (this.currentMusicTag !== tag) return;
+        if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.currentMusicTag !== tag) return;
         this.pendingMusic = { tag, manifest };
         this.currentMusicTag = previousMusicTag;
         if (this.musicElement) {
@@ -833,8 +905,8 @@ class GameAudioManager {
 
   /** Play a one-shot sound effect. */
   playSfx(tag: string, manifest?: AssetMap | null): void {
-    const generation = this.sfxGeneration;
-    const isCurrent = () => generation === this.sfxGeneration;
+    const generation = this.audioLifecycleGeneration;
+    const isCurrent = () => this.isAudioLifecycleCurrent(generation);
     if (this.isMuted || this.sfxVolume <= 0 || !this.userHasInteracted) return;
     void this.resolveAssetUrl(tag, manifest)
       .then(async (url) => {
@@ -849,7 +921,7 @@ class GameAudioManager {
         audio.src = url;
         this.setElementLayerVolume(audio, this.sfxVolume);
         if (this.sfxAudioContext) {
-          const resumed = await this.resumeAudioContext(this.sfxAudioContext);
+          const resumed = await this.resumeAudioContext(this.sfxAudioContext, generation);
           if (!isCurrent()) return;
           if (!resumed) {
             void this.playProceduralSfx(tag, generation);
@@ -872,6 +944,7 @@ class GameAudioManager {
 
   /** Set looping ambient sound. */
   playAmbient(tag: string, manifest?: Record<string, { path: string }> | null): void {
+    const expectedGeneration = this.audioLifecycleGeneration;
     if (tag === this.currentAmbientTag) return;
     const previousAmbientTag = this.currentAmbientTag;
     const previousAmbient = this.ambientElement;
@@ -886,10 +959,15 @@ class GameAudioManager {
 
     void this.resolveAssetUrl(tag, manifest)
       .then((url) => {
-        if (this.currentAmbientTag !== tag) {
+        if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.currentAmbientTag !== tag) {
           return;
         }
-        const nextAmbient = this.createLoopingAudioLayer(url, this.ambientVolume, this.isMuted);
+        const nextAmbient = this.createLoopingAudioLayer(
+          url,
+          this.ambientVolume,
+          this.isMuted,
+          expectedGeneration,
+        );
 
         return nextAmbient.ready
           .then(() => {
@@ -910,7 +988,7 @@ class GameAudioManager {
           });
       })
       .catch((err) => {
-        if (this.currentAmbientTag !== tag) return;
+        if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.currentAmbientTag !== tag) return;
         console.warn("[audio] Ambient playback failed:", tag, err);
         this.pendingAmbient = { tag, manifest };
         this.currentAmbientTag = previousAmbientTag;
@@ -981,7 +1059,7 @@ class GameAudioManager {
 
   /** Stop everything and clean up. */
   dispose(): void {
-    this.sfxGeneration++;
+    this.audioLifecycleGeneration++;
     this.stopMusic();
     this.stopAmbient();
     for (const el of this.sfxPool) {
@@ -990,14 +1068,8 @@ class GameAudioManager {
     this.removeInteractionListener();
     this.removeGestureListener();
     this.audioContextUnlocked = false;
-    if (!this.pendingSfxSuspend && this.sfxAudioContext?.state === "running") {
-      const pendingSuspend = this.sfxAudioContext.suspend().catch(() => {});
-      this.pendingSfxSuspend = pendingSuspend;
-      void pendingSuspend.finally(() => {
-        if (this.pendingSfxSuspend === pendingSuspend) {
-          this.pendingSfxSuspend = null;
-        }
-      });
+    if (this.sfxAudioContext) {
+      void this.suspendSfxAudioContext(this.sfxAudioContext);
     }
   }
 

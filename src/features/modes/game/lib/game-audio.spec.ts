@@ -2,12 +2,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { resolveGameAssetFileUrlMock } = vi.hoisted(() => ({
+const { loadUrlArrayBufferMock, resolveGameAssetFileUrlMock } = vi.hoisted(() => ({
+  loadUrlArrayBufferMock: vi.fn(),
   resolveGameAssetFileUrlMock: vi.fn(),
 }));
 
 vi.mock("../../../../shared/api/local-file-api", () => ({
   resolveGameAssetFileUrl: resolveGameAssetFileUrlMock,
+}));
+
+vi.mock("../../../../shared/lib/url-blob", () => ({
+  loadUrlArrayBuffer: loadUrlArrayBufferMock,
 }));
 
 const audioElements: AudioElementStub[] = [];
@@ -36,9 +41,20 @@ function createAudioContextStub(initialState: AudioContextState = "running") {
     destination: {},
     createBuffer: vi.fn(() => ({})),
     createBufferSource: vi.fn(() => ({
+      buffer: null,
       connect: vi.fn(),
+      disconnect: vi.fn(),
+      onended: null,
       start: vi.fn(),
+      stop: vi.fn(),
     })),
+    createGain: vi.fn(() => ({
+      connect: vi.fn(),
+      context,
+      disconnect: vi.fn(),
+      gain: { setValueAtTime: vi.fn() },
+    })),
+    decodeAudioData: vi.fn(() => Promise.resolve({})),
     resume: vi.fn(function (this: { state: AudioContextState }) {
       this.state = "running";
       return Promise.resolve();
@@ -55,6 +71,8 @@ function createAudioContextStub(initialState: AudioContextState = "running") {
 describe("game audio disposal", () => {
   beforeEach(() => {
     vi.resetModules();
+    loadUrlArrayBufferMock.mockReset();
+    loadUrlArrayBufferMock.mockResolvedValue(new ArrayBuffer(0));
     resolveGameAssetFileUrlMock.mockReset();
     resolveGameAssetFileUrlMock.mockResolvedValue("asset://default");
     audioElements.length = 0;
@@ -140,6 +158,34 @@ describe("game audio disposal", () => {
     expect(context.resume).toHaveBeenCalledOnce();
   });
 
+  it("does not resume an unlock invalidated while it waits for pending suspension", async () => {
+    const context = createAudioContextStub();
+    let resolveSuspend!: () => void;
+    context.suspend.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSuspend = () => {
+            context.state = "suspended";
+            resolve();
+          };
+        }),
+    );
+    vi.stubGlobal("AudioContext", vi.fn(function () {
+      return context;
+    }));
+    const { audioManager } = await import("./game-audio");
+    audioManager.unlock();
+    audioManager.dispose();
+    audioManager.unlock();
+
+    audioManager.dispose();
+    resolveSuspend();
+    for (let index = 0; index < 6; index++) await Promise.resolve();
+
+    expect(context.state).toBe("suspended");
+    expect(context.resume).not.toHaveBeenCalled();
+  });
+
   it.each(["suspended", "closed"] as const)("does not redundantly suspend a %s context", async (state) => {
     const context = createAudioContextStub(state);
     const AudioContextStub = vi.fn(function () {
@@ -222,5 +268,35 @@ describe("game audio disposal", () => {
 
     await expect.poll(() => audioElements[0]?.play.mock.calls.length).toBe(1);
     expect(context.resume).toHaveBeenCalledOnce();
+  });
+
+  it("re-suspends when a buffered one-shot resume settles after disposal", async () => {
+    const context = createAudioContextStub();
+    let resolveResume!: () => void;
+    context.resume.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveResume = () => {
+            context.state = "running";
+            resolve();
+          };
+        }),
+    );
+    vi.stubGlobal("AudioContext", vi.fn(function () {
+      return context;
+    }));
+    const { audioManager } = await import("./game-audio");
+    audioManager.unlock();
+    context.state = "suspended";
+    const onStarted = vi.fn();
+    const layer = audioManager.playOneShot("asset://old-buffered-request", { volume: 1, onStarted });
+    await expect.poll(() => context.resume.mock.calls.length).toBe(1);
+
+    audioManager.dispose();
+    resolveResume();
+    await layer.ready;
+
+    expect(context.state).toBe("suspended");
+    expect(onStarted).not.toHaveBeenCalled();
   });
 });
