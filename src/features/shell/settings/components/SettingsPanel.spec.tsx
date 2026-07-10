@@ -35,10 +35,17 @@ describe("SettingsPanel", () => {
     container.remove();
   });
 
-  it("gives the active settings page a title and plain-language description", () => {
+  it("uses its own width for the descriptive navigation layout", () => {
+    const panel = container.querySelector(".de-koi-settings-panel")!;
+    const layout = container.querySelector(".de-koi-settings-layout")!;
+    const tablist = container.querySelector('[role="tablist"]')!;
+
     expect(container.querySelector("h2")?.textContent).toBe("General");
     expect(container.textContent).toContain("Everyday behavior, message controls, and generation defaults.");
-    expect(container.querySelector('[role="tablist"]')?.className).toContain("lg:flex-col");
+    expect(panel.className).toContain("@container");
+    expect(layout.className).toContain("@3xl:grid-cols-[14rem_minmax(0,1fr)]");
+    expect(tablist.className).toContain("@3xl:flex-col");
+    expect(tablist.className).not.toContain("lg:flex-col");
   });
 
   it("shows full tab labels and updates the page introduction on selection", () => {
