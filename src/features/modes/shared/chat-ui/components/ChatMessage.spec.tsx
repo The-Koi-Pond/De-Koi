@@ -430,6 +430,90 @@ describe("ChatMessage", () => {
     expect(Array.from(names, (name) => name.style.opacity)).toEqual(["1", "0"]);
   });
 
+  it("ignores a stale intersecting callback after its identity target is unmounted", () => {
+    vi.useFakeTimers();
+    const addEventListener = vi.spyOn(document, "addEventListener");
+    const removeEventListener = vi.spyOn(document, "removeEventListener");
+    let observerCallback: IntersectionObserverCallback | null = null;
+    let observer: IntersectionObserver | null = null;
+    class TestIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0];
+      disconnect = vi.fn();
+      observe = vi.fn();
+      takeRecords = vi.fn(() => []);
+      unobserve = vi.fn();
+      constructor(callback: IntersectionObserverCallback) {
+        observerCallback = callback;
+        observer = this;
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    const groupCharacterMap: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+    ]);
+    const renderMessage = (isGrouped: boolean) => (
+      <QueryClientProvider client={queryClient!}>
+        <ChatMessage
+          message={{ ...message, id: "message-stale-cycle-target", characterId: null }}
+          chatMode="roleplay"
+          groupChatMode="merged"
+          characterMap={groupCharacterMap}
+          chatCharacterIds={["aster", "briar"]}
+          isGrouped={isGrouped}
+        />
+      </QueryClientProvider>
+    );
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(renderMessage(false));
+    });
+    const staleTarget = container!.querySelector<HTMLElement>("[data-cycle-name]")!.parentElement!;
+    act(() => {
+      observerCallback!([{ target: staleTarget, isIntersecting: true } as unknown as IntersectionObserverEntry], observer!);
+      vi.advanceTimersByTime(2_000);
+    });
+    const staleNames = staleTarget.querySelectorAll<HTMLElement>("[data-cycle-name]");
+    expect(Array.from(staleNames, (name) => name.style.opacity)).toEqual(["0", "1"]);
+
+    act(() => {
+      root!.render(renderMessage(true));
+    });
+    expect(observer!.disconnect).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    const visibilityAddsBeforeStaleCallback = addEventListener.mock.calls.filter(
+      ([eventName]) => eventName === "visibilitychange",
+    ).length;
+    const visibilityRemovesBeforeStaleCallback = removeEventListener.mock.calls.filter(
+      ([eventName]) => eventName === "visibilitychange",
+    ).length;
+    expect(visibilityRemovesBeforeStaleCallback).toBe(visibilityAddsBeforeStaleCallback);
+
+    act(() => {
+      observerCallback!([{ target: staleTarget, isIntersecting: true } as unknown as IntersectionObserverEntry], observer!);
+    });
+    const timerCountAfterStaleCallback = vi.getTimerCount();
+    const visibilityAddsAfterStaleCallback = addEventListener.mock.calls.filter(
+      ([eventName]) => eventName === "visibilitychange",
+    ).length;
+    const visibilityRemovesAfterStaleCallback = removeEventListener.mock.calls.filter(
+      ([eventName]) => eventName === "visibilitychange",
+    ).length;
+    const staleOpacityAfterCallback = Array.from(staleNames, (name) => name.style.opacity);
+
+    act(() => {
+      observerCallback!([{ target: staleTarget, isIntersecting: false } as unknown as IntersectionObserverEntry], observer!);
+    });
+
+    expect(timerCountAfterStaleCallback).toBe(0);
+    expect(visibilityAddsAfterStaleCallback).toBe(visibilityAddsBeforeStaleCallback);
+    expect(visibilityRemovesAfterStaleCallback).toBe(visibilityRemovesBeforeStaleCallback);
+    expect(staleOpacityAfterCallback).toEqual(["0", "1"]);
+  });
+
   it("derives different participant totals from the shared tick when observers are unavailable", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IntersectionObserver", undefined);

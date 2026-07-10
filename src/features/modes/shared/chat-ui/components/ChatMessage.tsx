@@ -1435,6 +1435,7 @@ export const ChatMessage = memo(function ChatMessage({
     const identityBlock = mergedIdentityElement;
     let observer: IntersectionObserver | null = null;
     let unsubscribe: (() => void) | null = null;
+    let disposed = false;
     const applyTick = (tick: number) => {
       if (document.visibilityState === "hidden") return;
       cycleIndexRef.current = tick % total;
@@ -1453,7 +1454,7 @@ export const ChatMessage = memo(function ChatMessage({
       });
     };
     const startSubscription = () => {
-      if (!unsubscribe) unsubscribe = subscribeMergedMessageCycle(applyTick);
+      if (!disposed && !unsubscribe) unsubscribe = subscribeMergedMessageCycle(applyTick);
     };
     const stopSubscription = () => {
       unsubscribe?.();
@@ -1462,6 +1463,7 @@ export const ChatMessage = memo(function ChatMessage({
 
     if (typeof IntersectionObserver === "function") {
       observer = new IntersectionObserver((entries) => {
+        if (disposed) return;
         const identityEntry = entries.find((entry) => entry.target === identityBlock) ?? entries[0];
         if (identityEntry?.isIntersecting) startSubscription();
         else stopSubscription();
@@ -1472,6 +1474,7 @@ export const ChatMessage = memo(function ChatMessage({
     }
 
     return () => {
+      disposed = true;
       observer?.disconnect();
       stopSubscription();
     };
