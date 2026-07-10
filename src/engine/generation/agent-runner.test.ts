@@ -250,6 +250,52 @@ describe("generation agent runner", () => {
     expect(prompt).not.toContain("full_combat");
   });
 
+  it("gives the background agent generation-only context without reading library backgrounds", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+    const visuals: VisualAssetGateway = {
+      async listSprites() {
+        return [];
+      },
+      async listBackgrounds() {
+        throw new Error("generation-only background context must not enumerate library backgrounds");
+      },
+    };
+    const input = runtimeInput(connection);
+    input.agentTypes = new Set(["background"]);
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "background-agent",
+              type: "background",
+              name: "Background Agent",
+              enabled: true,
+              phase: "post_processing",
+              connectionId: connection.id,
+              model: "qa-model",
+              settings: { autoGenerateBackgrounds: true },
+            },
+          ],
+          [connection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+        visuals,
+      },
+      input,
+    );
+
+    await runtime.runPost("Rain falls over an empty moonlit archive.");
+    const prompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(prompt).toContain('<background_generation enabled="true">');
+    expect(prompt).toContain('Always return "chosen": null');
+    expect(prompt).not.toContain("<available_backgrounds>");
+    expect(prompt).not.toContain("library/castle.png");
+  });
+
   it("includes persona sprites for expression avatars even when sprite owners are character-filtered", async () => {
     const requests: LlmRequest[] = [];
     const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };

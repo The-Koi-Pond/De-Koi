@@ -70,7 +70,14 @@ export function timelineMessageProjection(options: TimelineMessageOptions = {}):
 export function sanitizeTimelineMessageRecord<T extends Record<string, unknown>>(record: T): T {
   const { swipes: _swipes, ...withoutSwipes } = record;
   const extra = parseRecord(withoutSwipes.extra);
-  const { generationPromptSnapshotsBySwipe: _generationPromptSnapshotsBySwipe, ...timelineExtra } = extra;
+  const {
+    generationPromptSnapshotsBySwipe: _generationPromptSnapshotsBySwipe,
+    dialogueAttributions: _dialogueAttributions,
+    dialogueAttribution: _dialogueAttribution,
+    speakerAttributions: _speakerAttributions,
+    speakerAttribution: _speakerAttribution,
+    ...timelineExtra
+  } = extra;
   return {
     ...withoutSwipes,
     extra: timelineExtra,
