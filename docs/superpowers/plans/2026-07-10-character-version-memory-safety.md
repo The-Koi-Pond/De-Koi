@@ -171,7 +171,7 @@ Expected: tests fail because the V2 migration and marker are absent.
 
 - [ ] **Step 3: Implement migration orchestration**
 
-Call the streaming transform with suffix `character-version-inline-media-v2`. Normalize each record through the focused media owner. On error, retain content-addressed files because a concurrent successful operation may already reference them. Allow valid records without inline media to pass byte-semantically unchanged. Register the migration independently immediately after seeding, before any older full-collection migration can load `character-versions`, so a previously set V1 marker cannot suppress it or an unmarked legacy pass reproduce the OOM.
+Call the streaming transform with suffix `character-version-inline-media-v2`. Normalize each record through the focused media owner. On error, retain content-addressed files because a concurrent successful operation may already reference them; after a successful bounded migration, remove only unreferenced files matching the version-content-address naming contract. Allow valid records without inline media to pass byte-semantically unchanged. Register the migration independently immediately after seeding, before any older full-collection migration can load `character-versions`, so a previously set V1 marker cannot suppress it or an unmarked legacy pass reproduce the OOM.
 
 Do not automatically delete `character-versions.json.tmp-*` or the pre-migration backup.
 

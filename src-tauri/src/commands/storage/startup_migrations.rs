@@ -12,7 +12,9 @@ use super::{
 use marinara_core::{new_id, now_iso, AppError, AppResult};
 use marinara_storage::{FileStorage, StreamingTransformReport};
 use serde_json::{json, Map, Value};
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -43,20 +45,36 @@ pub(crate) fn migrate_character_version_inline_media(
     data_dir: &Path,
 ) -> AppResult<StreamingTransformReport> {
     let mut created_files = Vec::new();
+    let rewritten_rows = RefCell::new(HashSet::new());
     let result = storage.transform_collection_streaming(
         "character-versions",
         "character-version-inline-media-v2",
-        |_index, row| {
+        |index, row| {
             let object = row.as_object_mut().ok_or_else(|| {
                 AppError::invalid_input("Character version record must be a JSON object")
             })?;
-            normalize_character_version_media(data_dir, object, &mut created_files)
+            let changed = normalize_character_version_media(data_dir, object, &mut created_files)?;
+            if changed {
+                rewritten_rows.borrow_mut().insert(index);
+            }
+            Ok(changed)
         },
-        |_index, row| {
+        |index, row| {
             reject_inline_character_version_media(row)?;
-            if let Some(path) = row.get("avatarFilePath").and_then(Value::as_str) {
+            if rewritten_rows.borrow().contains(&index) {
+                let path = row
+                    .get("avatarFilePath")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        AppError::new(
+                            "character_version_media_validation_failed",
+                            "Migrated character version image is missing its managed file path",
+                        )
+                    })?;
                 let managed_root = data_dir.join("avatars/characters/versions");
-                if !Path::new(path).starts_with(&managed_root) {
+                let canonical_root = fs::canonicalize(&managed_root)?;
+                let canonical_path = fs::canonicalize(path)?;
+                if !canonical_path.starts_with(&canonical_root) {
                     return Err(AppError::new(
                         "character_version_media_validation_failed",
                         "Migrated character version image path escaped the managed version directory",
@@ -809,6 +827,12 @@ mod character_version_inline_media_tests {
                 vec![
                     json!({"id":"version-1","characterId":"char-1","avatarPath":inline,"data":{"name":"First"}}),
                     json!({"id":"version-2","characterId":"char-1","avatarPath":inline,"data":{"name":"Second"}}),
+                    json!({
+                        "id":"version-3",
+                        "characterId":"char-1",
+                        "avatarPath":"http://asset.localhost/legacy.png",
+                        "avatarFilePath":root.join("avatars/characters/legacy.png").to_string_lossy()
+                    }),
                 ],
             )
             .expect("fixture should persist");
@@ -817,11 +841,15 @@ mod character_version_inline_media_tests {
             .expect("migration should succeed");
         let rows = storage.list("character-versions").unwrap();
 
-        assert_eq!(report.input_records, 2);
-        assert_eq!(report.output_records, 2);
+        assert_eq!(report.input_records, 3);
+        assert_eq!(report.output_records, 3);
         assert_eq!(report.changed_records, 2);
         assert_eq!(rows[0]["id"], "version-1");
         assert_eq!(rows[1]["data"]["name"], "Second");
+        assert!(rows[2]["avatarFilePath"]
+            .as_str()
+            .unwrap()
+            .ends_with("legacy.png"));
         assert_eq!(rows[0]["avatarPath"], rows[1]["avatarPath"]);
         assert!(!rows[0]["avatarPath"]
             .as_str()

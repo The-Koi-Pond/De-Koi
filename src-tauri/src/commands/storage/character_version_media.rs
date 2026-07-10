@@ -3,8 +3,10 @@ use super::media_uploads::{
     optimize_avatar_image_bytes,
 };
 use marinara_core::{new_id, AppError, AppResult};
+use marinara_storage::FileStorage;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -149,6 +151,52 @@ pub(crate) fn rollback_character_version_media_files(paths: &[PathBuf]) {
             paths.len()
         );
     }
+}
+
+pub(crate) fn cleanup_orphaned_character_version_media(
+    storage: &FileStorage,
+    data_dir: &Path,
+) -> AppResult<usize> {
+    let target_dir = data_dir.join("avatars/characters/versions");
+    if !target_dir.is_dir() {
+        return Ok(0);
+    }
+    let referenced = storage
+        .list("character-versions")?
+        .into_iter()
+        .filter_map(|row| {
+            row.get("avatarFilename")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<HashSet<_>>();
+    let mut removed = 0;
+    for entry in fs::read_dir(&target_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let filename = entry.file_name().to_string_lossy().to_string();
+        if !is_content_addressed_version_filename(&filename) || referenced.contains(&filename) {
+            continue;
+        }
+        fs::remove_file(entry.path())?;
+        removed += 1;
+    }
+    Ok(removed)
+}
+
+fn is_content_addressed_version_filename(filename: &str) -> bool {
+    let Some((hash, extension)) = filename
+        .strip_prefix("version-")
+        .and_then(|value| value.rsplit_once('.'))
+    else {
+        return false;
+    };
+    hash.len() == 64
+        && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && !extension.is_empty()
+        && extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
 
 fn decode_bounded_image(value: &str, field: &str) -> AppResult<(String, Vec<u8>)> {
@@ -308,5 +356,32 @@ mod tests {
         assert_eq!(error.code, "inline_character_version_media");
         assert!(error.message.contains("avatarUrl"));
         assert!(!error.message.contains(TINY_PNG));
+    }
+
+    #[test]
+    fn orphan_cleanup_removes_only_unreferenced_content_addressed_assets() {
+        let root = temp_dir("orphan-cleanup");
+        let storage = FileStorage::new(root.join("data")).unwrap();
+        let asset_dir = root.join("avatars/characters/versions");
+        fs::create_dir_all(&asset_dir).unwrap();
+        let kept = format!("version-{}.png", "a".repeat(64));
+        let orphan = format!("version-{}.png", "b".repeat(64));
+        fs::write(asset_dir.join(&kept), b"kept").unwrap();
+        fs::write(asset_dir.join(&orphan), b"orphan").unwrap();
+        fs::write(asset_dir.join("user-file.png"), b"unmanaged").unwrap();
+        storage
+            .replace_all(
+                "character-versions",
+                vec![json!({"id":"v1","avatarFilename":kept})],
+            )
+            .unwrap();
+
+        let removed = cleanup_orphaned_character_version_media(&storage, &root).unwrap();
+
+        assert_eq!(removed, 1);
+        assert!(asset_dir.join(&kept).is_file());
+        assert!(!asset_dir.join(&orphan).exists());
+        assert!(asset_dir.join("user-file.png").is_file());
+        fs::remove_dir_all(root).unwrap();
     }
 }
