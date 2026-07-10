@@ -45,7 +45,7 @@ pub(crate) fn migrate_character_version_inline_media(
     let mut created_files = Vec::new();
     let result = storage.transform_collection_streaming(
         "character-versions",
-        "character-version-inline-media-v2",
+        "character-version-inline-media-v3",
         |_index, row| {
             let object = row.as_object_mut().ok_or_else(|| {
                 AppError::invalid_input("Character version record must be a JSON object")
@@ -55,13 +55,21 @@ pub(crate) fn migrate_character_version_inline_media(
         },
         |_index, row| {
             reject_inline_character_version_media(row)?;
-            if row
-                .get("avatarFilename")
-                .and_then(Value::as_str)
-                .is_some_and(super::character_version_media::is_content_addressed_version_filename)
-            {
+            for (filename_field, path_field) in [
+                ("avatarFilename", "avatarFilePath"),
+                ("bannerImageFilename", "bannerImageFilePath"),
+            ] {
+                if !row
+                    .get(filename_field)
+                    .and_then(Value::as_str)
+                    .is_some_and(
+                        super::character_version_media::is_content_addressed_version_filename,
+                    )
+                {
+                    continue;
+                }
                 let path = row
-                    .get("avatarFilePath")
+                    .get(path_field)
                     .and_then(Value::as_str)
                     .ok_or_else(|| {
                         AppError::new(
@@ -831,6 +839,11 @@ mod character_version_inline_media_tests {
                         "avatarPath":"http://asset.localhost/legacy.png",
                         "avatarFilePath":root.join("avatars/characters/legacy.png").to_string_lossy()
                     }),
+                    json!({
+                        "id":"version-4",
+                        "characterId":"char-1",
+                        "data":{"extensions":{"publicProfile":{"bannerImage":inline}}}
+                    }),
                 ],
             )
             .expect("fixture should persist");
@@ -839,9 +852,9 @@ mod character_version_inline_media_tests {
             .expect("migration should succeed");
         let rows = storage.list("character-versions").unwrap();
 
-        assert_eq!(report.input_records, 3);
-        assert_eq!(report.output_records, 3);
-        assert_eq!(report.changed_records, 2);
+        assert_eq!(report.input_records, 4);
+        assert_eq!(report.output_records, 4);
+        assert_eq!(report.changed_records, 3);
         assert_eq!(rows[0]["id"], "version-1");
         assert_eq!(rows[1]["data"]["name"], "Second");
         assert!(rows[2]["avatarFilePath"]
@@ -853,6 +866,13 @@ mod character_version_inline_media_tests {
             .as_str()
             .unwrap()
             .starts_with("data:image"));
+        assert!(
+            !rows[3]["data"]["extensions"]["publicProfile"]["bannerImage"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image")
+        );
+        assert_eq!(rows[3]["bannerImageFilename"], rows[0]["avatarFilename"]);
         assert_eq!(
             fs::read_dir(root.join("avatars/characters/versions"))
                 .unwrap()

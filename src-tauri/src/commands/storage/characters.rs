@@ -2,8 +2,8 @@ use super::character_version_media::{
     normalize_character_version_media, rollback_character_version_media_files,
 };
 use super::media_uploads::{
-    managed_record_file_path, persist_image_file_copy, remove_copied_file_path, safe_filename,
-    StoredManagedImage,
+    file_path_asset_url, managed_record_file_path, persist_image_file_copy,
+    remove_copied_file_path, safe_filename, StoredManagedImage,
 };
 use super::shared::*;
 use super::*;
@@ -400,24 +400,40 @@ fn remove_previous_character_avatar_after_restore(
 }
 
 pub(crate) fn remove_character_version_avatar_file(state: &AppState, record: &Value) {
-    match character_version_avatar_referenced_elsewhere(state, record) {
-        Ok(true) => (),
-        Ok(false) => super::avatars::remove_avatar_file(state, "characters", record),
-        Err(error) => log::warn!(
-            "skipping character version avatar cleanup because references could not be scanned: {error}"
-        ),
+    let paths = match record_managed_version_media_paths(state, record) {
+        Ok(paths) => paths,
+        Err(error) => {
+            log::warn!(
+                "skipping character version media cleanup because paths could not be resolved: {error}"
+            );
+            return;
+        }
+    };
+    for path in paths {
+        match character_version_media_path_referenced_elsewhere(state, record, &path) {
+            Ok(true) => {}
+            Ok(false) => match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => log::warn!(
+                    "could not remove unreferenced character version media {}: {error}",
+                    path.display()
+                ),
+            },
+            Err(error) => log::warn!(
+                "skipping character version media cleanup because references could not be scanned: {error}"
+            ),
+        }
     }
 }
 
-fn character_version_avatar_referenced_elsewhere(
+fn character_version_media_path_referenced_elsewhere(
     state: &AppState,
     record: &Value,
+    path: &Path,
 ) -> AppResult<bool> {
-    let Some(path) = record_managed_avatar_canonical_path(state, record)? else {
-        return Ok(false);
-    };
     for character in state.storage.list("characters")? {
-        if record_managed_avatar_matches_path(state, &character, &path)? {
+        if record_references_managed_version_media(state, &character, path)? {
             return Ok(true);
         }
     }
@@ -428,33 +444,60 @@ fn character_version_avatar_referenced_elsewhere(
         {
             continue;
         }
-        if record_managed_avatar_matches_path(state, &version, &path)? {
+        if record_references_managed_version_media(state, &version, path)? {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
-fn record_managed_avatar_matches_path(
+fn record_managed_version_media_paths(state: &AppState, record: &Value) -> AppResult<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for (path_field, filename_field) in [
+        ("avatarFilePath", "avatarFilename"),
+        ("bannerImageFilePath", "bannerImageFilename"),
+    ] {
+        let Some(path) = managed_record_file_path(
+            state,
+            "avatars/characters",
+            record,
+            path_field,
+            filename_field,
+        )?
+        else {
+            continue;
+        };
+        match fs::canonicalize(path) {
+            Ok(path) if !paths.contains(&path) => paths.push(path),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(paths)
+}
+
+fn record_references_managed_version_media(
     state: &AppState,
     record: &Value,
     path: &Path,
 ) -> AppResult<bool> {
-    Ok(record_managed_avatar_canonical_path(state, record)?.as_deref() == Some(path))
-}
-
-fn record_managed_avatar_canonical_path(
-    state: &AppState,
-    record: &Value,
-) -> AppResult<Option<PathBuf>> {
-    let Some(path) = managed_character_avatar_path(state, record)? else {
-        return Ok(None);
-    };
-    match fs::canonicalize(path) {
-        Ok(path) => Ok(Some(path)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(AppError::from(error)),
+    if record_managed_version_media_paths(state, record)?
+        .iter()
+        .any(|candidate| candidate == path)
+    {
+        return Ok(true);
     }
+    Ok(record
+        .pointer("/data/extensions/publicProfile/bannerImage")
+        .and_then(Value::as_str)
+        .is_some_and(|banner| {
+            banner == file_path_asset_url(path)
+                || path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|filename| banner.contains(filename))
+        }))
 }
 
 pub(crate) fn restore_character_version(

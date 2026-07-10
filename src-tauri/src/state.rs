@@ -54,7 +54,7 @@ const LEGACY_CHAT_GROUP_ROOTS_MIGRATION_KEY: &str = "legacyChatGroupRootsV1";
 const LOCAL_MEDIA_REFERENCES_MIGRATION_KEY: &str = "localMediaReferencesV1";
 const LEGACY_CHAT_GALLERY_FILES_MIGRATION_KEY: &str = "legacyChatGalleryFilesV1";
 const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
-const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInlineMediaV2";
+const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInlineMediaV3";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const USER_BACKGROUND_GAME_ASSET_PREFIX: &str = "__user_bg__/";
 
