@@ -41,6 +41,7 @@ import {
   type ChatTranscriptExportFormat,
 } from "../lib/chat-transcript-export";
 import { downloadTextFile } from "../lib/download";
+import { completeCharacterTitleUpdate } from "../lib/chat-character-update";
 import { sanitizeTimelineMessage, timelineMessageProjection } from "../lib/timeline-message";
 import { lorebookKeys } from "../../lorebooks/query-keys";
 import { CHAT_SUMMARY_FIELDS } from "./use-chat-summaries";
@@ -499,7 +500,7 @@ export function useChatGroup(groupId: string | null) {
 export function useUpdateChat() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       id,
       ...data
     }: {
@@ -510,7 +511,37 @@ export function useUpdateChat() {
       promptPresetId?: string | null;
       personaId?: string | null;
       characterIds?: string[];
-    }) => storageApi.update<Chat>("chats", id, data),
+    }) => {
+      const currentChat =
+        qc.getQueryData<ChatCacheRecord>(chatKeys.detail(id)) ??
+        (useChatStore.getState().activeChat?.id === id ? useChatStore.getState().activeChat : null);
+      const currentMode = currentChat && typeof currentChat.mode === "string" ? currentChat.mode : null;
+      const completedData = await completeCharacterTitleUpdate(data, { mode: currentMode }, async (characterId) => {
+        try {
+          const character = await storageApi.get<{ data?: unknown }>("characters", characterId, {
+            fields: ["id", "data"],
+            fieldSelections: { data: ["name"] },
+          });
+          const rawData = character?.data;
+          const parsedData =
+            typeof rawData === "string"
+              ? (() => {
+                  try {
+                    return JSON.parse(rawData) as unknown;
+                  } catch {
+                    return null;
+                  }
+                })()
+              : rawData;
+          if (!parsedData || typeof parsedData !== "object" || Array.isArray(parsedData)) return null;
+          const name = (parsedData as { name?: unknown }).name;
+          return typeof name === "string" && name.trim() ? name : null;
+        } catch {
+          return null;
+        }
+      });
+      return storageApi.update<Chat>("chats", id, completedData);
+    },
     onMutate: ({ id, ...data }) => {
       cancelChatCacheQueries(qc, id);
       const previousDetail = qc.getQueryData<ChatCacheRecord>(chatKeys.detail(id));
