@@ -931,6 +931,10 @@ class GameAudioManager {
     for (const el of this.sfxPool) {
       releaseAudio(el);
     }
+    this.audioContextUnlocked = false;
+    if (this.sfxAudioContext?.state === "running") {
+      void this.sfxAudioContext.suspend().catch(() => {});
+    }
   }
 
   /** Get current playback state. */
