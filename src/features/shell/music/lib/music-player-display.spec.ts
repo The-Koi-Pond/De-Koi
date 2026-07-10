@@ -20,7 +20,7 @@ describe("music player display", () => {
   it("uses neutral Music Player fallback text before a track is selected", () => {
     expect(getMusicPlayerDisplay(null)).toEqual({
       title: "Music Player",
-      subtitle: "YouTube first",
+      subtitle: "Generate a fresh pick or activate the Music Player agent",
     });
   });
 });

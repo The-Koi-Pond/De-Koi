@@ -13,6 +13,19 @@ export function formatEstimatedTokens(tokens: number): string {
 export function isCardTokenEstimateOverRecommendation(tokens: number): boolean {
   return tokens > CARD_TOKEN_RECOMMENDED_LIMIT;
 }
+
+export type InlineCardTokenWarning = {
+  label: string;
+  description: string;
+};
+
+export function getInlineCardTokenWarning(tokens: number): InlineCardTokenWarning | null {
+  if (!isCardTokenEstimateOverRecommendation(tokens)) return null;
+  return {
+    label: "Long card",
+    description: `${formatEstimatedTokens(tokens)}; recommended maximum is ${formatEstimatedTokens(CARD_TOKEN_RECOMMENDED_LIMIT)}. Open this character and shorten the card.`,
+  };
+}
 export type CardLengthToastKind = "character" | "persona";
 
 export type CardLengthToastAction =
