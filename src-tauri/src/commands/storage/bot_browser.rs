@@ -4,6 +4,7 @@ use super::images::percent_encode_component;
 use super::shared::*;
 use super::*;
 use reqwest::StatusCode;
+use std::sync::OnceLock;
 
 const BROWSER_UA: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -361,12 +362,44 @@ fn header(name: &'static str, value: impl Into<String>) -> Header {
     (name, value.into())
 }
 
-fn http_client(timeout_secs: u64) -> AppResult<reqwest::Client> {
+struct BotBrowserHttpClients {
+    short: reqwest::Client,
+    standard: reqwest::Client,
+    image: reqwest::Client,
+}
+
+static BOT_BROWSER_HTTP_CLIENTS: OnceLock<Result<BotBrowserHttpClients, String>> = OnceLock::new();
+
+fn build_http_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
-        .map_err(|error| AppError::new("http_client_error", error.to_string()))
+        .map_err(|error| error.to_string())
+}
+
+fn shared_http_clients() -> AppResult<&'static BotBrowserHttpClients> {
+    match BOT_BROWSER_HTTP_CLIENTS.get_or_init(|| {
+        Ok(BotBrowserHttpClients {
+            short: build_http_client(15)?,
+            standard: build_http_client(30)?,
+            image: build_http_client(60)?,
+        })
+    }) {
+        Ok(clients) => Ok(clients),
+        Err(error) => Err(AppError::new("http_client_error", error.clone())),
+    }
+}
+
+fn http_client(timeout_secs: u64) -> AppResult<reqwest::Client> {
+    let clients = shared_http_clients()?;
+    match timeout_secs {
+        15 => Ok(clients.short.clone()),
+        30 => Ok(clients.standard.clone()),
+        60 => Ok(clients.image.clone()),
+        _ => build_http_client(timeout_secs)
+            .map_err(|error| AppError::new("http_client_error", error)),
+    }
 }
 
 fn apply_headers(
@@ -1787,6 +1820,14 @@ mod tests {
         .expect_err("missing success flag should stay an upstream error");
 
         assert_eq!(error.code, "upstream_response_error");
+    }
+
+    #[test]
+    fn bot_browser_http_clients_are_reused() {
+        let first = shared_http_clients().expect("shared clients should initialize");
+        let second = shared_http_clients().expect("shared clients should remain available");
+
+        assert!(std::ptr::eq(first, second));
     }
 
     struct TempRoot(PathBuf);

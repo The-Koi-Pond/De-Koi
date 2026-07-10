@@ -56,6 +56,7 @@ import {
   resolveBotBrowserAssetUrl,
 } from "../api/bot-browser-api";
 import { mergeCharacterDetailIntoCharacterJson } from "../lib/character-detail-merge";
+import { botBrowserAssetImageCache } from "../lib/asset-image-cache";
 import type {
   ChartavernDetailResponse,
   ChartavernSearchResponse,
@@ -2563,20 +2564,44 @@ function BotBrowserAssetImage({
   loading?: "eager" | "lazy";
   onError: () => void;
 }) {
-  const [resolvedSrc, setResolvedSrc] = useState(() => (src.startsWith("tauri-api:") ? "" : src));
+  const requiresProxyResolution = src.startsWith("tauri-api:");
+  const [resolvedSrc, setResolvedSrc] = useState(() => (requiresProxyResolution ? "" : src));
+  const [shouldResolve, setShouldResolve] = useState(() => loading !== "lazy" || !requiresProxyResolution);
+  const placeholderRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
+    setResolvedSrc(requiresProxyResolution ? "" : src);
+    setShouldResolve(loading !== "lazy" || !requiresProxyResolution);
+  }, [loading, requiresProxyResolution, src]);
 
-    resolveBotBrowserAssetUrl(src)
+  useEffect(() => {
+    if (shouldResolve || !requiresProxyResolution) return;
+    const placeholder = placeholderRef.current;
+    if (!placeholder || typeof IntersectionObserver === "undefined") {
+      setShouldResolve(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setShouldResolve(true);
+        observer.disconnect();
+      },
+      { rootMargin: "320px" },
+    );
+    observer.observe(placeholder);
+    return () => observer.disconnect();
+  }, [requiresProxyResolution, shouldResolve]);
+
+  useEffect(() => {
+    if (!shouldResolve) return;
+    let cancelled = false;
+
+    botBrowserAssetImageCache
+      .resolve(src, resolveBotBrowserAssetUrl)
       .then((url) => {
-        if (cancelled) {
-          if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-          return;
-        }
-        objectUrl = url.startsWith("blob:") ? url : null;
-        setResolvedSrc(url);
+        if (!cancelled) setResolvedSrc(url);
       })
       .catch(() => {
         if (!cancelled) onError();
@@ -2584,11 +2609,10 @@ function BotBrowserAssetImage({
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [src, onError]);
+  }, [onError, shouldResolve, src]);
 
-  if (!resolvedSrc) return null;
+  if (!resolvedSrc) return <span ref={placeholderRef} className={className} aria-hidden="true" />;
   return <img src={resolvedSrc} alt={alt} loading={loading} className={className} onError={onError} />;
 }
 
