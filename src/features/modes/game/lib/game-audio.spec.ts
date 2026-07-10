@@ -2,6 +2,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { resolveGameAssetFileUrlMock } = vi.hoisted(() => ({
+  resolveGameAssetFileUrlMock: vi.fn(),
+}));
+
+vi.mock("../../../../shared/api/local-file-api", () => ({
+  resolveGameAssetFileUrl: resolveGameAssetFileUrlMock,
+}));
+
 const audioElements: AudioElementStub[] = [];
 
 class AudioElementStub {
@@ -47,6 +55,8 @@ function createAudioContextStub(initialState: AudioContextState = "running") {
 describe("game audio disposal", () => {
   beforeEach(() => {
     vi.resetModules();
+    resolveGameAssetFileUrlMock.mockReset();
+    resolveGameAssetFileUrlMock.mockResolvedValue("asset://default");
     audioElements.length = 0;
     vi.stubGlobal("Audio", AudioElementStub);
   });
@@ -174,5 +184,43 @@ describe("game audio disposal", () => {
 
     expect(AudioContextStub).toHaveBeenCalledOnce();
     secondModule.audioManager.dispose();
+  });
+
+  it("does not resume or play an SFX request whose asset resolves after disposal", async () => {
+    let resolveAsset!: (url: string) => void;
+    resolveGameAssetFileUrlMock.mockReturnValue(
+      new Promise<string>((resolve) => {
+        resolveAsset = resolve;
+      }),
+    );
+    const context = createAudioContextStub();
+    vi.stubGlobal("AudioContext", vi.fn(function () {
+      return context;
+    }));
+    const { audioManager } = await import("./game-audio");
+    audioManager.unlock();
+    audioManager.playSfx("custom:old-request");
+
+    audioManager.dispose();
+    resolveAsset("asset://old-request");
+    for (let index = 0; index < 6; index++) await Promise.resolve();
+
+    expect(context.resume).not.toHaveBeenCalled();
+    expect(audioElements.slice(0, 8).every((audio) => audio.play.mock.calls.length === 0)).toBe(true);
+  });
+
+  it("allows a new post-disposal SFX request to resume and play", async () => {
+    const context = createAudioContextStub();
+    vi.stubGlobal("AudioContext", vi.fn(function () {
+      return context;
+    }));
+    const { audioManager } = await import("./game-audio");
+    audioManager.unlock();
+    audioManager.dispose();
+
+    audioManager.playSfx("custom:new-request");
+
+    await expect.poll(() => audioElements[0]?.play.mock.calls.length).toBe(1);
+    expect(context.resume).toHaveBeenCalledOnce();
   });
 });

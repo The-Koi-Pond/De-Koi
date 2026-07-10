@@ -86,6 +86,7 @@ class GameAudioManager {
   private ambientElement: LoopingAudioLayer | null = null;
   private sfxPool: HTMLAudioElement[] = [];
   private sfxIndex = 0;
+  private sfxGeneration = 0;
   private sfxAudioContext: AudioContext | null = null;
   private pendingSfxSuspend: Promise<void> | null = null;
   private mediaUnlockElement: HTMLAudioElement | null = null;
@@ -622,11 +623,13 @@ class GameAudioManager {
     source.start(now);
   }
 
-  private async playProceduralSfx(tag: string): Promise<boolean> {
+  private async playProceduralSfx(tag: string, generation: number): Promise<boolean> {
+    if (generation !== this.sfxGeneration) return false;
     if (this.isMuted || this.sfxVolume <= 0 || !this.userHasInteracted) return false;
     const ctx = this.getSfxAudioContext();
     if (!ctx) return false;
     if (!(await this.resumeAudioContext(ctx))) return false;
+    if (generation !== this.sfxGeneration) return false;
     const normalizedTag = normalizeAssetTag(tag);
 
     if (/menu-hover$/.test(normalizedTag)) {
@@ -830,30 +833,40 @@ class GameAudioManager {
 
   /** Play a one-shot sound effect. */
   playSfx(tag: string, manifest?: AssetMap | null): void {
+    const generation = this.sfxGeneration;
+    const isCurrent = () => generation === this.sfxGeneration;
     if (this.isMuted || this.sfxVolume <= 0 || !this.userHasInteracted) return;
     void this.resolveAssetUrl(tag, manifest)
       .then(async (url) => {
-        if (this.isMuted || this.sfxVolume <= 0) return;
+        if (!isCurrent() || this.isMuted || this.sfxVolume <= 0) return;
         const audio = this.sfxPool[this.sfxIndex % SFX_POOL_SIZE]!;
         this.sfxIndex++;
         audio.onerror = () => {
           audio.onerror = null;
-          this.playProceduralSfx(tag);
+          if (!isCurrent()) return;
+          void this.playProceduralSfx(tag, generation);
         };
         audio.src = url;
         this.setElementLayerVolume(audio, this.sfxVolume);
-        if (this.sfxAudioContext && !(await this.resumeAudioContext(this.sfxAudioContext))) {
-          void this.playProceduralSfx(tag);
-          return;
+        if (this.sfxAudioContext) {
+          const resumed = await this.resumeAudioContext(this.sfxAudioContext);
+          if (!isCurrent()) return;
+          if (!resumed) {
+            void this.playProceduralSfx(tag, generation);
+            return;
+          }
         }
+        if (!isCurrent()) return;
         audio.muted = this.isMuted;
         audio.currentTime = 0;
         audio.play().catch(() => {
-          void this.playProceduralSfx(tag);
+          if (!isCurrent()) return;
+          void this.playProceduralSfx(tag, generation);
         });
       })
       .catch(() => {
-        void this.playProceduralSfx(tag);
+        if (!isCurrent()) return;
+        void this.playProceduralSfx(tag, generation);
       });
   }
 
@@ -968,6 +981,7 @@ class GameAudioManager {
 
   /** Stop everything and clean up. */
   dispose(): void {
+    this.sfxGeneration++;
     this.stopMusic();
     this.stopAmbient();
     for (const el of this.sfxPool) {
