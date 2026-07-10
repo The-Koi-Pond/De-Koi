@@ -30,7 +30,27 @@ struct VersionRetentionMeta {
     source_index: usize,
 }
 
-fn select_pruned_ids(rows: &[VersionRetentionMeta], limit: usize) -> HashSet<String> {
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct VersionRetentionIdentity {
+    source_index: usize,
+    id: String,
+    character_id: Option<String>,
+    pinned: bool,
+}
+
+fn retention_identity(row: &VersionRetentionMeta) -> VersionRetentionIdentity {
+    VersionRetentionIdentity {
+        source_index: row.source_index,
+        id: row.id.clone(),
+        character_id: row.character_id.clone(),
+        pinned: row.pinned,
+    }
+}
+
+fn select_pruned_rows(
+    rows: &[VersionRetentionMeta],
+    limit: usize,
+) -> HashSet<VersionRetentionIdentity> {
     let mut by_character: HashMap<&str, Vec<&VersionRetentionMeta>> = HashMap::new();
     for row in rows.iter().filter(|row| !row.pinned) {
         if let Some(character_id) = row.character_id.as_deref() {
@@ -41,9 +61,17 @@ fn select_pruned_ids(rows: &[VersionRetentionMeta], limit: usize) -> HashSet<Str
     let mut pruned = HashSet::new();
     for rows in by_character.values_mut() {
         rows.sort_by(|left, right| compare_newest_first(left, right));
-        pruned.extend(rows.iter().skip(limit).map(|row| row.id.clone()));
+        pruned.extend(rows.iter().skip(limit).map(|row| retention_identity(row)));
     }
     pruned
+}
+
+#[cfg(test)]
+fn select_pruned_ids(rows: &[VersionRetentionMeta], limit: usize) -> HashSet<String> {
+    select_pruned_rows(rows, limit)
+        .into_iter()
+        .map(|row| row.id)
+        .collect()
 }
 
 fn compare_newest_first(left: &VersionRetentionMeta, right: &VersionRetentionMeta) -> Ordering {
@@ -91,24 +119,22 @@ pub(crate) fn prune_character_versions(
             Ok(())
         })?;
 
-    let pruned_ids = select_pruned_ids(&rows, CHARACTER_VERSION_UNPINNED_LIMIT);
+    let pruned_rows = select_pruned_rows(&rows, CHARACTER_VERSION_UNPINNED_LIMIT);
     let affected_characters = rows
         .iter()
-        .filter(|row| pruned_ids.contains(&row.id))
+        .filter(|row| pruned_rows.contains(&retention_identity(row)))
         .filter_map(|row| row.character_id.as_deref())
         .collect::<HashSet<_>>()
         .len();
     let retained_pinned = rows.iter().filter(|row| row.pinned).count();
-    let retained_unpinned = rows.iter().filter(|row| !row.pinned).count() - pruned_ids.len();
+    let retained_unpinned = rows.iter().filter(|row| !row.pinned).count() - pruned_rows.len();
     let mut media_candidates = HashSet::new();
     let filter_report = state.storage.filter_collection_streaming(
         "character-versions",
         "retention-prune",
-        |_source_index, row| {
-            let selected = row
-                .get("id")
-                .and_then(Value::as_str)
-                .is_some_and(|id| pruned_ids.contains(id));
+        |source_index, row| {
+            let selected = filter_identity(source_index, row)
+                .is_some_and(|identity| pruned_rows.contains(&identity));
             if selected {
                 media_candidates.extend(managed_media_paths(state, row));
             }
@@ -125,6 +151,15 @@ pub(crate) fn prune_character_versions(
         cleaned_media,
         preserved_shared_media,
         malformed_ownerless_rows,
+    })
+}
+
+fn filter_identity(source_index: usize, row: &Value) -> Option<VersionRetentionIdentity> {
+    Some(VersionRetentionIdentity {
+        source_index,
+        id: non_empty_string(row, "id")?,
+        character_id: non_empty_string(row, "characterId"),
+        pinned: row.get("pinned").and_then(Value::as_bool).unwrap_or(false),
     })
 }
 
@@ -397,6 +432,48 @@ mod tests {
             version_meta("second", "char", "invalid", false, 1),
         ];
         assert_eq!(select_pruned_ids(&rows, 1), ["second".to_string()].into());
+    }
+
+    #[test]
+    fn duplicate_id_does_not_select_pinned_row_identity() {
+        let rows = vec![
+            version_meta("duplicate", "char", "2026-01-01T00:00:00Z", false, 0),
+            version_meta("new", "char", "2026-01-02T00:00:00Z", false, 1),
+            version_meta("duplicate", "char", "2026-01-03T00:00:00Z", true, 2),
+        ];
+
+        let selection = select_pruned_rows(&rows, 1);
+
+        assert!(selection.contains(&retention_identity(&rows[0])));
+        assert!(!selection.contains(&retention_identity(&rows[2])));
+    }
+
+    #[test]
+    fn duplicate_id_does_not_select_ownerless_row_identity() {
+        let rows = vec![
+            version_meta("duplicate", "char", "2026-01-01T00:00:00Z", false, 0),
+            version_meta("new", "char", "2026-01-02T00:00:00Z", false, 1),
+            ownerless_meta("duplicate", 2),
+        ];
+
+        let selection = select_pruned_rows(&rows, 1);
+
+        assert!(selection.contains(&retention_identity(&rows[0])));
+        assert!(!selection.contains(&retention_identity(&rows[2])));
+    }
+
+    #[test]
+    fn duplicate_id_does_not_select_other_character_row_identity() {
+        let rows = vec![
+            version_meta("duplicate", "scoped", "2026-01-01T00:00:00Z", false, 0),
+            version_meta("new", "scoped", "2026-01-02T00:00:00Z", false, 1),
+            version_meta("duplicate", "unscoped", "2026-01-03T00:00:00Z", false, 2),
+        ];
+
+        let selection = select_pruned_rows(&rows[..2], 1);
+
+        assert!(selection.contains(&retention_identity(&rows[0])));
+        assert!(!selection.contains(&retention_identity(&rows[2])));
     }
 
     #[test]
