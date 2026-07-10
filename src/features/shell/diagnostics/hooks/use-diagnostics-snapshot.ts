@@ -101,18 +101,19 @@ async function runtimeSection(remoteRuntimeUrl: string): Promise<DiagnosticsSect
 }
 
 function sidecarStatus(status: LocalSidecarStatusResponse): DiagnosticStatus {
+  if (!status.configured) return "unknown";
   if (status.ready && status.status === "ready") return "ok";
   if (status.status === "server_error") return "error";
   if (status.status === "starting" || status.status === "downloading_model" || status.status === "downloading_runtime") {
     return "warning";
   }
-  return status.configured ? "degraded" : "warning";
+  return "degraded";
 }
 
 function sidecarSummary(status: LocalSidecarStatusResponse): string {
   if (status.ready && status.status === "ready") return "Local Model sidecar is ready.";
   if (status.startupError) return status.startupError;
-  if (!status.configured) return "Local Model is not configured yet.";
+  if (!status.configured) return "Local Model is not configured (optional).";
   if (!status.modelDownloaded) return "Local Model is configured, but no model is downloaded.";
   if (!status.runtime.installed && !status.config.executablePath?.trim()) {
     return "Local Model needs a runtime before it can start.";
@@ -163,8 +164,8 @@ function providerItem(connection: ConnectionSummary): DiagnosticItem {
   return {
     id: `provider-${id}`,
     label: connection.name?.trim() || id,
-    status: "warning",
-    summary: "Connection is configured. Run an explicit probe to test provider reachability.",
+    status: "unknown",
+    summary: "Connection is configured. Run a probe to test provider reachability.",
     details: {
       connectionId: id,
       provider: connection.provider ?? "",
@@ -199,8 +200,8 @@ async function providersSection(): Promise<DiagnosticsSection> {
       items.push({
         id: "providers-empty",
         label: "Stored providers",
-        status: "warning",
-        summary: "No stored model connections found.",
+        status: "unknown",
+        summary: "No stored model connections found. Add one when you want to use a remote model.",
       });
     }
     return section("providers", "Providers", items);

@@ -221,14 +221,15 @@ describe("HealthDiagnosticsSettings", () => {
     expect(connectionCommandApi.test).toHaveBeenCalledWith("conn-1");
   });
 
-  it("clears provider attention status after a successful explicit probe", async () => {
+  it("keeps an unprobed provider neutral and reports a successful explicit probe", async () => {
     await act(async () => {
       root = createRoot(container!);
       root.render(<HealthDiagnosticsSettings />);
     });
     await flushAsyncWork();
 
-    expect(container!.textContent).toContain("Needs attention");
+    expect(container!.textContent).toContain("Connection is configured. Run a probe to test provider reachability.");
+    expect(container!.textContent).not.toContain("Needs attention");
 
     const probeButton = Array.from(container!.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Probe"),
@@ -242,6 +243,7 @@ describe("HealthDiagnosticsSettings", () => {
 
     expect(connectionCommandApi.test).toHaveBeenCalledWith("conn-1");
     expect(container!.textContent).toContain("Probe completed in 10 ms.");
+    expect(container!.textContent).toContain("Provider probe succeeded for this connection.");
     expect(container!.textContent).not.toContain("Needs attention");
   });
 

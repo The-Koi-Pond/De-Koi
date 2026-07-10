@@ -55,6 +55,20 @@ function readySidecarStatus() {
   } as unknown as Awaited<ReturnType<typeof localSidecarApi.status>>;
 }
 
+function optionalUnconfiguredSidecarStatus() {
+  return {
+    ...readySidecarStatus(),
+    status: 'stopped',
+    configured: false,
+    enabled: false,
+    config: { enabled: false, executablePath: null },
+    ready: false,
+    baseUrl: null,
+    modelDownloaded: false,
+    runtime: { installed: false },
+  } as unknown as Awaited<ReturnType<typeof localSidecarApi.status>>;
+}
+
 describe('createDiagnosticsSnapshot', () => {
   beforeEach(() => {
     remoteRuntimeMock.embedded = false;
@@ -102,5 +116,25 @@ describe('createDiagnosticsSnapshot', () => {
     expect(providers?.items.map((item) => item.label)).toEqual(['Main Model', 'Broken Provider']);
     expect(providers?.items.find((item) => item.id === 'provider-invalid-1')?.status).toBe('error');
     expect(JSON.stringify(packet)).toContain('missing-id');
+  });
+
+  it('keeps optional and unprobed components neutral when core checks are healthy', async () => {
+    vi.mocked(checkRemoteRuntimeHealth).mockResolvedValue({ status: 'ok', message: 'Runtime ready.', health: { ok: true } });
+    vi.mocked(localSidecarApi.status).mockResolvedValue(optionalUnconfiguredSidecarStatus());
+    vi.mocked(storageApi.list).mockImplementation(async (entity) =>
+      entity === 'connections'
+        ? [{ id: 'conn-1', name: 'Main Model', provider: 'openai', model: 'gpt-test' }]
+        : [],
+    );
+
+    const snapshot = await createDiagnosticsSnapshot('http://runtime.test');
+    const providers = snapshot.sections.find((section) => section.id === 'providers');
+    const sidecar = snapshot.sections.find((section) => section.id === 'sidecar');
+
+    expect(snapshot.overallStatus).toBe('ok');
+    expect(providers?.status).toBe('unknown');
+    expect(providers?.items[0]?.summary).toContain('Run a probe');
+    expect(sidecar?.status).toBe('unknown');
+    expect(sidecar?.items[0]?.summary).toBe('Local Model is not configured (optional).');
   });
 });

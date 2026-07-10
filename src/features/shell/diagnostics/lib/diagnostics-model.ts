@@ -185,7 +185,7 @@ function statusRank(status: DiagnosticStatus): number {
     case "degraded":
       return 3;
     case "unknown":
-      return 2;
+      return 0;
     case "ok":
       return 1;
   }
@@ -193,6 +193,7 @@ function statusRank(status: DiagnosticStatus): number {
 
 export function diagnosticsOverallStatus(items: readonly { status: DiagnosticStatus }[]): DiagnosticStatus {
   if (items.length === 0) return "unknown";
+  if (items.every((item) => item.status === "unknown")) return "unknown";
   const highest = items.reduce<DiagnosticStatus>(
     (current, item) => (statusRank(item.status) > statusRank(current) ? item.status : current),
     "ok",
