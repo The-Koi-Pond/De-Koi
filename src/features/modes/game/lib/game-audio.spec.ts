@@ -67,6 +67,11 @@ describe("game audio disposal", () => {
 
   it("suspends an existing running AudioContext on disposal", async () => {
     const context = createAudioContextStub();
+    context.suspend.mockImplementation(function (this: { state: AudioContextState }) {
+      expect(audioElements.slice(0, 8).every((audio) => audio.pause.mock.calls.length === 1)).toBe(true);
+      this.state = "suspended";
+      return Promise.resolve();
+    });
     const AudioContextStub = vi.fn(function () {
       return context;
     });
@@ -91,9 +96,38 @@ describe("game audio disposal", () => {
 
     audioManager.unlock();
 
+    await expect.poll(() => context.state).toBe("running");
     expect(AudioContextStub).toHaveBeenCalledOnce();
     expect(context.resume).toHaveBeenCalledOnce();
     expect(context.createBufferSource).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits for pending suspension before resuming the same context", async () => {
+    const context = createAudioContextStub();
+    let resolveSuspend!: () => void;
+    context.suspend.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSuspend = () => {
+            context.state = "suspended";
+            resolve();
+          };
+        }),
+    );
+    const AudioContextStub = vi.fn(function () {
+      return context;
+    });
+    vi.stubGlobal("AudioContext", AudioContextStub);
+    const { audioManager } = await import("./game-audio");
+    audioManager.unlock();
+    audioManager.dispose();
+
+    audioManager.unlock();
+    resolveSuspend();
+
+    await expect.poll(() => context.state).toBe("running");
+    expect(AudioContextStub).toHaveBeenCalledOnce();
+    expect(context.resume).toHaveBeenCalledOnce();
   });
 
   it.each(["suspended", "closed"] as const)("does not redundantly suspend a %s context", async (state) => {
@@ -124,5 +158,21 @@ describe("game audio disposal", () => {
     await Promise.resolve();
 
     expect(audioElements.slice(0, 8).every((audio) => audio.pause.mock.calls.length === 1)).toBe(true);
+  });
+
+  it("does not retain a document interaction listener after disposal", async () => {
+    const AudioContextStub = vi.fn(function () {
+      return createAudioContextStub();
+    });
+    vi.stubGlobal("AudioContext", AudioContextStub);
+    const firstModule = await import("./game-audio");
+    firstModule.audioManager.dispose();
+    vi.resetModules();
+    const secondModule = await import("./game-audio");
+
+    document.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(AudioContextStub).toHaveBeenCalledOnce();
+    secondModule.audioManager.dispose();
   });
 });

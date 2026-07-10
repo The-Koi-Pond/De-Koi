@@ -87,6 +87,7 @@ class GameAudioManager {
   private sfxPool: HTMLAudioElement[] = [];
   private sfxIndex = 0;
   private sfxAudioContext: AudioContext | null = null;
+  private pendingSfxSuspend: Promise<void> | null = null;
   private mediaUnlockElement: HTMLAudioElement | null = null;
   private mediaNodes = new WeakMap<HTMLAudioElement, { source: MediaElementAudioSourceNode; gain: GainNode }>();
   private audioContextUnlocked = false;
@@ -101,9 +102,11 @@ class GameAudioManager {
   private pendingMusic: { tag: string; manifest?: Record<string, { path: string }> | null } | null = null;
   private pendingAmbient: { tag: string; manifest?: Record<string, { path: string }> | null } | null = null;
   private gestureListenerAttached = false;
+  private gestureHandler: (() => void) | null = null;
   /** True after the user has interacted with the page (click/touch/key). */
   private userHasInteracted = false;
   private interactionListenerAttached = false;
+  private interactionHandler: (() => void) | null = null;
 
   constructor() {
     setAmbientAudioSession();
@@ -121,18 +124,26 @@ class GameAudioManager {
     if (this.interactionListenerAttached) return;
     this.interactionListenerAttached = true;
     const handler = () => {
+      this.removeInteractionListener();
       this.unlock();
-      document.removeEventListener("click", handler, true);
-      document.removeEventListener("touchstart", handler, true);
-      document.removeEventListener("keydown", handler, true);
-      document.removeEventListener("pointerdown", handler, true);
       // Retry any pending audio now that the user has interacted
       this.retryPending();
     };
+    this.interactionHandler = handler;
     document.addEventListener("click", handler, true);
     document.addEventListener("touchstart", handler, true);
     document.addEventListener("keydown", handler, true);
     document.addEventListener("pointerdown", handler, true);
+  }
+
+  private removeInteractionListener(): void {
+    if (!this.interactionHandler) return;
+    document.removeEventListener("click", this.interactionHandler, true);
+    document.removeEventListener("touchstart", this.interactionHandler, true);
+    document.removeEventListener("keydown", this.interactionHandler, true);
+    document.removeEventListener("pointerdown", this.interactionHandler, true);
+    this.interactionHandler = null;
+    this.interactionListenerAttached = false;
   }
 
   /** Attach a one-time user gesture listener to retry blocked audio. */
@@ -140,18 +151,25 @@ class GameAudioManager {
     if (this.gestureListenerAttached) return;
     this.gestureListenerAttached = true;
     const handler = () => {
-      document.removeEventListener("click", handler, true);
-      document.removeEventListener("touchstart", handler, true);
-      document.removeEventListener("keydown", handler, true);
-      document.removeEventListener("pointerdown", handler, true);
-      this.gestureListenerAttached = false;
+      this.removeGestureListener();
       this.unlock();
       this.retryPending();
     };
+    this.gestureHandler = handler;
     document.addEventListener("click", handler, true);
     document.addEventListener("touchstart", handler, true);
     document.addEventListener("keydown", handler, true);
     document.addEventListener("pointerdown", handler, true);
+  }
+
+  private removeGestureListener(): void {
+    if (!this.gestureHandler) return;
+    document.removeEventListener("click", this.gestureHandler, true);
+    document.removeEventListener("touchstart", this.gestureHandler, true);
+    document.removeEventListener("keydown", this.gestureHandler, true);
+    document.removeEventListener("pointerdown", this.gestureHandler, true);
+    this.gestureHandler = null;
+    this.gestureListenerAttached = false;
   }
 
   /** Retry any autoplay-blocked audio. Call from a user gesture for best results. */
@@ -196,13 +214,14 @@ class GameAudioManager {
       if (!AudioContextCtor) return null;
       this.sfxAudioContext = new AudioContextCtor();
     }
-    if (this.sfxAudioContext.state === "suspended") {
-      void this.sfxAudioContext.resume().catch(() => {});
-    }
     return this.sfxAudioContext;
   }
 
   private async resumeAudioContext(ctx: AudioContext): Promise<boolean> {
+    const pendingSuspend = this.pendingSfxSuspend;
+    if (pendingSuspend) {
+      await pendingSuspend;
+    }
     if (ctx.state === "running") {
       this.audioContextUnlocked = true;
       return true;
@@ -258,8 +277,19 @@ class GameAudioManager {
     setAmbientAudioSession();
     this.primeMediaElement();
     const ctx = this.getSfxAudioContext();
-    if (!ctx || (this.audioContextUnlocked && ctx.state === "running")) return;
+    if (!ctx) return;
+    if (this.pendingSfxSuspend) {
+      void this.resumeAudioContext(ctx).then((running) => {
+        if (running) this.primeSfxAudioContext(ctx);
+      });
+      return;
+    }
+    if (this.audioContextUnlocked && ctx.state === "running") return;
 
+    this.primeSfxAudioContext(ctx);
+  }
+
+  private primeSfxAudioContext(ctx: AudioContext): void {
     try {
       const source = ctx.createBufferSource();
       source.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
@@ -268,8 +298,7 @@ class GameAudioManager {
       if (ctx.state === "running") {
         this.audioContextUnlocked = true;
       } else {
-        void ctx
-          .resume()
+        void this.resumeAudioContext(ctx)
           .then(() => {
             this.audioContextUnlocked = ctx.state === "running";
           })
@@ -340,6 +369,9 @@ class GameAudioManager {
       audio.loop = true;
       fallbackAudio = audio;
       applyVolume();
+      if (this.sfxAudioContext) {
+        await this.resumeAudioContext(this.sfxAudioContext);
+      }
       await audio.play();
     };
 
@@ -471,6 +503,9 @@ class GameAudioManager {
       audio.onended = finish;
       audio.onerror = fail;
       applyVolume();
+      if (this.sfxAudioContext) {
+        await this.resumeAudioContext(this.sfxAudioContext);
+      }
       await audio.play();
       markStarted();
     };
@@ -587,10 +622,11 @@ class GameAudioManager {
     source.start(now);
   }
 
-  private playProceduralSfx(tag: string): boolean {
+  private async playProceduralSfx(tag: string): Promise<boolean> {
     if (this.isMuted || this.sfxVolume <= 0 || !this.userHasInteracted) return false;
     const ctx = this.getSfxAudioContext();
     if (!ctx) return false;
+    if (!(await this.resumeAudioContext(ctx))) return false;
     const normalizedTag = normalizeAssetTag(tag);
 
     if (/menu-hover$/.test(normalizedTag)) {
@@ -659,6 +695,7 @@ class GameAudioManager {
 
     // Defer playback if the user hasn't interacted yet (avoids autoplay warnings)
     if (!this.userHasInteracted) {
+      this.attachInteractionListener();
       this.pendingMusic = { tag, manifest };
       return;
     }
@@ -795,7 +832,7 @@ class GameAudioManager {
   playSfx(tag: string, manifest?: AssetMap | null): void {
     if (this.isMuted || this.sfxVolume <= 0 || !this.userHasInteracted) return;
     void this.resolveAssetUrl(tag, manifest)
-      .then((url) => {
+      .then(async (url) => {
         if (this.isMuted || this.sfxVolume <= 0) return;
         const audio = this.sfxPool[this.sfxIndex % SFX_POOL_SIZE]!;
         this.sfxIndex++;
@@ -805,14 +842,18 @@ class GameAudioManager {
         };
         audio.src = url;
         this.setElementLayerVolume(audio, this.sfxVolume);
+        if (this.sfxAudioContext && !(await this.resumeAudioContext(this.sfxAudioContext))) {
+          void this.playProceduralSfx(tag);
+          return;
+        }
         audio.muted = this.isMuted;
         audio.currentTime = 0;
         audio.play().catch(() => {
-          this.playProceduralSfx(tag);
+          void this.playProceduralSfx(tag);
         });
       })
       .catch(() => {
-        this.playProceduralSfx(tag);
+        void this.playProceduralSfx(tag);
       });
   }
 
@@ -825,6 +866,7 @@ class GameAudioManager {
 
     // Defer playback if the user hasn't interacted yet (avoids autoplay warnings)
     if (!this.userHasInteracted) {
+      this.attachInteractionListener();
       this.pendingAmbient = { tag, manifest };
       return;
     }
@@ -931,9 +973,17 @@ class GameAudioManager {
     for (const el of this.sfxPool) {
       releaseAudio(el);
     }
+    this.removeInteractionListener();
+    this.removeGestureListener();
     this.audioContextUnlocked = false;
-    if (this.sfxAudioContext?.state === "running") {
-      void this.sfxAudioContext.suspend().catch(() => {});
+    if (!this.pendingSfxSuspend && this.sfxAudioContext?.state === "running") {
+      const pendingSuspend = this.sfxAudioContext.suspend().catch(() => {});
+      this.pendingSfxSuspend = pendingSuspend;
+      void pendingSuspend.finally(() => {
+        if (this.pendingSfxSuspend === pendingSuspend) {
+          this.pendingSfxSuspend = null;
+        }
+      });
     }
   }
 
