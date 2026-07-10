@@ -4,7 +4,10 @@ use super::images::percent_encode_component;
 use super::shared::*;
 use super::*;
 use reqwest::StatusCode;
-use std::sync::OnceLock;
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
 const BROWSER_UA: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -362,13 +365,7 @@ fn header(name: &'static str, value: impl Into<String>) -> Header {
     (name, value.into())
 }
 
-struct BotBrowserHttpClients {
-    short: reqwest::Client,
-    standard: reqwest::Client,
-    image: reqwest::Client,
-}
-
-static BOT_BROWSER_HTTP_CLIENTS: OnceLock<Result<BotBrowserHttpClients, String>> = OnceLock::new();
+static BOT_BROWSER_HTTP_CLIENTS: OnceLock<Mutex<HashMap<u64, reqwest::Client>>> = OnceLock::new();
 
 fn build_http_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
@@ -378,28 +375,28 @@ fn build_http_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
         .map_err(|error| error.to_string())
 }
 
-fn shared_http_clients() -> AppResult<&'static BotBrowserHttpClients> {
-    match BOT_BROWSER_HTTP_CLIENTS.get_or_init(|| {
-        Ok(BotBrowserHttpClients {
-            short: build_http_client(15)?,
-            standard: build_http_client(30)?,
-            image: build_http_client(60)?,
-        })
-    }) {
-        Ok(clients) => Ok(clients),
-        Err(error) => Err(AppError::new("http_client_error", error.clone())),
+fn shared_http_clients() -> &'static Mutex<HashMap<u64, reqwest::Client>> {
+    BOT_BROWSER_HTTP_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn pooled_http_client_with<F>(timeout_secs: u64, build: F) -> Result<reqwest::Client, String>
+where
+    F: FnOnce(u64) -> Result<reqwest::Client, String>,
+{
+    let mut clients = shared_http_clients()
+        .lock()
+        .map_err(|_| "bot browser HTTP client pool lock was poisoned".to_string())?;
+    if let Some(client) = clients.get(&timeout_secs) {
+        return Ok(client.clone());
     }
+    let client = build(timeout_secs)?;
+    clients.insert(timeout_secs, client.clone());
+    Ok(client)
 }
 
 fn http_client(timeout_secs: u64) -> AppResult<reqwest::Client> {
-    let clients = shared_http_clients()?;
-    match timeout_secs {
-        15 => Ok(clients.short.clone()),
-        30 => Ok(clients.standard.clone()),
-        60 => Ok(clients.image.clone()),
-        _ => build_http_client(timeout_secs)
-            .map_err(|error| AppError::new("http_client_error", error)),
-    }
+    pooled_http_client_with(timeout_secs, build_http_client)
+        .map_err(|error| AppError::new("http_client_error", error))
 }
 
 fn apply_headers(
@@ -1824,10 +1821,30 @@ mod tests {
 
     #[test]
     fn bot_browser_http_clients_are_reused() {
-        let first = shared_http_clients().expect("shared clients should initialize");
-        let second = shared_http_clients().expect("shared clients should remain available");
+        let first = shared_http_clients();
+        let second = shared_http_clients();
 
         assert!(std::ptr::eq(first, second));
+    }
+
+    #[test]
+    fn bot_browser_http_client_pool_retries_failed_initialization() {
+        let timeout = 77;
+        let attempts = std::sync::atomic::AtomicUsize::new(0);
+
+        assert!(pooled_http_client_with(timeout, |_| {
+            attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err("temporary client build failure".to_string())
+        })
+        .is_err());
+
+        pooled_http_client_with(timeout, |seconds| {
+            attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            build_http_client(seconds)
+        })
+        .expect("a later healthy build should recover");
+
+        assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     struct TempRoot(PathBuf);

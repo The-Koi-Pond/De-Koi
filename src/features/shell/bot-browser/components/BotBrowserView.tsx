@@ -56,7 +56,7 @@ import {
   resolveBotBrowserAssetUrl,
 } from "../api/bot-browser-api";
 import { mergeCharacterDetailIntoCharacterJson } from "../lib/character-detail-merge";
-import { botBrowserAssetImageCache } from "../lib/asset-image-cache";
+import { BotBrowserAssetImage } from "./BotBrowserAssetImage";
 import type {
   ChartavernDetailResponse,
   ChartavernSearchResponse,
@@ -2550,71 +2550,6 @@ function LoginModal({
 // ════════════════════════════════════════════════
 // Card Tile
 // ════════════════════════════════════════════════
-
-function BotBrowserAssetImage({
-  src,
-  alt,
-  className,
-  loading,
-  onError,
-}: {
-  src: string;
-  alt: string;
-  className?: string;
-  loading?: "eager" | "lazy";
-  onError: () => void;
-}) {
-  const requiresProxyResolution = src.startsWith("tauri-api:");
-  const [resolvedSrc, setResolvedSrc] = useState(() => (requiresProxyResolution ? "" : src));
-  const [shouldResolve, setShouldResolve] = useState(() => loading !== "lazy" || !requiresProxyResolution);
-  const placeholderRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    setResolvedSrc(requiresProxyResolution ? "" : src);
-    setShouldResolve(loading !== "lazy" || !requiresProxyResolution);
-  }, [loading, requiresProxyResolution, src]);
-
-  useEffect(() => {
-    if (shouldResolve || !requiresProxyResolution) return;
-    const placeholder = placeholderRef.current;
-    if (!placeholder || typeof IntersectionObserver === "undefined") {
-      setShouldResolve(true);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        setShouldResolve(true);
-        observer.disconnect();
-      },
-      { rootMargin: "320px" },
-    );
-    observer.observe(placeholder);
-    return () => observer.disconnect();
-  }, [requiresProxyResolution, shouldResolve]);
-
-  useEffect(() => {
-    if (!shouldResolve) return;
-    let cancelled = false;
-
-    botBrowserAssetImageCache
-      .resolve(src, resolveBotBrowserAssetUrl)
-      .then((url) => {
-        if (!cancelled) setResolvedSrc(url);
-      })
-      .catch(() => {
-        if (!cancelled) onError();
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [onError, shouldResolve, src]);
-
-  if (!resolvedSrc) return <span ref={placeholderRef} className={className} aria-hidden="true" />;
-  return <img src={resolvedSrc} alt={alt} loading={loading} className={className} onError={onError} />;
-}
 
 function CardTile({ card, onClick }: { card: BrowseCard; onClick: () => void }) {
   const [imgError, setImgError] = useState(false);

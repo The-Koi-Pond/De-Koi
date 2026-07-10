@@ -1,18 +1,10 @@
-export interface AssetImageCache {
-  resolve: (src: string, resolver: (src: string) => Promise<string>) => Promise<string>;
+export interface AssetImageCache<T> {
+  resolve: (src: string, resolver: (src: string) => Promise<T>) => Promise<T>;
   clear: () => void;
 }
 
-function revokeResolvedObjectUrl(resolution: Promise<string>): void {
-  void resolution
-    .then((url) => {
-      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-    })
-    .catch(() => {});
-}
-
-export function createAssetImageCache(maxEntries = 192): AssetImageCache {
-  const entries = new Map<string, Promise<string>>();
+export function createAssetImageCache<T = string>(maxEntries = 192): AssetImageCache<T> {
+  const entries = new Map<string, Promise<T>>();
   const capacity = Math.max(1, maxEntries);
 
   return {
@@ -27,13 +19,10 @@ export function createAssetImageCache(maxEntries = 192): AssetImageCache {
       while (entries.size >= capacity) {
         const oldestKey = entries.keys().next().value as string | undefined;
         if (!oldestKey) break;
-        const oldest = entries.get(oldestKey);
         entries.delete(oldestKey);
-        if (oldest) revokeResolvedObjectUrl(oldest);
       }
 
-      let pending: Promise<string>;
-      pending = resolver(src).catch((error) => {
+      const pending = resolver(src).catch((error) => {
         if (entries.get(src) === pending) entries.delete(src);
         throw error;
       });
@@ -41,10 +30,9 @@ export function createAssetImageCache(maxEntries = 192): AssetImageCache {
       return pending;
     },
     clear() {
-      for (const resolution of entries.values()) revokeResolvedObjectUrl(resolution);
       entries.clear();
     },
   };
 }
 
-export const botBrowserAssetImageCache = createAssetImageCache();
+export const botBrowserAssetImageCache = createAssetImageCache<Blob>();
