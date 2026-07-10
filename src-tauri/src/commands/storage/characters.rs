@@ -1,3 +1,6 @@
+use super::character_version_media::{
+    normalize_character_version_media, rollback_character_version_media_files,
+};
 use super::media_uploads::{
     managed_record_file_path, persist_image_file_copy, remove_copied_file_path, safe_filename,
     StoredManagedImage,
@@ -125,12 +128,26 @@ pub(crate) fn create_character_version_snapshot_from_record(
     );
     snapshot.insert("reason".to_string(), Value::String(reason.to_string()));
 
+    let mut created_version_media = Vec::new();
+    if let Err(error) = normalize_character_version_media(
+        &state.data_dir,
+        &mut snapshot,
+        &mut created_version_media,
+    ) {
+        remove_copied_file_path(
+            copied_avatar_path.as_deref(),
+            "rolled-back character version avatar copy",
+        );
+        return Err(error);
+    }
+
     match state
         .storage
         .create("character-versions", Value::Object(snapshot))
     {
         Ok(created) => Ok(created),
         Err(error) => {
+            rollback_character_version_media_files(&state.storage, &created_version_media)?;
             remove_copied_file_path(
                 copied_avatar_path.as_deref(),
                 "rolled-back character version avatar copy",
@@ -457,11 +474,19 @@ fn restore_character_version_inner<F>(
 where
     F: FnOnce(),
 {
-    let version = get_required(state, "character-versions", version_id)?;
+    let mut version = get_required(state, "character-versions", version_id)?;
     if version.get("characterId").and_then(Value::as_str) != Some(character_id) {
         return Err(AppError::invalid_input(
             "Version does not belong to this character",
         ));
+    }
+    let mut created_version_media = Vec::new();
+    if let Some(version_object) = version.as_object_mut() {
+        normalize_character_version_media(
+            &state.data_dir,
+            version_object,
+            &mut created_version_media,
+        )?;
     }
     let existing = get_required(state, "characters", character_id)?;
     let mut patch = Map::new();
@@ -810,6 +835,38 @@ mod tests {
             .storage
             .list("character-versions")
             .expect("versions should list")
+    }
+
+    #[test]
+    fn character_version_snapshot_externalizes_inline_avatar_media() {
+        const TINY_PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+        let state = test_state("snapshot-inline-avatar");
+        let record = json!({
+            "id": "char-inline",
+            "data": { "name": "Inline", "character_version": "1.0" },
+            "avatarPath": format!("data:image/png;base64,{TINY_PNG}"),
+            "avatar": format!("data:image/png;base64,{TINY_PNG}")
+        });
+
+        let snapshot = create_character_version_snapshot_from_record(
+            &state,
+            "char-inline",
+            &record,
+            "manual",
+            "proof",
+        )
+        .expect("snapshot should persist");
+
+        assert!(!snapshot["avatarPath"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image"));
+        assert_eq!(snapshot["avatar"], snapshot["avatarPath"]);
+        assert!(snapshot["avatarFilePath"]
+            .as_str()
+            .unwrap()
+            .contains("versions"));
     }
 
     #[test]
@@ -1318,6 +1375,36 @@ mod tests {
             .expect("restore snapshot should exist");
         assert_eq!(restore_snapshot["data"]["name"], "Rina");
         assert_eq!(restore_snapshot["reason"], "Restored 0.9");
+    }
+
+    #[test]
+    fn restore_character_version_externalizes_pending_inline_media() {
+        const TINY_PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+        let state = test_state("restore-pending-inline-media");
+        create_character(&state);
+        state
+            .storage
+            .create(
+                "character-versions",
+                json!({
+                    "id": "version-inline",
+                    "characterId": "char-1",
+                    "data": { "name": "Old Rina" },
+                    "avatarPath": format!("data:image/png;base64,{TINY_PNG}"),
+                    "version": "0.9"
+                }),
+            )
+            .expect("legacy version should be inserted directly");
+
+        let restored = restore_character_version(&state, "char-1", "version-inline")
+            .expect("legacy inline version should restore safely");
+
+        assert!(!restored["avatarPath"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image"));
+        assert!(Path::new(restored["avatarFilePath"].as_str().unwrap()).is_file());
     }
 
     #[test]

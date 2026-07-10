@@ -15,6 +15,7 @@ use tokio::sync::watch;
 use crate::performance_diagnostics::log_span;
 use crate::seed_defaults::seed_bundled_defaults;
 use crate::storage_commands::{
+    character_version_media::cleanup_orphaned_character_version_media,
     contracts,
     images::percent_encode_component,
     media_uploads::{
@@ -53,6 +54,7 @@ const LEGACY_CHAT_GROUP_ROOTS_MIGRATION_KEY: &str = "legacyChatGroupRootsV1";
 const LOCAL_MEDIA_REFERENCES_MIGRATION_KEY: &str = "localMediaReferencesV1";
 const LEGACY_CHAT_GALLERY_FILES_MIGRATION_KEY: &str = "legacyChatGalleryFilesV1";
 const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
+const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInlineMediaV2";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const USER_BACKGROUND_GAME_ASSET_PREFIX: &str = "__user_bg__/";
 
@@ -87,14 +89,44 @@ impl AppState {
         let backgrounds = AssetService::new(data_dir.join("backgrounds"))?;
         let default_data_roots = existing_default_data_roots(default_data_roots);
         Self::seed_defaults(&storage, &default_data_roots)?;
+        let character_version_media_ready = match run_startup_migration_once(
+            &storage,
+            CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY,
+            |storage| {
+                crate::storage_commands::startup_migrations::migrate_character_version_inline_media(
+                    storage, &data_dir,
+                )
+                .map(|_| ())
+            },
+        ) {
+            Ok(()) => {
+                cleanup_orphaned_character_version_media(&storage, &data_dir)?;
+                true
+            }
+            Err(error) => {
+                log::warn!(
+                    "character version inline media migration remains pending: code={}",
+                    error.code
+                );
+                false
+            }
+        };
         // Default seeding and FileStorage load-time recovery remain always-on. The
         // following gates cover legacy full-collection passes that only need one
         // successful run per normalized data directory.
-        run_startup_migration_once(
-            &storage,
-            STORAGE_JSON_FIELDS_MIGRATION_KEY,
-            migrate_storage_json_fields,
-        )?;
+        if character_version_media_ready {
+            run_startup_migration_once(&storage, STORAGE_JSON_FIELDS_MIGRATION_KEY, |storage| {
+                migrate_storage_json_fields(storage, true)
+            })?;
+            run_startup_migration_once(
+                &storage,
+                LOCAL_MEDIA_REFERENCES_MIGRATION_KEY,
+                |storage| migrate_local_media_references(storage, &data_dir, true),
+            )?;
+        } else {
+            migrate_storage_json_fields(&storage, false)?;
+            migrate_local_media_references(&storage, &data_dir, false)?;
+        }
         migrate_message_prompt_snapshots_once(&storage)?;
         run_startup_migration_once(
             &storage,
@@ -111,9 +143,6 @@ impl AppState {
             LEGACY_CHAT_GROUP_ROOTS_MIGRATION_KEY,
             migrate_legacy_chat_group_roots,
         )?;
-        run_startup_migration_once(&storage, LOCAL_MEDIA_REFERENCES_MIGRATION_KEY, |storage| {
-            migrate_local_media_references(storage, &data_dir)
-        })?;
         run_startup_migration_once(
             &storage,
             LEGACY_CHAT_GALLERY_FILES_MIGRATION_KEY,
@@ -308,8 +337,14 @@ fn prune_expired_llm_stream_cancellations_with_now(
     });
 }
 
-fn migrate_storage_json_fields(storage: &FileStorage) -> AppResult<()> {
+fn migrate_storage_json_fields(
+    storage: &FileStorage,
+    include_character_versions: bool,
+) -> AppResult<()> {
     for collection in contracts::startup_json_repair_collections() {
+        if !include_character_versions && collection == "character-versions" {
+            continue;
+        }
         migrate_collection_json_fields(storage, collection)?;
     }
     Ok(())
@@ -538,7 +573,11 @@ struct MigratedMediaReference {
     filename: String,
 }
 
-fn migrate_local_media_references(storage: &FileStorage, data_dir: &Path) -> AppResult<()> {
+fn migrate_local_media_references(
+    storage: &FileStorage,
+    data_dir: &Path,
+    include_character_versions: bool,
+) -> AppResult<()> {
     for migration in [
         MediaReferenceMigration {
             collection: "characters",
@@ -613,6 +652,9 @@ fn migrate_local_media_references(storage: &FileStorage, data_dir: &Path) -> App
             value: StoredMediaValue::AssetUrl,
         },
     ] {
+        if !include_character_versions && migration.collection == "character-versions" {
+            continue;
+        }
         migrate_collection_media_references(storage, data_dir, migration)?;
     }
     migrate_chat_background_references(storage, data_dir)
@@ -1193,6 +1235,74 @@ mod tests {
         assert!(
             startup_migration_applied(&storage, "testMigrationFailureV1")
                 .expect("migration marker should load")
+        );
+    }
+
+    #[test]
+    fn app_state_runs_character_version_inline_media_v2_once() {
+        const TINY_PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+        let root = temp_root("character-version-inline-media-v2");
+        let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
+        storage
+            .replace_all(
+                "character-versions",
+                vec![json!({
+                    "id": "version-1",
+                    "avatarPath": format!("data:image/png;base64,{TINY_PNG}")
+                })],
+            )
+            .expect("fixture should persist");
+        drop(storage);
+
+        let first = AppState::from_data_dir(&root.0, vec![]).expect("state should initialize");
+        let first_row = first.storage.list("character-versions").unwrap().remove(0);
+        assert!(!first_row["avatarPath"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image"));
+        assert!(startup_migration_applied(
+            &first.storage,
+            CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY
+        )
+        .unwrap());
+        let first_path = first_row["avatarFilePath"].as_str().unwrap().to_string();
+        drop(first);
+
+        let second = AppState::from_data_dir(&root.0, vec![]).expect("second startup should work");
+        let second_row = second.storage.list("character-versions").unwrap().remove(0);
+        assert_eq!(second_row["avatarFilePath"], first_path);
+    }
+
+    #[test]
+    fn failed_character_version_media_migration_does_not_block_unrelated_startup_repairs() {
+        let root = temp_root("character-version-inline-media-v2-failure");
+        let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
+        storage
+            .replace_all(
+                "character-versions",
+                vec![json!({
+                    "id": "version-invalid",
+                    "avatarPath": "data:image/png;base64,bm9wZQ=="
+                })],
+            )
+            .expect("fixture should persist");
+        drop(storage);
+
+        let state = AppState::from_data_dir(&root.0, vec![])
+            .expect("unrelated startup repairs should still initialize");
+
+        assert!(!startup_migration_applied(
+            &state.storage,
+            CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY
+        )
+        .unwrap());
+        assert!(
+            !startup_migration_applied(&state.storage, STORAGE_JSON_FIELDS_MIGRATION_KEY).unwrap()
+        );
+        assert!(startup_migration_applied(&state.storage, AGENT_RUN_ROWS_MIGRATION_KEY).unwrap());
+        assert!(
+            startup_migration_applied(&state.storage, NESTED_MESSAGE_SWIPES_MIGRATION_KEY).unwrap()
         );
     }
     #[test]

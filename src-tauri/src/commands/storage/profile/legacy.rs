@@ -16,6 +16,9 @@ use super::{
     ProfileImportProgress,
 };
 use crate::state::AppState;
+use crate::storage_commands::character_version_media::{
+    normalize_character_version_media, rollback_character_version_media_files,
+};
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
@@ -424,18 +427,33 @@ pub(super) fn import_legacy_profile_tables_with_restored_assets_with_progress<F>
 where
     F: FnOnce() -> AppResult<()>,
 {
-    let plan = legacy_profile_import_plan(
+    let mut created_version_media = Vec::new();
+    let plan = match legacy_profile_import_plan(
         state,
         tables,
         restored_assets,
         staging_root,
         ProfileImportMode::Commit,
         progress,
-    )?;
-    progress.prepare("write", "Writing profile data")?;
-    state
+        &mut created_version_media,
+    ) {
+        Ok(plan) => plan,
+        Err(error) => {
+            rollback_character_version_media_files(&state.storage, &created_version_media)?;
+            return Err(error);
+        }
+    };
+    if let Err(error) = progress.prepare("write", "Writing profile data") {
+        rollback_character_version_media_files(&state.storage, &created_version_media)?;
+        return Err(error);
+    }
+    let write_result = state
         .storage
-        .replace_all_many_and_then(plan.replacements, install_assets)?;
+        .replace_all_many_and_then(plan.replacements, install_assets);
+    if let Err(error) = write_result {
+        rollback_character_version_media_files(&state.storage, &created_version_media)?;
+        return Err(error);
+    }
     progress.advance_untracked_after_commit("write", "write", "Profile data written", 1);
     Ok(json!({ "success": true, "imported": plan.imported }))
 }
@@ -446,6 +464,7 @@ pub(super) fn preview_legacy_profile_tables(
     restored_assets: usize,
 ) -> AppResult<Value> {
     let mut progress = ProfileImportProgress::disabled();
+    let mut created_version_media = Vec::new();
     let plan = legacy_profile_import_plan(
         state,
         tables,
@@ -453,7 +472,9 @@ pub(super) fn preview_legacy_profile_tables(
         None,
         ProfileImportMode::Preview,
         &mut progress,
+        &mut created_version_media,
     )?;
+    debug_assert!(created_version_media.is_empty());
     Ok(json!({ "success": true, "preview": true, "imported": plan.imported }))
 }
 
@@ -469,6 +490,7 @@ fn legacy_profile_import_plan(
     staging_root: Option<&Path>,
     mode: ProfileImportMode,
     progress: &mut ProfileImportProgress<'_>,
+    created_version_media: &mut Vec<std::path::PathBuf>,
 ) -> AppResult<LegacyProfileImportPlan> {
     let mut imported = Map::new();
     let mut replacements = Vec::new();
@@ -510,6 +532,18 @@ fn legacy_profile_import_plan(
             "app-settings" => normalize_legacy_app_settings(&mut rows),
             "regex-scripts" => super::drop_unsafe_regex_scripts(&mut rows),
             "characters" => normalize_legacy_character_data(&mut rows),
+            "character-versions" if mode == ProfileImportMode::Commit => {
+                for row in &mut rows {
+                    let object = row.as_object_mut().ok_or_else(|| {
+                        AppError::invalid_input("Character version record must be a JSON object")
+                    })?;
+                    normalize_character_version_media(
+                        &state.data_dir,
+                        object,
+                        created_version_media,
+                    )?;
+                }
+            }
             "prompt-overrides" => {
                 unsupported_prompt_overrides = normalize_profile_prompt_overrides(&mut rows)
             }
@@ -1191,6 +1225,75 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp profile dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn legacy_profile_import_externalizes_character_version_inline_media() {
+        const TINY_PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+        let state = test_state("character-version-inline-media");
+        let mut tables = Map::new();
+        tables.insert(
+            "character_card_versions".to_string(),
+            json!([{
+                "id": "legacy-version",
+                "characterId": "character-1",
+                "avatarPath": format!("data:image/png;base64,{TINY_PNG}"),
+                "data": { "name": "Legacy" }
+            }]),
+        );
+
+        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+            .expect("legacy profile should import");
+        let version = state.storage.list("character-versions").unwrap().remove(0);
+
+        assert!(!version["avatarPath"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image"));
+        assert!(version["avatarFilePath"]
+            .as_str()
+            .unwrap()
+            .contains("versions"));
+    }
+
+    #[test]
+    fn legacy_profile_progress_failure_removes_unreferenced_version_media() {
+        const TINY_PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+        let state = test_state("character-version-progress-rollback");
+        let mut tables = Map::new();
+        tables.insert(
+            "character_card_versions".to_string(),
+            json!([{
+                "id": "legacy-version",
+                "avatarPath": format!("data:image/png;base64,{TINY_PNG}")
+            }]),
+        );
+        let mut progress = ProfileImportProgress::new(|event| {
+            if event["data"]["phase"] == "write" {
+                return Err(AppError::new("forced_progress_failure", "stop"));
+            }
+            Ok(())
+        });
+
+        let error = import_legacy_profile_tables_with_restored_assets_with_progress(
+            &state,
+            &tables,
+            0,
+            None,
+            &mut progress,
+            || Ok(()),
+        )
+        .expect_err("write-phase progress failure should abort import");
+
+        assert_eq!(error.code, "forced_progress_failure");
+        let asset_dir = state
+            .data_dir
+            .join("avatars")
+            .join("characters")
+            .join("versions");
+        assert!(!asset_dir.exists() || std::fs::read_dir(asset_dir).unwrap().next().is_none());
     }
 
     #[test]

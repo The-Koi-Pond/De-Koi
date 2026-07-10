@@ -3,6 +3,8 @@ services:
     image: ghcr.io/the-koi-pond/de-koi-server:prealpha
     container_name: de-koi-server
     restart: unless-stopped
+    mem_limit: 2g
+    memswap_limit: 2304m
     environment:
       DE_KOI_SERVER_ADDR: 0.0.0.0:8787
       DE_KOI_DATA_DIR: /data

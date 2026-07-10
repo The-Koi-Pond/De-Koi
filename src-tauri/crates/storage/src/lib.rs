@@ -3,6 +3,7 @@ mod chat_summaries;
 mod journal;
 mod messages;
 mod projection;
+mod streaming;
 mod transaction;
 mod write_gate;
 
@@ -13,6 +14,7 @@ use marinara_core::{ensure_object, new_id, now_iso, AppError, AppResult};
 use marinara_security::validate_collection_name;
 use messages::*;
 use projection::*;
+pub use streaming::StreamingTransformReport;
 use serde::Deserializer as _;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};

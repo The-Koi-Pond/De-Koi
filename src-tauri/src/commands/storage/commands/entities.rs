@@ -1,7 +1,7 @@
 use super::{
-    agents, avatars, characters, chats, connection_secrets, contracts, entity_images,
-    game_state_snapshots, integrations, lorebook_images, managed_thumbnails, media_uploads,
-    message_swipes, personas, prompts, shared, sprites,
+    agents, avatars, character_version_media, characters, chats, connection_secrets, contracts,
+    entity_images, game_state_snapshots, integrations, lorebook_images, managed_thumbnails,
+    media_uploads, message_swipes, personas, prompts, shared, sprites,
 };
 use crate::builtins::is_protected_record;
 use crate::performance_diagnostics::{approx_json_bytes, log_span};
@@ -556,6 +556,9 @@ fn storage_create_inner_impl(
 ) -> Result<Value, AppError> {
     validate_storage_entity(&entity)?;
     reject_message_swipe_mutation(&entity)?;
+    if entity == "character-versions" {
+        character_version_media::reject_inline_character_version_media(&value)?;
+    }
     validate_chat_folder_for_create(state, &entity, &value)?;
     validate_connection_folder_for_create(state, &entity, &value)?;
     validate_library_folder_for_create(state, &entity, &value)?;
@@ -647,6 +650,9 @@ fn storage_update_inner_impl(
 ) -> Result<Value, AppError> {
     validate_storage_entity(&entity)?;
     reject_message_swipe_mutation(&entity)?;
+    if entity == "character-versions" {
+        character_version_media::reject_inline_character_version_media(&patch)?;
+    }
     if entity == "messages" {
         let updated = chats::patch_message_update_with_memory_prune(state, &id, patch)?;
         return Ok(shared::project_timeline_message(updated));
@@ -1252,6 +1258,37 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn direct_character_version_mutations_reject_inline_avatar_media() {
+        const TINY_PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+        let state = test_state("reject-inline-character-version");
+        let inline = format!("data:image/png;base64,{TINY_PNG}");
+        let create_error = storage_create_inner(
+            &state,
+            "character-versions".to_string(),
+            json!({ "id": "version-inline", "avatarPath": inline }),
+        )
+        .expect_err("direct create should reject inline media");
+        assert_eq!(create_error.code, "inline_character_version_media");
+
+        state
+            .storage
+            .create(
+                "character-versions",
+                json!({ "id": "version-managed", "avatarPath": "asset://localhost/version.png" }),
+            )
+            .expect("managed fixture should persist");
+        let update_error = storage_update_inner(
+            &state,
+            "character-versions".to_string(),
+            "version-managed".to_string(),
+            json!({ "avatarUrl": inline }),
+        )
+        .expect_err("direct update should reject inline media");
+        assert_eq!(update_error.code, "inline_character_version_media");
     }
 
     fn small_png_bytes() -> Vec<u8> {
