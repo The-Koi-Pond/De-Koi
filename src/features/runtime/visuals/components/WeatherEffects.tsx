@@ -41,6 +41,8 @@ interface Particle {
 
 const MAX_CANVAS_SIDE = 4096;
 const MAX_CANVAS_PIXELS = 16_777_216;
+const FRAME_DURATION_MS = 1000 / 60;
+const DRAW_INTERVAL_MS = 1000 / 30;
 
 function clampCanvasDimension(value: number, viewportValue: number): number {
   const size = Number.isFinite(value) ? value : 0;
@@ -585,7 +587,7 @@ function drawSun(
   h: number,
   sunRays: boolean,
   sunsetGlow: boolean,
-  frameCount: number,
+  elapsedMs: number,
 ) {
   ctx.save();
 
@@ -630,11 +632,11 @@ function drawSun(
   // Animated light rays
   if (sunRays) {
     const rayCount = 12;
-    const rotOffset = frameCount * 0.002;
+    const rotOffset = elapsedMs * 0.00012;
     ctx.globalAlpha = 0.06;
     for (let i = 0; i < rayCount; i++) {
       const angle = (i / rayCount) * Math.PI * 2 + rotOffset;
-      const pulse = 0.8 + Math.sin(frameCount * 0.01 + i * 1.5) * 0.2;
+      const pulse = 0.8 + Math.sin(elapsedMs * 0.0006 + i * 1.5) * 0.2;
       const rayLen = radius * (3.5 + pulse * 2);
       const spread = 0.08;
       ctx.fillStyle = sunsetGlow ? "rgba(255,160,60,0.5)" : "rgba(255,250,200,0.4)";
@@ -650,7 +652,7 @@ function drawSun(
   ctx.restore();
 }
 
-function drawMoon(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, _frameCount: number) {
+function drawMoon(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
   ctx.save();
 
   // Soft moonlight glow
@@ -722,7 +724,18 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
   // Render when we have particles, celestial bodies, or time-based ambient effects
   const shouldDrawCelestial = showCelestial && config.celestial !== "none";
   const shouldRender =
-    config.count > 0 || config.addFireflies || config.addStars || shouldDrawCelestial || config.sunsetGlow;
+    config.count > 0 ||
+    config.addFireflies ||
+    config.addStars ||
+    shouldDrawCelestial ||
+    config.sunsetGlow ||
+    config.isClearSky;
+  const shouldAnimate =
+    config.count > 0 ||
+    config.addFireflies ||
+    config.addStars ||
+    config.lightning ||
+    (shouldDrawCelestial && config.isClearSky && config.sunRays);
 
   useEffect(() => {
     if (!shouldRender) return;
@@ -737,8 +750,9 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
     const activeCtx = ctx;
     let running = true;
     let lightningAlpha = 0; // for lightning flash
-    let nextLightning = config.lightning ? 200 + Math.random() * 400 : Infinity;
-    let frameCount = 0;
+    let nextLightningMs = config.lightning ? (200 + Math.random() * 400) * FRAME_DURATION_MS : Infinity;
+    let animationElapsedMs = 0;
+    let lastDrawTimestamp: number | null = null;
 
     const dpr = window.devicePixelRatio || 1;
 
@@ -751,14 +765,6 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
       activeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
-    const resizeObserver =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            resize();
-          })
-        : null;
-    resizeObserver?.observe(activeCanvas);
-    window.addEventListener("resize", resize);
 
     // Initialize particles — use CSS pixel dimensions (not canvas resolution)
     particlesRef.current = [];
@@ -794,10 +800,29 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
       pendingFrameId = requestAnimationFrame(tick);
     };
 
-    function tick() {
+    const onResize = () => {
+      resize();
+      if (!shouldAnimate) scheduleFrame();
+    };
+    const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null;
+    resizeObserver?.observe(activeCanvas);
+    window.addEventListener("resize", onResize);
+
+    function tick(timestamp: number) {
       pendingFrameId = null;
       if (!running) return;
       if (paused) return;
+
+      if (shouldAnimate && lastDrawTimestamp !== null && timestamp - lastDrawTimestamp < DRAW_INTERVAL_MS) {
+        scheduleFrame();
+        return;
+      }
+
+      const elapsedSinceDraw =
+        lastDrawTimestamp === null ? FRAME_DURATION_MS : Math.max(0, timestamp - lastDrawTimestamp);
+      const elapsedFrames = shouldAnimate ? elapsedSinceDraw / FRAME_DURATION_MS : 0;
+      if (lastDrawTimestamp !== null) animationElapsedMs += elapsedSinceDraw;
+      lastDrawTimestamp = timestamp;
 
       ticking = true;
       try {
@@ -814,16 +839,15 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
         }
 
         // Lightning flash (epilepsy-safe: capped alpha, gentle decay, long gap between flashes)
-        frameCount++;
         if (config.lightning) {
-          if (frameCount >= nextLightning) {
+          if (animationElapsedMs >= nextLightningMs) {
             lightningAlpha = 0.45 + Math.random() * 0.15; // soft flash, max 0.6
-            nextLightning = frameCount + 400 + Math.random() * 800; // next in ~7-20s at 60fps
+            nextLightningMs = animationElapsedMs + (400 + Math.random() * 800) * FRAME_DURATION_MS;
           }
           if (lightningAlpha > 0) {
             activeCtx.fillStyle = `rgba(220,230,255,${lightningAlpha})`;
             activeCtx.fillRect(0, 0, activeCanvas.width / dpr, activeCanvas.height / dpr);
-            lightningAlpha *= 0.88; // gentle decay
+            lightningAlpha *= 0.88 ** elapsedFrames; // gentle decay at the original 60 FPS rate
             if (lightningAlpha < 0.01) lightningAlpha = 0;
           }
         }
@@ -838,13 +862,13 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
           if (config.celestial === "sun") {
             const sx = celestialX(hour, cw);
             const sy = celestialY(hour, ch, false);
-            drawSun(activeCtx, sx, sy, bodyRadius, cw, ch, config.sunRays, config.sunsetGlow, frameCount);
+            drawSun(activeCtx, sx, sy, bodyRadius, cw, ch, config.sunRays, config.sunsetGlow, animationElapsedMs);
           } else if (config.celestial === "moon") {
             // Moon position: map 21h→left, 0h→center, 5h→right
             const moonNorm = hour >= 12 ? ((hour - 21 + 24) % 24) / 10 : (hour + 3) / 10;
             const mx = cw * 0.1 + Math.min(1, Math.max(0, moonNorm)) * cw * 0.8;
             const my = celestialY(hour, ch, true);
-            drawMoon(activeCtx, mx, my, bodyRadius * 1.1, frameCount);
+            drawMoon(activeCtx, mx, my, bodyRadius * 1.1);
           }
         }
 
@@ -852,25 +876,25 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
 
         for (let i = particles.length - 1; i >= 0; i--) {
           const p = particles[i];
-          p.life++;
+          p.life += elapsedFrames;
 
           // Update position
-          p.x += p.vx;
-          p.y += p.vy;
+          p.x += p.vx * elapsedFrames;
+          p.y += p.vy * elapsedFrames;
 
           // Wobble for organic movement
           if (p.type === "snow" || p.type === "leaf" || p.type === "petal" || p.type === "ash") {
-            p.wobble += 0.02;
-            p.x += Math.sin(p.wobble) * 0.5;
+            p.wobble += 0.02 * elapsedFrames;
+            p.x += Math.sin(p.wobble) * 0.5 * elapsedFrames;
           }
           if (p.type === "ember") {
-            p.wobble += 0.04;
-            p.x += Math.sin(p.wobble) * 0.6;
+            p.wobble += 0.04 * elapsedFrames;
+            p.x += Math.sin(p.wobble) * 0.6 * elapsedFrames;
           }
           if (p.type === "firefly") {
-            p.wobble += 0.03;
-            p.x += Math.sin(p.wobble) * 0.8;
-            p.y += Math.cos(p.wobble * 0.7) * 0.4;
+            p.wobble += 0.03 * elapsedFrames;
+            p.x += Math.sin(p.wobble) * 0.8 * elapsedFrames;
+            p.y += Math.cos(p.wobble * 0.7) * 0.4 * elapsedFrames;
           }
 
           drawParticle(activeCtx, p);
@@ -884,7 +908,7 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
       } finally {
         ticking = false;
       }
-      scheduleFrame();
+      if (shouldAnimate) scheduleFrame();
     }
 
     const onVisibilityChange = () => {
@@ -892,6 +916,7 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
       if (paused) {
         cancelScheduledFrame();
       } else {
+        lastDrawTimestamp = null;
         scheduleFrame();
       }
     };
@@ -903,10 +928,10 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
       running = false;
       cancelScheduledFrame();
       resizeObserver?.disconnect();
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [config, shouldDrawCelestial, shouldRender]);
+  }, [config, shouldAnimate, shouldDrawCelestial, shouldRender]);
 
   if (!shouldRender) return null;
 

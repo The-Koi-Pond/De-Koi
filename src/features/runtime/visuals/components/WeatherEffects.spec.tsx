@@ -41,6 +41,7 @@ describe("WeatherEffects", () => {
   let nextFrameId: number;
 
   function setupAnimationEnvironment() {
+    vi.clearAllMocks();
     rafCallbacks = new Map<number, RafCallback>();
     nextFrameId = 1;
     vi.spyOn(window.HTMLCanvasElement.prototype, "getContext").mockReturnValue(canvasContextStub);
@@ -68,14 +69,27 @@ describe("WeatherEffects", () => {
     return { cancelAnimationFrame, hidden, requestAnimationFrame };
   }
 
-  async function renderWeatherEffects() {
+  async function renderWeatherEffects(
+    props: { weather?: string | null; timeOfDay?: string | null; showCelestial?: boolean } = {
+      weather: "clear",
+      timeOfDay: "noon",
+    },
+  ) {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<WeatherEffects weather="clear" timeOfDay="noon" />);
+      root?.render(<WeatherEffects {...props} />);
     });
+  }
+
+  function runNextFrame(timestamp: number) {
+    const next = rafCallbacks.entries().next().value as [number, RafCallback] | undefined;
+    expect(next).toBeDefined();
+    const [id, callback] = next!;
+    rafCallbacks.delete(id);
+    act(() => callback(timestamp));
   }
 
   afterEach(() => {
@@ -88,6 +102,45 @@ describe("WeatherEffects", () => {
     container?.remove();
     container = null;
     vi.restoreAllMocks();
+  });
+
+  it("draws a static clear scene once without queuing a successor frame", async () => {
+    const { requestAnimationFrame } = setupAnimationEnvironment();
+    await renderWeatherEffects({ weather: null, timeOfDay: null });
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    runNextFrame(0);
+
+    expect(canvasContextStub.clearRect).toHaveBeenCalledTimes(1);
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(rafCallbacks.size).toBe(0);
+  });
+
+  it("caps animated rain drawing at 30 FPS while continuing to schedule frames", async () => {
+    const { requestAnimationFrame } = setupAnimationEnvironment();
+    await renderWeatherEffects({ weather: "rain", timeOfDay: null });
+
+    runNextFrame(0);
+    runNextFrame(16);
+    runNextFrame(34);
+
+    expect(canvasContextStub.clearRect).toHaveBeenCalledTimes(2);
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(4);
+    expect(rafCallbacks.size).toBe(1);
+  });
+
+  it("redraws a static scene after resize without starting an animation loop", async () => {
+    const { requestAnimationFrame } = setupAnimationEnvironment();
+    await renderWeatherEffects({ weather: null, timeOfDay: null });
+    runNextFrame(0);
+
+    act(() => window.dispatchEvent(new Event("resize")));
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
+    runNextFrame(16);
+
+    expect(canvasContextStub.clearRect).toHaveBeenCalledTimes(2);
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
+    expect(rafCallbacks.size).toBe(0);
   });
 
   it("stops scheduling animation frames while the document is hidden and resumes when visible", async () => {
