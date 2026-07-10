@@ -3,6 +3,7 @@ mod chat_summaries;
 mod journal;
 mod messages;
 mod projection;
+mod streaming;
 mod transaction;
 mod write_gate;
 
