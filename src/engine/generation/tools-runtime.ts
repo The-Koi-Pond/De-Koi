@@ -862,10 +862,15 @@ function chatToolsEnabledFor(chat: JsonRecord): boolean {
   return boolish(parseRecord(chat.metadata).enableTools, false);
 }
 
-function chatActiveToolIdsFor(chat: JsonRecord): Set<string> {
-  const value = parseRecord(chat.metadata).activeToolIds;
-  if (!Array.isArray(value)) return new Set();
-  return new Set(value.map((item) => readString(item).trim()).filter(Boolean));
+function chatToolSelectionFor(chat: JsonRecord): { mode: "all" | "explicit"; activeIds: Set<string> } {
+  const metadata = parseRecord(chat.metadata);
+  const value = metadata.activeToolIds;
+  const activeIds = Array.isArray(value)
+    ? new Set(value.map((item) => readString(item).trim()).filter(Boolean))
+    : new Set<string>();
+  if (metadata.toolSelectionMode === "all") return { mode: "all", activeIds };
+  if (metadata.toolSelectionMode === "explicit" || activeIds.size > 0) return { mode: "explicit", activeIds };
+  return { mode: "all", activeIds };
 }
 
 // ──────────────────────────────────────────────
@@ -904,8 +909,9 @@ export interface MainToolDefinitions {
  * Build the tool-definition set exposed to the main character LLM call.
  *
  * Returns `null` when chat-level tools are disabled or when the filtered set is
- * empty. The result is mode-neutral — it reads `chat.metadata.enableTools` and
- * `chat.metadata.activeToolIds` and never branches on `chat.mode`.
+ * empty. The result is mode-neutral — it reads `chat.metadata.enableTools`,
+ * `chat.metadata.toolSelectionMode`, and `chat.metadata.activeToolIds` and never
+ * branches on `chat.mode`.
  *
  * Filtering rules:
  *  - Agent-only tools (`save_lorebook_entry`, `read_chat_summary`,
@@ -920,12 +926,11 @@ export async function buildMainToolDefinitions(
   args: BuildMainToolDefinitionsArgs,
 ): Promise<MainToolDefinitions | null> {
   if (!chatToolsEnabledFor(args.chat)) return null;
-  const activeIds = chatActiveToolIdsFor(args.chat);
+  const selection = chatToolSelectionFor(args.chat);
   const filter = (name: string): boolean => {
     if (AGENT_ONLY_TOOL_NAMES.has(name)) return false;
     if (!args.includeSpotify && SPOTIFY_TOOL_NAMES.has(name)) return false;
-    if (activeIds.size === 0) return true;
-    return activeIds.has(name);
+    return selection.mode === "all" || selection.activeIds.has(name);
   };
   const builtIns: LlmToolDefinition[] = [];
   for (const tool of BUILT_IN_TOOLS) {

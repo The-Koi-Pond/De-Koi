@@ -6,6 +6,20 @@ export interface LlmMessage {
   tool_call_id?: string;
   tool_calls?: unknown;
   providerMetadata?: unknown;
+  /** Stable owner-provided classification used by the context-window packer. */
+  contextKind?: string;
+  /** Optional numeric refinement within a context kind; larger values are retained first. */
+  contextPriority?: number;
+  /** Human-readable section name used only in fit diagnostics and prompt previews. */
+  displayName?: string;
+  /** Classified logical sections retained through provider role normalization. */
+  contextSegments?: Array<{
+    role?: "system" | "user" | "assistant" | "tool";
+    content: string;
+    contextKind?: string;
+    contextPriority?: number;
+    displayName?: string;
+  }>;
 }
 
 export interface LlmToolDefinition {

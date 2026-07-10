@@ -233,8 +233,10 @@ export interface ChatMetadata {
   lorebookKeeperReadBehindMessages?: number;
   /** When true/omitted, Lorebook Keeper proposals wait for approve/reject instead of writing immediately. */
   lorebookKeeperReviewRequired?: boolean;
-  /** Tool/function IDs scoped to this chat. Non-empty = only these tools are sent; empty = use all enabled tools. */
+  /** Tool/function IDs scoped to this chat when toolSelectionMode is explicit. */
   activeToolIds: string[];
+  /** Explicit selection is opt-in; missing preserves the legacy all-tools behavior. */
+  toolSelectionMode?: "explicit" | "all";
   /** Per-chat variable selections for preset variables (variableName → value or values) */
   presetChoices: Record<string, string | string[]>;
   /** Chat-wide string variables persisted by agent tool calls (key → value). */
@@ -586,6 +588,22 @@ export interface GenerationInfo {
   tokensCacheWritePrompt?: number | null;
   durationMs: number | null;
   finishReason: string | null;
+  /** Normalized usage for the complete turn, including agent calls. */
+  turnUsage?: GenerationTurnUsage | null;
+}
+
+export interface NormalizedTokenUsage {
+  promptTokens: number | null;
+  completionTokens: number | null;
+  cachedPromptTokens: number | null;
+  cacheWritePromptTokens: number | null;
+  totalTokens: number | null;
+}
+
+export interface GenerationTurnUsage {
+  main: NormalizedTokenUsage;
+  agents: { totalTokens: number; resultCount: number };
+  totalTokens: number | null;
 }
 
 export interface GenerationPromptSnapshotMessage {
@@ -657,6 +675,13 @@ export interface GenerationPromptSnapshot {
   promptPresetId?: string | null;
   lorebookActivationTrace?: LorebookActivationTrace;
   contextAttribution?: GenerationContextAttribution | null;
+  contextFitDecision?: {
+    removedMessages: Array<{ contextKind: string; displayName?: string; estimatedTokens: number }>;
+    truncatedMessages: Array<{ contextKind: string; removedEstimatedTokens: number }>;
+    originalEstimatedTokens: number;
+    fittedEstimatedTokens: number;
+    inputBudgetTokens: number;
+  } | null;
   createdAt?: string;
 }
 

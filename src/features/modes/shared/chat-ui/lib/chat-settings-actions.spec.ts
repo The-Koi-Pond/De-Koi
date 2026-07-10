@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { Chat } from "../../../../../engine/contracts/types/chat";
 import {
   buildModePromptMetadataPatch,
+  chatToolStatusDescription,
+  chatToolSelectionMode,
   hasSecretPlotMemory,
   toggleChatAgent,
   toggleConversationStatusMessages,
@@ -18,6 +20,22 @@ function chatWithAgents(activeAgentIds: string[]): Chat {
 }
 
 describe("chat settings actions", () => {
+  it("materializes legacy and new empty tool selections without changing their meaning", () => {
+    expect(chatToolSelectionMode({ activeToolIds: [] }, true)).toBe("all");
+    expect(chatToolSelectionMode({ activeToolIds: ["roll_dice"] }, true)).toBe("explicit");
+    expect(chatToolSelectionMode({ activeToolIds: [] }, false)).toBe("explicit");
+    expect(chatToolSelectionMode({ toolSelectionMode: "all", activeToolIds: ["roll_dice"] }, false)).toBe("all");
+  });
+
+  it("describes explicit-empty tool selection without promising global tools", () => {
+    expect(chatToolStatusDescription(false, "explicit", 0)).toBe("If disabled, no functions will be available.");
+    expect(chatToolStatusDescription(true, "all", 0)).toContain("globally enabled tools");
+    expect(chatToolStatusDescription(true, "explicit", 0)).toBe(
+      "Tool use is enabled, but no functions are selected for this chat.",
+    );
+    expect(chatToolStatusDescription(true, "explicit", 2)).toBe("This chat can use its 2 selected functions.");
+  });
+
   it("adds an inactive agent through the metadata mutation", async () => {
     const updateMeta = { mutateAsync: vi.fn().mockResolvedValue(undefined) };
     const showMutationFailure = vi.fn();

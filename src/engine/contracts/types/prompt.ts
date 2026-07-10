@@ -237,7 +237,29 @@ export interface ChatMLMessage {
   role: PromptRole;
   content: string;
   /** Internal context-fitting hint: prompt data is preserved before chat history. */
-  contextKind?: "prompt" | "history" | "injection";
+  contextKind?:
+    | "prompt"
+    | "history"
+    | "injection"
+    | "summary"
+    | "canonical_memory"
+    | "memory"
+    | "memory_recall"
+    | "lorebook"
+    | "character"
+    | "agent"
+    | "directive"
+    | "optional";
+  /** Optional numeric refinement within a context kind; larger values are retained first. */
+  contextPriority?: number;
+  /** Logical prompt sections retained when provider formatting combines messages. */
+  contextSegments?: Array<{
+    role?: PromptRole;
+    content: string;
+    contextKind?: ChatMLMessage["contextKind"];
+    contextPriority?: number;
+    displayName?: string;
+  }>;
   /** Optional: preview-only section label for assembled prompt inspection. */
   displayName?: string;
   /** Optional: name of the speaker for multi-character */

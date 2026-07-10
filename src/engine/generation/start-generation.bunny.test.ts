@@ -575,6 +575,64 @@ describe("user-message regeneration review guards", () => {
     expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "assistant_message" })]));
   });
 
+  it("saves raw and normalized complete-turn usage on fresh assistant messages", async () => {
+    const createdMessages: Array<Record<string, unknown>> = [];
+    const rawUsage = {
+      prompt_tokens: 10,
+      completion_tokens: 4,
+      prompt_tokens_details: { cached_tokens: 3 },
+    };
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      onCreate: (_chatId, value) => {
+        createdMessages.push(value);
+        return { id: "message-assistant", ...value };
+      },
+    });
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream() {
+        yield { type: "token", text: "Measured reply." };
+        yield { type: "usage", data: rawUsage };
+      },
+    };
+
+    await drain(
+      startGeneration(
+        { storage, llm, integrations: noopIntegrations },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          messages: [{ role: "user", content: "Reply." }],
+        },
+      ),
+    );
+
+    expect(createdMessages[0]?.generationInfo).toEqual({
+      connectionId: "conn-1",
+      model: "qa-model",
+      agentResults: 0,
+      notes: 0,
+      usage: rawUsage,
+      turnUsage: {
+        main: {
+          promptTokens: 10,
+          completionTokens: 4,
+          cachedPromptTokens: 3,
+          cacheWritePromptTokens: null,
+          totalTokens: 14,
+        },
+        agents: { totalTokens: 0, resultCount: 0 },
+        totalTokens: 14,
+      },
+    });
+  });
+
   it("does not save roleplay dialogue attribution metadata for mention-only assistant prose", async () => {
     let modelCalls = 0;
     const createdMessages: Array<{ chatId: string; value: Record<string, unknown> }> = [];
@@ -634,9 +692,22 @@ describe("user-message regeneration review guards", () => {
       startGeneration(
         {
           storage,
-          llm: llmThatStreams(() => {
-            modelCalls += 1;
-          }, 'QA Character: "Again."'),
+          llm: {
+            async complete() {
+              return "";
+            },
+            async listModels() {
+              return [];
+            },
+            async *stream() {
+              modelCalls += 1;
+              yield { type: "token", text: 'QA Character: "Again."' };
+              yield {
+                type: "usage",
+                data: { promptTokenCount: 9, candidatesTokenCount: 3, cachedContentTokenCount: 2, totalTokenCount: 12 },
+              };
+            },
+          },
           integrations: noopIntegrations,
         },
         { chatId: "chat-1", regenerateMessageId: "message-target", connectionId: "conn-1" },
@@ -652,6 +723,20 @@ describe("user-message regeneration review guards", () => {
     expect(savedSwipes).toEqual([savedText]);
     expect(savedSwipeExtra).not.toHaveProperty("dialogueAttributions");
     expect(extraPatches[0]).not.toHaveProperty("dialogueAttributions");
+    expect(savedSwipeExtra.generationInfo).toMatchObject({
+      usage: { promptTokenCount: 9, candidatesTokenCount: 3, cachedContentTokenCount: 2, totalTokenCount: 12 },
+      turnUsage: {
+        main: {
+          promptTokens: 9,
+          completionTokens: 3,
+          cachedPromptTokens: 2,
+          totalTokens: 12,
+        },
+        agents: { totalTokens: 0, resultCount: 0 },
+        totalTokens: 12,
+      },
+    });
+    expect(extraPatches[0]?.generationInfo).toEqual(savedSwipeExtra.generationInfo);
   });
   it("dry-runs generation with prompt output and no chat-state writes", async () => {
     let modelCalls = 0;

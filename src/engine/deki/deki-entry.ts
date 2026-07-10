@@ -352,6 +352,7 @@ export type DekiEntryResponse = {
   content: string;
   createdAt: string;
   action: DekiEntryAction;
+  usage?: import("../contracts/types/chat").NormalizedTokenUsage | null;
 };
 
 export type DekiGatewayResponse = Omit<DekiEntryResponse, "action"> & {
@@ -382,6 +383,7 @@ export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway
     ...response,
     content,
     action: normalizeDekiEntryAction(response.action),
+    usage: response.usage ?? null,
   };
 }
 

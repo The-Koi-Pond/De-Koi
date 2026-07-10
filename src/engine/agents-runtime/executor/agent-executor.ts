@@ -20,6 +20,7 @@ import { createAgentRuntimeDebug, type AgentRuntimeDebugEntry, type AgentRuntime
 import { stripAvatarPathsReplacer } from "../strip-avatar-paths";
 import { worldStatePatchFromAgentData } from "../../generation/world-state-agent-result";
 import { compactQuestProgressForContext } from "../../shared/game-state/player-stats";
+import { loreFieldsForAgentTypes } from "./agent-context-profile";
 
 const MAX_AGENT_CONTEXT_MESSAGES = 200;
 const EXPRESSION_AGENT_RECENT_CONTEXT_MESSAGES = 2;
@@ -1359,7 +1360,12 @@ function buildBatchSystemPrompt(configs: AgentExecConfig[], context: AgentContex
 
   // ── Lore ──
   parts.push(``);
-  parts.push(buildLoreBlock(context));
+  parts.push(
+    buildLoreBlock(
+      context,
+      configs.map((config) => config.type),
+    ),
+  );
 
   // ── Agents ──
   parts.push(``);
@@ -1837,7 +1843,7 @@ function buildStandardAgentMessages(config: AgentExecConfig, template: string, c
   systemParts.push(`You are a specialized agent. Fulfill your task and return the requested output.`);
   systemParts.push(`</role>`);
   systemParts.push(``);
-  systemParts.push(buildLoreBlock(context));
+  systemParts.push(buildLoreBlock(context, [config.type]));
   systemParts.push(``);
   systemParts.push(`<agents>`);
   systemParts.push(`Fulfill the requested task here and return the output in the format specified:`);
@@ -1995,7 +2001,7 @@ function buildSpotifyAgentMessages(config: AgentExecConfig, template: string, co
   systemParts.push(`You are a specialized Spotify DJ agent for the current ${modeLabel} turn.`);
   systemParts.push(`</role>`);
   systemParts.push(``);
-  systemParts.push(buildLoreBlock(context));
+  systemParts.push(buildLoreBlock(context, ["spotify"]));
   systemParts.push(``);
   systemParts.push(`<agents>`);
   systemParts.push(`Fulfill the requested task here and return the output in the format specified:`);
@@ -2313,8 +2319,9 @@ function buildAgentMessages(
  * Contains character and persona context. Runtime lorebook entries are
  * intentionally excluded to keep non-lorebook agent prompts compact.
  */
-function buildLoreBlock(context: AgentContext): string {
+function buildLoreBlock(context: AgentContext, agentTypes: readonly string[]): string {
   const parts: string[] = [];
+  const fields = loreFieldsForAgentTypes(agentTypes);
   parts.push(`<lore>`);
 
   if (context.characters.length > 0) {
@@ -2322,15 +2329,18 @@ function buildLoreBlock(context: AgentContext): string {
     for (const char of context.characters) {
       parts.push(`<character id="${escapeXml(char.id)}" name="${escapeXml(char.name)}">`);
       pushXmlText(parts, "name", char.name);
-      pushXmlText(parts, "description", char.description);
-      pushXmlText(parts, "personality", char.personality);
-      pushXmlText(parts, "backstory", char.backstory);
-      pushXmlText(parts, "appearance", char.appearance);
-      pushXmlText(parts, "scenario", char.scenario);
-      pushXmlText(parts, "first_mes", char.firstMes);
-      pushXmlText(parts, "mes_example", char.mesExample);
-      pushXmlText(parts, "system_prompt", char.systemPrompt);
-      pushXmlText(parts, "post_history_instructions", char.postHistoryInstructions);
+      if (fields.has("description")) pushXmlText(parts, "description", char.description);
+      if (fields.has("personality")) pushXmlText(parts, "personality", char.personality);
+      if (fields.has("backstory")) pushXmlText(parts, "backstory", char.backstory);
+      if (fields.has("appearance")) pushXmlText(parts, "appearance", char.appearance);
+      if (fields.has("scenario")) pushXmlText(parts, "scenario", char.scenario);
+      if (fields.has("firstMes")) pushXmlText(parts, "first_mes", char.firstMes);
+      if (fields.has("mesExample")) pushXmlText(parts, "mes_example", char.mesExample);
+      if (fields.has("creatorNotes")) pushXmlText(parts, "creator_notes", char.creatorNotes);
+      if (fields.has("systemPrompt")) pushXmlText(parts, "system_prompt", char.systemPrompt);
+      if (fields.has("postHistoryInstructions")) {
+        pushXmlText(parts, "post_history_instructions", char.postHistoryInstructions);
+      }
       parts.push(`</character>`);
     }
     parts.push(`</characters>`);
@@ -2339,12 +2349,16 @@ function buildLoreBlock(context: AgentContext): string {
   if (context.persona) {
     parts.push(`<user_persona name="${escapeXml(context.persona.name)}">`);
     pushXmlText(parts, "name", context.persona.name);
-    pushXmlText(parts, "description", context.persona.description);
-    pushXmlText(parts, "personality", context.persona.personality);
-    pushXmlText(parts, "backstory", context.persona.backstory);
-    pushXmlText(parts, "appearance", context.persona.appearance);
-    pushXmlText(parts, "scenario", context.persona.scenario);
-    if (context.persona.personaStats?.enabled && context.persona.personaStats.bars.length > 0) {
+    if (fields.has("description")) pushXmlText(parts, "description", context.persona.description);
+    if (fields.has("personality")) pushXmlText(parts, "personality", context.persona.personality);
+    if (fields.has("backstory")) pushXmlText(parts, "backstory", context.persona.backstory);
+    if (fields.has("appearance")) pushXmlText(parts, "appearance", context.persona.appearance);
+    if (fields.has("scenario")) pushXmlText(parts, "scenario", context.persona.scenario);
+    if (
+      fields.has("personaStats") &&
+      context.persona.personaStats?.enabled &&
+      context.persona.personaStats.bars.length > 0
+    ) {
       parts.push(`<persona_stats>`);
       for (const bar of context.persona.personaStats.bars) {
         parts.push(
@@ -2353,7 +2367,7 @@ function buildLoreBlock(context: AgentContext): string {
       }
       parts.push(`</persona_stats>`);
     }
-    if (context.persona.rpgStats?.enabled) {
+    if (fields.has("rpgStats") && context.persona.rpgStats?.enabled) {
       const rpg = context.persona.rpgStats;
       parts.push(`<rpg_stats>`);
       parts.push(`<hp value="${rpg.hp.value}" max="${rpg.hp.max}" />`);

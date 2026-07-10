@@ -13,6 +13,28 @@ function promptMessage(message: PromptMessageFixture): LlmMessage {
 }
 
 describe("buildPromptBudgetEstimate", () => {
+  it("warns about sections removed or truncated by the final context fit", () => {
+    const budget = buildPromptBudgetEstimate({
+      messages: [promptMessage({ role: "system", content: "Core", contextKind: "prompt" })],
+      connection: { maxContext: 1_200 },
+      parameters: { maxTokens: 400 },
+      contextFitDecision: {
+        removedMessages: [{ contextKind: "injection", displayName: "Trackers", estimatedTokens: 320 }],
+        truncatedMessages: [{ contextKind: "summary", removedEstimatedTokens: 180 }],
+        originalEstimatedTokens: 520,
+        fittedEstimatedTokens: 20,
+        inputBudgetTokens: 544,
+      },
+    });
+
+    expect(budget.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "context_removed", sectionLabel: "Trackers", tokens: 320 }),
+        expect.objectContaining({ kind: "context_truncated", tokens: 180 }),
+      ]),
+    );
+  });
+
   it("warns when a high-signal character cue appears in multiple prompt context sources", () => {
     const budget = buildPromptBudgetEstimate({
       messages: [

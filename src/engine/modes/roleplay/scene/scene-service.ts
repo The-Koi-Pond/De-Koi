@@ -1191,6 +1191,7 @@ const SCENE_CARRYOVER_METADATA_KEYS = [
   "agentOverrides",
   "enableAgents",
   "enableTools",
+  "toolSelectionMode",
   "expressionAvatarsEnabled",
   "spriteSide",
   "spotifySourceType",

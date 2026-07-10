@@ -101,6 +101,7 @@ import { loadPersonaSnapshotForChat } from "./persona-snapshot";
 import { assembleGenerationPrompt, chatSummaryForGeneration } from "./prompt-assembly";
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
+import { buildGenerationTurnUsage } from "./usage-ledger";
 import { applyRuntimeRegexScripts } from "./regex-runtime";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationSubjectMatches } from "../generation-core/images/illustration-reference-matching";
@@ -247,6 +248,7 @@ type MainGenerationPromptSnapshot = Pick<
   | "promptPresetId"
   | "lorebookActivationTrace"
   | "contextAttribution"
+  | "contextFitDecision"
 >;
 
 type GenerationDryRunPromptSnapshot = MainGenerationPromptSnapshot;
@@ -2620,6 +2622,12 @@ function clonePromptMessage(message: LlmMessage): GenerationPromptSnapshotMessag
   return snapshot;
 }
 
+function providerRequestMessage(message: LlmMessage): LlmMessage {
+  if (!message.contextSegments?.length) return message;
+  const { contextSegments: _contextSegments, ...providerMessage } = message;
+  return providerMessage;
+}
+
 function providerMetadataRecord(value: unknown): Record<string, unknown> | null {
   const record = parseRecord(value);
   return Object.keys(record).length > 0 ? cloneSerializableValue(record) : null;
@@ -2692,6 +2700,9 @@ export function buildSavedGenerationPromptSnapshot(args: {
       ? { lorebookActivationTrace: args.promptSnapshot.lorebookActivationTrace }
       : {}),
     ...(args.promptSnapshot.contextAttribution ? { contextAttribution: args.promptSnapshot.contextAttribution } : {}),
+    ...(args.promptSnapshot.contextFitDecision
+      ? { contextFitDecision: cloneSerializableValue(args.promptSnapshot.contextFitDecision) }
+      : {}),
     generationInfo: {
       model: generationInfo.model,
       provider: generationInfo.provider,
@@ -3192,6 +3203,14 @@ async function saveAssistantMessage(args: {
     existingExtra: regenerateMessageId ? args.existingExtra : undefined,
     mergeContextInjectionUpdates: !!regenerateMessageId,
   });
+  const generationInfo = {
+    connectionId: readString(args.connection.id) || null,
+    model: readString(args.connection.model) || null,
+    agentResults: args.agentResults.length,
+    notes: args.noteCount,
+    usage: args.usage ?? null,
+    turnUsage: buildGenerationTurnUsage(args.usage, args.agentResults),
+  };
 
   if (args.input.impersonate === true) {
     if (regenerateMessageId) {
@@ -3263,6 +3282,7 @@ async function saveAssistantMessage(args: {
       providerMetadata,
       spriteExpressions: args.spriteExpressions,
       agentExtra,
+      generationInfo,
     });
   }
 
@@ -3285,13 +3305,7 @@ async function saveAssistantMessage(args: {
         : {}),
       chatSummaryFingerprint: args.chatSummaryFingerprint,
     },
-    generationInfo: {
-      connectionId: readString(args.connection.id) || null,
-      model: readString(args.connection.model) || null,
-      agentResults: args.agentResults.length,
-      notes: args.noteCount,
-      usage: args.usage ?? null,
-    },
+    generationInfo,
   });
   return saved;
 }
@@ -3309,6 +3323,7 @@ async function saveRegeneratedMessage(args: {
   providerMetadata?: Record<string, unknown> | null;
   spriteExpressions?: Record<string, string> | null;
   agentExtra?: Record<string, unknown> | null;
+  generationInfo?: Record<string, unknown> | null;
 }): Promise<unknown | null> {
   const swipeExtra = swipeScopedGenerationExtra({
     generationReplay: args.generationReplay,
@@ -3318,6 +3333,7 @@ async function saveRegeneratedMessage(args: {
     providerMetadata: args.providerMetadata,
     spriteExpressions: args.spriteExpressions,
     agentExtra: args.agentExtra,
+    generationInfo: args.generationInfo,
   });
   await args.storage.addChatMessageSwipe(
     args.chatId,
@@ -3333,6 +3349,7 @@ async function saveRegeneratedMessage(args: {
     providerMetadata: args.providerMetadata,
     spriteExpressions: args.spriteExpressions,
     agentExtra: args.agentExtra,
+    generationInfo: args.generationInfo,
   });
   return args.storage.patchChatMessageExtra(args.messageId, extraPatch);
 }
@@ -3356,6 +3373,7 @@ function swipeScopedGenerationExtra(args: {
   providerMetadata?: Record<string, unknown> | null;
   spriteExpressions?: Record<string, string> | null;
   agentExtra?: Record<string, unknown> | null;
+  generationInfo?: Record<string, unknown> | null;
 }): Record<string, unknown> {
   const extra: Record<string, unknown> = {};
   if (args.generationReplay) extra.generationReplay = args.generationReplay;
@@ -3369,6 +3387,7 @@ function swipeScopedGenerationExtra(args: {
     extra.spriteExpressions = args.spriteExpressions;
   }
   if (args.agentExtra) Object.assign(extra, args.agentExtra);
+  if (args.generationInfo) extra.generationInfo = args.generationInfo;
   if (args.promptSnapshot) extra.generationPromptSnapshot = args.promptSnapshot;
   return extra;
 }
@@ -3381,6 +3400,7 @@ function generationReplayExtraPatch(args: {
   providerMetadata?: Record<string, unknown> | null;
   spriteExpressions?: Record<string, string> | null;
   agentExtra?: Record<string, unknown> | null;
+  generationInfo?: Record<string, unknown> | null;
 }): Record<string, unknown> {
   const extraPatch: Record<string, unknown> = {};
   if (args.generationReplay) extraPatch.generationReplay = args.generationReplay;
@@ -3394,6 +3414,7 @@ function generationReplayExtraPatch(args: {
     extraPatch.spriteExpressions = args.spriteExpressions;
   }
   if (args.agentExtra) Object.assign(extraPatch, args.agentExtra);
+  if (args.generationInfo) extraPatch.generationInfo = args.generationInfo;
   if (args.promptSnapshot) {
     extraPatch.generationPromptSnapshot = args.promptSnapshot;
   }
@@ -5291,6 +5312,7 @@ async function* streamMainGenerationLoop(args: {
         { tools: requestTools },
       );
       const requestMessages = requestFit.messages;
+      const providerRequestMessages = requestMessages.map(providerRequestMessage);
       const requestParameters = requestFit.parameters;
       const requestPreviewMessages = previewMessages?.length
         ? fitLlmRequestToContextWindow(previewMessages, requestParameters, connection, { tools: requestTools }).messages
@@ -5300,12 +5322,15 @@ async function* streamMainGenerationLoop(args: {
         hasTools: Boolean(requestTools?.length),
       });
       promptSnapshot = {
-        messages: requestMessages.map(clonePromptMessage),
-        ...(requestPreviewMessages?.length ? { previewMessages: requestPreviewMessages.map(clonePromptMessage) } : {}),
+        messages: providerRequestMessages.map(clonePromptMessage),
+        ...(requestPreviewMessages?.length
+          ? { previewMessages: requestPreviewMessages.map(providerRequestMessage).map(clonePromptMessage) }
+          : {}),
         parameters: cloneSerializableValue(visibleRequestParameters),
         promptPresetId: promptPresetId ?? null,
         ...(lorebookActivationTrace ? { lorebookActivationTrace } : {}),
         ...(contextAttribution ? { contextAttribution } : {}),
+        ...(requestFit.decision ? { contextFitDecision: requestFit.decision } : {}),
         ...(requestTools?.length ? { tools: cloneSerializableValue(requestTools) } : {}),
       };
 
@@ -5313,7 +5338,7 @@ async function* streamMainGenerationLoop(args: {
         {
           connectionId: readString(connection.id) || input.connectionId,
           model: readString(connection.model) || undefined,
-          messages: requestMessages,
+          messages: providerRequestMessages,
           parameters: requestParameters,
           tools: requestTools,
         },
@@ -5377,6 +5402,7 @@ async function* streamMainGenerationLoop(args: {
       conversation.push({
         role: "assistant",
         content: turnContent,
+        contextKind: "history",
         tool_calls: pendingToolCalls,
         ...(turnMetadataRecord ? { providerMetadata: turnMetadataRecord } : {}),
       });
@@ -5408,6 +5434,7 @@ async function* streamMainGenerationLoop(args: {
         conversation.push({
           role: "tool",
           content: resultText,
+          contextKind: "history",
           tool_call_id: call.id,
           name: toolName,
         });

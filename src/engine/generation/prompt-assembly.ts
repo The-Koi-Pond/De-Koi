@@ -29,7 +29,6 @@ import {
   resolveMacros,
   type MacroContext,
 } from "../shared/macros/macro-engine";
-import { normalizeChatSummaryMetadata } from "../shared/text/chat-summary-entries";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { cleanPromptText, stripPromptComments } from "../shared/text/prompt-comments";
 import {
@@ -65,6 +64,7 @@ import {
 } from "./generate-route-utils";
 import { effectiveMaxContext } from "./context-window";
 import { buildGenerationPromptPresetCandidates } from "./prompt-preset-selection";
+import { buildSummaryContextProjection, type SummaryContextProjection } from "./summary-context";
 import {
   bySortOrder,
   boolish,
@@ -204,6 +204,7 @@ interface PromptAssemblyReusableContext {
   loreScan: ActiveLorebookScannerResult;
   processedLore: ActiveLorebookScannerResult["processedLore"];
   summary: string | null;
+  summaryCoversPriorHistory: boolean;
   memoryRecallBlock: string | null;
   canonicalMemoryBlock: string | null;
   contextAttributionItems: GenerationContextAttributionItem[];
@@ -256,6 +257,9 @@ type PromptDepthEntry = {
   role: "system" | "user" | "assistant";
   depth: number;
   order: number;
+  contextKind: NonNullable<ChatMLMessage["contextKind"]>;
+  contextPriority: number;
+  displayName?: string;
 };
 
 type GroupScenarioOverride = {
@@ -1146,6 +1150,46 @@ function promptGroupName(group: PromptGroupRecord): string {
   return readString(group.name).trim() || "Prompt Group";
 }
 
+function contextKindForPromptMarker(marker: MarkerConfig | null): ChatMLMessage["contextKind"] {
+  switch (marker?.type) {
+    case "chat_summary":
+      return "summary";
+    case "lorebook":
+    case "world_info_before":
+    case "world_info_after":
+      return "lorebook";
+    case "agent_data":
+      return "agent";
+    default:
+      return "prompt";
+  }
+}
+
+function contextKindForPresetDepthMarker(marker: MarkerConfig | null): NonNullable<ChatMLMessage["contextKind"]> {
+  const kind = contextKindForPromptMarker(marker);
+  return kind === "prompt" ? "directive" : (kind ?? "directive");
+}
+
+function contextPriorityForKind(kind: NonNullable<ChatMLMessage["contextKind"]>): number {
+  switch (kind) {
+    case "summary":
+      return 700;
+    case "lorebook":
+      return 600;
+    case "memory":
+    case "memory_recall":
+    case "canonical_memory":
+      return 650;
+    case "injection":
+    case "optional":
+      return 300;
+    case "history":
+      return 500;
+    default:
+      return 1_000;
+  }
+}
+
 function promptGroupForSection(
   section: PromptSectionRecord,
   groupsById: Map<string, PromptGroupRecord>,
@@ -1163,18 +1207,30 @@ function groupedPromptMessages(entries: PromptAssemblyEntry[], wrapFormat: WrapF
     id: string;
     name: string;
     role: ChatMLMessage["role"];
-    contents: string[];
+    contents: Array<Pick<ChatMLMessage, "content" | "contextKind" | "contextPriority" | "displayName">>;
   } | null = null;
 
   const flushGroup = () => {
     if (!activeGroup) return;
-    const content = wrapGroup(activeGroup.contents.join("\n\n"), activeGroup.name, wrapFormat);
+    const content = wrapGroup(
+      activeGroup.contents.map((entry) => entry.content).join("\n\n"),
+      activeGroup.name,
+      wrapFormat,
+    );
+    const contextKinds = new Set(activeGroup.contents.map((entry) => entry.contextKind).filter(Boolean));
     if (content.trim()) {
       messages.push({
         role: activeGroup.role,
         content,
-        contextKind: "prompt",
+        contextKind: contextKinds.size === 1 ? [...contextKinds][0] : "prompt",
         displayName: activeGroup.name,
+        contextSegments: activeGroup.contents.map((entry) => ({
+          role: activeGroup!.role,
+          content: wrapGroup(entry.content, activeGroup!.name, wrapFormat),
+          ...(entry.contextKind ? { contextKind: entry.contextKind } : {}),
+          ...(entry.contextPriority != null ? { contextPriority: entry.contextPriority } : {}),
+          ...(entry.displayName ? { displayName: entry.displayName } : {}),
+        })),
       });
     }
     activeGroup = null;
@@ -1196,7 +1252,7 @@ function groupedPromptMessages(entries: PromptAssemblyEntry[], wrapFormat: WrapF
         contents: [],
       };
     }
-    activeGroup.contents.push(message.content);
+    activeGroup.contents.push(message);
   }
   flushGroup();
 
@@ -1801,39 +1857,64 @@ function fallbackSystemPrompt(
     groupScenarioOverride: GroupScenarioOverride;
     compactCharacterCards: boolean;
   },
-): string {
+): { content: string; contextSegments: NonNullable<ChatMLMessage["contextSegments"]> } {
   const mode = readString(input.chat.mode || input.chat.chatMode, "conversation");
   const meta = parseRecord(input.chat.metadata);
-  const common = [
-    renderCharacters(args.characters, args.wrapFormat, null, args.macros, args.groupScenarioOverride, {
-      compactCharacterCards: args.compactCharacterCards,
-    }),
-    renderPersona(args.persona, args.wrapFormat),
-    args.worldBefore,
-    args.worldAfter,
-    args.summary ? `Summary:\n${args.summary}` : "",
+  const common: NonNullable<ChatMLMessage["contextSegments"]> = [
+    {
+      content: renderCharacters(args.characters, args.wrapFormat, null, args.macros, args.groupScenarioOverride, {
+        compactCharacterCards: args.compactCharacterCards,
+      }),
+      contextKind: "prompt",
+      displayName: "Characters",
+    },
+    { content: renderPersona(args.persona, args.wrapFormat), contextKind: "prompt", displayName: "Persona" },
+    { content: args.worldBefore, contextKind: "lorebook", displayName: "World Info Before" },
+    { content: args.worldAfter, contextKind: "lorebook", displayName: "World Info After" },
+    {
+      content: args.summary ? `Summary:\n${args.summary}` : "",
+      contextKind: "summary",
+      displayName: "Summary",
+    },
   ];
 
+  const finalize = (segments: NonNullable<ChatMLMessage["contextSegments"]>) => {
+    const retained = segments.filter((segment) => segment.content.trim().length > 0);
+    return { content: retained.map((segment) => segment.content).join("\n\n"), contextSegments: retained };
+  };
+
   if (mode === "game") {
-    return [
-      "You are De-Koi's Game Master. Run the game as a structured campaign, not as a normal chat or roleplay scene.",
-      "Narrate clear consequences, keep party members distinct, preserve game mechanics, and emit game tags when state, inventory, quests, encounters, music, or scene assets should change.",
-      renderJsonBlock("Game setup", meta.gameSetupConfig),
-      renderJsonBlock("Game state", input.chat.gameState ?? meta.gameState),
+    return finalize([
+      {
+        content:
+          "You are De-Koi's Game Master. Run the game as a structured campaign, not as a normal chat or roleplay scene.",
+        contextKind: "prompt",
+      },
+      {
+        content:
+          "Narrate clear consequences, keep party members distinct, preserve game mechanics, and emit game tags when state, inventory, quests, encounters, music, or scene assets should change.",
+        contextKind: "prompt",
+      },
+      { content: renderJsonBlock("Game setup", meta.gameSetupConfig), contextKind: "prompt" },
+      { content: renderJsonBlock("Game state", input.chat.gameState ?? meta.gameState), contextKind: "prompt" },
       ...common,
-    ]
-      .filter((part) => part.trim().length > 0)
-      .join("\n\n");
+    ]);
   }
 
   if (mode === "roleplay" || meta.sceneStatus === "active") {
-    return [
-      "You are roleplaying in De-Koi. Stay in character, respect the scenario, and continue the scene naturally.",
-      "Treat this as the roleplay path: focus on scene continuity, character action, dialogue, and immersive narration without using game-mode mechanics unless explicitly present in the chat.",
+    return finalize([
+      {
+        content:
+          "You are roleplaying in De-Koi. Stay in character, respect the scenario, and continue the scene naturally.",
+        contextKind: "prompt",
+      },
+      {
+        content:
+          "Treat this as the roleplay path: focus on scene continuity, character action, dialogue, and immersive narration without using game-mode mechanics unless explicitly present in the chat.",
+        contextKind: "prompt",
+      },
       ...common,
-    ]
-      .filter((part) => part.trim().length > 0)
-      .join("\n\n");
+    ]);
   }
 
   const groupConversation = conversationCharacterNames(args.conversationCharacters).length > 1;
@@ -1844,9 +1925,11 @@ function fallbackSystemPrompt(
   const conversationPrompt = cleanPromptText(
     resolveConversationSystemPrompt(rawConversationPrompt, args.macros, args.conversationCharacters),
   );
-  return [conversationPrompt, groupConversationReplyGuidance(input, args.conversationCharacters), ...common]
-    .filter((part) => part.trim().length > 0)
-    .join("\n\n");
+  return finalize([
+    { content: conversationPrompt, contextKind: "prompt" },
+    { content: groupConversationReplyGuidance(input, args.conversationCharacters), contextKind: "prompt" },
+    ...common,
+  ]);
 }
 
 function shouldForceRoleplaySummaryIntoSystem(chat: JsonRecord): boolean {
@@ -1886,18 +1969,11 @@ function appendSummaryToSystemPrompt(
     break;
   }
 
-  if (systemIndex >= 0) {
-    messages[systemIndex] = {
-      ...messages[systemIndex]!,
-      content: `${messages[systemIndex]!.content.trim()}\n\n${summaryBlock}`,
-    };
-    return true;
-  }
-
-  messages.unshift({
+  messages.splice(systemIndex >= 0 ? systemIndex + 1 : 0, 0, {
     role: "system",
     content: summaryBlock,
-    contextKind: "prompt",
+    contextKind: "summary",
+    displayName: "Summary",
   });
   return true;
 }
@@ -1966,65 +2042,20 @@ function buildMergedRoleplayEnsemblePromptBlock(
   );
 }
 
-export function chatSummaryForGeneration(chat: JsonRecord): string | null {
+function summaryContextBudgetTokens(meta: JsonRecord, maxContext: number | null): number {
+  const override = readNumber(meta.summaryContextTokenBudget, 0);
+  if (override > 0) return Math.max(256, Math.min(8192, Math.floor(override)));
+  if (!maxContext || maxContext <= 0) return 2048;
+  return Math.min(4096, Math.max(768, Math.floor(maxContext * 0.08)));
+}
+
+function summaryProjectionForGeneration(chat: JsonRecord, maxContext: number | null = null): SummaryContextProjection {
   const meta = parseRecord(chat.metadata);
-  const mode = readString(chat.mode || chat.chatMode, "conversation");
-  const includeSceneSummary = mode !== "conversation" || meta.crossChatAwareness !== false;
-  const rollingSummary = normalizeChatSummaryMetadata(meta).summary;
-  const parts = [
-    meta.conversationSummary,
-    rollingSummary,
-    formatSummaryMap("Day", meta.daySummaries),
-    formatSummaryMap("Week", meta.weekSummaries),
-    includeSceneSummary ? meta.lastRoleplaySceneSummary : null,
-  ]
-    .map((value) =>
-      typeof value === "string" ? value : isRecord(value) || Array.isArray(value) ? JSON.stringify(value) : "",
-    )
-    .filter((value) => value.trim().length > 0);
-  return parts.length > 0 ? parts.join("\n\n") : null;
+  return buildSummaryContextProjection({ chat, budgetTokens: summaryContextBudgetTokens(meta, maxContext) });
 }
 
-function formatSummaryEntry(label: string, key: string, value: unknown): string {
-  const entry = parseRecord(value);
-  const summary = readString(entry.summary).trim();
-  const keyDetails = stringArray(entry.keyDetails);
-  if (!summary && keyDetails.length === 0) return "";
-  const parts = [`${label} summary ${key}`];
-  if (summary) parts.push(summary);
-  if (keyDetails.length > 0) {
-    parts.push(["Key details:", ...keyDetails.map((detail) => `- ${detail}`)].join("\n"));
-  }
-  return parts.filter(Boolean).join("\n");
-}
-
-function formatSummaryMap(label: "Day" | "Week", value: unknown): string {
-  const entries = Object.entries(parseRecord(value))
-    .map(([key, entry]) => ({ key, text: formatSummaryEntry(label, key, entry) }))
-    .filter((entry) => entry.text.trim().length > 0)
-    .sort((a, b) => compareSummaryKeys(a.key, b.key));
-  return entries.map((entry) => entry.text).join("\n\n");
-}
-
-function summaryKeyTimestamp(key: string): number | null {
-  const dotted = key.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (dotted) {
-    const [, day, month, year] = dotted;
-    return Date.UTC(Number(year), Number(month) - 1, Number(day));
-  }
-  const parsed = Date.parse(key);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function compareSummaryKeys(a: string, b: string): number {
-  const aTime = summaryKeyTimestamp(a);
-  const bTime = summaryKeyTimestamp(b);
-  if (aTime !== null && bTime !== null && aTime !== bTime) return aTime - bTime;
-  return a.localeCompare(b);
-}
-
-function hasConversationSummaryCompaction(meta: JsonRecord): boolean {
-  return !!formatSummaryMap("Day", meta.daySummaries).trim() || !!formatSummaryMap("Week", meta.weekSummaries).trim();
+export function chatSummaryForGeneration(chat: JsonRecord): string | null {
+  return summaryProjectionForGeneration(chat).text;
 }
 
 function presetCanInsertChatSummary(preset: SelectedPromptPreset | null, summary: string | null): boolean {
@@ -2038,10 +2069,10 @@ function shouldCompactHistoryForSummary(
   chat: JsonRecord,
   selectedPreset: SelectedPromptPreset | null,
   summary: string | null,
+  coversPriorHistory: boolean,
 ): boolean {
   if (!summary?.trim()) return false;
-  const meta = parseRecord(chat.metadata);
-  if (!hasConversationSummaryCompaction(meta)) return false;
+  if (!coversPriorHistory) return false;
   if (!selectedPreset) return true;
   return (
     presetCanInsertChatSummary(selectedPreset, summary) ||
@@ -3196,7 +3227,23 @@ function shouldMergeSameRolePromptMessage(
   return canMergePromptMessages(previous, { ...message, role: effectiveRole });
 }
 
+function promptContextSegments(message: ChatMLMessage, renderedContent = message.content) {
+  if (message.contextSegments?.length && renderedContent === message.content) {
+    return message.contextSegments.map((segment) => ({ ...segment }));
+  }
+  return [
+    {
+      role: message.role,
+      content: renderedContent,
+      ...(message.contextKind ? { contextKind: message.contextKind } : {}),
+      ...(message.contextPriority != null ? { contextPriority: message.contextPriority } : {}),
+      ...(message.displayName ? { displayName: message.displayName } : {}),
+    },
+  ];
+}
+
 function mergeIntoPreviousPromptMessage(previous: ChatMLMessage, message: ChatMLMessage): void {
+  const mergedSegments = [...promptContextSegments(previous), ...promptContextSegments(message)];
   previous.content += "\n\n" + message.content;
   previous.content = collapseExcessBlankLines(previous.content);
   if ((previous.displayName ?? null) !== (message.displayName ?? null)) {
@@ -3218,6 +3265,7 @@ function mergeIntoPreviousPromptMessage(previous: ChatMLMessage, message: ChatML
   if (previous.role === "assistant" && message.providerMetadata) {
     previous.providerMetadata = message.providerMetadata;
   }
+  previous.contextSegments = mergedSegments;
 }
 
 function strictRoleBoundaryLabel(message: ChatMLMessage): string {
@@ -3240,7 +3288,11 @@ function mergeIntoStrictRoleSafeMessage(
   normalizedMessages: WeakSet<ChatMLMessage>,
 ): void {
   const previousContent = normalizedMessages.has(previous) ? previous.content : strictRoleSegmentContent(previous);
-  previous.content = collapseExcessBlankLines(`${previousContent}\n\n${strictRoleSegmentContent(message)}`);
+  const previousSegments = normalizedMessages.has(previous)
+    ? promptContextSegments(previous)
+    : promptContextSegments(previous, previousContent);
+  const messageContent = strictRoleSegmentContent(message);
+  previous.content = collapseExcessBlankLines(`${previousContent}\n\n${messageContent}`);
   const contextKind = mergePromptContextKind(previous.contextKind, message.contextKind);
   if (contextKind) {
     previous.contextKind = contextKind;
@@ -3256,6 +3308,7 @@ function mergeIntoStrictRoleSafeMessage(
   if (message.images?.length) {
     previous.images = [...(previous.images ?? []), ...message.images];
   }
+  previous.contextSegments = [...previousSegments, ...promptContextSegments(message, messageContent)];
   normalizedMessages.add(previous);
 }
 
@@ -3445,6 +3498,25 @@ function hasKnownSpeakerPrefix(content: string, speakerNames: string[]): boolean
   });
 }
 
+function transformPromptMessageContent(message: ChatMLMessage, transform: (content: string) => string): ChatMLMessage {
+  const content = transform(message.content);
+  if (content === message.content) return message;
+
+  const next: ChatMLMessage = { ...message, content };
+  if (!message.contextSegments?.length) return next;
+
+  const contextSegments = message.contextSegments.map((segment) => ({
+    ...segment,
+    content: transform(segment.content),
+  }));
+  if (contextSegments.map((segment) => segment.content).join("\n\n") === content) {
+    next.contextSegments = contextSegments;
+  } else {
+    delete next.contextSegments;
+  }
+  return next;
+}
+
 function historySpeakerName(
   message: ChatMLMessage,
   characterNames: Map<string, string>,
@@ -3471,7 +3543,7 @@ function prefixGroupIndividualHistorySpeakers(
     if (!isIndividualGroupHistoryMessage(message)) return message;
     const speakerName = historySpeakerName(message, characterNames, persona);
     if (!speakerName || hasKnownSpeakerPrefix(message.content, knownSpeakerNames)) return message;
-    return { ...message, content: `${speakerName}: ${message.content}` };
+    return transformPromptMessageContent(message, (content) => `${speakerName}: ${content}`);
   });
 }
 
@@ -3499,11 +3571,13 @@ function enforceStrictRoles(messages: ChatMLMessage[]): ChatMLMessage[] {
   const strictRoleNormalizedMessages = new WeakSet<ChatMLMessage>();
   let index = 0;
   const systemParts: string[] = [];
+  const systemSegments: NonNullable<ChatMLMessage["contextSegments"]> = [];
   while (index < messages.length && messages[index]!.role === "system") {
     if (messages[index]!.contextKind === "history") {
       break;
     }
     systemParts.push(messages[index]!.content);
+    systemSegments.push(...promptContextSegments(messages[index]!));
     index += 1;
   }
   if (systemParts.length > 0) {
@@ -3511,6 +3585,7 @@ function enforceStrictRoles(messages: ChatMLMessage[]): ChatMLMessage[] {
       role: "system",
       content: systemParts.join("\n\n"),
       contextKind: "prompt",
+      ...(systemSegments.length > 1 ? { contextSegments: systemSegments } : {}),
       ...(index === 1 && messages[0]?.displayName ? { displayName: messages[0].displayName } : {}),
     });
   }
@@ -3570,14 +3645,21 @@ function enforceStrictRoles(messages: ChatMLMessage[]): ChatMLMessage[] {
   return result;
 }
 
-function collapseToSingleUserMessage(messages: ChatMLMessage[]): ChatMLMessage[] {
-  const content = messages
-    .map((message) =>
-      message.role === "user" ? message.content : `[${message.role.toUpperCase()}]\n${message.content}`,
-    )
-    .filter((content) => content.trim())
+export function collapseToSingleUserMessage(messages: ChatMLMessage[]): ChatMLMessage[] {
+  const segments = messages.flatMap((message) =>
+    promptContextSegments(message).map((segment, index) => ({
+      ...segment,
+      content:
+        index === 0 && message.role !== "user"
+          ? `[${message.role.toUpperCase()}]\n${segment.content}`
+          : segment.content,
+    })),
+  );
+  const content = segments
+    .map((segment) => segment.content)
+    .filter((part) => part.trim())
     .join("\n\n");
-  return content ? [{ role: "user", content, contextKind: "prompt" }] : [];
+  return content ? [{ role: "user", content, contextKind: "prompt", contextSegments: segments }] : [];
 }
 
 function previewMessagesForPrompt(messages: ChatMLMessage[]): ChatMLMessage[] {
@@ -3649,7 +3731,7 @@ function finalizeDeferredCharacterMessages(
   const profile = macroProfileForCharacter(target);
   return messages.map((message) =>
     hasDeferredCharacterMacros(message.content)
-      ? { ...message, content: resolveDeferredCharacterMacros(message.content, profile, macros) }
+      ? transformPromptMessageContent(message, (content) => resolveDeferredCharacterMacros(content, profile, macros))
       : message,
   );
 }
@@ -3678,7 +3760,14 @@ function characterDepthPromptEntries(
   characters: GenerationCharacterContext[],
   macros: MacroContext,
   groupScenarioOverride: GroupScenarioOverride,
-): Array<{ content: string; role: "system" | "user" | "assistant"; depth: number }> {
+): Array<{
+  content: string;
+  role: "system" | "user" | "assistant";
+  depth: number;
+  contextKind: "character";
+  contextPriority: number;
+  displayName: string;
+}> {
   return characters.flatMap((character) => {
     const depthPrompt = character.depthPrompt;
     if (!depthPrompt) return [];
@@ -3686,7 +3775,16 @@ function characterDepthPromptEntries(
       resolveMacros(depthPrompt.prompt, macroContextForCharacter(macros, character, groupScenarioOverride)),
     );
     if (!content.trim()) return [];
-    return [{ content, role: depthPrompt.role, depth: depthPrompt.depth }];
+    return [
+      {
+        content,
+        role: depthPrompt.role,
+        depth: depthPrompt.depth,
+        contextKind: "character",
+        contextPriority: 1_000,
+        displayName: `${character.name} Instructions`,
+      },
+    ];
   });
 }
 
@@ -3938,7 +4036,13 @@ export async function assembleGenerationPrompt(
       : await scanLorebooksForPositions(baseLorebookIncludedPositions);
   let processedLore =
     canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
-  const summary = reusableContext?.summary ?? chatSummaryForGeneration(input.chat);
+  const summaryProjection = reusableContext
+    ? {
+        text: reusableContext.summary,
+        coversPriorHistory: reusableContext.summaryCoversPriorHistory,
+      }
+    : summaryProjectionForGeneration(input.chat, maxContext);
+  const summary = summaryProjection.text;
   const memoryRecallContext =
     canReuseSourceSensitiveContext && reusableContext
       ? {
@@ -3985,7 +4089,7 @@ export async function assembleGenerationPrompt(
   const selectedHistoryLimit = compactedHistoryLimit(
     chatMeta,
     historyLimit,
-    shouldCompactHistoryForSummary(input.chat, selectedPreset, summary),
+    shouldCompactHistoryForSummary(input.chat, selectedPreset, summary, summaryProjection.coversPriorHistory),
   );
   const historySelection = reusableContext
     ? {
@@ -4064,11 +4168,15 @@ export async function assembleGenerationPrompt(
       }
       const name = readString(section.name) || readString(section.identifier) || marker?.type || "Prompt";
       if (isDepthPromptSection(section)) {
+        const contextKind = contextKindForPresetDepthMarker(marker);
         presetDepthEntries.push({
           role: normalizeRole(section.role),
           content: wrapContent(resolved, name, wrapFormat, 0),
           depth: promptSectionInjectionDepth(section),
           order: promptSectionInjectionOrder(section),
+          contextKind,
+          contextPriority: contextPriorityForKind(contextKind),
+          displayName: name,
         });
         continue;
       }
@@ -4076,7 +4184,7 @@ export async function assembleGenerationPrompt(
       promptEntries.push({
         role: normalizeRole(section.role),
         content: wrapContent(resolved, name, wrapFormat, group ? 1 : 0),
-        contextKind: "prompt",
+        contextKind: group ? "prompt" : contextKindForPromptMarker(marker),
         displayName: name,
         promptGroupId: group?.id ?? null,
         promptGroupName: group?.name ?? null,
@@ -4102,21 +4210,23 @@ export async function assembleGenerationPrompt(
       processedLore = loreScan.processedLore;
     }
     usedFallbackSystemPrompt = true;
+    const fallback = fallbackSystemPrompt(input, {
+      characters: promptCharacters,
+      conversationCharacters: characters,
+      persona,
+      worldBefore: processedLore.worldInfoBefore,
+      worldAfter: processedLore.worldInfoAfter,
+      summary,
+      wrapFormat,
+      macros,
+      groupScenarioOverride: activeGroupScenarioOverride,
+      compactCharacterCards: compactMergedRoleplayCards,
+    });
     messages.push({
       role: "system",
-      content: fallbackSystemPrompt(input, {
-        characters: promptCharacters,
-        conversationCharacters: characters,
-        persona,
-        worldBefore: processedLore.worldInfoBefore,
-        worldAfter: processedLore.worldInfoAfter,
-        summary,
-        wrapFormat,
-        macros,
-        groupScenarioOverride: activeGroupScenarioOverride,
-        compactCharacterCards: compactMergedRoleplayCards,
-      }),
+      content: fallback.content,
       contextKind: "prompt",
+      contextSegments: fallback.contextSegments,
     });
   }
 
@@ -4133,7 +4243,7 @@ export async function assembleGenerationPrompt(
     insertBeforeFirstHistory(messages, {
       role: "system",
       content: agentDataBlock,
-      contextKind: "injection",
+      contextKind: "agent",
       displayName: "Agent Instructions",
     });
   }
@@ -4183,7 +4293,8 @@ export async function assembleGenerationPrompt(
     messages.splice(insertAt >= 0 ? insertAt : messages.length, 0, {
       role: "system",
       content: memoryRecallBlock,
-      contextKind: "prompt",
+      contextKind: "memory_recall",
+      displayName: "Recalled Memory",
     });
   }
 
@@ -4192,7 +4303,8 @@ export async function assembleGenerationPrompt(
     messages.splice(insertAt >= 0 ? insertAt : messages.length, 0, {
       role: "system",
       content: canonicalMemoryBlock,
-      contextKind: "prompt",
+      contextKind: "canonical_memory",
+      displayName: "Canonical Memory",
     });
   }
 
@@ -4208,8 +4320,17 @@ export async function assembleGenerationPrompt(
   messages = injectAtDepth(
     messages,
     authorNotesEntry
-      ? [...processedLore.depthEntries, ...characterDepthEntries, ...presetDepthEntries, authorNotesEntry]
-      : [...processedLore.depthEntries, ...characterDepthEntries, ...presetDepthEntries],
+      ? [
+          ...processedLore.depthEntries.map((entry) => ({ ...entry, contextKind: "lorebook" as const })),
+          ...characterDepthEntries,
+          ...presetDepthEntries,
+          authorNotesEntry,
+        ]
+      : [
+          ...processedLore.depthEntries.map((entry) => ({ ...entry, contextKind: "lorebook" as const })),
+          ...characterDepthEntries,
+          ...presetDepthEntries,
+        ],
     chatHistoryDepthInjectionBounds(messages),
   );
   const regexScripts = await loadPromptRegexScripts();
@@ -4225,10 +4346,11 @@ export async function assembleGenerationPrompt(
     messages.push(turnPrompt);
   }
   messages = messages
-    .map((message) => ({
-      ...message,
-      content: collapseExcessBlankLines(stripPromptComments(message.content)).trim(),
-    }))
+    .map((message) =>
+      transformPromptMessageContent(message, (content) =>
+        collapseExcessBlankLines(stripPromptComments(content)).trim(),
+      ),
+    )
     .filter((message) => message.content.length > 0 || (message.images?.length ?? 0) > 0);
   if (shouldPrefixGroupIndividualHistorySpeakers(input, characters)) {
     messages = prefixGroupIndividualHistorySpeakers(messages, characters, persona);
@@ -4278,6 +4400,7 @@ export async function assembleGenerationPrompt(
     loreScan,
     processedLore,
     summary,
+    summaryCoversPriorHistory: summaryProjection.coversPriorHistory,
     memoryRecallBlock,
     canonicalMemoryBlock,
     contextAttributionItems,
