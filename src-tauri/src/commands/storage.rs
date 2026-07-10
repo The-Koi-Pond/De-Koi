@@ -25,6 +25,8 @@ pub(crate) mod canonical_memory;
 pub(crate) mod characters;
 #[path = "storage/character_version_media.rs"]
 pub(crate) mod character_version_media;
+#[path = "storage/character_version_retention.rs"]
+pub(crate) mod character_version_retention;
 #[path = "storage/chat_memory.rs"]
 pub(crate) mod chat_memory;
 #[path = "storage/chats.rs"]
