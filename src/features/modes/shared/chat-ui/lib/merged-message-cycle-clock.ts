@@ -10,6 +10,7 @@ function handleVisibilityChange() {
   if (document.visibilityState === "hidden") {
     stopClock();
   } else if (subscribers.size > 0) {
+    if (interval === null) subscribers.forEach((subscriber) => subscriber(tick));
     startClock();
   }
 }
@@ -32,6 +33,7 @@ export function subscribeMergedMessageCycle(subscriber: CycleSubscriber): () => 
   const isFirstSubscriber = subscribers.size === 0;
   subscribers.add(subscriber);
   if (isFirstSubscriber) document.addEventListener("visibilitychange", handleVisibilityChange);
+  subscriber(tick);
   if (document.visibilityState !== "hidden") startClock();
 
   let subscribed = true;

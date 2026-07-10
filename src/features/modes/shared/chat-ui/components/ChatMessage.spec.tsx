@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GenerationPromptSnapshot, Message } from "../../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
+import { subscribeMergedMessageCycle } from "../lib/merged-message-cycle-clock";
 import type { CharacterMap } from "../types";
 import { ChatMessage } from "./ChatMessage";
 
@@ -75,6 +76,7 @@ describe("ChatMessage", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
   let queryClient: QueryClient | null = null;
+  const cycleUnsubscribers: Array<() => void> = [];
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -91,6 +93,7 @@ describe("ChatMessage", () => {
       });
     }
     root = null;
+    while (cycleUnsubscribers.length > 0) cycleUnsubscribers.pop()?.();
     queryClient?.clear();
     queryClient = null;
     container?.remove();
@@ -298,6 +301,9 @@ describe("ChatMessage", () => {
 
   it("does not update merged identity opacity while the identity block is offscreen", () => {
     vi.useFakeTimers();
+    const unsubscribeVisibleKeeper = subscribeMergedMessageCycle(vi.fn());
+    cycleUnsubscribers.push(unsubscribeVisibleKeeper);
+    vi.advanceTimersByTime(2_000);
     let observerCallback: IntersectionObserverCallback | null = null;
     let observer: IntersectionObserver | null = null;
     class TestIntersectionObserver implements IntersectionObserver {
@@ -346,11 +352,82 @@ describe("ChatMessage", () => {
     const names = container!.querySelectorAll<HTMLElement>("[data-cycle-name]");
     expect(Array.from(names, (name) => name.style.opacity)).toEqual(["1", "0", "0"]);
 
+    unsubscribeVisibleKeeper();
+    expect(vi.getTimerCount()).toBe(0);
+
     act(() => {
       observerCallback!([{ isIntersecting: true } as IntersectionObserverEntry], observer!);
       vi.advanceTimersByTime(2_000);
     });
-    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["0", "0", "1"]);
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["0", "1", "0"]);
+  });
+
+  it("replaces the observed merged identity target when grouping changes the render path", () => {
+    vi.useFakeTimers();
+    const observers: Array<{
+      callback: IntersectionObserverCallback;
+      observer: IntersectionObserver;
+    }> = [];
+    class TestIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0];
+      disconnect = vi.fn();
+      observe = vi.fn();
+      takeRecords = vi.fn(() => []);
+      unobserve = vi.fn();
+      constructor(callback: IntersectionObserverCallback) {
+        observers.push({ callback, observer: this });
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    const groupCharacterMap: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+    ]);
+    const renderMessage = (isGrouped: boolean) => (
+      <QueryClientProvider client={queryClient!}>
+        <ChatMessage
+          message={{ ...message, id: "message-replaced-cycle-target", characterId: null }}
+          chatMode="roleplay"
+          groupChatMode="merged"
+          characterMap={groupCharacterMap}
+          chatCharacterIds={["aster", "briar"]}
+          isGrouped={isGrouped}
+        />
+      </QueryClientProvider>
+    );
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(renderMessage(false));
+    });
+    expect(observers).toHaveLength(1);
+    const firstTarget = container!.querySelector<HTMLElement>("[data-cycle-name]")!.parentElement!;
+    expect((observers[0]!.observer.observe as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(firstTarget);
+
+    act(() => {
+      root!.render(renderMessage(true));
+    });
+    expect(observers[0]!.observer.disconnect).toHaveBeenCalledOnce();
+
+    act(() => {
+      root!.render(renderMessage(false));
+    });
+    expect(observers).toHaveLength(2);
+    const secondTarget = container!.querySelector<HTMLElement>("[data-cycle-name]")!.parentElement!;
+    expect(secondTarget).not.toBe(firstTarget);
+    expect((observers[1]!.observer.observe as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(secondTarget);
+
+    act(() => {
+      observers[1]!.callback(
+        [{ target: secondTarget, isIntersecting: false } as unknown as IntersectionObserverEntry],
+        observers[1]!.observer,
+      );
+      vi.advanceTimersByTime(2_000);
+    });
+    const names = secondTarget.querySelectorAll<HTMLElement>("[data-cycle-name]");
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["1", "0"]);
   });
 
   it("derives different participant totals from the shared tick when observers are unavailable", () => {
@@ -401,6 +478,10 @@ describe("ChatMessage", () => {
     act(() => {
       root!.render(renderMessages(true));
     });
+    const lateNames = container!.querySelectorAll<HTMLElement>(
+      '[data-message-id="message-cycle-three"] [data-cycle-name]',
+    );
+    expect(Array.from(lateNames, (name) => name.style.opacity)).toEqual(["0", "1", "0"]);
     act(() => {
       vi.advanceTimersByTime(2_000);
     });
@@ -413,6 +494,48 @@ describe("ChatMessage", () => {
     );
     expect(Array.from(firstNames, (name) => name.style.opacity)).toEqual(["1", "0"]);
     expect(Array.from(secondNames, (name) => name.style.opacity)).toEqual(["0", "0", "1"]);
+  });
+
+  it("defers immediate phase writes while hidden and synchronizes on visibility resume", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    let visibilityState: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibilityState);
+    const unsubscribeVisibleKeeper = subscribeMergedMessageCycle(vi.fn());
+    cycleUnsubscribers.push(unsubscribeVisibleKeeper);
+    vi.advanceTimersByTime(2_000);
+    visibilityState = "hidden";
+    document.dispatchEvent(new Event("visibilitychange"));
+    const groupCharacterMap: CharacterMap = new Map([
+      ["aster", { name: "Aster", avatarUrl: "asset://aster", nameColor: "#ff0000" }],
+      ["briar", { name: "Briar", avatarUrl: "asset://briar", nameColor: "#00ff00" }],
+      ["cinder", { name: "Cinder", avatarUrl: "asset://cinder", nameColor: "#0000ff" }],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{ ...message, id: "message-hidden-phase", characterId: null }}
+            chatMode="roleplay"
+            groupChatMode="merged"
+            characterMap={groupCharacterMap}
+            chatCharacterIds={["aster", "briar", "cinder"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const names = container!.querySelectorAll<HTMLElement>("[data-cycle-name]");
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["1", "0", "0"]);
+
+    act(() => {
+      visibilityState = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(Array.from(names, (name) => name.style.opacity)).toEqual(["0", "1", "0"]);
+    unsubscribeVisibleKeeper();
   });
 
   it("does not apply persona dialogue color to user-authored quotes", () => {

@@ -38,6 +38,24 @@ describe("merged message cycle clock", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("synchronizes a late subscriber to the current tick before the next sequential tick", () => {
+    const first = vi.fn();
+    const unsubscribeFirst = subscribeMergedMessageCycle(first);
+    unsubscribers.push(unsubscribeFirst);
+    vi.advanceTimersByTime(2_000);
+
+    const late = vi.fn();
+    const unsubscribeLate = subscribeMergedMessageCycle(late);
+    unsubscribers.push(unsubscribeLate);
+
+    expect(late).toHaveBeenCalledTimes(1);
+    expect(late).toHaveBeenLastCalledWith(1);
+
+    vi.advanceTimersByTime(2_000);
+    expect(late).toHaveBeenCalledTimes(2);
+    expect(late).toHaveBeenLastCalledWith(2);
+  });
+
   it("suspends while hidden and resumes once without leaking its visibility listener", () => {
     let visibilityState: DocumentVisibilityState = "hidden";
     vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibilityState);
