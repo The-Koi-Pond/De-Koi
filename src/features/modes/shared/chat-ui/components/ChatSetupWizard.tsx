@@ -20,6 +20,7 @@ import {
   Wand2,
   ArrowLeft,
   UserRound,
+  AlertTriangle,
 } from "lucide-react";
 import { cn, type AvatarCrop } from "../../../../../shared/lib/utils";
 import { useConnections } from "../../../../catalog/connections/index";
@@ -27,9 +28,12 @@ import { usePresets, usePresetFull, useDefaultPresetSummary } from "../../../../
 import {
   CharacterAvatarImage as CatalogCharacterAvatarImage,
   characterAvatarUrl,
+  estimateCharacterCardTokens,
   useCharacterSummaries,
   useCharacterSummariesByIds,
+  type CharacterTokenData,
 } from "../../../../catalog/characters/index";
+import { getInlineCardTokenWarning } from "../../../../catalog/lib/card-token-recommendation";
 import { PersonaAvatarImage, usePersonaSummaries } from "../../../../catalog/personas/index";
 import { useLorebooks } from "../../../../catalog/lorebooks/index";
 import { useUpdateChat, useUpdateChatMetadata, useCreateMessage, chatKeys } from "../../../../catalog/chats/index";
@@ -282,6 +286,34 @@ function formatPersonaLabel(persona: PersonaDisplayInfo): string {
 
 function getCharacterAvatarCrop(character: { data: unknown }): AvatarCrop | null {
   return (character.data as { extensions?: { avatarCrop?: AvatarCrop | null } } | null)?.extensions?.avatarCrop ?? null;
+}
+
+function CharacterTokenWarning({ character }: { character: { data: unknown } }) {
+  const data = (() => {
+    if (character.data && typeof character.data === "object" && !Array.isArray(character.data)) {
+      return character.data as CharacterTokenData;
+    }
+    if (typeof character.data !== "string") return null;
+    try {
+      const parsed = JSON.parse(character.data) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as CharacterTokenData) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const warning = getInlineCardTokenWarning(estimateCharacterCardTokens(data));
+  if (!warning) return null;
+
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[0.625rem] font-semibold text-amber-500 ring-1 ring-amber-500/30"
+      title={warning.description}
+      aria-label={warning.description}
+    >
+      <AlertTriangle size="0.625rem" aria-hidden="true" />
+      {warning.label}
+    </span>
+  );
 }
 function CharacterAvatarImage({
   character,
@@ -822,6 +854,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                           </div>
                         )}
                         <span className="truncate max-w-[6rem]">{name}</span>
+                        <CharacterTokenWarning character={c} />
                         <X
                           size="0.625rem"
                           className="text-[var(--muted-foreground)] group-hover:text-[var(--destructive)]"
@@ -874,6 +907,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                             </span>
                           )}
                         </div>
+                        <CharacterTokenWarning character={c} />
                         <Plus size="0.75rem" className="text-[var(--muted-foreground)]" />
                       </button>
                     );
@@ -1451,6 +1485,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                       </span>
                     )}
                   </div>
+                  <CharacterTokenWarning character={c} />
                   <button
                     onClick={() => toggleCharacter(cid)}
                     className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
@@ -1505,6 +1540,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                       </span>
                     )}
                   </div>
+                  <CharacterTokenWarning character={c} />
                   <Plus size="0.75rem" className="text-[var(--muted-foreground)]" />
                 </button>
               );
@@ -1733,6 +1769,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                               </div>
                             )}
                             <span className="truncate max-w-[6rem]">{name}</span>
+                            <CharacterTokenWarning character={c} />
                             <X
                               size="0.625rem"
                               className="text-[var(--muted-foreground)] group-hover:text-[var(--destructive)]"
@@ -1788,6 +1825,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                                   </span>
                                 )}
                               </div>
+                              <CharacterTokenWarning character={c} />
                               <Plus size="0.75rem" className="text-[var(--muted-foreground)]" />
                             </button>
                           );

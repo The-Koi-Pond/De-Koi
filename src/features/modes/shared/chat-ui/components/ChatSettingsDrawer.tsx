@@ -4572,7 +4572,7 @@ function ChatSettingsDrawerInner({
                       <div className="min-w-0 flex-1">
                         <div className="text-[0.6875rem] font-medium">Music Player</div>
                         <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                          YouTube-first scene music is active. Use the shell Music Player for direct URLs, fresh
+                          Automatic scene music is active. Use the shell Music Player for direct URLs, fresh
                           picks, and volume.
                         </p>
                       </div>

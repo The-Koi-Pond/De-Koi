@@ -56,6 +56,7 @@ import {
   resolveBotBrowserAssetUrl,
 } from "../api/bot-browser-api";
 import { mergeCharacterDetailIntoCharacterJson } from "../lib/character-detail-merge";
+import { BotBrowserAssetImage } from "./BotBrowserAssetImage";
 import type {
   ChartavernDetailResponse,
   ChartavernSearchResponse,
@@ -2549,48 +2550,6 @@ function LoginModal({
 // ════════════════════════════════════════════════
 // Card Tile
 // ════════════════════════════════════════════════
-
-function BotBrowserAssetImage({
-  src,
-  alt,
-  className,
-  loading,
-  onError,
-}: {
-  src: string;
-  alt: string;
-  className?: string;
-  loading?: "eager" | "lazy";
-  onError: () => void;
-}) {
-  const [resolvedSrc, setResolvedSrc] = useState(() => (src.startsWith("tauri-api:") ? "" : src));
-
-  useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
-
-    resolveBotBrowserAssetUrl(src)
-      .then((url) => {
-        if (cancelled) {
-          if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-          return;
-        }
-        objectUrl = url.startsWith("blob:") ? url : null;
-        setResolvedSrc(url);
-      })
-      .catch(() => {
-        if (!cancelled) onError();
-      });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [src, onError]);
-
-  if (!resolvedSrc) return null;
-  return <img src={resolvedSrc} alt={alt} loading={loading} className={className} onError={onError} />;
-}
 
 function CardTile({ card, onClick }: { card: BrowseCard; onClick: () => void }) {
   const [imgError, setImgError] = useState(false);

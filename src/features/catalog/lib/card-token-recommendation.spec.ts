@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CARD_TOKEN_RECOMMENDED_LIMIT,
+  getInlineCardTokenWarning,
   getCardLengthToastActions,
   estimateTextTokens,
   formatEstimatedTokens,
@@ -17,6 +18,14 @@ describe("card token recommendation", () => {
   it("warns only after the recommended whole-card token limit is exceeded", () => {
     expect(isCardTokenEstimateOverRecommendation(CARD_TOKEN_RECOMMENDED_LIMIT)).toBe(false);
     expect(isCardTokenEstimateOverRecommendation(CARD_TOKEN_RECOMMENDED_LIMIT + 1)).toBe(true);
+  });
+
+  it("builds compact inline warning copy for selection surfaces", () => {
+    expect(getInlineCardTokenWarning(CARD_TOKEN_RECOMMENDED_LIMIT)).toBeNull();
+    expect(getInlineCardTokenWarning(CARD_TOKEN_RECOMMENDED_LIMIT + 125)).toEqual({
+      label: "Long card",
+      description: "~3,325 tokens; recommended maximum is ~3,200 tokens. Open this character and shorten the card.",
+    });
   });
 
   it("keeps the over-limit toast persistent, updated, and dismissed only after recovery", () => {

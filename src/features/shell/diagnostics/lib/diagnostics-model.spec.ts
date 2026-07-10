@@ -214,6 +214,8 @@ describe("diagnostics model", () => {
     );
     expect(diagnosticsOverallStatus([{ status: "ok" }, { status: "error" }, { status: "warning" }])).toBe("error");
     expect(diagnosticsOverallStatus([{ status: "ok" }, { status: "ok" }])).toBe("ok");
+    expect(diagnosticsOverallStatus([{ status: "ok" }, { status: "unknown" }])).toBe("ok");
+    expect(diagnosticsOverallStatus([{ status: "unknown" }, { status: "unknown" }])).toBe("unknown");
     expect(diagnosticsOverallStatus([])).toBe("unknown");
   });
 });

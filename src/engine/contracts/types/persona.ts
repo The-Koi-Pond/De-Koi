@@ -33,8 +33,6 @@ export interface Persona {
   altDescriptions?: AltDescription[];
   /** Tags for organizing personas */
   tags?: string[];
-  /** Saved Conversation mode activity/status text options for this persona */
-  savedStatusOptions?: string[];
   createdAt: string;
   updatedAt: string;
 }

@@ -141,7 +141,6 @@ const PROMPT_VARIABLE_FIELDS: &[TypedJsonField] = &[array("options")];
 const PERSONA_FIELDS: &[TypedJsonField] = &[
     array("tags"),
     array("altDescriptions"),
-    array("savedStatusOptions"),
     boolish("isActive"),
     boolish("active"),
     nullable_object("avatarCrop"),

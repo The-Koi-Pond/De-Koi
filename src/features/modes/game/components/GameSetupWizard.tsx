@@ -1335,7 +1335,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                       <div className="min-w-0">
                         <span className="block text-xs font-medium text-[var(--foreground)]">Music Player</span>
                         <span className="block text-[0.575rem] text-[var(--muted-foreground)]">
-                          Use YouTube-first Music Player instead of local music assets
+                          Generate fresh picks or activate the Music Player agent for automatic scene music
                         </span>
                       </div>
                     </div>

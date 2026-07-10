@@ -31,7 +31,7 @@ const CORE_MODULES: readonly CoreModuleManifest[] = [
     name: "Music Player",
     slug: "music-dj-mini-player",
     description:
-      "Shows the YouTube-first Music Player controls. Turn this on when you want visible playback controls. Enable the Music Player agent in a chat when you want automatic scene-aware picks.",
+      "Shows the Music Player controls. Generate a fresh pick here, or activate the Music Player agent in a chat when you want automatic scene-aware picks.",
     version: "1.0.0",
     source: "core",
     main: "core-modules/music-dj-mini-player",
