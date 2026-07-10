@@ -71,4 +71,49 @@ describe("BotBrowserAssetImage", () => {
     expect(resolveBlob).toHaveBeenCalledTimes(1);
     expect(container.querySelector("img")?.getAttribute("src")).toBe("blob:avatar");
   });
+
+  it("keeps another consumer's object URL alive when one shared asset unmounts", async () => {
+    const resolveBlob = vi.fn(async () => new Blob(["shared-avatar"], { type: "image/png" }));
+    const createObjectURL = vi
+      .fn()
+      .mockReturnValueOnce("blob:first-consumer")
+      .mockReturnValueOnce("blob:second-consumer");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    const cache = createAssetImageCache<Blob>(4);
+
+    const image = (key: string) => (
+      <BotBrowserAssetImage
+        key={key}
+        src="tauri-api:/avatar/shared"
+        alt={key}
+        loading="eager"
+        onError={() => {}}
+        cache={cache}
+        resolveBlob={resolveBlob}
+      />
+    );
+
+    await act(async () => {
+      root.render(
+        <>
+          {image("first")}
+          {image("second")}
+        </>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(resolveBlob).toHaveBeenCalledTimes(1);
+    expect([...container.querySelectorAll("img")].map((element) => element.src)).toEqual([
+      "blob:first-consumer",
+      "blob:second-consumer",
+    ]);
+
+    await act(async () => root.render(image("second")));
+
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:first-consumer");
+    expect(revokeObjectURL).not.toHaveBeenCalledWith("blob:second-consumer");
+    expect(container.querySelector("img")?.src).toBe("blob:second-consumer");
+  });
 });

@@ -27,6 +27,7 @@ export function BotBrowserAssetImage({
   const [shouldResolve, setShouldResolve] = useState(() => loading !== "lazy" || !requiresProxyResolution);
   const placeholderRef = useRef<HTMLSpanElement>(null);
   const resolvingSourceRef = useRef<string | null>(null);
+  const ownedObjectUrlRef = useRef<string | null>(null);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
@@ -60,14 +61,14 @@ export function BotBrowserAssetImage({
     if (!shouldResolve || !requiresProxyResolution || resolvingSourceRef.current === src) return;
     resolvingSourceRef.current = src;
     let cancelled = false;
-    let objectUrl: string | null = null;
 
     void cache
       .resolve(src, resolveBlob)
       .then((blob) => {
         if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setResolvedSrc(objectUrl);
+        const ownedObjectUrl = URL.createObjectURL(blob);
+        ownedObjectUrlRef.current = ownedObjectUrl;
+        setResolvedSrc(ownedObjectUrl);
       })
       .catch(() => {
         if (cancelled) return;
@@ -77,7 +78,11 @@ export function BotBrowserAssetImage({
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      const ownedObjectUrl = ownedObjectUrlRef.current;
+      if (ownedObjectUrl) {
+        URL.revokeObjectURL(ownedObjectUrl);
+        ownedObjectUrlRef.current = null;
+      }
     };
   }, [cache, requiresProxyResolution, resolveBlob, shouldResolve, src]);
 
