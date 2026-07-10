@@ -4,9 +4,11 @@ export interface AssetImageCache {
 }
 
 function revokeResolvedObjectUrl(resolution: Promise<string>): void {
-  void resolution.then((url) => {
-    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-  }).catch(() => {});
+  void resolution
+    .then((url) => {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    })
+    .catch(() => {});
 }
 
 export function createAssetImageCache(maxEntries = 192): AssetImageCache {
@@ -46,4 +48,3 @@ export function createAssetImageCache(maxEntries = 192): AssetImageCache {
 }
 
 export const botBrowserAssetImageCache = createAssetImageCache();
-

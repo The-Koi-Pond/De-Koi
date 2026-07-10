@@ -13,4 +13,3 @@ describe("deriveChatTitle", () => {
     expect(deriveChatTitle("conversation", [" Mira ", "Rook", "Mira", ""])).toBe("Mira, Rook");
   });
 });
-

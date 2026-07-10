@@ -21,12 +21,14 @@
 ### Task 1: Conversation title invariant
 
 **Files:**
+
 - Create: `src/engine/entities/chat-title.ts`
 - Create: `src/engine/entities/chat-title.spec.ts`
 - Modify: `src/features/catalog/chats/hooks/use-chats.ts`
 - Modify: `src/features/catalog/chats/hooks/use-chats.spec.tsx`
 
 **Interfaces:**
+
 - Produces: `deriveChatTitle(mode: string | null | undefined, names: readonly string[]): string`.
 - Consumes: `storageApi.get/list/update` and existing chat cache mutation behavior.
 
@@ -39,6 +41,7 @@
 ### Task 2: Character token warnings and Music Player instructions
 
 **Files:**
+
 - Modify: `src/features/catalog/lib/card-token-recommendation.ts`
 - Modify: `src/features/catalog/lib/card-token-recommendation.spec.ts`
 - Modify: `src/features/modes/shared/chat-ui/components/ChatSetupWizard.tsx`
@@ -49,6 +52,7 @@
 - Modify: `src/features/modes/game/components/GameSetupWizard.tsx`
 
 **Interfaces:**
+
 - Produces: an inline recommendation model from the existing character token estimator and actionable Music Player copy.
 
 - [ ] Add failing recommendation/copy tests.
@@ -60,6 +64,7 @@
 ### Task 3: Useful diagnostics statuses
 
 **Files:**
+
 - Modify: `src/features/shell/diagnostics/lib/diagnostics-model.ts`
 - Modify: `src/features/shell/diagnostics/lib/diagnostics-model.spec.ts`
 - Modify: `src/features/shell/diagnostics/hooks/use-diagnostics-snapshot.ts`
@@ -67,6 +72,7 @@
 - Modify: `src/features/shell/diagnostics/components/HealthDiagnosticsSettings.spec.tsx`
 
 **Interfaces:**
+
 - Produces: overall rollups where neutral unknown items do not outrank confirmed health; optional/unprobed items use `unknown`.
 
 - [ ] Add failing tests for healthy runtime plus neutral optional checks and for genuine failures.
@@ -78,12 +84,14 @@
 ### Task 4: Bot Browser request and thumbnail latency
 
 **Files:**
+
 - Create: `src/features/shell/bot-browser/lib/asset-image-cache.ts`
 - Create: `src/features/shell/bot-browser/lib/asset-image-cache.spec.ts`
 - Modify: `src/features/shell/bot-browser/components/BotBrowserView.tsx`
 - Modify: `src-tauri/src/commands/storage/bot_browser.rs`
 
 **Interfaces:**
+
 - Produces: bounded deduplicated asset-resolution cache; viewport-gated `BotBrowserAssetImage`; cached reqwest clients for 15/30/60-second timeout buckets.
 
 - [ ] Add failing frontend cache tests and a Rust test for the shared client registry.
@@ -95,6 +103,7 @@
 ### Task 5: Remove saved persona statuses
 
 **Files:**
+
 - Modify: `src/features/modes/conversation/components/ConversationInput.tsx`
 - Modify: `src/features/modes/conversation/components/ConversationInput.spec.tsx`
 - Modify: `src/features/catalog/personas/hooks/use-personas.ts`
@@ -103,6 +112,7 @@
 - Modify: `src-tauri/src/commands/storage/contracts.rs`
 
 **Interfaces:**
+
 - Removes: `savedStatusOptions` UI and typed persistence/import support.
 
 - [ ] Add/update a component test asserting no saved-status control or menu.
@@ -114,9 +124,11 @@
 ### Task 6: Live proof and shipping
 
 **Files:**
+
 - Modify only if proof finds an in-scope defect.
 
 **Interfaces:**
+
 - Consumes: built app, repo health scripts, GitHub Actions, Bunny review.
 
 - [ ] Run focused tests, `pnpm check:architecture`, `pnpm typecheck`, `pnpm build`, `cargo check --manifest-path src-tauri/Cargo.toml`, and `pnpm check`.
@@ -124,4 +136,3 @@
 - [ ] Confirm no love-toy implementation through source/dependency search and the parity ledger.
 - [ ] Run workflow health and Bunny; fix and repeat any in-scope findings.
 - [ ] Inspect branch/remotes/diff, push only to `origin`, open a draft PR with unchecked human validation boxes, wait for CI, mark ready, merge to `main`, and verify the merge.
-

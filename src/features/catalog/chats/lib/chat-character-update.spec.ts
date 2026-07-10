@@ -7,11 +7,7 @@ describe("completeCharacterTitleUpdate", () => {
     const loadName = vi.fn(async (id: string) => ({ mira: "Mira", rook: "Rook" })[id] ?? null);
 
     await expect(
-      completeCharacterTitleUpdate(
-        { characterIds: ["mira", "rook"] },
-        { mode: "conversation" },
-        loadName,
-      ),
+      completeCharacterTitleUpdate({ characterIds: ["mira", "rook"] }, { mode: "conversation" }, loadName),
     ).resolves.toEqual({ characterIds: ["mira", "rook"], name: "Mira, Rook" });
     expect(loadName).toHaveBeenCalledTimes(2);
   });
@@ -37,4 +33,3 @@ describe("completeCharacterTitleUpdate", () => {
     ).resolves.toEqual({ connectionId: "connection-2" });
   });
 });
-

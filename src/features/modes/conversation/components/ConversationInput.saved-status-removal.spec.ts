@@ -14,4 +14,3 @@ describe("saved persona status removal", () => {
     expect(source).not.toContain("savedStatusOptions");
   });
 });
-

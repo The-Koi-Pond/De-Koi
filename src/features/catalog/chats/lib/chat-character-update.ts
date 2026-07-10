@@ -19,7 +19,9 @@ export async function completeCharacterTitleUpdate<T extends CharacterMembership
   const names = await Promise.all(update.characterIds.map((id) => loadCharacterName(id)));
   return {
     ...update,
-    name: deriveChatTitle(update.mode ?? currentChat?.mode, names.filter((name): name is string => !!name)),
+    name: deriveChatTitle(
+      update.mode ?? currentChat?.mode,
+      names.filter((name): name is string => !!name),
+    ),
   };
 }
-

@@ -41,4 +41,3 @@ Chat title completion stays in the catalog chat hook and calls the existing type
 ## Proof
 
 Use red-green focused tests for title derivation/completion, token-warning presentation data, diagnostics rollups, Music Player copy, saved-status removal, Bot Browser image deferral/cache, and Rust HTTP client reuse. Run architecture, TypeScript, build, Rust, focused browser smoke tests, full `pnpm check`, workflow/PR health scripts, Bunny review, and GitHub CI before merge.
-

@@ -14,9 +14,7 @@ describe("asset image cache", () => {
       "blob:tauri-api:/avatar/one",
       "blob:tauri-api:/avatar/one",
     ]);
-    await expect(cache.resolve("tauri-api:/avatar/one", resolver)).resolves.toBe(
-      "blob:tauri-api:/avatar/one",
-    );
+    await expect(cache.resolve("tauri-api:/avatar/one", resolver)).resolves.toBe("blob:tauri-api:/avatar/one");
     expect(resolver).toHaveBeenCalledTimes(1);
   });
 
@@ -32,4 +30,3 @@ describe("asset image cache", () => {
     expect(resolver).toHaveBeenCalledTimes(2);
   });
 });
-

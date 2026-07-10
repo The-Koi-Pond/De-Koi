@@ -19,4 +19,3 @@ export function deriveChatTitle(mode: string | null | undefined, names: readonly
   if (normalizedNames.length > 0) return normalizedNames.join(", ");
   return MODE_FALLBACK_TITLES[mode?.trim().toLocaleLowerCase() ?? ""] ?? "New Chat";
 }
-
