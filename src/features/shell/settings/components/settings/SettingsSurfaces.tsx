@@ -777,8 +777,6 @@ export function GeneralSettings() {
   const setConfirmBeforeDelete = useUIStore((s) => s.setConfirmBeforeDelete);
   const messagesPerPage = useUIStore((s) => s.messagesPerPage);
   const setMessagesPerPage = useUIStore((s) => s.setMessagesPerPage);
-  const boldDialogue = useUIStore((s) => s.boldDialogue);
-  const setBoldDialogue = useUIStore((s) => s.setBoldDialogue);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
   const setQuoteFormat = useUIStore((s) => s.setQuoteFormat);
   const trimIncompleteModelOutput = useUIStore((s) => s.trimIncompleteModelOutput);
@@ -1090,15 +1088,6 @@ export function GeneralSettings() {
         />
         <HelpTooltip text="How many messages to load at a time. Click 'Load More' in the chat to see older messages." />
       </label>
-
-      <ToggleSetting
-        label="Bold dialogue in quotes"
-        checked={boldDialogue ?? true}
-        onChange={setBoldDialogue}
-        help={
-          'When on, text inside dialogue quotation marks ("like this", ã€Œlike thisã€, or ã€Žlike thisã€) is bolded in addition to its dialogue highlight color. Turn it off to keep the color without bold.'
-        }
-      />
 
       <div className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
         <div className="flex items-center gap-2">

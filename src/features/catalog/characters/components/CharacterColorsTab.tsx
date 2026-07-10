@@ -21,7 +21,6 @@ export function CharacterColorsTab({
   characterId: string | null;
 }) {
   const nameColor = (formData.extensions.nameColor as string) ?? "";
-  const dialogueColor = (formData.extensions.dialogueColor as string) ?? "";
   const boxColor = (formData.extensions.boxColor as string) ?? "";
   const trackerCardColors = parseTrackerCardColorConfig(formData.extensions.trackerCardColors);
   const [extracting, setExtracting] = useState(false);
@@ -30,9 +29,8 @@ export function CharacterColorsTab({
     if (!avatarUrl) return;
     setExtracting(true);
     try {
-      const [nc, dc, bc] = await extractColorsFromImage(avatarUrl);
+      const [nc, , bc] = await extractColorsFromImage(avatarUrl);
       updateExtension("nameColor", nc);
-      updateExtension("dialogueColor", dc);
       updateExtension("boxColor", bc);
     } catch {
       // User can still pick colors manually if extraction fails.
@@ -45,7 +43,7 @@ export function CharacterColorsTab({
     <div className="space-y-6">
       <CharacterEditorSectionHeader
         title="Character Colors"
-        subtitle="Customize how this character appears in chats. Colors are applied to the name, dialogue, and message bubble."
+        subtitle="Customize the character name, message bubble, and tracker card colors."
       />
 
       <button
@@ -96,9 +94,7 @@ export function CharacterColorsTab({
               style={boxColor ? { backgroundColor: boxColor } : { backgroundColor: "rgba(255,255,255,0.08)" }}
             >
               <span className="text-white/90">*She looks at you with a warm smile.* </span>
-              <strong style={dialogueColor ? { color: dialogueColor } : { color: "rgb(255, 255, 255)" }}>
-                &ldquo;Hello there! How are you?&rdquo;
-              </strong>
+              <span className="text-white/90">&ldquo;Hello there! How are you?&rdquo;</span>
             </div>
           </div>
         </div>
@@ -110,15 +106,6 @@ export function CharacterColorsTab({
         gradient
         label="Name Display Color"
         helpText="The color (or gradient) used for the character's name in chat messages and sidebar tabs. Supports gradients!"
-      />
-
-      <ColorPicker
-        value={dialogueColor}
-        onChange={(value) => updateExtension("dialogueColor", value)}
-        label="Dialogue Highlight Color"
-        helpText={
-          'Text inside dialogue quotation marks ("", “”, «», 「」, 『』) will be automatically colored with this, and can also be bolded from Settings.'
-        }
       />
 
       <ColorPicker
@@ -136,10 +123,6 @@ export function CharacterColorsTab({
             display name in chat. Gradients use CSS linear-gradient.
           </li>
           <li>
-            &bull; <strong className="text-[var(--foreground)]">Dialogue color</strong> — All text inside dialogue
-            quotation marks is automatically colored with this value, and can optionally be bolded from Settings.
-          </li>
-          <li>
             &bull; <strong className="text-[var(--foreground)]">Box color</strong> — Sets the background color of the
             character&apos;s message bubble in roleplay mode.
           </li>
@@ -150,7 +133,7 @@ export function CharacterColorsTab({
       <TrackerCardColorControls
         value={trackerCardColors}
         onChange={(value) => updateExtension("trackerCardColors", value)}
-        chatColors={{ nameColor, dialogueColor, boxColor }}
+        chatColors={{ nameColor, boxColor }}
         entityLabel="Character"
       />
 

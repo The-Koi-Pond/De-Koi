@@ -13,14 +13,7 @@ import { getDefaultAgentPrompt } from "../contracts/constants/agent-prompts";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
-import type {
-  BackgroundAssetInfo,
-  GameAssetManifest,
-  GameAssetManifestEntry,
-  SpriteAssetInfo,
-  SpriteOwnerType,
-  VisualAssetGateway,
-} from "../capabilities/visual-assets";
+import type { SpriteAssetInfo, SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual-assets";
 import type {
   BaseLLMProvider,
   ChatCompleteOptions,
@@ -1498,83 +1491,11 @@ function availableSpritesFromContext(context: AgentContext): AvailableSpriteChar
   return Array.isArray(sprites) ? (sprites as AvailableSpriteCharacter[]) : [];
 }
 
-function gameAssetBackgrounds(manifest: GameAssetManifest | null): GameAssetManifestEntry[] {
-  const backgrounds = manifest?.byCategory?.backgrounds;
-  return Array.isArray(backgrounds) ? backgrounds : [];
-}
-
-function backgroundEntryFromUserAsset(background: BackgroundAssetInfo): {
-  filename: string;
-  originalName: string | null;
-  tags: string[];
-  source: "user" | "game_asset";
-} | null {
-  const filename =
-    readString(background.filename).trim() || readString(background.name).trim() || readString(background.path).trim();
-  if (!filename) return null;
-  return {
-    filename,
-    originalName: readString(background.originalName).trim() || null,
-    tags: stringArray(background.tags),
-    source: background.source === "game_asset" ? "game_asset" : "user",
-  };
-}
-
-function backgroundEntryFromGameAsset(asset: GameAssetManifestEntry): {
-  filename: string;
-  originalName: string | null;
-  tags: string[];
-  source: "game_asset";
-} | null {
-  const path = readString(asset.path).trim();
-  if (!path || path.startsWith("__user_bg__/")) return null;
-  return {
-    filename: `gameAsset:${path}`,
-    originalName: readString(asset.tag).trim() || readString(asset.name).trim() || null,
-    tags: stringArray([asset.subcategory, asset.category]).filter(Boolean),
-    source: "game_asset",
-  };
-}
-
-async function loadAgentAvailableBackgrounds(
-  visuals: VisualAssetGateway,
-  context: AgentContext,
-  chatMeta: JsonRecord,
-  backgroundAgent: ResolvedAgent,
-): Promise<void> {
-  context.memory._availableBackgrounds = [];
+function loadAgentBackgroundContext(context: AgentContext, chatMeta: JsonRecord, backgroundAgent: ResolvedAgent): void {
   context.memory._currentBackground = chatMeta.background ?? null;
-  if (backgroundAgent.settings.autoGenerateBackgrounds === true) {
+  if (backgroundAgent.settings.autoGenerateBackgrounds === true && !context.memory._currentBackground) {
     context.memory._backgroundGenerationEnabled = true;
   }
-
-  const userBackgrounds = await visuals.listBackgrounds().catch(() => []);
-  const entries = userBackgrounds.map(backgroundEntryFromUserAsset).filter(
-    (
-      background,
-    ): background is {
-      filename: string;
-      originalName: string | null;
-      tags: string[];
-      source: "user" | "game_asset";
-    } => !!background,
-  );
-
-  if (visuals.gameAssetsManifest) {
-    const manifest = await visuals.gameAssetsManifest().catch(() => null);
-    entries.push(
-      ...gameAssetBackgrounds(manifest)
-        .map(backgroundEntryFromGameAsset)
-        .filter(
-          (
-            background,
-          ): background is { filename: string; originalName: string | null; tags: string[]; source: "game_asset" } =>
-            !!background,
-        ),
-    );
-  }
-
-  context.memory._availableBackgrounds = entries;
 }
 
 async function populateAgentVisualContext(
@@ -1596,7 +1517,7 @@ async function populateAgentVisualContext(
 
   const backgroundAgent = agents.find((agent) => agent.type === "background");
   if (backgroundAgent) {
-    await loadAgentAvailableBackgrounds(deps.visuals, context, chatMeta, backgroundAgent);
+    loadAgentBackgroundContext(context, chatMeta, backgroundAgent);
   }
 }
 

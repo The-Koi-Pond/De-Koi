@@ -63,44 +63,6 @@ describe("storageApi chat message writes", () => {
       body: expect.objectContaining({ content: "Alt 1\n\n\nAlt 2" }),
     });
   });
-  it("clears dialogue attribution metadata after message content edits", async () => {
-    invokeTauriMock
-      .mockResolvedValueOnce({
-        id: "message-1",
-        content: "Edited\n\nText",
-        extra: { dialogueAttributions: { version: 1 }, thinking: "kept" },
-      })
-      .mockResolvedValueOnce({ id: "message-1", extra: { dialogueAttributions: { version: 1 }, thinking: "kept" } })
-      .mockResolvedValueOnce({
-        id: "message-1",
-        content: "Edited\n\nText",
-        extra: { dialogueAttributions: null, thinking: "kept" },
-      });
-
-    const { storageApi } = await import("./storage-api");
-
-    await expect(storageApi.updateChatMessage("message-1", { content: "Edited\n\n\nText" })).resolves.toMatchObject({
-      id: "message-1",
-      content: "Edited\n\nText",
-      extra: { dialogueAttributions: null, thinking: "kept" },
-    });
-
-    expect(invokeTauriMock).toHaveBeenNthCalledWith(1, "storage_update", {
-      entity: "messages",
-      id: "message-1",
-      patch: { content: "Edited\n\nText" },
-    });
-    expect(invokeTauriMock).toHaveBeenNthCalledWith(2, "storage_get", {
-      entity: "messages",
-      id: "message-1",
-      options: { fields: ["extra"] },
-    });
-    expect(invokeTauriMock).toHaveBeenNthCalledWith(3, "storage_update", {
-      entity: "messages",
-      id: "message-1",
-      patch: { extra: { dialogueAttributions: null, thinking: "kept" } },
-    });
-  });
 });
 describe("storageApi deletes", () => {
   it("forwards force deletes to the storage runtime", async () => {

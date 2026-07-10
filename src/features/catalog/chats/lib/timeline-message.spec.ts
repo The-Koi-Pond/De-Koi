@@ -3,40 +3,53 @@ import { describe, expect, it } from "vitest";
 import { timelineMessageProjection, sanitizeTimelineMessageRecord } from "./timeline-message";
 
 describe("timelineMessageProjection", () => {
-  it("keeps dialogue attribution metadata available for transcript rendering", () => {
+  it("does not request retired dialogue attribution metadata", () => {
     const projection = timelineMessageProjection();
 
-    expect(projection.fieldSelections?.extra).toContain("dialogueAttributions");
+    expect(projection.fieldSelections?.extra).not.toContain("dialogueAttributions");
   });
 });
 
 describe("sanitizeTimelineMessageRecord", () => {
-  it("preserves dialogue attributions while removing oversized prompt snapshot maps", () => {
-    const dialogueAttributions = {
-      version: 1,
-      textHash: "dk1:8:test",
-      segments: [
-        {
-          start: 0,
-          end: 8,
-          speakerName: "Aster",
-          speakerId: "character-1",
-          source: "explicit-attribution",
-          confidence: "derived",
-        },
-      ],
-    };
-
+  it("removes oversized prompt snapshot maps", () => {
     const sanitized = sanitizeTimelineMessageRecord({
       id: "message-1",
       swipes: [{ content: '"Ready."' }],
       extra: {
-        dialogueAttributions,
         generationPromptSnapshotsBySwipe: { 0: { messages: [] } },
       },
     });
 
     expect(sanitized).not.toHaveProperty("swipes");
-    expect(sanitized.extra).toEqual({ dialogueAttributions });
+    expect(sanitized.extra).toEqual({});
+  });
+
+  it.each(["dialogueAttributions", "dialogueAttribution", "speakerAttributions", "speakerAttribution"])(
+    "discards retired speaker metadata from timeline extras: %s",
+    (retiredField) => {
+      const sanitized = sanitizeTimelineMessageRecord({
+        id: "message-legacy-speaker-metadata",
+        extra: {
+          displayText: "Visible text",
+          [retiredField]: { segments: [{ speakerName: "Aster", start: 0, end: 12 }] },
+        },
+      });
+
+      expect(sanitized.extra).toEqual({ displayText: "Visible text" });
+      expect(sanitized.extra).not.toHaveProperty(retiredField);
+    },
+  );
+
+  it("discards retired speaker metadata from serialized timeline extras", () => {
+    const sanitized = sanitizeTimelineMessageRecord({
+      id: "message-serialized-legacy-speaker-metadata",
+      extra: JSON.stringify({
+        thinking: "kept",
+        dialogueAttributions: { segments: [] },
+        speakerAttribution: { speakerName: "Aster" },
+      }),
+    });
+
+    expect(sanitized.extra).toEqual({ thinking: "kept" });
   });
 });

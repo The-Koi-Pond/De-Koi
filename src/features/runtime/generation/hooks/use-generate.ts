@@ -77,7 +77,6 @@ import { filterPlayerPersonaPresentCharacters } from "../../../../engine/shared/
 import type { AgentDebugEntry } from "../../../../engine/contracts/types/agent";
 import type { GenerationDiagnosticEventData } from "../../../../engine/contracts/types/generation";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
-import { createLeadingSpeakerPrefixFilter, filterLeadingSpeakerPrefix } from "./leading-speaker-prefix-filter";
 
 export type GenerateArgs = GenerationReplayInput & {
   chatId: string;
@@ -273,25 +272,6 @@ function cachedPersonaSnapshot(queryClient: QueryClient, chatId: string) {
     addPersonaRows(personas, queryClient.getQueryData(personaKeys.summaryDetail(personaId)));
   }
   return findPersonaSnapshotForChat(personas, chat);
-}
-
-function cachedChatSpeakerNames(queryClient: QueryClient, chatId: string): Set<string> {
-  const speakerNames = new Set<string>();
-  try {
-    const chat = queryClient.getQueryData<Pick<Chat, "id" | "characterIds"> | undefined>(chatKeys.detail(chatId));
-    const charIds = chat?.characterIds;
-    if (charIds?.length) {
-      for (const cid of charIds) {
-        const char = queryClient.getQueryData<Record<string, unknown> | undefined>(characterKeys.detail(cid));
-        const data = parseMaybeRecord(char?.data);
-        const name = readString(data.name).trim() || readString(char?.name).trim();
-        if (name) speakerNames.add(name);
-      }
-    }
-  } catch {
-    // best-effort
-  }
-  return speakerNames;
 }
 
 function optimisticUserMessage(queryClient: QueryClient, args: GenerateArgs): Message | null {
@@ -1064,6 +1044,12 @@ function uploadedBackgroundChoice(upload: unknown): string {
   );
 }
 
+async function chatHasBackground(storage: BackgroundGenerationDeps["storage"], chatId: string): Promise<boolean> {
+  const chat = await storage.get<Record<string, unknown>>("chats", chatId).catch(() => null);
+  const metadata = parseMaybeRecord(chat?.metadata);
+  return !!readString(metadata.background ?? chat?.background).trim();
+}
+
 export async function generateAndApplyBackgroundRequest(
   chatId: string,
   result: AgentResult,
@@ -1078,6 +1064,8 @@ export async function generateAndApplyBackgroundRequest(
   const request = normalizeBackgroundGenerationRequest(data.generate);
   if (!request) return null;
   if (!deps.image) throw new Error("Image generation is not available.");
+
+  if (await chatHasBackground(deps.storage, chatId)) return null;
 
   const connectionId = await backgroundAgentImageConnectionId(chatId, result, deps);
   if (!connectionId) throw new Error("No image generation connection configured for the Background agent.");
@@ -1099,6 +1087,7 @@ export async function generateAndApplyBackgroundRequest(
   });
   const imageUrl = imageDataUrlFromGeneratedImage(image);
   if (!imageUrl) throw new Error("Image provider returned no background image data.");
+  if (await chatHasBackground(deps.storage, chatId)) return null;
 
   const mimeType = readString(image.mimeType).trim() || "image/png";
   const filename = `${backgroundSlug(request.location || request.prompt)}.${generatedImageExtension(image.ext, mimeType)}`;
@@ -1460,15 +1449,10 @@ async function applyAgentResultEffects(
   }
 
   if (result.type === "background_change" || result.agentType === "background") {
-    const chosen = readString(data.chosen).trim();
-    if (chosen) {
-      await applyBackgroundChoice(chatId, chosen);
-    } else {
-      await generateAndApplyBackgroundRequest(chatId, result).catch((error) => {
-        console.warn("Failed to generate background agent image", error);
-        toast.error(errorMessage(error));
-      });
-    }
+    await generateAndApplyBackgroundRequest(chatId, result).catch((error) => {
+      console.warn("Failed to generate background agent image", error);
+      toast.error(errorMessage(error));
+    });
   }
   if (result.agentType === "quest") applyQuestUpdates(result.data, options.autoRemoveFullyCompletedQuests === true);
   if (!options.skipTrackerSync) await applyTrackerResultToGameState(queryClient, chatId, result);
@@ -1669,35 +1653,12 @@ export async function runGenerationWithUi(
     resolveAllRevealWaiters();
   }
 
-  // Leading speaker-prefix filter: strips "Name: " / "Name： " prefix from roleplay
-  // / group-chat model output when the prefix matches a known speaker.
-  const speakerNames = cachedChatSpeakerNames(queryClient, chatId);
-  const speakerPrefixFilter = createLeadingSpeakerPrefixFilter(speakerNames);
-
-  const flushLeadingSpeakerPrefix = () => {
-    const remaining = speakerPrefixFilter.flush();
-    if (remaining) {
-      received += remaining;
-      if (!useUIStore.getState().enableStreaming) return;
-      pendingReveal += remaining;
-      scheduleStreamReveal();
-    }
-  };
-
   const enqueueVisibleStreamText = (text: string) => {
     if (!text) return;
-    const filtered = speakerPrefixFilter.filter(text);
-    if (filtered) {
-      received += filtered;
-      if (!useUIStore.getState().enableStreaming) return;
-      pendingReveal += filtered;
-      scheduleStreamReveal();
-    }
-  };
-
-  const filterReplacementStreamText = (text: string) => {
-    speakerPrefixFilter.reset();
-    return filterLeadingSpeakerPrefix(text, speakerNames);
+    received += text;
+    if (!useUIStore.getState().enableStreaming) return;
+    pendingReveal += text;
+    scheduleStreamReveal();
   };
 
   const replaceVisibleStreamText = (text: string) => {
@@ -1738,7 +1699,6 @@ export async function runGenerationWithUi(
   };
 
   const flushLiveGenerationBuffers = async () => {
-    flushLeadingSpeakerPrefix();
     commitThinkingBuffer(true);
     await flushVisibleStreamText();
   };
@@ -1748,7 +1708,6 @@ export async function runGenerationWithUi(
     received = "";
     receivedTurnContent = false;
     receivedThinking = false;
-    speakerPrefixFilter.reset();
     visibleStreamText = "";
     committedStreamText = "";
     lastStreamBufferCommitAt = 0;
@@ -1884,10 +1843,9 @@ export async function runGenerationWithUi(
           break;
         case "content_replace":
           if (!foregroundGenerationReleased && typeof event.data === "string") {
-            const filtered = filterReplacementStreamText(event.data);
-            received = filtered;
-            receivedAnyContent = receivedAnyContent || filtered.trim().length > 0;
-            replaceVisibleStreamText(filtered);
+            received = event.data;
+            receivedAnyContent = receivedAnyContent || event.data.trim().length > 0;
+            replaceVisibleStreamText(event.data);
           }
           break;
         case "message":
@@ -1936,7 +1894,6 @@ export async function runGenerationWithUi(
           break;
         }
         case "typing": {
-          flushLeadingSpeakerPrefix();
           const label = characterLabel(eventCharacters(event));
           const state = useChatStore.getState();
           state.setPerChatTyping(chatId, label);
@@ -2327,4 +2284,3 @@ export function useGenerate() {
 
   return { generate, retryAgents, dryRun, abortDryRun: abortGenerationDryRun };
 }
-

@@ -4,8 +4,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GenerationPromptSnapshot, Message } from "../../../../../engine/contracts/types/chat";
-import { createDialogueAttributionTextHash } from "../../../../../engine/shared/text/dialogue-attribution";
-import { storageApi } from "../../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import type { CharacterMap } from "../types";
 import { ChatMessage } from "./ChatMessage";
@@ -58,13 +56,6 @@ const characterMap = new Map([
   ],
 ]);
 
-async function flushLegacyBackfill() {
-  await act(async () => {
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    await Promise.resolve();
-  });
-}
 function resetChatMessageUiState() {
   useUIStore.setState({
     roleplayAvatarStyle: "circles",
@@ -72,7 +63,6 @@ function resetChatMessageUiState() {
     chatFontSize: 16,
     showMessageNumbers: false,
     guideGenerations: false,
-    boldDialogue: true,
     quoteFormat: "straight",
     summaryPopoverSettings: {
       ...useUIStore.getState().summaryPopoverSettings,
@@ -171,7 +161,7 @@ describe("ChatMessage", () => {
     expect(children.indexOf(name)).toBeLessThan(children.indexOf(timestamp));
   });
 
-  it("uses the character dialogue color as the assistant fallback when attribution is missing", () => {
+  it("ignores a character dialogue color when attribution is missing", () => {
     const coloredCharacterMap = new Map([
       [
         "character-1",
@@ -196,93 +186,8 @@ describe("ChatMessage", () => {
       );
     });
 
-    const dialogue = container!.querySelector<HTMLElement>(".mari-message-content strong");
-    expect(dialogue).not.toBeNull();
-    expect(dialogue!.style.color).toBe("rgb(255, 51, 102)");
-  });
-  it("lazily backfills legacy roleplay attribution from Name-prefix text", async () => {
-    const patchExtra = vi.spyOn(storageApi, "patchChatMessageExtra").mockResolvedValue({} as Message);
-    const content = 'Aster: "Ready."';
-    const coloredCharacterMap = new Map([
-      [
-        "character-1",
-        {
-          name: "Aster",
-          avatarUrl: null,
-          dialogueColor: "#ff3366",
-        },
-      ],
-    ]);
-
-    act(() => {
-      root = createRoot(container!);
-      root.render(
-        <QueryClientProvider client={queryClient!}>
-          <ChatMessage
-            message={{ ...message, id: "message-legacy-backfill", content, swipes: [{ content, extra: {} }] }}
-            characterMap={coloredCharacterMap}
-            chatCharacterIds={["character-1"]}
-          />
-        </QueryClientProvider>,
-      );
-    });
-
-    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")?.style.color ?? "").toBe("rgb(255, 51, 102)");
-    await flushLegacyBackfill();
-
-    expect(patchExtra).toHaveBeenCalledWith("message-legacy-backfill", {
-      dialogueAttributions: {
-        version: 1,
-        textHash: createDialogueAttributionTextHash(content),
-        segments: [
-          {
-            start: 7,
-            end: 15,
-            speakerName: "Aster",
-            speakerId: "character-1",
-            source: "name-prefix",
-            confidence: "explicit",
-          },
-        ],
-      },
-    });
-  });
-  it("does not retry legacy backfill when an empty attribution marker already exists", async () => {
-    const patchExtra = vi.spyOn(storageApi, "patchChatMessageExtra").mockResolvedValue({} as Message);
-    const content = '"Still ambiguous."';
-
-    act(() => {
-      root = createRoot(container!);
-      root.render(
-        <QueryClientProvider client={queryClient!}>
-          <ChatMessage
-            message={{
-              ...message,
-              id: "message-backfill-attempted",
-              content,
-              swipes: [
-                {
-                  content,
-                  extra: {
-                    dialogueAttributions: {
-                      version: 1,
-                      textHash: createDialogueAttributionTextHash(content),
-                      segments: [],
-                    },
-                  },
-                },
-              ],
-            }}
-            characterMap={characterMap}
-            chatCharacterIds={["character-1"]}
-          />
-        </QueryClientProvider>,
-      );
-    });
-
-    await flushLegacyBackfill();
-
-    expect(patchExtra).not.toHaveBeenCalled();
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
+    expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain('"Ready."');
   });
   it("keeps a visible timestamp at the top of grouped roleplay messages", () => {
     act(() => {
@@ -407,12 +312,13 @@ describe("ChatMessage", () => {
       );
     });
 
-    const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
-    expect(quote?.textContent).toBe('"I should stay readable."');
-    expect(quote?.style.color).toBe("");
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
+    expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain(
+      '"I should stay readable."',
+    );
   });
 
-  it("colors duplicate speaker names by stable attribution id", () => {
+  it("ignores legacy dialogue colors and attribution ids", () => {
     const content = '"First." "Second."';
     const duplicateNameMessage: Message = {
       ...message,
@@ -423,7 +329,7 @@ describe("ChatMessage", () => {
         ...message.extra,
         dialogueAttributions: {
           version: 1,
-          textHash: createDialogueAttributionTextHash(content),
+          textHash: "legacy-attribution-hash",
           segments: [
             {
               start: 0,
@@ -443,7 +349,7 @@ describe("ChatMessage", () => {
             },
           ],
         },
-      },
+      } as unknown as Message["extra"],
     };
     const twins: CharacterMap = new Map([
       ["char-a", { name: "Twin", avatarUrl: null, dialogueColor: "#ff3366" }],
@@ -464,13 +370,10 @@ describe("ChatMessage", () => {
       );
     });
 
-    const quotes = Array.from(container!.querySelectorAll<HTMLElement>(".mari-message-content strong"));
-    expect(quotes.map((quote) => [quote.textContent, quote.style.color])).toEqual([
-      ['"First."', "rgb(255, 51, 102)"],
-      ['"Second."', "rgb(51, 170, 255)"],
-    ]);
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
+    expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain(content);
   });
-  it("colors persona-attributed assistant dialogue from persona identity", () => {
+  it("ignores legacy persona-attributed dialogue colors", () => {
     const content = '"I said it."';
     const personaAttributedMessage: Message = {
       ...message,
@@ -481,7 +384,7 @@ describe("ChatMessage", () => {
         ...message.extra,
         dialogueAttributions: {
           version: 1,
-          textHash: createDialogueAttributionTextHash(content),
+          textHash: "legacy-attribution-hash",
           segments: [
             {
               start: 0,
@@ -493,7 +396,7 @@ describe("ChatMessage", () => {
             },
           ],
         },
-      },
+      } as unknown as Message["extra"],
     };
 
     act(() => {
@@ -509,9 +412,8 @@ describe("ChatMessage", () => {
       );
     });
 
-    const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
-    expect(quote?.textContent).toBe(content);
-    expect(quote?.style.color).toBe("rgb(181, 140, 255)");
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
+    expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain(content);
   });
 
   it("warns once per chat when attributed speakers miss the color map", () => {
@@ -527,7 +429,7 @@ describe("ChatMessage", () => {
         ...message.extra,
         dialogueAttributions: {
           version: 1,
-          textHash: createDialogueAttributionTextHash(content),
+          textHash: "legacy-attribution-hash",
           segments: [
             {
               start: 0,
@@ -538,7 +440,7 @@ describe("ChatMessage", () => {
             },
           ],
         },
-      },
+      } as unknown as Message["extra"],
     };
 
     act(() => {
@@ -552,16 +454,16 @@ describe("ChatMessage", () => {
     act(() => {
       root!.render(
         <QueryClientProvider client={queryClient!}>
-          <ChatMessage message={{ ...missingSpeakerMessage, id: "message-missing-speaker-color-2" }} characterMap={characterMap} chatMode="roleplay" />
+          <ChatMessage
+            message={{ ...missingSpeakerMessage, id: "message-missing-speaker-color-2" }}
+            characterMap={characterMap}
+            chatMode="roleplay"
+          />
         </QueryClientProvider>,
       );
     });
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(
-      "[chat-ui] Dialogue attribution speaker missing color map.",
-      expect.objectContaining({ chatId: "chat-missing-speaker-color", speakers: ["Ghost"] }),
-    );
+    expect(warn).not.toHaveBeenCalled();
   });
   it("does not infer roleplay assistant quote colors on first render without stored attribution", () => {
     const attributedMessage: Message = {
@@ -589,11 +491,8 @@ describe("ChatMessage", () => {
       );
     });
 
-    const quotes = Array.from(container!.querySelectorAll<HTMLElement>(".mari-message-content strong"));
-    expect(quotes.map((quote) => [quote.textContent, quote.style.color])).toEqual([
-      ["\"Ah. 'Technical specifications,'\"", "inherit"],
-      ['"Do not move!"', "inherit"],
-    ]);
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
+    expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain('"Do not move!"');
   });
   it("does not infer configured character aliases on first render without stored attribution", () => {
     const aliasMessage: Message = {
@@ -620,9 +519,8 @@ describe("ChatMessage", () => {
       );
     });
 
-    const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
-    expect(quote?.textContent).toBe('"Welcome,"');
-    expect(quote?.style.color).toBe("inherit");
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
+    expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain('"Welcome,"');
   });
 
   it("does not color unconfigured character titles", () => {
@@ -650,9 +548,8 @@ describe("ChatMessage", () => {
       );
     });
 
-    const quote = container!.querySelector<HTMLElement>(".mari-message-content strong");
-    expect(quote?.textContent).toBe('"Welcome,"');
-    expect(quote?.style.color).toBe("inherit");
+    expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
+    expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain('"Welcome,"');
   });
   it("shows remembered and recalled memory indicators with recalled details", () => {
     const onPeekPrompt = vi.fn();

@@ -11,15 +11,12 @@ import { useTranslate } from "../../../../shared/hooks/use-translate";
 import { storageApi } from "../../../../shared/api/storage-api";
 import {
   buildSaveMomentSource,
-  createSpeakerColorLookup,
   hasGenerationReplayDetails,
   messageAttachmentsFromExtra,
   readStoredThinking,
   resolvePromptSnapshotFromExtra,
-  useLazyDialogueAttributionBackfill,
 } from "../../shared/chat-ui/index";
 import { ConversationMessageBubble } from "./ConversationMessageBubble";
-import { ConversationMessageGrouped } from "./ConversationMessageGrouped";
 import { ConversationMessageLine } from "./ConversationMessageLine";
 import {
   ConversationMessageSystem,
@@ -27,13 +24,8 @@ import {
   HiddenFromAIConversationButton,
   MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR,
   formatGenerationDuration,
-  groupConsecutiveSegments,
-  parseNamePrefixFormat,
-  parseSpeakerTags,
   readGenerationDurationMs,
   resolveConversationAvatar,
-  resolveDialogueAttributionsForConversationMessage,
-  type ConversationCharacterInfo,
   type ConversationMessageExtra,
   type ConversationMessageProps,
   type ConversationMessageRenderContext,
@@ -174,10 +166,6 @@ export const ConversationMessage = memo(function ConversationMessage({
   const attachments = useMemo(() => messageAttachmentsFromExtra(extra), [extra]);
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
   const memoryCapture = extra.memoryCapture ?? null;
-  const dialogueAttributions = useMemo(
-    () => resolveDialogueAttributionsForConversationMessage(message, extra),
-    [extra, message],
-  );
   const activePromptSnapshot = useMemo(
     () => resolvePromptSnapshotFromExtra(extra, message.activeSwipeIndex),
     [extra, message.activeSwipeIndex],
@@ -260,24 +248,6 @@ export const ConversationMessage = memo(function ConversationMessage({
       ? undefined
       : (msgPersona?.nameColor ?? personaInfo?.nameColor)
     : charInfo?.nameColor;
-  const dialogueColor = isUser ? undefined : charInfo?.dialogueColor;
-  const speakerColorMap = useMemo(() => {
-    if (!scopedCharacterMap) return undefined;
-    const identities = [...scopedCharacterMap.entries()].map(([id, info]) => ({
-      id,
-      color: info.dialogueColor,
-      names: [info.name, ...(info.speakerAliases ?? [])],
-    }));
-    const map = createSpeakerColorLookup(identities);
-    return map.size ? map : undefined;
-  }, [scopedCharacterMap]);
-  useLazyDialogueAttributionBackfill({
-    message,
-    extra,
-    characterMap: scopedCharacterMap ?? undefined,
-    chatCharacterIds,
-    enabled: !isStreaming,
-  });
   const conversationAvatar = resolveConversationAvatar(isUser ? null : charInfo, avatarUrl);
   const macroContext = useMemo(
     () => ({
@@ -386,31 +356,6 @@ export const ConversationMessage = memo(function ConversationMessage({
     ],
   );
 
-  const charByName = useMemo(() => {
-    if (!scopedCharacterMap) return null;
-    const map = new Map<string, ConversationCharacterInfo>();
-    for (const [id, v] of scopedCharacterMap) {
-      if (v) {
-        const key = v.name.toLowerCase();
-        if (id === message.characterId) map.set(key, v);
-        else if (!map.has(key)) map.set(key, v);
-      }
-    }
-    return map;
-  }, [scopedCharacterMap, message.characterId]);
-
-  const charIdByName = useMemo(() => {
-    if (!scopedCharacterMap) return null;
-    const map = new Map<string, string>();
-    for (const [id, v] of scopedCharacterMap) {
-      if (v) {
-        const key = v.name.toLowerCase();
-        if (id === message.characterId) map.set(key, id);
-        else if (!map.has(key)) map.set(key, id);
-      }
-    }
-    return map;
-  }, [scopedCharacterMap, message.characterId]);
   const mentionNames = useMemo(() => {
     if (!scopedCharacterMap) return [] as string[];
     const names: string[] = [];
@@ -419,44 +364,6 @@ export const ConversationMessage = memo(function ConversationMessage({
     }
     return names;
   }, [scopedCharacterMap]);
-
-  const groupedSegments = useMemo(() => {
-    if (isUser || !renderedContent) return null;
-    const knownNames = charByName ? new Set(charByName.keys()) : new Set<string>();
-    const speakerSegs = parseSpeakerTags(renderedContent, knownNames);
-    if (speakerSegs) return groupConsecutiveSegments(speakerSegs);
-    const nameSegs = parseNamePrefixFormat(renderedContent, knownNames);
-    if (nameSegs) return groupConsecutiveSegments(nameSegs);
-    return null;
-  }, [isUser, renderedContent, charByName]);
-
-  const segmentCount = groupedSegments?.length ?? 0;
-  const prevContentRef = useRef(renderedContent);
-  const initialRenderRef = useRef(true);
-  const [visibleSegments, setVisibleSegments] = useState(segmentCount);
-
-  useEffect(() => {
-    if (initialRenderRef.current) {
-      initialRenderRef.current = false;
-      setVisibleSegments(segmentCount);
-      prevContentRef.current = renderedContent;
-      return;
-    }
-    if (renderedContent !== prevContentRef.current && segmentCount > 1) {
-      prevContentRef.current = renderedContent;
-      setVisibleSegments(1);
-      let count = 1;
-      const reveal = () => {
-        count++;
-        setVisibleSegments(count);
-      };
-      const timers: ReturnType<typeof setTimeout>[] = [];
-      for (let i = 1; i < segmentCount; i++) timers.push(setTimeout(reveal, i * 1500));
-      return () => timers.forEach(clearTimeout);
-    }
-    setVisibleSegments(segmentCount);
-    prevContentRef.current = renderedContent;
-  }, [renderedContent, segmentCount]);
 
   const thinking = readStoredThinking(extra);
   const generationDurationMs = !isUser ? readGenerationDurationMs(extra.generationInfo) : null;
@@ -659,9 +566,6 @@ export const ConversationMessage = memo(function ConversationMessage({
     messageTextStyle,
     displayName,
     nameColor,
-    dialogueColor,
-    speakerColorMap,
-    dialogueAttributions,
     conversationAvatar,
     avatarUrl,
     avatarFilePath,
@@ -675,10 +579,6 @@ export const ConversationMessage = memo(function ConversationMessage({
     hasRenderedContent,
     typingLabel,
     mentionNames,
-    groupedSegments,
-    visibleSegments,
-    charByName,
-    charIdByName,
     attachments,
     translatedText,
     isTranslating,
@@ -724,7 +624,6 @@ export const ConversationMessage = memo(function ConversationMessage({
   };
 
   if (isSystem) return <ConversationMessageSystem context={context} />;
-  if (groupedSegments && !editing && !isUser && !isBubbleStyle) return <ConversationMessageGrouped context={context} />;
   if (isBubbleStyle) return <ConversationMessageBubble context={context} />;
   return <ConversationMessageLine context={context} />;
 }, areConversationMessagePropsEqual);

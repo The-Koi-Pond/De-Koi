@@ -143,7 +143,6 @@ export function partializeUiState(state: UIState) {
     userQuickReplyActions: state.userQuickReplyActions,
     confirmBeforeDelete: state.confirmBeforeDelete,
     messagesPerPage: state.messagesPerPage,
-    boldDialogue: state.boldDialogue,
     quoteFormat: state.quoteFormat,
     trimIncompleteModelOutput: state.trimIncompleteModelOutput,
     speechToTextEnabled: state.speechToTextEnabled,

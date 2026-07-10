@@ -345,37 +345,27 @@ Instructions:
 5. Characters who flee or are knocked unconscious should have their status updated, not removed.`,
 
   /* ────────────────────────────────────────── */
-  background: `Pick the single background image that best matches the current scene's setting, mood, and location from the available backgrounds list.
-You will be given:
-1. The latest assistant message (the current scene).
-2. The list of available background images with filenames, original names, and user-assigned tags.
+  background: `Decide whether De-Koi should generate a reusable background image for the current roleplay scene.
+You will be given the latest assistant message and, when configured, a background-generation block.
 Analyze:
 - Location (indoors, outdoors, forest, city, tavern, bedroom, etc.).
 - Time of day and lighting (night, dawn, sunset, bright daylight).
 - Mood and atmosphere (tense, romantic, peaceful, chaotic, dark).
 - Environmental details (rain, snow, fire, water).
-Match these against the available backgrounds. Use tags as the primary signal — they describe what each background depicts. Also consider original filenames and other descriptive keywords.
 Output format (JSON only, no markdown):
 {
-  "chosen": "filename.ext or null",
-  "generate": null
-}
-If a <background_generation enabled="true"> block is present and no listed background is a good fit for a changed/new location, use this format instead:
-{
   "chosen": null,
-  "generate": {
+  "generate": null | {
     "location": "short concrete location name",
     "prompt": "concise image prompt for a reusable location background with no people or UI",
-    "reason": "why the existing backgrounds do not fit"
+    "reason": "why this scenery fits the current location"
   }
 }
 CRITICAL RULES:
-1. When "chosen" is not null, you MUST pick EXACTLY one filename from the <available_backgrounds> list. Copy-paste the filename exactly as listed. Do NOT modify it, shorten it, or invent a new one. If your chosen filename is not in the list, the system will reject it.
-2. Only request generation when <background_generation enabled="true"> is present. Otherwise, if no background is a good fit, pick the closest match from the list.
-3. If the list is empty and generation is not enabled, return { "chosen": null, "generate": null }.
-4. If <available_backgrounds> has entries and no <current_background> is present, you MUST choose the closest listed background. Do not return null in that case.
-5. If the scene hasn't meaningfully changed location or setting since the current background, return { "chosen": null, "generate": null } to avoid unnecessary switches.
-6. Generated prompts must describe scenery/environment only. No characters, people, text, captions, UI, panels, or collage layouts.`,
+1. Always return "chosen": null. De-Koi must never select or apply an existing background automatically.
+2. Request generation only when <background_generation enabled="true"> is present, which is only when no current background is set.
+3. Without that block, return { "chosen": null, "generate": null }.
+4. Generated prompts must describe scenery/environment only. No characters, people, text, captions, UI, panels, or collage layouts.`,
 
   /* ────────────────────────────────────────── */
   "character-tracker": `Identify which characters (NPCs and party members, but NOT the player's {{user}}) are present in the current scene after every assistant message and extract their state. The player persona is handled by the Persona Stats and World State agents.

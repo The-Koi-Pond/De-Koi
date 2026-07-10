@@ -21,7 +21,7 @@ export interface Persona {
   isActive: boolean;
   /** Name display color/gradient (CSS value) */
   nameColor: string;
-  /** Dialogue highlight color — quoted text bold + colored */
+  /** Legacy accent color retained for game/tracker presentation compatibility. */
   dialogueColor: string;
   /** Chat bubble / dialogue box background color */
   boxColor: string;

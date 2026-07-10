@@ -1281,7 +1281,7 @@ export function AgentEditor() {
             <FieldGroup
               label="Background Image Generation"
               icon={<ImageIcon size="0.875rem" className="text-[var(--primary)]" />}
-              help="When enabled, the Background agent can generate a new reusable roleplay background when none of your existing backgrounds fit the scene."
+              help="When enabled, the Background agent can generate one reusable roleplay background when the chat does not already have one. It never auto-selects library images."
             >
               <button
                 type="button"
@@ -1298,12 +1298,12 @@ export function AgentEditor() {
                 )}
                 <div>
                   <p className="text-sm font-medium">
-                    {localAutoGenerateBackgrounds ? "Generate missing backgrounds" : "Only pick existing backgrounds"}
+                    {localAutoGenerateBackgrounds ? "Generate when missing" : "Leave backgrounds unchanged"}
                   </p>
                   <p className="text-[0.625rem] text-[var(--muted-foreground)]">
                     {localAutoGenerateBackgrounds
-                      ? "If nothing fits a changed location, the agent can request a new background image."
-                      : "The agent will choose the closest uploaded background and never create a new one."}
+                      ? "If the chat has no background, the agent can request a suitable generated scene."
+                      : "Backgrounds only change when you choose one manually."}
                   </p>
                 </div>
               </button>

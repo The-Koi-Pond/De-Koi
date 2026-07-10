@@ -657,7 +657,6 @@ function ChatSettingsDrawerInner({
   const spriteGenerationEnabled = isEnabledFlag(metadata.enableSpriteGeneration, false);
   const autonomousMessagesEnabled = isEnabledFlag(metadata.autonomousMessages, false);
   const characterExchangesEnabled = isEnabledFlag(metadata.characterExchanges, false);
-  const groupSpeakerColorsEnabled = isEnabledFlag(metadata.groupSpeakerColors, false);
   const groupSpeakerNamesInHistoryEnabled = isEnabledFlag(metadata.groupSpeakerNamesInHistory, false);
   const autoTranslateEnabled = isEnabledFlag(metadata.autoTranslate, false);
   const translateInputEnabled = isEnabledFlag(metadata.translateInput, false);
@@ -2951,42 +2950,6 @@ function ChatSettingsDrawerInner({
                       Individual
                     </button>
                   </div>
-                </div>
-              )}
-
-              {/* Merged mode: speaker color option */}
-              {!isConversation && (metadata.groupChatMode ?? "merged") === "merged" && (
-                <div className="mt-2">
-                  <button
-                    onClick={() => updateMeta.mutate({ id: chat.id, groupSpeakerColors: !groupSpeakerColorsEnabled })}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
-                      groupSpeakerColorsEnabled
-                        ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                        : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
-                    )}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[0.6875rem] font-medium">Color Dialogues</span>
-                      <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                        Color character dialogues differently using the special tags. The colors are assigned based on
-                        what you chose in the Color tab for your Character.
-                      </p>
-                    </div>
-                    <div
-                      className={cn(
-                        "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                        groupSpeakerColorsEnabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-                          groupSpeakerColorsEnabled && "translate-x-3.5",
-                        )}
-                      />
-                    </div>
-                  </button>
                 </div>
               )}
 
