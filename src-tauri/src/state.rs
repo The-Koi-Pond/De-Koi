@@ -100,12 +100,7 @@ impl AppState {
             },
         ) {
             Ok(()) => {
-                if let Err(error) = cleanup_orphaned_character_version_media(&storage, &data_dir) {
-                    log::warn!(
-                        "character version orphan cleanup could not complete: code={}",
-                        error.code
-                    );
-                }
+                cleanup_orphaned_character_version_media(&storage, &data_dir)?;
                 true
             }
             Err(error) => {

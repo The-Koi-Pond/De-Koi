@@ -144,13 +144,39 @@ pub(crate) fn normalize_character_version_media(
     Ok(true)
 }
 
-pub(crate) fn rollback_character_version_media_files(paths: &[PathBuf]) {
-    if !paths.is_empty() {
-        log::debug!(
-            "retaining {} content-addressed character version image(s) after rollback because concurrent records may reference them",
-            paths.len()
-        );
+pub(crate) fn rollback_character_version_media_files(
+    storage: &FileStorage,
+    paths: &[PathBuf],
+) -> AppResult<()> {
+    let mut candidates = paths
+        .iter()
+        .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+        .filter(|filename| is_content_addressed_version_filename(filename))
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    if candidates.is_empty() {
+        return Ok(());
     }
+    storage.visit_collection_streaming("character-versions", |_index, row| {
+        if let Some(filename) = row.get("avatarFilename").and_then(Value::as_str) {
+            candidates.remove(filename);
+        }
+        Ok(())
+    })?;
+    for path in paths {
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|filename| candidates.contains(filename))
+        {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn cleanup_orphaned_character_version_media(

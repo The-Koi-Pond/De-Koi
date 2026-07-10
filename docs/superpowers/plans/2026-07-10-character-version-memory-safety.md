@@ -171,7 +171,7 @@ Expected: tests fail because the V2 migration and marker are absent.
 
 - [ ] **Step 3: Implement migration orchestration**
 
-Call the streaming transform with suffix `character-version-inline-media-v2`. Normalize each record through the focused media owner. On error, retain content-addressed files because a concurrent successful operation may already reference them; after a successful bounded migration, remove only unreferenced files matching the version-content-address naming contract. Allow valid records without inline media to pass byte-semantically unchanged. Register the migration independently immediately after seeding, before any older full-collection migration can load `character-versions`, so a previously set V1 marker cannot suppress it or an unmarked legacy pass reproduce the OOM.
+Call the streaming transform with suffix `character-version-inline-media-v2`. Normalize each record through the focused media owner. On error, remove only content-addressed files that a record-at-a-time reference scan proves are unreferenced; after a successful bounded migration, also remove unreferenced files matching the version-content-address naming contract. Allow valid records without inline media to pass byte-semantically unchanged. Register the migration independently immediately after seeding, before any older full-collection migration can load `character-versions`, so a previously set V1 marker cannot suppress it or an unmarked legacy pass reproduce the OOM.
 
 Do not automatically delete `character-versions.json.tmp-*` or the pre-migration backup.
 
@@ -214,7 +214,7 @@ Expected: at least the import/direct-write tests fail because current paths acce
 
 - [ ] **Step 3: Route owner paths through the normalizer**
 
-Normalize before creating snapshots or installing imported version rows. Retain content-addressed assets when a following mutation fails so concurrent successful records cannot lose shared media. On restore, normalize the version row before constructing the live-character patch. Add the direct-write rejection immediately after entity contract validation and before any mutation.
+Normalize before creating snapshots or installing imported version rows. When a following mutation fails, remove only content-addressed assets proven unreferenced by a bounded scan. On restore, normalize the version row before constructing the live-character patch. Add the direct-write rejection immediately after entity contract validation and before any mutation.
 
 - [ ] **Step 4: Run boundary tests and verify GREEN**
 

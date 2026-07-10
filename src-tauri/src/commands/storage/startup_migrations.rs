@@ -83,7 +83,7 @@ pub(crate) fn migrate_character_version_inline_media(
         },
     );
     if result.is_err() {
-        rollback_character_version_media_files(&created_files);
+        rollback_character_version_media_files(storage, &created_files)?;
     }
     result
 }
@@ -863,8 +863,8 @@ mod character_version_inline_media_tests {
     }
 
     #[test]
-    fn character_version_inline_media_migration_preserves_primary_and_retains_safe_assets_on_error()
-    {
+    fn character_version_inline_media_migration_preserves_primary_and_removes_unreferenced_assets_on_error(
+    ) {
         let root = temp_dir("rollback");
         let storage = FileStorage::new(root.join("data")).expect("storage should initialize");
         let inline = format!("data:image/png;base64,{TINY_PNG}");
@@ -886,7 +886,7 @@ mod character_version_inline_media_tests {
         assert_eq!(error.code, "invalid_input");
         assert_eq!(fs::read(collection).unwrap(), before);
         let asset_dir = root.join("avatars/characters/versions");
-        assert_eq!(fs::read_dir(asset_dir).unwrap().count(), 1);
+        assert!(!asset_dir.exists() || fs::read_dir(asset_dir).unwrap().next().is_none());
         fs::remove_dir_all(root).expect("temporary directory should clean up");
     }
 }

@@ -439,19 +439,19 @@ where
     ) {
         Ok(plan) => plan,
         Err(error) => {
-            rollback_character_version_media_files(&created_version_media);
+            rollback_character_version_media_files(&state.storage, &created_version_media)?;
             return Err(error);
         }
     };
     if let Err(error) = progress.prepare("write", "Writing profile data") {
-        rollback_character_version_media_files(&created_version_media);
+        rollback_character_version_media_files(&state.storage, &created_version_media)?;
         return Err(error);
     }
     let write_result = state
         .storage
         .replace_all_many_and_then(plan.replacements, install_assets);
     if let Err(error) = write_result {
-        rollback_character_version_media_files(&created_version_media);
+        rollback_character_version_media_files(&state.storage, &created_version_media)?;
         return Err(error);
     }
     progress.advance_untracked_after_commit("write", "write", "Profile data written", 1);
@@ -1258,7 +1258,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_profile_progress_failure_retains_content_addressed_version_media() {
+    fn legacy_profile_progress_failure_removes_unreferenced_version_media() {
         const TINY_PNG: &str =
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
         let state = test_state("character-version-progress-rollback");
@@ -1293,7 +1293,7 @@ mod tests {
             .join("avatars")
             .join("characters")
             .join("versions");
-        assert_eq!(std::fs::read_dir(asset_dir).unwrap().count(), 1);
+        assert!(!asset_dir.exists() || std::fs::read_dir(asset_dir).unwrap().next().is_none());
     }
 
     #[test]

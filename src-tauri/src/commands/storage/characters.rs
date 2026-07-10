@@ -147,7 +147,7 @@ pub(crate) fn create_character_version_snapshot_from_record(
     {
         Ok(created) => Ok(created),
         Err(error) => {
-            rollback_character_version_media_files(&created_version_media);
+            rollback_character_version_media_files(&state.storage, &created_version_media)?;
             remove_copied_file_path(
                 copied_avatar_path.as_deref(),
                 "rolled-back character version avatar copy",
