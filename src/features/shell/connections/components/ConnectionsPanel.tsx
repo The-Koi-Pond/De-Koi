@@ -85,7 +85,7 @@ type ConnectionDropTarget = { folderId: string | null } | null;
 
 const CONNECTION_DRAG_MIME = "application/x-de-koi-connection-id";
 
-function DefaultAgentConnectionCard({ connectionsList }: { connectionsList: ConnectionRowData[] }) {
+export function DefaultAgentConnectionCard({ connectionsList }: { connectionsList: ConnectionRowData[] }) {
   const openConnectionDetail = useUIStore((s) => s.openConnectionDetail);
   const defaultConnection =
     connectionsList.find((conn) => conn.provider !== "image_generation" && boolish(conn.defaultForAgents, false)) ??
@@ -116,6 +116,9 @@ function DefaultAgentConnectionCard({ connectionsList }: { connectionsList: Conn
           </button>
         )}
       </div>
+      <p className="mt-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+        Choose a text connection below, then enable <strong>Use as default agent connection</strong> in its editor.
+      </p>
     </div>
   );
 }

@@ -548,12 +548,15 @@ export async function readRemoteError(response: Response): Promise<ApiError> {
   try {
     const body = await response.clone().json();
     const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-    const message =
+    const rawMessage =
       typeof record.message === "string"
         ? record.message
         : typeof record.error === "string"
           ? record.error
           : "Remote runtime returned " + response.status;
+    const message = /Unsupported storage (?:entity|enity):?\s*deki-sessions/i.test(rawMessage)
+      ? "This De-Koi server is older than the web app and cannot store Deki sessions. Update and restart the server, then refresh this page."
+      : rawMessage;
     return new ApiError(message, response.status, retryAfterMs === null ? record : { ...record, retryAfterMs });
   } catch {
     const body = summarizeRemoteErrorText(await response.text().catch(() => ""));

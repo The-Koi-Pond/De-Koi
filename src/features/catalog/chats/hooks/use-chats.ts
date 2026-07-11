@@ -618,8 +618,9 @@ export function useCreateMessage(chatId: string | null) {
       const payload = createMessageSchema.parse({ chatId: chatId!, ...data });
       return storageApi.createChatMessage<Message>(payload.chatId, payload);
     },
-    onMutate: (data) => {
+    onMutate: async (data) => {
       if (!chatId) return;
+      await qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true });
       const previousMessages = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId));
       const previousCount = qc.getQueryData<MessageCountResult>(chatKeys.messageCount(chatId));
       const optimistic = optimisticChatMessage(chatId, data);

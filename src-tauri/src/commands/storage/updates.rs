@@ -128,6 +128,24 @@ fn fallback_release(tag: &str) -> ReleaseInfo {
     }
 }
 
+fn release_from_tag_refs(refs: &[TagRef]) -> AppResult<ReleaseInfo> {
+    let latest_tag = refs
+        .iter()
+        .filter_map(|entry| entry.r#ref.rsplit('/').next())
+        .filter(|tag| is_stable_version_tag(tag))
+        .max_by(|left, right| compare_versions(left, right));
+    Ok(match latest_tag {
+        Some(tag) => fallback_release(tag),
+        None => ReleaseInfo {
+            latest_version: APP_VERSION.to_string(),
+            release_tag: format!("v{APP_VERSION}"),
+            release_url: GITHUB_RELEASES_URL.to_string(),
+            release_notes: String::new(),
+            published_at: String::new(),
+        },
+    })
+}
+
 fn is_trusted_release_url(value: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(value) else {
         return false;
@@ -163,17 +181,11 @@ async fn fetch_latest_release() -> AppResult<ReleaseInfo> {
         .json::<Vec<TagRef>>()
         .await
         .map_err(|error| AppError::new("update_check_failed", error.to_string()))?;
-    let latest_tag = refs
-        .iter()
-        .filter_map(|entry| entry.r#ref.rsplit('/').next())
-        .filter(|tag| is_stable_version_tag(tag))
-        .max_by(|left, right| compare_versions(left, right))
-        .ok_or_else(|| {
-            AppError::new(
-                "update_check_failed",
-                "No stable vX.Y.Z tags were found on GitHub",
-            )
-        })?;
+    let fallback = release_from_tag_refs(&refs)?;
+    if !is_newer_version(APP_VERSION, &fallback.latest_version) {
+        return Ok(fallback);
+    }
+    let latest_tag = fallback.release_tag.as_str();
 
     let release_url =
         format!("https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{latest_tag}");
@@ -268,6 +280,13 @@ mod tests {
         assert!(!is_stable_version_tag("1.2.3"));
         assert!(!is_stable_version_tag("v1.2"));
         assert!(!is_stable_version_tag("v1.2.x"));
+    }
+
+    #[test]
+    fn empty_stable_tag_list_returns_a_no_release_payload() {
+        let release = release_from_tag_refs(&[]).expect("missing releases should be a valid state");
+        assert_eq!(release.latest_version, APP_VERSION);
+        assert_eq!(release.release_url, GITHUB_RELEASES_URL);
     }
 
     #[test]

@@ -87,6 +87,21 @@ describe("transcript scroll geometry", () => {
 });
 
 describe("transcript scroll state", () => {
+  it("tracks upward scroll-away before streaming begins", () => {
+    const state = resolveTranscriptScrollState({
+      metrics: { scrollHeight: 2000, scrollTop: 600.5, clientHeight: 700 },
+      lastScrollTop: 640.75,
+      wasUserScrolledAway: false,
+      userScrolledAt: 0,
+      isStreaming: false,
+      now: 1000,
+    });
+
+    expect(state.userScrolledAway).toBe(true);
+    expect(state.userScrolledAt).toBe(1000);
+    expect(state.lastScrollTop).toBe(600.5);
+  });
+
   it("keeps streaming upward scrolls disengaged even when still near bottom", () => {
     const state = resolveTranscriptScrollState({
       metrics: { scrollHeight: 1000, scrollTop: 860, clientHeight: 100 },

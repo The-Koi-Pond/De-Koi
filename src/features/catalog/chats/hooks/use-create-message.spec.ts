@@ -30,7 +30,7 @@ vi.mock("../../../../shared/api/storage-api", () => ({
 }));
 
 type CreateMessageOptions = {
-  onMutate: (data: { role: string; content: string }) => unknown;
+  onMutate: (data: { role: string; content: string }) => unknown | Promise<unknown>;
   onError: (error: unknown, data: { role: string; content: string }, context: unknown) => void;
   onSuccess: (created: Message | null, data: { role: string; content: string }, context: unknown) => void;
 };
@@ -63,27 +63,41 @@ beforeEach(() => {
 });
 
 describe("useCreateMessage cache behavior", () => {
-  it("adds an optimistic message and increments the loaded message count", () => {
+  it("cancels an in-flight message query before publishing the optimistic user row", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(chatKeys.messages("chat-1"), messagePages([message("existing", "Before")]));
+    const cancelQueries = vi.spyOn(qc, "cancelQueries").mockResolvedValue(undefined);
+    const options = useCreateMessageOptions(qc);
+
+    await options.onMutate({ role: "user", content: "Hello" });
+
+    expect(cancelQueries).toHaveBeenCalledWith({ queryKey: chatKeys.messages("chat-1"), exact: true });
+    expect(qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages("chat-1"))?.pages[0]?.at(-1)?.content).toBe(
+      "Hello",
+    );
+  });
+
+  it("adds an optimistic message and increments the loaded message count", async () => {
     const qc = new QueryClient();
     qc.setQueryData(chatKeys.messages("chat-1"), messagePages([message("existing", "Before")]));
     qc.setQueryData(chatKeys.messageCount("chat-1"), { count: 1 });
     const options = useCreateMessageOptions(qc);
 
-    options.onMutate({ role: "user", content: "Hello" });
+    await options.onMutate({ role: "user", content: "Hello" });
 
     const cached = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages("chat-1"));
     expect(cached?.pages[0]?.map((row) => row.content)).toEqual(["Before", "Hello"]);
     expect(qc.getQueryData(chatKeys.messageCount("chat-1"))).toEqual({ count: 2 });
   });
 
-  it("replaces the optimistic message with the saved row without refetching active messages", () => {
+  it("replaces the optimistic message with the saved row without refetching active messages", async () => {
     const qc = new QueryClient();
     qc.setQueryData(chatKeys.messages("chat-1"), messagePages([message("existing", "Before")]));
     qc.setQueryData(chatKeys.messageCount("chat-1"), { count: 1 });
     const invalidateQueries = vi.spyOn(qc, "invalidateQueries").mockResolvedValue(undefined);
     const options = useCreateMessageOptions(qc);
 
-    const context = options.onMutate({ role: "user", content: "Hello" });
+    const context = await options.onMutate({ role: "user", content: "Hello" });
     options.onSuccess(message("saved", "Saved"), { role: "user", content: "Hello" }, context);
 
     const cached = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages("chat-1"));
@@ -94,26 +108,26 @@ describe("useCreateMessage cache behavior", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: lorebookKeys.active("chat-1") });
   });
 
-  it("refreshes active messages when create returns no saved row to reconcile from storage", () => {
+  it("refreshes active messages when create returns no saved row to reconcile from storage", async () => {
     const qc = new QueryClient();
     qc.setQueryData(chatKeys.messages("chat-1"), messagePages([message("existing", "Before")]));
     const invalidateQueries = vi.spyOn(qc, "invalidateQueries").mockResolvedValue(undefined);
     const options = useCreateMessageOptions(qc);
 
-    const context = options.onMutate({ role: "user", content: "Hello" });
+    const context = await options.onMutate({ role: "user", content: "Hello" });
     options.onSuccess(null, { role: "user", content: "Hello" }, context);
 
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: chatKeys.messages("chat-1") });
   });
 
-  it("restores the previous messages and count when create fails", () => {
+  it("restores the previous messages and count when create fails", async () => {
     const qc = new QueryClient();
     const previousMessages = messagePages([message("existing", "Before")]);
     qc.setQueryData(chatKeys.messages("chat-1"), previousMessages);
     qc.setQueryData(chatKeys.messageCount("chat-1"), { count: 1 });
     const options = useCreateMessageOptions(qc);
 
-    const context = options.onMutate({ role: "user", content: "Hello" });
+    const context = await options.onMutate({ role: "user", content: "Hello" });
     options.onError(new Error("nope"), { role: "user", content: "Hello" }, context);
 
     expect(qc.getQueryData(chatKeys.messages("chat-1"))).toEqual(previousMessages);

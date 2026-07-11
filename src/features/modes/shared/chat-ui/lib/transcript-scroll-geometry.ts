@@ -47,14 +47,14 @@ export function resolveTranscriptScrollState({
   reengageDelayMs = 300,
 }: TranscriptScrollStateInput): TranscriptScrollState {
   const isNearBottom = isNearTranscriptBottom(metrics, nearBottomThresholdPx);
-  const scrolledUpDuringStreaming = isStreaming && metrics.scrollTop < lastScrollTop - upwardScrollThresholdPx;
+  const scrolledUp = metrics.scrollTop < lastScrollTop - upwardScrollThresholdPx;
   let nextUserScrolledAway = wasUserScrolledAway;
   let nextUserScrolledAt = userScrolledAt;
 
   const scrolledTowardBottomDuringStreaming =
     isStreaming && metrics.scrollTop > lastScrollTop + upwardScrollThresholdPx;
 
-  if (scrolledUpDuringStreaming) {
+  if (scrolledUp) {
     nextUserScrolledAway = true;
     nextUserScrolledAt = now;
   } else if (isNearBottom && scrolledTowardBottomDuringStreaming && now - userScrolledAt > reengageDelayMs) {

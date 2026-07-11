@@ -28,6 +28,13 @@ export type UpdateApplyResponse = Omit<
   message: string;
 };
 
+export async function openUpdateRelease(
+  update: Pick<UpdateCheckResponse, "releaseUrl">,
+  opener: (url: string) => Promise<void>,
+): Promise<void> {
+  await opener(update.releaseUrl);
+}
+
 export const updatesApi = {
   check: () => invokeTauri<UpdateCheckResponse>("update_check"),
   apply: (input: Pick<UpdateCheckResponse, "latestVersion" | "releaseTag" | "releaseUrl">) =>

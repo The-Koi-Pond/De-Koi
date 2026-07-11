@@ -3,7 +3,7 @@ import type { ComponentType, ElementType, ReactElement, ReactNode } from "react"
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ConnectionFolderRow } from "./ConnectionsPanel";
+import { ConnectionFolderRow, DefaultAgentConnectionCard } from "./ConnectionsPanel";
 
 vi.mock("framer-motion", () => ({
   Reorder: {
@@ -98,5 +98,17 @@ describe("connection folder row layout", () => {
     container = rendered.container;
 
     expectCompactFolderHeader(container, "Local Models With A Very Long Name", "1");
+  });
+
+  it("explains how to choose the default agent connection", () => {
+    const rendered = render(
+      <DefaultAgentConnectionCard
+        connectionsList={[{ id: "connection-1", name: "Primary", provider: "openai", model: "model-a" }]}
+      />,
+    );
+    root = rendered.root;
+    container = rendered.container;
+
+    expect(container.textContent).toContain("Choose a text connection below, then enable Use as default agent connection");
   });
 });
