@@ -349,11 +349,15 @@ fn storage_list_inner_impl(
                     .or_else(|| b.get("createdAt")),
             ),
         };
-        if descending {
+        let ordering = if descending {
             ordering.reverse()
         } else {
             ordering
-        }
+        };
+        ordering.then_with(|| {
+            let id_ordering = compare_json_values(a.get("id"), b.get("id"));
+            if descending { id_ordering.reverse() } else { id_ordering }
+        })
     });
 
     if entity == "messages" {
@@ -385,6 +389,28 @@ fn storage_list_inner_impl(
 
     if entity == "connections" {
         connection_secrets::mask_connection_rows_for_read(&mut rows);
+    }
+
+    if let (Some(order_field), Some(before)) = (
+        order_by,
+        options
+            .as_ref()
+            .and_then(|value| value.get("before"))
+            .and_then(Value::as_str),
+    ) {
+        if let Some((cursor_value, cursor_id)) = before.rsplit_once('|') {
+            rows.retain(|row| {
+                let value_ordering = compare_json_values(row.get(order_field), Some(&Value::String(cursor_value.into())));
+                let cursor_ordering = value_ordering.then_with(|| {
+                    compare_json_values(row.get("id"), Some(&Value::String(cursor_id.into())))
+                });
+                if descending {
+                    cursor_ordering.is_lt()
+                } else {
+                    cursor_ordering.is_gt()
+                }
+            });
+        }
     }
 
     if let Some(limit) = options
@@ -1345,6 +1371,44 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn storage_list_applies_stable_generic_before_cursor() {
+        let state = test_state("generic-before-cursor");
+        for (id, created_at) in [
+            ("newest", "2026-07-11T00:00:03Z"),
+            ("cursor", "2026-07-11T00:00:02Z"),
+            ("older", "2026-07-11T00:00:01Z"),
+        ] {
+            state
+                .storage
+                .create(
+                    "global-gallery",
+                    json!({ "id": id, "createdAt": created_at, "filePath": format!("{id}.png") }),
+                )
+                .expect("gallery row should save");
+        }
+
+        let result = storage_list_inner(
+            &state,
+            "global-gallery".to_string(),
+            Some(json!({
+                "orderBy": "createdAt",
+                "descending": true,
+                "limit": 2,
+                "before": "2026-07-11T00:00:02Z|cursor"
+            })),
+        )
+        .expect("paged gallery should list");
+
+        let ids = result
+            .as_array()
+            .expect("storage_list returns rows")
+            .iter()
+            .filter_map(|row| row.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["older"]);
     }
 
     #[test]
