@@ -1343,20 +1343,18 @@ mod tests {
     }
 
     #[test]
-    fn failed_character_version_retention_v1_keeps_marker_unset_and_primary_unchanged() {
+    fn source_changed_character_version_retention_v1_keeps_marker_unset_and_primary_unchanged() {
         let root = temp_root("character-version-retention-v1-failure");
         seed_raw_versions(&root, "char-1", 55, &[]);
         let before = collection_bytes(&root.0, "character-versions");
-        crate::storage_commands::character_version_retention::force_character_version_prune_failure_for_data_dir(
-            &root.0,
-        );
+        crate::storage_commands::character_version_retention::force_character_version_prune_source_change_for_data_dir(&root.0);
 
         let error = match AppState::from_data_dir(&root.0, vec![]) {
-            Ok(_) => panic!("retention transaction failure should fail startup"),
+            Ok(_) => panic!("retention source change should fail startup"),
             Err(error) => error,
         };
 
-        assert_eq!(error.code, "forced_character_version_prune_failure");
+        assert_eq!(error.code, "storage_source_changed");
         assert_eq!(collection_bytes(&root.0, "character-versions"), before);
         let storage = FileStorage::new(root.0.join("data")).unwrap();
         assert!(

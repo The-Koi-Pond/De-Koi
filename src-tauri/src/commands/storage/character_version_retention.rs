@@ -9,6 +9,8 @@ use std::path::PathBuf;
 
 #[cfg(test)]
 static FORCE_PRUNE_FAILURE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+static FORCE_PRUNE_SOURCE_CHANGE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 pub(crate) const CHARACTER_VERSION_UNPINNED_LIMIT: usize = 50;
 
@@ -148,6 +150,19 @@ pub(crate) fn prune_character_versions(
         "character-versions",
         "retention-prune",
         |source_index, row| {
+            #[cfg(test)]
+            if FORCE_PRUNE_SOURCE_CHANGE
+                .lock()
+                .expect("forced prune source change should lock")
+                .take_if(|data_dir| data_dir == &state.data_dir)
+                .is_some()
+            {
+                let primary = state
+                    .data_dir
+                    .join("data/collections/character-versions.json");
+                let original = fs::read(&primary)?;
+                fs::write(&primary, original)?;
+            }
             let selected = filter_identity(source_index, row)
                 .is_some_and(|identity| pruned_rows.contains(&identity));
             if selected {
@@ -217,6 +232,13 @@ pub(crate) fn force_character_version_prune_failure_for_data_dir(data_dir: &std:
     *FORCE_PRUNE_FAILURE
         .lock()
         .expect("forced prune failure should lock") = Some(data_dir.to_path_buf());
+}
+
+#[cfg(test)]
+pub(crate) fn force_character_version_prune_source_change_for_data_dir(data_dir: &std::path::Path) {
+    *FORCE_PRUNE_SOURCE_CHANGE
+        .lock()
+        .expect("forced prune source change should lock") = Some(data_dir.to_path_buf());
 }
 
 fn filter_identity(source_index: usize, row: &Value) -> Option<VersionRetentionIdentity> {
