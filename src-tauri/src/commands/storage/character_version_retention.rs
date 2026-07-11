@@ -592,7 +592,7 @@ mod tests {
 
     #[test]
     fn duplicate_id_does_not_select_other_character_row_identity() {
-        let rows = vec![
+        let rows = [
             version_meta("duplicate", "scoped", "2026-01-01T00:00:00Z", false, 0),
             version_meta("new", "scoped", "2026-01-02T00:00:00Z", false, 1),
             version_meta("duplicate", "unscoped", "2026-01-03T00:00:00Z", false, 2),
