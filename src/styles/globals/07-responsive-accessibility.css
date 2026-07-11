@@ -163,6 +163,17 @@
 }
 
 @media (pointer: coarse) {
+  :is(.de-koi-icon-target, .de-koi-control-target) {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  [data-de-koi-action-group] {
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+  }
+
   ::-webkit-scrollbar {
     width: 0.25rem;
   }

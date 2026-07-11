@@ -83,7 +83,7 @@ export function ModePromptSettingsSections({
                 <Maximize2 size="0.75rem" />
               </button>
             </div>
-            <p className="px-0.5 text-[0.5625rem] text-[var(--muted-foreground)]/70">
+            <p className="de-koi-caption px-0.5">
               {narratorStyleDraft ? `${narratorStyleDraft.length}/2000 characters` : "No narrator style set"}
             </p>
             {narratorStyleDraft && (
@@ -92,7 +92,7 @@ export function ModePromptSettingsSections({
                   onNarratorStyleDraftChange("");
                   onMetadataPatch({ narratorStyleInstructions: null });
                 }}
-                className="rounded-lg bg-[var(--secondary)] px-2.5 py-1 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
+                className="de-koi-control-target rounded-lg bg-[var(--secondary)] px-2.5 text-xs text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
               >
                 Clear
               </button>
@@ -150,7 +150,7 @@ export function ModePromptSettingsSections({
                 <Maximize2 size="0.75rem" />
               </button>
             </div>
-            <p className="text-[0.5625rem] text-[var(--muted-foreground)]/70 px-0.5">
+            <p className="de-koi-caption px-0.5">
               {extraPromptDraft ? "Custom instructions active" : "No extra instructions set"}
             </p>
             {extraPromptDraft && (
@@ -159,7 +159,7 @@ export function ModePromptSettingsSections({
                   onExtraPromptDraftChange("");
                   onMetadataPatch({ gameExtraPrompt: null });
                 }}
-                className="rounded-lg bg-[var(--secondary)] px-2.5 py-1 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
+                className="de-koi-control-target rounded-lg bg-[var(--secondary)] px-2.5 text-xs text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
               >
                 Clear
               </button>

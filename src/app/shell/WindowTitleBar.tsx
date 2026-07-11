@@ -225,7 +225,7 @@ export function WindowTitleBar({
           <button
             type="button"
             className={cn(
-              "mari-titlebar-action mari-title-home-button relative rounded-md p-1.5 transition-all duration-200",
+              "mari-titlebar-action mari-title-home-button de-koi-icon-target relative rounded-md transition-all duration-200",
               isHomeSurface
                 ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
                 : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
@@ -252,7 +252,7 @@ export function WindowTitleBar({
           {onOpenHelp && (
             <button
               type="button"
-              className="mari-titlebar-action rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+              className="mari-titlebar-action de-koi-icon-target rounded-md text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
               onClick={onOpenHelp}
               title="Help"
               aria-label="Help"

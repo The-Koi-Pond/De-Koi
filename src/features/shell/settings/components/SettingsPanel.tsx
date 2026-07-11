@@ -154,7 +154,7 @@ export function SettingsPanel() {
                 <Icon size="0.95rem" className={cn("mt-px shrink-0", selected && "text-[var(--primary)]")} />
                 <span className="min-w-0">
                   <span className="block whitespace-nowrap text-xs font-semibold leading-tight">{tab.label}</span>
-                  <span className="mt-1 hidden text-[0.625rem] font-normal leading-snug text-[var(--muted-foreground)] @3xl:block">
+                  <span className="de-koi-caption mt-1 hidden font-normal @3xl:block">
                     {tab.description}
                   </span>
                 </span>

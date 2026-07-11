@@ -268,7 +268,10 @@ function ConnectionRow({
           {conn.provider} • {conn.model || "No model set"}
         </div>
       </div>
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
+      <div
+        data-de-koi-action-group="connection"
+        className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100"
+      >
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -445,7 +448,8 @@ export function ConnectionFolderRow({
             setRenameValue(folder.name);
             setRenaming(true);
           }}
-          className="shrink-0 rounded-md p-1 opacity-0 transition-all hover:bg-[var(--accent)] group-hover:opacity-100 max-md:opacity-100"
+          data-de-koi-action-group="connection-folder"
+          className="shrink-0 rounded-md p-1 opacity-0 transition-all hover:bg-[var(--accent)] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
           title="Rename folder"
         >
           <Pencil size="0.75rem" className="text-[var(--muted-foreground)]" />
@@ -455,7 +459,8 @@ export function ConnectionFolderRow({
             e.stopPropagation();
             onDelete(folder);
           }}
-          className="shrink-0 rounded-md p-1 opacity-0 transition-all hover:bg-[var(--destructive)]/20 group-hover:opacity-100 max-md:opacity-100"
+          data-de-koi-action-group="connection-folder"
+          className="shrink-0 rounded-md p-1 opacity-0 transition-all hover:bg-[var(--destructive)]/20 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
           title="Delete folder"
         >
           <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
