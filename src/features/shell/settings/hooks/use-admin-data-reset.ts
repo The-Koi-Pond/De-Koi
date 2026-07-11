@@ -28,6 +28,8 @@ export function useClearAllData() {
     mutationFn: () => adminApi.clearAll(),
     onSuccess: async () => {
       resetClientSessionState(qc);
+      window.localStorage.clear();
+      window.sessionStorage.clear();
     },
   });
 }

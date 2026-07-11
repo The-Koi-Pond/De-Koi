@@ -165,6 +165,17 @@
     "coverage": "core"
   },
   {
+    "id": "privacy-data-controls",
+    "title": "Privacy And Data Controls",
+    "category": "Settings",
+    "summary": "Review how De-Koi stores and sends data, export or back up your library, erase selected categories, or perform a typed-confirmation complete wipe of De-Koi-managed data.",
+    "keywords": ["privacy", "personal data", "delete data", "erase data", "clear all", "complete wipe", "backup", "export", "credentials", "assistant history"],
+    "audience": "Users who want to understand De-Koi's data handling, remove selected data, or permanently erase every De-Koi-managed copy.",
+    "where": "Settings > Privacy & Data.",
+    "actions": [{ "type": "open-settings", "tab": "privacy", "label": "Open Privacy & Data" }],
+    "coverage": "core"
+  },
+  {
     "id": "health-diagnostics",
     "title": "Health And Diagnostics",
     "category": "Settings",
@@ -492,8 +503,8 @@
     "summary": "Create managed backups, download backup files, export a native profile JSON, and restore data through profile import.",
     "keywords": ["backup", "backups", "profile export", "profile import", "restore", "download backup", "managed backup", "migration"],
     "audience": "Users moving devices, testing risky changes, or keeping recovery copies of local data.",
-    "where": "Settings > Import for profile import, and Settings > Advanced for backup and profile export controls.",
-    "actions": [{ "type": "open-settings", "tab": "advanced", "label": "Open Advanced" }],
+    "where": "Settings > Import for profile import, Settings > Privacy & Data for the privacy overview, and Settings > Advanced for backup and profile export controls.",
+    "actions": [{ "type": "open-settings", "tab": "privacy", "label": "Open Privacy & Data" }],
     "coverage": "advanced"
   },
   {
