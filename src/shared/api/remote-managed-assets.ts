@@ -148,7 +148,13 @@ async function fetchRemoteManagedAssetBlobUrl(asset: RemoteManagedAsset): Promis
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
     entry.objectUrl = objectUrl;
-    entry.byteSize = blob.size;
+    const declaredBytes = Number(response.headers.get("Content-Length"));
+    entry.byteSize = Number.isFinite(declaredBytes) && declaredBytes >= 0 ? declaredBytes : blob.size;
+    if (entry.byteSize > REMOTE_ASSET_CACHE_MAX_BYTES) {
+      revokeRemoteAssetObjectUrl(entry);
+      entry.objectUrl = undefined;
+      throw new Error("Remote managed asset exceeds the in-memory limit.");
+    }
     evictRemoteAssetObjectUrls();
     return objectUrl;
   })();
@@ -163,8 +169,7 @@ async function fetchRemoteManagedAssetBlobUrl(asset: RemoteManagedAsset): Promis
 }
 
 function evictRemoteAssetObjectUrls(): void {
-  const retainedBytes = () =>
-    [...remoteAssetObjectUrls.values()].reduce((total, entry) => total + entry.byteSize, 0);
+  const retainedBytes = () => [...remoteAssetObjectUrls.values()].reduce((total, entry) => total + entry.byteSize, 0);
   while (
     remoteAssetObjectUrls.size > REMOTE_ASSET_CACHE_MAX_ENTRIES ||
     retainedBytes() > REMOTE_ASSET_CACHE_MAX_BYTES

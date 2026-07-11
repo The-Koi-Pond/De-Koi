@@ -5,6 +5,7 @@
 // folders and sorted. Management only — emoji/sticker tagging arrives later.
 // ──────────────────────────────────────────────
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
 import { Camera, Download, Folder, FolderPlus, Pencil, Trash2, Upload, X } from "lucide-react";
 
@@ -115,6 +116,13 @@ export function GlobalGalleryPanel() {
           : allImages.filter((image) => image.folderId === activeFolder);
     return sortImages(filtered, sortMode);
   }, [activeFolder, allImages, sortMode]);
+  const galleryScrollRef = useRef<HTMLDivElement>(null);
+  const galleryRowVirtualizer = useVirtualizer({
+    count: Math.ceil(visibleImages.length / 2),
+    getScrollElement: () => galleryScrollRef.current,
+    estimateSize: () => 180,
+    overscan: 2,
+  });
 
   // Uploads land in the active folder; "All"/"Unfiled" views upload to root.
   const uploadFolderId = activeFolder === "all" || activeFolder === "root" ? null : activeFolder;
@@ -357,61 +365,76 @@ export function GlobalGalleryPanel() {
         </div>
       ) : visibleImages.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-2">
-            {visibleImages.map((image) => (
-              <div
-                key={image.id}
-                draggable
-                onDragStart={(event) => {
-                  setDraggingImageId(image.id);
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData("text/plain", image.id);
-                }}
-                onDragEnd={() => {
-                  setDraggingImageId(null);
-                  setDropTargetFolder(null);
-                }}
-                title="Drag onto a folder to move it"
-                className={cn(
-                  "group relative cursor-grab overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] transition-all hover:border-[var(--primary)]/30 hover:shadow-md active:cursor-grabbing",
-                  draggingImageId === image.id && "opacity-40",
-                )}
-              >
-                <button
-                  type="button"
-                  className="block aspect-square w-full bg-[var(--secondary)]"
-                  onClick={() => setLightbox(image)}
+          <div ref={galleryScrollRef} className="max-h-[60vh] overflow-auto" data-component="VirtualizedGalleryGrid">
+            <div className="relative w-full" style={{ height: galleryRowVirtualizer.getTotalSize() }}>
+              {galleryRowVirtualizer.getVirtualItems().map((virtualRow) => (
+                <div
+                  key={virtualRow.key}
+                  ref={galleryRowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  className="absolute left-0 top-0 grid w-full grid-cols-2 gap-2 pb-2"
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
-                  <GlobalGalleryThumbnail image={image} alt={image.filename || image.prompt || "Gallery image"} />
-                </button>
-                <CustomEmojiTagButton image={image} onApply={(patch) => tag.mutate({ imageId: image.id, patch })} />
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/75 via-black/25 to-transparent p-1.5 opacity-0 transition-opacity group-hover:opacity-100 max-md:opacity-100">
-                  <span className="max-w-[5rem] truncate text-[0.625rem] font-medium text-white/85">
-                    {new Date(image.createdAt).toLocaleDateString()}
-                  </span>
-                  <div className="flex gap-1">
-                    <a
-                      href={image.url}
-                      download
-                      draggable={false}
-                      className="rounded-lg bg-white/15 p-1.5 text-white transition-colors hover:bg-white/25"
-                      title="Download"
-                      onClick={(e) => e.stopPropagation()}
+                  {visibleImages.slice(virtualRow.index * 2, virtualRow.index * 2 + 2).map((image) => (
+                    <div
+                      key={image.id}
+                      draggable
+                      onDragStart={(event) => {
+                        setDraggingImageId(image.id);
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", image.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingImageId(null);
+                        setDropTargetFolder(null);
+                      }}
+                      title="Drag onto a folder to move it"
+                      className={cn(
+                        "group relative cursor-grab overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] transition-all hover:border-[var(--primary)]/30 hover:shadow-md active:cursor-grabbing",
+                        draggingImageId === image.id && "opacity-40",
+                      )}
                     >
-                      <Download size="0.6875rem" />
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(image)}
-                      className="rounded-lg bg-red-500/35 p-1.5 text-white transition-colors hover:bg-red-500/55"
-                      title="Delete"
-                    >
-                      <Trash2 size="0.6875rem" />
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        className="block aspect-square w-full bg-[var(--secondary)]"
+                        onClick={() => setLightbox(image)}
+                      >
+                        <GlobalGalleryThumbnail image={image} alt={image.filename || image.prompt || "Gallery image"} />
+                      </button>
+                      <CustomEmojiTagButton
+                        image={image}
+                        onApply={(patch) => tag.mutate({ imageId: image.id, patch })}
+                      />
+                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/75 via-black/25 to-transparent p-1.5 opacity-0 transition-opacity group-hover:opacity-100 max-md:opacity-100">
+                        <span className="max-w-[5rem] truncate text-[0.625rem] font-medium text-white/85">
+                          {new Date(image.createdAt).toLocaleDateString()}
+                        </span>
+                        <div className="flex gap-1">
+                          <a
+                            href={image.url}
+                            download
+                            draggable={false}
+                            className="rounded-lg bg-white/15 p-1.5 text-white transition-colors hover:bg-white/25"
+                            title="Download"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Download size="0.6875rem" />
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => void handleDelete(image)}
+                            className="rounded-lg bg-red-500/35 p-1.5 text-white transition-colors hover:bg-red-500/55"
+                            title="Delete"
+                          >
+                            <Trash2 size="0.6875rem" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
           {hasNextPage && (
             <button

@@ -11,7 +11,10 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
 });
 
 function normalizedAssetPath(value) {
-  return value.replace(/^\.?\//, "").replace(/^\//, "").replaceAll("\\", "/");
+  return value
+    .replace(/^\.?\//, "")
+    .replace(/^\//, "")
+    .replaceAll("\\", "/");
 }
 
 function gzipBytes(value) {
@@ -20,9 +23,26 @@ function gzipBytes(value) {
 
 export function evaluateBundleBudgets(files, budgets = DEFAULT_BUNDLE_BUDGETS) {
   const html = String(files.get("index.html") ?? "");
-  const startupFiles = [...html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)=["']([^"']+\.js)["']/gi)]
-    .map((match) => normalizedAssetPath(match[1]))
-    .filter((file, index, values) => files.has(file) && values.indexOf(file) === index);
+  const manifestRaw = files.get(".vite/manifest.json");
+  const manifest = manifestRaw ? JSON.parse(String(manifestRaw)) : null;
+  const startupKeys = new Set();
+  if (manifest) {
+    const visit = (key) => {
+      if (startupKeys.has(key) || !manifest[key]) return;
+      startupKeys.add(key);
+      for (const imported of manifest[key].imports ?? []) visit(imported);
+    };
+    for (const [key, chunk] of Object.entries(manifest)) {
+      if (chunk.isEntry) visit(key);
+    }
+  }
+  const startupFiles = manifest
+    ? [...startupKeys]
+        .map((key) => normalizedAssetPath(manifest[key].file))
+        .filter((file, index, values) => file.endsWith(".js") && files.has(file) && values.indexOf(file) === index)
+    : [...html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)=["']([^"']+\.js)["']/gi)]
+        .map((match) => normalizedAssetPath(match[1]))
+        .filter((file, index, values) => files.has(file) && values.indexOf(file) === index);
   const jsFiles = [...files.keys()].filter((file) => file.endsWith(".js"));
   const lazyFiles = jsFiles.filter((file) => !startupFiles.includes(file));
   const cssFiles = [...files.keys()].filter((file) => file.endsWith(".css"));

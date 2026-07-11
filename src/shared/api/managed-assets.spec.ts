@@ -120,7 +120,10 @@ describe("remote managed assets", () => {
 
   it("evicts and revokes the least recently used authorized asset after 64 entries", async () => {
     remoteRuntimeMock.target = { baseUrl: "http://127.0.0.1:3080", authorization: "Basic token" };
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation(async () => new Response("asset", { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(async () => new Response("asset", { status: 200 })),
+    );
     const createObjectURL = vi.fn((_blob: Blob) => `blob:managed-asset-${createObjectURL.mock.calls.length}`);
     const revokeObjectURL = vi.fn();
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
@@ -135,6 +138,27 @@ describe("remote managed assets", () => {
 
     await remoteManagedAssetResolvableUrl("gallery", "image-0.png");
     expect(createObjectURL).toHaveBeenCalledTimes(66);
+  });
+
+  it("rejects and revokes one authorized blob larger than the byte budget", async () => {
+    remoteRuntimeMock.target = { baseUrl: "http://127.0.0.1:3080", authorization: "Basic token" };
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response("asset", { status: 200, headers: { "Content-Length": String(128 * 1024 * 1024 + 1) } }),
+        ),
+    );
+    const createObjectURL = vi.fn(() => "blob:oversized");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+
+    await expect(remoteManagedAssetResolvableUrl("gallery", "oversized.png")).rejects.toThrow(
+      "Remote managed asset exceeds the in-memory limit",
+    );
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:oversized");
   });
 
   it("adds source invalidation versions to thumbnail routes without changing unrelated assets", () => {

@@ -35,6 +35,7 @@ pub(crate) struct StorageCache {
     pub(crate) collections: HashMap<String, CachedCollection>,
     pub(crate) id_indexes: HashMap<String, CachedCollectionIdIndex>,
     pub(crate) projected_lists: HashMap<ProjectionCacheKey, CachedProjectedList>,
+    pub(crate) access_sequence: u64,
 }
 
 pub(crate) struct CachedCollection {
@@ -42,6 +43,7 @@ pub(crate) struct CachedCollection {
     pub(crate) row_indices_by_id: HashMap<String, usize>,
     pub(crate) dirty: bool,
     pub(crate) approx_bytes: usize,
+    pub(crate) last_access: u64,
 }
 
 pub(crate) struct CachedCollectionIdIndex {
@@ -91,6 +93,8 @@ pub struct CollectionContentStamp {
 pub(crate) struct CachedProjectedList {
     pub(crate) rows: Vec<Value>,
     pub(crate) stamp: Option<CollectionFastStamp>,
+    pub(crate) approx_bytes: usize,
+    pub(crate) last_access: u64,
 }
 
 pub(crate) fn approximate_json_bytes(value: &Value) -> usize {

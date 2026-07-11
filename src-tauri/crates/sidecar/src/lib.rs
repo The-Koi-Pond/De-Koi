@@ -1,7 +1,7 @@
 use flate2::read::GzDecoder;
 use marinara_core::{AppError, AppResult};
 use rand::{distr::Alphanumeric, RngExt};
-use reqwest::header::{ACCEPT, USER_AGENT};
+use reqwest::header::{ACCEPT, CONTENT_RANGE, ETAG, IF_RANGE, LAST_MODIFIED, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs::{self, File, OpenOptions};
@@ -1164,6 +1164,66 @@ fn ensure_download_space(available: u64, remaining: u64) -> AppResult<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadPartialMetadata {
+    url: String,
+    validator: Option<String>,
+    total: Option<u64>,
+}
+
+fn download_metadata_path(partial: &Path) -> PathBuf {
+    partial.with_extension(format!(
+        "{}json",
+        partial
+            .extension()
+            .map(|extension| format!("{}.", extension.to_string_lossy()))
+            .unwrap_or_default()
+    ))
+}
+
+fn read_download_metadata(path: &Path) -> Option<DownloadPartialMetadata> {
+    serde_json::from_slice(&fs::read(path).ok()?).ok()
+}
+
+fn write_download_metadata(path: &Path, metadata: &DownloadPartialMetadata) -> AppResult<()> {
+    let staged = path.with_extension("json.tmp");
+    fs::write(&staged, serde_json::to_vec(metadata)?)?;
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+    fs::rename(staged, path)?;
+    Ok(())
+}
+
+fn partial_content_total(response: &reqwest::Response, expected_start: u64) -> AppResult<u64> {
+    let raw = response
+        .headers()
+        .get(CONTENT_RANGE)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| AppError::new("sidecar_download_invalid_range", "Resume response omitted Content-Range"))?;
+    let (range, total) = raw
+        .strip_prefix("bytes ")
+        .and_then(|value| value.split_once('/'))
+        .ok_or_else(|| AppError::new("sidecar_download_invalid_range", "Resume response had invalid Content-Range"))?;
+    let (start, _) = range
+        .split_once('-')
+        .ok_or_else(|| AppError::new("sidecar_download_invalid_range", "Resume response had invalid byte range"))?;
+    let start = start.parse::<u64>().map_err(|_| {
+        AppError::new("sidecar_download_invalid_range", "Resume response had invalid range start")
+    })?;
+    let total = total.parse::<u64>().map_err(|_| {
+        AppError::new("sidecar_download_invalid_range", "Resume response had invalid total size")
+    })?;
+    if start != expected_start || total < expected_start {
+        return Err(AppError::new(
+            "sidecar_download_invalid_range",
+            "Resume response did not match the saved partial file",
+        ));
+    }
+    Ok(total)
+}
+
 async fn download_url_to_path(
     url: &str,
     destination: &Path,
@@ -1181,7 +1241,15 @@ async fn download_url_to_path(
             .map(|extension| format!("{}.", extension.to_string_lossy()))
             .unwrap_or_default()
     ));
-    let partial_len = fs::metadata(&temp_path).map(|metadata| metadata.len()).unwrap_or(0);
+    let metadata_path = download_metadata_path(&temp_path);
+    let mut partial_len = fs::metadata(&temp_path).map(|metadata| metadata.len()).unwrap_or(0);
+    let mut partial_metadata = read_download_metadata(&metadata_path);
+    if partial_len > 0 && partial_metadata.as_ref().is_none_or(|metadata| metadata.url != url) {
+        fs::remove_file(&temp_path)?;
+        let _ = fs::remove_file(&metadata_path);
+        partial_len = 0;
+        partial_metadata = None;
+    }
 
     let client = reqwest::Client::builder()
         .build()
@@ -1192,6 +1260,9 @@ async fn download_url_to_path(
     let mut request_builder = client.get(url).header(USER_AGENT, MARINARA_USER_AGENT);
     if partial_len > 0 {
         request_builder = request_builder.header(reqwest::header::RANGE, format!("bytes={partial_len}-"));
+        if let Some(validator) = partial_metadata.as_ref().and_then(|metadata| metadata.validator.as_ref()) {
+            request_builder = request_builder.header(IF_RANGE, validator);
+        }
     }
     let request = request_builder.send();
     tokio::pin!(request);
@@ -1220,6 +1291,41 @@ async fn download_url_to_path(
     }
 
     let resumed = partial_len > 0 && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+    let expected_total = if resumed {
+        Some(partial_content_total(&response, partial_len)?)
+    } else {
+        response.content_length()
+    };
+    if resumed
+        && partial_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.total)
+            .zip(expected_total)
+            .is_some_and(|(saved, actual)| saved != actual)
+    {
+        return Err(AppError::new(
+            "sidecar_download_invalid_range",
+            "Resume response size did not match the saved partial metadata",
+        ));
+    }
+    let response_validator = response
+        .headers()
+        .get(ETAG)
+        .or_else(|| response.headers().get(LAST_MODIFIED))
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    if resumed
+        && partial_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.validator.as_ref())
+            .zip(response_validator.as_ref())
+            .is_some_and(|(expected, actual)| expected != actual)
+    {
+        return Err(AppError::new(
+            "sidecar_download_invalid_range",
+            "Resume response validator did not match the saved partial file",
+        ));
+    }
     if let (Some(parent), Some(remaining)) = (destination.parent(), response.content_length()) {
         let available = fs2::available_space(parent)
             .map_err(|error| AppError::new("sidecar_disk_space_check_failed", error.to_string()))?;
@@ -1230,6 +1336,14 @@ async fn download_url_to_path(
         .unwrap_or(0)
         .saturating_add(if resumed { partial_len } else { 0 });
     let mut downloaded = if resumed { partial_len } else { 0 };
+    write_download_metadata(
+        &metadata_path,
+        &DownloadPartialMetadata {
+            url: url.to_string(),
+            validator: response_validator.or_else(|| partial_metadata.and_then(|metadata| metadata.validator)),
+            total: expected_total,
+        },
+    )?;
     let mut last_report = Instant::now();
     let mut last_report_bytes = 0u64;
     let mut file = if resumed {
@@ -1291,10 +1405,17 @@ async fn download_url_to_path(
 
     file.flush().await?;
     drop(file);
+    if expected_total.is_some_and(|expected| downloaded != expected) {
+        return Err(AppError::new(
+            "sidecar_download_incomplete",
+            "Downloaded byte count did not match the expected artifact size",
+        ));
+    }
     if destination.exists() {
         fs::remove_file(destination)?;
     }
     fs::rename(&temp_path, destination)?;
+    let _ = fs::remove_file(&metadata_path);
     set_download_progress(SidecarDownloadProgress {
         phase: phase.to_string(),
         status: "complete".to_string(),
@@ -3484,24 +3605,36 @@ mod tests {
             .await
             .expect("resume test server should bind");
         let addr = listener.local_addr().expect("server address should resolve");
+        let url = format!("http://{addr}/model.gguf");
+        write_download_metadata(
+            &download_metadata_path(&partial),
+            &DownloadPartialMetadata {
+                url: url.clone(),
+                validator: Some("\"v1\"".to_string()),
+                total: Some(4),
+            },
+        )
+        .expect("resume metadata should save");
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.expect("server should accept request");
             let mut request = [0u8; 2048];
             let count = socket.read(&mut request).await.expect("request should read");
             let request = String::from_utf8_lossy(&request[..count]);
+            let request_lower = request.to_ascii_lowercase();
             assert!(
-                request.to_ascii_lowercase().contains("range: bytes=2-"),
+                request_lower.contains("range: bytes=2-"),
                 "request was {request}"
             );
+            assert!(request_lower.contains("if-range: \"v1\""));
             socket
-                .write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 2\r\nContent-Range: bytes 2-3/4\r\n\r\ncd")
+                .write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 2\r\nContent-Range: bytes 2-3/4\r\nETag: \"v1\"\r\n\r\ncd")
                 .await
                 .expect("partial response should write");
         });
         let (_cancel_tx, cancel_rx) = watch::channel(false);
 
         download_url_to_path(
-            &format!("http://{addr}/model.gguf"),
+            &url,
             &destination,
             "model",
             "Resume model",
@@ -3512,7 +3645,44 @@ mod tests {
 
         assert_eq!(fs::read(&destination).expect("model should read"), b"abcd");
         assert!(!partial.exists());
+        assert!(!download_metadata_path(&partial).exists());
         server.await.expect("server should finish");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn download_rejects_a_mismatched_partial_content_range() {
+        let root = temp_dir("reject-mismatched-content-range");
+        let destination = root.join("model.gguf");
+        let partial = destination.with_extension("gguf.download");
+        fs::write(&partial, b"ab").expect("partial fixture should write");
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}/model.gguf");
+        write_download_metadata(
+            &download_metadata_path(&partial),
+            &DownloadPartialMetadata { url: url.clone(), validator: None, total: Some(4) },
+        )
+        .unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 1024];
+            let _ = socket.read(&mut request).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 2\r\nContent-Range: bytes 1-2/4\r\n\r\ncd")
+                .await
+                .unwrap();
+        });
+        let (_cancel_tx, cancel_rx) = watch::channel(false);
+
+        let error = download_url_to_path(&url, &destination, "model", "Bad range", cancel_rx)
+            .await
+            .expect_err("mismatched range must reject");
+
+        assert_eq!(error.code, "sidecar_download_invalid_range");
+        assert_eq!(fs::read(&partial).unwrap(), b"ab");
+        assert!(!destination.exists());
+        server.await.unwrap();
         let _ = fs::remove_dir_all(root);
     }
 

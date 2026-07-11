@@ -93,6 +93,18 @@ fn storage_list_inner_impl(
     options: Option<Value>,
 ) -> Result<Value, AppError> {
     validate_storage_entity(&entity)?;
+    if options
+        .as_ref()
+        .and_then(|value| value.get("limit"))
+        .and_then(Value::as_u64)
+        .is_some_and(|limit| limit > 100)
+        && entity != "messages"
+        && entity != "chats"
+    {
+        return Err(AppError::invalid_input(
+            "storage_list page limit cannot exceed 100",
+        ));
+    }
     let where_in = storage_where_in(options.as_ref())?;
     let filters = options
         .as_ref()
@@ -403,6 +415,14 @@ fn storage_list_inner_impl(
             .and_then(Value::as_str),
     ) {
         if let Some((cursor_value, cursor_id)) = before.rsplit_once('|') {
+            if rows
+                .iter()
+                .any(|row| row.get(order_field).is_some_and(|value| !value.is_string()))
+            {
+                return Err(AppError::invalid_input(
+                    "storage_list before cursor requires a string orderBy field",
+                ));
+            }
             rows.retain(|row| {
                 let value_ordering = compare_json_values(
                     row.get(order_field),
@@ -1416,6 +1436,20 @@ mod tests {
             .filter_map(|row| row.get("id").and_then(Value::as_str))
             .collect::<Vec<_>>();
         assert_eq!(ids, vec!["older"]);
+    }
+
+    #[test]
+    fn storage_list_rejects_generic_page_limits_over_one_hundred() {
+        let state = test_state("generic-page-limit");
+        let error = storage_list_inner(
+            &state,
+            "global-gallery".to_string(),
+            Some(json!({ "orderBy": "createdAt", "limit": 101 })),
+        )
+        .expect_err("oversized generic page should reject");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("100"));
     }
 
     #[test]
