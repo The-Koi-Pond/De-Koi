@@ -63,6 +63,7 @@ export default defineConfig(async () => ({
   },
 
   build: {
+    manifest: true,
     // The largest remaining JS chunk is lazy Game mode route code; keep
     // startup/vendor leakage visible while allowing that intentional split.
     chunkSizeWarningLimit: 650,

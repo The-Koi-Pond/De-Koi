@@ -6,10 +6,9 @@
 // filed into folders purely for organization (folderId = null means root).
 // Management only; emoji/sticker tagging arrives in a later change.
 // ──────────────────────────────────────────────
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { globalGalleryKeys } from "../query-keys";
 import { galleryApi } from "../../../../shared/api/image-generation-api";
-import { resolveGalleryFileUrl } from "../../../../shared/api/local-file-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { runGalleryUploadBatch } from "../../../../shared/lib/gallery-upload";
 import type { CustomKind, CustomTagPatch } from "../../../../shared/lib/custom-emoji";
@@ -41,28 +40,43 @@ function readTrimmed(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function imageCreatedAt(image: GlobalGalleryImage): number {
-  const timestamp = Date.parse(image.createdAt);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
+export const GLOBAL_GALLERY_PAGE_SIZE = 48;
 
-async function normalizeGlobalGalleryImage(image: GlobalGalleryImage): Promise<GlobalGalleryImage> {
-  const managedUrl = await resolveGalleryFileUrl(image.filename, image.filePath).catch(() => null);
+type GlobalGalleryPage = { images: GlobalGalleryImage[]; nextCursor?: string };
+
+function normalizeGlobalGalleryImage(image: GlobalGalleryImage): GlobalGalleryImage {
   return {
     ...image,
     folderId: readTrimmed(image.folderId) || null,
-    url: managedUrl || readTrimmed(image.url) || readTrimmed(image.filePath),
+    url: readTrimmed(image.url) || readTrimmed(image.filePath),
+  };
+}
+
+export async function fetchGlobalGalleryPage(before?: string): Promise<GlobalGalleryPage> {
+  const rows = await storageApi.list<GlobalGalleryImage>("global-gallery", {
+    orderBy: "createdAt",
+    descending: true,
+    limit: GLOBAL_GALLERY_PAGE_SIZE,
+    ...(before ? { before } : {}),
+  });
+  const images = rows.map(normalizeGlobalGalleryImage);
+  const last = rows.at(-1);
+  return {
+    images,
+    nextCursor:
+      rows.length === GLOBAL_GALLERY_PAGE_SIZE && last?.createdAt && last.id
+        ? `${last.createdAt}|${last.id}`
+        : undefined,
   };
 }
 
 export function useGlobalGalleryImages() {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: globalGalleryKeys.images,
-    queryFn: async () => {
-      const rows = await storageApi.list<GlobalGalleryImage>("global-gallery");
-      const normalized = await Promise.all(rows.map(normalizeGlobalGalleryImage));
-      return normalized.sort((a, b) => imageCreatedAt(b) - imageCreatedAt(a));
-    },
+    queryFn: ({ pageParam }) => fetchGlobalGalleryPage(pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    select: (data) => data.pages.flatMap((page) => page.images),
     staleTime: 5 * 60_000,
   });
 }

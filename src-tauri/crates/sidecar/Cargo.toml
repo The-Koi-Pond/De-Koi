@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 flate2 = "1"
+fs2 = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 marinara-core = { path = "../core" }
 rand = "0.10"

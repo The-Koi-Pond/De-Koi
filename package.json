@@ -48,7 +48,7 @@
     "bench:ts": "vitest bench",
     "bench:rust": "cargo bench --manifest-path src-tauri/Cargo.toml --workspace",
     "perf:lighthouse": "lhci autorun",
-    "perf:size": "size-limit",
+    "perf:size": "pnpm build && node scripts/check-bundle-budgets.mjs && size-limit",
     "preview": "node scripts/run-vite.mjs preview",
     "tauri": "node scripts/run-tauri.mjs"
   },

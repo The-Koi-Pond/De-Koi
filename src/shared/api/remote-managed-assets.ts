@@ -21,13 +21,24 @@ type RemoteManagedAsset = {
 type RemoteAssetObjectUrlEntry = {
   promise: Promise<string>;
   objectUrl?: string;
+  byteSize: number;
+  lastAccess: number;
 };
 
 const REMOTE_MANAGED_ASSET_INVALIDATION_QUERY = "mriAssetV";
+const REMOTE_ASSET_CACHE_MAX_ENTRIES = 64;
+const REMOTE_ASSET_CACHE_MAX_BYTES = 128 * 1024 * 1024;
 const remoteAssetObjectUrls = new Map<string, RemoteAssetObjectUrlEntry>();
 const remoteAssetInvalidationVersions = new Map<string, number>();
 let remoteAssetInvalidationVersion = 0;
 let remoteAssetGlobalInvalidationVersion = 0;
+let remoteAssetAccessSequence = 0;
+
+function nextRemoteAssetAccess(): number {
+  remoteAssetAccessSequence += 1;
+  if (!Number.isSafeInteger(remoteAssetAccessSequence)) remoteAssetAccessSequence = 1;
+  return remoteAssetAccessSequence;
+}
 
 function nextRemoteAssetInvalidationVersion(): number {
   remoteAssetInvalidationVersion += 1;
@@ -116,9 +127,16 @@ export async function remoteManagedAssetResolvableUrl(
 async function fetchRemoteManagedAssetBlobUrl(asset: RemoteManagedAsset): Promise<string> {
   const cacheKey = remoteManagedAssetCacheKey(asset);
   const cached = remoteAssetObjectUrls.get(cacheKey);
-  if (cached) return cached.promise;
+  if (cached) {
+    cached.lastAccess = nextRemoteAssetAccess();
+    return cached.promise;
+  }
 
-  const entry: RemoteAssetObjectUrlEntry = { promise: Promise.resolve("") };
+  const entry: RemoteAssetObjectUrlEntry = {
+    promise: Promise.resolve(""),
+    byteSize: 0,
+    lastAccess: nextRemoteAssetAccess(),
+  };
   entry.promise = (async () => {
     const response = await fetch(asset.url, {
       method: "GET",
@@ -127,18 +145,48 @@ async function fetchRemoteManagedAssetBlobUrl(asset: RemoteManagedAsset): Promis
     if (!response.ok) {
       throw new Error(`Remote managed asset returned ${response.status}`);
     }
-    const objectUrl = URL.createObjectURL(await response.blob());
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
     entry.objectUrl = objectUrl;
+    const declaredBytes = Number(response.headers.get("Content-Length"));
+    entry.byteSize = Number.isFinite(declaredBytes) && declaredBytes >= 0 ? declaredBytes : blob.size;
+    if (entry.byteSize > REMOTE_ASSET_CACHE_MAX_BYTES) {
+      revokeRemoteAssetObjectUrl(entry);
+      entry.objectUrl = undefined;
+      entry.byteSize = 0;
+      if (remoteAssetObjectUrls.get(cacheKey) === entry) {
+        remoteAssetObjectUrls.delete(cacheKey);
+      }
+      throw new Error("Remote managed asset exceeds the in-memory limit.");
+    }
+    evictRemoteAssetObjectUrls();
     return objectUrl;
   })();
 
   remoteAssetObjectUrls.set(cacheKey, entry);
   entry.promise.catch(() => {
+    revokeRemoteAssetObjectUrl(entry);
+    entry.objectUrl = undefined;
+    entry.byteSize = 0;
     if (remoteAssetObjectUrls.get(cacheKey) === entry) {
       remoteAssetObjectUrls.delete(cacheKey);
     }
   });
   return entry.promise;
+}
+
+function evictRemoteAssetObjectUrls(): void {
+  const retainedBytes = () => [...remoteAssetObjectUrls.values()].reduce((total, entry) => total + entry.byteSize, 0);
+  while (
+    remoteAssetObjectUrls.size > REMOTE_ASSET_CACHE_MAX_ENTRIES ||
+    retainedBytes() > REMOTE_ASSET_CACHE_MAX_BYTES
+  ) {
+    const oldest = [...remoteAssetObjectUrls.entries()]
+      .filter(([, entry]) => Boolean(entry.objectUrl))
+      .sort((left, right) => left[1].lastAccess - right[1].lastAccess)[0];
+    if (!oldest) return;
+    deleteRemoteAssetObjectUrl(oldest[0]);
+  }
 }
 
 function remoteManagedAssetCacheKey(asset: RemoteManagedAsset): string {

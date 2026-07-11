@@ -35,12 +35,15 @@ pub(crate) struct StorageCache {
     pub(crate) collections: HashMap<String, CachedCollection>,
     pub(crate) id_indexes: HashMap<String, CachedCollectionIdIndex>,
     pub(crate) projected_lists: HashMap<ProjectionCacheKey, CachedProjectedList>,
+    pub(crate) access_sequence: u64,
 }
 
 pub(crate) struct CachedCollection {
     pub(crate) rows: Vec<Value>,
     pub(crate) row_indices_by_id: HashMap<String, usize>,
     pub(crate) dirty: bool,
+    pub(crate) approx_bytes: usize,
+    pub(crate) last_access: u64,
 }
 
 pub(crate) struct CachedCollectionIdIndex {
@@ -90,6 +93,28 @@ pub struct CollectionContentStamp {
 pub(crate) struct CachedProjectedList {
     pub(crate) rows: Vec<Value>,
     pub(crate) stamp: Option<CollectionFastStamp>,
+    pub(crate) approx_bytes: usize,
+    pub(crate) last_access: u64,
+}
+
+pub(crate) fn approximate_json_bytes(value: &Value) -> usize {
+    match value {
+        Value::Null => 4,
+        Value::Bool(_) => 5,
+        Value::Number(number) => number.to_string().len(),
+        Value::String(text) => text.len() + 2,
+        Value::Array(values) => {
+            values.iter().map(approximate_json_bytes).sum::<usize>() + values.len() + 2
+        }
+        Value::Object(object) => {
+            object
+                .iter()
+                .map(|(key, value)| key.len() + 3 + approximate_json_bytes(value))
+                .sum::<usize>()
+                + object.len()
+                + 2
+        }
+    }
 }
 
 pub(crate) fn row_matches_filters(row: &Value, filters: &Map<String, Value>) -> bool {
