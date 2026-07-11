@@ -702,9 +702,6 @@ fn storage_update_inner_impl(
     } else {
         state.storage.patch(&entity, &id, normalized_patch)?
     };
-    if entity == "character-versions" {
-        prune_character_version_write(state, &updated)?;
-    }
     if entity == "connections" {
         clear_other_default_connections(state, &updated)?;
         clear_other_default_agent_connections(state, &updated)?;
@@ -1316,7 +1313,7 @@ mod tests {
     }
 
     #[test]
-    fn generic_character_version_writes_enforce_retention() {
+    fn generic_character_version_create_enforces_retention_but_update_does_not() {
         let state = test_state("generic-version-retention");
         for index in 0..50 {
             state
@@ -1350,23 +1347,37 @@ mod tests {
             .create(
                 "character-versions",
                 json!({
-                    "id": "formerly-pinned", "characterId": "char-1",
+                    "id": "update-target", "characterId": "char-1",
                     "createdAt": "2024-01-01T00:00:00Z", "pinned": true
                 }),
             )
             .unwrap();
+        crate::storage_commands::character_version_retention::force_character_version_prune_failure(
+            &state,
+        );
         storage_update_inner(
             &state,
             "character-versions".into(),
-            "formerly-pinned".into(),
-            json!({"pinned": false}),
+            "update-target".into(),
+            json!({"reason": "metadata edit"}),
         )
         .unwrap();
+        assert_eq!(state.storage.list("character-versions").unwrap().len(), 51);
         assert!(state
             .storage
-            .get("character-versions", "formerly-pinned")
+            .get("character-versions", "update-target")
             .unwrap()
-            .is_none());
+            .is_some());
+        let ids = std::collections::HashSet::from(["char-1".to_string()]);
+        assert_eq!(
+            crate::storage_commands::character_version_retention::prune_character_versions(
+                &state,
+                Some(&ids)
+            )
+            .unwrap_err()
+            .code,
+            "forced_character_version_prune_failure"
+        );
     }
 
     #[test]

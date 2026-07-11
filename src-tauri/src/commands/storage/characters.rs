@@ -93,12 +93,16 @@ where
 
     before_live_patch();
 
+    let should_prune_versions = created_snapshot.is_some();
+
     match state
         .storage
         .patch("characters", character_id, Value::Object(patch))
     {
         Ok(updated) => {
-            prune_saved_character_versions(state, character_id)?;
+            if should_prune_versions {
+                prune_saved_character_versions(state, character_id)?;
+            }
             Ok(updated)
         }
         Err(error) => {
@@ -600,6 +604,7 @@ where
         None
     };
     before_live_patch();
+    let should_prune_versions = created_snapshot.is_some();
     let updated = match state
         .storage
         .patch("characters", character_id, Value::Object(patch))
@@ -621,7 +626,9 @@ where
         }
     };
     remove_previous_character_avatar_after_restore(state, &existing, &updated);
-    prune_saved_character_versions(state, character_id)?;
+    if should_prune_versions {
+        prune_saved_character_versions(state, character_id)?;
+    }
     Ok(updated)
 }
 
@@ -923,6 +930,24 @@ mod tests {
         assert!(versions
             .iter()
             .any(|row| row["comment"] == "Original title"));
+    }
+
+    #[test]
+    fn character_update_without_snapshot_does_not_prune_versions() {
+        let state = test_state("non-snapshot-does-not-prune");
+        create_character(&state);
+        seed_unpinned_versions(&state, 51);
+
+        update_character(&state, "char-1", json!({"favorite": true})).unwrap();
+        assert_eq!(character_versions(&state).len(), 51);
+
+        update_character(
+            &state,
+            "char-1",
+            json!({"comment": "saved without history", "skipVersionSnapshot": true}),
+        )
+        .unwrap();
+        assert_eq!(character_versions(&state).len(), 51);
     }
 
     #[test]
