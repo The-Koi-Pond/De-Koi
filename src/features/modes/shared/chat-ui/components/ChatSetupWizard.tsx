@@ -63,6 +63,7 @@ import {
   type GenerationServiceTier,
   type EditableGenerationParameters,
 } from "../../../../../shared/components/ui/GenerationParametersEditor";
+import { runChatSetupStart } from "../lib/chat-setup-start";
 
 const ASSISTANT_MARK_URL = "/koi-mark.svg";
 
@@ -519,6 +520,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
   const updateMeta = useUpdateChatMetadata();
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const [scheduleState, setScheduleState] = useState<"idle" | "generating" | "done">("idle");
+  const [isStartingChat, setIsStartingChat] = useState(false);
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [generateSchedule, setGenerateSchedule] = useState(false);
 
@@ -675,40 +677,52 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
   const hasCharacters = chatCharIds.length > 0;
 
   const handleStartChatting = useCallback(async () => {
-    if (!hasConnection || !hasCharacters) return;
+    if (!hasConnection || !hasCharacters || isStartingChat) return;
+    setIsStartingChat(true);
     // Apply user's saved custom conversation prompt (if any) to this new chat
     const savedPrompt = useUIStore.getState().customConversationPrompt;
-    await updateMeta.mutateAsync({
-      id: chat.id,
-      autonomousMessages: autonomousEnabled,
-      conversationSchedulesEnabled: autonomousEnabled && generateSchedule,
-      chatParameters: customizeParameters ? generationParameters : null,
-      ...(savedPrompt ? { customSystemPrompt: savedPrompt } : {}),
+    const shouldGenerateSchedules = autonomousEnabled && generateSchedule;
+    if (shouldGenerateSchedules) setScheduleState("generating");
+    const result = await runChatSetupStart({
+      persistMetadata: () =>
+        updateMeta.mutateAsync({
+          id: chat.id,
+          autonomousMessages: autonomousEnabled,
+          conversationSchedulesEnabled: shouldGenerateSchedules,
+          chatParameters: customizeParameters ? generationParameters : null,
+          ...(savedPrompt ? { customSystemPrompt: savedPrompt } : {}),
+        }),
+      generateSchedules: shouldGenerateSchedules
+        ? async () => {
+            const scheduleGenerationPreferences = useUIStore.getState().scheduleGenerationPreferences;
+            await generateConversationSchedules(
+              { storage: storageApi, llm: llmApi },
+              {
+                chatId: chat.id,
+                characterIds: chatCharIds,
+                scheduleGenerationPreferences,
+              },
+            );
+          }
+        : null,
+      finish: () => {
+        if (shouldGenerateSchedules) {
+          setScheduleState("done");
+          setTimeout(onFinish, 2000);
+        } else {
+          onFinish();
+        }
+      },
     });
-    if (autonomousEnabled && generateSchedule) {
-      setScheduleState("generating");
-      try {
-        const scheduleGenerationPreferences = useUIStore.getState().scheduleGenerationPreferences;
-        await generateConversationSchedules(
-          { storage: storageApi, llm: llmApi },
-          {
-            chatId: chat.id,
-            characterIds: chatCharIds,
-            scheduleGenerationPreferences,
-          },
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Schedule generation failed.";
-        toast.error(message);
-      }
-      setScheduleState("done");
-      setTimeout(onFinish, 2000);
-    } else {
-      onFinish();
+    if (!result.ok) {
+      setScheduleState("idle");
+      toast.error(result.message);
     }
+    setIsStartingChat(false);
   }, [
     hasConnection,
     hasCharacters,
+    isStartingChat,
     chat.id,
     chatCharIds,
     onFinish,
@@ -1019,16 +1033,20 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                 </button>
                 <button
                   onClick={handleStartChatting}
-                  disabled={!hasConnection || !hasCharacters}
+                  disabled={!hasConnection || !hasCharacters || isStartingChat}
                   className={cn(
                     "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-medium shadow-sm transition-all active:scale-95",
-                    hasConnection && hasCharacters
+                    hasConnection && hasCharacters && !isStartingChat
                       ? "bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90"
                       : "bg-[var(--secondary)] text-[var(--muted-foreground)] cursor-not-allowed opacity-60",
                   )}
                 >
-                  <MessageCircle size="0.75rem" />
-                  Start Chatting
+                  {isStartingChat ? (
+                    <Loader2 size="0.75rem" className="animate-spin" />
+                  ) : (
+                    <MessageCircle size="0.75rem" />
+                  )}
+                  {isStartingChat ? "Starting..." : "Start Chatting"}
                 </button>
               </div>
             ) : scheduleState === "generating" ? (
