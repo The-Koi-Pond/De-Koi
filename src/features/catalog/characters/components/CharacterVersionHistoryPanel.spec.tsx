@@ -70,7 +70,7 @@ describe("CharacterVersionHistoryPanel", () => {
     versionsState.versions = [version(0), version(1, true)];
     await renderPanel();
 
-    expect(container.textContent).toContain("De-Koi keeps the newest 50 versions plus pinned versions.");
+    expect(container.textContent).toContain("De-Koi keeps the newest 50 unpinned versions plus all pinned versions.");
     const pinButton = container.querySelector<HTMLButtonElement>('button[aria-label="Pin version"]');
     const unpinButton = container.querySelector<HTMLButtonElement>('button[aria-label="Unpin version"]');
     expect(pinButton).toBeTruthy();
@@ -100,5 +100,22 @@ describe("CharacterVersionHistoryPanel", () => {
       }),
     );
     expect(setPinned.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("unpins the confirmed older version", async () => {
+    versionsState.versions = Array.from({ length: 51 }, (_, index) => version(index, index === 50));
+    vi.mocked(showConfirmDialog).mockResolvedValue(true);
+    await renderPanel();
+
+    const unpinButton = container.querySelector<HTMLButtonElement>('button[aria-label="Unpin version"]');
+    expect(unpinButton).toBeTruthy();
+    await act(async () => unpinButton!.click());
+
+    expect(showConfirmDialog).toHaveBeenCalled();
+    expect(setPinned.mutateAsync).toHaveBeenCalledWith({
+      characterId: "char-1",
+      versionId: "version-51",
+      pinned: false,
+    });
   });
 });

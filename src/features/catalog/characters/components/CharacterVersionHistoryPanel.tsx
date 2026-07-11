@@ -105,7 +105,7 @@ export function CharacterVersionHistoryPanel({
         </span>
       </div>
       <p className="mt-1.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-        De-Koi keeps the newest 50 versions plus pinned versions.
+        De-Koi keeps the newest 50 unpinned versions plus all pinned versions.
       </p>
 
       {versions.length === 0 ? (
