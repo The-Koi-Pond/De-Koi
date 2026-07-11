@@ -14,6 +14,7 @@ pub(crate) fn admin_clear_all(state: &AppState, body: Value) -> AppResult<Value>
     state.storage.clear_all()?;
     remove_gallery_files_from_snapshot(state, &gallery_files);
     clear_runtime_media(state)?;
+    clear_full_wipe_only_data(state)?;
     Ok(json!({ "success": true, "cleared": "all" }))
 }
 
@@ -47,6 +48,8 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
                 &mut cleared_collections,
             )?,
             "characters" => {
+                let characters = state.storage.list("characters")?;
+                let versions = state.storage.list("character-versions")?;
                 clear_collections(
                     state,
                     &[
@@ -58,22 +61,58 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
                     ],
                     &mut cleared_collections,
                 )?;
+                for record in characters {
+                    avatars::remove_character_avatar_file_if_unreferenced(state, &record);
+                    if let Some(id) = record.get("id").and_then(Value::as_str) {
+                        sprites::remove_owned_sprite_dir(
+                            state,
+                            sprites::SpriteOwnerKind::Character,
+                            id,
+                        );
+                    }
+                }
+                for record in versions {
+                    characters::remove_character_version_avatar_file(state, &record);
+                }
             }
-            "personas" => clear_collections(
-                state,
-                &["personas", "persona-groups", "persona-gallery"],
-                &mut cleared_collections,
-            )?,
-            "lorebooks" => clear_collections(
-                state,
-                &[
-                    "lorebooks",
-                    "lorebook-library-folders",
-                    "lorebook-entries",
-                    "lorebook-folders",
-                ],
-                &mut cleared_collections,
-            )?,
+            "personas" => {
+                let personas = state.storage.list("personas")?;
+                clear_collections(
+                    state,
+                    &["personas", "persona-groups", "persona-gallery"],
+                    &mut cleared_collections,
+                )?;
+                for record in personas {
+                    avatars::remove_avatar_file_preserving_persona_snapshots(
+                        state,
+                        "personas",
+                        &record,
+                    );
+                    if let Some(id) = record.get("id").and_then(Value::as_str) {
+                        sprites::remove_owned_sprite_dir(
+                            state,
+                            sprites::SpriteOwnerKind::Persona,
+                            id,
+                        );
+                    }
+                }
+            }
+            "lorebooks" => {
+                let lorebooks = state.storage.list("lorebooks")?;
+                clear_collections(
+                    state,
+                    &[
+                        "lorebooks",
+                        "lorebook-library-folders",
+                        "lorebook-entries",
+                        "lorebook-folders",
+                    ],
+                    &mut cleared_collections,
+                )?;
+                for record in lorebooks {
+                    lorebook_images::remove_lorebook_image_file(state, &record);
+                }
+            }
             "presets" => clear_collections(
                 state,
                 &[
@@ -86,22 +125,34 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
                 ],
                 &mut cleared_collections,
             )?,
-            "connections" => clear_collections(
-                state,
-                &["connections", "connection-folders"],
-                &mut cleared_collections,
-            )?,
-            "automation" => clear_collections(
-                state,
-                &[
-                    "agents",
-                    "custom-tools",
-                    "regex-scripts",
-                    "themes",
-                    "extensions",
-                ],
-                &mut cleared_collections,
-            )?,
+            "connections" => {
+                let connections = state.storage.list("connections")?;
+                clear_collections(
+                    state,
+                    &["connections", "connection-folders"],
+                    &mut cleared_collections,
+                )?;
+                for record in connections {
+                    entity_images::remove_entity_image_file(state, "connections", &record);
+                }
+            }
+            "automation" => {
+                let agents = state.storage.list("agents")?;
+                clear_collections(
+                    state,
+                    &[
+                        "agents",
+                        "custom-tools",
+                        "regex-scripts",
+                        "themes",
+                        "extensions",
+                    ],
+                    &mut cleared_collections,
+                )?;
+                for record in agents {
+                    entity_images::remove_entity_image_file(state, "agents", &record);
+                }
+            }
             "media" => {
                 clear_collections(
                     state,
@@ -192,6 +243,26 @@ fn clear_runtime_media(state: &AppState) -> AppResult<()> {
     Ok(())
 }
 
+fn clear_full_wipe_only_data(state: &AppState) -> AppResult<()> {
+    for relative in [
+        "backups",
+        ".backup-downloads",
+        ".profile-export-downloads",
+        "secrets",
+        ".avatar-thumbnails",
+        ".managed-thumbnails",
+        "entity-images",
+        "gallery",
+        "lorebooks/images",
+    ] {
+        let path = state.data_dir.join(relative);
+        if path.exists() {
+            fs::remove_dir_all(path)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,6 +344,41 @@ mod tests {
     }
 
     #[test]
+    fn admin_clear_all_removes_every_de_koi_managed_user_data_copy() {
+        let state = test_state("clear-all-managed-data");
+        seed_character(&state, "character-1");
+
+        let managed_files = [
+            "backups/marinara-backup-test/.de-koi-backup-complete",
+            ".backup-downloads/staging/archive.zip",
+            ".profile-export-downloads/staging/profile.zip",
+            "secrets/connection-master.key",
+            ".avatar-thumbnails/128/characters/avatar.png",
+            ".managed-thumbnails/128/gallery/image.png",
+            "entity-images/agents/agent.png",
+            "gallery/image.png",
+            "lorebooks/images/entry.png",
+        ];
+        for relative in managed_files {
+            let path = state.data_dir.join(relative);
+            std::fs::create_dir_all(path.parent().expect("managed file should have a parent"))
+                .expect("managed parent should be created");
+            std::fs::write(&path, b"private data").expect("managed test file should be written");
+        }
+
+        admin_clear_all(&state, json!({ "confirm": true }))
+            .expect("confirmed clear all should succeed");
+
+        assert!(!character_exists(&state, "character-1"));
+        for relative in managed_files {
+            assert!(
+                !state.data_dir.join(relative).exists(),
+                "full wipe should remove {relative}"
+            );
+        }
+    }
+
+    #[test]
     fn admin_expunge_connections_clears_connection_folders() {
         let state = test_state("connection-folders");
         state
@@ -324,6 +430,64 @@ mod tests {
             .list("connections")
             .expect("connections should be readable")
             .is_empty());
+    }
+
+    #[test]
+    fn admin_expunge_characters_removes_owned_avatar_and_sprite_files() {
+        let state = test_state("character-owned-files");
+        let avatar = state.data_dir.join("avatars/characters/character-1.png");
+        let sprite = state.data_dir.join("sprites/character-1/happy.png");
+        for path in [&avatar, &sprite] {
+            std::fs::create_dir_all(path.parent().expect("owned file should have a parent"))
+                .expect("owned file parent should be created");
+            std::fs::write(path, b"private image").expect("owned test file should be written");
+        }
+        state
+            .storage
+            .upsert_with_id(
+                "characters",
+                "character-1",
+                json!({
+                    "id": "character-1",
+                    "name": "Private Character",
+                    "avatarFilename": "character-1.png",
+                    "avatarFilePath": avatar.to_string_lossy()
+                }),
+            )
+            .expect("character should write");
+
+        admin_expunge(&state, json!({ "confirm": true, "scopes": ["characters"] }))
+            .expect("character expunge should succeed");
+
+        assert!(!avatar.exists(), "character avatar should be removed");
+        assert!(!sprite.exists(), "character sprite should be removed");
+    }
+
+    #[test]
+    fn admin_expunge_connections_removes_owned_entity_image_files() {
+        let state = test_state("connection-owned-files");
+        let image = state.data_dir.join("entity-images/connections/connection-1.png");
+        std::fs::create_dir_all(image.parent().expect("entity image should have a parent"))
+            .expect("entity image parent should be created");
+        std::fs::write(&image, b"private image").expect("entity image should be written");
+        state
+            .storage
+            .upsert_with_id(
+                "connections",
+                "connection-1",
+                json!({
+                    "id": "connection-1",
+                    "name": "Private Provider",
+                    "imageFilename": "connection-1.png",
+                    "imageFilePath": image.to_string_lossy()
+                }),
+            )
+            .expect("connection should write");
+
+        admin_expunge(&state, json!({ "confirm": true, "scopes": ["connections"] }))
+            .expect("connection expunge should succeed");
+
+        assert!(!image.exists(), "connection image should be removed");
     }
 
     #[test]

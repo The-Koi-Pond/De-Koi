@@ -1,5 +1,15 @@
 import type { ComponentType, KeyboardEvent } from "react";
-import { Blocks, Brush, Download, HeartPulse, Palette, Settings2, SlidersHorizontal, Wrench } from "lucide-react";
+import {
+  Blocks,
+  Brush,
+  Download,
+  HeartPulse,
+  Palette,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Wrench,
+} from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { HealthDiagnosticsSettings } from "../../diagnostics/shell";
@@ -12,6 +22,7 @@ import {
   ImportSettings,
   ThemesSettings,
 } from "./settings/SettingsSurfaces";
+import { PrivacyDataSettings } from "./settings/PrivacyDataSettings";
 
 const TABS = [
   {
@@ -42,6 +53,12 @@ const TABS = [
     icon: HeartPulse,
   },
   {
+    id: "privacy",
+    label: "Privacy & Data",
+    description: "Understand, export, and permanently erase De-Koi-managed data.",
+    icon: ShieldCheck,
+  },
+  {
     id: "advanced",
     label: "Advanced",
     description: "Runtime, storage, diagnostics, and expert controls.",
@@ -61,6 +78,7 @@ const SETTINGS_COMPONENTS: Record<SettingsTabId, ComponentType> = {
   extensions: ExtensionsSettings,
   import: ImportSettings,
   health: HealthDiagnosticsSettings,
+  privacy: PrivacyDataSettings,
   advanced: AdvancedSettings,
 };
 

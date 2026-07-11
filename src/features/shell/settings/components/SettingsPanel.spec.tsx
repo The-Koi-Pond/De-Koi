@@ -15,6 +15,7 @@ vi.mock("./settings/SettingsSurfaces", () => ({
   ImportSettings: () => <div>Import surface</div>,
   AdvancedSettings: () => <div>Advanced surface</div>,
 }));
+vi.mock("./settings/PrivacyDataSettings", () => ({ PrivacyDataSettings: () => <div>Privacy surface</div> }));
 
 describe("SettingsPanel", () => {
   let container: HTMLDivElement;
@@ -59,6 +60,19 @@ describe("SettingsPanel", () => {
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(container.querySelector("h2")?.textContent).toBe("Appearance");
     expect(container.textContent).toContain("Text, chat surfaces, roleplay art, and visual comfort.");
+  });
+
+  it("exposes privacy and data controls as a first-class settings surface", () => {
+    const privacy = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((tab) =>
+      tab.textContent?.includes("Privacy & Data"),
+    )!;
+
+    act(() => privacy.click());
+
+    expect(useUIStore.getState().settingsTab).toBe("privacy");
+    expect(container.querySelector("h2")?.textContent).toBe("Privacy & Data");
+    expect(container.textContent).toContain("Understand, export, and permanently erase De-Koi-managed data.");
+    expect(container.textContent).toContain("Privacy surface");
   });
 
   it("keeps arrow-key tab navigation and focus behavior", async () => {

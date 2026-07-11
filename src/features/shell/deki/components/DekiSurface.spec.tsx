@@ -499,7 +499,9 @@ describe("DekiSurface message retry actions", () => {
     const grantButton = Array.from(container!.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
       button.textContent?.includes("Grant access"),
     );
+    const declineButton = container!.querySelector<HTMLButtonElement>('button[aria-label="Decline chat access"]');
     expect(grantButton).not.toBeNull();
+    expect(declineButton).not.toBeNull();
     const scopeSelect = container!.querySelector<HTMLSelectElement>('select[aria-label="Chat access scope"]');
     const windowSelect = container!.querySelector<HTMLSelectElement>('select[aria-label="Chat access window"]');
     expect(scopeSelect).not.toBeNull();

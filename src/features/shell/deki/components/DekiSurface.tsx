@@ -94,6 +94,7 @@ const DEKI_CREATIVE_LIBRARY_QUERY_KEYS: readonly (readonly unknown[])[] = [
 type ClientDekiAttachment = DekiAttachment & { id: string };
 type DekiChatAccessRequestAction = Extract<DekiEntryAction, { type: "request_chat_access" }>;
 type DekiWebResearchDecision = { type: "web_research_decision"; approve: boolean };
+type DekiChatAccessDecision = { type: "chat_access_decision"; approve: boolean };
 type DekiChatAccessScopeOption = {
   id: string;
   label: string;
@@ -991,7 +992,7 @@ export function DekiSurface({
 
   const applyDekiAction = async (
     message: DekiMessage,
-    approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision,
+    approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision | DekiChatAccessDecision,
   ) => {
     const webResearchDecision: DekiWebResearchDecision | null =
       approvedAction?.type === "web_research_decision" ? approvedAction : null;
@@ -999,6 +1000,8 @@ export function DekiSurface({
       approvedAction && approvedAction.type === "request_chat_access" && message.action?.type === "request_chat_access"
         ? approvedAction
         : null;
+    const chatAccessDecision: DekiChatAccessDecision | null =
+      approvedAction?.type === "chat_access_decision" ? approvedAction : null;
     const action: DekiEntryAction | null | undefined = chatAccessAction ?? message.action;
     if (!action || action.type === "none" || message.actionApplication?.status === "applied") return;
     setApplyingActionMessageId(message.id);
@@ -1067,6 +1070,21 @@ export function DekiSurface({
         return;
       }
       if (action.type === "request_chat_access") {
+        if (chatAccessDecision?.approve === false) {
+          const application = {
+            status: "applied" as const,
+            appliedAt: new Date().toISOString(),
+            resultId: "chat-access-declined",
+          };
+          const messagesWithDecision = messages.map((item) =>
+            item.id === message.id ? { ...item, actionApplication: application } : item,
+          );
+          await dekiApi.history.replaceMessages({ sessionId, messages: messagesWithDecision, compaction });
+          await dekiApi.history.markActionApplied(message.id, application, sessionId);
+          setMessages(messagesWithDecision);
+          void onSessionsChanged?.();
+          return;
+        }
         if (sending || !historyLoaded || !preferencesReady) return;
         if (!preparePrompting()) return;
         const retryTurn = findUserTurnForRetry(message.id);
@@ -1447,7 +1465,10 @@ function DekiActionCard({
   message?: DekiMessage;
   applying: boolean;
   error?: string;
-  onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision) => void;
+  onApply: (
+    message: DekiMessage,
+    approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision | DekiChatAccessDecision,
+  ) => void;
 }) {
   const action = message?.action;
   const applied = message?.actionApplication?.status === "applied";
@@ -1523,7 +1544,8 @@ function DekiActionCard({
       <DekiChatAccessCard
         message={message}
         action={action}
-        granted={applied}
+        handled={applied}
+        statusLabel={message.actionApplication?.resultId === "chat-access-declined" ? "Declined" : "Granted"}
         applying={applying}
         error={error}
         onApply={onApply}
@@ -1713,17 +1735,22 @@ function DekiWebResearchCard({
 function DekiChatAccessCard({
   message,
   action,
-  granted,
+  handled,
+  statusLabel,
   applying,
   error,
   onApply,
 }: {
   message: DekiMessage;
   action: DekiChatAccessRequestAction;
-  granted: boolean;
+  handled: boolean;
+  statusLabel: string;
   applying: boolean;
   error?: string;
-  onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision) => void;
+  onApply: (
+    message: DekiMessage,
+    approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision | DekiChatAccessDecision,
+  ) => void;
 }) {
   const normalizedAction = useMemo(() => normalizeDekiChatAccessRequestAction(action), [action]);
   const scopeOptions = useMemo(() => chatAccessScopeOptions(normalizedAction), [normalizedAction]);
@@ -1757,10 +1784,10 @@ function DekiChatAccessCard({
           <div className="truncate font-semibold">{actionTitle(action)}</div>
           <div className="text-[0.6875rem] text-[var(--muted-foreground)]">Read-only chat context</div>
         </div>
-        {granted && (
+        {handled && (
           <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg bg-emerald-500/10 px-2 font-semibold text-emerald-500">
             <Check size="0.75rem" />
-            Granted
+            {statusLabel}
           </span>
         )}
       </div>
@@ -1769,7 +1796,7 @@ function DekiChatAccessCard({
         <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
           <dt className="text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">Scope</dt>
           <dd className="min-w-0 text-[var(--foreground)]/85">
-            {granted ? (
+            {handled ? (
               <span className="block truncate">{chatAccessScopeLabel(action.scope)}</span>
             ) : (
               <select
@@ -1790,7 +1817,7 @@ function DekiChatAccessCard({
         <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
           <dt className="text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">Window</dt>
           <dd className="min-w-0 text-[var(--foreground)]/85">
-            {granted ? (
+            {handled ? (
               <span className="block truncate">{chatAccessWindowLabel(normalizedAction)}</span>
             ) : (
               <select
@@ -1814,8 +1841,17 @@ function DekiChatAccessCard({
         </div>
       </dl>
       {error && <div className="mt-2 rounded-lg bg-red-500/10 px-2 py-1.5 text-[0.6875rem] text-red-500">{error}</div>}
-      {!granted && (
-        <div className="mt-3 flex justify-end">
+      {!handled && (
+        <div className="mt-3 flex justify-end gap-2">
+          <button
+            type="button"
+            aria-label="Decline chat access"
+            disabled={applying}
+            onClick={() => onApply(message, { type: "chat_access_decision", approve: false })}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 font-semibold text-[var(--foreground)]/75 transition-all hover:bg-[var(--accent)] active:scale-95 disabled:cursor-default disabled:opacity-60"
+          >
+            Not now
+          </button>
           <button
             type="button"
             disabled={applying}

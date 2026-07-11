@@ -124,7 +124,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { useUpdateChatMetadata } from "../../../../catalog/chats";
-import { useClearAllData, useExpungeData, type ExpungeScope } from "../../hooks/use-admin-data-reset";
+import { useExpungeData, type ExpungeScope } from "../../hooks/use-admin-data-reset";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useGameAssetStore } from "../../../../modes/game/index";
 import { chatKeys } from "../../../../catalog/chats";
@@ -3433,10 +3433,9 @@ export function AdvancedSettings() {
   const setDebugMode = useUIStore((s) => s.setDebugMode);
   const remoteRuntimeUrl = useUIStore((s) => s.remoteRuntimeUrl);
   const setRemoteRuntimeUrl = useUIStore((s) => s.setRemoteRuntimeUrl);
-  const clearAllData = useClearAllData();
   const expungeData = useExpungeData();
   const [selectedScopes, setSelectedScopes] = useState<ExpungeScope[]>(["chats"]);
-  const [confirmAction, setConfirmAction] = useState<"selected" | "all" | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"selected" | null>(null);
   const [exportingProfile, setExportingProfile] = useState(false);
   const [exportingLocalState, setExportingLocalState] = useState(false);
   const [exportProfileDialogOpen, setExportProfileDialogOpen] = useState(false);
@@ -3719,7 +3718,7 @@ export function AdvancedSettings() {
     }
   }, [adminSecret, queryClient]);
 
-  const isClearing = clearAllData.isPending || expungeData.isPending;
+  const isClearing = expungeData.isPending;
   const isAllScopesSelected = selectedScopes.length === EXPUNGE_SCOPE_OPTIONS.length;
   const remoteRuntimeHealthTone = remoteRuntimeHealthDotTone(remoteRuntimeHealth.status);
   const remoteRuntimeHealthDotClass = cn(
@@ -3737,19 +3736,7 @@ export function AdvancedSettings() {
     );
   };
 
-  const runExpunge = (mode: "selected" | "all") => {
-    if (mode === "all") {
-      clearAllData.mutate(undefined, {
-        onSuccess: () => toast.success("All selected data was cleared. Runtime caches were reset immediately."),
-        onError: () =>
-          toast.error(
-            "De-Koi couldn't finish clearing data. Some items may remain. Review the selection and try again.",
-          ),
-        onSettled: () => setConfirmAction(null),
-      });
-      return;
-    }
-
+  const runExpunge = () => {
     expungeData.mutate(selectedScopes, {
       onSuccess: () => toast.success("Selected data was cleared. Runtime caches were reset immediately."),
       onError: () =>
@@ -4331,22 +4318,12 @@ export function AdvancedSettings() {
             <Trash2 size="0.8125rem" />
             Clear Selected Data
           </button>
-          <button
-            onClick={() => setConfirmAction("all")}
-            disabled={isClearing}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--destructive)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
-          >
-            <Trash2 size="0.8125rem" />
-            Clear All Data
-          </button>
         </div>
         {confirmAction && (
           <div className="flex flex-col gap-2 rounded-lg bg-[var(--destructive)]/12 p-2.5">
             <div className="flex items-start gap-2 text-[0.6875rem] font-medium text-[var(--destructive)]">
               <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0" />
-              {confirmAction === "all"
-                ? "Delete all supported data categories except Assistant history? There is no undo."
-                : `Delete ${selectedScopes.length} selected data categor${selectedScopes.length === 1 ? "y" : "ies"}? There is no undo.`}
+              {`Delete ${selectedScopes.length} selected data categor${selectedScopes.length === 1 ? "y" : "ies"}? There is no undo.`}
             </div>
             <div className="flex gap-2">
               <button
@@ -4357,7 +4334,7 @@ export function AdvancedSettings() {
                 Cancel
               </button>
               <button
-                onClick={() => runExpunge(confirmAction)}
+                onClick={runExpunge}
                 disabled={isClearing}
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--destructive)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
               >
