@@ -163,6 +163,11 @@
 }
 
 @media (pointer: coarse) {
+  :is(.de-koi-icon-target, .de-koi-control-target) {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
   ::-webkit-scrollbar {
     width: 0.25rem;
   }

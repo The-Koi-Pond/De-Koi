@@ -147,6 +147,39 @@
 /* ─────────────────────────────────────────────
    10. UI COMPONENTS
    ───────────────────────────────────────────── */
+.de-koi-caption {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+
+.de-koi-label {
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.de-koi-icon-target {
+  display: inline-flex;
+  min-width: 2rem;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.de-koi-control-target {
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.de-koi-icon-target:focus-visible,
+.de-koi-control-target:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
+  outline-offset: 2px;
+}
+
 .retro-badge {
   display: inline-block;
   padding: 3px 10px;
