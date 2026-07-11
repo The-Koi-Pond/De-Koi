@@ -209,9 +209,14 @@ pub(crate) fn preview_character_version_pruning(rows: &[Value]) -> CharacterVers
 
 #[cfg(test)]
 pub(crate) fn force_character_version_prune_failure(state: &AppState) {
+    force_character_version_prune_failure_for_data_dir(&state.data_dir);
+}
+
+#[cfg(test)]
+pub(crate) fn force_character_version_prune_failure_for_data_dir(data_dir: &std::path::Path) {
     *FORCE_PRUNE_FAILURE
         .lock()
-        .expect("forced prune failure should lock") = Some(state.data_dir.clone());
+        .expect("forced prune failure should lock") = Some(data_dir.to_path_buf());
 }
 
 fn filter_identity(source_index: usize, row: &Value) -> Option<VersionRetentionIdentity> {
