@@ -697,11 +697,24 @@ fn storage_update_inner_impl(
     if entity == "lorebooks" {
         return update_lorebook_with_character_book_sync(state, &id, normalized_patch);
     }
+    let unpins_character_version = if entity == "character-versions"
+        && normalized_patch.get("pinned") == Some(&Value::Bool(false))
+    {
+        state
+            .storage
+            .get(&entity, &id)?
+            .is_some_and(|row| row.get("pinned") == Some(&Value::Bool(true)))
+    } else {
+        false
+    };
     let updated = if entity == "connections" {
         connection_secrets::patch_connection(state, &id, normalized_patch)?
     } else {
         state.storage.patch(&entity, &id, normalized_patch)?
     };
+    if unpins_character_version {
+        prune_character_version_write(state, &updated)?;
+    }
     if entity == "connections" {
         clear_other_default_connections(state, &updated)?;
         clear_other_default_agent_connections(state, &updated)?;
@@ -1378,6 +1391,61 @@ mod tests {
             .code,
             "forced_character_version_prune_failure"
         );
+    }
+
+    #[test]
+    fn unpinning_character_version_prunes_only_its_character_history() {
+        let state = test_state("unpin-version-retention");
+        for character_id in ["char-1", "char-2"] {
+            for index in 0..51 {
+                state
+                    .storage
+                    .create(
+                        "character-versions",
+                        json!({
+                            "id": format!("{character_id}-version-{index:02}"),
+                            "characterId": character_id,
+                            "createdAt": format!("2025-01-01T00:{index:02}:00Z"),
+                            "pinned": index == 0
+                        }),
+                    )
+                    .unwrap();
+            }
+        }
+
+        storage_update_inner(
+            &state,
+            "character-versions".into(),
+            "char-1-version-00".into(),
+            json!({ "pinned": false }),
+        )
+        .unwrap();
+
+        let versions = state.storage.list("character-versions").unwrap();
+        assert_eq!(
+            versions
+                .iter()
+                .filter(|version| version["characterId"] == "char-1")
+                .count(),
+            50
+        );
+        assert_eq!(
+            versions
+                .iter()
+                .filter(|version| version["characterId"] == "char-2")
+                .count(),
+            51
+        );
+        assert!(state
+            .storage
+            .get("character-versions", "char-1-version-00")
+            .unwrap()
+            .is_none());
+        assert!(state
+            .storage
+            .get("character-versions", "char-2-version-00")
+            .unwrap()
+            .is_some());
     }
 
     #[test]
