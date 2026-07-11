@@ -87,6 +87,7 @@ import type {
   ImageDefaultsService,
   ImageGenerationDefaultsProfile,
 } from "../../../../engine/contracts/types/image-generation-defaults";
+import { mergeConnectionModels, selectConnectionModel } from "../lib/connection-model-selection";
 
 /** Links where users can obtain API keys for each provider */
 const API_KEY_LINKS: Partial<Record<APIProvider, { label: string; url: string }>> = {
@@ -412,20 +413,7 @@ export function ConnectionEditor() {
 
   // Merge known models with remote models (remote first, deduped)
   const allModels = useMemo(() => {
-    const remoteIds = new Set<string>();
-    const remote = remoteModels.map((m) => {
-      remoteIds.add(m.id);
-      return {
-        id: m.id,
-        name: m.name,
-        context: Number(m.context) || 0,
-        maxOutput: Number(m.maxOutput) || 0,
-        isRemote: true as const,
-        fallback: m.fallback,
-      };
-    });
-    const known = providerModels.filter((m) => !remoteIds.has(m.id)).map((m) => ({ ...m, isRemote: false as const }));
-    return [...remote, ...known];
+    return mergeConnectionModels(remoteModels, providerModels);
   }, [providerModels, remoteModels]);
 
   const filteredModels = useMemo(() => {
@@ -754,12 +742,13 @@ export function ConnectionEditor() {
     });
   }, [connectionDetailId, dirty, handleSave, fetchModels, localProvider]);
 
-  const selectModel = useCallback((model: { id: string; context?: number; maxOutput?: number }) => {
-    setLocalModel(model.id);
-    if (model.context) setLocalMaxContext(Number(model.context));
-    if (model.maxOutput) setLocalMaxTokensOverride(Number(model.maxOutput));
+  const selectModel = useCallback((model: { id: string; context?: number | null; maxOutput?: number | null }) => {
+    const selection = selectConnectionModel(model);
+    setLocalModel(selection.modelId);
+    if (selection.maxContext !== null) setLocalMaxContext(selection.maxContext);
+    setLocalMaxTokensOverride(selection.maxTokensOverride);
     setShowModelDropdown(false);
-    setModelSearch("");
+    setModelSearch(selection.searchQuery);
     setDirty(true);
   }, []);
 
@@ -1428,10 +1417,10 @@ export function ConnectionEditor() {
                             <span className="text-[0.625rem] text-[var(--muted-foreground)]">{m.id}</span>
                           </div>
                           <div className="shrink-0 text-right">
-                            {m.context > 0 && (
+                            {m.context !== null && (
                               <div className="text-[0.625rem] font-medium text-sky-400">{formatContext(m.context)}</div>
                             )}
-                            {m.maxOutput > 0 && (
+                            {m.maxOutput !== null && (
                               <div className="text-[0.5625rem] text-[var(--muted-foreground)]">
                                 {formatContext(m.maxOutput)} out
                               </div>
@@ -1464,10 +1453,16 @@ export function ConnectionEditor() {
             {selectedModelInfo && (
               <div className="mt-2 flex items-center gap-4 rounded-lg bg-sky-400/5 px-3 py-2 text-[0.6875rem]">
                 <span className="text-[var(--muted-foreground)]">
-                  Context: <strong className="text-sky-400">{formatContext(selectedModelInfo.context)}</strong>
+                  Context:{" "}
+                  <strong className="text-sky-400">
+                    {selectedModelInfo.context === null ? "Unknown" : formatContext(selectedModelInfo.context)}
+                  </strong>
                 </span>
                 <span className="text-[var(--muted-foreground)]">
-                  Max Output: <strong className="text-sky-400">{formatContext(selectedModelInfo.maxOutput)}</strong>
+                  Max Output:{" "}
+                  <strong className="text-sky-400">
+                    {selectedModelInfo.maxOutput === null ? "Unknown" : formatContext(selectedModelInfo.maxOutput)}
+                  </strong>
                 </span>
               </div>
             )}
