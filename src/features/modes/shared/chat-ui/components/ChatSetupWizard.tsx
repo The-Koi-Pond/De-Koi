@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Chat Setup Wizard — step-by-step new chat configuration
 // ──────────────────────────────────────────────
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -63,7 +63,7 @@ import {
   type GenerationServiceTier,
   type EditableGenerationParameters,
 } from "../../../../../shared/components/ui/GenerationParametersEditor";
-import { runChatSetupStart } from "../lib/chat-setup-start";
+import { createChatSetupStartGate } from "../lib/chat-setup-start";
 
 const ASSISTANT_MARK_URL = "/koi-mark.svg";
 
@@ -521,6 +521,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const [scheduleState, setScheduleState] = useState<"idle" | "generating" | "done">("idle");
   const [isStartingChat, setIsStartingChat] = useState(false);
+  const startChatGateRef = useRef(createChatSetupStartGate());
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [generateSchedule, setGenerateSchedule] = useState(false);
 
@@ -683,7 +684,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
     const savedPrompt = useUIStore.getState().customConversationPrompt;
     const shouldGenerateSchedules = autonomousEnabled && generateSchedule;
     if (shouldGenerateSchedules) setScheduleState("generating");
-    const result = await runChatSetupStart({
+    const result = await startChatGateRef.current({
       persistMetadata: () =>
         updateMeta.mutateAsync({
           id: chat.id,
@@ -714,6 +715,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
         }
       },
     });
+    if (!result.ok && "busy" in result) return;
     if (!result.ok) {
       setScheduleState("idle");
       toast.error(result.message);

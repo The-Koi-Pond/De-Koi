@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { runChatSetupStart } from "./chat-setup-start";
+import { createChatSetupStartGate, runChatSetupStart } from "./chat-setup-start";
 
 describe("runChatSetupStart", () => {
   it("returns a visible failure when metadata persistence rejects", async () => {
@@ -28,6 +28,25 @@ describe("runChatSetupStart", () => {
       }),
     ).resolves.toEqual({ ok: true });
     expect(generateSchedules).toHaveBeenCalledTimes(1);
+    expect(finish).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects concurrent activation before a slow setup completes", async () => {
+    let releaseMetadata!: () => void;
+    const metadataPending = new Promise<void>((resolve) => {
+      releaseMetadata = resolve;
+    });
+    const finish = vi.fn();
+    const persistMetadata = vi.fn(() => metadataPending);
+    const start = createChatSetupStartGate();
+    const input = { persistMetadata, generateSchedules: null, finish };
+
+    const first = start(input);
+    await expect(start(input)).resolves.toEqual({ ok: false, busy: true });
+    releaseMetadata();
+    await expect(first).resolves.toEqual({ ok: true });
+
+    expect(persistMetadata).toHaveBeenCalledTimes(1);
     expect(finish).toHaveBeenCalledTimes(1);
   });
 });

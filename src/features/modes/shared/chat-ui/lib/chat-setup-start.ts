@@ -1,4 +1,5 @@
 export type ChatSetupStartResult = { ok: true } | { ok: false; message: string };
+export type ChatSetupStartGateResult = ChatSetupStartResult | { ok: false; busy: true };
 
 export async function runChatSetupStart(input: {
   persistMetadata: () => Promise<unknown>;
@@ -16,4 +17,17 @@ export async function runChatSetupStart(input: {
       message: error instanceof Error && error.message.trim() ? error.message : "Conversation setup failed.",
     };
   }
+}
+
+export function createChatSetupStartGate() {
+  let active = false;
+  return async (input: Parameters<typeof runChatSetupStart>[0]): Promise<ChatSetupStartGateResult> => {
+    if (active) return { ok: false, busy: true };
+    active = true;
+    try {
+      return await runChatSetupStart(input);
+    } finally {
+      active = false;
+    }
+  };
 }
