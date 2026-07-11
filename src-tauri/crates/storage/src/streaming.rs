@@ -266,10 +266,65 @@ impl FileStorage {
         validate_json_array_file(&path, &mut visit)
     }
 
+    pub fn visit_collection_streaming_stamped<V>(
+        &self,
+        collection: &str,
+        mut visit: V,
+    ) -> AppResult<(usize, Option<crate::CollectionContentStamp>)>
+    where
+        V: FnMut(usize, &Value) -> AppResult<()>,
+    {
+        let _write_permit = self.write_gate.begin_write()?;
+        let _guard = self
+            .lock
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        self.flush_dirty_collections_locked()?;
+        let path = self.collection_path(collection)?;
+        if !path.exists() {
+            return Ok((0, None));
+        }
+        let count = validate_json_array_file(&path, &mut visit)?;
+        Ok((count, collection_content_stamp(&path)?))
+    }
+
     pub fn filter_collection_streaming<F>(
         &self,
         collection: &str,
         operation_suffix: &str,
+        keep: F,
+    ) -> AppResult<StreamingFilterReport>
+    where
+        F: FnMut(usize, &Value) -> AppResult<bool>,
+    {
+        self.filter_collection_streaming_inner(collection, operation_suffix, None, false, keep)
+    }
+
+    pub fn filter_collection_streaming_if_stamp<F>(
+        &self,
+        collection: &str,
+        operation_suffix: &str,
+        expected_stamp: Option<crate::CollectionContentStamp>,
+        keep: F,
+    ) -> AppResult<StreamingFilterReport>
+    where
+        F: FnMut(usize, &Value) -> AppResult<bool>,
+    {
+        self.filter_collection_streaming_inner(
+            collection,
+            operation_suffix,
+            expected_stamp,
+            true,
+            keep,
+        )
+    }
+
+    fn filter_collection_streaming_inner<F>(
+        &self,
+        collection: &str,
+        operation_suffix: &str,
+        expected_stamp: Option<crate::CollectionContentStamp>,
+        validate_expected_stamp: bool,
         mut keep: F,
     ) -> AppResult<StreamingFilterReport>
     where
@@ -292,6 +347,13 @@ impl FileStorage {
 
         let path = self.collection_path(collection)?;
         if !path.exists() {
+            if validate_expected_stamp && expected_stamp.is_some() {
+                self.invalidate_collection_caches(collection)?;
+                return Err(AppError::new(
+                    "storage_source_changed",
+                    "Collection changed before streaming filter began",
+                ));
+            }
             return Ok(StreamingFilterReport {
                 input_records: 0,
                 output_records: 0,
@@ -299,6 +361,13 @@ impl FileStorage {
             });
         }
         let source_stamp = collection_content_stamp(&path)?;
+        if validate_expected_stamp && source_stamp != expected_stamp {
+            self.invalidate_collection_caches(collection)?;
+            return Err(AppError::new(
+                "storage_source_changed",
+                "Collection changed before streaming filter began",
+            ));
+        }
         let transaction_id = format!("{}-{operation_suffix}", storage_transaction_id());
         let tmp = collection_transaction_path(&path, &transaction_id, 0, "tmp")?;
         let backup = collection_transaction_path(&path, &transaction_id, 0, "backup")?;

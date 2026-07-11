@@ -657,6 +657,28 @@ fn storage_update_inner_impl(
     if entity == "character-versions" {
         character_version_media::reject_inline_character_version_media(&patch)?;
         validate_character_version_write(&patch, false)?;
+        if patch
+            .as_object()
+            .is_some_and(|object| object.contains_key("characterId"))
+        {
+            let existing = state
+                .storage
+                .get(&entity, &id)?
+                .ok_or_else(|| AppError::new("not_found", "Character version not found"))?;
+            let existing_owner = existing
+                .get("characterId")
+                .and_then(Value::as_str)
+                .filter(|owner| !owner.is_empty());
+            let requested_owner = patch
+                .get("characterId")
+                .and_then(Value::as_str)
+                .filter(|owner| !owner.is_empty());
+            if requested_owner != existing_owner {
+                return Err(AppError::invalid_input(
+                    "Character version characterId cannot be changed or removed",
+                ));
+            }
+        }
     }
     if entity == "messages" {
         let updated = chats::patch_message_update_with_memory_prune(state, &id, patch)?;
@@ -1446,6 +1468,91 @@ mod tests {
             .get("character-versions", "char-2-version-00")
             .unwrap()
             .is_some());
+    }
+
+    #[test]
+    fn character_version_update_rejects_changing_owner() {
+        let state = test_state("version-owner-change");
+        state
+            .storage
+            .create(
+                "character-versions",
+                json!({"id":"v1","characterId":"char-1"}),
+            )
+            .unwrap();
+        let error = storage_update_inner(
+            &state,
+            "character-versions".into(),
+            "v1".into(),
+            json!({"characterId":"char-2"}),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            state
+                .storage
+                .get("character-versions", "v1")
+                .unwrap()
+                .unwrap()["characterId"],
+            "char-1"
+        );
+    }
+
+    #[test]
+    fn character_version_update_rejects_clearing_owner() {
+        let state = test_state("version-owner-clear");
+        state
+            .storage
+            .create(
+                "character-versions",
+                json!({"id":"v1","characterId":"char-1"}),
+            )
+            .unwrap();
+        for patch in [json!({"characterId":""}), json!({"characterId":null})] {
+            let error =
+                storage_update_inner(&state, "character-versions".into(), "v1".into(), patch)
+                    .unwrap_err();
+            assert_eq!(error.code, "invalid_input");
+        }
+    }
+
+    #[test]
+    fn character_version_update_cannot_move_into_full_destination() {
+        let state = test_state("version-owner-full-destination");
+        state
+            .storage
+            .create(
+                "character-versions",
+                json!({"id":"source","characterId":"char-1"}),
+            )
+            .unwrap();
+        for index in 0..50 {
+            state
+                .storage
+                .create(
+                    "character-versions",
+                    json!({"id":format!("dest-{index}"),"characterId":"char-2"}),
+                )
+                .unwrap();
+        }
+        let error = storage_update_inner(
+            &state,
+            "character-versions".into(),
+            "source".into(),
+            json!({"characterId":"char-2"}),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            state
+                .storage
+                .list("character-versions")
+                .unwrap()
+                .iter()
+                .filter(|row| row["characterId"] == "char-2")
+                .count(),
+            50
+        );
     }
 
     #[test]

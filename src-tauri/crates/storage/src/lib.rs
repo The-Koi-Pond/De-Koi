@@ -7,6 +7,7 @@ mod streaming;
 mod transaction;
 mod write_gate;
 
+pub use cache::CollectionContentStamp;
 use cache::*;
 use chat_summaries::*;
 use journal::*;

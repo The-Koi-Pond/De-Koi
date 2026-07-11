@@ -1343,24 +1343,70 @@ mod tests {
     }
 
     #[test]
-    fn source_changed_character_version_retention_v1_keeps_marker_unset_and_primary_unchanged() {
+    fn source_changed_character_version_retention_v1_retries_against_fresh_source() {
         let root = temp_root("character-version-retention-v1-failure");
         seed_raw_versions(&root, "char-1", 55, &[]);
-        let before = collection_bytes(&root.0, "character-versions");
         crate::storage_commands::character_version_retention::force_character_version_prune_source_change_for_data_dir(&root.0);
+        let state = AppState::from_data_dir(&root.0, vec![])
+            .expect("one source change should be recoverable");
+        assert_eq!(count_versions(&state.storage, "char-1"), 50);
+        assert!(state
+            .storage
+            .get("character-versions", "concurrent-version")
+            .unwrap()
+            .is_some());
+        assert!(startup_migration_applied(
+            &state.storage,
+            CHARACTER_VERSION_RETENTION_MIGRATION_KEY
+        )
+        .unwrap());
+    }
 
-        let error = match AppState::from_data_dir(&root.0, vec![]) {
-            Ok(_) => panic!("retention source change should fail startup"),
+    #[test]
+    fn failed_retention_media_cleanup_retries_orphan_before_committing_marker() {
+        let root = temp_root("character-version-retention-cleanup-retry");
+        seed_raw_versions(&root, "char-1", 55, &[]);
+        let media_dir = root.0.join("avatars/characters/versions");
+        fs::create_dir_all(&media_dir).unwrap();
+        let filename = format!("version-{}.png", "a".repeat(64));
+        let media_path = media_dir.join(&filename);
+        fs::write(&media_path, b"orphan after prune").unwrap();
+        let storage = FileStorage::new(root.0.join("data")).unwrap();
+        storage
+            .patch(
+                "character-versions",
+                "version-0",
+                json!({
+                    "avatarFilename": filename,
+                    "avatarFilePath": media_path.to_string_lossy()
+                }),
+            )
+            .unwrap();
+        storage.flush().unwrap();
+        drop(storage);
+        crate::storage_commands::character_version_retention::force_character_version_prune_cleanup_failure_for_data_dir(&root.0);
+
+        let first_error = match AppState::from_data_dir(&root.0, vec![]) {
+            Ok(_) => panic!("forced cleanup failure should abort startup"),
             Err(error) => error,
         };
-
-        assert_eq!(error.code, "storage_source_changed");
-        assert_eq!(collection_bytes(&root.0, "character-versions"), before);
+        assert_eq!(first_error.code, "forced_character_version_cleanup_failure");
+        assert!(media_path.is_file());
         let storage = FileStorage::new(root.0.join("data")).unwrap();
         assert!(
-            !startup_migration_applied(&storage, CHARACTER_VERSION_RETENTION_MIGRATION_KEY,)
+            !startup_migration_applied(&storage, CHARACTER_VERSION_RETENTION_MIGRATION_KEY)
                 .unwrap()
         );
+        drop(storage);
+
+        let restarted =
+            AppState::from_data_dir(&root.0, vec![]).expect("restart should retry orphan cleanup");
+        assert!(!media_path.exists());
+        assert!(startup_migration_applied(
+            &restarted.storage,
+            CHARACTER_VERSION_RETENTION_MIGRATION_KEY
+        )
+        .unwrap());
     }
 
     #[test]

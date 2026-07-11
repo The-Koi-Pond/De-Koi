@@ -70,10 +70,9 @@ export function CharacterVersionHistoryPanel({
     }
   };
 
-  const handleSetPinned = async (version: CharacterCardVersion, index: number) => {
+  const handleSetPinned = async (version: CharacterCardVersion) => {
     const pinned = !version.pinned;
-    const newerUnpinnedCount = versions.slice(0, index).filter((candidate) => !candidate.pinned).length;
-    if (!pinned && newerUnpinnedCount >= 50) {
+    if (!pinned) {
       const confirmed = await showConfirmDialog({
         title: "Unpin Saved Version",
         message:
@@ -114,7 +113,7 @@ export function CharacterVersionHistoryPanel({
         </p>
       ) : (
         <div className="mt-2 flex max-h-36 flex-col gap-1.5 overflow-y-auto pr-1">
-          {versions.map((version, index) => (
+          {versions.map((version) => (
             <div
               key={version.id}
               className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2 py-1.5"
@@ -135,7 +134,7 @@ export function CharacterVersionHistoryPanel({
               </button>
               <button
                 type="button"
-                onClick={() => handleSetPinned(version, index)}
+                onClick={() => handleSetPinned(version)}
                 disabled={versionMutationPending}
                 aria-label={version.pinned ? "Unpin version" : "Pin version"}
                 className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-50"

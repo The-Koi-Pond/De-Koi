@@ -84,6 +84,20 @@ describe("CharacterVersionHistoryPanel", () => {
     });
   });
 
+  it("always confirms before unpinning even when client ordering differs from storage", async () => {
+    versionsState.versions = [version(0, true)];
+    vi.mocked(showConfirmDialog).mockResolvedValue(false);
+    await renderPanel();
+
+    const unpinButton = container.querySelector<HTMLButtonElement>('button[aria-label="Unpin version"]');
+    await act(async () => unpinButton!.click());
+
+    expect(showConfirmDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("may be deleted immediately") }),
+    );
+    expect(setPinned.mutateAsync).not.toHaveBeenCalled();
+  });
+
   it("confirms before unpinning a protected version", async () => {
     versionsState.versions = Array.from({ length: 51 }, (_, index) => version(index, index === 50));
     vi.mocked(showConfirmDialog).mockResolvedValue(false);

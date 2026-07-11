@@ -11,6 +11,8 @@ use std::path::PathBuf;
 static FORCE_PRUNE_FAILURE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 #[cfg(test)]
 static FORCE_PRUNE_SOURCE_CHANGE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+static FORCE_PRUNE_CLEANUP_FAILURE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 pub(crate) const CHARACTER_VERSION_UNPINNED_LIMIT: usize = 50;
 
@@ -104,11 +106,24 @@ pub(crate) fn prune_character_versions(
             "forced character version prune failure",
         ));
     }
+    for attempt in 0..2 {
+        match prune_character_versions_once(state, character_ids) {
+            Err(error) if error.code == "storage_source_changed" && attempt == 0 => continue,
+            result => return result,
+        }
+    }
+    unreachable!("bounded retention retry returns from each attempt")
+}
+
+fn prune_character_versions_once(
+    state: &AppState,
+    character_ids: Option<&HashSet<String>>,
+) -> AppResult<CharacterVersionPruneReport> {
     let mut rows = Vec::new();
     let mut malformed_ownerless_rows = 0;
-    state
-        .storage
-        .visit_collection_streaming("character-versions", |source_index, row| {
+    let (_, source_stamp) = state.storage.visit_collection_streaming_stamped(
+        "character-versions",
+        |source_index, row| {
             let character_id = non_empty_string(row, "characterId");
             if character_id.is_none() {
                 malformed_ownerless_rows += 1;
@@ -134,7 +149,8 @@ pub(crate) fn prune_character_versions(
                 source_index,
             });
             Ok(())
-        })?;
+        },
+    )?;
 
     let pruned_rows = select_pruned_rows(&rows, CHARACTER_VERSION_UNPINNED_LIMIT);
     let affected_characters = rows
@@ -146,23 +162,27 @@ pub(crate) fn prune_character_versions(
     let retained_pinned = rows.iter().filter(|row| row.pinned).count();
     let retained_unpinned = rows.iter().filter(|row| !row.pinned).count() - pruned_rows.len();
     let mut media_candidates = HashSet::new();
-    let filter_report = state.storage.filter_collection_streaming(
+    #[cfg(test)]
+    if FORCE_PRUNE_SOURCE_CHANGE
+        .lock()
+        .expect("forced prune source change should lock")
+        .take_if(|data_dir| data_dir == &state.data_dir)
+        .is_some()
+    {
+        state.storage.create(
+            "character-versions",
+            serde_json::json!({
+                "id": "concurrent-version",
+                "characterId": rows.first().and_then(|row| row.character_id.as_deref()).unwrap_or("char-1"),
+                "createdAt": "9999-01-01T00:00:00Z"
+            }),
+        )?;
+    }
+    let filter_report = state.storage.filter_collection_streaming_if_stamp(
         "character-versions",
         "retention-prune",
+        source_stamp,
         |source_index, row| {
-            #[cfg(test)]
-            if FORCE_PRUNE_SOURCE_CHANGE
-                .lock()
-                .expect("forced prune source change should lock")
-                .take_if(|data_dir| data_dir == &state.data_dir)
-                .is_some()
-            {
-                let primary = state
-                    .data_dir
-                    .join("data/collections/character-versions.json");
-                let original = fs::read(&primary)?;
-                fs::write(&primary, original)?;
-            }
             let selected = filter_identity(source_index, row)
                 .is_some_and(|identity| pruned_rows.contains(&identity));
             if selected {
@@ -241,6 +261,15 @@ pub(crate) fn force_character_version_prune_source_change_for_data_dir(data_dir:
         .expect("forced prune source change should lock") = Some(data_dir.to_path_buf());
 }
 
+#[cfg(test)]
+pub(crate) fn force_character_version_prune_cleanup_failure_for_data_dir(
+    data_dir: &std::path::Path,
+) {
+    *FORCE_PRUNE_CLEANUP_FAILURE
+        .lock()
+        .expect("forced cleanup failure should lock") = Some(data_dir.to_path_buf());
+}
+
 fn filter_identity(source_index: usize, row: &Value) -> Option<VersionRetentionIdentity> {
     Some(VersionRetentionIdentity {
         source_index,
@@ -305,6 +334,18 @@ fn cleanup_pruned_media(
     state: &AppState,
     candidates: HashSet<PathBuf>,
 ) -> AppResult<(usize, usize)> {
+    #[cfg(test)]
+    if FORCE_PRUNE_CLEANUP_FAILURE
+        .lock()
+        .expect("forced cleanup failure should lock")
+        .take_if(|data_dir| data_dir == &state.data_dir)
+        .is_some()
+    {
+        return Err(marinara_core::AppError::new(
+            "forced_character_version_cleanup_failure",
+            "forced cleanup failure",
+        ));
+    }
     if candidates.is_empty() {
         return Ok((0, 0));
     }
