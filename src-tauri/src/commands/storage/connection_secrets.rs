@@ -8,6 +8,7 @@ use rand::{rngs::SysRng, TryRng};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::Write;
 
 pub(crate) const API_KEY_MASK: &str = "••••••••";
 const SECRET_VERSION: &str = "v1";
@@ -304,8 +305,10 @@ fn decrypt_error() -> AppError {
 fn master_key(state: &AppState) -> AppResult<[u8; 32]> {
     let dir = state.data_dir.join("secrets");
     fs::create_dir_all(&dir)?;
+    harden_secret_directory_permissions(&dir)?;
     let path = dir.join(MASTER_KEY_FILE);
     if path.exists() {
+        harden_master_key_permissions(&path)?;
         let encoded = fs::read_to_string(&path)?;
         let decoded = general_purpose::STANDARD_NO_PAD
             .decode(encoded.trim())
@@ -324,8 +327,47 @@ fn master_key(state: &AppState) -> AppResult<[u8; 32]> {
             "Failed to generate connection secret key",
         )
     })?;
-    fs::write(&path, general_purpose::STANDARD_NO_PAD.encode(key))?;
+    let encoded = general_purpose::STANDARD_NO_PAD.encode(key);
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(owner_only_file_mode());
+    }
+    let mut file = options.open(&path)?;
+    file.write_all(encoded.as_bytes())?;
+    file.sync_all()?;
+    harden_master_key_permissions(&path)?;
     Ok(key)
+}
+
+#[cfg(any(unix, test))]
+const fn owner_only_file_mode() -> u32 {
+    0o600
+}
+
+#[cfg(unix)]
+fn harden_secret_directory_permissions(path: &std::path::Path) -> AppResult<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(AppError::from)
+}
+
+#[cfg(not(unix))]
+fn harden_secret_directory_permissions(_path: &std::path::Path) -> AppResult<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn harden_master_key_permissions(path: &std::path::Path) -> AppResult<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(owner_only_file_mode()))
+        .map_err(AppError::from)
+}
+
+#[cfg(not(unix))]
+fn harden_master_key_permissions(_path: &std::path::Path) -> AppResult<()> {
+    Ok(())
 }
 
 fn key_from_bytes(bytes: &[u8]) -> AppResult<[u8; 32]> {
@@ -338,4 +380,63 @@ fn key_from_bytes(bytes: &[u8]) -> AppResult<[u8; 32]> {
     let mut key = [0u8; 32];
     key.copy_from_slice(&hash);
     Ok(key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_state(label: &str) -> (AppState, std::path::PathBuf) {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("de-koi-{label}-{}-{suffix}", std::process::id()));
+        let state =
+            AppState::from_data_dir(&root, Vec::new()).expect("test state should initialize");
+        (state, root)
+    }
+
+    #[test]
+    fn connection_secret_round_trip_preserves_existing_ciphertext_contract() {
+        let (state, root) = test_state("secret-round-trip");
+        let encrypted = encrypt_secret(&state, "provider-secret").expect("secret should encrypt");
+
+        assert!(encrypted.starts_with("v1:"));
+        assert_eq!(
+            decrypt_secret(&state, &encrypted).expect("secret should decrypt"),
+            "provider-secret"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn master_key_owner_only_mode_is_restrictive() {
+        assert_eq!(owner_only_file_mode(), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_master_key_permissions_are_hardened_when_loaded() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (state, root) = test_state("secret-permissions");
+        encrypt_secret(&state, "first").expect("master key should be created");
+        let key_path = state.data_dir.join("secrets").join(MASTER_KEY_FILE);
+        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o644))
+            .expect("test should broaden key permissions");
+
+        encrypt_secret(&state, "second").expect("existing master key should load");
+
+        let mode = std::fs::metadata(&key_path)
+            .expect("key metadata should load")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
