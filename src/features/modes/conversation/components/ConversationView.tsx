@@ -749,7 +749,12 @@ export function ConversationView({
     const previousTail = previousTailRef.current;
     const tailMessageChanged = !!newestMsgId && !!previousTail.messageId && previousTail.messageId !== newestMsgId;
     const streamingStarted = isStreaming && !previousTail.isStreaming;
-    if (transcriptWindowStart !== null && !isLoadingMoreRef.current && (tailMessageChanged || streamingStarted)) {
+    if (
+      transcriptWindowStart !== null &&
+      !isLoadingMoreRef.current &&
+      !userScrolledAwayRef.current &&
+      (tailMessageChanged || streamingStarted)
+    ) {
       setTranscriptWindowStart(null);
     }
     previousTailRef.current = { messageId: newestMsgId, isStreaming };
