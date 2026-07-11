@@ -1249,7 +1249,11 @@ async fn download_url_to_path(
     let metadata_path = download_metadata_path(&temp_path);
     let mut partial_len = fs::metadata(&temp_path).map(|metadata| metadata.len()).unwrap_or(0);
     let mut partial_metadata = read_download_metadata(&metadata_path);
-    if partial_len > 0 && partial_metadata.as_ref().is_none_or(|metadata| metadata.url != url) {
+    if partial_len > 0
+        && partial_metadata.as_ref().is_none_or(|metadata| {
+            metadata.url != url || metadata.validator.as_deref().is_none_or(str::is_empty)
+        })
+    {
         fs::remove_file(&temp_path)?;
         let _ = fs::remove_file(&metadata_path);
         partial_len = 0;
@@ -1326,13 +1330,12 @@ async fn download_url_to_path(
         .or_else(|| response.headers().get(LAST_MODIFIED))
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    if resumed
-        && partial_metadata
-            .as_ref()
-            .and_then(|metadata| metadata.validator.as_ref())
-            .zip(response_validator.as_ref())
-            .is_some_and(|(expected, actual)| expected != actual)
-    {
+    let resume_validator_matches = partial_metadata
+        .as_ref()
+        .and_then(|metadata| metadata.validator.as_ref())
+        .zip(response_validator.as_ref())
+        .is_some_and(|(expected, actual)| expected == actual);
+    if resumed && !resume_validator_matches {
         discard_incompatible_download(&temp_path, &metadata_path);
         return Err(AppError::new(
             "sidecar_download_invalid_range",
@@ -3674,7 +3677,11 @@ mod tests {
         let url = format!("http://{addr}/model.gguf");
         write_download_metadata(
             &download_metadata_path(&partial),
-            &DownloadPartialMetadata { url: url.clone(), validator: None, total: Some(4) },
+            &DownloadPartialMetadata {
+                url: url.clone(),
+                validator: Some("\"v1\"".to_string()),
+                total: Some(4),
+            },
         )
         .unwrap();
         let server = tokio::spawn(async move {
@@ -3682,7 +3689,7 @@ mod tests {
             let mut request = [0u8; 1024];
             let _ = socket.read(&mut request).await.unwrap();
             socket
-                .write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 2\r\nContent-Range: bytes 1-2/4\r\n\r\ncd")
+                .write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 2\r\nContent-Range: bytes 1-2/4\r\nETag: \"v1\"\r\n\r\ncd")
                 .await
                 .unwrap();
         });
@@ -3736,6 +3743,43 @@ mod tests {
         assert!(!partial.exists());
         assert!(!download_metadata_path(&partial).exists());
         assert!(!destination.exists());
+        server.await.unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn download_without_a_saved_validator_restarts_from_zero() {
+        let root = temp_dir("restart-missing-validator");
+        let destination = root.join("model.gguf");
+        let partial = destination.with_extension("gguf.download");
+        fs::write(&partial, b"ab").unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let url = format!("http://{}/model.gguf", listener.local_addr().unwrap());
+        write_download_metadata(
+            &download_metadata_path(&partial),
+            &DownloadPartialMetadata { url: url.clone(), validator: None, total: Some(4) },
+        )
+        .unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 1024];
+            let count = socket.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..count]).to_ascii_lowercase();
+            assert!(!request.contains("range:"), "request was {request}");
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nETag: \"v2\"\r\n\r\nabcd")
+                .await
+                .unwrap();
+        });
+        let (_cancel_tx, cancel_rx) = watch::channel(false);
+
+        download_url_to_path(&url, &destination, "model", "Fresh download", cancel_rx)
+            .await
+            .expect("missing validator should restart cleanly");
+
+        assert_eq!(fs::read(&destination).unwrap(), b"abcd");
+        assert!(!partial.exists());
+        assert!(!download_metadata_path(&partial).exists());
         server.await.unwrap();
         let _ = fs::remove_dir_all(root);
     }

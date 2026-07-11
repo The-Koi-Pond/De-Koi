@@ -153,6 +153,10 @@ async function fetchRemoteManagedAssetBlobUrl(asset: RemoteManagedAsset): Promis
     if (entry.byteSize > REMOTE_ASSET_CACHE_MAX_BYTES) {
       revokeRemoteAssetObjectUrl(entry);
       entry.objectUrl = undefined;
+      entry.byteSize = 0;
+      if (remoteAssetObjectUrls.get(cacheKey) === entry) {
+        remoteAssetObjectUrls.delete(cacheKey);
+      }
       throw new Error("Remote managed asset exceeds the in-memory limit.");
     }
     evictRemoteAssetObjectUrls();
@@ -161,6 +165,9 @@ async function fetchRemoteManagedAssetBlobUrl(asset: RemoteManagedAsset): Promis
 
   remoteAssetObjectUrls.set(cacheKey, entry);
   entry.promise.catch(() => {
+    revokeRemoteAssetObjectUrl(entry);
+    entry.objectUrl = undefined;
+    entry.byteSize = 0;
     if (remoteAssetObjectUrls.get(cacheKey) === entry) {
       remoteAssetObjectUrls.delete(cacheKey);
     }

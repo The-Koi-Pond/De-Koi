@@ -146,8 +146,9 @@ describe("remote managed assets", () => {
       "fetch",
       vi
         .fn<typeof fetch>()
-        .mockResolvedValue(
-          new Response("asset", { status: 200, headers: { "Content-Length": String(128 * 1024 * 1024 + 1) } }),
+        .mockImplementation(
+          async () =>
+            new Response("asset", { status: 200, headers: { "Content-Length": String(128 * 1024 * 1024 + 1) } }),
         ),
     );
     const createObjectURL = vi.fn(() => "blob:oversized");
@@ -158,7 +159,22 @@ describe("remote managed assets", () => {
     await expect(remoteManagedAssetResolvableUrl("gallery", "oversized.png")).rejects.toThrow(
       "Remote managed asset exceeds the in-memory limit",
     );
+    await expect(remoteManagedAssetResolvableUrl("gallery", "oversized.png")).rejects.toThrow(
+      "Remote managed asset exceeds the in-memory limit",
+    );
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:oversized");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache a failed authorized asset request", async () => {
+    remoteRuntimeMock.target = { baseUrl: "http://127.0.0.1:3080", authorization: "Basic token" };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(remoteManagedAssetResolvableUrl("gallery", "failed.png")).rejects.toThrow("returned 503");
+    await expect(remoteManagedAssetResolvableUrl("gallery", "failed.png")).rejects.toThrow("returned 503");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("adds source invalidation versions to thumbnail routes without changing unrelated assets", () => {
