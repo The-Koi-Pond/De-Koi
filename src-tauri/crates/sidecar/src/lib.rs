@@ -1196,6 +1196,11 @@ fn write_download_metadata(path: &Path, metadata: &DownloadPartialMetadata) -> A
     Ok(())
 }
 
+fn discard_incompatible_download(partial_path: &Path, metadata_path: &Path) {
+    let _ = fs::remove_file(partial_path);
+    let _ = fs::remove_file(metadata_path);
+}
+
 fn partial_content_total(response: &reqwest::Response, expected_start: u64) -> AppResult<u64> {
     let raw = response
         .headers()
@@ -1292,7 +1297,13 @@ async fn download_url_to_path(
 
     let resumed = partial_len > 0 && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
     let expected_total = if resumed {
-        Some(partial_content_total(&response, partial_len)?)
+        match partial_content_total(&response, partial_len) {
+            Ok(total) => Some(total),
+            Err(error) => {
+                discard_incompatible_download(&temp_path, &metadata_path);
+                return Err(error);
+            }
+        }
     } else {
         response.content_length()
     };
@@ -1303,6 +1314,7 @@ async fn download_url_to_path(
             .zip(expected_total)
             .is_some_and(|(saved, actual)| saved != actual)
     {
+        discard_incompatible_download(&temp_path, &metadata_path);
         return Err(AppError::new(
             "sidecar_download_invalid_range",
             "Resume response size did not match the saved partial metadata",
@@ -1321,6 +1333,7 @@ async fn download_url_to_path(
             .zip(response_validator.as_ref())
             .is_some_and(|(expected, actual)| expected != actual)
     {
+        discard_incompatible_download(&temp_path, &metadata_path);
         return Err(AppError::new(
             "sidecar_download_invalid_range",
             "Resume response validator did not match the saved partial file",
@@ -3680,7 +3693,48 @@ mod tests {
             .expect_err("mismatched range must reject");
 
         assert_eq!(error.code, "sidecar_download_invalid_range");
-        assert_eq!(fs::read(&partial).unwrap(), b"ab");
+        assert!(!partial.exists());
+        assert!(!download_metadata_path(&partial).exists());
+        assert!(!destination.exists());
+        server.await.unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn download_discards_a_partial_with_a_mismatched_validator() {
+        let root = temp_dir("reject-mismatched-validator");
+        let destination = root.join("model.gguf");
+        let partial = destination.with_extension("gguf.download");
+        fs::write(&partial, b"ab").unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let url = format!("http://{}/model.gguf", listener.local_addr().unwrap());
+        write_download_metadata(
+            &download_metadata_path(&partial),
+            &DownloadPartialMetadata {
+                url: url.clone(),
+                validator: Some("\"v1\"".to_string()),
+                total: Some(4),
+            },
+        )
+        .unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 1024];
+            let _ = socket.read(&mut request).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 2\r\nContent-Range: bytes 2-3/4\r\nETag: \"v2\"\r\n\r\ncd")
+                .await
+                .unwrap();
+        });
+        let (_cancel_tx, cancel_rx) = watch::channel(false);
+
+        let error = download_url_to_path(&url, &destination, "model", "Bad validator", cancel_rx)
+            .await
+            .expect_err("mismatched validator must reject");
+
+        assert_eq!(error.code, "sidecar_download_invalid_range");
+        assert!(!partial.exists());
+        assert!(!download_metadata_path(&partial).exists());
         assert!(!destination.exists());
         server.await.unwrap();
         let _ = fs::remove_dir_all(root);
