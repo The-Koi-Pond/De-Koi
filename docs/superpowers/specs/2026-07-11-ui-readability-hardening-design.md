@@ -2,14 +2,13 @@
 
 ## Goal
 
-Improve De-Koi's default interface against four verified weaknesses: undersized persistent text, inconsistent interaction targets, hover-only action discovery, and an overcrowded settings tab strip. Preserve the koi-pond identity and compact power-user character while making common controls easier to read, find, and operate.
+Improve De-Koi's default interface against three verified weaknesses: undersized persistent text, inconsistent interaction targets, and hover-only action discovery. Preserve the koi-pond identity and compact power-user character while making common controls easier to read, find, and operate.
 
 ## Scope
 
 This slice owns UI feature presentation and global design-system CSS. It may change:
 
 - semantic typography and interaction utilities in `src/styles/globals`;
-- the settings navigation in `src/features/shell/settings`;
 - representative conversation, connection, and high-density settings controls needed to establish the new patterns;
 - focused tests or static contract tests for the changed behavior.
 
@@ -31,16 +30,9 @@ Introduce reusable compact, regular, and touch target rules. Compact desktop ico
 
 Essential row actions cannot depend exclusively on hover. Desktop rows may keep secondary actions visually quiet, but their action group must also reveal on keyboard focus. Coarse-pointer layouts keep essential actions visible. Representative conversation and connection action groups will establish the contract; a focused static test will prevent regression to hover-only behavior in those owners.
 
-### Settings navigation
+### Settings navigation baseline
 
-Replace the eight equal-weight wrapping tabs with four top-level groups:
-
-- General: General
-- Customize: Appearance and Themes
-- Add-ons: Modules and Extensions
-- Advanced: Import, Health, and Advanced
-
-The group control stays a proper keyboard-operated tablist. Selecting a group reveals a compact second-level control when the group contains multiple sections. Existing settings section components and store identifiers remain unchanged, avoiding persistence migration. On narrow surfaces the controls may horizontally scroll rather than wrap into three rows.
+No settings-navigation redesign belongs in this slice. Current `origin/main` already replaced the wrapping strip seen during the audit with a responsive horizontal/vertical navigation, icons, descriptions, and a dedicated Privacy & Data section. Preserve that newer architecture and apply only the readability foundation where its descriptions fall below the approved text floor.
 
 ## Accessibility
 
@@ -66,7 +58,6 @@ Development follows red-green-refactor with focused tests for settings navigatio
 ## Risks and containment
 
 - Larger controls could crowd narrow toolbars. Apply shared targets to selected owners first and verify overflow at mobile widths.
-- Settings grouping could make a section harder to find. Keep all existing labels, expose the active child label, and preserve the stored section IDs.
 - Global typography rules could unintentionally enlarge cinematic/game HUD text. Do not use a universal font-size override; use semantic classes and targeted migrations.
 - Hover changes could add visual noise. Keep secondary actions quiet through color and backing rather than making them invisible.
 
@@ -75,5 +66,5 @@ Development follows red-green-refactor with focused tests for settings navigatio
 - No touched persistent UI copy is below 12px.
 - Touched app controls meet the defined hit-area tier and coarse-pointer minimum.
 - Touched action groups are reachable and visible through keyboard focus and coarse-pointer layouts.
-- Settings uses four top-level groups without changing the existing settings-section IDs.
+- Current settings navigation behavior and section IDs remain unchanged.
 - Focused tests and all required shipping gates pass, or the PR is blocked rather than merged.
