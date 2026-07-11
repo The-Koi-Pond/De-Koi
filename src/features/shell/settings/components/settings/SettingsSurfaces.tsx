@@ -42,7 +42,7 @@ import {
   type ProfileExportFormat,
 } from "../../../../../shared/api/profile-api";
 import { ApiError } from "../../../../../shared/api/api-errors";
-import { updatesApi, type UpdateCheckResponse } from "../../../../../shared/api/updates-api";
+import { openUpdateRelease, updatesApi, type UpdateCheckResponse } from "../../../../../shared/api/updates-api";
 import { backgroundsApi, fontsApi } from "../../../../../shared/api/settings-assets-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import {
@@ -3698,15 +3698,8 @@ export function AdvancedSettings() {
     if (!updateInfo || !updateInfo.updateAvailable || openingUpdate || checkingUpdates) return;
     setOpeningUpdate(true);
     try {
-      const result = await updatesApi.apply(updateInfo);
-      try {
-        await openExternalUrl(result.releaseUrl);
-        toast.info(result.message);
-      } catch (openErr) {
-        toast.error(toUserMessage(openErr, "openUpdate"), {
-          description: result.message,
-        });
-      }
+      await openUpdateRelease(updateInfo, openExternalUrl);
+      toast.info(updateInfo.manualUpdateHint);
     } catch (err) {
       toast.error(toUserMessage(err, "openUpdate"));
     } finally {

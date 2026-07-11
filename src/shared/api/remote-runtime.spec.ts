@@ -104,6 +104,16 @@ describe("readRemoteError", () => {
       body: "Provider gateway timed out",
     });
   });
+
+  it("explains how to recover when an older runtime rejects Deki session storage", async () => {
+    const error = await readRemoteError(
+      jsonResponse({ message: "Unsupported storage entity: deki-sessions" }, { status: 400 }),
+    );
+
+    expect(error.message).toBe(
+      "This De-Koi server is older than the web app and cannot store Deki sessions. Update and restart the server, then refresh this page.",
+    );
+  });
 });
 
 describe("invokeRemote", () => {
