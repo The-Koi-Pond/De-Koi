@@ -558,6 +558,7 @@ fn storage_create_inner_impl(
     reject_message_swipe_mutation(&entity)?;
     if entity == "character-versions" {
         character_version_media::reject_inline_character_version_media(&value)?;
+        validate_character_version_write(&value, true)?;
     }
     validate_chat_folder_for_create(state, &entity, &value)?;
     validate_connection_folder_for_create(state, &entity, &value)?;
@@ -607,6 +608,9 @@ fn storage_create_inner_impl(
             return Err(error);
         }
     };
+    if entity == "character-versions" {
+        prune_character_version_write(state, &created)?;
+    }
     if entity == "connections" {
         clear_other_default_connections(state, &created)?;
         clear_other_default_agent_connections(state, &created)?;
@@ -652,6 +656,7 @@ fn storage_update_inner_impl(
     reject_message_swipe_mutation(&entity)?;
     if entity == "character-versions" {
         character_version_media::reject_inline_character_version_media(&patch)?;
+        validate_character_version_write(&patch, false)?;
     }
     if entity == "messages" {
         let updated = chats::patch_message_update_with_memory_prune(state, &id, patch)?;
@@ -697,11 +702,61 @@ fn storage_update_inner_impl(
     } else {
         state.storage.patch(&entity, &id, normalized_patch)?
     };
+    if entity == "character-versions" {
+        prune_character_version_write(state, &updated)?;
+    }
     if entity == "connections" {
         clear_other_default_connections(state, &updated)?;
         clear_other_default_agent_connections(state, &updated)?;
     }
     Ok(updated)
+}
+
+fn prune_character_version_write(state: &AppState, row: &Value) -> Result<(), AppError> {
+    let character_id = row
+        .get("characterId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppError::invalid_input("Character version requires a non-empty characterId")
+        })?;
+    let ids = std::collections::HashSet::from([character_id.to_string()]);
+    crate::storage_commands::character_version_retention::prune_character_versions(
+        state,
+        Some(&ids),
+    )
+    .map(|_| ())
+}
+
+fn validate_character_version_write(
+    value: &Value,
+    require_character_id: bool,
+) -> Result<(), AppError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| AppError::invalid_input("Character version must be an object"))?;
+    if object
+        .get("pinned")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err(AppError::invalid_input(
+            "Character version pinned must be a boolean",
+        ));
+    }
+    if require_character_id
+        && object
+            .get("characterId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .is_none()
+    {
+        return Err(AppError::invalid_input(
+            "Character version requires a non-empty characterId",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn prepare_entity_for_create(
@@ -1258,6 +1313,60 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn generic_character_version_writes_enforce_retention() {
+        let state = test_state("generic-version-retention");
+        for index in 0..50 {
+            state
+                .storage
+                .create(
+                    "character-versions",
+                    json!({
+                        "id": format!("old-{index:02}"), "characterId": "char-1",
+                        "createdAt": format!("2025-01-01T00:{index:02}:00Z"), "pinned": false
+                    }),
+                )
+                .unwrap();
+        }
+        storage_create_inner(
+            &state,
+            "character-versions".into(),
+            json!({
+                "id": "new", "characterId": "char-1", "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        )
+        .unwrap();
+        assert_eq!(state.storage.list("character-versions").unwrap().len(), 50);
+        assert!(state
+            .storage
+            .get("character-versions", "old-00")
+            .unwrap()
+            .is_none());
+
+        state
+            .storage
+            .create(
+                "character-versions",
+                json!({
+                    "id": "formerly-pinned", "characterId": "char-1",
+                    "createdAt": "2024-01-01T00:00:00Z", "pinned": true
+                }),
+            )
+            .unwrap();
+        storage_update_inner(
+            &state,
+            "character-versions".into(),
+            "formerly-pinned".into(),
+            json!({"pinned": false}),
+        )
+        .unwrap();
+        assert!(state
+            .storage
+            .get("character-versions", "formerly-pinned")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

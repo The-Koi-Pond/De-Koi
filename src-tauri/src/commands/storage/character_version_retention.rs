@@ -7,6 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
+#[cfg(test)]
+static FORCE_PRUNE_FAILURE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
 pub(crate) const CHARACTER_VERSION_UNPINNED_LIMIT: usize = 50;
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -87,6 +90,18 @@ pub(crate) fn prune_character_versions(
     state: &AppState,
     character_ids: Option<&HashSet<String>>,
 ) -> AppResult<CharacterVersionPruneReport> {
+    #[cfg(test)]
+    if FORCE_PRUNE_FAILURE
+        .lock()
+        .expect("forced prune failure should lock")
+        .take_if(|data_dir| data_dir == &state.data_dir)
+        .is_some()
+    {
+        return Err(marinara_core::AppError::new(
+            "forced_character_version_prune_failure",
+            "forced character version prune failure",
+        ));
+    }
     let mut rows = Vec::new();
     let mut malformed_ownerless_rows = 0;
     state
@@ -152,6 +167,51 @@ pub(crate) fn prune_character_versions(
         preserved_shared_media,
         malformed_ownerless_rows,
     })
+}
+
+pub(crate) fn preview_character_version_pruning(rows: &[Value]) -> CharacterVersionPruneReport {
+    let metadata = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(source_index, row)| {
+            Some(VersionRetentionMeta {
+                id: non_empty_string(row, "id")?,
+                character_id: non_empty_string(row, "characterId"),
+                pinned: row.get("pinned").and_then(Value::as_bool).unwrap_or(false),
+                created_at: parse_date(row, "createdAt"),
+                updated_at: parse_date(row, "updatedAt"),
+                version_parts: parse_version_parts(
+                    row.get("version")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                ),
+                source_index,
+            })
+        })
+        .collect::<Vec<_>>();
+    let selected = select_pruned_rows(&metadata, CHARACTER_VERSION_UNPINNED_LIMIT);
+    CharacterVersionPruneReport {
+        affected_characters: metadata
+            .iter()
+            .filter_map(|row| row.character_id.as_deref())
+            .collect::<HashSet<_>>()
+            .len(),
+        retained_unpinned: metadata.iter().filter(|row| !row.pinned).count() - selected.len(),
+        retained_pinned: metadata.iter().filter(|row| row.pinned).count(),
+        pruned_rows: selected.len(),
+        malformed_ownerless_rows: rows
+            .iter()
+            .filter(|row| non_empty_string(row, "characterId").is_none())
+            .count(),
+        ..Default::default()
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn force_character_version_prune_failure(state: &AppState) {
+    *FORCE_PRUNE_FAILURE
+        .lock()
+        .expect("forced prune failure should lock") = Some(state.data_dir.clone());
 }
 
 fn filter_identity(source_index: usize, row: &Value) -> Option<VersionRetentionIdentity> {
