@@ -1148,6 +1148,22 @@ fn download_cancel_requested(cancel: &watch::Receiver<bool>) -> bool {
     *cancel.borrow()
 }
 
+const DOWNLOAD_DISK_HEADROOM_BYTES: u64 = 512 * 1024 * 1024;
+
+fn ensure_download_space(available: u64, remaining: u64) -> AppResult<()> {
+    let required = remaining.saturating_add(DOWNLOAD_DISK_HEADROOM_BYTES);
+    if available < required {
+        return Err(AppError::new(
+            "sidecar_insufficient_disk_space",
+            format!(
+                "Not enough disk space for this download. Free at least {} additional bytes.",
+                required.saturating_sub(available)
+            ),
+        ));
+    }
+    Ok(())
+}
+
 async fn download_url_to_path(
     url: &str,
     destination: &Path,
@@ -1165,21 +1181,19 @@ async fn download_url_to_path(
             .map(|extension| format!("{}.", extension.to_string_lossy()))
             .unwrap_or_default()
     ));
-    if temp_path.exists() {
-        let _ = fs::remove_file(&temp_path);
-    }
+    let partial_len = fs::metadata(&temp_path).map(|metadata| metadata.len()).unwrap_or(0);
 
     let client = reqwest::Client::builder()
         .build()
         .map_err(|error| AppError::new("sidecar_download_failed", error.to_string()))?;
     if download_cancel_requested(&cancel) {
-        let _ = tokio::fs::remove_file(&temp_path).await;
         return Err(download_cancelled_error());
     }
-    let request = client
-        .get(url)
-        .header(USER_AGENT, MARINARA_USER_AGENT)
-        .send();
+    let mut request_builder = client.get(url).header(USER_AGENT, MARINARA_USER_AGENT);
+    if partial_len > 0 {
+        request_builder = request_builder.header(reqwest::header::RANGE, format!("bytes={partial_len}-"));
+    }
+    let request = request_builder.send();
     tokio::pin!(request);
     let response = loop {
         tokio::select! {
@@ -1188,7 +1202,6 @@ async fn download_url_to_path(
             }
             changed = cancel.changed() => {
                 if changed.is_ok() && download_cancel_requested(&cancel) {
-                    let _ = tokio::fs::remove_file(&temp_path).await;
                     return Err(download_cancelled_error());
                 }
             }
@@ -1206,16 +1219,31 @@ async fn download_url_to_path(
         ));
     }
 
-    let total = response.content_length().unwrap_or(0);
-    let mut downloaded = 0u64;
+    let resumed = partial_len > 0 && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+    if let (Some(parent), Some(remaining)) = (destination.parent(), response.content_length()) {
+        let available = fs2::available_space(parent)
+            .map_err(|error| AppError::new("sidecar_disk_space_check_failed", error.to_string()))?;
+        ensure_download_space(available, remaining)?;
+    }
+    let total = response
+        .content_length()
+        .unwrap_or(0)
+        .saturating_add(if resumed { partial_len } else { 0 });
+    let mut downloaded = if resumed { partial_len } else { 0 };
     let mut last_report = Instant::now();
     let mut last_report_bytes = 0u64;
-    let mut file = tokio::fs::File::create(&temp_path).await?;
+    let mut file = if resumed {
+        tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(&temp_path)
+            .await?
+    } else {
+        tokio::fs::File::create(&temp_path).await?
+    };
     let mut response = response;
 
     loop {
         if download_cancel_requested(&cancel) {
-            let _ = tokio::fs::remove_file(&temp_path).await;
             return Err(download_cancelled_error());
         }
         let next_chunk = response.chunk();
@@ -1227,7 +1255,6 @@ async fn download_url_to_path(
                 }
                 changed = cancel.changed() => {
                     if changed.is_ok() && download_cancel_requested(&cancel) {
-                        let _ = tokio::fs::remove_file(&temp_path).await;
                         return Err(download_cancelled_error());
                     }
                 }
@@ -3391,6 +3418,8 @@ mod tests {
     async fn download_cancel_aborts_stalled_chunk_read() {
         let root = temp_dir("cancel-stalled-download");
         let destination = root.join("model.gguf");
+        fs::write(destination.with_extension("gguf.download"), b"partial")
+            .expect("partial fixture should be writable");
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
             .expect("stalled test server should bind");
@@ -3440,9 +3469,60 @@ mod tests {
         let error = result.expect_err("stalled download should return a cancel error");
         assert_eq!(error.code, "sidecar_download_cancelled");
         assert!(!destination.exists());
-        assert!(!destination.with_extension("gguf.download").exists());
+        assert!(destination.with_extension("gguf.download").exists());
         server.abort();
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn download_resumes_an_existing_partial_file() {
+        let root = temp_dir("resume-partial-download");
+        let destination = root.join("model.gguf");
+        let partial = destination.with_extension("gguf.download");
+        fs::write(&partial, b"ab").expect("partial fixture should be writable");
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("resume test server should bind");
+        let addr = listener.local_addr().expect("server address should resolve");
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("server should accept request");
+            let mut request = [0u8; 2048];
+            let count = socket.read(&mut request).await.expect("request should read");
+            let request = String::from_utf8_lossy(&request[..count]);
+            assert!(
+                request.to_ascii_lowercase().contains("range: bytes=2-"),
+                "request was {request}"
+            );
+            socket
+                .write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 2\r\nContent-Range: bytes 2-3/4\r\n\r\ncd")
+                .await
+                .expect("partial response should write");
+        });
+        let (_cancel_tx, cancel_rx) = watch::channel(false);
+
+        download_url_to_path(
+            &format!("http://{addr}/model.gguf"),
+            &destination,
+            "model",
+            "Resume model",
+            cancel_rx,
+        )
+        .await
+        .expect("partial download should resume");
+
+        assert_eq!(fs::read(&destination).expect("model should read"), b"abcd");
+        assert!(!partial.exists());
+        server.await.expect("server should finish");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn download_space_check_requires_transfer_plus_headroom() {
+        let error = ensure_download_space(600 * 1024 * 1024, 100 * 1024 * 1024)
+            .expect_err("less than transfer plus headroom should reject");
+        assert_eq!(error.code, "sidecar_insufficient_disk_space");
+        ensure_download_space(700 * 1024 * 1024, 100 * 1024 * 1024)
+            .expect("sufficient transfer headroom should pass");
     }
 
     #[test]
