@@ -118,6 +118,25 @@ describe("remote managed assets", () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 
+  it("evicts and revokes the least recently used authorized asset after 64 entries", async () => {
+    remoteRuntimeMock.target = { baseUrl: "http://127.0.0.1:3080", authorization: "Basic token" };
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation(async () => new Response("asset", { status: 200 })));
+    const createObjectURL = vi.fn((_blob: Blob) => `blob:managed-asset-${createObjectURL.mock.calls.length}`);
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+
+    for (let index = 0; index < 65; index += 1) {
+      await remoteManagedAssetResolvableUrl("gallery", `image-${index}.png`);
+    }
+
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:managed-asset-1");
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+
+    await remoteManagedAssetResolvableUrl("gallery", "image-0.png");
+    expect(createObjectURL).toHaveBeenCalledTimes(66);
+  });
+
   it("adds source invalidation versions to thumbnail routes without changing unrelated assets", () => {
     const beforeThumbnail = remoteManagedAssetUrl("thumbnail", "gallery/256/folder/image.png");
     const beforeGallery = remoteManagedAssetUrl("gallery", "folder/image.png");
