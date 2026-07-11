@@ -31,6 +31,9 @@ use transaction::*;
 use write_gate::WriteGate;
 
 const STORAGE_SAVE_DEBOUNCE_MS: u64 = 750;
+const MAX_CLEAN_COLLECTION_CACHE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PROJECTED_LIST_CACHE_SHAPES: usize = 32;
 
 pub struct AtomicCollectionRows {
     collection: String,
@@ -865,6 +868,7 @@ impl FileStorage {
 
     fn cache_collection(&self, collection: &str, rows: &[Value], dirty: bool) -> AppResult<()> {
         validate_collection_name(collection)?;
+        let approx_bytes = rows.iter().map(approximate_json_bytes).sum::<usize>();
         let mut cache = self
             .cache
             .write()
@@ -874,6 +878,33 @@ impl FileStorage {
             cache
                 .projected_lists
                 .retain(|key, _| key.collection != collection);
+        } else if approx_bytes > MAX_CLEAN_COLLECTION_CACHE_BYTES {
+            cache.collections.remove(collection);
+            return Ok(());
+        } else {
+            while cache
+                .collections
+                .values()
+                .filter(|cached| !cached.dirty)
+                .map(|cached| cached.approx_bytes)
+                .sum::<usize>()
+                .saturating_add(approx_bytes)
+                > MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES
+            {
+                let Some(eviction_key) = cache
+                    .collections
+                    .iter()
+                    .find(|(key, cached)| key.as_str() != collection && !cached.dirty)
+                    .map(|(key, _)| key.clone())
+                else {
+                    break;
+                };
+                cache.collections.remove(&eviction_key);
+                cache.id_indexes.remove(&eviction_key);
+                cache
+                    .projected_lists
+                    .retain(|key, _| key.collection != eviction_key);
+            }
         }
         cache.collections.insert(
             collection.to_string(),
@@ -881,6 +912,7 @@ impl FileStorage {
                 rows: rows.to_vec(),
                 row_indices_by_id: row_indices_by_id(rows),
                 dirty,
+                approx_bytes,
             },
         );
         Ok(())
@@ -931,6 +963,9 @@ impl FileStorage {
                 .retain(|key, _| key.collection != *collection);
             if let Some(cached) = cache.collections.get_mut(*collection) {
                 let next_index = cached.rows.len();
+                cached.approx_bytes = cached
+                    .approx_bytes
+                    .saturating_add(rows.iter().map(approximate_json_bytes).sum::<usize>());
                 cached.rows.extend(rows.iter().cloned());
                 for (offset, row) in rows.iter().enumerate() {
                     let Some(id) = row.get("id").and_then(Value::as_str) else {
@@ -2028,6 +2063,13 @@ impl FileStorage {
             .cache
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+        if !cache.projected_lists.contains_key(key)
+            && cache.projected_lists.len() >= MAX_PROJECTED_LIST_CACHE_SHAPES
+        {
+            if let Some(eviction_key) = cache.projected_lists.keys().next().cloned() {
+                cache.projected_lists.remove(&eviction_key);
+            }
+        }
         cache.projected_lists.insert(
             key.clone(),
             CachedProjectedList {
@@ -5905,6 +5947,51 @@ mod tests {
             "old-character"
         );
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn clean_collection_cache_rejects_rows_over_sixteen_mib() {
+        let root = temp_storage_root("cache-oversized-clean");
+        let storage = FileStorage::new(&root).unwrap();
+        let rows = vec![json!({ "id": "large", "payload": "x".repeat(16 * 1024 * 1024) })];
+
+        storage.cache_collection("gallery", &rows, false).unwrap();
+
+        assert!(!storage.is_collection_cached("gallery").unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn dirty_collection_cache_preserves_oversized_rows_until_flush() {
+        let root = temp_storage_root("cache-oversized-dirty");
+        let storage = FileStorage::new(&root).unwrap();
+        let rows = vec![json!({ "id": "large", "payload": "x".repeat(16 * 1024 * 1024) })];
+
+        storage.cache_collection("gallery", &rows, true).unwrap();
+
+        assert!(storage.is_collection_cached("gallery").unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn projected_list_cache_keeps_at_most_thirty_two_shapes() {
+        let root = temp_storage_root("projection-cache-shape-cap");
+        let storage = FileStorage::new(&root).unwrap();
+        for index in 0..33 {
+            let key = ProjectionCacheKey {
+                collection: "characters".to_string(),
+                shape: ProjectionShape {
+                    fields: vec![format!("field-{index}")],
+                    field_selections: Vec::new(),
+                },
+            };
+            storage
+                .cache_projected_list(&key, &[json!({ "id": index })], None)
+                .unwrap();
+        }
+
+        assert_eq!(storage.cache.read().unwrap().projected_lists.len(), 32);
         fs::remove_dir_all(root).unwrap();
     }
 }

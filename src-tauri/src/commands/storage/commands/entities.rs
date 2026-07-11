@@ -356,7 +356,11 @@ fn storage_list_inner_impl(
         };
         ordering.then_with(|| {
             let id_ordering = compare_json_values(a.get("id"), b.get("id"));
-            if descending { id_ordering.reverse() } else { id_ordering }
+            if descending {
+                id_ordering.reverse()
+            } else {
+                id_ordering
+            }
         })
     });
 
@@ -400,7 +404,10 @@ fn storage_list_inner_impl(
     ) {
         if let Some((cursor_value, cursor_id)) = before.rsplit_once('|') {
             rows.retain(|row| {
-                let value_ordering = compare_json_values(row.get(order_field), Some(&Value::String(cursor_value.into())));
+                let value_ordering = compare_json_values(
+                    row.get(order_field),
+                    Some(&Value::String(cursor_value.into())),
+                );
                 let cursor_ordering = value_ordering.then_with(|| {
                     compare_json_values(row.get("id"), Some(&Value::String(cursor_id.into())))
                 });
