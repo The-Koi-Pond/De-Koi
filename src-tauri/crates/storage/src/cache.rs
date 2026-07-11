@@ -81,7 +81,7 @@ pub(crate) struct CollectionFastStamp {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct CollectionContentStamp {
+pub struct CollectionContentStamp {
     pub(crate) len: u64,
     pub(crate) modified_nanos: u128,
     pub(crate) content_signature: u64,

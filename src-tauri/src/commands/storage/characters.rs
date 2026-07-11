@@ -7,7 +7,21 @@ use super::media_uploads::{
 };
 use super::shared::*;
 use super::*;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+
+fn prune_saved_character_versions(state: &AppState, character_id: &str) -> AppResult<()> {
+    let ids = HashSet::from([character_id.to_string()]);
+    super::character_version_retention::prune_character_versions(state, Some(&ids))
+        .map(|_| ())
+        .map_err(|error| {
+            AppError::with_details(
+                "character_version_prune_failed",
+                "Character was saved, but version history cleanup failed",
+                json!({ "causeCode": error.code }),
+            )
+        })
+}
 
 const VERSION_SOURCE_FIELD: &str = "versionSource";
 const VERSION_REASON_FIELD: &str = "versionReason";
@@ -79,11 +93,18 @@ where
 
     before_live_patch();
 
+    let should_prune_versions = created_snapshot.is_some();
+
     match state
         .storage
         .patch("characters", character_id, Value::Object(patch))
     {
-        Ok(updated) => Ok(updated),
+        Ok(updated) => {
+            if should_prune_versions {
+                prune_saved_character_versions(state, character_id)?;
+            }
+            Ok(updated)
+        }
         Err(error) => {
             rollback_character_version_snapshot(
                 state,
@@ -583,6 +604,7 @@ where
         None
     };
     before_live_patch();
+    let should_prune_versions = created_snapshot.is_some();
     let updated = match state
         .storage
         .patch("characters", character_id, Value::Object(patch))
@@ -604,6 +626,9 @@ where
         }
     };
     remove_previous_character_avatar_after_restore(state, &existing, &updated);
+    if should_prune_versions {
+        prune_saved_character_versions(state, character_id)?;
+    }
     Ok(updated)
 }
 
@@ -872,6 +897,104 @@ mod tests {
             .storage
             .list("character-versions")
             .expect("versions should list")
+    }
+
+    fn seed_unpinned_versions(state: &AppState, count: usize) {
+        for index in 0..count {
+            state
+                .storage
+                .create(
+                    "character-versions",
+                    json!({
+                        "id": format!("seed-{index:02}"),
+                        "characterId": "char-1",
+                        "version": format!("0.{index}"),
+                        "createdAt": format!("2025-01-01T00:{index:02}:00Z"),
+                        "pinned": false
+                    }),
+                )
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn snapshot_prunes_character_versions() {
+        let state = test_state("snapshot-prunes");
+        create_character(&state);
+        seed_unpinned_versions(&state, 50);
+
+        update_character(&state, "char-1", json!({"comment": "new title"})).unwrap();
+
+        let versions = character_versions(&state);
+        assert_eq!(versions.len(), 50);
+        assert!(versions
+            .iter()
+            .any(|row| row["comment"] == "Original title"));
+    }
+
+    #[test]
+    fn character_update_without_snapshot_does_not_prune_versions() {
+        let state = test_state("non-snapshot-does-not-prune");
+        create_character(&state);
+        seed_unpinned_versions(&state, 51);
+
+        update_character(&state, "char-1", json!({"favorite": true})).unwrap();
+        assert_eq!(character_versions(&state).len(), 51);
+
+        update_character(
+            &state,
+            "char-1",
+            json!({"comment": "saved without history", "skipVersionSnapshot": true}),
+        )
+        .unwrap();
+        assert_eq!(character_versions(&state).len(), 51);
+    }
+
+    #[test]
+    fn snapshot_prune_failure_keeps_durable_snapshot() {
+        let state = test_state("snapshot-prune-failure");
+        create_character(&state);
+        seed_unpinned_versions(&state, 50);
+        super::super::character_version_retention::force_character_version_prune_failure(&state);
+
+        let error = update_character(&state, "char-1", json!({"comment": "saved"})).unwrap_err();
+
+        assert_eq!(error.code, "character_version_prune_failed");
+        assert_eq!(character_versions(&state).len(), 51);
+        assert_eq!(
+            state.storage.get("characters", "char-1").unwrap().unwrap()["comment"],
+            "saved"
+        );
+    }
+
+    #[test]
+    fn restore_and_avatar_update_prune_character_versions() {
+        let state = test_state("restore-avatar-prunes");
+        create_character(&state);
+        seed_unpinned_versions(&state, 50);
+        state.storage.create("character-versions", json!({
+            "id": "restore-target", "characterId": "char-1", "createdAt": "2026-01-01T00:00:00Z",
+            "data": {"name": "Restored", "character_version": "2.0"}, "pinned": true
+        })).unwrap();
+
+        restore_character_version(&state, "char-1", "restore-target").unwrap();
+        assert_eq!(character_versions(&state).len(), 51);
+        assert_eq!(
+            character_versions(&state)
+                .iter()
+                .filter(|row| row["pinned"] != true)
+                .count(),
+            50
+        );
+
+        update_character(&state, "char-1", json!({"avatarPath": "new-avatar"})).unwrap();
+        assert_eq!(
+            character_versions(&state)
+                .iter()
+                .filter(|row| row["pinned"] != true)
+                .count(),
+            50
+        );
     }
 
     #[test]

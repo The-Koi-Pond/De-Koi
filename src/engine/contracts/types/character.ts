@@ -173,6 +173,7 @@ export interface CharacterCardVersion {
   source: "manual" | "agent" | "command" | "restore" | string;
   reason: string;
   createdAt: string;
+  pinned?: boolean;
 }
 
 /** A group of characters (e.g. "Fatui Harbingers") â€” acts as a preset that adds all members to a chat. */

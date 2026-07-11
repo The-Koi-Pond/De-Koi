@@ -6,6 +6,7 @@ import {
   characterKeys,
   useCharacterLibrarySummaries,
   useChatSurfaceCharacterSummariesByIds,
+  useSetCharacterVersionPinned,
   useUpdateCharacter,
 } from "./use-characters";
 
@@ -189,5 +190,23 @@ describe("character update cache", () => {
     expect(queryClientMock.setQueryData).toHaveBeenCalledWith(characterKeys.panelSummaries(), expect.any(Function));
     expect(queryClientMock.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: characterKeys.panelSummaries() });
     expect(useMutation).toHaveBeenCalled();
+  });
+});
+
+describe("character version pin mutation", () => {
+  it("updates pin state and invalidates the owning character history", async () => {
+    const updated = { id: "version-1", characterId: "char-1", pinned: true };
+    vi.mocked(storageApi.update).mockResolvedValue(updated);
+
+    const mutation = useSetCharacterVersionPinned() as unknown as {
+      mutationFn: (variables: { characterId: string; versionId: string; pinned: boolean }) => Promise<unknown>;
+      onSuccess: (data: unknown, variables: { characterId: string }) => void;
+    };
+    const variables = { characterId: "char-1", versionId: "version-1", pinned: true };
+    await mutation.mutationFn(variables);
+    mutation.onSuccess(updated, variables);
+
+    expect(storageApi.update).toHaveBeenCalledWith("character-versions", "version-1", { pinned: true });
+    expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith({ queryKey: characterKeys.versions("char-1") });
   });
 });

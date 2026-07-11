@@ -454,8 +454,18 @@ where
         rollback_character_version_media_files(&state.storage, &created_version_media)?;
         return Err(error);
     }
+    let retention = crate::storage_commands::character_version_retention::prune_character_versions(
+        state,
+        Some(&plan.version_character_ids),
+    )?;
     progress.advance_untracked_after_commit("write", "write", "Profile data written", 1);
-    Ok(json!({ "success": true, "imported": plan.imported }))
+    Ok(
+        json!({ "success": true, "imported": plan.imported, "versionRetention": {
+            "affectedCharacters": retention.affected_characters,
+            "retainedPinned": retention.retained_pinned,
+            "pruned": retention.pruned_rows
+        }}),
+    )
 }
 
 pub(super) fn preview_legacy_profile_tables(
@@ -475,12 +485,21 @@ pub(super) fn preview_legacy_profile_tables(
         &mut created_version_media,
     )?;
     debug_assert!(created_version_media.is_empty());
-    Ok(json!({ "success": true, "preview": true, "imported": plan.imported }))
+    Ok(
+        json!({ "success": true, "preview": true, "imported": plan.imported, "versionRetention": {
+            "affectedCharacters": plan.retention_preview.affected_characters,
+            "retainedPinned": plan.retention_preview.retained_pinned,
+            "wouldPrune": plan.retention_preview.pruned_rows
+        }}),
+    )
 }
 
 struct LegacyProfileImportPlan {
     imported: Map<String, Value>,
     replacements: Vec<(&'static str, Vec<Value>)>,
+    version_character_ids: std::collections::HashSet<String>,
+    retention_preview:
+        crate::storage_commands::character_version_retention::CharacterVersionPruneReport,
 }
 
 fn legacy_profile_import_plan(
@@ -603,9 +622,27 @@ fn legacy_profile_import_plan(
         imported.insert("ooc-influences".to_string(), json!(imported_ooc_influences));
     }
     insert_profile_import_aliases(&mut imported);
+    let version_rows = replacements
+        .iter()
+        .find(|(collection, _)| *collection == "character-versions")
+        .map(|(_, rows)| rows.as_slice())
+        .unwrap_or_default();
+    let version_character_ids = version_rows
+        .iter()
+        .filter_map(|row| row.get("characterId").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect();
+    let retention_preview =
+        crate::storage_commands::character_version_retention::preview_character_version_pruning(
+            version_rows,
+        );
     Ok(LegacyProfileImportPlan {
         imported,
         replacements,
+        version_character_ids,
+        retention_preview,
     })
 }
 
@@ -1225,6 +1262,31 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp profile dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn legacy_character_version_import_reports_and_enforces_retention() {
+        let state = test_state("version-retention");
+        let rows = (0..57)
+            .map(|index| {
+                json!({
+                    "id": format!("version-{index:02}"), "characterId": "char-1",
+                    "createdAt": format!("2025-01-01T00:{:02}:00Z", index.min(59)),
+                    "pinned": index >= 55
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut tables = Map::new();
+        tables.insert("character_card_versions".into(), Value::Array(rows));
+
+        let preview = preview_legacy_profile_tables(&state, &tables, 0).unwrap();
+        assert_eq!(preview["versionRetention"]["wouldPrune"], 5);
+        let committed =
+            import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+                .unwrap();
+        assert_eq!(committed["versionRetention"]["pruned"], 5);
+        assert_eq!(committed["versionRetention"]["retainedPinned"], 2);
+        assert_eq!(state.storage.list("character-versions").unwrap().len(), 52);
     }
 
     #[test]

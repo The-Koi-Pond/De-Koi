@@ -7,6 +7,7 @@ mod streaming;
 mod transaction;
 mod write_gate;
 
+pub use cache::CollectionContentStamp;
 use cache::*;
 use chat_summaries::*;
 use journal::*;
@@ -14,7 +15,6 @@ use marinara_core::{ensure_object, new_id, now_iso, AppError, AppResult};
 use marinara_security::validate_collection_name;
 use messages::*;
 use projection::*;
-pub use streaming::StreamingTransformReport;
 use serde::Deserializer as _;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
@@ -26,6 +26,7 @@ use std::sync::{
     Arc, RwLock,
 };
 use std::time::Duration;
+pub use streaming::{StreamingFilterReport, StreamingTransformReport};
 use transaction::*;
 use write_gate::WriteGate;
 

@@ -256,15 +256,42 @@ pub(crate) fn cleanup_orphaned_character_version_media(
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|filename| is_content_addressed_version_filename(filename))
         .collect::<HashSet<_>>();
-    storage.visit_collection_streaming("character-versions", |_index, row| {
-        for field in ["avatarFilename", "bannerImageFilename"] {
-            if let Some(filename) = row.get(field).and_then(Value::as_str) {
-                candidates.remove(filename);
+    for collection in ["character-versions", "characters"] {
+        storage.visit_collection_streaming(collection, |_index, row| {
+            for field in ["avatarFilename", "bannerImageFilename"] {
+                if let Some(filename) = row.get(field).and_then(Value::as_str) {
+                    candidates.remove(filename);
+                }
             }
-        }
-        Ok(())
-    })?;
-    remove_live_character_banner_references(storage, &mut candidates, Some(&target_dir))?;
+            for field in ["avatarFilePath", "bannerImageFilePath"] {
+                if let Some(filename) = row
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .and_then(|path| fs::canonicalize(path).ok())
+                    .filter(|path| path.starts_with(&target_dir))
+                    .and_then(|path| {
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .map(str::to_string)
+                    })
+                {
+                    candidates.remove(&filename);
+                }
+            }
+            let urls = [
+                row.get("avatarPath").and_then(Value::as_str),
+                row.get("avatar").and_then(Value::as_str),
+                row.get("avatarUrl").and_then(Value::as_str),
+                row.pointer("/data/extensions/publicProfile/bannerImage")
+                    .and_then(Value::as_str),
+            ];
+            candidates.retain(|filename| {
+                let canonical_url = file_path_asset_url(&target_dir.join(filename));
+                !urls.iter().flatten().any(|url| *url == canonical_url)
+            });
+            Ok(())
+        })?;
+    }
     let mut removed = 0;
     for filename in candidates {
         fs::remove_file(target_dir.join(filename))?;

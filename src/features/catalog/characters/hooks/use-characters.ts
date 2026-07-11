@@ -508,6 +508,16 @@ export function useDeleteCharacterVersion() {
   });
 }
 
+export function useSetCharacterVersionPinned() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ versionId, pinned }: { characterId: string; versionId: string; pinned: boolean }) =>
+      storageApi.update<CharacterCardVersion>("character-versions", versionId, { pinned }),
+    onSuccess: (_data, variables) =>
+      qc.invalidateQueries({ queryKey: characterKeys.versions(variables.characterId) }),
+  });
+}
+
 export function useUploadAvatar() {
   const qc = useQueryClient();
   return useMutation({

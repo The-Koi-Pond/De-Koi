@@ -1,11 +1,16 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { History, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { History, Loader2, Pin, PinOff, RotateCcw, Trash2 } from "lucide-react";
 
 import type { CharacterCardVersion, CharacterData } from "../../../../engine/contracts/types/character";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
-import { useCharacterVersions, useDeleteCharacterVersion, useRestoreCharacterVersion } from "../hooks/use-characters";
+import {
+  useCharacterVersions,
+  useDeleteCharacterVersion,
+  useRestoreCharacterVersion,
+  useSetCharacterVersionPinned,
+} from "../hooks/use-characters";
 import {
   VERSION_COMPARE_FIELDS,
   formatVersionTimestamp,
@@ -27,6 +32,7 @@ export function CharacterVersionHistoryPanel({
   const { data: versions = [], isLoading } = useCharacterVersions(characterId);
   const restoreVersion = useRestoreCharacterVersion();
   const deleteVersion = useDeleteCharacterVersion();
+  const setPinned = useSetCharacterVersionPinned();
   const [selectedVersion, setSelectedVersion] = useState<CharacterCardVersion | null>(null);
 
   if (!characterId) return null;
@@ -64,6 +70,28 @@ export function CharacterVersionHistoryPanel({
     }
   };
 
+  const handleSetPinned = async (version: CharacterCardVersion) => {
+    const pinned = !version.pinned;
+    if (!pinned) {
+      const confirmed = await showConfirmDialog({
+        title: "Unpin Saved Version",
+        message:
+          "Unpin this version? De-Koi keeps only the newest 50 unpinned versions, so this older version may be deleted immediately.",
+        confirmLabel: "Unpin",
+        tone: "destructive",
+      });
+      if (!confirmed) return;
+    }
+    try {
+      await setPinned.mutateAsync({ characterId, versionId: version.id, pinned });
+      toast.success(pinned ? "Pinned version." : "Unpinned version.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update version pin.");
+    }
+  };
+
+  const versionMutationPending = restoreVersion.isPending || deleteVersion.isPending || setPinned.isPending;
+
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--secondary)]/70 p-2.5">
       <div className="flex items-center justify-between gap-2">
@@ -75,6 +103,9 @@ export function CharacterVersionHistoryPanel({
           {isLoading ? "Loading" : `${versions.length} saved`}
         </span>
       </div>
+      <p className="mt-1.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+        De-Koi keeps the newest 50 unpinned versions plus all pinned versions.
+      </p>
 
       {versions.length === 0 ? (
         <p className="mt-2 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
@@ -103,8 +134,24 @@ export function CharacterVersionHistoryPanel({
               </button>
               <button
                 type="button"
+                onClick={() => handleSetPinned(version)}
+                disabled={versionMutationPending}
+                aria-label={version.pinned ? "Unpin version" : "Pin version"}
+                className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-50"
+                title={version.pinned ? "Unpin this version" : "Pin this version"}
+              >
+                {setPinned.isPending && setPinned.variables?.versionId === version.id ? (
+                  <Loader2 size="0.75rem" className="animate-spin" />
+                ) : version.pinned ? (
+                  <PinOff size="0.75rem" />
+                ) : (
+                  <Pin size="0.75rem" />
+                )}
+              </button>
+              <button
+                type="button"
                 onClick={() => handleRestore(version)}
-                disabled={restoreVersion.isPending || deleteVersion.isPending}
+                disabled={versionMutationPending}
                 className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-50"
                 title="Restore this version"
               >
@@ -117,7 +164,7 @@ export function CharacterVersionHistoryPanel({
               <button
                 type="button"
                 onClick={() => handleDeleteVersion(version)}
-                disabled={restoreVersion.isPending || deleteVersion.isPending}
+                disabled={versionMutationPending}
                 className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)] disabled:opacity-50"
                 title="Delete this saved version"
               >
@@ -192,7 +239,7 @@ export function CharacterVersionHistoryPanel({
               <button
                 type="button"
                 onClick={() => handleRestore(selectedVersion)}
-                disabled={restoreVersion.isPending}
+                disabled={versionMutationPending}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {restoreVersion.isPending ? (
