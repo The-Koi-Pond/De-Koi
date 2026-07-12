@@ -70,6 +70,22 @@ describe("checkRemoteRuntimeHealth", () => {
     });
   });
 
+  it("treats an API invoke rate limit as a reachable busy runtime", async () => {
+    stubFetch([
+      jsonResponse({ ok: true, runtime: "de-koi-server", writable: true }),
+      jsonResponse(
+        { code: "rate_limited", message: "Too many requests" },
+        { status: 429 },
+      ),
+    ]);
+
+    await expect(checkRemoteRuntimeHealth("http://127.0.0.1:3080")).resolves.toMatchObject({
+      status: "ok",
+      message: "Remote runtime is online and storage is writable, but API requests are temporarily rate limited.",
+      health: { runtime: "de-koi-server", writable: true },
+    });
+  });
+
   it("rejects unrelated health payloads before invoking the API", async () => {
     const fetchMock = stubFetch([
       jsonResponse({ ok: true, runtime: "other-server", writable: true }),
