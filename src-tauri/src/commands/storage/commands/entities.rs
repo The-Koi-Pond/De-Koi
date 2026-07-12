@@ -3642,6 +3642,16 @@ mod tests {
             std::cmp::Ordering::Equal,
             "different JSON types need a deterministic order for a total comparator"
         );
+        assert_ne!(
+            compare_json_values(Some(&json!([1])), Some(&json!([2]))),
+            std::cmp::Ordering::Equal,
+            "distinct arrays need a deterministic order"
+        );
+        assert_ne!(
+            compare_json_values(Some(&json!({ "rank": 1 })), Some(&json!({ "rank": 2 }))),
+            std::cmp::Ordering::Equal,
+            "distinct objects need a deterministic order"
+        );
 
         let state = test_state("storage-list-mixed-sort-types");
         let rows = (0..24)
