@@ -172,7 +172,7 @@
     "keywords": ["privacy", "personal data", "delete data", "erase data", "clear all", "complete wipe", "backup", "export", "credentials", "assistant history"],
     "audience": "Users who want to understand De-Koi's data handling, remove selected data, or permanently erase every De-Koi-managed copy.",
     "where": "Settings > Privacy & Data.",
-    "actions": [{ "type": "open-settings", "tab": "privacy", "label": "Open Privacy & Data" }],
+    "actions": [{ "type": "open-settings", "tab": "privacy", "destination": "privacy-data", "label": "Open Privacy & Data" }],
     "coverage": "core"
   },
   {
@@ -183,7 +183,7 @@
     "keywords": ["health", "diagnostics", "troubleshooting", "setup", "runtime", "sidecar", "local model", "provider", "storage", "support packet"],
     "audience": "Users checking first-run setup or collecting safe troubleshooting details for support.",
     "where": "Settings > Health.",
-    "actions": [{ "type": "open-settings", "tab": "health", "label": "Open Health" }],
+    "actions": [{ "type": "open-settings", "tab": "health", "destination": "health-diagnostics", "label": "Open Health" }],
     "coverage": "core"
   },
   {
@@ -194,7 +194,7 @@
     "keywords": ["notification", "sound", "frog", "ping", "ding", "audio", "legacy", "custom sound", "alert"],
     "audience": "Users who want Conversation and Roleplay alerts to sound different or match older Marinara builds.",
     "where": "Settings > Appearance > Notifications.",
-    "actions": [{ "type": "open-settings", "tab": "appearance", "label": "Open Notification Sounds" }],
+    "actions": [{ "type": "open-settings", "tab": "appearance", "destination": "notification-sounds", "label": "Open Notification Sounds" }],
     "coverage": "advanced"
   },
   {
@@ -205,7 +205,7 @@
     "keywords": ["import", "sillytavern", "json", "profile", "migration", "cards", "backup"],
     "audience": "Users migrating from another frontend or restoring existing Marinara data.",
     "where": "Settings > Import.",
-    "actions": [{ "type": "open-settings", "tab": "import", "label": "Open Import" }],
+    "actions": [{ "type": "open-settings", "tab": "import", "destination": "profile-import", "label": "Open Import" }],
     "coverage": "core"
   },
   {
@@ -305,7 +305,7 @@
     "where": "Connections, Settings > General, chat settings, Game controls, and relevant agents.",
     "actions": [
       { "type": "open-panel", "panel": "connections", "label": "Open Connections" },
-      { "type": "open-settings", "tab": "general", "label": "Open Image Settings" }
+      { "type": "open-settings", "tab": "general", "destination": "image-settings", "label": "Open Image Settings" }
     ],
     "coverage": "advanced"
   },
@@ -339,7 +339,7 @@
     "keywords": ["prompt overrides", "template", "custom prompt", "image prompt", "advanced settings", "generation"],
     "audience": "Power users tuning advanced prompts for chat, images, and helper behavior.",
     "where": "Settings > Advanced.",
-    "actions": [{ "type": "open-settings", "tab": "advanced", "label": "Open Advanced" }],
+    "actions": [{ "type": "open-settings", "tab": "advanced", "destination": "prompt-overrides", "label": "Open Prompt Overrides" }],
     "coverage": "advanced"
   },
   {
@@ -482,7 +482,7 @@
     "keywords": ["plugins", "plugin", "core modules", "modules", "optional features", "notes", "notepad", "music player", "youtube", "mini player", "enable module", "disable module"],
     "audience": "Users who want opt-in De-Koi features that are shipped with the app and can be toggled safely.",
     "where": "Settings > Modules.",
-    "actions": [{ "type": "open-settings", "tab": "plugins", "label": "Open Modules" }],
+    "actions": [{ "type": "open-settings", "tab": "plugins", "destination": "modules", "label": "Open Modules" }],
     "coverage": "advanced"
   },
   {
@@ -493,7 +493,7 @@
     "keywords": ["extensions", "extension", "plugin", "customize", "custom behavior", "package manifest", "manifest", "css extension", "js extension", "enable extension", "disable extension"],
     "audience": "Users customizing De-Koi with optional behavior that should stay outside core app code.",
     "where": "Settings > Extensions.",
-    "actions": [{ "type": "open-settings", "tab": "extensions", "label": "Open Extensions" }],
+    "actions": [{ "type": "open-settings", "tab": "extensions", "destination": "extensions", "label": "Open Extensions" }],
     "coverage": "advanced"
   },
   {
@@ -504,7 +504,7 @@
     "keywords": ["backup", "backups", "profile export", "profile import", "restore", "download backup", "managed backup", "migration"],
     "audience": "Users moving devices, testing risky changes, or keeping recovery copies of local data.",
     "where": "Settings > Import for profile import, Settings > Privacy & Data for the privacy overview, and Settings > Advanced for backup and profile export controls.",
-    "actions": [{ "type": "open-settings", "tab": "privacy", "label": "Open Privacy & Data" }],
+    "actions": [{ "type": "open-settings", "tab": "advanced", "destination": "backups", "label": "Open Backups And Export" }],
     "coverage": "advanced"
   },
   {

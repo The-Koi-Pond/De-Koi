@@ -1,4 +1,4 @@
-import type { ComponentType, KeyboardEvent } from "react";
+import { useEffect, useState, type ComponentType, type KeyboardEvent } from "react";
 import {
   Blocks,
   Brush,
@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Wrench,
+  Search,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -25,6 +26,7 @@ import {
 } from "./settings/SettingsSurfaces";
 import { PrivacyDataSettings } from "./settings/PrivacyDataSettings";
 import { SetupJourneyContextBanner } from "../../onboarding/shell";
+import { searchSettingsDestinations } from "../lib/settings-destinations";
 
 const TABS = [
   {
@@ -88,8 +90,30 @@ export function SettingsPanel() {
   const setupIntent = useSetupJourneyStore((s) => s.intent);
   const settingsTab = useUIStore((s) => s.settingsTab);
   const setSettingsTab = useUIStore((s) => s.setSettingsTab);
+  const pendingSettingsDestination = useUIStore((s) => s.pendingSettingsDestination);
+  const setPendingSettingsDestination = useUIStore((s) => s.setPendingSettingsDestination);
+  const [query, setQuery] = useState("");
+  const [highlightedDestination, setHighlightedDestination] = useState<string | null>(null);
+  const searchResults = searchSettingsDestinations(query);
   const activeTab = TABS.find((tab) => tab.id === settingsTab) ?? TABS[0];
   const ActiveSettings = SETTINGS_COMPONENTS[activeTab.id];
+  useEffect(() => {
+    if (!pendingSettingsDestination) return;
+    setHighlightedDestination(pendingSettingsDestination);
+    const frame = requestAnimationFrame(() => {
+      const element = document.getElementById(`settings-destination-${pendingSettingsDestination}`);
+      element?.scrollIntoView?.({
+        behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      });
+      setPendingSettingsDestination(null);
+    });
+    const timeout = window.setTimeout(() => setHighlightedDestination(null), 1800);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [pendingSettingsDestination, setPendingSettingsDestination]);
   const activateTab = (tabId: SettingsTabId, shouldFocus = false) => {
     setSettingsTab(tabId);
     if (shouldFocus) {
@@ -126,8 +150,42 @@ export function SettingsPanel() {
   };
 
   return (
-    <div className="de-koi-settings-panel @container h-full min-h-0">
-      <div className="de-koi-settings-layout h-full min-h-0 @3xl:grid @3xl:grid-cols-[14rem_minmax(0,1fr)]">
+    <div className="de-koi-settings-panel @container flex h-full min-h-0 flex-col">
+      <div className="relative shrink-0 border-b border-[var(--border)] bg-[var(--card)]/65 p-3">
+        <label className="flex min-h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)]/70 px-3 focus-within:border-[var(--primary)]/55 focus-within:ring-1 focus-within:ring-[var(--primary)]/25">
+          <Search size="0.9rem" className="text-[var(--muted-foreground)]" aria-hidden />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search settings"
+            placeholder="Search settings…"
+            className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)]"
+          />
+        </label>
+        {query.trim() && (
+          <div className="absolute inset-x-3 top-[3.6rem] z-20 max-h-64 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--popover)] p-1.5 shadow-xl" aria-live="polite">
+            <p className="px-2 py-1 text-[0.65rem] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+              {searchResults.length} result{searchResults.length === 1 ? "" : "s"}
+            </p>
+            {searchResults.map((destination) => (
+              <button
+                key={destination.id}
+                type="button"
+                onClick={() => {
+                  setSettingsTab(destination.tab);
+                  setPendingSettingsDestination(destination.id);
+                  setQuery("");
+                }}
+                className="flex min-h-11 w-full items-center justify-between rounded-lg px-2.5 py-2 text-left hover:bg-[var(--secondary)]"
+              >
+                <span className="text-xs font-semibold text-[var(--foreground)]">{destination.title}</span>
+                <span className="text-[0.65rem] capitalize text-[var(--muted-foreground)]">{destination.tab}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="de-koi-settings-layout min-h-0 flex-1 @3xl:grid @3xl:grid-cols-[14rem_minmax(0,1fr)]">
         <div
           className="de-koi-settings-tabs flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)]/45 p-2 @3xl:flex-col @3xl:overflow-y-auto @3xl:border-b-0 @3xl:border-r @3xl:p-3"
           role="tablist"
@@ -182,7 +240,15 @@ export function SettingsPanel() {
                 {activeTab.description}
               </p>
             </header>
-            <ActiveSettings />
+            <div
+              id={highlightedDestination ? `settings-destination-${highlightedDestination}` : undefined}
+              className={cn(
+                "scroll-mt-4 rounded-xl transition-shadow duration-700",
+                highlightedDestination && "ring-2 ring-[var(--primary)]/55 ring-offset-4 ring-offset-[var(--background)]",
+              )}
+            >
+              <ActiveSettings />
+            </div>
           </div>
         </div>
       </div>

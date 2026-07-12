@@ -10,12 +10,13 @@ import {
 import { DISCOVERY_CATEGORIES, DISCOVERY_COVERAGE } from "../discovery-types";
 import { getDiscoveryActionLabel, runDiscoveryAction } from "../lib/discovery-actions";
 import { filterDiscoveryEntries } from "../lib/discovery-search";
+import { DISCOVERY_TASKS, filterEntriesForDiscoveryTask, type DiscoveryTaskId } from "../lib/discovery-tasks";
 
 const COVERAGE_LABELS: Record<DiscoveryCoverage, string> = {
-  core: "Core",
+  core: "Everyday",
   advanced: "Advanced",
   experimental: "Experimental",
-  "needs-polish": "Preview",
+  "needs-polish": "Experimental",
 };
 
 const COVERAGE_CLASS: Record<DiscoveryCoverage, string> = {
@@ -81,14 +82,16 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
   const [category, setCategory] = useState<DiscoveryCategory | "All">("All");
   const [coverage, setCoverage] = useState<DiscoveryCoverage | "All">("All");
   const [showAllEntries, setShowAllEntries] = useState(false);
+  const [activeTask, setActiveTask] = useState<DiscoveryTaskId | null>(null);
 
   const entries = useMemo(
     () => filterDiscoveryEntries(DISCOVERY_ENTRIES, query, { category, coverage }),
     [category, coverage, query],
   );
-  const hasActiveFilter = query.trim().length > 0 || category !== "All" || coverage !== "All";
+  const taskEntries = activeTask ? filterEntriesForDiscoveryTask(entries, activeTask) : entries;
+  const hasActiveFilter = query.trim().length > 0 || category !== "All" || coverage !== "All" || activeTask !== null;
   const shouldShowPreview = !hasActiveFilter && !showAllEntries;
-  const visibleEntries = shouldShowPreview ? entries.slice(0, DEFAULT_PREVIEW_COUNT) : entries;
+  const visibleEntries = shouldShowPreview ? taskEntries.slice(0, DEFAULT_PREVIEW_COUNT) : taskEntries;
 
   return (
     <div className="de-koi-discover flex w-full min-w-0 flex-col gap-3 overflow-hidden p-3">
@@ -110,7 +113,10 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
           <Search size="0.9rem" className="shrink-0 text-[var(--muted-foreground)]" aria-hidden />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActiveTask(null);
+            }}
             placeholder="Search features, e.g. voice, lore, webhook..."
             className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)]"
           />
@@ -125,7 +131,10 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
               <button
                 key={item}
                 type="button"
-                onClick={() => setCategory(item)}
+                onClick={() => {
+                  setCategory(item);
+                  setActiveTask(null);
+                }}
                 className={cn(
                   "de-koi-discover-chip shrink-0 rounded-md border px-2.5 py-1.5 text-[0.68rem] font-medium transition-colors",
                   selected
@@ -146,7 +155,10 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
               <button
                 key={item}
                 type="button"
-                onClick={() => setCoverage(item)}
+                onClick={() => {
+                  setCoverage(item);
+                  setActiveTask(null);
+                }}
                 className={cn(
                   "de-koi-discover-chip shrink-0 rounded-md border px-2.5 py-1.5 text-[0.68rem] font-medium transition-colors",
                   selected
@@ -161,6 +173,24 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
         </div>
       </div>
 
+      {shouldShowPreview && (
+        <section className="grid gap-2 sm:grid-cols-2" aria-label="Explore by goal">
+          {DISCOVERY_TASKS.map((task, index) => (
+            <button
+              key={task.id}
+              type="button"
+              onClick={() => setActiveTask(task.id)}
+              className="group flex min-h-14 items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)]/65 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/8"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10 text-xs font-black text-[var(--primary)]">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <span className="text-xs font-semibold leading-snug text-[var(--foreground)]">{task.label}</span>
+            </button>
+          ))}
+        </section>
+      )}
+
       <div className="flex items-center justify-between px-0.5 text-[0.68rem] text-[var(--muted-foreground)]">
         <span>
           {shouldShowPreview
@@ -172,7 +202,7 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
         <span>{DISCOVERY_ENTRIES.length} tracked</span>
       </div>
 
-      {entries.length > 0 ? (
+      {taskEntries.length > 0 ? (
         <div className="flex flex-col gap-2">
           {visibleEntries.map((entry) => (
             <DiscoveryEntryRow key={entry.id} entry={entry} />

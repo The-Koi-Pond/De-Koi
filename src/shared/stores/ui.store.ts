@@ -129,6 +129,7 @@ export const useUIStore = create<UIState>()(
       trackerPanelCollapsedSections: {},
       trackerPanelSectionOrder: [...TRACKER_DATA_PANEL_SECTIONS],
       settingsTab: "general",
+      pendingSettingsDestination: null,
       modal: null,
       theme: "dark" as const,
       chatBackground: null,
@@ -314,6 +315,7 @@ export const useUIStore = create<UIState>()(
         ),
 
       setSettingsTab: (tab) => set({ settingsTab: tab }),
+      setPendingSettingsDestination: (destination) => set({ pendingSettingsDestination: destination }),
       openModal: (type, props) => set({ modal: { type, props } }),
       closeModal: () => set({ modal: null }),
       setTheme: (theme) => set({ theme }),

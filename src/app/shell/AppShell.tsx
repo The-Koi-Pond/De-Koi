@@ -660,7 +660,6 @@ export function AppShell() {
     setDiscoverOpen(false);
   }, []);
   const openDiscover = useCallback(() => {
-    useChatStore.getState().setActiveChatId(null);
     useUIStore.getState().closeAllDetails();
     closeRightPanel();
     closeDekiShell();
@@ -1679,6 +1678,10 @@ export function AppShell() {
             onClose={() => setHelpHubOpen(false)}
             onOpenHealth={openHealthFromHelp}
             onReplayOnboarding={replayOnboardingFromHelp}
+            onOpenDiscover={() => {
+              setHelpHubOpen(false);
+              openDiscover();
+            }}
           />
           {debugMode && hasAgentDebugActivity && (
             <Suspense fallback={null}>
