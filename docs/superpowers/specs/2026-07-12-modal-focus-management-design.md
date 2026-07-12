@@ -42,4 +42,3 @@ Verification gates:
 - High-contrast or color-theme changes.
 - Migration of hand-built dialogs, drawers, or popovers.
 - New runtime, storage, Tauri, HTTP, or engine behavior.
-

@@ -133,4 +133,3 @@ Review the core claim, branch boundary, focused proof, full gate, and unproved m
 - [ ] **Step 4: Publish and merge**
 
 Push only to `origin`, open a draft PR targeting `main` with approved factual wording, wait for required GitHub checks, then merge using the repository's allowed merge method. Verify the PR state and `origin/main` afterward.
-
