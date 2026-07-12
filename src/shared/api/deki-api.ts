@@ -39,6 +39,10 @@ import {
 } from "../../engine/contracts/schemas/prompt.schema";
 import type { StorageEntity } from "../../engine/capabilities/storage";
 import { ApiError } from "./api-errors";
+import {
+  planDekiHistoryPersistence,
+  type DekiHistoryPersistenceSnapshot,
+} from "./deki-history-persistence";
 import { remoteRuntimeTarget } from "./remote-runtime";
 import { storageApi } from "./storage-api";
 import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
@@ -596,6 +600,24 @@ function dekiSessionRecord(session: DekiSession): Record<string, unknown> {
   };
 }
 
+function dekiHistoryPersistenceSnapshot(state: DekiSessionsState): DekiHistoryPersistenceSnapshot {
+  return {
+    activeSessionId: state.activeSessionId,
+    records: state.sessions.flatMap((session) => [
+      {
+        entity: "deki-sessions" as const,
+        id: session.id,
+        value: dekiSessionRecord(session),
+      },
+      ...session.messages.map((message, index) => ({
+        entity: "deki-messages" as const,
+        id: message.id,
+        value: dekiMessageRecord(session.id, message, index),
+      })),
+    ]),
+  };
+}
+
 async function writeStorageRecord(
   entity: "deki-sessions" | "deki-messages",
   id: string,
@@ -675,6 +697,30 @@ async function saveDurableSessionsState(state: DekiSessionsState): Promise<DekiS
   return normalized;
 }
 
+async function saveIncrementalSessionsState(
+  previousState: DekiSessionsState,
+  nextState: DekiSessionsState,
+): Promise<DekiSessionsState> {
+  const previous = normalizeDekiSessionsState(previousState);
+  const next = normalizeDekiSessionsState(nextState);
+  const plan = planDekiHistoryPersistence(
+    dekiHistoryPersistenceSnapshot(previous),
+    dekiHistoryPersistenceSnapshot(next),
+  );
+
+  for (const record of plan.creates) {
+    await storageApi.create(record.entity, record.value);
+  }
+  for (const record of plan.updates) {
+    await storageApi.update(record.entity, record.id, record.value);
+  }
+  for (const record of plan.deletes) {
+    await storageApi.delete(record.entity, record.id);
+  }
+  await saveSettingsPatch({ activeSessionId: next.activeSessionId });
+  return next;
+}
+
 async function clearLegacyDekiHistorySettings(activeSessionId: string): Promise<void> {
   await saveSettingsTransform((settings) => {
     const {
@@ -700,8 +746,11 @@ async function readSessionsState(): Promise<DekiSessionsState> {
   return legacy;
 }
 
-async function saveSessionsState(state: DekiSessionsState): Promise<DekiSessionsState> {
-  return saveDurableSessionsState(state);
+async function saveSessionsState(
+  previousState: DekiSessionsState,
+  nextState: DekiSessionsState,
+): Promise<DekiSessionsState> {
+  return saveIncrementalSessionsState(previousState, nextState);
 }
 function updateSession(
   state: DekiSessionsState,
@@ -1032,7 +1081,7 @@ async function writeDekiActionApplication(
   if (!savedApplication) {
     throw new Error("Deki-senpai action message was not found.");
   }
-  const saved = await saveSessionsState(nextState);
+  const saved = await saveSessionsState(state, nextState);
   const session = sessionFromState(saved, sessionId);
   return {
     application: savedApplication,
@@ -1130,14 +1179,14 @@ export const dekiApi = {
     create: async (): Promise<DekiSessionsState> => {
       const state = await readSessionsState();
       const session = createEmptyDekiSession();
-      return saveSessionsState({ activeSessionId: session.id, sessions: [session, ...state.sessions] });
+      return saveSessionsState(state, { activeSessionId: session.id, sessions: [session, ...state.sessions] });
     },
     select: async (sessionId: string): Promise<DekiSessionsState> => {
       const state = await readSessionsState();
       const nextActiveSessionId = state.sessions.some((session) => session.id === sessionId)
         ? sessionId
         : state.activeSessionId;
-      return saveSessionsState({ ...state, activeSessionId: nextActiveSessionId });
+      return saveSessionsState(state, { ...state, activeSessionId: nextActiveSessionId });
     },
     delete: async (sessionId: string): Promise<DekiSessionsState> => {
       return dekiApi.sessions.deleteMany([sessionId]);
@@ -1151,10 +1200,10 @@ export const dekiApi = {
       if (remaining.length === state.sessions.length) return state;
       if (remaining.length === 0) {
         const session = createEmptyDekiSession();
-        return saveSessionsState({ activeSessionId: session.id, sessions: [session] });
+        return saveSessionsState(state, { activeSessionId: session.id, sessions: [session] });
       }
       const activeSessionId = ids.has(state.activeSessionId) ? remaining[0]!.id : state.activeSessionId;
-      return saveSessionsState({ activeSessionId, sessions: remaining });
+      return saveSessionsState(state, { activeSessionId, sessions: remaining });
     },
   },
   history: {
@@ -1181,7 +1230,7 @@ export const dekiApi = {
           updatedAt: nextMessage.createdAt,
         };
       });
-      await saveSessionsState(nextState);
+      await saveSessionsState(state, nextState);
       return nextMessage;
     },
     replaceMessages: async ({
@@ -1202,7 +1251,7 @@ export const dekiApi = {
         compaction: nextCompaction,
         updatedAt: messages.at(-1)?.createdAt ?? new Date().toISOString(),
       }));
-      return historySnapshot(await saveSessionsState(nextState), sessionId);
+      return historySnapshot(await saveSessionsState(state, nextState), sessionId);
     },
     updateMessage: async ({
       sessionId,
@@ -1229,7 +1278,7 @@ export const dekiApi = {
         };
       });
       if (!updatedMessage) throw new Error("Deki-senpai message could not be found.");
-      await saveSessionsState(nextState);
+      await saveSessionsState(state, nextState);
       return updatedMessage;
     },
     markActionApplied: markDekiActionApplied,
@@ -1239,13 +1288,13 @@ export const dekiApi = {
     ): Promise<DekiCompactionState> => {
       const state = await readSessionsState();
       const nextState = updateSession(state, sessionId, (session) => ({ ...session, compaction }));
-      const saved = await saveSessionsState(nextState);
+      const saved = await saveSessionsState(state, nextState);
       return sessionFromState(saved, sessionId).compaction;
     },
     reset: async (_sessionId?: string | null): Promise<DekiSessionsState> => {
       const state = await readSessionsState();
       const session = createEmptyDekiSession();
-      return saveSessionsState({ activeSessionId: session.id, sessions: [session, ...state.sessions] });
+      return saveSessionsState(state, { activeSessionId: session.id, sessions: [session, ...state.sessions] });
     },
   },
 };

@@ -472,8 +472,9 @@ describe("dekiApi.actions.apply", () => {
 
     const result = await dekiApi.actions.apply(action, { actionId: "message-1", messageId: "message-1" });
 
-    expect(storageApiMock.create).toHaveBeenCalledWith(
+    expect(storageApiMock.update).toHaveBeenCalledWith(
       "deki-messages",
+      "message-1",
       expect.objectContaining({
         id: "message-1",
         sessionId: "deki-session-default",
@@ -880,6 +881,97 @@ describe("dekiApi.history session updates", () => {
       "deki",
       expect.objectContaining({
         value: expect.objectContaining({ activeSessionId: "session-current" }),
+      }),
+    );
+  });
+
+  it("does not rewrite unrelated Deki history when appending a message", async () => {
+    const sessionRows = [
+      {
+        id: "session-active",
+        title: "Active chat",
+        compaction: {},
+        createdAt: "2026-07-12T10:00:00.000Z",
+        updatedAt: "2026-07-12T10:00:00.000Z",
+      },
+      {
+        id: "session-unrelated",
+        title: "Unrelated chat",
+        compaction: {},
+        createdAt: "2026-07-12T09:00:00.000Z",
+        updatedAt: "2026-07-12T09:00:00.000Z",
+      },
+    ];
+    const messageRows = {
+      "session-active": [
+        {
+          id: "message-active",
+          sessionId: "session-active",
+          role: "user",
+          content: "Existing active message.",
+          createdAt: "2026-07-12T10:00:00.000Z",
+          sortOrder: 0,
+        },
+      ],
+      "session-unrelated": [
+        {
+          id: "message-unrelated",
+          sessionId: "session-unrelated",
+          role: "assistant",
+          content: "Leave me alone.",
+          createdAt: "2026-07-12T09:00:00.000Z",
+          sortOrder: 0,
+        },
+      ],
+    } as const;
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "app-settings" && id === "deki") {
+        return { id: "deki", value: { activeSessionId: "session-active" } };
+      }
+      if (entity === "deki-sessions") return sessionRows.find((row) => row.id === id) ?? null;
+      if (entity === "deki-messages") {
+        return [...messageRows["session-active"], ...messageRows["session-unrelated"]].find((row) => row.id === id) ?? null;
+      }
+      return null;
+    });
+    storageApiMock.list.mockImplementation(async (entity: string, options?: { filters?: Record<string, unknown> }) => {
+      if (entity === "deki-sessions") return sessionRows;
+      if (entity === "deki-messages") {
+        const sessionId = options?.filters?.sessionId as keyof typeof messageRows | undefined;
+        return sessionId ? [...messageRows[sessionId]] : Object.values(messageRows).flat();
+      }
+      return [];
+    });
+
+    await dekiApi.history.appendMessage({
+      sessionId: "session-active",
+      role: "assistant",
+      content: "Only persist this change.",
+    });
+
+    expect(storageApiMock.update).not.toHaveBeenCalledWith(
+      "deki-sessions",
+      "session-unrelated",
+      expect.anything(),
+    );
+    expect(storageApiMock.update).not.toHaveBeenCalledWith(
+      "deki-messages",
+      "message-unrelated",
+      expect.anything(),
+    );
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "deki-messages",
+      expect.objectContaining({
+        sessionId: "session-active",
+        role: "assistant",
+        content: "Only persist this change.",
+      }),
+    );
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "app-settings",
+      "deki",
+      expect.objectContaining({
+        value: expect.objectContaining({ activeSessionId: "session-active" }),
       }),
     );
   });
