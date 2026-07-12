@@ -1,8 +1,6 @@
 import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { BookOpen, Compass, HelpCircle, List, MessageSquare, Theater } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
-import { useCreateChat } from "../../../catalog/chats/index";
-import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/index";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { cn } from "../../../../shared/lib/utils";
@@ -68,8 +66,6 @@ export function ModeHomeSurface({
   onOpenNoModelShowcase?: () => void;
 }) {
   const { data: connections } = useConnections();
-  const createChat = useCreateChat();
-  const applyUserStarredChatPreset = useApplyUserStarredChatPreset();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [homeSplashText] = useState(() => pickHomeSplashText());
@@ -84,31 +80,10 @@ export function ModeHomeSurface({
 
   const handleQuickStart = useCallback(
     (mode: QuickStartMode) => {
-      if (languageConnections.length === 0) {
-        useSetupJourneyStore.getState().begin(mode);
-        useChatStore.getState().setPendingNewChatMode(mode);
-        return;
-      }
-
-      const label = mode === "conversation" ? "Conversation" : mode === "game" ? "Game" : "Roleplay";
-      createChat.mutate(
-        { name: `New ${label}`, mode, characterIds: [], connectionId: languageConnections[0]!.id },
-        {
-          onSuccess: async (chat) => {
-            const store = useChatStore.getState();
-            store.setActiveChatId(chat.id);
-            try {
-              await applyUserStarredChatPreset({ mode, chatId: chat.id });
-            } catch {
-              /* non-fatal: chat still opens with system defaults */
-            }
-            store.setShouldOpenSettings(true, chat.id);
-            store.setShouldOpenWizard(true, chat.id);
-          },
-        },
-      );
+      useSetupJourneyStore.getState().begin(mode);
+      useChatStore.getState().setPendingNewChatMode(mode);
     },
-    [applyUserStarredChatPreset, createChat, languageConnections],
+    [],
   );
 
   const showQuickStartEntranceEffects = true;

@@ -24,6 +24,7 @@ import {
   ThemesSettings,
 } from "./settings/SettingsSurfaces";
 import { PrivacyDataSettings } from "./settings/PrivacyDataSettings";
+import { SetupJourneyContextBanner } from "../../onboarding/shell";
 
 const TABS = [
   {
@@ -173,14 +174,7 @@ export function SettingsPanel() {
         >
           <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
             {setupIntent && !setupIntent.completed && (
-              <aside className="mb-4 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/8 p-3" aria-label="Setup journey context">
-                <p className="text-sm font-semibold text-[var(--foreground)]">Connect your De-Koi server to continue setup</p>
-                <p className="mt-1 text-xs text-[var(--muted-foreground)]">Configure and check the existing Remote Runtime controls below. Your {setupIntent.mode} request is waiting.</p>
-                <button type="button" className="mt-2 rounded-md border border-[var(--primary)]/30 px-2.5 py-1.5 text-xs font-semibold text-[var(--primary)]" onClick={() => {
-                  useUIStore.getState().closeRightPanel();
-                  requestAnimationFrame(() => document.getElementById("setup-action-runtime")?.focus());
-                }}>Return to setup</button>
-              </aside>
+              <div className="mb-4"><SetupJourneyContextBanner owner="runtime" mode={setupIntent.mode} onReturn={() => useUIStore.getState().closeRightPanel()} /></div>
             )}
             <header className="mb-5 border-b border-[var(--border)] pb-4">
               <h2 className="text-lg font-semibold leading-tight text-[var(--foreground)]">{activeTab.label}</h2>

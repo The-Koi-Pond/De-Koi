@@ -46,4 +46,28 @@ describe("SetupReadinessChecklist", () => {
     expect(onConfigureRuntime).toHaveBeenCalled();
     expect(onCreateConnection).toHaveBeenCalled();
   });
+
+  it("shows Continue only after every prerequisite is ready", () => {
+    const onContinueChat = vi.fn();
+    act(() => root.render(<SetupReadinessChecklist facts={desktop} onContinueChat={onContinueChat} />));
+    expect(container.textContent).not.toContain("Continue to chat");
+
+    act(() => root.render(<SetupReadinessChecklist facts={{ ...desktop, usableConnectionCount: 1, selectedConnectionTest: "passed" }} onContinueChat={onContinueChat} />));
+    const continueButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Continue to chat"));
+    expect(continueButton).toBeTruthy();
+  });
+
+  it("renders no global control for a completed journey", () => {
+    act(() => root.render(<SetupReadinessChecklist facts={desktop} completed />));
+    expect(container.textContent).toBe("");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("keeps stable focus anchors when a prerequisite becomes ready", () => {
+    act(() => root.render(<SetupReadinessChecklist facts={desktop} />));
+    const anchor = container.querySelector<HTMLElement>("#setup-step-connection");
+    expect(anchor?.tabIndex).toBe(-1);
+    act(() => root.render(<SetupReadinessChecklist facts={{ ...desktop, usableConnectionCount: 1, selectedConnectionTest: "passed" }} />));
+    expect(container.querySelector("#setup-step-connection")).toBe(anchor);
+  });
 });

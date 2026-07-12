@@ -28,6 +28,7 @@ import type { ConnectionFolder } from "../../../../engine/contracts/types/connec
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { LocalSidecarCard } from "./LocalSidecarCard";
+import { SetupJourneyContextBanner } from "../../onboarding/shell";
 import {
   Plus,
   Trash2,
@@ -706,14 +707,7 @@ export function ConnectionsPanel() {
   return (
     <div className="flex flex-col gap-2 p-3">
       {setupIntent && !setupIntent.completed && (
-        <aside className="rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/8 p-3" aria-label="Setup journey context">
-          <p className="text-sm font-semibold text-[var(--foreground)]">Add a language model to continue setup</p>
-          <p className="mt-1 text-xs text-[var(--muted-foreground)]">Use the existing connection editor. Your {setupIntent.mode} request is waiting.</p>
-          <button type="button" className="mt-2 rounded-md border border-[var(--primary)]/30 px-2.5 py-1.5 text-xs font-semibold text-[var(--primary)]" onClick={() => {
-            useUIStore.getState().closeRightPanel();
-            requestAnimationFrame(() => document.getElementById("setup-action-connection")?.focus());
-          }}>Return to setup</button>
-        </aside>
+        <SetupJourneyContextBanner owner="connection" mode={setupIntent.mode} onReturn={() => useUIStore.getState().closeRightPanel()} />
       )}
       <input
         ref={connectionImageInputRef}

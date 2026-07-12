@@ -9,20 +9,22 @@ import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.st
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { SetupReadinessChecklist } from "./SetupReadinessChecklist";
 import { buildSetupReadinessFacts } from "../lib/setup-readiness";
+import { isSetupReady } from "../../../../engine/onboarding";
 
 type Health = RemoteRuntimeHealthCheck | { status: "checking"; message: string };
 
 export function SetupReadinessJourney() {
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
-  const { data: connections } = useConnections();
   const [health, setHealth] = useState<Health | null>(null);
   const intent = useSetupJourneyStore((state) => state.intent);
   const createChat = useCreateChat();
   const applyPreset = useApplyUserStarredChatPreset();
   const embedded = hasEmbeddedTauriRuntime();
+  const journeyActive = !!intent && !intent.completed;
+  const { data: connections } = useConnections(journeyActive && (embedded || health?.status === "ok"));
 
   useEffect(() => {
-    if (embedded || !remoteRuntimeUrl.trim()) { setHealth(null); return; }
+    if (!journeyActive || embedded || !remoteRuntimeUrl.trim()) { setHealth(null); return; }
     const controller = new AbortController();
     setHealth({ status: "checking", message: "Checking De-Koi server" });
     void checkRemoteRuntimeHealth(remoteRuntimeUrl, { signal: controller.signal }).then((result) => {
@@ -31,7 +33,7 @@ export function SetupReadinessJourney() {
       if (!controller.signal.aborted) setHealth({ status: "unreachable", message: error instanceof Error ? error.message : "Server unavailable" });
     });
     return () => controller.abort();
-  }, [embedded, remoteRuntimeUrl]);
+  }, [embedded, journeyActive, remoteRuntimeUrl]);
 
   const languageConnections = useMemo(() => filterLanguageGenerationConnections(connections).filter((row) => row.provider !== "tts" && row.provider !== "text_to_speech"), [connections]);
   const facts = buildSetupReadinessFacts({
@@ -42,6 +44,7 @@ export function SetupReadinessJourney() {
   const openConnections = () => useUIStore.getState().openRightPanel("connections");
   const continueChat = () => {
     if (!intent) return;
+    if (!isSetupReady(facts)) return;
     const mode = intent.mode;
     const connection = languageConnections.find((row) => row.id === intent?.selectedConnectionId) ?? languageConnections[0];
     if (!connection) return;
@@ -56,7 +59,7 @@ export function SetupReadinessJourney() {
     } });
   };
 
-  if (!intent) return null;
+  if (!intent || intent.completed) return null;
 
   return (
     <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-3" role="dialog" aria-label="Setup required">

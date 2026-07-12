@@ -6,12 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HOME_SPLASH_TEXTS, ModeHomeSurface, pickHomeSplashText } from "./ModeHomeSurface";
 
-vi.mock("../../../catalog/connections/index", () => ({
-  useConnections: () => ({ data: [] }),
-}));
+const { connectionRows, createChatMutate } = vi.hoisted(() => ({ connectionRows: { current: [] as Array<{ id: string; provider: string }> }, createChatMutate: vi.fn() }));
+vi.mock("../../../catalog/connections/index", () => ({ useConnections: () => ({ data: connectionRows.current }) }));
 
 vi.mock("../../../catalog/chats/index", () => ({
-  useCreateChat: () => ({ mutate: vi.fn() }),
+  useCreateChat: () => ({ mutate: createChatMutate }),
 }));
 
 vi.mock("../../../catalog/chat-presets/index", () => ({
@@ -62,6 +61,9 @@ describe("ModeHomeSurface launch splash", () => {
   let container: HTMLDivElement | null = null;
 
   beforeEach(() => {
+    connectionRows.current = [];
+    createChatMutate.mockClear();
+    beginSetupJourney.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -114,6 +116,9 @@ describe("ModeHomeSurface quick-start prewarming", () => {
   let requestIdleCallbackSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    connectionRows.current = [];
+    createChatMutate.mockClear();
+    beginSetupJourney.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     requestIdleCallbackSpy = vi.fn();
@@ -178,5 +183,17 @@ describe("ModeHomeSurface quick-start prewarming", () => {
     const button = Array.from(container!.querySelectorAll("button")).find((item) => item.getAttribute("aria-label") === "Start Conversation chat");
     act(() => button!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(beginSetupJourney).toHaveBeenCalledWith("conversation");
+  });
+
+  it("never creates a chat directly before the shared journey proves runtime readiness", async () => {
+    connectionRows.current = [{ id: "saved", provider: "openai" }];
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    const button = Array.from(container!.querySelectorAll("button")).find((item) => item.getAttribute("aria-label") === "Start Roleplay chat");
+    act(() => button!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(beginSetupJourney).toHaveBeenCalledWith("roleplay");
+    expect(createChatMutate).not.toHaveBeenCalled();
   });
 });
