@@ -52,6 +52,11 @@ vi.mock("../../../../shared/stores/ui.store", () => {
   return { useUIStore };
 });
 
+const { beginSetupJourney } = vi.hoisted(() => ({ beginSetupJourney: vi.fn() }));
+vi.mock("../../../../shared/stores/setup-journey.store", () => ({
+  useSetupJourneyStore: { getState: () => ({ begin: beginSetupJourney }) },
+}));
+
 describe("ModeHomeSurface launch splash", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
@@ -163,5 +168,15 @@ describe("ModeHomeSurface quick-start prewarming", () => {
     });
 
     expect(onOpenNoModelShowcase).toHaveBeenCalledTimes(1);
+  });
+
+  it("records mode intent before opening the prerequisite detour", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    const button = Array.from(container!.querySelectorAll("button")).find((item) => item.getAttribute("aria-label") === "Start Conversation chat");
+    act(() => button!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(beginSetupJourney).toHaveBeenCalledWith("conversation");
   });
 });

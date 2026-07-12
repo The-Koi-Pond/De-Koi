@@ -7,6 +7,7 @@ import { NewChatConnectionGate } from "../../shared/chat-ui/index";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { cn } from "../../../../shared/lib/utils";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { HomeCreditsModal } from "./HomeCreditsModal";
 import { RecentChats } from "./RecentChats";
@@ -84,6 +85,7 @@ export function ModeHomeSurface({
   const handleQuickStart = useCallback(
     (mode: QuickStartMode) => {
       if (languageConnections.length === 0) {
+        useSetupJourneyStore.getState().begin(mode);
         useChatStore.getState().setPendingNewChatMode(mode);
         return;
       }

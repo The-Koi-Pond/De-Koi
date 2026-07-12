@@ -84,6 +84,9 @@ const TrackerDataSidebar = lazy(() =>
 const OnboardingTutorial = lazy(() =>
   import("../../features/shell/onboarding/shell").then((module) => ({ default: module.OnboardingTutorial })),
 );
+const SetupReadinessJourney = lazy(() =>
+  import("../../features/shell/onboarding/shell").then((module) => ({ default: module.SetupReadinessJourney })),
+);
 const DekiSurface = lazy(() =>
   import("../../features/shell/deki/shell").then((module) => ({ default: module.DekiSurface })),
 );
@@ -1624,6 +1627,7 @@ export function AppShell() {
               <OnboardingTutorial onShellInertResync={syncMobilePanelInert} />
             </Suspense>
           )}
+          <Suspense fallback={null}><SetupReadinessJourney /></Suspense>
           <HelpHub
             open={helpHubOpen}
             onClose={() => setHelpHubOpen(false)}

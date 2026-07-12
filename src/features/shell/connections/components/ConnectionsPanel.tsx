@@ -22,6 +22,8 @@ import {
 } from "../../../catalog/connections";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
+import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import type { ConnectionFolder } from "../../../../engine/contracts/types/connection";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { Modal } from "../../../../shared/components/ui/Modal";
@@ -480,6 +482,7 @@ export function ConnectionFolderRow({
 
 export function ConnectionsPanel() {
   const { data: connections, isLoading } = useConnections();
+  const setupIntent = useSetupJourneyStore((state) => state.intent);
   const activeChat = useChatStore((s) => s.activeChat);
 
   const activeConnectionId = activeChat?.connectionId ?? null;
@@ -508,6 +511,14 @@ export function ConnectionsPanel() {
     () => ((connections as ConnectionRowData[] | undefined) ?? []).filter((c) => !isSyntheticConnection(c)),
     [connections],
   );
+
+  useEffect(() => {
+    if (!setupIntent || setupIntent.completed) return;
+    const usable = filterLanguageGenerationConnections(connectionsList).find(
+      (connection) => connection.provider !== "tts" && connection.provider !== "text_to_speech",
+    );
+    if (usable) useSetupJourneyStore.getState().markConnection(usable.id);
+  }, [connectionsList, setupIntent]);
 
   // Sorted folder list + local order for optimistic drag-to-reorder
   const sortedFolders = useMemo(() => {
@@ -694,6 +705,16 @@ export function ConnectionsPanel() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
+      {setupIntent && !setupIntent.completed && (
+        <aside className="rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/8 p-3" aria-label="Setup journey context">
+          <p className="text-sm font-semibold text-[var(--foreground)]">Add a language model to continue setup</p>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">Use the existing connection editor. Your {setupIntent.mode} request is waiting.</p>
+          <button type="button" className="mt-2 rounded-md border border-[var(--primary)]/30 px-2.5 py-1.5 text-xs font-semibold text-[var(--primary)]" onClick={() => {
+            useUIStore.getState().closeRightPanel();
+            requestAnimationFrame(() => document.getElementById("setup-action-connection")?.focus());
+          }}>Return to setup</button>
+        </aside>
+      )}
       <input
         ref={connectionImageInputRef}
         type="file"

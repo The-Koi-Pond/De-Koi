@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { HealthDiagnosticsSettings } from "../../diagnostics/shell";
 import { CoreModulesSettings } from "../../plugins/settings";
 import {
@@ -83,6 +84,7 @@ const SETTINGS_COMPONENTS: Record<SettingsTabId, ComponentType> = {
 };
 
 export function SettingsPanel() {
+  const setupIntent = useSetupJourneyStore((s) => s.intent);
   const settingsTab = useUIStore((s) => s.settingsTab);
   const setSettingsTab = useUIStore((s) => s.setSettingsTab);
   const activeTab = TABS.find((tab) => tab.id === settingsTab) ?? TABS[0];
@@ -170,6 +172,16 @@ export function SettingsPanel() {
           aria-labelledby={`settings-tab-${activeTab.id}`}
         >
           <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
+            {setupIntent && !setupIntent.completed && (
+              <aside className="mb-4 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/8 p-3" aria-label="Setup journey context">
+                <p className="text-sm font-semibold text-[var(--foreground)]">Connect your De-Koi server to continue setup</p>
+                <p className="mt-1 text-xs text-[var(--muted-foreground)]">Configure and check the existing Remote Runtime controls below. Your {setupIntent.mode} request is waiting.</p>
+                <button type="button" className="mt-2 rounded-md border border-[var(--primary)]/30 px-2.5 py-1.5 text-xs font-semibold text-[var(--primary)]" onClick={() => {
+                  useUIStore.getState().closeRightPanel();
+                  requestAnimationFrame(() => document.getElementById("setup-action-runtime")?.focus());
+                }}>Return to setup</button>
+              </aside>
+            )}
             <header className="mb-5 border-b border-[var(--border)] pb-4">
               <h2 className="text-lg font-semibold leading-tight text-[var(--foreground)]">{activeTab.label}</h2>
               <p className="mt-1 max-w-[68ch] text-xs leading-relaxed text-[var(--muted-foreground)]">
