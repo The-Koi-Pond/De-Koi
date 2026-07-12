@@ -105,15 +105,17 @@ export function SettingsPanel() {
         behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         block: "start",
       });
-      setPendingSettingsDestination(null);
     });
     const timeout = window.setTimeout(() => {
       const element = document.getElementById(`settings-destination-${pendingSettingsDestination}`);
       element?.classList.remove("ring-2", "ring-[var(--primary)]/55", "ring-offset-4", "ring-offset-[var(--background)]");
+      setPendingSettingsDestination(null);
     }, 1800);
     return () => {
       cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
+      const element = document.getElementById(`settings-destination-${pendingSettingsDestination}`);
+      element?.classList.remove("ring-2", "ring-[var(--primary)]/55", "ring-offset-4", "ring-offset-[var(--background)]");
     };
   }, [pendingSettingsDestination, setPendingSettingsDestination]);
   const activateTab = (tabId: SettingsTabId, shouldFocus = false) => {

@@ -75,6 +75,7 @@ describe("SettingsPanel", () => {
   });
 
   it("finds an individual setting and selects its tab and destination", () => {
+    vi.useFakeTimers();
     const input = container.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')!;
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "notification");
@@ -84,6 +85,10 @@ describe("SettingsPanel", () => {
     act(() => result.click());
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(container.querySelector('#settings-destination-notification-sounds')).toBeTruthy();
+    expect(useUIStore.getState().pendingSettingsDestination).toBe("notification-sounds");
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(useUIStore.getState().pendingSettingsDestination).toBeNull();
+    vi.useRealTimers();
   });
 
   it("routes the runtime checklist action into Advanced Settings context and restores runtime focus", async () => {
