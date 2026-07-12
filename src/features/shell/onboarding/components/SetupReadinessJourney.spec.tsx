@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   health: vi.fn(),
   connections: { current: [{ id: "saved", provider: "openai", model: "gpt" }] },
   mutateAsync: vi.fn(),
+  updateAsync: vi.fn(),
   markConnection: vi.fn(),
   markCompleted: vi.fn(),
   runtimeUrl: { current: "https://runtime-a.test" },
@@ -18,7 +19,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }) }));
 
 vi.mock("../../../catalog/connections", () => ({ useConnections: (enabled: boolean) => ({ data: enabled ? mocks.connections.current : [] }) }));
-vi.mock("../../../catalog/chats", () => ({ useCreateChat: () => ({ mutateAsync: mocks.mutateAsync }) }));
+vi.mock("../../../catalog/chats", () => ({
+  chatKeys: { messages: (chatId: string) => ["chats", chatId, "messages"] },
+  useCreateChat: () => ({ mutateAsync: mocks.mutateAsync }),
+  useUpdateChat: () => ({ mutateAsync: mocks.updateAsync }),
+}));
 vi.mock("../../../catalog/chat-presets", () => ({ useApplyUserStarredChatPreset: () => vi.fn(async () => undefined) }));
 vi.mock("../../../../shared/api/remote-runtime", () => ({
   hasEmbeddedTauriRuntime: () => mocks.embedded.current,

@@ -9,7 +9,7 @@ interface SetupJourneyState {
   dismiss: () => void;
   resume: () => void;
   markConnection: (connectionId: string) => void;
-  markCompleted: () => void;
+  markCompleted: (journeyId: string) => void;
   replaceIntent: (intent: SetupJourneyIntent) => void;
   clearIntent: () => void;
 }
@@ -46,8 +46,12 @@ export const useSetupJourneyStore = create<SetupJourneyState>()(
             ? { intent: { ...state.intent, selectedConnectionId: connectionId } }
             : state,
         ),
-      markCompleted: () =>
-        set((state) => (state.intent && !state.intent.completed ? { intent: { ...state.intent, completed: true } } : state)),
+      markCompleted: (journeyId) =>
+        set((state) =>
+          state.intent && state.intent.journeyId === journeyId && !state.intent.completed
+            ? { intent: { ...state.intent, completed: true } }
+            : state,
+        ),
       replaceIntent: (intent) => set({ intent }),
       clearIntent: () => set({ intent: null }),
     }),

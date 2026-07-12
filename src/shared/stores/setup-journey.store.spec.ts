@@ -55,10 +55,20 @@ describe("useSetupJourneyStore", () => {
 
   it("duplicate completion is idempotent", () => {
     useSetupJourneyStore.getState().begin("game");
-    useSetupJourneyStore.getState().markCompleted();
+    useSetupJourneyStore.getState().markCompleted(useSetupJourneyStore.getState().intent!.journeyId);
     const completed = useSetupJourneyStore.getState().intent;
-    useSetupJourneyStore.getState().markCompleted();
+    useSetupJourneyStore.getState().markCompleted(completed!.journeyId);
 
     expect(useSetupJourneyStore.getState().intent).toBe(completed);
+  });
+
+  it("does not complete a replacement intent from an older in-flight journey", () => {
+    useSetupJourneyStore.getState().begin("conversation");
+    const olderJourneyId = useSetupJourneyStore.getState().intent!.journeyId;
+    useSetupJourneyStore.getState().begin("roleplay", "character-1");
+
+    useSetupJourneyStore.getState().markCompleted(olderJourneyId);
+
+    expect(useSetupJourneyStore.getState().intent).toMatchObject({ mode: "roleplay", completed: false });
   });
 });

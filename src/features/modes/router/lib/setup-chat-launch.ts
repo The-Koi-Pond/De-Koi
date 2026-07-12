@@ -32,6 +32,11 @@ interface SetupChatLaunchDependencies<TChat extends CreatedChat> {
     connectionId: string;
   }) => Promise<TChat>;
   applyStarredPreset: (input: { mode: SetupJourneyMode; chatId: string }) => Promise<unknown>;
+  getCurrentLaunchRequest?: () => SetupLaunchRequest | null;
+  reconcileChat?: (
+    chat: TChat,
+    input: { name: string; mode: SetupJourneyMode; characterIds: string[]; connectionId: string },
+  ) => Promise<TChat>;
   resolveCharacterLaunchContext?: (characterId: string) => Promise<CharacterLaunchContext | null>;
   initializeCharacterChat?: (
     chatId: string,
@@ -55,6 +60,7 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
   const claimedJourneyIds = new Set<string>();
   const completedJourneyIds = new Set<string>();
   let activeFlight: { journeyIds: Set<string>; promise: Promise<TChat> } | null = null;
+  let terminalFailure: { error: unknown } | null = null;
 
   const claimSetupLaunch = (request: SetupLaunchRequest): ClaimedSetupLaunch | null => {
     const { intent, ready, usableConnectionIds } = request;
@@ -78,39 +84,70 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
   };
 
   const launch = async (request: SetupLaunchRequest): Promise<TChat | null> => {
+    if (terminalFailure) throw terminalFailure.error;
     if (activeFlight && request.intent && request.ready && !request.intent.dismissed && !request.intent.completed) {
       activeFlight.journeyIds.add(request.intent.journeyId);
-      claimedJourneyIds.add(request.intent.journeyId);
       return activeFlight.promise;
     }
     const claim = claimSetupLaunch(request);
     if (!claim) return null;
     const journeyIds = new Set([claim.journeyId]);
+    let chatCreated = false;
     const promise = (async () => {
-      const characterContext = claim.originCharacterId && dependencies.resolveCharacterLaunchContext
-        ? await dependencies.resolveCharacterLaunchContext(claim.originCharacterId)
+      let effectiveClaim = claim;
+      let characterContext = effectiveClaim.originCharacterId && dependencies.resolveCharacterLaunchContext
+        ? await dependencies.resolveCharacterLaunchContext(effectiveClaim.originCharacterId)
         : null;
-      const chat = await dependencies.createChat({
+      const createInput = {
         name: characterContext?.characterName
-          ? `${characterContext.characterName} - ${modeLabel(claim.mode)}`
-          : `New ${modeLabel(claim.mode)}`,
-        mode: claim.mode,
-        characterIds: claim.originCharacterId ? [claim.originCharacterId] : [],
-        connectionId: claim.connectionId,
-      });
+          ? `${characterContext.characterName} - ${modeLabel(effectiveClaim.mode)}`
+          : `New ${modeLabel(effectiveClaim.mode)}`,
+        mode: effectiveClaim.mode,
+        characterIds: effectiveClaim.originCharacterId ? [effectiveClaim.originCharacterId] : [],
+        connectionId: effectiveClaim.connectionId,
+      };
+      let chat = await dependencies.createChat(createInput);
+      chatCreated = true;
+
+      const currentRequest = dependencies.getCurrentLaunchRequest?.();
+      if (currentRequest?.intent?.journeyId && currentRequest.intent.journeyId !== effectiveClaim.journeyId) {
+        const latestClaim = claimSetupLaunch(currentRequest);
+        if (latestClaim) {
+          journeyIds.add(latestClaim.journeyId);
+          effectiveClaim = latestClaim;
+          characterContext = effectiveClaim.originCharacterId && dependencies.resolveCharacterLaunchContext
+            ? await dependencies.resolveCharacterLaunchContext(effectiveClaim.originCharacterId)
+            : null;
+          const latestInput = {
+            name: characterContext?.characterName
+              ? `${characterContext.characterName} - ${modeLabel(effectiveClaim.mode)}`
+              : `New ${modeLabel(effectiveClaim.mode)}`,
+            mode: effectiveClaim.mode,
+            characterIds: effectiveClaim.originCharacterId ? [effectiveClaim.originCharacterId] : [],
+            connectionId: effectiveClaim.connectionId,
+          };
+          if (!dependencies.reconcileChat) throw new Error("Cannot reconcile an in-flight setup chat");
+          chat = await dependencies.reconcileChat(chat, latestInput);
+        }
+      }
       try {
-        await dependencies.applyStarredPreset({ mode: claim.mode, chatId: chat.id });
+        await dependencies.applyStarredPreset({ mode: effectiveClaim.mode, chatId: chat.id });
       } catch {
         // Preset application is optional; the successfully created chat remains usable.
       }
-      if (claim.originCharacterId && characterContext && dependencies.initializeCharacterChat) {
+      if (effectiveClaim.originCharacterId && characterContext && dependencies.initializeCharacterChat) {
         try {
-          await dependencies.initializeCharacterChat(chat.id, claim.originCharacterId, characterContext, claim);
+          await dependencies.initializeCharacterChat(
+            chat.id,
+            effectiveClaim.originCharacterId,
+            characterContext,
+            effectiveClaim,
+          );
         } catch {
           // Greeting setup is optional; the successfully created chat must still be finalized.
         }
       }
-      await dependencies.complete(chat, claim);
+      await dependencies.complete(chat, effectiveClaim);
       for (const journeyId of journeyIds) completedJourneyIds.add(journeyId);
       return chat;
     })();
@@ -118,7 +155,8 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
     try {
       return await promise;
     } catch (error) {
-      for (const journeyId of journeyIds) claimedJourneyIds.delete(journeyId);
+      if (chatCreated) terminalFailure = { error };
+      else for (const journeyId of journeyIds) claimedJourneyIds.delete(journeyId);
       throw error;
     } finally {
       if (activeFlight?.promise === promise) activeFlight = null;

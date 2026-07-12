@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { chatKeys, useCreateChat } from "../../../catalog/chats";
+import { chatKeys, useCreateChat, useUpdateChat } from "../../../catalog/chats";
 import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets";
 import { useConnections } from "../../../catalog/connections";
 import { checkRemoteRuntimeHealth, hasEmbeddedTauriRuntime, type RemoteRuntimeHealthCheck } from "../../../../shared/api/remote-runtime";
@@ -12,7 +12,7 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { SetupReadinessChecklist } from "./SetupReadinessChecklist";
 import { buildSetupReadinessFacts } from "../lib/setup-readiness";
 import { isSetupReady } from "../../../../engine/onboarding";
-import { createSetupChatLaunchOrchestrator } from "../../../modes/router/shell";
+import { createSetupChatLaunchOrchestrator, type SetupLaunchRequest } from "../../../modes/router/shell";
 
 type Health = RemoteRuntimeHealthCheck | { status: "checking"; message: string };
 type CheckedHealth = { checkedUrl: string; result: Health };
@@ -22,14 +22,19 @@ export function SetupReadinessJourney() {
   const [checkedHealth, setCheckedHealth] = useState<CheckedHealth | null>(null);
   const intent = useSetupJourneyStore((state) => state.intent);
   const createChat = useCreateChat();
+  const updateChat = useUpdateChat();
   const queryClient = useQueryClient();
   const applyPreset = useApplyUserStarredChatPreset();
-  const launchDependenciesRef = useRef({ createChat, applyPreset });
-  launchDependenciesRef.current = { createChat, applyPreset };
+  const currentLaunchRequestRef = useRef<SetupLaunchRequest | null>(null);
+  const launchDependenciesRef = useRef({ createChat, updateChat, applyPreset });
+  launchDependenciesRef.current = { createChat, updateChat, applyPreset };
   const launchOrchestratorRef = useRef<ReturnType<typeof createSetupChatLaunchOrchestrator> | null>(null);
   if (!launchOrchestratorRef.current) {
     launchOrchestratorRef.current = createSetupChatLaunchOrchestrator({
       createChat: (input) => launchDependenciesRef.current.createChat.mutateAsync(input),
+      reconcileChat: (chat, input) =>
+        launchDependenciesRef.current.updateChat.mutateAsync({ id: chat.id, ...input }),
+      getCurrentLaunchRequest: () => currentLaunchRequestRef.current,
       applyStarredPreset: (input) => launchDependenciesRef.current.applyPreset(input),
       resolveCharacterLaunchContext: async (characterId) => {
         const character = await storageApi.get<{
@@ -61,7 +66,7 @@ export function SetupReadinessJourney() {
         queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
       },
       complete: (chat, claim) => {
-        useSetupJourneyStore.getState().markCompleted();
+        useSetupJourneyStore.getState().markCompleted(claim.journeyId);
         const chatStore = useChatStore.getState();
         chatStore.setPendingNewChatMode(null);
         chatStore.setActiveChatId(chat.id);
@@ -97,6 +102,11 @@ export function SetupReadinessJourney() {
     embedded, runtimeUrl: remoteRuntimeUrl, runtimeHealth: health, connections: languageConnections,
     selectedConnectionId: intent?.selectedConnectionId, connectionTestCapability: "unavailable",
   });
+  currentLaunchRequestRef.current = {
+    intent,
+    ready: isSetupReady(facts),
+    usableConnectionIds: languageConnections.map((row) => row.id),
+  };
   const openSettings = () => { useUIStore.getState().setSettingsTab("advanced"); useUIStore.getState().openRightPanel("settings"); };
   const openConnections = () => useUIStore.getState().openRightPanel("connections");
   const continueChat = () => {
@@ -111,7 +121,7 @@ export function SetupReadinessJourney() {
       ready: true,
       usableConnectionIds: languageConnections.map((row) => row.id),
     }).catch(() => {
-      // Creation errors remain visible through the mutation owner; the atomic claim is released for retry.
+      // The mutation owner exposes the error; only pre-create rejection is retryable by the orchestrator.
     });
   };
 

@@ -124,6 +124,45 @@ describe("setup chat launch orchestration", () => {
     expect(complete).toHaveBeenCalledOnce();
   });
 
+  it("rebases an in-flight created draft to the latest store intent before finalization", async () => {
+    let resolveCreate!: (chat: { id: string }) => void;
+    let currentRequest = {
+      intent: intent({ journeyId: "journey-1", mode: "conversation", selectedConnectionId: "conn-1" }),
+      ready: true,
+      usableConnectionIds: ["conn-1", "conn-2"],
+    };
+    const reconcileChat = vi.fn().mockResolvedValue({ id: "chat-1" });
+    const applyStarredPreset = vi.fn().mockResolvedValue(undefined);
+    const complete = vi.fn();
+    const launch = createSetupChatLaunchOrchestrator({
+      createChat: vi.fn(() => new Promise<{ id: string }>((resolve) => { resolveCreate = resolve; })),
+      reconcileChat,
+      getCurrentLaunchRequest: () => currentRequest,
+      resolveCharacterLaunchContext: vi.fn().mockResolvedValue({ characterName: "Mira", firstMessage: "Hello" }),
+      initializeCharacterChat: vi.fn(),
+      applyStarredPreset,
+      complete,
+    });
+
+    const pending = launch.launch(currentRequest);
+    currentRequest = {
+      intent: intent({ journeyId: "journey-2", mode: "roleplay", originCharacterId: "character-1", selectedConnectionId: "conn-2" }),
+      ready: true,
+      usableConnectionIds: ["conn-1", "conn-2"],
+    };
+    resolveCreate({ id: "chat-1" });
+    await pending;
+
+    expect(reconcileChat).toHaveBeenCalledWith({ id: "chat-1" }, {
+      name: "Mira - Roleplay",
+      mode: "roleplay",
+      characterIds: ["character-1"],
+      connectionId: "conn-2",
+    });
+    expect(applyStarredPreset).toHaveBeenCalledWith({ mode: "roleplay", chatId: "chat-1" });
+    expect(complete).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({ journeyId: "journey-2", mode: "roleplay" }));
+  });
+
   it("resolves current character metadata and initializes resumed character chat like the direct path", async () => {
     const createChat = vi.fn().mockResolvedValue({ id: "chat-1" });
     const context = { characterName: "Mira", firstMessage: "Hello", alternateGreetings: ["Hi", "Hey"] };
@@ -169,5 +208,19 @@ describe("setup chat launch orchestration", () => {
       usableConnectionIds: ["conn-1"],
     })).resolves.toEqual({ id: "chat-1" });
     expect(complete).toHaveBeenCalledOnce();
+  });
+
+  it("does not create another chat after required finalization fails post-create", async () => {
+    const createChat = vi.fn().mockResolvedValue({ id: "chat-1" });
+    const launch = createSetupChatLaunchOrchestrator({
+      createChat,
+      applyStarredPreset: vi.fn(),
+      complete: vi.fn().mockRejectedValue(new Error("activation failed")),
+    });
+    const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
+
+    await expect(launch.launch(request)).rejects.toThrow("activation failed");
+    await expect(launch.launch(request)).rejects.toThrow("activation failed");
+    expect(createChat).toHaveBeenCalledOnce();
   });
 });
