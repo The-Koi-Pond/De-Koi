@@ -75,8 +75,8 @@ export function HelpHub({ open, onClose, onOpenHealth, onReplayOnboarding }: Hel
         />
         <HelpAction
           icon={<RotateCcw size="1rem" aria-hidden />}
-          title="Replay onboarding"
-          description="Show the first-run walkthrough again without changing your library."
+          title="Show me around"
+          description="Take the optional app tour. The readiness checklist handles setup and can be resumed anytime."
           onClick={onReplayOnboarding}
         />
         {SUPPORT_LINKS.docsUrl && (

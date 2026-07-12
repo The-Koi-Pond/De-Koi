@@ -232,13 +232,13 @@
   },
   {
     "id": "onboarding-tutorial",
-    "title": "Replay Onboarding",
+    "title": "Show Me Around",
     "category": "Help",
-    "summary": "Replay the first-run walkthrough without changing your library or settings.",
+    "summary": "Take the optional app tour again. The readiness checklist remains the place to resume setup without changing your library or settings.",
     "keywords": ["onboarding", "tutorial", "first run", "getting started", "walkthrough", "replay"],
     "audience": "Users who skipped onboarding or want the initial orientation again.",
-    "where": "Help Hub > Replay onboarding, or Discover > Replay Onboarding.",
-    "actions": [{ "type": "replay-onboarding", "label": "Replay Onboarding" }],
+    "where": "Discover > Show Me Around, or Help > Show me around.",
+    "actions": [{ "type": "replay-onboarding", "label": "Show me around" }],
     "coverage": "core"
   },
   {
