@@ -1,10 +1,11 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { SetupJourneyIntent, SetupJourneyMode } from "../../engine/onboarding";
+import type { SetupJourneyIntent, SetupJourneyMode, SetupJourneyRecovery } from "../../engine/onboarding";
 import { partializeSetupJourneyState } from "./ui/persistence";
 
 interface SetupJourneyState {
   intent: SetupJourneyIntent | null;
+  recovery: SetupJourneyRecovery | null;
   begin: (mode: SetupJourneyMode, originCharacterId?: string) => void;
   dismiss: () => void;
   resume: () => void;
@@ -12,6 +13,8 @@ interface SetupJourneyState {
   markCompleted: (journeyId: string) => void;
   replaceIntent: (intent: SetupJourneyIntent) => void;
   clearIntent: () => void;
+  recordRecovery: (recovery: SetupJourneyRecovery) => void;
+  clearRecovery: () => void;
 }
 
 let nextJourneySequence = 0;
@@ -22,9 +25,10 @@ function createJourneyId(): string {
 }
 
 export const useSetupJourneyStore = create<SetupJourneyState>()(
-  persist<SetupJourneyState, [], [], Pick<SetupJourneyState, "intent">>(
+  persist<SetupJourneyState, [], [], Pick<SetupJourneyState, "intent" | "recovery">>(
     (set) => ({
       intent: null,
+      recovery: null,
       begin: (mode, originCharacterId) =>
         set({
           intent: {
@@ -54,6 +58,8 @@ export const useSetupJourneyStore = create<SetupJourneyState>()(
         ),
       replaceIntent: (intent) => set({ intent }),
       clearIntent: () => set({ intent: null }),
+      recordRecovery: (recovery) => set({ recovery }),
+      clearRecovery: () => set({ recovery: null }),
     }),
     {
       name: "de-koi-setup-journey",

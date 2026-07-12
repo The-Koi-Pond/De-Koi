@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   updateAsync: vi.fn(),
   markConnection: vi.fn(),
   markCompleted: vi.fn(),
+  recordRecovery: vi.fn(),
+  clearRecovery: vi.fn(),
   runtimeUrl: { current: "https://runtime-a.test" },
   invalidateQueries: vi.fn(),
 }));
@@ -37,7 +39,14 @@ vi.mock("../../../../shared/api/storage-api", () => ({
   },
 }));
 vi.mock("../../../../shared/stores/setup-journey.store", () => {
-  const state = { get intent() { return mocks.intent.current; }, markConnection: mocks.markConnection, markCompleted: mocks.markCompleted };
+  const state = {
+    get intent() { return mocks.intent.current; },
+    recovery: null,
+    markConnection: mocks.markConnection,
+    markCompleted: mocks.markCompleted,
+    recordRecovery: mocks.recordRecovery,
+    clearRecovery: mocks.clearRecovery,
+  };
   const useSetupJourneyStore = (selector: (value: typeof state) => unknown) => selector(state);
   useSetupJourneyStore.getState = () => state;
   return { useSetupJourneyStore };

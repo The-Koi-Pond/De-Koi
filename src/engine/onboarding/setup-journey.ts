@@ -18,6 +18,14 @@ export interface SetupJourneyIntent {
   completed: boolean;
 }
 
+export type SetupJourneyRecoveryStage = "created" | "reconciled" | "finalizing";
+
+export interface SetupJourneyRecovery {
+  createdChatId: string;
+  journeyId: string;
+  stage: SetupJourneyRecoveryStage;
+}
+
 export interface SetupReadinessFacts {
   environment: "embedded" | "web";
   runtimeUrl: string | null;

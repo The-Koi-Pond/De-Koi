@@ -106,7 +106,16 @@ describe("setup journey persistence", () => {
       providerPayload: { secret: "do-not-persist" },
     };
 
-    const serialized = partializeSetupJourneyState({ intent });
+    const serialized = partializeSetupJourneyState({
+      intent,
+      recovery: {
+        createdChatId: "chat-1",
+        journeyId: "journey-1",
+        stage: "finalizing",
+        greeting: "do-not-persist",
+        providerPayload: { secret: "do-not-persist" },
+      } as never,
+    });
 
     expect(serialized).toEqual({
       intent: {
@@ -116,6 +125,11 @@ describe("setup journey persistence", () => {
         selectedConnectionId: "connection-1",
         dismissed: true,
         completed: false,
+      },
+      recovery: {
+        createdChatId: "chat-1",
+        journeyId: "journey-1",
+        stage: "finalizing",
       },
     });
     expect(JSON.stringify(serialized)).not.toMatch(/api|credential|secret|token|providerPayload/i);

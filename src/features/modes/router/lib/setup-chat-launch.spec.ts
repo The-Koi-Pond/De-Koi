@@ -223,4 +223,40 @@ describe("setup chat launch orchestration", () => {
     await expect(launch.launch(request)).rejects.toThrow("activation failed");
     expect(createChat).toHaveBeenCalledOnce();
   });
+
+  it("resumes the same persisted created draft after orchestrator reload", async () => {
+    let recovery: { createdChatId: string; journeyId: string; stage: "created" | "reconciled" | "finalizing" } | null = null;
+    const createChat = vi.fn().mockResolvedValue({ id: "chat-1" });
+    const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
+    const first = createSetupChatLaunchOrchestrator({
+      createChat,
+      applyStarredPreset: vi.fn(),
+      complete: vi.fn().mockRejectedValue(new Error("activation failed")),
+      getRecovery: () => recovery,
+      recordRecovery: (next) => { recovery = next; },
+      clearRecovery: () => { recovery = null; },
+    });
+    await expect(first.launch(request)).rejects.toThrow("activation failed");
+    expect(recovery).toEqual({ createdChatId: "chat-1", journeyId: "journey-1", stage: "finalizing" });
+
+    const reconcileChat = vi.fn().mockResolvedValue({ id: "chat-1" });
+    const complete = vi.fn().mockResolvedValue(undefined);
+    const secondCreate = vi.fn();
+    const second = createSetupChatLaunchOrchestrator({
+      createChat: secondCreate,
+      reconcileChat,
+      applyStarredPreset: vi.fn(),
+      complete,
+      getRecovery: () => recovery,
+      recordRecovery: (next) => { recovery = next; },
+      clearRecovery: () => { recovery = null; },
+    });
+
+    await expect(second.launch(request)).resolves.toEqual({ id: "chat-1" });
+    expect(secondCreate).not.toHaveBeenCalled();
+    expect(reconcileChat).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({ mode: "game" }));
+    expect(complete).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({ journeyId: "journey-1" }));
+    expect(recovery).toBeNull();
+    expect(createChat).toHaveBeenCalledOnce();
+  });
 });

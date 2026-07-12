@@ -1,5 +1,5 @@
 import { createJSONStorage } from "zustand/middleware";
-import type { SetupJourneyIntent } from "../../../engine/onboarding";
+import type { SetupJourneyIntent, SetupJourneyRecovery } from "../../../engine/onboarding";
 import {
   normalizeImageStyleProfileSettings,
   type ImageStyleProfileSettings,
@@ -38,11 +38,16 @@ type PersistedUiState = Partial<UIState> & {
 
 interface SetupJourneyPersistableState {
   intent: SetupJourneyIntent | null;
+  recovery: SetupJourneyRecovery | null;
 }
 
 export function partializeSetupJourneyState(state: SetupJourneyPersistableState): SetupJourneyPersistableState {
   const intent = state.intent;
-  if (!intent) return { intent: null };
+  const recovery = state.recovery;
+  const persistedRecovery = recovery && ["created", "reconciled", "finalizing"].includes(recovery.stage)
+    ? { createdChatId: recovery.createdChatId, journeyId: recovery.journeyId, stage: recovery.stage }
+    : null;
+  if (!intent) return { intent: null, recovery: persistedRecovery };
   return {
     intent: {
       journeyId: intent.journeyId,
@@ -52,6 +57,7 @@ export function partializeSetupJourneyState(state: SetupJourneyPersistableState)
       dismissed: intent.dismissed,
       completed: intent.completed,
     },
+    recovery: persistedRecovery,
   };
 }
 

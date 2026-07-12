@@ -35,6 +35,9 @@ export function SetupReadinessJourney() {
       reconcileChat: (chat, input) =>
         launchDependenciesRef.current.updateChat.mutateAsync({ id: chat.id, ...input }),
       getCurrentLaunchRequest: () => currentLaunchRequestRef.current,
+      getRecovery: () => useSetupJourneyStore.getState().recovery,
+      recordRecovery: (recovery) => useSetupJourneyStore.getState().recordRecovery(recovery),
+      clearRecovery: () => useSetupJourneyStore.getState().clearRecovery(),
       applyStarredPreset: (input) => launchDependenciesRef.current.applyPreset(input),
       resolveCharacterLaunchContext: async (characterId) => {
         const character = await storageApi.get<{
@@ -66,7 +69,6 @@ export function SetupReadinessJourney() {
         queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
       },
       complete: (chat, claim) => {
-        useSetupJourneyStore.getState().markCompleted(claim.journeyId);
         const chatStore = useChatStore.getState();
         chatStore.setPendingNewChatMode(null);
         chatStore.setActiveChatId(chat.id);
@@ -76,6 +78,7 @@ export function SetupReadinessJourney() {
           openWizard: true,
           shortcutMode: claim.originCharacterId !== null,
         });
+        useSetupJourneyStore.getState().markCompleted(claim.journeyId);
       },
     });
   }
