@@ -150,7 +150,7 @@ describe("WindowTitleBar web mode", () => {
 
     expect(homeButton?.querySelector("svg")).toBeTruthy();
     expect(homeButton?.querySelector('img[src="/favicon.png"]')).toBeNull();
-    expect(homeButton?.textContent?.trim()).toBe("Home");
+    expect(homeButton?.textContent?.trim()).toBe("");
   });
 
   it("places the titlebar accessory on the left side of the titlebar", async () => {
@@ -163,15 +163,15 @@ describe("WindowTitleBar web mode", () => {
     expect(container!.querySelector(".mari-window-actions [data-testid='music-toolbar']")).toBeNull();
   });
 
-  it("keeps visible Chats, Deki-senpai, Library, and Tools labels", async () => {
+  it("keeps titlebar navigation labels accessible without visible text", async () => {
     await act(async () => {
       root = createRoot(container!);
-      root.render(<WindowTitleBar />);
+      root.render(<WindowTitleBar onOpenDiscover={vi.fn()} />);
     });
-    for (const label of ["Chats", "Deki-senpai", "Library", "Tools"]) {
-      expect(
-        Array.from(container!.querySelectorAll("button")).some((button) => button.textContent?.includes(label)),
-      ).toBe(true);
+    for (const label of ["Deki-senpai", "Characters", "Connections", "Discover"]) {
+      const button = container!.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+      expect(button).toBeTruthy();
+      expect(button?.textContent?.trim()).toBe("");
     }
   });
 });

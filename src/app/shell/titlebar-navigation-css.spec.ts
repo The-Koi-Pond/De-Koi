@@ -9,17 +9,15 @@ function rule(selector: string): string {
 }
 
 describe("desktop titlebar navigation CSS", () => {
-  it("does not force broad labeled controls into icon-only fixed widths", () => {
+  it("keeps titlebar icon controls at their compact fixed width", () => {
     const broad = rule(".mari-chat-title-controls button,\n.mari-panel-nav button");
-    expect(broad).toContain("min-width: 1.875rem");
-    expect(broad).toContain("width: auto");
-    expect(broad).not.toMatch(/padding:\s*0\s*;/);
+    expect(broad).toContain("width: 1.875rem");
+    expect(broad).toMatch(/padding:\s*0\s*;/);
   });
 
-  it("keeps the labeled Home control auto-sized without erasing component padding", () => {
+  it("keeps the Home icon control compact", () => {
     const home = rule(".mari-title-home-button");
-    expect(home).toContain("min-width: 2.125rem");
-    expect(home).toContain("width: auto");
-    expect(home).not.toMatch(/padding:\s*0\s*;/);
+    expect(home).toContain("width: 2.125rem");
+    expect(home).toMatch(/padding:\s*0\s*;/);
   });
 });
