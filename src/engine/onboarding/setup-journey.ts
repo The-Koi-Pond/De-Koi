@@ -18,7 +18,12 @@ export interface SetupJourneyIntent {
   completed: boolean;
 }
 
-export type SetupJourneyRecoveryStage = "created" | "reconciled" | "finalizing";
+export type SetupJourneyRecoveryStage =
+  | "created"
+  | "reconciled"
+  | "preset-applied"
+  | "greeting-initialized"
+  | "finalizing";
 
 export interface SetupJourneyRecovery {
   createdChatId: string;

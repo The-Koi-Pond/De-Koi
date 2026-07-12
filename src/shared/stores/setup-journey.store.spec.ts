@@ -71,4 +71,20 @@ describe("useSetupJourneyStore", () => {
 
     expect(useSetupJourneyStore.getState().intent).toMatchObject({ mode: "roleplay", completed: false });
   });
+
+  it("clears stale recovery when a completed journey starts a later journey", () => {
+    useSetupJourneyStore.getState().begin("conversation");
+    const completedJourneyId = useSetupJourneyStore.getState().intent!.journeyId;
+    useSetupJourneyStore.getState().recordRecovery({
+      createdChatId: "chat-old",
+      journeyId: completedJourneyId,
+      stage: "finalizing",
+    });
+    useSetupJourneyStore.getState().markCompleted(completedJourneyId);
+
+    useSetupJourneyStore.getState().begin("roleplay");
+
+    expect(useSetupJourneyStore.getState().recovery).toBeNull();
+    expect(useSetupJourneyStore.getState().intent?.journeyId).not.toBe(completedJourneyId);
+  });
 });

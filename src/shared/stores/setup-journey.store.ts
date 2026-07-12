@@ -30,7 +30,7 @@ export const useSetupJourneyStore = create<SetupJourneyState>()(
       intent: null,
       recovery: null,
       begin: (mode, originCharacterId) =>
-        set({
+        set((state) => ({
           intent: {
             journeyId: createJourneyId(),
             mode,
@@ -39,7 +39,8 @@ export const useSetupJourneyStore = create<SetupJourneyState>()(
             dismissed: false,
             completed: false,
           },
-        }),
+          ...(state.intent?.completed ? { recovery: null } : {}),
+        })),
       dismiss: () =>
         set((state) => (state.intent && !state.intent.dismissed ? { intent: { ...state.intent, dismissed: true } } : state)),
       resume: () =>

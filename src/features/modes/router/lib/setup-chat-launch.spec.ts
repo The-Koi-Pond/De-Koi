@@ -224,13 +224,26 @@ describe("setup chat launch orchestration", () => {
     expect(createChat).toHaveBeenCalledOnce();
   });
 
-  it("resumes the same persisted created draft after orchestrator reload", async () => {
-    let recovery: { createdChatId: string; journeyId: string; stage: "created" | "reconciled" | "finalizing" } | null = null;
+  it("resumes finalization without replaying completed preset or greeting stages", async () => {
+    let recovery: {
+      createdChatId: string;
+      journeyId: string;
+      stage: "created" | "reconciled" | "preset-applied" | "greeting-initialized" | "finalizing";
+    } | null = null;
     const createChat = vi.fn().mockResolvedValue({ id: "chat-1" });
-    const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
+    const request = {
+      intent: intent({ mode: "roleplay", originCharacterId: "character-1" }),
+      ready: true,
+      usableConnectionIds: ["conn-1"],
+    };
+    const applyStarredPreset = vi.fn().mockResolvedValue(undefined);
+    const initializeCharacterChat = vi.fn().mockResolvedValue(undefined);
+    const resolveCharacterLaunchContext = vi.fn().mockResolvedValue({ characterName: "Mira", firstMessage: "Hello" });
     const first = createSetupChatLaunchOrchestrator({
       createChat,
-      applyStarredPreset: vi.fn(),
+      applyStarredPreset,
+      resolveCharacterLaunchContext,
+      initializeCharacterChat,
       complete: vi.fn().mockRejectedValue(new Error("activation failed")),
       getRecovery: () => recovery,
       recordRecovery: (next) => { recovery = next; },
@@ -245,7 +258,9 @@ describe("setup chat launch orchestration", () => {
     const second = createSetupChatLaunchOrchestrator({
       createChat: secondCreate,
       reconcileChat,
-      applyStarredPreset: vi.fn(),
+      applyStarredPreset,
+      resolveCharacterLaunchContext,
+      initializeCharacterChat,
       complete,
       getRecovery: () => recovery,
       recordRecovery: (next) => { recovery = next; },
@@ -254,8 +269,10 @@ describe("setup chat launch orchestration", () => {
 
     await expect(second.launch(request)).resolves.toEqual({ id: "chat-1" });
     expect(secondCreate).not.toHaveBeenCalled();
-    expect(reconcileChat).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({ mode: "game" }));
+    expect(reconcileChat).not.toHaveBeenCalled();
     expect(complete).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({ journeyId: "journey-1" }));
+    expect(applyStarredPreset).toHaveBeenCalledOnce();
+    expect(initializeCharacterChat).toHaveBeenCalledOnce();
     expect(recovery).toBeNull();
     expect(createChat).toHaveBeenCalledOnce();
   });
