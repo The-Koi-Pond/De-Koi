@@ -503,6 +503,13 @@ export async function checkRemoteRuntimeHealth(
     }));
 
     if (!invokeReady.ok) {
+      if (invokeReady.status === 429) {
+        return {
+          status: "ok",
+          message: "Remote runtime is online and storage is writable, but API requests are temporarily rate limited.",
+          health: body,
+        };
+      }
       return {
         status: "unreachable",
         message: `Remote runtime health is reachable, but API invoke returned ${invokeReady.status}.`,
