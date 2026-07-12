@@ -55,7 +55,7 @@ export function PrivacyDataSettings() {
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div id="settings-destination-privacy-data" className="scroll-mt-4 flex flex-col gap-3 rounded-xl transition-shadow duration-700">
       <div className="flex items-start gap-2 rounded-xl bg-emerald-500/8 p-3 ring-1 ring-emerald-500/20">
         <ShieldCheck size="1rem" className="mt-0.5 shrink-0 text-emerald-500" />
         <div>

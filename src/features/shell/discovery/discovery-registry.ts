@@ -1,5 +1,6 @@
 import rawDiscoveryEntries from "./discovery-entries.json";
 import { NO_MODEL_GAME_SHOWCASE_ID } from "./showcase";
+import { findSettingsDestination, isSettingsTabId } from "../settings/discovery";
 import {
   DISCOVERY_CATEGORIES,
   DISCOVERY_COVERAGE,
@@ -57,6 +58,7 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
   const type = action.type;
   const panel = action.panel;
   const tab = action.tab;
+  const destination = action.destination;
   const showcaseId = action.showcaseId;
   const errors: string[] = [];
   if (action.label !== undefined && action.label !== null && !hasText(action.label)) {
@@ -70,7 +72,12 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
       }
       break;
     case "open-settings":
-      if (!hasText(tab)) errors.push(`${path}.tab must be non-empty.`);
+      if (!isSettingsTabId(tab)) errors.push(`${path}.tab must target a known settings tab.`);
+      if (destination !== undefined) {
+        const target = findSettingsDestination(destination);
+        if (!target) errors.push(`${path}.destination must target a known settings destination.`);
+        else if (target.tab !== tab) errors.push(`${path}.destination belongs to the ${target.tab} settings tab.`);
+      }
       break;
     case "replay-onboarding":
     case "open-deki":

@@ -559,7 +559,7 @@ export function ProfileImportSection() {
   };
 
   return (
-    <>
+    <div id="settings-destination-profile-import" className="scroll-mt-4 rounded-xl transition-shadow duration-700">
       <input
         ref={remoteProfileInputRef}
         type="file"
@@ -670,6 +670,6 @@ export function ProfileImportSection() {
           )}
         </div>
       )}
-    </>
+    </div>
   );
 }

@@ -45,6 +45,7 @@ export function runDiscoveryAction(action: DiscoveryAction) {
     case "open-settings":
       ui.openRightPanel("settings");
       ui.setSettingsTab(action.tab);
+      ui.setPendingSettingsDestination(action.destination ?? null);
       return;
     case "replay-onboarding":
       ui.setOnboardingTourOpen(true);

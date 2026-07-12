@@ -1,5 +1,5 @@
 ﻿import type { ReactNode } from "react";
-import { Bug, ClipboardList, FileQuestion, HeartHandshake, Info, Keyboard, RotateCcw } from "lucide-react";
+import { Bug, ClipboardList, Compass, FileQuestion, HeartHandshake, Info, Keyboard, RotateCcw } from "lucide-react";
 import { APP_VERSION } from "../../engine/contracts/constants/defaults";
 import { Modal } from "../../shared/components/ui/Modal";
 import { SUPPORT_LINKS } from "../../shared/config/support-links";
@@ -12,6 +12,7 @@ type HelpHubProps = {
   onClose: () => void;
   onOpenHealth: () => void;
   onReplayOnboarding: () => void;
+  onOpenDiscover?: () => void;
 };
 
 function HelpAction({
@@ -42,7 +43,7 @@ function HelpAction({
   );
 }
 
-export function HelpHub({ open, onClose, onOpenHealth, onReplayOnboarding }: HelpHubProps) {
+export function HelpHub({ open, onClose, onOpenHealth, onReplayOnboarding, onOpenDiscover }: HelpHubProps) {
   const reportBug = () => {
     void openBugReport({
       source: "help-hub",
@@ -61,6 +62,14 @@ export function HelpHub({ open, onClose, onOpenHealth, onReplayOnboarding }: Hel
   return (
     <Modal open={open} onClose={onClose} title="Help" width="max-w-2xl">
       <div className="grid gap-3 md:grid-cols-2">
+        {onOpenDiscover && (
+          <HelpAction
+            icon={<Compass size="1rem" aria-hidden />}
+            title="Find a feature"
+            description="Search De-Koi by what you want to do and jump to the tool that owns it."
+            onClick={onOpenDiscover}
+          />
+        )}
         <HelpAction
           icon={<ClipboardList size="1rem" aria-hidden />}
           title="Health diagnostics"

@@ -403,6 +403,7 @@ export interface UIState {
   trackerPanelCollapsedSections: TrackerPanelCollapsedSections;
   trackerPanelSectionOrder: TrackerPanelSectionOrder;
   settingsTab: string;
+  pendingSettingsDestination: string | null;
   modal: { type: string; props?: Record<string, unknown> } | null;
   theme: "dark" | "light";
   chatBackground: string | null;
@@ -658,6 +659,7 @@ export interface UIState {
   closeRightPanel: () => void;
   toggleRightPanel: (panel: Panel) => void;
   setSettingsTab: (tab: string) => void;
+  setPendingSettingsDestination: (destination: string | null) => void;
   openModal: (type: string, props?: Record<string, unknown>) => void;
   closeModal: () => void;
   setTheme: (theme: "dark" | "light") => void;

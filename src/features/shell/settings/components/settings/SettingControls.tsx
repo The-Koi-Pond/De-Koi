@@ -144,7 +144,7 @@ export function ConversationSoundSetting() {
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div id="settings-destination-notification-sounds" className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700">
       <div className="flex items-center gap-1.5">
         <Bell size="0.75rem" className="text-[var(--muted-foreground)]" />
         <span className="text-xs font-medium">Notifications</span>

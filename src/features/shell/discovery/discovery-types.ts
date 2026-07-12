@@ -1,4 +1,5 @@
 import type { Panel } from "../../../shared/stores/ui.store";
+import type { SettingsDestinationId, SettingsTabId } from "../settings/discovery";
 
 export const DISCOVERY_CATEGORIES = [
   "Getting started",
@@ -25,7 +26,8 @@ export type DiscoveryAction =
     }
   | {
       type: "open-settings";
-      tab: string;
+      tab: SettingsTabId;
+      destination?: SettingsDestinationId;
       label?: string;
     }
   | {
