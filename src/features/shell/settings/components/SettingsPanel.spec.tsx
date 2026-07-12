@@ -3,6 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
+import { SetupReadinessChecklist } from "../../onboarding/shell";
 import { SettingsPanel } from "./SettingsPanel";
 
 vi.mock("../../diagnostics/shell", () => ({ HealthDiagnosticsSettings: () => <div>Health surface</div> }));
@@ -22,7 +24,9 @@ describe("SettingsPanel", () => {
   let root: Root;
 
   beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     useUIStore.setState({ settingsTab: "general" });
+    useSetupJourneyStore.setState({ intent: null });
     container = document.createElement("div");
     document.body.appendChild(container);
     act(() => {
@@ -87,5 +91,24 @@ describe("SettingsPanel", () => {
 
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(document.activeElement?.id).toBe("settings-tab-appearance");
+  });
+
+  it("routes the runtime checklist action into Advanced Settings context and restores runtime focus", async () => {
+    useSetupJourneyStore.getState().begin("conversation");
+    function RuntimeOwnerHarness() {
+      const open = useUIStore((state) => state.rightPanelOpen && state.rightPanel === "settings");
+      return <><SetupReadinessChecklist facts={{ environment: "web", runtimeUrl: null, runtimeHealth: "unknown", usableConnectionCount: 0, selectedConnectionTest: "not-selected" }} onConfigureRuntime={() => {
+        useUIStore.getState().setSettingsTab("advanced"); useUIStore.getState().openRightPanel("settings");
+      }} />{open && <SettingsPanel />}</>;
+    }
+    act(() => root.render(<RuntimeOwnerHarness />));
+    act(() => Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Configure server"))!.click());
+    expect(useUIStore.getState().settingsTab).toBe("advanced");
+    expect(container.textContent).toContain("Advanced surface");
+    expect(container.textContent).toContain("Connect your De-Koi server to continue setup");
+    expect(container.querySelector('[data-setup-focus="runtime"]')).toBeTruthy();
+    act(() => Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Return to setup"))!.click());
+    await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(document.activeElement?.id).toBe("setup-step-runtime");
   });
 });

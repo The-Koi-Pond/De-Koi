@@ -12,28 +12,31 @@ import { buildSetupReadinessFacts } from "../lib/setup-readiness";
 import { isSetupReady } from "../../../../engine/onboarding";
 
 type Health = RemoteRuntimeHealthCheck | { status: "checking"; message: string };
+type CheckedHealth = { checkedUrl: string; result: Health };
 
 export function SetupReadinessJourney() {
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
-  const [health, setHealth] = useState<Health | null>(null);
+  const [checkedHealth, setCheckedHealth] = useState<CheckedHealth | null>(null);
   const intent = useSetupJourneyStore((state) => state.intent);
   const createChat = useCreateChat();
   const applyPreset = useApplyUserStarredChatPreset();
   const embedded = hasEmbeddedTauriRuntime();
+  const runtimeTarget = remoteRuntimeUrl.trim();
+  const health = checkedHealth?.checkedUrl === runtimeTarget ? checkedHealth.result : null;
   const journeyActive = !!intent && !intent.completed;
   const { data: connections } = useConnections(journeyActive && (embedded || health?.status === "ok"));
 
   useEffect(() => {
-    if (!journeyActive || embedded || !remoteRuntimeUrl.trim()) { setHealth(null); return; }
+    if (!journeyActive || embedded || !runtimeTarget) { setCheckedHealth(null); return; }
     const controller = new AbortController();
-    setHealth({ status: "checking", message: "Checking De-Koi server" });
-    void checkRemoteRuntimeHealth(remoteRuntimeUrl, { signal: controller.signal }).then((result) => {
-      if (!controller.signal.aborted) setHealth(result);
+    setCheckedHealth({ checkedUrl: runtimeTarget, result: { status: "checking", message: "Checking De-Koi server" } });
+    void checkRemoteRuntimeHealth(runtimeTarget, { signal: controller.signal }).then((result) => {
+      if (!controller.signal.aborted) setCheckedHealth({ checkedUrl: runtimeTarget, result });
     }).catch((error) => {
-      if (!controller.signal.aborted) setHealth({ status: "unreachable", message: error instanceof Error ? error.message : "Server unavailable" });
+      if (!controller.signal.aborted) setCheckedHealth({ checkedUrl: runtimeTarget, result: { status: "unreachable", message: error instanceof Error ? error.message : "Server unavailable" } });
     });
     return () => controller.abort();
-  }, [embedded, journeyActive, remoteRuntimeUrl]);
+  }, [embedded, journeyActive, runtimeTarget]);
 
   const languageConnections = useMemo(() => filterLanguageGenerationConnections(connections).filter((row) => row.provider !== "tts" && row.provider !== "text_to_speech"), [connections]);
   const facts = buildSetupReadinessFacts({

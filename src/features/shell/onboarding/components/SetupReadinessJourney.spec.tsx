@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
   markConnection: vi.fn(),
   markCompleted: vi.fn(),
+  runtimeUrl: { current: "https://runtime-a.test" },
 }));
 
 vi.mock("../../../catalog/connections", () => ({ useConnections: (enabled: boolean) => ({ data: enabled ? mocks.connections.current : [] }) }));
@@ -26,7 +28,7 @@ vi.mock("../../../../shared/stores/setup-journey.store", () => {
   return { useSetupJourneyStore };
 });
 vi.mock("../../../../shared/stores/ui.store", () => {
-  const state = { remoteRuntimeUrl: "https://runtime.test", setSettingsTab: vi.fn(), openRightPanel: vi.fn() };
+  const state = { get remoteRuntimeUrl() { return mocks.runtimeUrl.current; }, setSettingsTab: vi.fn(), openRightPanel: vi.fn() };
   const useUIStore = (selector: (value: typeof state) => unknown) => selector(state);
   useUIStore.getState = () => state;
   return { useUIStore };
@@ -39,9 +41,11 @@ describe("SetupReadinessJourney", () => {
   let container: HTMLDivElement;
   let root: Root;
   beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
     mocks.intent.current = { mode: "conversation", originCharacterId: null, selectedConnectionId: null, dismissed: false, completed: false };
     mocks.embedded.current = false; mocks.mutate.mockReset(); mocks.markCompleted.mockReset(); mocks.markConnection.mockReset();
+    mocks.runtimeUrl.current = "https://runtime-a.test";
   });
   afterEach(() => { act(() => root.unmount()); container.remove(); });
 
@@ -67,5 +71,22 @@ describe("SetupReadinessJourney", () => {
     await act(async () => button!.click());
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ mode: "conversation", connectionId: "saved" }), expect.any(Object));
     expect(mocks.markCompleted).toHaveBeenCalled();
+  });
+
+  it("invalidates healthy readiness synchronously when the runtime target changes", async () => {
+    let resolveB: (value: unknown) => void = () => undefined;
+    mocks.health.mockImplementation((url: string) => url.includes("runtime-a")
+      ? Promise.resolve({ status: "ok", message: "A ready", health: { ok: true, writable: true } })
+      : new Promise((resolve) => { resolveB = resolve; }));
+    await act(async () => { root.render(<SetupReadinessJourney />); await Promise.resolve(); });
+    expect(container.textContent).toContain("Continue to chat");
+
+    mocks.runtimeUrl.current = "https://runtime-b.test";
+    flushSync(() => root.render(<SetupReadinessJourney />));
+    expect(container.textContent).not.toContain("Continue to chat");
+    expect(mocks.mutate).not.toHaveBeenCalled();
+
+    await act(async () => resolveB({ status: "ok", message: "B ready", health: { ok: true, writable: true } }));
+    expect(container.textContent).toContain("Continue to chat");
   });
 });
