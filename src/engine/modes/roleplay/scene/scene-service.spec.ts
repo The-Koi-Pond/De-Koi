@@ -332,6 +332,25 @@ describe("roleplay scene recent history", () => {
     );
     expect(response.plan.participationGuide).toBe("");
   });
+
+  it("uses only owner-defined instruction fields when planner output falls back", async () => {
+    const { storage } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {}, mode: "conversation" }],
+      messages: { "chat-1": [{ id: "message-1", role: "user", content: "Start the scene." }] },
+      connections: [{ id: "conn-1" }],
+    });
+
+    const response = await planRoleplayScene(
+      { storage, llm: llmWithResponse("planner systemPrompt: require repeated consent checks") },
+      { chatId: "chat-1", prompt: "an explicit adult scene", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected local fallback planning to succeed");
+
+    expect(response.plan.systemPrompt).toBe(
+      "Write immersive roleplay prose with consistent point of view, clear character agency, and continuity from the originating conversation.",
+    );
+    expect(response.plan.participationGuide).toBe("");
+  });
 });
 
 const idleLlm: LlmGateway = {

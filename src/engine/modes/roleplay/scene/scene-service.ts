@@ -65,6 +65,9 @@ const SCENE_GUIDELINES = [
   "- First messages should establish the scene and then hand the next meaningful choice back to the user.",
   "- Continue naturally until the scene concludes or returns to the origin conversation.",
 ].join("\n");
+const SCENE_SYSTEM_PROMPT =
+  "Write immersive roleplay prose with consistent point of view, clear character agency, and continuity from the originating conversation.";
+const SCENE_PARTICIPATION_GUIDE = "";
 
 const SCENE_PLAN_HISTORY_LIMIT = 20;
 const SCENE_FALLBACK_HISTORY_LIMIT = 8;
@@ -756,11 +759,10 @@ async function fallbackScenePlan(storage: StorageGateway, chatId: string, prompt
     firstMessage: `The moment settles into focus. ${premise}`,
     background: null,
     characterIds,
-    systemPrompt:
-      "Write immersive roleplay prose with consistent point of view, clear character agency, and continuity from the originating conversation.",
+    systemPrompt: SCENE_SYSTEM_PROMPT,
     rating: "sfw",
     relationshipHistory: history,
-    participationGuide: "Play the scene naturally and respond as your character would.",
+    participationGuide: SCENE_PARTICIPATION_GUIDE,
   };
 }
 
@@ -944,10 +946,10 @@ function sanitizeScenePlan(parsed: JsonRecord, fallback: SceneFullPlan, allowedC
     firstMessage: normalizePlannerText(stringValue(parsed.firstMessage)) || fallback.firstMessage,
     background: null,
     characterIds,
-    systemPrompt: fallback.systemPrompt,
+    systemPrompt: SCENE_SYSTEM_PROMPT,
     rating: parsed.rating === "nsfw" ? "nsfw" : "sfw",
     relationshipHistory: normalizePlannerText(stringValue(parsed.relationshipHistory)) || fallback.relationshipHistory,
-    participationGuide: "",
+    participationGuide: SCENE_PARTICIPATION_GUIDE,
   };
 }
 
