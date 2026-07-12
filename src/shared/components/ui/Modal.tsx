@@ -3,7 +3,7 @@
 // Uses CSS animations instead of framer-motion to
 // avoid double-animation under React.StrictMode.
 // ──────────────────────────────────────────────
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { useEscapeOverlay } from "../../hooks/use-escape-overlay";
 
@@ -17,8 +17,15 @@ interface ModalProps {
   onExited?: () => void;
 }
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function Modal({ open, onClose, title, children, width = "max-w-md", onExited }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
   // Track mounted state separately so we can play the exit animation
   // before actually removing the DOM nodes.
   const [mounted, setMounted] = useState(false);
@@ -57,6 +64,53 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
     return true;
   }, open);
 
+  useEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      return;
+    }
+
+    const previousFocus = previousFocusRef.current;
+    previousFocusRef.current = null;
+    if (previousFocus?.isConnected) previousFocus.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (open && mounted) closeButtonRef.current?.focus();
+  }, [mounted, open]);
+
+  useEffect(
+    () => () => {
+      const previousFocus = previousFocusRef.current;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    },
+    [],
+  );
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const focusableElements = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+    const firstFocusable = focusableElements[0];
+    const lastFocusable = focusableElements.at(-1);
+    if (!firstFocusable || !lastFocusable) return;
+
+    const activeElement = document.activeElement;
+    if (!panel.contains(activeElement)) {
+      event.preventDefault();
+      firstFocusable.focus();
+    } else if (event.shiftKey && activeElement === firstFocusable) {
+      event.preventDefault();
+      lastFocusable.focus();
+    } else if (!event.shiftKey && activeElement === lastFocusable) {
+      event.preventDefault();
+      firstFocusable.focus();
+    }
+  };
+
   // Remove from DOM after exit animation completes
   const handleAnimationEnd = () => {
     if (animating === "exit" && !exitHandledRef.current) {
@@ -76,7 +130,7 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
       ref={overlayRef}
       role="dialog"
       aria-modal="true"
-      aria-label={title}
+      aria-labelledby={titleId}
       data-component="Modal"
       className="mari-modal fixed inset-0 z-50 flex items-center justify-center p-3 max-md:pt-[max(0.75rem,env(safe-area-inset-top))] max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4"
       style={{
@@ -84,12 +138,14 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
         transition: "opacity 150ms ease-out",
       }}
       onTransitionEnd={handleAnimationEnd}
+      onKeyDown={handleKeyDown}
       onClick={(e) => {
         if (e.target === overlayRef.current) onClose();
       }}
     >
       {/* Backdrop */}
       <div
+        aria-hidden="true"
         className="mari-modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm"
         style={{
           opacity: isEntering ? 1 : 0,
@@ -99,6 +155,7 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
 
       {/* Panel - OS Window style */}
       <div
+        ref={panelRef}
         className={`mari-modal-panel os-window relative flex w-full max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden ${width} max-h-[calc(100dvh-1.5rem)] sm:max-h-[min(90dvh,52rem)] shadow-2xl shadow-black/50`}
         style={{
           opacity: isEntering ? 1 : 0,
@@ -107,15 +164,20 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
         }}
       >
         {/* Pastel gradient title bar */}
-        <div className="pastel-gradient h-[0.1875rem]" />
+        <div aria-hidden="true" className="pastel-gradient h-[0.1875rem]" />
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between border-b border-[var(--border)]/30 px-5 py-3.5">
-          <h2 className="text-sm font-semibold text-[var(--foreground)]">{title}</h2>
+          <h2 id={titleId} className="text-sm font-semibold text-[var(--foreground)]">
+            {title}
+          </h2>
           <button
+            ref={closeButtonRef}
+            type="button"
             onClick={onClose}
+            aria-label={`Close ${title}`}
             className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
           >
-            <X size="1rem" />
+            <X size="1rem" aria-hidden="true" />
           </button>
         </div>
 
