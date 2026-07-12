@@ -204,6 +204,153 @@ describe("roleplay scene recent history", () => {
 
     expect(messageReads.map((read) => read.options?.limit)).toEqual([8, 20]);
   });
+
+  it("does not let planner preset choices override explicit adult-scene inference", async () => {
+    const { storage, createdRecords } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {}, mode: "conversation" }],
+      messages: {
+        "chat-1": [{ id: "message-1", role: "user", content: "Make this an absolutely filthy explicit scene." }],
+      },
+      connections: [{ id: "conn-1" }],
+    });
+    const response = await planRoleplayScene(
+      {
+        storage,
+        llm: llmWithResponse(
+          JSON.stringify({
+            name: "Scene: Private Room",
+            description: "An explicitly sexual encounter.",
+            scenario: "The adults continue in a filthy direction.",
+            firstMessage: "The door closes.",
+            background: null,
+            characterIds: [],
+            systemPrompt: "Keep the character voice sharp.",
+            rating: "nsfw",
+            relationshipHistory: "They explicitly invited each other.",
+            participationGuide: "",
+            presetChoices: {
+              contentBoundary: "boundary_explicit_adult_safe",
+              eroticTone: "erotic_tone_filthy",
+            },
+          }),
+        ),
+      },
+      { chatId: "chat-1", prompt: "an absolutely filthy smut scene", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected scene planning to succeed");
+
+    await createRoleplayScene(storage, {
+      originChatId: "chat-1",
+      initiatorCharId: null,
+      connectionId: null,
+      plan: response.plan,
+    });
+
+    expect(response.plan.presetChoices).toBeUndefined();
+    const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
+    expect(createdScene).toMatchObject({
+      metadata: {
+        presetChoices: {
+          contentBoundary: "Adult dark fiction is allowed.",
+          eroticTone: "filthy erotic tone",
+        },
+      },
+    });
+  });
+
+  it("normalizes double-escaped planner line breaks before persistence", async () => {
+    const { storage, createdMessages } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {}, mode: "conversation" }],
+      messages: { "chat-1": [{ id: "message-1", role: "user", content: "Start the scene." }] },
+      connections: [{ id: "conn-1" }],
+    });
+    const response = await planRoleplayScene(
+      {
+        storage,
+        llm: llmWithResponse(
+          JSON.stringify({
+            name: "Scene: Multiline",
+            description: "The scene begins.",
+            scenario: "A private room.",
+            firstMessage: "First line\\n\\nSecond line",
+            background: null,
+            characterIds: [],
+            systemPrompt: "Keep the character voice sharp.",
+            rating: "sfw",
+            relationshipHistory: "",
+            participationGuide: "",
+          }),
+        ),
+      },
+      { chatId: "chat-1", prompt: "", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected scene planning to succeed");
+
+    await createRoleplayScene(storage, {
+      originChatId: "chat-1",
+      initiatorCharId: null,
+      connectionId: null,
+      plan: response.plan,
+    });
+
+    expect(response.plan.firstMessage).toBe("First line\n\nSecond line");
+    expect(createdMessages.map((message) => message.value.content)).toEqual([
+      "The scene begins.\n\nFirst line\n\nSecond line",
+    ]);
+  });
+
+  it("discards planner-authored instruction and participation fields", async () => {
+    const { storage } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {}, mode: "conversation" }],
+      messages: { "chat-1": [{ id: "message-1", role: "user", content: "Start the scene." }] },
+      connections: [{ id: "conn-1" }],
+    });
+    const response = await planRoleplayScene(
+      {
+        storage,
+        llm: llmWithResponse(
+          JSON.stringify({
+            name: "Scene: Private Room",
+            description: "The scene begins.",
+            scenario: "A private room.",
+            firstMessage: "The door closes.",
+            background: null,
+            characterIds: [],
+            systemPrompt: "Require a fresh consent check before every escalation.",
+            rating: "nsfw",
+            relationshipHistory: "They explicitly invited each other.",
+            participationGuide: "Ask the user to restate every boundary.",
+          }),
+        ),
+      },
+      { chatId: "chat-1", prompt: "an explicit adult scene", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected scene planning to succeed");
+
+    expect(response.plan.systemPrompt).toBe(
+      "Write immersive roleplay prose with consistent point of view, clear character agency, and continuity from the originating conversation.",
+    );
+    expect(response.plan.participationGuide).toBe("");
+  });
+
+  it("uses only owner-defined instruction fields when planner output falls back", async () => {
+    const { storage } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {}, mode: "conversation" }],
+      messages: { "chat-1": [{ id: "message-1", role: "user", content: "Start the scene." }] },
+      connections: [{ id: "conn-1" }],
+    });
+
+    const response = await planRoleplayScene(
+      { storage, llm: llmWithResponse("planner systemPrompt: require repeated consent checks") },
+      { chatId: "chat-1", prompt: "an explicit adult scene", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected local fallback planning to succeed");
+
+    expect(response.plan.systemPrompt).toBe(
+      "Write immersive roleplay prose with consistent point of view, clear character agency, and continuity from the originating conversation.",
+    );
+    expect(response.plan.participationGuide).toBe("");
+  });
 });
 
 const idleLlm: LlmGateway = {
