@@ -45,6 +45,7 @@ export function partializeSetupJourneyState(state: SetupJourneyPersistableState)
   if (!intent) return { intent: null };
   return {
     intent: {
+      journeyId: intent.journeyId,
       mode: intent.mode,
       originCharacterId: intent.originCharacterId,
       selectedConnectionId: intent.selectedConnectionId,

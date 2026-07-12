@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  intent: { current: null as null | { mode: "conversation"; originCharacterId: null; selectedConnectionId: string | null; dismissed: boolean; completed: boolean } },
+  intent: { current: null as null | { journeyId: string; mode: "conversation"; originCharacterId: null; selectedConnectionId: string | null; dismissed: boolean; completed: boolean } },
   embedded: { current: false },
   health: vi.fn(),
   connections: { current: [{ id: "saved", provider: "openai", model: "gpt" }] },
@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
   markConnection: vi.fn(),
   markCompleted: vi.fn(),
   runtimeUrl: { current: "https://runtime-a.test" },
+  invalidateQueries: vi.fn(),
 }));
+
+vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }) }));
 
 vi.mock("../../../catalog/connections", () => ({ useConnections: (enabled: boolean) => ({ data: enabled ? mocks.connections.current : [] }) }));
 vi.mock("../../../catalog/chats", () => ({ useCreateChat: () => ({ mutateAsync: mocks.mutateAsync }) }));
@@ -20,6 +23,13 @@ vi.mock("../../../catalog/chat-presets", () => ({ useApplyUserStarredChatPreset:
 vi.mock("../../../../shared/api/remote-runtime", () => ({
   hasEmbeddedTauriRuntime: () => mocks.embedded.current,
   checkRemoteRuntimeHealth: (...args: unknown[]) => mocks.health(...args),
+}));
+vi.mock("../../../../shared/api/storage-api", () => ({
+  storageApi: {
+    get: vi.fn(),
+    createChatMessage: vi.fn(),
+    addChatMessageSwipe: vi.fn(),
+  },
 }));
 vi.mock("../../../../shared/stores/setup-journey.store", () => {
   const state = { get intent() { return mocks.intent.current; }, markConnection: mocks.markConnection, markCompleted: mocks.markCompleted };
@@ -43,7 +53,7 @@ describe("SetupReadinessJourney", () => {
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
-    mocks.intent.current = { mode: "conversation", originCharacterId: null, selectedConnectionId: null, dismissed: false, completed: false };
+    mocks.intent.current = { journeyId: "journey-1", mode: "conversation", originCharacterId: null, selectedConnectionId: null, dismissed: false, completed: false };
     mocks.embedded.current = false; mocks.mutateAsync.mockReset(); mocks.markCompleted.mockReset(); mocks.markConnection.mockReset();
     mocks.runtimeUrl.current = "https://runtime-a.test";
   });

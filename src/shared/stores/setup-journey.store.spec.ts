@@ -3,6 +3,7 @@ import type { SetupJourneyIntent } from "../../engine/onboarding";
 import { useSetupJourneyStore } from "./setup-journey.store";
 
 const replacement: SetupJourneyIntent = {
+  journeyId: "replacement",
   mode: "roleplay",
   originCharacterId: "character-2",
   selectedConnectionId: "connection-2",
@@ -18,6 +19,14 @@ describe("useSetupJourneyStore", () => {
     useSetupJourneyStore.getState().begin("game");
 
     expect(useSetupJourneyStore.getState().intent).toMatchObject({ mode: "game", originCharacterId: null });
+  });
+
+  it("assigns a unique identity to each journey even when launch fields are identical", () => {
+    useSetupJourneyStore.getState().begin("conversation", "character-1");
+    const first = useSetupJourneyStore.getState().intent?.journeyId;
+    useSetupJourneyStore.getState().begin("conversation", "character-1");
+
+    expect(useSetupJourneyStore.getState().intent?.journeyId).not.toBe(first);
   });
 
   it("replaces intent with the latest request", () => {

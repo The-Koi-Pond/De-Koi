@@ -10,6 +10,7 @@ export type SetupJourneyAction =
   | "complete";
 
 export interface SetupJourneyIntent {
+  journeyId: string;
   mode: SetupJourneyMode;
   originCharacterId: string | null;
   selectedConnectionId: string | null;

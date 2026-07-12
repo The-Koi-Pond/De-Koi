@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useCreateChat } from "../../../catalog/chats";
+import { useQueryClient } from "@tanstack/react-query";
+import { chatKeys, useCreateChat } from "../../../catalog/chats";
 import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets";
 import { useConnections } from "../../../catalog/connections";
 import { checkRemoteRuntimeHealth, hasEmbeddedTauriRuntime, type RemoteRuntimeHealthCheck } from "../../../../shared/api/remote-runtime";
@@ -7,6 +8,7 @@ import { filterLanguageGenerationConnections } from "../../../../shared/lib/conn
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { storageApi } from "../../../../shared/api/storage-api";
 import { SetupReadinessChecklist } from "./SetupReadinessChecklist";
 import { buildSetupReadinessFacts } from "../lib/setup-readiness";
 import { isSetupReady } from "../../../../engine/onboarding";
@@ -20,6 +22,7 @@ export function SetupReadinessJourney() {
   const [checkedHealth, setCheckedHealth] = useState<CheckedHealth | null>(null);
   const intent = useSetupJourneyStore((state) => state.intent);
   const createChat = useCreateChat();
+  const queryClient = useQueryClient();
   const applyPreset = useApplyUserStarredChatPreset();
   const launchDependenciesRef = useRef({ createChat, applyPreset });
   launchDependenciesRef.current = { createChat, applyPreset };
@@ -28,6 +31,35 @@ export function SetupReadinessJourney() {
     launchOrchestratorRef.current = createSetupChatLaunchOrchestrator({
       createChat: (input) => launchDependenciesRef.current.createChat.mutateAsync(input),
       applyStarredPreset: (input) => launchDependenciesRef.current.applyPreset(input),
+      resolveCharacterLaunchContext: async (characterId) => {
+        const character = await storageApi.get<{
+          data?: { name?: unknown; first_mes?: unknown; alternate_greetings?: unknown };
+        }>("characters", characterId);
+        const data = character?.data;
+        return {
+          characterName: typeof data?.name === "string" && data.name.trim() ? data.name : "Character",
+          firstMessage: typeof data?.first_mes === "string" ? data.first_mes : undefined,
+          alternateGreetings: Array.isArray(data?.alternate_greetings)
+            ? data.alternate_greetings.filter((entry): entry is string => typeof entry === "string")
+            : [],
+        };
+      },
+      initializeCharacterChat: async (chatId, characterId, context, claim) => {
+        if (claim.mode !== "roleplay" || !context.firstMessage?.trim()) return;
+        const message = await storageApi.createChatMessage<{ id: string }>(chatId, {
+          role: "assistant",
+          content: context.firstMessage,
+          characterId,
+        });
+        if (message?.id) {
+          for (const greeting of context.alternateGreetings ?? []) {
+            if (greeting.trim()) {
+              await storageApi.addChatMessageSwipe(chatId, message.id, greeting, { activate: false });
+            }
+          }
+        }
+        queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+      },
       complete: (chat, claim) => {
         useSetupJourneyStore.getState().markCompleted();
         const chatStore = useChatStore.getState();

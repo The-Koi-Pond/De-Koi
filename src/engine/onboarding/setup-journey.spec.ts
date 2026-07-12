@@ -7,6 +7,7 @@ import {
 } from "./setup-journey";
 
 const intent = (mode: SetupJourneyIntent["mode"], completed = false): SetupJourneyIntent => ({
+  journeyId: `journey-${mode}`,
   mode,
   originCharacterId: null,
   selectedConnectionId: null,

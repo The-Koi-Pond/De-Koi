@@ -95,6 +95,7 @@ describe("ui persistence migration", () => {
 describe("setup journey persistence", () => {
   it("allowlists only resumable journey metadata", () => {
     const intent: SetupJourneyIntent & Record<string, unknown> = {
+      journeyId: "journey-1",
       mode: "roleplay",
       originCharacterId: "character-1",
       selectedConnectionId: "connection-1",
@@ -109,6 +110,7 @@ describe("setup journey persistence", () => {
 
     expect(serialized).toEqual({
       intent: {
+        journeyId: "journey-1",
         mode: "roleplay",
         originCharacterId: "character-1",
         selectedConnectionId: "connection-1",

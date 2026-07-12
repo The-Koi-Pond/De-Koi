@@ -14,6 +14,13 @@ interface SetupJourneyState {
   clearIntent: () => void;
 }
 
+let nextJourneySequence = 0;
+
+function createJourneyId(): string {
+  nextJourneySequence += 1;
+  return `setup-${Date.now().toString(36)}-${nextJourneySequence.toString(36)}`;
+}
+
 export const useSetupJourneyStore = create<SetupJourneyState>()(
   persist<SetupJourneyState, [], [], Pick<SetupJourneyState, "intent">>(
     (set) => ({
@@ -21,6 +28,7 @@ export const useSetupJourneyStore = create<SetupJourneyState>()(
       begin: (mode, originCharacterId) =>
         set({
           intent: {
+            journeyId: createJourneyId(),
             mode,
             originCharacterId: originCharacterId ?? null,
             selectedConnectionId: null,

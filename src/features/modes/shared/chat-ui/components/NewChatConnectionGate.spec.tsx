@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ begin: vi.fn(), intent: { current: { mode: "conversation", originCharacterId: null, selectedConnectionId: "saved", dismissed: false, completed: true } } }));
+const mocks = vi.hoisted(() => ({ begin: vi.fn(), intent: { current: { journeyId: "journey-1", mode: "conversation", originCharacterId: null, selectedConnectionId: "saved", dismissed: false, completed: true } } }));
 vi.mock("../../../../../shared/stores/setup-journey.store", () => {
   const state = { get intent() { return mocks.intent.current; }, begin: mocks.begin };
   const useSetupJourneyStore = (selector: (value: typeof state) => unknown) => selector(state);
