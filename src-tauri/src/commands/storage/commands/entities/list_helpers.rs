@@ -168,6 +168,15 @@ pub(super) fn compare_json_values(
     left: Option<&Value>,
     right: Option<&Value>,
 ) -> std::cmp::Ordering {
+    let type_rank = |value: &Value| match value {
+        Value::Null => 0,
+        Value::Bool(_) => 1,
+        Value::Number(_) => 2,
+        Value::String(_) => 3,
+        Value::Array(_) => 4,
+        Value::Object(_) => 5,
+    };
+
     match (left, right) {
         (Some(Value::Number(a)), Some(Value::Number(b))) => a
             .as_f64()
@@ -175,8 +184,25 @@ pub(super) fn compare_json_values(
             .unwrap_or(std::cmp::Ordering::Equal),
         (Some(Value::String(a)), Some(Value::String(b))) => a.cmp(b),
         (Some(Value::Bool(a)), Some(Value::Bool(b))) => a.cmp(b),
+        (Some(Value::Array(a)), Some(Value::Array(b))) => a
+            .iter()
+            .zip(b)
+            .map(|(a, b)| compare_json_values(Some(a), Some(b)))
+            .find(|ordering| !ordering.is_eq())
+            .unwrap_or_else(|| a.len().cmp(&b.len())),
+        (Some(Value::Object(a)), Some(Value::Object(b))) => a
+            .iter()
+            .zip(b)
+            .map(|((a_key, a_value), (b_key, b_value))| {
+                a_key
+                    .cmp(b_key)
+                    .then_with(|| compare_json_values(Some(a_value), Some(b_value)))
+            })
+            .find(|ordering| !ordering.is_eq())
+            .unwrap_or_else(|| a.len().cmp(&b.len())),
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(a), Some(b)) => type_rank(a).cmp(&type_rank(b)),
         _ => std::cmp::Ordering::Equal,
     }
 }
