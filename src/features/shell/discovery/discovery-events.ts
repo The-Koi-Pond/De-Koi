@@ -11,6 +11,9 @@ export type DiscoveryAppEventDetail =
       type: "open-help";
     }
   | {
+      type: "open-discover";
+    }
+  | {
       type: "open-showcase";
       showcaseId: "no-model-game-v1";
     };

@@ -11,8 +11,10 @@ describe("getAppShellCenterSurfaceState", () => {
         detailViewOpen: false,
         dekiOpen: true,
         activeDekiSessionId: "deki-1",
+        discoverOpen: false,
       }),
     ).toEqual({
+      discoverSurfaceVisible: false,
       dekiSurfaceVisible: true,
       mainSurfaceVisible: false,
     });
@@ -27,8 +29,10 @@ describe("getAppShellCenterSurfaceState", () => {
         detailViewOpen: false,
         dekiOpen: false,
         activeDekiSessionId: null,
+        discoverOpen: false,
       }),
     ).toEqual({
+      discoverSurfaceVisible: false,
       dekiSurfaceVisible: false,
       mainSurfaceVisible: true,
     });
@@ -43,8 +47,10 @@ describe("getAppShellCenterSurfaceState", () => {
         detailViewOpen: false,
         dekiOpen: true,
         activeDekiSessionId: "deki-1",
+        discoverOpen: false,
       }),
     ).toEqual({
+      discoverSurfaceVisible: false,
       dekiSurfaceVisible: false,
       mainSurfaceVisible: false,
     });
@@ -59,8 +65,10 @@ describe("getAppShellCenterSurfaceState", () => {
         detailViewOpen: false,
         dekiOpen: true,
         activeDekiSessionId: "deki-1",
+        discoverOpen: false,
       }),
     ).toEqual({
+      discoverSurfaceVisible: false,
       dekiSurfaceVisible: false,
       mainSurfaceVisible: true,
     });
@@ -75,10 +83,26 @@ describe("getAppShellCenterSurfaceState", () => {
         detailViewOpen: true,
         dekiOpen: true,
         activeDekiSessionId: "deki-1",
+        discoverOpen: false,
       }),
     ).toEqual({
+      discoverSurfaceVisible: false,
       dekiSurfaceVisible: false,
       mainSurfaceVisible: true,
     });
+  });
+
+  it("shows Discover as a dedicated center surface until Home or browser back closes it", () => {
+    expect(
+      getAppShellCenterSurfaceState({
+        botBrowserOpen: false,
+        gameAssetsBrowserOpen: false,
+        rightPanelOpen: false,
+        detailViewOpen: false,
+        dekiOpen: false,
+        activeDekiSessionId: null,
+        discoverOpen: true,
+      }),
+    ).toEqual({ discoverSurfaceVisible: true, dekiSurfaceVisible: false, mainSurfaceVisible: false });
   });
 });

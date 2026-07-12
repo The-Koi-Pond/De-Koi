@@ -9,6 +9,10 @@ function emitDiscoveryEvent(detail: DiscoveryAppEventDetail) {
   window.dispatchEvent(new CustomEvent<DiscoveryAppEventDetail>(DISCOVERY_APP_EVENT, { detail }));
 }
 
+export function openDiscover() {
+  emitDiscoveryEvent({ type: "open-discover" });
+}
+
 export function getDiscoveryActionLabel(action: DiscoveryAction) {
   if (action.label) return action.label;
   switch (action.type) {

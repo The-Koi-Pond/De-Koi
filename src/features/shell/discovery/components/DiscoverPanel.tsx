@@ -76,7 +76,7 @@ function DiscoveryEntryRow({ entry }: { entry: DiscoveryEntry }) {
   );
 }
 
-export function DiscoverPanel() {
+export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<DiscoveryCategory | "All">("All");
   const [coverage, setCoverage] = useState<DiscoveryCoverage | "All">("All");
@@ -103,6 +103,7 @@ export function DiscoverPanel() {
               Search by what you want to do, then jump to the surface that owns it.
             </p>
           </div>
+          {onClose && <button type="button" onClick={onClose} className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:border-[var(--primary)]/40">Back to Home</button>}
         </div>
 
         <label className="de-koi-discover-search mt-3 flex min-h-10 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--background)]/55 px-3 text-sm text-[var(--foreground)] focus-within:border-[var(--primary)]/45">

@@ -175,6 +175,29 @@ describe("ModeHomeSurface quick-start prewarming", () => {
     expect(onOpenNoModelShowcase).toHaveBeenCalledTimes(1);
   });
 
+  it("renders at most three contextual journeys and opens dedicated Discover", async () => {
+    const onOpenDiscover = vi.fn();
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <ModeHomeSurface
+          libraryIsEmpty
+          hasActivity
+          onOpenDiscover={onOpenDiscover}
+          onOpenNoModelShowcase={() => undefined}
+        />,
+      );
+    });
+
+    expect(container!.querySelectorAll("[data-home-suggestion]").length).toBeLessThanOrEqual(3);
+    expect(container!.textContent).not.toMatch(/features tracked|coverage|Browse all 40/i);
+    const discoverButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Open Discover"),
+    );
+    act(() => discoverButton?.click());
+    expect(onOpenDiscover).toHaveBeenCalledTimes(1);
+  });
+
   it("records mode intent before opening the prerequisite detour", async () => {
     await act(async () => {
       root = createRoot(container!);

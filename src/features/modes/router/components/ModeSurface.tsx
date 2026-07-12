@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { useChat, useChatSummaries, type ChatMode } from "../../../catalog/chats/index";
 import { ApiError } from "../../../../shared/api/api-errors";
@@ -53,11 +53,11 @@ function RestoringChatState({
 }
 
 export function ModeSurface({
-  homeDiscoverySurface = null,
   onOpenNoModelShowcase,
+  onOpenDiscover,
 }: {
-  homeDiscoverySurface?: ReactNode;
   onOpenNoModelShowcase?: () => void;
+  onOpenDiscover?: () => void;
 }) {
   const activeChatId = useChatStore((state) => state.activeChatId);
   const setActiveChatId = useChatStore((state) => state.setActiveChatId);
@@ -76,7 +76,7 @@ export function ModeSurface({
     setActiveChatId(null);
   }, [activeChatId, cachedChat, chat, chatError, chatSummaries, isChatFetching, isChatLoading, setActiveChatId]);
 
-  if (!activeChatId) return <ModeHomeSurface discoverySurface={homeDiscoverySurface} onOpenNoModelShowcase={onOpenNoModelShowcase} />;
+  if (!activeChatId) return <ModeHomeSurface libraryIsEmpty={!chatSummaries?.length} hasActivity={Boolean(chatSummaries?.length)} onOpenDiscover={onOpenDiscover} onOpenNoModelShowcase={onOpenNoModelShowcase} />;
 
   const fallback = <RestoringChatState onBack={() => setActiveChatId(null)} />;
   const resolvedChatMode = chat?.mode ?? cachedChat?.mode;
@@ -94,7 +94,7 @@ export function ModeSurface({
     return message ? (
       <RestoringChatState error={message} onBack={() => setActiveChatId(null)} />
     ) : (
-      <ModeHomeSurface discoverySurface={homeDiscoverySurface} onOpenNoModelShowcase={onOpenNoModelShowcase} />
+      <ModeHomeSurface libraryIsEmpty={!chatSummaries?.length} hasActivity={Boolean(chatSummaries?.length)} onOpenDiscover={onOpenDiscover} onOpenNoModelShowcase={onOpenNoModelShowcase} />
     );
   }
 

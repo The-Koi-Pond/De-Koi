@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, Compass, HelpCircle, List, MessageSquare, Theater } from "lucide-react";
+import { BookOpen, Compass, HelpCircle, Import, List, MessageSquare, Server, Theater } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/index";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
@@ -9,6 +9,7 @@ import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.st
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { HomeCreditsModal } from "./HomeCreditsModal";
 import { RecentChats } from "./RecentChats";
+import { getHomeSuggestions, type HomeSuggestionDestination } from "../lib/home-suggestions";
 
 type QuickStartMode = "conversation" | "roleplay" | "game";
 
@@ -59,11 +60,17 @@ function HomeSplashLetters({ text }: { text: string }) {
 }
 
 export function ModeHomeSurface({
-  discoverySurface = null,
   onOpenNoModelShowcase,
+  onOpenDiscover,
+  libraryIsEmpty = false,
+  hasActivity = false,
+  needsServerSetup = false,
 }: {
-  discoverySurface?: ReactNode;
   onOpenNoModelShowcase?: () => void;
+  onOpenDiscover?: () => void;
+  libraryIsEmpty?: boolean;
+  hasActivity?: boolean;
+  needsServerSetup?: boolean;
 }) {
   const { data: connections } = useConnections();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
@@ -77,6 +84,20 @@ export function ModeHomeSurface({
     [connections],
   );
   const hasLanguageConnections = languageConnections.length > 0;
+  const homeSuggestions = getHomeSuggestions({
+    needsServerSetup,
+    hasLanguageModel: hasLanguageConnections,
+    libraryIsEmpty,
+    hasActivity,
+  });
+
+  const runHomeSuggestion = (destination: HomeSuggestionDestination) => {
+    if (destination === "sample-world") return onOpenNoModelShowcase?.();
+    if (destination === "discover") return onOpenDiscover?.();
+    const ui = useUIStore.getState();
+    ui.openRightPanel("settings");
+    ui.setSettingsTab(destination === "library-import" ? "import" : "advanced");
+  };
 
   const handleQuickStart = useCallback(
     (mode: QuickStartMode) => {
@@ -174,26 +195,33 @@ export function ModeHomeSurface({
             />
           </div>
 
-          {!hasLanguageConnections && onOpenNoModelShowcase && (
-            <button
-              type="button"
-              onClick={onOpenNoModelShowcase}
-              className="group flex w-full max-w-[32rem] items-center gap-3 rounded-lg border border-[var(--primary)]/25 bg-[var(--card)]/75 px-3 py-2.5 text-left shadow-sm transition-colors hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/8"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--primary)]/25 bg-[var(--primary)]/10 text-[var(--primary)]">
-                <Compass size="1rem" aria-hidden />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-[var(--foreground)]">Explore sample world</span>
-                <span className="mt-0.5 block text-xs leading-snug text-[var(--muted-foreground)]">
-                  Browse a Game scene, party, journal, map, and lore before connecting a model.
-                </span>
-              </span>
-            </button>
-          )}
-
           <RecentChats />
-          {discoverySurface}
+          <section aria-labelledby="home-next-steps" className="w-full max-w-[32rem]">
+            <div className="mb-2 flex items-center justify-between gap-3 px-1">
+              <h4 id="home-next-steps" className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                Next steps
+              </h4>
+              <span className="text-[0.625rem] text-[var(--muted-foreground)]/65">Choose your path</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {homeSuggestions.map((suggestion) => {
+                const Icon = suggestion.destination === "server-setup" ? Server : suggestion.destination === "library-import" ? Import : Compass;
+                return (
+                  <button
+                    key={suggestion.destination}
+                    type="button"
+                    data-home-suggestion={suggestion.destination}
+                    onClick={() => runHomeSuggestion(suggestion.destination)}
+                    className="group min-h-24 rounded-xl border border-[var(--border)] bg-[var(--card)]/70 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/7"
+                  >
+                    <Icon size="1rem" className="mb-2 text-[var(--primary)] transition-transform group-hover:scale-110" aria-hidden />
+                    <span className="block text-xs font-semibold text-[var(--foreground)]">{suggestion.label}</span>
+                    <span className="mt-1 block text-[0.65rem] leading-snug text-[var(--muted-foreground)]">{suggestion.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
           <div
             className={cn(

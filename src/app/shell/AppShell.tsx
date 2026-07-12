@@ -299,6 +299,7 @@ export function AppShell() {
   const [activeChatSidebarTab, setActiveChatSidebarTab] = useState<ChatSidebarTab>("conversation");
   const [dekiOpen, setDekiOpen] = useState(false);
   const [leftSidebarPanel, setLeftSidebarPanelState] = useState<AppShellLeftSidebarPanel>("chats");
+  const [discoverOpen, setDiscoverOpen] = useState(false);
   const [dekiSessions, setDekiSessions] = useState<DekiSession[]>([]);
   const [activeDekiSessionId, setActiveDekiSessionId] = useState<string | null>(null);
   const [unreadDekiSessionIds, setUnreadDekiSessionIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -651,6 +652,16 @@ export function AppShell() {
       });
   }, [closeDekiShell, closeRightPanel, queryClient, setLeftSidebarPanel, setTrackerPanelOpen]);
 
+  const closeDiscover = useCallback(() => setDiscoverOpen(false), []);
+  const openDiscover = useCallback(() => {
+    useChatStore.getState().setActiveChatId(null);
+    useUIStore.getState().closeAllDetails();
+    closeRightPanel();
+    closeDekiShell();
+    setTrackerPanelOpen(false);
+    setDiscoverOpen(true);
+  }, [closeDekiShell, closeRightPanel, setTrackerPanelOpen]);
+
   useEffect(() => {
     if (!activeChatId) return;
     closeDekiShell();
@@ -708,7 +719,13 @@ export function AppShell() {
         return;
       }
 
+      if (detail?.type === "open-discover") {
+        openDiscover();
+        return;
+      }
+
       if (detail?.type === "go-home") {
+        closeDiscover();
         closeDekiShell();
         setLeftSidebarPanel(null);
         setTrackerPanelOpen(false);
@@ -722,7 +739,15 @@ export function AppShell() {
 
     window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
     return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
-  }, [closeDekiShell, closeRightPanel, openNoModelShowcase, setLeftSidebarPanel, setTrackerPanelOpen]);
+  }, [closeDekiShell, closeDiscover, closeRightPanel, openDiscover, openNoModelShowcase, setLeftSidebarPanel, setTrackerPanelOpen]);
+
+  useEffect(() => {
+    if (!discoverOpen) return;
+    window.history.pushState({ ...getHistoryStateRecord(), deKoiDiscover: true }, "", window.location.href);
+    const handlePopState = () => setDiscoverOpen(false);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [discoverOpen]);
 
   useEffect(() => {
     if (!activeChatId || isClearingAutonomousUnread) return;
@@ -878,13 +903,14 @@ export function AppShell() {
 
   const showAmbientDecor = !activeChatId && !detailView && !botBrowserOpen && !gameAssetsBrowserOpen && !dekiOpen;
   const hasDetailView = detailView != null;
-  const { dekiSurfaceVisible, mainSurfaceVisible } = getAppShellCenterSurfaceState({
+  const { discoverSurfaceVisible, dekiSurfaceVisible, mainSurfaceVisible } = getAppShellCenterSurfaceState({
     botBrowserOpen,
     gameAssetsBrowserOpen,
     rightPanelOpen,
     detailViewOpen: hasDetailView,
     dekiOpen,
     activeDekiSessionId,
+    discoverOpen,
   });
   useEffect(() => {
     if (hasDetailView) setDekiOpen(false);
@@ -1487,6 +1513,11 @@ export function AppShell() {
                   onAssistantMessagePersisted={() => handleDekiAssistantMessage(activeDekiSessionId)}
                 />
               </MountOnceWhenOpened>
+              <MountOnceWhenOpened open={discoverSurfaceVisible} overlay hideOverlayWhenClosed slideFromBottom={isMobile}>
+                <Suspense fallback={<ShellLoadingFallback compact />}>
+                  <DiscoverPanel onClose={closeDiscover} />
+                </Suspense>
+              </MountOnceWhenOpened>
               <div
                 className={mainSurfaceVisible ? "flex flex-1 flex-col overflow-hidden" : "hidden"}
                 style={
@@ -1505,14 +1536,7 @@ export function AppShell() {
               >
                 <Suspense fallback={<MainPaneFallback />}>
                   {detailView ?? (
-                    <ModeSurface
-                      homeDiscoverySurface={
-                        <Suspense fallback={<ShellLoadingFallback compact />}>
-                          <DiscoverPanel />
-                        </Suspense>
-                      }
-                      onOpenNoModelShowcase={openNoModelShowcase}
-                    />
+                    <ModeSurface onOpenDiscover={openDiscover} onOpenNoModelShowcase={openNoModelShowcase} />
                   )}
                 </Suspense>
               </div>
