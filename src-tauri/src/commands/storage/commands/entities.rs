@@ -3636,6 +3636,38 @@ mod tests {
         );
     }
     #[test]
+    fn storage_list_accepts_mixed_legacy_sort_value_types() {
+        assert_ne!(
+            compare_json_values(Some(&json!(1)), Some(&json!("legacy"))),
+            std::cmp::Ordering::Equal,
+            "different JSON types need a deterministic order for a total comparator"
+        );
+
+        let state = test_state("storage-list-mixed-sort-types");
+        let rows = (0..24)
+            .map(|index| {
+                let sort_order = if index % 3 == 0 {
+                    json!(index)
+                } else {
+                    json!(format!("legacy-{index:02}"))
+                };
+                json!({
+                    "id": format!("row-{index:02}"),
+                    "sortOrder": sort_order
+                })
+            })
+            .collect();
+        state
+            .storage
+            .replace_all("characters", rows)
+            .expect("mixed legacy rows should seed");
+
+        let result = storage_list_inner(&state, "characters".to_string(), None)
+            .expect("mixed legacy sort values should not panic");
+
+        assert_eq!(result.as_array().map(Vec::len), Some(24));
+    }
+    #[test]
     fn storage_list_where_in_projected_rows_sort_by_unrequested_field() {
         let state = test_state("where-in-character-sort-projection");
         state
