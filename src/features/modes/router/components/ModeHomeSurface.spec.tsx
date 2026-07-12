@@ -6,8 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HOME_SPLASH_TEXTS, ModeHomeSurface, pickHomeSplashText } from "./ModeHomeSurface";
 
-const { connectionRows, createChatMutate } = vi.hoisted(() => ({ connectionRows: { current: [] as Array<{ id: string; provider: string }> }, createChatMutate: vi.fn() }));
+const { connectionRows, createChatMutate } = vi.hoisted(() => ({
+  connectionRows: { current: [] as Array<{ id: string; provider: string }> },
+  createChatMutate: vi.fn(),
+}));
+const { embeddedRuntime } = vi.hoisted(() => ({ embeddedRuntime: { current: true } }));
 vi.mock("../../../catalog/connections/index", () => ({ useConnections: () => ({ data: connectionRows.current }) }));
+vi.mock("../../../../shared/api/remote-runtime", () => ({ hasEmbeddedTauriRuntime: () => embeddedRuntime.current }));
 
 vi.mock("../../../catalog/chats/index", () => ({
   useCreateChat: () => ({ mutate: createChatMutate }),
@@ -26,7 +31,7 @@ vi.mock("./HomeCreditsModal", () => ({
 }));
 
 vi.mock("./RecentChats", () => ({
-  RecentChats: () => null,
+  RecentChats: () => <div data-testid="recent-chats">Recent chats</div>,
 }));
 
 vi.mock("../../../../shared/stores/chat.store", () => {
@@ -44,6 +49,7 @@ vi.mock("../../../../shared/stores/chat.store", () => {
 
 vi.mock("../../../../shared/stores/ui.store", () => {
   const state = {
+    remoteRuntimeUrl: "",
     setHasCompletedOnboarding: vi.fn(),
   };
   const useUIStore = (selector: (value: typeof state) => unknown) => selector(state);
@@ -61,6 +67,7 @@ describe("ModeHomeSurface launch splash", () => {
   let container: HTMLDivElement | null = null;
 
   beforeEach(() => {
+    embeddedRuntime.current = true;
     connectionRows.current = [];
     createChatMutate.mockClear();
     beginSetupJourney.mockClear();
@@ -116,6 +123,7 @@ describe("ModeHomeSurface quick-start prewarming", () => {
   let requestIdleCallbackSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    embeddedRuntime.current = true;
     connectionRows.current = [];
     createChatMutate.mockClear();
     beginSetupJourney.mockClear();
@@ -180,12 +188,7 @@ describe("ModeHomeSurface quick-start prewarming", () => {
     await act(async () => {
       root = createRoot(container!);
       root.render(
-        <ModeHomeSurface
-          libraryIsEmpty
-          hasActivity
-          onOpenDiscover={onOpenDiscover}
-          onOpenNoModelShowcase={() => undefined}
-        />,
+        <ModeHomeSurface hasActivity onOpenDiscover={onOpenDiscover} onOpenNoModelShowcase={() => undefined} />,
       );
     });
 
@@ -198,12 +201,44 @@ describe("ModeHomeSurface quick-start prewarming", () => {
     expect(onOpenDiscover).toHaveBeenCalledTimes(1);
   });
 
+  it("orders readiness, recent chats, mode cards, then contextual suggestions", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface readinessSurface={<div data-testid="readiness">Continue setup</div>} />);
+    });
+    const sections = Array.from(container!.querySelectorAll("[data-home-section]")).map((node) =>
+      node.getAttribute("data-home-section"),
+    );
+    expect(sections).toEqual(["readiness", "recent-chats", "mode-cards", "suggestions"]);
+    expect(container!.querySelector('[data-home-section="readiness"] [data-testid="readiness"]')).toBeTruthy();
+    expect(container!.querySelector('[data-home-section="recent-chats"] [data-testid="recent-chats"]')).toBeTruthy();
+  });
+
+  it("prioritizes server setup from production web readiness facts", async () => {
+    embeddedRuntime.current = false;
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    expect(container!.querySelector("[data-home-suggestion]")?.textContent).toContain("Connect to your De-Koi server");
+  });
+
+  it("does not claim an unknown library is empty just because there are no chats", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface hasActivity={false} />);
+    });
+    expect(container!.textContent).not.toContain("Import your library");
+  });
+
   it("records mode intent before opening the prerequisite detour", async () => {
     await act(async () => {
       root = createRoot(container!);
       root.render(<ModeHomeSurface />);
     });
-    const button = Array.from(container!.querySelectorAll("button")).find((item) => item.getAttribute("aria-label") === "Start Conversation chat");
+    const button = Array.from(container!.querySelectorAll("button")).find(
+      (item) => item.getAttribute("aria-label") === "Start Conversation chat",
+    );
     act(() => button!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(beginSetupJourney).toHaveBeenCalledWith("conversation");
   });
@@ -214,7 +249,9 @@ describe("ModeHomeSurface quick-start prewarming", () => {
       root = createRoot(container!);
       root.render(<ModeHomeSurface />);
     });
-    const button = Array.from(container!.querySelectorAll("button")).find((item) => item.getAttribute("aria-label") === "Start Roleplay chat");
+    const button = Array.from(container!.querySelectorAll("button")).find(
+      (item) => item.getAttribute("aria-label") === "Start Roleplay chat",
+    );
     act(() => button!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(beginSetupJourney).toHaveBeenCalledWith("roleplay");
     expect(createChatMutate).not.toHaveBeenCalled();

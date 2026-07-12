@@ -38,6 +38,7 @@ import { onDesktopWindowCloseRequested } from "../../shared/api/window-controls-
 import { hasPendingAppCloseWork, requestGuardedAppClose } from "../../shared/lib/app-close-guard";
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
 import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
+import { closeDiscoverHistory, openDiscoverHistory } from "./app-shell-discover-history";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
@@ -652,7 +653,10 @@ export function AppShell() {
       });
   }, [closeDekiShell, closeRightPanel, queryClient, setLeftSidebarPanel, setTrackerPanelOpen]);
 
-  const closeDiscover = useCallback(() => setDiscoverOpen(false), []);
+  const closeDiscover = useCallback(() => {
+    closeDiscoverHistory(window.history, window.location.href);
+    setDiscoverOpen(false);
+  }, []);
   const openDiscover = useCallback(() => {
     useChatStore.getState().setActiveChatId(null);
     useUIStore.getState().closeAllDetails();
@@ -739,11 +743,19 @@ export function AppShell() {
 
     window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
     return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
-  }, [closeDekiShell, closeDiscover, closeRightPanel, openDiscover, openNoModelShowcase, setLeftSidebarPanel, setTrackerPanelOpen]);
+  }, [
+    closeDekiShell,
+    closeDiscover,
+    closeRightPanel,
+    openDiscover,
+    openNoModelShowcase,
+    setLeftSidebarPanel,
+    setTrackerPanelOpen,
+  ]);
 
   useEffect(() => {
     if (!discoverOpen) return;
-    window.history.pushState({ ...getHistoryStateRecord(), deKoiDiscover: true }, "", window.location.href);
+    openDiscoverHistory(window.history, window.location.href);
     const handlePopState = () => setDiscoverOpen(false);
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -1513,7 +1525,12 @@ export function AppShell() {
                   onAssistantMessagePersisted={() => handleDekiAssistantMessage(activeDekiSessionId)}
                 />
               </MountOnceWhenOpened>
-              <MountOnceWhenOpened open={discoverSurfaceVisible} overlay hideOverlayWhenClosed slideFromBottom={isMobile}>
+              <MountOnceWhenOpened
+                open={discoverSurfaceVisible}
+                overlay
+                hideOverlayWhenClosed
+                slideFromBottom={isMobile}
+              >
                 <Suspense fallback={<ShellLoadingFallback compact />}>
                   <DiscoverPanel onClose={closeDiscover} />
                 </Suspense>
@@ -1536,7 +1553,15 @@ export function AppShell() {
               >
                 <Suspense fallback={<MainPaneFallback />}>
                   {detailView ?? (
-                    <ModeSurface onOpenDiscover={openDiscover} onOpenNoModelShowcase={openNoModelShowcase} />
+                    <ModeSurface
+                      readinessSurface={
+                        <Suspense fallback={null}>
+                          <SetupReadinessJourney />
+                        </Suspense>
+                      }
+                      onOpenDiscover={openDiscover}
+                      onOpenNoModelShowcase={openNoModelShowcase}
+                    />
                   )}
                 </Suspense>
               </div>
@@ -1651,7 +1676,6 @@ export function AppShell() {
               <OnboardingTutorial onShellInertResync={syncMobilePanelInert} />
             </Suspense>
           )}
-          <Suspense fallback={null}><SetupReadinessJourney /></Suspense>
           <HelpHub
             open={helpHubOpen}
             onClose={() => setHelpHubOpen(false)}

@@ -3,7 +3,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { chatKeys, useCreateChat, useUpdateChat } from "../../../catalog/chats";
 import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets";
 import { useConnections } from "../../../catalog/connections";
-import { checkRemoteRuntimeHealth, hasEmbeddedTauriRuntime, type RemoteRuntimeHealthCheck } from "../../../../shared/api/remote-runtime";
+import {
+  checkRemoteRuntimeHealth,
+  hasEmbeddedTauriRuntime,
+  type RemoteRuntimeHealthCheck,
+} from "../../../../shared/api/remote-runtime";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
@@ -32,8 +36,7 @@ export function SetupReadinessJourney() {
   if (!launchOrchestratorRef.current) {
     launchOrchestratorRef.current = createSetupChatLaunchOrchestrator({
       createChat: (input) => launchDependenciesRef.current.createChat.mutateAsync(input),
-      reconcileChat: (chat, input) =>
-        launchDependenciesRef.current.updateChat.mutateAsync({ id: chat.id, ...input }),
+      reconcileChat: (chat, input) => launchDependenciesRef.current.updateChat.mutateAsync({ id: chat.id, ...input }),
       getCurrentLaunchRequest: () => currentLaunchRequestRef.current,
       getRecovery: () => useSetupJourneyStore.getState().recovery,
       recordRecovery: (recovery) => useSetupJourneyStore.getState().recordRecovery(recovery),
@@ -100,53 +103,86 @@ export function SetupReadinessJourney() {
   const { data: connections } = useConnections(journeyActive && (embedded || health?.status === "ok"));
 
   useEffect(() => {
-    if (!journeyActive || embedded || !runtimeTarget) { setCheckedHealth(null); return; }
+    if (!journeyActive || embedded || !runtimeTarget) {
+      setCheckedHealth(null);
+      return;
+    }
     const controller = new AbortController();
     setCheckedHealth({ checkedUrl: runtimeTarget, result: { status: "checking", message: "Checking De-Koi server" } });
-    void checkRemoteRuntimeHealth(runtimeTarget, { signal: controller.signal }).then((result) => {
-      if (!controller.signal.aborted) setCheckedHealth({ checkedUrl: runtimeTarget, result });
-    }).catch((error) => {
-      if (!controller.signal.aborted) setCheckedHealth({ checkedUrl: runtimeTarget, result: { status: "unreachable", message: error instanceof Error ? error.message : "Server unavailable" } });
-    });
+    void checkRemoteRuntimeHealth(runtimeTarget, { signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted) setCheckedHealth({ checkedUrl: runtimeTarget, result });
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted)
+          setCheckedHealth({
+            checkedUrl: runtimeTarget,
+            result: { status: "unreachable", message: error instanceof Error ? error.message : "Server unavailable" },
+          });
+      });
     return () => controller.abort();
   }, [embedded, journeyActive, runtimeTarget]);
 
-  const languageConnections = useMemo(() => filterLanguageGenerationConnections(connections).filter((row) => row.provider !== "tts" && row.provider !== "text_to_speech"), [connections]);
+  const languageConnections = useMemo(
+    () =>
+      filterLanguageGenerationConnections(connections).filter(
+        (row) => row.provider !== "tts" && row.provider !== "text_to_speech",
+      ),
+    [connections],
+  );
   const facts = buildSetupReadinessFacts({
-    embedded, runtimeUrl: remoteRuntimeUrl, runtimeHealth: health, connections: languageConnections,
-    selectedConnectionId: intent?.selectedConnectionId, connectionTestCapability: "unavailable",
+    embedded,
+    runtimeUrl: remoteRuntimeUrl,
+    runtimeHealth: health,
+    connections: languageConnections,
+    selectedConnectionId: intent?.selectedConnectionId,
+    connectionTestCapability: "unavailable",
   });
   currentLaunchRequestRef.current = {
     intent,
     ready: isSetupReady(facts),
     usableConnectionIds: languageConnections.map((row) => row.id),
   };
-  const openSettings = () => { useUIStore.getState().setSettingsTab("advanced"); useUIStore.getState().openRightPanel("settings"); };
+  const openSettings = () => {
+    useUIStore.getState().setSettingsTab("advanced");
+    useUIStore.getState().openRightPanel("settings");
+  };
   const openConnections = () => useUIStore.getState().openRightPanel("connections");
   const continueChat = () => {
     if (!intent) return;
     if (!isSetupReady(facts)) return;
-    const connection = languageConnections.find((row) => row.id === intent?.selectedConnectionId) ?? languageConnections[0];
+    const connection =
+      languageConnections.find((row) => row.id === intent?.selectedConnectionId) ?? languageConnections[0];
     if (!connection) return;
     useSetupJourneyStore.getState().markConnection(connection.id);
     const selectedIntent = { ...intent, selectedConnectionId: connection.id };
-    void launchOrchestratorRef.current?.launch({
-      intent: selectedIntent,
-      ready: true,
-      usableConnectionIds: languageConnections.map((row) => row.id),
-    }).catch(() => {
-      // The mutation owner exposes the error; only pre-create rejection is retryable by the orchestrator.
-    });
+    void launchOrchestratorRef.current
+      ?.launch({
+        intent: selectedIntent,
+        ready: true,
+        usableConnectionIds: languageConnections.map((row) => row.id),
+      })
+      .catch(() => {
+        // The mutation owner exposes the error; only pre-create rejection is retryable by the orchestrator.
+      });
   };
 
   if (!intent || intent.completed) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-3" role="dialog" aria-label="Setup required">
-      <SetupReadinessChecklist facts={facts} dismissed={intent?.dismissed} completed={intent?.completed}
-        onDismiss={() => useSetupJourneyStore.getState().dismiss()} onResume={() => useSetupJourneyStore.getState().resume()}
-        onConfigureRuntime={openSettings} onRepairRuntime={openSettings} onCreateConnection={openConnections}
-        onTestConnection={openConnections} onContinueChat={continueChat} />
+    <div className="flex w-full justify-center" role="region" aria-label="Setup required">
+      <SetupReadinessChecklist
+        facts={facts}
+        dismissed={intent?.dismissed}
+        completed={intent?.completed}
+        onDismiss={() => useSetupJourneyStore.getState().dismiss()}
+        onResume={() => useSetupJourneyStore.getState().resume()}
+        onConfigureRuntime={openSettings}
+        onRepairRuntime={openSettings}
+        onCreateConnection={openConnections}
+        onTestConnection={openConnections}
+        onContinueChat={continueChat}
+      />
     </div>
   );
 }

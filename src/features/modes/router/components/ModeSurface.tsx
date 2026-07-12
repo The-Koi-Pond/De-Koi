@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useRef, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { useChat, useChatSummaries, type ChatMode } from "../../../catalog/chats/index";
 import { ApiError } from "../../../../shared/api/api-errors";
@@ -20,13 +20,7 @@ const GameModeRoute = lazy(async () => {
   return { default: module.GameModeRoute };
 });
 
-function RestoringChatState({
-  error,
-  onBack,
-}: {
-  error?: string | null;
-  onBack: () => void;
-}) {
+function RestoringChatState({ error, onBack }: { error?: string | null; onBack: () => void }) {
   const hasError = !!error;
   return (
     <div data-component="ModeSurface.RestoringChat" className="flex flex-1 items-center justify-center p-6">
@@ -55,9 +49,11 @@ function RestoringChatState({
 export function ModeSurface({
   onOpenNoModelShowcase,
   onOpenDiscover,
+  readinessSurface = null,
 }: {
   onOpenNoModelShowcase?: () => void;
   onOpenDiscover?: () => void;
+  readinessSurface?: ReactNode;
 }) {
   const activeChatId = useChatStore((state) => state.activeChatId);
   const setActiveChatId = useChatStore((state) => state.setActiveChatId);
@@ -76,7 +72,15 @@ export function ModeSurface({
     setActiveChatId(null);
   }, [activeChatId, cachedChat, chat, chatError, chatSummaries, isChatFetching, isChatLoading, setActiveChatId]);
 
-  if (!activeChatId) return <ModeHomeSurface libraryIsEmpty={!chatSummaries?.length} hasActivity={Boolean(chatSummaries?.length)} onOpenDiscover={onOpenDiscover} onOpenNoModelShowcase={onOpenNoModelShowcase} />;
+  if (!activeChatId)
+    return (
+      <ModeHomeSurface
+        readinessSurface={readinessSurface}
+        hasActivity={Boolean(chatSummaries?.length)}
+        onOpenDiscover={onOpenDiscover}
+        onOpenNoModelShowcase={onOpenNoModelShowcase}
+      />
+    );
 
   const fallback = <RestoringChatState onBack={() => setActiveChatId(null)} />;
   const resolvedChatMode = chat?.mode ?? cachedChat?.mode;
@@ -94,7 +98,12 @@ export function ModeSurface({
     return message ? (
       <RestoringChatState error={message} onBack={() => setActiveChatId(null)} />
     ) : (
-      <ModeHomeSurface libraryIsEmpty={!chatSummaries?.length} hasActivity={Boolean(chatSummaries?.length)} onOpenDiscover={onOpenDiscover} onOpenNoModelShowcase={onOpenNoModelShowcase} />
+      <ModeHomeSurface
+        readinessSurface={readinessSurface}
+        hasActivity={Boolean(chatSummaries?.length)}
+        onOpenDiscover={onOpenDiscover}
+        onOpenNoModelShowcase={onOpenNoModelShowcase}
+      />
     );
   }
 
