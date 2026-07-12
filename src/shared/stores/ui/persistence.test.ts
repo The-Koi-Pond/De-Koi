@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultImageStyleProfileSettings } from "../../../engine/generation/image-style-profiles";
 import type { UIState } from "./model";
-import { migrateUiState, partializeUiState, UI_STORE_VERSION } from "./persistence";
+import type { SetupJourneyIntent } from "../../../engine/onboarding";
+import {
+  migrateUiState,
+  partializeSetupJourneyState,
+  partializeUiState,
+  UI_STORE_VERSION,
+} from "./persistence";
 
 describe("ui persistence migration", () => {
   it("bumps the store version for the chibi visit setting removal", () => {
@@ -83,5 +89,33 @@ describe("ui persistence migration", () => {
     expect(partialized.echoChamberOpen).toBe(true);
     expect(partialized.echoChamberSide).toBe("top-left");
     expect(partialized.echoChamberDismissedChatIds).toEqual({ "chat-1": true });
+  });
+});
+
+describe("setup journey persistence", () => {
+  it("allowlists only resumable journey metadata", () => {
+    const intent: SetupJourneyIntent & Record<string, unknown> = {
+      mode: "roleplay",
+      originCharacterId: "character-1",
+      selectedConnectionId: "connection-1",
+      dismissed: true,
+      completed: false,
+      apiToken: "do-not-persist",
+      credential: "do-not-persist",
+      providerPayload: { secret: "do-not-persist" },
+    };
+
+    const serialized = partializeSetupJourneyState({ intent });
+
+    expect(serialized).toEqual({
+      intent: {
+        mode: "roleplay",
+        originCharacterId: "character-1",
+        selectedConnectionId: "connection-1",
+        dismissed: true,
+        completed: false,
+      },
+    });
+    expect(JSON.stringify(serialized)).not.toMatch(/api|credential|secret|token|providerPayload/i);
   });
 });

@@ -1,4 +1,5 @@
 import { createJSONStorage } from "zustand/middleware";
+import type { SetupJourneyIntent } from "../../../engine/onboarding";
 import {
   normalizeImageStyleProfileSettings,
   type ImageStyleProfileSettings,
@@ -34,6 +35,24 @@ type PersistedUiState = Partial<UIState> & {
   trackerPanelWidth?: unknown;
   imageStyleProfiles?: unknown;
 };
+
+interface SetupJourneyPersistableState {
+  intent: SetupJourneyIntent | null;
+}
+
+export function partializeSetupJourneyState(state: SetupJourneyPersistableState): SetupJourneyPersistableState {
+  const intent = state.intent;
+  if (!intent) return { intent: null };
+  return {
+    intent: {
+      mode: intent.mode,
+      originCharacterId: intent.originCharacterId,
+      selectedConnectionId: intent.selectedConnectionId,
+      dismissed: intent.dismissed,
+      completed: intent.completed,
+    },
+  };
+}
 
 function normalizePersistedWidth(value: unknown, fallback: number, min: number, max: number): number {
   const width = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback;
