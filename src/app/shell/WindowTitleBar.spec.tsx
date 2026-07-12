@@ -161,4 +161,16 @@ describe("WindowTitleBar web mode", () => {
     expect(container!.querySelector(".mari-title-drag-region [data-testid='music-toolbar']")).toBeTruthy();
     expect(container!.querySelector(".mari-window-actions [data-testid='music-toolbar']")).toBeNull();
   });
+
+  it("keeps visible Chats, Deki-senpai, Library, and Tools labels", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<WindowTitleBar />);
+    });
+    for (const label of ["Chats", "Deki-senpai", "Library", "Tools"]) {
+      expect(
+        Array.from(container!.querySelectorAll("button")).some((button) => button.textContent?.includes(label)),
+      ).toBe(true);
+    }
+  });
 });

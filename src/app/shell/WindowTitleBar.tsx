@@ -36,6 +36,7 @@ export function WindowTitleBar({
   onOpenDeki,
   onGoHome,
   onOpenHelp,
+  onOpenDiscover,
   leftSidebarPanel = "chats",
   onLeftSidebarPanelChange,
   titlebarAccessory,
@@ -45,6 +46,7 @@ export function WindowTitleBar({
   onOpenDeki?: () => void;
   onGoHome?: () => void;
   onOpenHelp?: () => void;
+  onOpenDiscover?: () => void;
   leftSidebarPanel?: AppShellLeftSidebarPanel;
   onLeftSidebarPanelChange?: (panel: AppShellLeftSidebarPanel) => void;
   titlebarAccessory?: ReactNode;
@@ -260,7 +262,7 @@ export function WindowTitleBar({
               <HelpCircle size="1rem" aria-hidden />
             </button>
           )}
-          <PanelNavButtons />
+          <PanelNavButtons onOpenDiscover={onOpenDiscover} />
           <span className="mari-window-actions-divider" aria-hidden />
         </div>
       </div>

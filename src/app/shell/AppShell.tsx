@@ -1374,6 +1374,7 @@ export function AppShell() {
             onLeftSidebarPanelChange={setLeftSidebarPanel}
             onOpenDeki={() => openActiveDeki()}
             onOpenHelp={openHelpHub}
+            onOpenDiscover={openDiscover}
             onGoHome={closeDekiShell}
             titlebarAccessory={
               musicDjMiniPlayerEnabled ? (
@@ -1704,6 +1705,7 @@ export function AppShell() {
         onLeftSidebarPanelChange={setLeftSidebarPanel}
         onToggleDeki={() => setDekiOpen((v) => !v)}
         onGoHome={() => setDekiOpen(false)}
+        onOpenDiscover={openDiscover}
       />
     </TopBarActionsProvider>
   );
