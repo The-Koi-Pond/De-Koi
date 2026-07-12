@@ -38,7 +38,7 @@ import { onDesktopWindowCloseRequested } from "../../shared/api/window-controls-
 import { hasPendingAppCloseWork, requestGuardedAppClose } from "../../shared/lib/app-close-guard";
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
 import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
-import { closeDiscoverHistory, openDiscoverHistory } from "./app-shell-discover-history";
+import { closeDiscoverHistory, useDiscoverHistoryLifecycle } from "./app-shell-discover-history";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
@@ -755,13 +755,8 @@ export function AppShell() {
     setTrackerPanelOpen,
   ]);
 
-  useEffect(() => {
-    if (!discoverOpen) return;
-    openDiscoverHistory(window.history, window.location.href);
-    const handlePopState = () => setDiscoverOpen(false);
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [discoverOpen]);
+  const closeDiscoverFromHistory = useCallback(() => setDiscoverOpen(false), []);
+  useDiscoverHistoryLifecycle(discoverOpen, closeDiscoverFromHistory);
 
   useEffect(() => {
     if (!activeChatId || isClearingAutonomousUnread) return;

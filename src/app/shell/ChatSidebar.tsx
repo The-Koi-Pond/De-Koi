@@ -71,6 +71,7 @@ import { buildChatSidebarCharacterLookup, type ChatSidebarCharacterAvatar } from
 import { CHAT_ROW_ACTION_RAIL_CLASS_NAME, CHAT_ROW_TITLE_CLASS_NAME } from "./chat-sidebar-row-layout";
 import {
   getChatSidebarRecovery,
+  type ChatSidebarRecovery,
   type ChatSidebarRecoveryActionId,
 } from "./chat-sidebar-recovery";
 import { buildSupportReportText } from "../../shared/lib/support-report";
@@ -103,6 +104,38 @@ export function runChatSidebarRecoveryAction(
     "copy-support-details": actions.copySupportDetails,
   };
   actionById[actionId]();
+}
+
+export function ChatSidebarRecoveryView({
+  recovery,
+  isFetching = false,
+  onAction,
+}: {
+  recovery: ChatSidebarRecovery;
+  isFetching?: boolean;
+  onAction: (actionId: ChatSidebarRecoveryActionId) => void;
+}) {
+  const renderAction = (action: ChatSidebarRecovery["primaryAction"], primary: boolean) => (
+    <button
+      type="button"
+      onClick={() => onAction(action.id)}
+      disabled={action.id === "retry" && isFetching}
+      className={cn(
+        "min-h-9 rounded-lg px-3 py-1.5 text-[0.6875rem] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60",
+        primary ? "bg-[var(--primary)]/15 text-[var(--primary)] hover:bg-[var(--primary)]/25" : "bg-[var(--secondary)] text-[var(--foreground)] hover:bg-[var(--sidebar-accent)]",
+      )}
+    >
+      {action.id === "retry" && isFetching ? "Checking..." : action.label}
+    </button>
+  );
+  return <>
+    <p className="text-xs font-semibold text-[var(--foreground)]">{recovery.title}</p>
+    <p className="max-w-[16rem] text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">{recovery.description}</p>
+    <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+      {renderAction(recovery.primaryAction, true)}
+      {recovery.secondaryAction && renderAction(recovery.secondaryAction, false)}
+    </div>
+  </>;
 }
 
 type ChatSidebarProps = {
@@ -1281,34 +1314,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--destructive)]/10">
               <AlertTriangle size="1.25rem" className="text-[var(--destructive)]" />
             </div>
-            <p className="text-xs font-semibold text-[var(--foreground)]">{errorRecovery.title}</p>
-            <p className="max-w-[16rem] text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
-              {errorRecovery.description}
-            </p>
-            <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-              <button
-                type="button"
-                onClick={() => runRecoveryAction(errorRecovery.primaryAction.id)}
-                disabled={errorRecovery.primaryAction.id === "retry" && isFetching}
-                className="min-h-9 rounded-lg bg-[var(--primary)]/15 px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {errorRecovery.primaryAction.id === "retry" && isFetching
-                  ? "Checking..."
-                  : errorRecovery.primaryAction.label}
-              </button>
-              {errorRecovery.secondaryAction && (
-                <button
-                  type="button"
-                  onClick={() => runRecoveryAction(errorRecovery.secondaryAction!.id)}
-                  disabled={errorRecovery.secondaryAction.id === "retry" && isFetching}
-                  className="min-h-9 rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--sidebar-accent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {errorRecovery.secondaryAction.id === "retry" && isFetching
-                    ? "Checking..."
-                    : errorRecovery.secondaryAction.label}
-                </button>
-              )}
-            </div>
+            <ChatSidebarRecoveryView recovery={errorRecovery} isFetching={isFetching} onAction={runRecoveryAction} />
           </div>
         )}
 
@@ -1323,15 +1329,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
                 <BookOpen size="1.25rem" className="text-[var(--muted-foreground)]" />
               )}
             </div>
-            <p className="text-xs font-semibold text-[var(--foreground)]">{emptyRecovery.title}</p>
-            <p className="text-[0.6875rem] text-[var(--muted-foreground)]">{emptyRecovery.description}</p>
-            <button
-              type="button"
-              onClick={() => runRecoveryAction(emptyRecovery.primaryAction.id)}
-              className="mt-1 min-h-9 rounded-lg bg-[var(--primary)]/15 px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
-            >
-              {emptyRecovery.primaryAction.label}
-            </button>
+            <ChatSidebarRecoveryView recovery={emptyRecovery} onAction={runRecoveryAction} />
           </div>
         )}
 

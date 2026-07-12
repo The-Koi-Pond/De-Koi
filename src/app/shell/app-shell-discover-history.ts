@@ -15,3 +15,13 @@ export function closeDiscoverHistory(history: History, href: string): void {
   delete state[DISCOVER_HISTORY_KEY];
   history.replaceState(state, "", href);
 }
+
+export function useDiscoverHistoryLifecycle(open: boolean, onPopState: () => void): void {
+  useEffect(() => {
+    if (!open) return;
+    openDiscoverHistory(window.history, window.location.href);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [open, onPopState]);
+}
+import { useEffect } from "react";
