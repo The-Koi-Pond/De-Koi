@@ -50,6 +50,20 @@ describe("PanelNavButtons", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("opens with Enter and supports reverse and horizontal arrow navigation", () => {
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Tools"]')!;
+    trigger.focus();
+    act(() => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const items = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]'));
+    expect(document.activeElement).toBe(items[0]);
+    act(() => items[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    expect(document.activeElement).toBe(items.at(-1));
+    act(() => items.at(-1)!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
+    expect(document.activeElement).toBe(items.at(-2));
+    act(() => items.at(-2)!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(document.activeElement).toBe(items.at(-1));
+  });
+
   it("marks the open panel as the active menu destination", () => {
     act(() => useUIStore.setState({ rightPanelOpen: true, rightPanel: "connections" }));
     const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Tools"]')!;

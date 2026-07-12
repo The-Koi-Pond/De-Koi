@@ -150,6 +150,7 @@ describe("WindowTitleBar web mode", () => {
 
     expect(homeButton?.querySelector("svg")).toBeTruthy();
     expect(homeButton?.querySelector('img[src="/favicon.png"]')).toBeNull();
+    expect(homeButton?.textContent?.trim()).toBe("Home");
   });
 
   it("places the titlebar accessory on the left side of the titlebar", async () => {
