@@ -11,7 +11,7 @@ const STORAGE_KEY = "marinara-active-chat-id";
 const DRAFTS_KEY = "marinara-input-drafts";
 
 type NotificationAvatarCrop = AvatarCropValue | null;
-type NewChatSetupIntent = {
+export type NewChatSetupIntent = {
   chatId: string;
   openSettings: boolean;
   openWizard: boolean;
@@ -156,6 +156,7 @@ interface ChatState {
   setShouldOpenSettings: (v: boolean, chatId?: string) => void;
   setShouldOpenWizard: (v: boolean, chatId?: string) => void;
   setShouldOpenWizardInShortcutMode: (v: boolean, chatId?: string) => void;
+  setNewChatSetupIntent: (intent: NewChatSetupIntent | null) => void;
   consumeNewChatSetupIntent: (chatId: string) => NewChatSetupIntent | null;
   setPendingNewChatMode: (mode: ChatMode | null) => void;
   setInputDraft: (chatId: string, text: string) => void;
@@ -543,6 +544,8 @@ export const useChatStore = create<ChatState>()(
                 ? { ...state.newChatSetupIntent, shortcutMode: false }
                 : null,
       })),
+
+    setNewChatSetupIntent: (intent) => set({ newChatSetupIntent: intent }),
 
     consumeNewChatSetupIntent: (chatId) => {
       const intent = get().newChatSetupIntent;

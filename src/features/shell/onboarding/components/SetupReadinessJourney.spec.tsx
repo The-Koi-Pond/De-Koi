@@ -8,14 +8,14 @@ const mocks = vi.hoisted(() => ({
   embedded: { current: false },
   health: vi.fn(),
   connections: { current: [{ id: "saved", provider: "openai", model: "gpt" }] },
-  mutate: vi.fn(),
+  mutateAsync: vi.fn(),
   markConnection: vi.fn(),
   markCompleted: vi.fn(),
   runtimeUrl: { current: "https://runtime-a.test" },
 }));
 
 vi.mock("../../../catalog/connections", () => ({ useConnections: (enabled: boolean) => ({ data: enabled ? mocks.connections.current : [] }) }));
-vi.mock("../../../catalog/chats", () => ({ useCreateChat: () => ({ mutate: mocks.mutate }) }));
+vi.mock("../../../catalog/chats", () => ({ useCreateChat: () => ({ mutateAsync: mocks.mutateAsync }) }));
 vi.mock("../../../catalog/chat-presets", () => ({ useApplyUserStarredChatPreset: () => vi.fn(async () => undefined) }));
 vi.mock("../../../../shared/api/remote-runtime", () => ({
   hasEmbeddedTauriRuntime: () => mocks.embedded.current,
@@ -33,7 +33,7 @@ vi.mock("../../../../shared/stores/ui.store", () => {
   useUIStore.getState = () => state;
   return { useUIStore };
 });
-vi.mock("../../../../shared/stores/chat.store", () => ({ useChatStore: { getState: () => ({ setPendingNewChatMode: vi.fn(), setActiveChatId: vi.fn(), setShouldOpenSettings: vi.fn(), setShouldOpenWizard: vi.fn() }) } }));
+vi.mock("../../../../shared/stores/chat.store", () => ({ useChatStore: { getState: () => ({ setPendingNewChatMode: vi.fn(), setActiveChatId: vi.fn(), setNewChatSetupIntent: vi.fn() }) } }));
 
 import { SetupReadinessJourney } from "./SetupReadinessJourney";
 
@@ -44,7 +44,7 @@ describe("SetupReadinessJourney", () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
     mocks.intent.current = { mode: "conversation", originCharacterId: null, selectedConnectionId: null, dismissed: false, completed: false };
-    mocks.embedded.current = false; mocks.mutate.mockReset(); mocks.markCompleted.mockReset(); mocks.markConnection.mockReset();
+    mocks.embedded.current = false; mocks.mutateAsync.mockReset(); mocks.markCompleted.mockReset(); mocks.markConnection.mockReset();
     mocks.runtimeUrl.current = "https://runtime-a.test";
   });
   afterEach(() => { act(() => root.unmount()); container.remove(); });
@@ -59,17 +59,17 @@ describe("SetupReadinessJourney", () => {
     mocks.health.mockReturnValue(new Promise(() => undefined));
     await act(async () => root.render(<SetupReadinessJourney />));
     expect(container.textContent).not.toContain("Continue to chat");
-    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
   });
 
   it("completes the saved intent only after healthy runtime and provider readiness", async () => {
     mocks.health.mockResolvedValue({ status: "ok", message: "Ready", health: { ok: true, writable: true } });
-    mocks.mutate.mockImplementation((_input, options) => options.onSuccess({ id: "chat-1" }));
+    mocks.mutateAsync.mockResolvedValue({ id: "chat-1" });
     await act(async () => { root.render(<SetupReadinessJourney />); await Promise.resolve(); });
     const button = Array.from(container.querySelectorAll("button")).find((item) => item.textContent?.includes("Continue to chat"));
     expect(button).toBeTruthy();
     await act(async () => button!.click());
-    expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ mode: "conversation", connectionId: "saved" }), expect.any(Object));
+    expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ mode: "conversation", connectionId: "saved" }));
     expect(mocks.markCompleted).toHaveBeenCalled();
   });
 
@@ -84,7 +84,7 @@ describe("SetupReadinessJourney", () => {
     mocks.runtimeUrl.current = "https://runtime-b.test";
     flushSync(() => root.render(<SetupReadinessJourney />));
     expect(container.textContent).not.toContain("Continue to chat");
-    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
 
     await act(async () => resolveB({ status: "ok", message: "B ready", health: { ok: true, writable: true } }));
     expect(container.textContent).toContain("Continue to chat");

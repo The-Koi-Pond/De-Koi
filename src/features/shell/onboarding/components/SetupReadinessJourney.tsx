@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCreateChat } from "../../../catalog/chats";
 import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets";
 import { useConnections } from "../../../catalog/connections";
@@ -10,6 +10,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { SetupReadinessChecklist } from "./SetupReadinessChecklist";
 import { buildSetupReadinessFacts } from "../lib/setup-readiness";
 import { isSetupReady } from "../../../../engine/onboarding";
+import { createSetupChatLaunchOrchestrator } from "../../../modes/router/shell";
 
 type Health = RemoteRuntimeHealthCheck | { status: "checking"; message: string };
 type CheckedHealth = { checkedUrl: string; result: Health };
@@ -20,6 +21,27 @@ export function SetupReadinessJourney() {
   const intent = useSetupJourneyStore((state) => state.intent);
   const createChat = useCreateChat();
   const applyPreset = useApplyUserStarredChatPreset();
+  const launchDependenciesRef = useRef({ createChat, applyPreset });
+  launchDependenciesRef.current = { createChat, applyPreset };
+  const launchOrchestratorRef = useRef<ReturnType<typeof createSetupChatLaunchOrchestrator> | null>(null);
+  if (!launchOrchestratorRef.current) {
+    launchOrchestratorRef.current = createSetupChatLaunchOrchestrator({
+      createChat: (input) => launchDependenciesRef.current.createChat.mutateAsync(input),
+      applyStarredPreset: (input) => launchDependenciesRef.current.applyPreset(input),
+      complete: (chat, claim) => {
+        useSetupJourneyStore.getState().markCompleted();
+        const chatStore = useChatStore.getState();
+        chatStore.setPendingNewChatMode(null);
+        chatStore.setActiveChatId(chat.id);
+        chatStore.setNewChatSetupIntent({
+          chatId: chat.id,
+          openSettings: true,
+          openWizard: true,
+          shortcutMode: claim.originCharacterId !== null,
+        });
+      },
+    });
+  }
   const embedded = hasEmbeddedTauriRuntime();
   const runtimeTarget = remoteRuntimeUrl.trim();
   const health = checkedHealth?.checkedUrl === runtimeTarget ? checkedHealth.result : null;
@@ -48,18 +70,17 @@ export function SetupReadinessJourney() {
   const continueChat = () => {
     if (!intent) return;
     if (!isSetupReady(facts)) return;
-    const mode = intent.mode;
     const connection = languageConnections.find((row) => row.id === intent?.selectedConnectionId) ?? languageConnections[0];
     if (!connection) return;
     useSetupJourneyStore.getState().markConnection(connection.id);
-    const label = mode === "conversation" ? "Conversation" : mode === "game" ? "Game" : "Roleplay";
-    createChat.mutate({ name: `New ${label}`, mode, characterIds: [], connectionId: connection.id }, { onSuccess: async (chat) => {
-      useSetupJourneyStore.getState().markCompleted();
-      const chatStore = useChatStore.getState();
-      chatStore.setPendingNewChatMode(null); chatStore.setActiveChatId(chat.id);
-      try { await applyPreset({ mode, chatId: chat.id }); } catch { /* chat remains usable with defaults */ }
-      chatStore.setShouldOpenSettings(true, chat.id); chatStore.setShouldOpenWizard(true, chat.id);
-    } });
+    const selectedIntent = { ...intent, selectedConnectionId: connection.id };
+    void launchOrchestratorRef.current?.launch({
+      intent: selectedIntent,
+      ready: true,
+      usableConnectionIds: languageConnections.map((row) => row.id),
+    }).catch(() => {
+      // Creation errors remain visible through the mutation owner; the atomic claim is released for retry.
+    });
   };
 
   if (!intent || intent.completed) return null;

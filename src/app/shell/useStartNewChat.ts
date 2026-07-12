@@ -11,6 +11,7 @@ import { checkRemoteRuntimeHealth } from "../../shared/api/remote-runtime";
 import { storageApi } from "../../shared/api/storage-api";
 import { filterLanguageGenerationConnections } from "../../shared/lib/connection-filters";
 import { useChatStore } from "../../shared/stores/chat.store";
+import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 
 function hasEmbeddedTauriIpc(): boolean {
@@ -35,11 +36,14 @@ export function useStartNewChat() {
       const isNewChatMode = mode === "conversation" || mode === "roleplay" || mode === "game";
       const remoteRuntime = remoteRuntimeUrl.trim();
       const needsRemoteRuntime = !hasEmbeddedTauriIpc();
+      const deferToSetup = () => {
+        if (!isNewChatMode) return;
+        useSetupJourneyStore.getState().begin(mode);
+        setPendingNewChatMode(mode);
+      };
 
       if (needsRemoteRuntime && remoteRuntime.length === 0) {
-        if (mode === "conversation" || mode === "roleplay" || mode === "game") {
-          setPendingNewChatMode(mode);
-        }
+        deferToSetup();
         return;
       }
 
@@ -48,11 +52,11 @@ export function useStartNewChat() {
         try {
           health = await checkRemoteRuntimeHealth(remoteRuntime);
         } catch {
-          if (isNewChatMode) setPendingNewChatMode(mode);
+          deferToSetup();
           return;
         }
         if (health.status !== "ok") {
-          if (isNewChatMode) setPendingNewChatMode(mode);
+          deferToSetup();
           return;
         }
       }
@@ -65,16 +69,14 @@ export function useStartNewChat() {
           staleTime: 5 * 60_000,
         });
       } catch {
-        if (isNewChatMode) setPendingNewChatMode(mode);
+        deferToSetup();
         return;
       }
       const connectionRows = filterLanguageGenerationConnections(
         (connections ?? []) as Array<{ id: string; provider?: string }>,
       ).filter((connection) => !!connection.id);
       if (connectionRows.length === 0) {
-        if (isNewChatMode) {
-          setPendingNewChatMode(mode);
-        }
+        deferToSetup();
         return;
       }
 
@@ -97,8 +99,12 @@ export function useStartNewChat() {
             } catch {
               /* non-fatal: chat still opens with system defaults */
             }
-            useChatStore.getState().setShouldOpenSettings(true, chat.id);
-            useChatStore.getState().setShouldOpenWizard(true, chat.id);
+            useChatStore.getState().setNewChatSetupIntent({
+              chatId: chat.id,
+              openSettings: true,
+              openWizard: true,
+              shortcutMode: false,
+            });
           },
         },
       );
