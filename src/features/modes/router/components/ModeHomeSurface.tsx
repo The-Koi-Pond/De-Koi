@@ -303,12 +303,12 @@ export function ModeHomeSurface({
             </div>
 
             <button
-              onClick={() => useUIStore.getState().setHasCompletedOnboarding(false)}
+              onClick={() => useUIStore.getState().setOnboardingTourOpen(true)}
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)]/40 transition-colors hover:bg-[var(--secondary)]/60 hover:text-[var(--muted-foreground)]"
               title="Replay tutorial"
             >
               <HelpCircle size="0.75rem" />
-              Replay Tutorial
+              Show me around
             </button>
           </div>
         </div>

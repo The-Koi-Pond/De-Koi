@@ -375,13 +375,13 @@ function TourCardContent({
 // ─── Main component ───────────────────────────
 
 export function OnboardingTutorial({ onShellInertResync }: OnboardingTutorialProps) {
-  const hasCompleted = useUIStore((s) => s.hasCompletedOnboarding);
-  if (hasCompleted) return null;
+  const open = useUIStore((s) => s.onboardingTourOpen);
+  if (!open) return null;
   return <OnboardingTutorialInner onShellInertResync={onShellInertResync} />;
 }
 
 function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps) {
-  const setCompleted = useUIStore((s) => s.setHasCompletedOnboarding);
+  const setTourOpen = useUIStore((s) => s.setOnboardingTourOpen);
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const setSettingsTab = useUIStore((s) => s.setSettingsTab);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
@@ -465,7 +465,7 @@ function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps
     return () => cancelAnimationFrame(rafRef.current);
   }, [updateRect]);
 
-  const finish = useCallback(() => setCompleted(true), [setCompleted]);
+  const finish = useCallback(() => setTourOpen(false), [setTourOpen]);
 
   useEffect(() => {
     const root = rootRef.current;

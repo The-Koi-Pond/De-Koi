@@ -14,6 +14,20 @@ const replacement: SetupJourneyIntent = {
 describe("useSetupJourneyStore", () => {
   beforeEach(() => useSetupJourneyStore.getState().clearIntent());
 
+  it("tracks only the exact connection that successfully validates and keeps proof transient", () => {
+    useSetupJourneyStore.getState().begin("conversation");
+    useSetupJourneyStore.getState().markConnectionTested("connection-2");
+    expect(useSetupJourneyStore.getState().intent?.selectedConnectionId).toBe("connection-2");
+    expect(useSetupJourneyStore.getState().testedConnectionIds).toEqual(["connection-2"]);
+  });
+
+  it("accepts an honestly untestable provider only after its usable connection saves", () => {
+    useSetupJourneyStore.getState().begin("conversation");
+    useSetupJourneyStore.getState().markConnectionSavedWithoutTest("connection-no-test");
+    expect(useSetupJourneyStore.getState().intent?.selectedConnectionId).toBe("connection-no-test");
+    expect(useSetupJourneyStore.getState().savedWithoutTestConnectionIds).toEqual(["connection-no-test"]);
+  });
+
   it("beginning again preserves the latest requested mode", () => {
     useSetupJourneyStore.getState().begin("conversation", "character-1");
     useSetupJourneyStore.getState().begin("game");

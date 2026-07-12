@@ -465,7 +465,9 @@ export function AppShell() {
   const regexDetailId = useUIStore((s) => s.regexDetailId);
   const botBrowserOpen = useUIStore((s) => s.botBrowserOpen);
   const gameAssetsBrowserOpen = useUIStore((s) => s.gameAssetsBrowserOpen);
-  const hasCompletedOnboarding = useUIStore((s) => s.hasCompletedOnboarding);
+  const onboardingTourOpen = useUIStore((s) => s.onboardingTourOpen);
+  // Shell interactivity follows the transient optional tour, not the legacy persisted completion flag.
+  const hasCompletedOnboarding = !onboardingTourOpen;
   const [helpHubOpen, setHelpHubOpen] = useState(false);
   const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChat = useChatStore((s) => s.activeChat);
@@ -683,7 +685,7 @@ export function AppShell() {
   }, []);
 
   const replayOnboardingFromHelp = useCallback(() => {
-    useUIStore.getState().setHasCompletedOnboarding(false);
+    useUIStore.getState().setOnboardingTourOpen(true);
     setHelpHubOpen(false);
   }, []);
 
@@ -1672,7 +1674,7 @@ export function AppShell() {
             </>
           )}
           {/* First-time onboarding tutorial */}
-          {!hasCompletedOnboarding && (
+          {onboardingTourOpen && (
             <Suspense fallback={null}>
               <OnboardingTutorial onShellInertResync={syncMobilePanelInert} />
             </Suspense>

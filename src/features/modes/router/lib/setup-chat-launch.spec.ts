@@ -13,6 +13,26 @@ const intent = (overrides: Partial<SetupJourneyIntent> = {}): SetupJourneyIntent
 });
 
 describe("setup chat launch orchestration", () => {
+  it("resumes a post-create failure in the same orchestrator without creating twice", async () => {
+    let recovery = null as import("../../../../engine/onboarding").SetupJourneyRecovery | null;
+    const createChat = vi.fn().mockResolvedValue({ id: "chat-1" });
+    const complete = vi.fn().mockRejectedValueOnce(new Error("finalize failed")).mockResolvedValueOnce(undefined);
+    const launch = createSetupChatLaunchOrchestrator({
+      createChat,
+      applyStarredPreset: vi.fn(),
+      complete,
+      getRecovery: () => recovery,
+      recordRecovery: (next) => { recovery = next; },
+      clearRecovery: () => { recovery = null; },
+    });
+    const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
+
+    await expect(launch.launch(request)).rejects.toThrow("finalize failed");
+    await expect(launch.launch(request)).resolves.toEqual({ id: "chat-1" });
+
+    expect(createChat).toHaveBeenCalledOnce();
+    expect(complete).toHaveBeenCalledTimes(2);
+  });
   it("does not claim or create before readiness", async () => {
     const createChat = vi.fn();
     const launch = createSetupChatLaunchOrchestrator({ createChat, applyStarredPreset: vi.fn(), complete: vi.fn() });

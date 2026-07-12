@@ -6,10 +6,14 @@ import { partializeSetupJourneyState } from "./ui/persistence";
 interface SetupJourneyState {
   intent: SetupJourneyIntent | null;
   recovery: SetupJourneyRecovery | null;
+  testedConnectionIds: string[];
+  savedWithoutTestConnectionIds: string[];
   begin: (mode: SetupJourneyMode, originCharacterId?: string) => void;
   dismiss: () => void;
   resume: () => void;
   markConnection: (connectionId: string) => void;
+  markConnectionTested: (connectionId: string) => void;
+  markConnectionSavedWithoutTest: (connectionId: string) => void;
   markCompleted: (journeyId: string) => void;
   replaceIntent: (intent: SetupJourneyIntent) => void;
   clearIntent: () => void;
@@ -29,6 +33,8 @@ export const useSetupJourneyStore = create<SetupJourneyState>()(
     (set) => ({
       intent: null,
       recovery: null,
+      testedConnectionIds: [],
+      savedWithoutTestConnectionIds: [],
       begin: (mode, originCharacterId) =>
         set((state) => ({
           intent: {
@@ -51,6 +57,20 @@ export const useSetupJourneyStore = create<SetupJourneyState>()(
             ? { intent: { ...state.intent, selectedConnectionId: connectionId } }
             : state,
         ),
+      markConnectionTested: (connectionId) =>
+        set((state) => ({
+          testedConnectionIds: state.testedConnectionIds.includes(connectionId)
+            ? state.testedConnectionIds
+            : [...state.testedConnectionIds, connectionId],
+          intent: state.intent ? { ...state.intent, selectedConnectionId: connectionId, dismissed: false } : null,
+        })),
+      markConnectionSavedWithoutTest: (connectionId) =>
+        set((state) => ({
+          savedWithoutTestConnectionIds: state.savedWithoutTestConnectionIds.includes(connectionId)
+            ? state.savedWithoutTestConnectionIds
+            : [...state.savedWithoutTestConnectionIds, connectionId],
+          intent: state.intent ? { ...state.intent, selectedConnectionId: connectionId, dismissed: false } : null,
+        })),
       markCompleted: (journeyId) =>
         set((state) =>
           state.intent && state.intent.journeyId === journeyId && !state.intent.completed
@@ -58,7 +78,7 @@ export const useSetupJourneyStore = create<SetupJourneyState>()(
             : state,
         ),
       replaceIntent: (intent) => set({ intent }),
-      clearIntent: () => set({ intent: null }),
+      clearIntent: () => set({ intent: null, testedConnectionIds: [], savedWithoutTestConnectionIds: [] }),
       recordRecovery: (recovery) => set({ recovery }),
       clearRecovery: () => set({ recovery: null }),
     }),

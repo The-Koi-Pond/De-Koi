@@ -23,7 +23,6 @@ import {
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
-import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import type { ConnectionFolder } from "../../../../engine/contracts/types/connection";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { Modal } from "../../../../shared/components/ui/Modal";
@@ -512,14 +511,6 @@ export function ConnectionsPanel() {
     () => ((connections as ConnectionRowData[] | undefined) ?? []).filter((c) => !isSyntheticConnection(c)),
     [connections],
   );
-
-  useEffect(() => {
-    if (!setupIntent || setupIntent.completed) return;
-    const usable = filterLanguageGenerationConnections(connectionsList).find(
-      (connection) => connection.provider !== "tts" && connection.provider !== "text_to_speech",
-    );
-    if (usable) useSetupJourneyStore.getState().markConnection(usable.id);
-  }, [connectionsList, setupIntent]);
 
   // Sorted folder list + local order for optimistic drag-to-reorder
   const sortedFolders = useMemo(() => {

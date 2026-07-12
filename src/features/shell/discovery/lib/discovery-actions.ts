@@ -47,7 +47,7 @@ export function runDiscoveryAction(action: DiscoveryAction) {
       ui.setSettingsTab(action.tab);
       return;
     case "replay-onboarding":
-      ui.setHasCompletedOnboarding(false);
+      ui.setOnboardingTourOpen(true);
       return;
     case "open-deki":
       emitDiscoveryEvent({ type: "open-deki" });

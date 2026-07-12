@@ -24,7 +24,10 @@ type CheckedHealth = { checkedUrl: string; result: Health };
 export function SetupReadinessJourney() {
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
   const [checkedHealth, setCheckedHealth] = useState<CheckedHealth | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const intent = useSetupJourneyStore((state) => state.intent);
+  const testedConnectionIds = useSetupJourneyStore((state) => state.testedConnectionIds) ?? [];
+  const savedWithoutTestConnectionIds = useSetupJourneyStore((state) => state.savedWithoutTestConnectionIds) ?? [];
   const createChat = useCreateChat();
   const updateChat = useUpdateChat();
   const queryClient = useQueryClient();
@@ -136,7 +139,8 @@ export function SetupReadinessJourney() {
     runtimeHealth: health,
     connections: languageConnections,
     selectedConnectionId: intent?.selectedConnectionId,
-    connectionTestCapability: "unavailable",
+    connectionTestCapability: savedWithoutTestConnectionIds.includes(intent?.selectedConnectionId ?? "") ? "unavailable" : "available",
+    testedConnectionIds,
   });
   currentLaunchRequestRef.current = {
     intent,
@@ -156,14 +160,15 @@ export function SetupReadinessJourney() {
     if (!connection) return;
     useSetupJourneyStore.getState().markConnection(connection.id);
     const selectedIntent = { ...intent, selectedConnectionId: connection.id };
+    setLaunchError(null);
     void launchOrchestratorRef.current
       ?.launch({
         intent: selectedIntent,
         ready: true,
         usableConnectionIds: languageConnections.map((row) => row.id),
       })
-      .catch(() => {
-        // The mutation owner exposes the error; only pre-create rejection is retryable by the orchestrator.
+      .catch((error) => {
+        setLaunchError(error instanceof Error ? error.message : "Setup could not be completed.");
       });
   };
 
@@ -171,6 +176,14 @@ export function SetupReadinessJourney() {
 
   return (
     <div className="flex w-full justify-center" role="region" aria-label="Setup required">
+      <div className="w-full">
+      {launchError && (
+        <div role="alert" className="mb-3 rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-sm">
+          <p className="font-medium">Couldn’t finish setup</p>
+          <p className="text-[var(--muted-foreground)]">{launchError}</p>
+          <button type="button" className="mt-2 rounded-lg bg-[var(--primary)] px-3 py-1.5" onClick={continueChat}>Retry</button>
+        </div>
+      )}
       <SetupReadinessChecklist
         facts={facts}
         dismissed={intent?.dismissed}
@@ -183,6 +196,7 @@ export function SetupReadinessJourney() {
         onTestConnection={openConnections}
         onContinueChat={continueChat}
       />
+      </div>
     </div>
   );
 }

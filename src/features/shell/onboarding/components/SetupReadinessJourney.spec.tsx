@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   markCompleted: vi.fn(),
   recordRecovery: vi.fn(),
   clearRecovery: vi.fn(),
+  testedConnectionIds: { current: ["saved"] as string[] },
   runtimeUrl: { current: "https://runtime-a.test" },
   invalidateQueries: vi.fn(),
 }));
@@ -42,6 +43,8 @@ vi.mock("../../../../shared/stores/setup-journey.store", () => {
   const state = {
     get intent() { return mocks.intent.current; },
     recovery: null,
+    get testedConnectionIds() { return mocks.testedConnectionIds.current; },
+    savedWithoutTestConnectionIds: [],
     markConnection: mocks.markConnection,
     markCompleted: mocks.markCompleted,
     recordRecovery: mocks.recordRecovery,
@@ -70,6 +73,7 @@ describe("SetupReadinessJourney", () => {
     mocks.intent.current = { journeyId: "journey-1", mode: "conversation", originCharacterId: null, selectedConnectionId: null, dismissed: false, completed: false };
     mocks.embedded.current = false; mocks.mutateAsync.mockReset(); mocks.markCompleted.mockReset(); mocks.markConnection.mockReset();
     mocks.runtimeUrl.current = "https://runtime-a.test";
+    mocks.testedConnectionIds.current = ["saved"];
   });
   afterEach(() => { act(() => root.unmount()); container.remove(); });
 
@@ -112,5 +116,17 @@ describe("SetupReadinessJourney", () => {
 
     await act(async () => resolveB({ status: "ok", message: "B ready", health: { ok: true, writable: true } }));
     expect(container.textContent).toContain("Continue to chat");
+  });
+
+  it("surfaces a failed launch and retries it from the checklist", async () => {
+    mocks.embedded.current = true;
+    mocks.mutateAsync.mockRejectedValueOnce(new Error("launch failed")).mockResolvedValueOnce({ id: "chat-1" });
+    await act(async () => root.render(<SetupReadinessJourney />));
+    const continueButton = Array.from(container.querySelectorAll("button")).find((item) => item.textContent?.includes("Continue to chat"))!;
+    await act(async () => continueButton.click());
+    expect(container.textContent).toContain("Couldn’t finish setup");
+    const retry = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Retry")!;
+    await act(async () => retry.click());
+    expect(mocks.mutateAsync).toHaveBeenCalledTimes(2);
   });
 });

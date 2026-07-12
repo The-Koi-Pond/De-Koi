@@ -36,4 +36,24 @@ describe("buildSetupReadinessFacts", () => {
       connectionTestCapability: "unavailable",
     }).selectedConnectionTest).toBe("passed");
   });
+
+  it("requires a stable provider test before advancing", () => {
+    expect(buildSetupReadinessFacts({
+      embedded: true,
+      connections: [language],
+      selectedConnectionId: "language",
+      connectionTestCapability: "available",
+      testedConnectionIds: [],
+    }).selectedConnectionTest).toBe("required");
+  });
+
+  it("uses the exact newly tested connection instead of the first saved connection", () => {
+    expect(buildSetupReadinessFacts({
+      embedded: true,
+      connections: [{ ...language, id: "first" }, { ...language, id: "second" }],
+      selectedConnectionId: "second",
+      connectionTestCapability: "available",
+      testedConnectionIds: ["second"],
+    }).selectedConnectionTest).toBe("passed");
+  });
 });

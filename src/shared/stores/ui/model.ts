@@ -591,6 +591,8 @@ export interface UIState {
 
   // ── Onboarding ──
   hasCompletedOnboarding: boolean;
+  /** Transient explicit request for the optional spotlight tour. */
+  onboardingTourOpen: boolean;
   /** True once the user has permanently disabled the in-game tutorial (? icon still re-opens). */
   gameTutorialDisabled: boolean;
 
@@ -786,6 +788,7 @@ export interface UIState {
   setImpersonateBlockAgents: (v: boolean) => void;
 
   setHasCompletedOnboarding: (v: boolean) => void;
+  setOnboardingTourOpen: (open: boolean) => void;
   setGameTutorialDisabled: (v: boolean) => void;
   dismissLinkApiBanner: () => void;
   setEchoChamberOpen: (open: boolean, chatId?: string | null) => void;

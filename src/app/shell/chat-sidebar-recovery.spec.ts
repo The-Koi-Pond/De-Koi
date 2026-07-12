@@ -18,6 +18,18 @@ describe("getChatSidebarRecovery", () => {
     expect(recovery.description).not.toHaveLength(0);
   });
 
+  it.each([
+    ["startup", ["retry", "view-health"], "startup"],
+    ["missing-runtime", ["connect-server", "view-health"], "server"],
+    ["unhealthy-runtime", ["view-health", "retry"], "reachability"],
+    ["storage", ["view-health", "copy-support-details"], "storage"],
+    ["connection", ["open-connections", "retry"], "provider"],
+  ] as const)("keeps the exact ordered actions and category copy for %s", (kind, actions, copy) => {
+    const recovery = getChatSidebarRecovery({ kind }, context);
+    expect([recovery.primaryAction.id, recovery.secondaryAction?.id]).toEqual(actions);
+    expect(`${recovery.title} ${recovery.description}`.toLowerCase()).toContain(copy);
+  });
+
   it("keeps opaque failures unknown and routes them to retry and health", () => {
     const recovery = getChatSidebarRecovery(new Error("storage runtime connection failed"), context);
     const copy = `${recovery.title} ${recovery.description}`.toLowerCase();

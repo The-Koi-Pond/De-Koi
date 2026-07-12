@@ -84,7 +84,7 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
   const claimedJourneyIds = new Set<string>();
   const completedJourneyIds = new Set<string>();
   let activeFlight: { journeyIds: Set<string>; promise: Promise<TChat> } | null = null;
-  let terminalFailure: { error: unknown } | null = null;
+  let unrecoverableFailure: { error: unknown } | null = null;
 
   const claimSetupLaunch = (request: SetupLaunchRequest): ClaimedSetupLaunch | null => {
     const { intent, ready, usableConnectionIds } = request;
@@ -108,7 +108,7 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
   };
 
   const launch = async (request: SetupLaunchRequest): Promise<TChat | null> => {
-    if (terminalFailure) throw terminalFailure.error;
+    if (unrecoverableFailure) throw unrecoverableFailure.error;
     if (activeFlight && request.intent && request.ready && !request.intent.dismissed && !request.intent.completed) {
       activeFlight.journeyIds.add(request.intent.journeyId);
       return activeFlight.promise;
@@ -246,8 +246,8 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
     try {
       return await promise;
     } catch (error) {
-      if (chatCreated) terminalFailure = { error };
-      else for (const journeyId of journeyIds) claimedJourneyIds.delete(journeyId);
+      if (chatCreated && !dependencies.getRecovery?.()) unrecoverableFailure = { error };
+      for (const journeyId of journeyIds) claimedJourneyIds.delete(journeyId);
       throw error;
     } finally {
       if (activeFlight?.promise === promise) activeFlight = null;
