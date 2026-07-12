@@ -47,6 +47,24 @@ describe("SetupReadinessChecklist", () => {
     expect(onCreateConnection).toHaveBeenCalled();
   });
 
+  it("shows the required model test after a connection is added", () => {
+    const onTestConnection = vi.fn();
+    act(() => root.render(
+      <SetupReadinessChecklist
+        facts={{ ...desktop, usableConnectionCount: 1, selectedConnectionTest: "required" }}
+        onTestConnection={onTestConnection}
+      />,
+    ));
+
+    expect(container.textContent).toContain("Test your language model");
+    const testButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Test connection"),
+    );
+    expect(testButton).toBeTruthy();
+    act(() => testButton!.click());
+    expect(onTestConnection).toHaveBeenCalledOnce();
+  });
+
   it("shows Continue only after every prerequisite is ready", () => {
     const onContinueChat = vi.fn();
     act(() => root.render(<SetupReadinessChecklist facts={desktop} onContinueChat={onContinueChat} />));
