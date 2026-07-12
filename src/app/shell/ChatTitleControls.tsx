@@ -61,7 +61,7 @@ export function ChatTitleControls({
         onDoubleClick={stopChromeDrag}
         data-tour="sidebar-toggle"
         className={cn(
-          "mari-titlebar-action relative flex min-h-11 items-center gap-1 rounded-md px-2 transition-all duration-200",
+          "mari-titlebar-action relative rounded-md p-1.5 transition-all duration-200",
           chatSidebarOpen
             ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))] [&>svg]:stroke-[2.3]"
             : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
@@ -71,7 +71,6 @@ export function ChatTitleControls({
         aria-pressed={chatSidebarOpen}
       >
         <MessageSquare size="0.875rem" />
-        <span className="whitespace-nowrap text-xs font-semibold">Chats</span>
         {chatSidebarOpen && (
           <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
         )}
@@ -96,7 +95,7 @@ export function ChatTitleControls({
           onMouseDown={stopChromeDrag}
           onDoubleClick={stopChromeDrag}
           className={cn(
-            "mari-titlebar-action relative flex min-h-11 items-center gap-1 rounded-md px-2 transition-all duration-200",
+            "mari-titlebar-action relative rounded-md p-1 transition-all duration-200",
             hideDekiOnNarrow && "mari-titlebar-action-mobile-optional",
             dekiButtonActive
               ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
@@ -107,7 +106,6 @@ export function ChatTitleControls({
           aria-pressed={dekiButtonActive}
         >
           <MessageCircleHeart size="0.95rem" aria-hidden />
-          <span className="whitespace-nowrap text-xs font-semibold">Deki-senpai</span>
           {dekiButtonActive && (
             <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
           )}
