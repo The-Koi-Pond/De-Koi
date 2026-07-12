@@ -29,6 +29,10 @@ export interface CharacterLaunchContext {
   alternateGreetings?: string[];
 }
 
+export interface CharacterInitializationResult {
+  cleanup?: () => Promise<void>;
+}
+
 interface SetupChatLaunchDependencies<TChat extends CreatedChat> {
   createChat: (input: {
     name: string;
@@ -51,7 +55,7 @@ interface SetupChatLaunchDependencies<TChat extends CreatedChat> {
     characterId: string,
     context: CharacterLaunchContext,
     claim: ClaimedSetupLaunch,
-  ) => Promise<unknown>;
+  ) => Promise<CharacterInitializationResult | void>;
   complete: (chat: TChat, claim: ClaimedSetupLaunch) => void | Promise<void>;
 }
 
@@ -152,73 +156,82 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
         });
       }
 
-      const currentRequest = dependencies.getCurrentLaunchRequest?.();
-      if (currentRequest?.intent?.journeyId && currentRequest.intent.journeyId !== effectiveClaim.journeyId) {
-        const latestClaim = claimSetupLaunch(currentRequest);
-        if (latestClaim) {
-          journeyIds.add(latestClaim.journeyId);
-          effectiveClaim = latestClaim;
-          characterContext = effectiveClaim.originCharacterId && dependencies.resolveCharacterLaunchContext
-            ? await dependencies.resolveCharacterLaunchContext(effectiveClaim.originCharacterId)
-            : null;
-          const latestInput = {
-            name: characterContext?.characterName
-              ? `${characterContext.characterName} - ${modeLabel(effectiveClaim.mode)}`
-              : `New ${modeLabel(effectiveClaim.mode)}`,
-            mode: effectiveClaim.mode,
-            characterIds: effectiveClaim.originCharacterId ? [effectiveClaim.originCharacterId] : [],
-            connectionId: effectiveClaim.connectionId,
-          };
-          if (!dependencies.reconcileChat) throw new Error("Cannot reconcile an in-flight setup chat");
-          chat = await dependencies.reconcileChat(chat, latestInput);
-          recoveryStage = "reconciled";
-          dependencies.recordRecovery?.({
-            createdChatId: chat.id,
-            journeyId: effectiveClaim.journeyId,
-            stage: recoveryStage,
-          });
+      const stabilizeIdentity = async (cleanup?: () => Promise<void>): Promise<boolean> => {
+        const currentRequest = dependencies.getCurrentLaunchRequest?.();
+        if (!currentRequest?.intent?.journeyId || currentRequest.intent.journeyId === effectiveClaim.journeyId) {
+          return false;
         }
-      } else if (!hasReached(recoveryStage, "reconciled")) {
+        const latestClaim = claimSetupLaunch(currentRequest);
+        if (!latestClaim) throw new Error("Latest setup intent is not ready for finalization");
+        if (cleanup) await cleanup();
+        journeyIds.add(latestClaim.journeyId);
+        effectiveClaim = latestClaim;
+        characterContext = effectiveClaim.originCharacterId && dependencies.resolveCharacterLaunchContext
+          ? await dependencies.resolveCharacterLaunchContext(effectiveClaim.originCharacterId)
+          : null;
+        const latestInput = {
+          name: characterContext?.characterName
+            ? `${characterContext.characterName} - ${modeLabel(effectiveClaim.mode)}`
+            : `New ${modeLabel(effectiveClaim.mode)}`,
+          mode: effectiveClaim.mode,
+          characterIds: effectiveClaim.originCharacterId ? [effectiveClaim.originCharacterId] : [],
+          connectionId: effectiveClaim.connectionId,
+        };
+        if (!dependencies.reconcileChat) throw new Error("Cannot reconcile an in-flight setup chat");
+        chat = await dependencies.reconcileChat(chat, latestInput);
         recoveryStage = "reconciled";
         dependencies.recordRecovery?.({
           createdChatId: chat.id,
           journeyId: effectiveClaim.journeyId,
           stage: recoveryStage,
         });
+        return true;
+      };
+
+      if (await stabilizeIdentity()) {
+        // The loop below will apply every post-reconciliation stage for the latest identity.
+      } else if (!hasReached(recoveryStage, "reconciled")) {
+        recoveryStage = "reconciled";
+        dependencies.recordRecovery?.({ createdChatId: chat.id, journeyId: effectiveClaim.journeyId, stage: recoveryStage });
       }
-      if (!hasReached(recoveryStage, "preset-applied")) {
-        try {
-          await dependencies.applyStarredPreset({ mode: effectiveClaim.mode, chatId: chat.id });
-        } catch {
-          // Preset application is optional; the successfully created chat remains usable.
-        }
-        recoveryStage = "preset-applied";
-        dependencies.recordRecovery?.({
-          createdChatId: chat.id,
-          journeyId: effectiveClaim.journeyId,
-          stage: recoveryStage,
-        });
-      }
-      if (!hasReached(recoveryStage, "greeting-initialized")) {
-        if (effectiveClaim.originCharacterId && characterContext && dependencies.initializeCharacterChat) {
+
+      let stable = false;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        if (!hasReached(recoveryStage, "preset-applied")) {
           try {
-            await dependencies.initializeCharacterChat(
-              chat.id,
-              effectiveClaim.originCharacterId,
-              characterContext,
-              effectiveClaim,
-            );
+            await dependencies.applyStarredPreset({ mode: effectiveClaim.mode, chatId: chat.id });
           } catch {
-            // Greeting setup is optional; the successfully created chat must still be finalized.
+            // Preset application is optional; the successfully created chat remains usable.
           }
+          recoveryStage = "preset-applied";
+          dependencies.recordRecovery?.({ createdChatId: chat.id, journeyId: effectiveClaim.journeyId, stage: recoveryStage });
+          if (await stabilizeIdentity()) continue;
         }
-        recoveryStage = "greeting-initialized";
-        dependencies.recordRecovery?.({
-          createdChatId: chat.id,
-          journeyId: effectiveClaim.journeyId,
-          stage: recoveryStage,
-        });
+
+        if (!hasReached(recoveryStage, "greeting-initialized")) {
+          let initialization: CharacterInitializationResult | void = undefined;
+          if (effectiveClaim.originCharacterId && characterContext && dependencies.initializeCharacterChat) {
+            try {
+              initialization = await dependencies.initializeCharacterChat(
+                chat.id,
+                effectiveClaim.originCharacterId,
+                characterContext,
+                effectiveClaim,
+              );
+            } catch {
+              // Greeting setup is optional; the successfully created chat must still be finalized.
+            }
+          }
+          recoveryStage = "greeting-initialized";
+          dependencies.recordRecovery?.({ createdChatId: chat.id, journeyId: effectiveClaim.journeyId, stage: recoveryStage });
+          if (await stabilizeIdentity(initialization?.cleanup)) continue;
+        }
+
+        if (await stabilizeIdentity()) continue;
+        stable = true;
+        break;
       }
+      if (!stable) throw new Error("Setup intent changed too often to finalize safely");
       dependencies.recordRecovery?.({
         createdChatId: chat.id,
         journeyId: effectiveClaim.journeyId,

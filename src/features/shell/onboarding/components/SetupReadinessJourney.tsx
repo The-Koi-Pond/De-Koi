@@ -59,14 +59,25 @@ export function SetupReadinessJourney() {
           content: context.firstMessage,
           characterId,
         });
+        const cleanup = async () => {
+          if (!message?.id) return;
+          await storageApi.deleteChatMessage(message.id);
+          queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+        };
         if (message?.id) {
-          for (const greeting of context.alternateGreetings ?? []) {
-            if (greeting.trim()) {
-              await storageApi.addChatMessageSwipe(chatId, message.id, greeting, { activate: false });
+          try {
+            for (const greeting of context.alternateGreetings ?? []) {
+              if (greeting.trim()) {
+                await storageApi.addChatMessageSwipe(chatId, message.id, greeting, { activate: false });
+              }
             }
+          } catch (error) {
+            await cleanup();
+            throw error;
           }
         }
         queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+        return { cleanup };
       },
       complete: (chat, claim) => {
         const chatStore = useChatStore.getState();

@@ -276,4 +276,86 @@ describe("setup chat launch orchestration", () => {
     expect(recovery).toBeNull();
     expect(createChat).toHaveBeenCalledOnce();
   });
+
+  it("reconciles to a replacement that arrives while preset application is awaited", async () => {
+    let resolvePreset!: () => void;
+    let currentRequest = {
+      intent: intent({ journeyId: "journey-1", mode: "conversation" }),
+      ready: true,
+      usableConnectionIds: ["conn-1"],
+    };
+    const reconcileChat = vi.fn().mockResolvedValue({ id: "chat-1" });
+    const complete = vi.fn();
+    const launch = createSetupChatLaunchOrchestrator({
+      createChat: vi.fn().mockResolvedValue({ id: "chat-1" }),
+      reconcileChat,
+      getCurrentLaunchRequest: () => currentRequest,
+      applyStarredPreset: vi.fn()
+        .mockImplementationOnce(() => new Promise<void>((resolve) => { resolvePreset = resolve; }))
+        .mockResolvedValue(undefined),
+      complete,
+    });
+
+    const pending = launch.launch(currentRequest);
+    await vi.waitFor(() => expect(resolvePreset).toBeTypeOf("function"));
+    currentRequest = {
+      intent: intent({ journeyId: "journey-2", mode: "roleplay", originCharacterId: "character-2" }),
+      ready: true,
+      usableConnectionIds: ["conn-1"],
+    };
+    resolvePreset();
+    await pending;
+
+    expect(reconcileChat).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({
+      mode: "roleplay",
+      characterIds: ["character-2"],
+    }));
+    expect(complete).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({
+      journeyId: "journey-2",
+      mode: "roleplay",
+    }));
+  });
+
+  it("removes stale greeting initialization when intent changes during the awaited initializer", async () => {
+    let resolveGreeting!: (result: { cleanup: () => Promise<void> }) => void;
+    let currentRequest = {
+      intent: intent({ journeyId: "journey-1", mode: "roleplay", originCharacterId: "character-1" }),
+      ready: true,
+      usableConnectionIds: ["conn-1"],
+    };
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    const reconcileChat = vi.fn().mockResolvedValue({ id: "chat-1" });
+    const complete = vi.fn();
+    const launch = createSetupChatLaunchOrchestrator({
+      createChat: vi.fn().mockResolvedValue({ id: "chat-1" }),
+      reconcileChat,
+      getCurrentLaunchRequest: () => currentRequest,
+      resolveCharacterLaunchContext: vi.fn().mockResolvedValue({ characterName: "Old", firstMessage: "Old hello" }),
+      initializeCharacterChat: vi.fn(() => new Promise<{ cleanup: () => Promise<void> }>((resolve) => {
+        resolveGreeting = resolve;
+      })),
+      applyStarredPreset: vi.fn(),
+      complete,
+    });
+
+    const pending = launch.launch(currentRequest);
+    await vi.waitFor(() => expect(resolveGreeting).toBeTypeOf("function"));
+    currentRequest = {
+      intent: intent({ journeyId: "journey-2", mode: "conversation", originCharacterId: null }),
+      ready: true,
+      usableConnectionIds: ["conn-1"],
+    };
+    resolveGreeting({ cleanup });
+    await pending;
+
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(reconcileChat).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({
+      mode: "conversation",
+      characterIds: [],
+    }));
+    expect(complete).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({
+      journeyId: "journey-2",
+      mode: "conversation",
+    }));
+  });
 });
