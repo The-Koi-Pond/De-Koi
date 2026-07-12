@@ -1164,7 +1164,7 @@ export function GeneralSettings() {
         help="When on, double-clicking or double-tapping a chat message opens the message editor. Edit buttons and keyboard shortcuts still work when this is off."
       />
 
-      <div className="rounded-xl bg-[var(--secondary)]/50 p-4 ring-1 ring-[var(--border)]">
+      <div id="settings-destination-image-settings" className="scroll-mt-4 rounded-xl bg-[var(--secondary)]/50 p-4 ring-1 ring-[var(--border)] transition-shadow duration-700">
         <div className="mb-3 flex flex-col gap-1">
           <div className="text-xs font-semibold text-[var(--foreground)]">Image Generation</div>
           <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
@@ -2881,7 +2881,7 @@ export function ThemesSettings() {
 
   // â”€â”€ Theme List View â”€â”€
   return (
-    <div className="flex flex-col gap-4">
+    <div id="settings-destination-themes" className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700">
       <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
         <Palette size="0.75rem" />
         Create or import custom CSS themes. Themes are stored locally in this Tauri app, while extensions stay local to
@@ -3108,7 +3108,7 @@ export function ExtensionsSettings() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div id="settings-destination-extensions" className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700">
       <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
         <Puzzle size="0.75rem" />
         Install custom extensions to add new features and styles.
@@ -4152,7 +4152,7 @@ export function AdvancedSettings() {
 
       {/* Backup */}
       <div className="retro-divider" />
-      <div className="flex flex-col gap-2">
+      <div id="settings-destination-backups" className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700">
         <div className="flex items-center gap-1.5">
           <Download size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Backup & Export</span>

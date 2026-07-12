@@ -1,0 +1,28 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { SETTINGS_DESTINATIONS, searchSettingsDestinations } from "./settings-destinations";
+
+const destinationOwnerFiles = [
+  "src/features/shell/settings/components/settings/SettingsSurfaces.tsx",
+  "src/features/shell/settings/components/settings/SettingControls.tsx",
+  "src/features/shell/settings/components/settings/UserQuickRepliesManager.tsx",
+  "src/features/shell/settings/components/settings/PromptOverridesEditor.tsx",
+  "src/features/shell/settings/components/settings/PrivacyDataSettings.tsx",
+  "src/features/shell/settings/components/ProfileImportSection.tsx",
+  "src/features/shell/plugins/components/CoreModulesSettings.tsx",
+  "src/features/shell/diagnostics/components/HealthDiagnosticsSettings.tsx",
+];
+
+describe("settings destinations", () => {
+  it("gives every searchable destination a stable owner marker", () => {
+    const source = destinationOwnerFiles.map((file) => readFileSync(file, "utf8")).join("\n");
+    for (const destination of SETTINGS_DESTINATIONS) {
+      expect(source).toContain(`id="settings-destination-${destination.id}"`);
+    }
+  });
+
+  it("matches individual settings by title and keywords", () => {
+    expect(searchSettingsDestinations("sound").map(({ id }) => id)).toContain("notification-sounds");
+    expect(searchSettingsDestinations("restore").map(({ id }) => id)).toEqual(expect.arrayContaining(["profile-import", "backups"]));
+  });
+});

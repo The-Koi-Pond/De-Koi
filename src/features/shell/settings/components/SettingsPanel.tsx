@@ -93,22 +93,24 @@ export function SettingsPanel() {
   const pendingSettingsDestination = useUIStore((s) => s.pendingSettingsDestination);
   const setPendingSettingsDestination = useUIStore((s) => s.setPendingSettingsDestination);
   const [query, setQuery] = useState("");
-  const [highlightedDestination, setHighlightedDestination] = useState<string | null>(null);
   const searchResults = searchSettingsDestinations(query);
   const activeTab = TABS.find((tab) => tab.id === settingsTab) ?? TABS[0];
   const ActiveSettings = SETTINGS_COMPONENTS[activeTab.id];
   useEffect(() => {
     if (!pendingSettingsDestination) return;
-    setHighlightedDestination(pendingSettingsDestination);
     const frame = requestAnimationFrame(() => {
       const element = document.getElementById(`settings-destination-${pendingSettingsDestination}`);
+      element?.classList.add("ring-2", "ring-[var(--primary)]/55", "ring-offset-4", "ring-offset-[var(--background)]");
       element?.scrollIntoView?.({
         behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         block: "start",
       });
       setPendingSettingsDestination(null);
     });
-    const timeout = window.setTimeout(() => setHighlightedDestination(null), 1800);
+    const timeout = window.setTimeout(() => {
+      const element = document.getElementById(`settings-destination-${pendingSettingsDestination}`);
+      element?.classList.remove("ring-2", "ring-[var(--primary)]/55", "ring-offset-4", "ring-offset-[var(--background)]");
+    }, 1800);
     return () => {
       cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
@@ -240,15 +242,7 @@ export function SettingsPanel() {
                 {activeTab.description}
               </p>
             </header>
-            <div
-              id={highlightedDestination ? `settings-destination-${highlightedDestination}` : undefined}
-              className={cn(
-                "scroll-mt-4 rounded-xl transition-shadow duration-700",
-                highlightedDestination && "ring-2 ring-[var(--primary)]/55 ring-offset-4 ring-offset-[var(--background)]",
-              )}
-            >
-              <ActiveSettings />
-            </div>
+            <ActiveSettings />
           </div>
         </div>
       </div>

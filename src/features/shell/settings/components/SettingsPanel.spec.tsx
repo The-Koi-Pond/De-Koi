@@ -11,7 +11,7 @@ vi.mock("../../diagnostics/shell", () => ({ HealthDiagnosticsSettings: () => <di
 vi.mock("../../plugins/settings", () => ({ CoreModulesSettings: () => <div>Modules surface</div> }));
 vi.mock("./settings/SettingsSurfaces", () => ({
   GeneralSettings: () => <div>General surface</div>,
-  AppearanceSettings: () => <div>Appearance surface</div>,
+  AppearanceSettings: () => <div id="settings-destination-notification-sounds">Appearance surface</div>,
   ThemesSettings: () => <div>Themes surface</div>,
   ExtensionsSettings: () => <div>Extensions surface</div>,
   ImportSettings: () => <div>Import surface</div>,
