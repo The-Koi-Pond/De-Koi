@@ -488,4 +488,3 @@ git commit -m "fix: make setup recovery actionable"
 - [ ] Wait for required CI checks; fix failures with the GitHub CI workflow if necessary.
 - [ ] Mark ready only after local checks, CI, visual proof, and Bunny are clean.
 - [ ] Merge to `main` through GitHub without force-push, then verify the PR is merged and `origin/main` contains the merge commit.
-

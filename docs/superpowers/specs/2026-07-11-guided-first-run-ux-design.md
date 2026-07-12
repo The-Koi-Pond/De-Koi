@@ -195,4 +195,3 @@ Ship one pull request with reviewable commits in this dependency order:
 6. contextual recovery states and final integration polish.
 
 No change is merged until focused tests, architecture checks, the full shipping gate, visual validation, and Bunny review are clean. The PR starts as a draft and is marked ready only after those gates pass.
-
