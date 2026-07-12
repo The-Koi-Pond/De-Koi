@@ -90,7 +90,7 @@ function NavMenu({
         }}
         onMouseDown={stopTitlebarDrag}
         onDoubleClick={stopTitlebarDrag}
-        className="mari-titlebar-action flex min-h-11 items-center gap-1 rounded-md px-2 text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--primary)]"
+        className="mari-titlebar-action flex min-h-11 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--primary)]"
       >
         {label === "More navigation" ? <Ellipsis size="0.9rem" /> : null}
         <span>{label === "More navigation" ? "More" : label}</span>

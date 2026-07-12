@@ -71,7 +71,7 @@ export function ChatTitleControls({
         aria-pressed={chatSidebarOpen}
       >
         <MessageSquare size="0.875rem" />
-        <span className="text-xs font-semibold">Chats</span>
+        <span className="whitespace-nowrap text-xs font-semibold">Chats</span>
         {chatSidebarOpen && (
           <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
         )}
@@ -107,7 +107,7 @@ export function ChatTitleControls({
           aria-pressed={dekiButtonActive}
         >
           <MessageCircleHeart size="0.95rem" aria-hidden />
-          <span className="text-xs font-semibold">Deki-senpai</span>
+          <span className="whitespace-nowrap text-xs font-semibold">Deki-senpai</span>
           {dekiButtonActive && (
             <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
           )}
