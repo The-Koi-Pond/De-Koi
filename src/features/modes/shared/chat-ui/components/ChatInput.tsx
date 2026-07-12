@@ -62,6 +62,7 @@ import { QuickSwitcherMobile } from "./QuickSwitcherMobile";
 import { SlashCommandFeedback } from "./SlashCommandFeedback";
 import { QuickReplyMenu, type QuickReplyAction } from "./QuickReplyMenu";
 import { buildUserQuickReplyMenuEntries } from "../lib/custom-quick-replies";
+import { MISSING_MODEL_RECOVERY_MESSAGE } from "../lib/missing-model-recovery";
 import {
   CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
   CHAT_INPUT_ICON_BUTTON_CLASS,
@@ -602,9 +603,7 @@ export const ChatInput = memo(function ChatInput({
     // Check if the chat has a connection configured
     const chat = useChatStore.getState().activeChat;
     if (chat && !chat.connectionId) {
-      toast.error(
-        "It looks like you haven't connected any model yet. Please head to Chat Settings in the top right corner to do that first!",
-      );
+      toast.error(MISSING_MODEL_RECOVERY_MESSAGE);
       return;
     }
 

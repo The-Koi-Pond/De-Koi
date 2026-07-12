@@ -234,7 +234,7 @@
     "id": "onboarding-tutorial",
     "title": "Show Me Around",
     "category": "Help",
-    "summary": "Take the optional app tour again. The readiness checklist remains the place to resume setup without changing your library or settings.",
+    "summary": "Replay the short five-step orientation tour for Chats, workspace navigation, and the main workspace. Use the readiness checklist to resume setup without changing your library or settings.",
     "keywords": ["onboarding", "tutorial", "first run", "getting started", "walkthrough", "replay"],
     "audience": "Users who skipped onboarding or want the initial orientation again.",
     "where": "Discover > Show Me Around, or Help > Show me around.",
