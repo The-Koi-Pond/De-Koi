@@ -38,6 +38,7 @@ import { onDesktopWindowCloseRequested } from "../../shared/api/window-controls-
 import { hasPendingAppCloseWork, requestGuardedAppClose } from "../../shared/lib/app-close-guard";
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
 import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
+import { closeDiscoverHistory, useDiscoverHistoryLifecycle } from "./app-shell-discover-history";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
@@ -83,6 +84,9 @@ const TrackerDataSidebar = lazy(() =>
 );
 const OnboardingTutorial = lazy(() =>
   import("../../features/shell/onboarding/shell").then((module) => ({ default: module.OnboardingTutorial })),
+);
+const SetupReadinessJourney = lazy(() =>
+  import("../../features/shell/onboarding/shell").then((module) => ({ default: module.SetupReadinessJourney })),
 );
 const DekiSurface = lazy(() =>
   import("../../features/shell/deki/shell").then((module) => ({ default: module.DekiSurface })),
@@ -296,6 +300,7 @@ export function AppShell() {
   const [activeChatSidebarTab, setActiveChatSidebarTab] = useState<ChatSidebarTab>("conversation");
   const [dekiOpen, setDekiOpen] = useState(false);
   const [leftSidebarPanel, setLeftSidebarPanelState] = useState<AppShellLeftSidebarPanel>("chats");
+  const [discoverOpen, setDiscoverOpen] = useState(false);
   const [dekiSessions, setDekiSessions] = useState<DekiSession[]>([]);
   const [activeDekiSessionId, setActiveDekiSessionId] = useState<string | null>(null);
   const [unreadDekiSessionIds, setUnreadDekiSessionIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -460,7 +465,9 @@ export function AppShell() {
   const regexDetailId = useUIStore((s) => s.regexDetailId);
   const botBrowserOpen = useUIStore((s) => s.botBrowserOpen);
   const gameAssetsBrowserOpen = useUIStore((s) => s.gameAssetsBrowserOpen);
-  const hasCompletedOnboarding = useUIStore((s) => s.hasCompletedOnboarding);
+  const onboardingTourOpen = useUIStore((s) => s.onboardingTourOpen);
+  // Shell interactivity follows the transient optional tour, not the legacy persisted completion flag.
+  const hasCompletedOnboarding = !onboardingTourOpen;
   const [helpHubOpen, setHelpHubOpen] = useState(false);
   const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChat = useChatStore((s) => s.activeChat);
@@ -648,6 +655,19 @@ export function AppShell() {
       });
   }, [closeDekiShell, closeRightPanel, queryClient, setLeftSidebarPanel, setTrackerPanelOpen]);
 
+  const closeDiscover = useCallback(() => {
+    closeDiscoverHistory(window.history, window.location.href);
+    setDiscoverOpen(false);
+  }, []);
+  const openDiscover = useCallback(() => {
+    useChatStore.getState().setActiveChatId(null);
+    useUIStore.getState().closeAllDetails();
+    closeRightPanel();
+    closeDekiShell();
+    setTrackerPanelOpen(false);
+    setDiscoverOpen(true);
+  }, [closeDekiShell, closeRightPanel, setTrackerPanelOpen]);
+
   useEffect(() => {
     if (!activeChatId) return;
     closeDekiShell();
@@ -665,7 +685,7 @@ export function AppShell() {
   }, []);
 
   const replayOnboardingFromHelp = useCallback(() => {
-    useUIStore.getState().setHasCompletedOnboarding(false);
+    useUIStore.getState().setOnboardingTourOpen(true);
     setHelpHubOpen(false);
   }, []);
 
@@ -705,7 +725,13 @@ export function AppShell() {
         return;
       }
 
+      if (detail?.type === "open-discover") {
+        openDiscover();
+        return;
+      }
+
       if (detail?.type === "go-home") {
+        closeDiscover();
         closeDekiShell();
         setLeftSidebarPanel(null);
         setTrackerPanelOpen(false);
@@ -719,7 +745,18 @@ export function AppShell() {
 
     window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
     return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
-  }, [closeDekiShell, closeRightPanel, openNoModelShowcase, setLeftSidebarPanel, setTrackerPanelOpen]);
+  }, [
+    closeDekiShell,
+    closeDiscover,
+    closeRightPanel,
+    openDiscover,
+    openNoModelShowcase,
+    setLeftSidebarPanel,
+    setTrackerPanelOpen,
+  ]);
+
+  const closeDiscoverFromHistory = useCallback(() => setDiscoverOpen(false), []);
+  useDiscoverHistoryLifecycle(discoverOpen, closeDiscoverFromHistory);
 
   useEffect(() => {
     if (!activeChatId || isClearingAutonomousUnread) return;
@@ -875,13 +912,14 @@ export function AppShell() {
 
   const showAmbientDecor = !activeChatId && !detailView && !botBrowserOpen && !gameAssetsBrowserOpen && !dekiOpen;
   const hasDetailView = detailView != null;
-  const { dekiSurfaceVisible, mainSurfaceVisible } = getAppShellCenterSurfaceState({
+  const { discoverSurfaceVisible, dekiSurfaceVisible, mainSurfaceVisible } = getAppShellCenterSurfaceState({
     botBrowserOpen,
     gameAssetsBrowserOpen,
     rightPanelOpen,
     detailViewOpen: hasDetailView,
     dekiOpen,
     activeDekiSessionId,
+    discoverOpen,
   });
   useEffect(() => {
     if (hasDetailView) setDekiOpen(false);
@@ -1333,6 +1371,7 @@ export function AppShell() {
             onLeftSidebarPanelChange={setLeftSidebarPanel}
             onOpenDeki={() => openActiveDeki()}
             onOpenHelp={openHelpHub}
+            onOpenDiscover={openDiscover}
             onGoHome={closeDekiShell}
             titlebarAccessory={
               musicDjMiniPlayerEnabled ? (
@@ -1484,6 +1523,16 @@ export function AppShell() {
                   onAssistantMessagePersisted={() => handleDekiAssistantMessage(activeDekiSessionId)}
                 />
               </MountOnceWhenOpened>
+              <MountOnceWhenOpened
+                open={discoverSurfaceVisible}
+                overlay
+                hideOverlayWhenClosed
+                slideFromBottom={isMobile}
+              >
+                <Suspense fallback={<ShellLoadingFallback compact />}>
+                  <DiscoverPanel onClose={closeDiscover} />
+                </Suspense>
+              </MountOnceWhenOpened>
               <div
                 className={mainSurfaceVisible ? "flex flex-1 flex-col overflow-hidden" : "hidden"}
                 style={
@@ -1503,11 +1552,12 @@ export function AppShell() {
                 <Suspense fallback={<MainPaneFallback />}>
                   {detailView ?? (
                     <ModeSurface
-                      homeDiscoverySurface={
-                        <Suspense fallback={<ShellLoadingFallback compact />}>
-                          <DiscoverPanel />
+                      readinessSurface={
+                        <Suspense fallback={null}>
+                          <SetupReadinessJourney />
                         </Suspense>
                       }
+                      onOpenDiscover={openDiscover}
                       onOpenNoModelShowcase={openNoModelShowcase}
                     />
                   )}
@@ -1619,7 +1669,7 @@ export function AppShell() {
             </>
           )}
           {/* First-time onboarding tutorial */}
-          {!hasCompletedOnboarding && (
+          {onboardingTourOpen && (
             <Suspense fallback={null}>
               <OnboardingTutorial onShellInertResync={syncMobilePanelInert} />
             </Suspense>
@@ -1652,6 +1702,7 @@ export function AppShell() {
         onLeftSidebarPanelChange={setLeftSidebarPanel}
         onToggleDeki={() => setDekiOpen((v) => !v)}
         onGoHome={() => setDekiOpen(false)}
+        onOpenDiscover={openDiscover}
       />
     </TopBarActionsProvider>
   );

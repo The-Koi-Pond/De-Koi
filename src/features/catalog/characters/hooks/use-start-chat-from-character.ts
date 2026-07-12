@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { chatKeys, useCreateChat } from "../../chats/index";
 import { findUserStarredChatPreset, useApplyChatPreset, useChatPresets } from "../../chat-presets/index";
 import { useConnections } from "../../connections/index";
@@ -33,12 +34,18 @@ export function useStartChatFromCharacter() {
         (connections ?? []) as Array<{ id: string; provider?: string }>,
       ).filter((connection) => !!connection.id);
 
+      if (!connectionRows[0]?.id) {
+        useSetupJourneyStore.getState().begin(mode, characterId);
+        useChatStore.getState().setPendingNewChatMode(mode);
+        return;
+      }
+
       createChat.mutate(
         {
           name: characterName ? `${characterName} - ${label}` : `New ${label}`,
           mode,
           characterIds: [characterId],
-          connectionId: connectionRows[0]?.id ?? null,
+          connectionId: connectionRows[0].id,
         },
         {
           onSuccess: async (chat) => {
@@ -74,9 +81,12 @@ export function useStartChatFromCharacter() {
               }
             }
 
-            useChatStore.getState().setShouldOpenSettings(true, chat.id);
-            useChatStore.getState().setShouldOpenWizard(true, chat.id);
-            useChatStore.getState().setShouldOpenWizardInShortcutMode(true, chat.id);
+            useChatStore.getState().setNewChatSetupIntent({
+              chatId: chat.id,
+              openSettings: true,
+              openWizard: true,
+              shortcutMode: true,
+            });
           },
         },
       );

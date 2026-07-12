@@ -6,12 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HOME_SPLASH_TEXTS, ModeHomeSurface, pickHomeSplashText } from "./ModeHomeSurface";
 
-vi.mock("../../../catalog/connections/index", () => ({
-  useConnections: () => ({ data: [] }),
+const { connectionRows, createChatMutate } = vi.hoisted(() => ({
+  connectionRows: { current: [] as Array<{ id: string; provider: string }> },
+  createChatMutate: vi.fn(),
 }));
+const { embeddedRuntime } = vi.hoisted(() => ({ embeddedRuntime: { current: true } }));
+vi.mock("../../../catalog/connections/index", () => ({ useConnections: () => ({ data: connectionRows.current }) }));
+vi.mock("../../../../shared/api/remote-runtime", () => ({ hasEmbeddedTauriRuntime: () => embeddedRuntime.current }));
 
 vi.mock("../../../catalog/chats/index", () => ({
-  useCreateChat: () => ({ mutate: vi.fn() }),
+  useCreateChat: () => ({ mutate: createChatMutate }),
 }));
 
 vi.mock("../../../catalog/chat-presets/index", () => ({
@@ -27,7 +31,7 @@ vi.mock("./HomeCreditsModal", () => ({
 }));
 
 vi.mock("./RecentChats", () => ({
-  RecentChats: () => null,
+  RecentChats: () => <div data-testid="recent-chats">Recent chats</div>,
 }));
 
 vi.mock("../../../../shared/stores/chat.store", () => {
@@ -45,6 +49,7 @@ vi.mock("../../../../shared/stores/chat.store", () => {
 
 vi.mock("../../../../shared/stores/ui.store", () => {
   const state = {
+    remoteRuntimeUrl: "",
     setHasCompletedOnboarding: vi.fn(),
   };
   const useUIStore = (selector: (value: typeof state) => unknown) => selector(state);
@@ -52,11 +57,20 @@ vi.mock("../../../../shared/stores/ui.store", () => {
   return { useUIStore };
 });
 
+const { beginSetupJourney } = vi.hoisted(() => ({ beginSetupJourney: vi.fn() }));
+vi.mock("../../../../shared/stores/setup-journey.store", () => ({
+  useSetupJourneyStore: { getState: () => ({ begin: beginSetupJourney }) },
+}));
+
 describe("ModeHomeSurface launch splash", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
 
   beforeEach(() => {
+    embeddedRuntime.current = true;
+    connectionRows.current = [];
+    createChatMutate.mockClear();
+    beginSetupJourney.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -109,6 +123,10 @@ describe("ModeHomeSurface quick-start prewarming", () => {
   let requestIdleCallbackSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    embeddedRuntime.current = true;
+    connectionRows.current = [];
+    createChatMutate.mockClear();
+    beginSetupJourney.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     requestIdleCallbackSpy = vi.fn();
@@ -163,5 +181,79 @@ describe("ModeHomeSurface quick-start prewarming", () => {
     });
 
     expect(onOpenNoModelShowcase).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders at most three contextual journeys and opens dedicated Discover", async () => {
+    const onOpenDiscover = vi.fn();
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <ModeHomeSurface hasActivity onOpenDiscover={onOpenDiscover} onOpenNoModelShowcase={() => undefined} />,
+      );
+    });
+
+    expect(container!.querySelectorAll("[data-home-suggestion]").length).toBeLessThanOrEqual(3);
+    expect(container!.textContent).not.toMatch(/features tracked|coverage|Browse all 40/i);
+    const discoverButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Open Discover"),
+    );
+    act(() => discoverButton?.click());
+    expect(onOpenDiscover).toHaveBeenCalledTimes(1);
+  });
+
+  it("orders readiness, recent chats, mode cards, then contextual suggestions", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface readinessSurface={<div data-testid="readiness">Continue setup</div>} />);
+    });
+    const sections = Array.from(container!.querySelectorAll("[data-home-section]")).map((node) =>
+      node.getAttribute("data-home-section"),
+    );
+    expect(sections).toEqual(["readiness", "recent-chats", "mode-cards", "suggestions"]);
+    expect(container!.querySelector('[data-home-section="readiness"] [data-testid="readiness"]')).toBeTruthy();
+    expect(container!.querySelector('[data-home-section="recent-chats"] [data-testid="recent-chats"]')).toBeTruthy();
+  });
+
+  it("prioritizes server setup from production web readiness facts", async () => {
+    embeddedRuntime.current = false;
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    expect(container!.querySelector("[data-home-suggestion]")?.textContent).toContain("Connect to your De-Koi server");
+  });
+
+  it("does not claim an unknown library is empty just because there are no chats", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface hasActivity={false} />);
+    });
+    expect(container!.textContent).not.toContain("Import your library");
+  });
+
+  it("records mode intent before opening the prerequisite detour", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    const button = Array.from(container!.querySelectorAll("button")).find(
+      (item) => item.getAttribute("aria-label") === "Start Conversation chat",
+    );
+    act(() => button!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(beginSetupJourney).toHaveBeenCalledWith("conversation");
+  });
+
+  it("never creates a chat directly before the shared journey proves runtime readiness", async () => {
+    connectionRows.current = [{ id: "saved", provider: "openai" }];
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    const button = Array.from(container!.querySelectorAll("button")).find(
+      (item) => item.getAttribute("aria-label") === "Start Roleplay chat",
+    );
+    act(() => button!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(beginSetupJourney).toHaveBeenCalledWith("roleplay");
+    expect(createChatMutate).not.toHaveBeenCalled();
   });
 });

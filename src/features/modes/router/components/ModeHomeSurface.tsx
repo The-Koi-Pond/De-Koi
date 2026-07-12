@@ -1,15 +1,16 @@
 import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, Compass, HelpCircle, List, MessageSquare, Theater } from "lucide-react";
+import { BookOpen, Compass, HelpCircle, Import, List, MessageSquare, Server, Theater } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
-import { useCreateChat } from "../../../catalog/chats/index";
-import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/index";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { cn } from "../../../../shared/lib/utils";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { hasEmbeddedTauriRuntime } from "../../../../shared/api/remote-runtime";
 import { HomeCreditsModal } from "./HomeCreditsModal";
 import { RecentChats } from "./RecentChats";
+import { getHomeSuggestions, type HomeSuggestionDestination } from "../lib/home-suggestions";
 
 type QuickStartMode = "conversation" | "roleplay" | "game";
 
@@ -60,16 +61,21 @@ function HomeSplashLetters({ text }: { text: string }) {
 }
 
 export function ModeHomeSurface({
-  discoverySurface = null,
   onOpenNoModelShowcase,
+  onOpenDiscover,
+  libraryIsEmpty = false,
+  hasActivity = false,
+  readinessSurface = null,
 }: {
-  discoverySurface?: ReactNode;
   onOpenNoModelShowcase?: () => void;
+  onOpenDiscover?: () => void;
+  libraryIsEmpty?: boolean;
+  hasActivity?: boolean;
+  readinessSurface?: ReactNode;
 }) {
   const { data: connections } = useConnections();
-  const createChat = useCreateChat();
-  const applyUserStarredChatPreset = useApplyUserStarredChatPreset();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
+  const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [homeSplashText] = useState(() => pickHomeSplashText());
   const languageConnections = useMemo(
@@ -80,34 +86,25 @@ export function ModeHomeSurface({
     [connections],
   );
   const hasLanguageConnections = languageConnections.length > 0;
+  const homeSuggestions = getHomeSuggestions({
+    needsServerSetup: !hasEmbeddedTauriRuntime() && !remoteRuntimeUrl.trim(),
+    hasLanguageModel: hasLanguageConnections,
+    libraryIsEmpty,
+    hasActivity,
+  });
 
-  const handleQuickStart = useCallback(
-    (mode: QuickStartMode) => {
-      if (languageConnections.length === 0) {
-        useChatStore.getState().setPendingNewChatMode(mode);
-        return;
-      }
+  const runHomeSuggestion = (destination: HomeSuggestionDestination) => {
+    if (destination === "sample-world") return onOpenNoModelShowcase?.();
+    if (destination === "discover") return onOpenDiscover?.();
+    const ui = useUIStore.getState();
+    ui.openRightPanel("settings");
+    ui.setSettingsTab(destination === "library-import" ? "import" : "advanced");
+  };
 
-      const label = mode === "conversation" ? "Conversation" : mode === "game" ? "Game" : "Roleplay";
-      createChat.mutate(
-        { name: `New ${label}`, mode, characterIds: [], connectionId: languageConnections[0]!.id },
-        {
-          onSuccess: async (chat) => {
-            const store = useChatStore.getState();
-            store.setActiveChatId(chat.id);
-            try {
-              await applyUserStarredChatPreset({ mode, chatId: chat.id });
-            } catch {
-              /* non-fatal: chat still opens with system defaults */
-            }
-            store.setShouldOpenSettings(true, chat.id);
-            store.setShouldOpenWizard(true, chat.id);
-          },
-        },
-      );
-    },
-    [applyUserStarredChatPreset, createChat, languageConnections],
-  );
+  const handleQuickStart = useCallback((mode: QuickStartMode) => {
+    useSetupJourneyStore.getState().begin(mode);
+    useChatStore.getState().setPendingNewChatMode(mode);
+  }, []);
 
   const showQuickStartEntranceEffects = true;
 
@@ -119,104 +116,134 @@ export function ModeHomeSurface({
         className="koi-pond-surface flex min-w-0 flex-1 flex-col items-center overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6"
       >
         <div className="flex w-full max-w-3xl min-w-0 flex-col items-center gap-4 py-3 sm:gap-5 sm:py-5 lg:pt-6 lg:pb-7">
-          <div className="koi-home-hero relative flex flex-col items-center gap-4 sm:gap-5">
+          <section data-home-section="readiness" aria-label="Setup readiness" className="contents">
+            {readinessSurface}
+          </section>
+
+          <section data-home-section="recent-chats" aria-label="Recent chats" className="contents">
+            <RecentChats />
+          </section>
+
+          <section data-home-section="mode-cards" aria-label="Start a chat" className="contents">
+            <div className="koi-home-hero relative flex flex-col items-center gap-4 sm:gap-5">
+              <div
+                className={cn(
+                  "koi-logo-tile flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] sm:h-24 sm:w-24",
+                )}
+              >
+                <img
+                  src="/logo.png"
+                  alt="De-Koi"
+                  width={80}
+                  height={80}
+                  decoding="async"
+                  className="h-full w-full object-contain p-1.5 sm:p-2"
+                />
+              </div>
+
+              <p className="koi-home-splash" aria-label={`Launch splash: ${homeSplashText}`}>
+                <HomeSplashLetters text={homeSplashText} />
+              </p>
+
+              <div className="text-center">
+                <h3 className="koi-glow-text inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
+                  <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-4 w-8 shrink-0 sm:h-5 sm:w-12" />
+                  <span>De-Koi</span>
+                  <img
+                    src="/koi-mark.svg"
+                    alt=""
+                    aria-hidden="true"
+                    className="h-4 w-8 shrink-0 -scale-x-100 sm:h-5 sm:w-12"
+                  />
+                </h3>
+                <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
+                  To get started, choose the type of chat you'd like to have with the AI
+                </p>
+              </div>
+            </div>
+
             <div
               className={cn(
-                "koi-logo-tile flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] sm:h-24 sm:w-24",
+                "grid w-full max-w-[32rem] min-w-0 grid-cols-3 gap-2 px-0 sm:gap-4",
+                showQuickStartEntranceEffects && "stagger-children",
               )}
             >
-              <img
-                src="/logo.png"
-                alt="De-Koi"
-                width={80}
-                height={80}
-                decoding="async"
-                className="h-full w-full object-contain p-1.5 sm:p-2"
+              <QuickStartCard
+                icon={<MessageSquare size="1.125rem" />}
+                label="Conversation"
+                bg="linear-gradient(135deg, #ff9a66 0%, #ff7a4a 54%, #9c3c27 100%)"
+                iconColor="#fff4e8"
+                labelColor="#ff8957"
+                shadowColor="rgba(255,137,87,0.2)"
+                tooltip="General chat with one or more characters, or a model itself"
+                onPrewarm={() => prewarmQuickStartMode("conversation")}
+                onClick={() => handleQuickStart("conversation")}
+              />
+              <QuickStartCard
+                icon={<BookOpen size="1.125rem" />}
+                label="Roleplay"
+                bg="linear-gradient(135deg, #5ce7df 0%, #22b8b5 52%, #086873 100%)"
+                iconColor="#f4eadb"
+                labelColor="#52e1da"
+                shadowColor="rgba(82,225,218,0.16)"
+                tooltip="For roleplaying or creative writing with one or more characters"
+                onPrewarm={() => prewarmQuickStartMode("roleplay")}
+                onClick={() => handleQuickStart("roleplay")}
+              />
+              <QuickStartCard
+                icon={<Theater size="1.125rem" />}
+                label="Game"
+                bg="linear-gradient(135deg, #ffd78d 0%, #d9aa57 52%, #80612d 100%)"
+                iconColor="#130d07"
+                labelColor="#d9aa57"
+                shadowColor="rgba(217,170,87,0.18)"
+                tooltip="AI-managed singleplayer RPG with a Game Master, party, dice, maps, and quests"
+                onPrewarm={() => prewarmQuickStartMode("game")}
+                onClick={() => handleQuickStart("game")}
               />
             </div>
+          </section>
 
-            <p className="koi-home-splash" aria-label={`Launch splash: ${homeSplashText}`}>
-              <HomeSplashLetters text={homeSplashText} />
-            </p>
-
-            <div className="text-center">
-              <h3 className="koi-glow-text inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
-                <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-4 w-8 shrink-0 sm:h-5 sm:w-12" />
-                <span>De-Koi</span>
-                <img
-                  src="/koi-mark.svg"
-                  alt=""
-                  aria-hidden="true"
-                  className="h-4 w-8 shrink-0 -scale-x-100 sm:h-5 sm:w-12"
-                />
-              </h3>
-              <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
-                To get started, choose the type of chat you'd like to have with the AI
-              </p>
+          <section data-home-section="suggestions" aria-labelledby="home-next-steps" className="w-full max-w-[32rem]">
+            <div className="mb-2 flex items-center justify-between gap-3 px-1">
+              <h4
+                id="home-next-steps"
+                className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted-foreground)]"
+              >
+                Next steps
+              </h4>
+              <span className="text-[0.625rem] text-[var(--muted-foreground)]/65">Choose your path</span>
             </div>
-          </div>
-
-          <div
-            className={cn(
-              "grid w-full max-w-[32rem] min-w-0 grid-cols-3 gap-2 px-0 sm:gap-4",
-              showQuickStartEntranceEffects && "stagger-children",
-            )}
-          >
-            <QuickStartCard
-              icon={<MessageSquare size="1.125rem" />}
-              label="Conversation"
-              bg="linear-gradient(135deg, #ff9a66 0%, #ff7a4a 54%, #9c3c27 100%)"
-              iconColor="#fff4e8"
-              labelColor="#ff8957"
-              shadowColor="rgba(255,137,87,0.2)"
-              tooltip="General chat with one or more characters, or a model itself"
-              onPrewarm={() => prewarmQuickStartMode("conversation")}
-              onClick={() => handleQuickStart("conversation")}
-            />
-            <QuickStartCard
-              icon={<BookOpen size="1.125rem" />}
-              label="Roleplay"
-              bg="linear-gradient(135deg, #5ce7df 0%, #22b8b5 52%, #086873 100%)"
-              iconColor="#f4eadb"
-              labelColor="#52e1da"
-              shadowColor="rgba(82,225,218,0.16)"
-              tooltip="For roleplaying or creative writing with one or more characters"
-              onPrewarm={() => prewarmQuickStartMode("roleplay")}
-              onClick={() => handleQuickStart("roleplay")}
-            />
-            <QuickStartCard
-              icon={<Theater size="1.125rem" />}
-              label="Game"
-              bg="linear-gradient(135deg, #ffd78d 0%, #d9aa57 52%, #80612d 100%)"
-              iconColor="#130d07"
-              labelColor="#d9aa57"
-              shadowColor="rgba(217,170,87,0.18)"
-              tooltip="AI-managed singleplayer RPG with a Game Master, party, dice, maps, and quests"
-              onPrewarm={() => prewarmQuickStartMode("game")}
-              onClick={() => handleQuickStart("game")}
-            />
-          </div>
-
-          {!hasLanguageConnections && onOpenNoModelShowcase && (
-            <button
-              type="button"
-              onClick={onOpenNoModelShowcase}
-              className="group flex w-full max-w-[32rem] items-center gap-3 rounded-lg border border-[var(--primary)]/25 bg-[var(--card)]/75 px-3 py-2.5 text-left shadow-sm transition-colors hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/8"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--primary)]/25 bg-[var(--primary)]/10 text-[var(--primary)]">
-                <Compass size="1rem" aria-hidden />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-[var(--foreground)]">Explore sample world</span>
-                <span className="mt-0.5 block text-xs leading-snug text-[var(--muted-foreground)]">
-                  Browse a Game scene, party, journal, map, and lore before connecting a model.
-                </span>
-              </span>
-            </button>
-          )}
-
-          <RecentChats />
-          {discoverySurface}
+            <div className="grid gap-2 sm:grid-cols-3">
+              {homeSuggestions.map((suggestion) => {
+                const Icon =
+                  suggestion.destination === "server-setup"
+                    ? Server
+                    : suggestion.destination === "library-import"
+                      ? Import
+                      : Compass;
+                return (
+                  <button
+                    key={suggestion.destination}
+                    type="button"
+                    data-home-suggestion={suggestion.destination}
+                    onClick={() => runHomeSuggestion(suggestion.destination)}
+                    className="group min-h-24 rounded-xl border border-[var(--border)] bg-[var(--card)]/70 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/7"
+                  >
+                    <Icon
+                      size="1rem"
+                      className="mb-2 text-[var(--primary)] transition-transform group-hover:scale-110"
+                      aria-hidden
+                    />
+                    <span className="block text-xs font-semibold text-[var(--foreground)]">{suggestion.label}</span>
+                    <span className="mt-1 block text-[0.65rem] leading-snug text-[var(--muted-foreground)]">
+                      {suggestion.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
           <div
             className={cn(
@@ -276,12 +303,12 @@ export function ModeHomeSurface({
             </div>
 
             <button
-              onClick={() => useUIStore.getState().setHasCompletedOnboarding(false)}
+              onClick={() => useUIStore.getState().setOnboardingTourOpen(true)}
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)]/40 transition-colors hover:bg-[var(--secondary)]/60 hover:text-[var(--muted-foreground)]"
               title="Replay tutorial"
             >
               <HelpCircle size="0.75rem" />
-              Replay Tutorial
+              Show me around
             </button>
           </div>
         </div>

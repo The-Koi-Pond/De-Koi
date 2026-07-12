@@ -20,13 +20,7 @@ const GameModeRoute = lazy(async () => {
   return { default: module.GameModeRoute };
 });
 
-function RestoringChatState({
-  error,
-  onBack,
-}: {
-  error?: string | null;
-  onBack: () => void;
-}) {
+function RestoringChatState({ error, onBack }: { error?: string | null; onBack: () => void }) {
   const hasError = !!error;
   return (
     <div data-component="ModeSurface.RestoringChat" className="flex flex-1 items-center justify-center p-6">
@@ -53,11 +47,13 @@ function RestoringChatState({
 }
 
 export function ModeSurface({
-  homeDiscoverySurface = null,
   onOpenNoModelShowcase,
+  onOpenDiscover,
+  readinessSurface = null,
 }: {
-  homeDiscoverySurface?: ReactNode;
   onOpenNoModelShowcase?: () => void;
+  onOpenDiscover?: () => void;
+  readinessSurface?: ReactNode;
 }) {
   const activeChatId = useChatStore((state) => state.activeChatId);
   const setActiveChatId = useChatStore((state) => state.setActiveChatId);
@@ -76,7 +72,15 @@ export function ModeSurface({
     setActiveChatId(null);
   }, [activeChatId, cachedChat, chat, chatError, chatSummaries, isChatFetching, isChatLoading, setActiveChatId]);
 
-  if (!activeChatId) return <ModeHomeSurface discoverySurface={homeDiscoverySurface} onOpenNoModelShowcase={onOpenNoModelShowcase} />;
+  if (!activeChatId)
+    return (
+      <ModeHomeSurface
+        readinessSurface={readinessSurface}
+        hasActivity={Boolean(chatSummaries?.length)}
+        onOpenDiscover={onOpenDiscover}
+        onOpenNoModelShowcase={onOpenNoModelShowcase}
+      />
+    );
 
   const fallback = <RestoringChatState onBack={() => setActiveChatId(null)} />;
   const resolvedChatMode = chat?.mode ?? cachedChat?.mode;
@@ -94,7 +98,12 @@ export function ModeSurface({
     return message ? (
       <RestoringChatState error={message} onBack={() => setActiveChatId(null)} />
     ) : (
-      <ModeHomeSurface discoverySurface={homeDiscoverySurface} onOpenNoModelShowcase={onOpenNoModelShowcase} />
+      <ModeHomeSurface
+        readinessSurface={readinessSurface}
+        hasActivity={Boolean(chatSummaries?.length)}
+        onOpenDiscover={onOpenDiscover}
+        onOpenNoModelShowcase={onOpenNoModelShowcase}
+      />
     );
   }
 

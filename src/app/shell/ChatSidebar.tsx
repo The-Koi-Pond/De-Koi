@@ -50,7 +50,7 @@ import { useChatStore } from "../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { confirmDiscardPendingAppWork } from "../../shared/lib/app-close-guard";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
-import { cn } from "../../shared/lib/utils";
+import { cn, copyToClipboard } from "../../shared/lib/utils";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
 import { TagInput } from "../../shared/components/ui/TagInput";
 import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties, type DragEvent } from "react";
@@ -69,10 +69,74 @@ import {
 } from "./chat-sidebar-rows";
 import { buildChatSidebarCharacterLookup, type ChatSidebarCharacterAvatar } from "./chat-sidebar-character-avatars";
 import { CHAT_ROW_ACTION_RAIL_CLASS_NAME, CHAT_ROW_TITLE_CLASS_NAME } from "./chat-sidebar-row-layout";
+import {
+  getChatSidebarRecovery,
+  type ChatSidebarRecovery,
+  type ChatSidebarRecoveryActionId,
+} from "./chat-sidebar-recovery";
+import { buildSupportReportText } from "../../shared/lib/support-report";
 type ChatSortOption = ChatSidebarSortOption;
 export type ChatSidebarTab = "conversation" | "roleplay" | "game";
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
 type ChatDropTarget = { folderId: string | null } | null;
+
+export type ChatSidebarRecoveryActionDependencies = {
+  retry: () => void;
+  create: () => void;
+  clearFilters: () => void;
+  connectServer: () => void;
+  openConnections: () => void;
+  viewHealth: () => void;
+  copySupportDetails: () => void;
+};
+
+export function runChatSidebarRecoveryAction(
+  actionId: ChatSidebarRecoveryActionId,
+  actions: ChatSidebarRecoveryActionDependencies,
+) {
+  const actionById: Record<ChatSidebarRecoveryActionId, () => void> = {
+    retry: actions.retry,
+    create: actions.create,
+    "clear-filters": actions.clearFilters,
+    "connect-server": actions.connectServer,
+    "open-connections": actions.openConnections,
+    "view-health": actions.viewHealth,
+    "copy-support-details": actions.copySupportDetails,
+  };
+  actionById[actionId]();
+}
+
+export function ChatSidebarRecoveryView({
+  recovery,
+  isFetching = false,
+  onAction,
+}: {
+  recovery: ChatSidebarRecovery;
+  isFetching?: boolean;
+  onAction: (actionId: ChatSidebarRecoveryActionId) => void;
+}) {
+  const renderAction = (action: ChatSidebarRecovery["primaryAction"], primary: boolean) => (
+    <button
+      type="button"
+      onClick={() => onAction(action.id)}
+      disabled={action.id === "retry" && isFetching}
+      className={cn(
+        "min-h-9 rounded-lg px-3 py-1.5 text-[0.6875rem] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60",
+        primary ? "bg-[var(--primary)]/15 text-[var(--primary)] hover:bg-[var(--primary)]/25" : "bg-[var(--secondary)] text-[var(--foreground)] hover:bg-[var(--sidebar-accent)]",
+      )}
+    >
+      {action.id === "retry" && isFetching ? "Checking..." : action.label}
+    </button>
+  );
+  return <>
+    <p className="text-xs font-semibold text-[var(--foreground)]">{recovery.title}</p>
+    <p className="max-w-[16rem] text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">{recovery.description}</p>
+    <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+      {renderAction(recovery.primaryAction, true)}
+      {recovery.secondaryAction && renderAction(recovery.secondaryAction, false)}
+    </div>
+  </>;
+}
 
 type ChatSidebarProps = {
   activeTab: ChatSidebarTab;
@@ -147,7 +211,14 @@ const MODE_CONFIG: Record<
 };
 
 export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) {
-  const { data: chats, isError: chatsError, isLoading, isFetching, refetch: refetchChats } = useChatSummaries();
+  const {
+    data: chats,
+    error: chatsLoadError,
+    isError: chatsError,
+    isLoading,
+    isFetching,
+    refetch: refetchChats,
+  } = useChatSummaries();
   const deleteChat = useDeleteChat();
   const deleteChatGroup = useDeleteChatGroup();
   const updateChatMetadata = useUpdateChatMetadata();
@@ -160,6 +231,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
   const editorDirty = useUIStore((s) => s.editorDirty);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
+  const openRightPanel = useUIStore((s) => s.openRightPanel);
+  const setSettingsTab = useUIStore((s) => s.setSettingsTab);
   const startNewChat = useStartNewChat();
 
   // Folder hooks
@@ -470,6 +543,49 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
     if (window.innerWidth < 768) setSidebarOpen(false);
     startNewChat(activeTab);
   }, [activeTab, setSidebarOpen, startNewChat]);
+
+  const clearChatFilters = useCallback(() => {
+    setSearchQuery("");
+    setActiveTag(null);
+    setTagsExpanded(false);
+  }, []);
+
+  const openSettingsTab = useCallback(
+    (tab: "advanced" | "health") => {
+      openRightPanel("settings");
+      setSettingsTab(tab);
+    },
+    [openRightPanel, setSettingsTab],
+  );
+
+  const recoveryActions: ChatSidebarRecoveryActionDependencies = {
+    retry: () => void refetchChats(),
+    create: handleNewChatFromTab,
+    clearFilters: clearChatFilters,
+    connectServer: () => openSettingsTab("advanced"),
+    openConnections: () => openRightPanel("connections"),
+    viewHealth: () => openSettingsTab("health"),
+    copySupportDetails: () => {
+      const report = buildSupportReportText({
+        source: "query-error",
+        reportText: "The chat list request failed with an unknown error.",
+      });
+      void copyToClipboard(report).then((copied) => {
+        if (copied) toast.success("Support details copied.");
+        else toast.error("Support details could not be copied.");
+      });
+    },
+  };
+
+  const errorRecovery = getChatSidebarRecovery(chatsLoadError, { mode: activeTab, state: "error" });
+  const emptyRecovery = getChatSidebarRecovery(null, {
+    mode: activeTab,
+    state: "empty",
+    hasFilters: Boolean(searchQuery.trim() || activeTag),
+  });
+
+  const runRecoveryAction = (actionId: ChatSidebarRecoveryActionId) =>
+    runChatSidebarRecoveryAction(actionId, recoveryActions);
 
   // ── Folder handlers ──
   const handleCreateFolder = useCallback(() => {
@@ -1198,16 +1314,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--destructive)]/10">
               <AlertTriangle size="1.25rem" className="text-[var(--destructive)]" />
             </div>
-            <p className="text-xs text-[var(--muted-foreground)]">
-              De-Koi is still waking up. Chats should appear in a moment.
-            </p>
-            <button
-              onClick={() => void refetchChats()}
-              disabled={isFetching}
-              className="mt-1 rounded-lg bg-[var(--primary)]/15 px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isFetching ? "Checking..." : "Try Again"}
-            </button>
+            <ChatSidebarRecoveryView recovery={errorRecovery} isFetching={isFetching} onAction={runRecoveryAction} />
           </div>
         )}
 
@@ -1222,17 +1329,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
                 <BookOpen size="1.25rem" className="text-[var(--muted-foreground)]" />
               )}
             </div>
-            <p className="text-xs text-[var(--muted-foreground)]">
-              {searchQuery.trim() || activeTag
-                ? `No ${activeTab === "conversation" ? "conversations" : activeTab === "game" ? "games" : "roleplays"} match the current filters`
-                : `No ${activeTab === "conversation" ? "conversations" : activeTab === "game" ? "games" : "roleplays"} yet`}
-            </p>
-            <button
-              onClick={handleNewChatFromTab}
-              className="mt-1 rounded-lg bg-[var(--primary)]/15 px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25"
-            >
-              + New {activeTab === "conversation" ? "Conversation" : activeTab === "game" ? "Game" : "Roleplay"}
-            </button>
+            <ChatSidebarRecoveryView recovery={emptyRecovery} onAction={runRecoveryAction} />
           </div>
         )}
 

@@ -25,11 +25,11 @@ interface OnboardingTutorialProps {
   onShellInertResync: () => void;
 }
 
-const STEPS: TourStep[] = [
+export const ONBOARDING_TUTORIAL_STEPS: TourStep[] = [
   {
     target: null,
     title: "Welcome to De-Koi!",
-    body: "Here's a quick tutorial to show you around. Confident in your skill? Feel free to skip it; you can replay it later from Discover.",
+    body: "Here's an optional tour to show you around. Skip it whenever you like; you can start it again later from Discover.",
   },
   {
     target: "sidebar-toggle",
@@ -68,10 +68,12 @@ const STEPS: TourStep[] = [
   },
   {
     target: null,
-    title: "You're All Set!",
-    body: "Look for the (?) icons throughout the app. Hover over them at any time to learn what each option does. Have fun exploring!\n\nAnd if you have any further questions, need help, or want to report a bug, feel free to join our Discord server! You can find the invite link on the home page.",
+    title: "Ready to Explore",
+    body: "The readiness checklist handles connection and runtime setup, and you can resume it whenever you need. Open Discover to revisit this tour and find more features.\n\nFor diagnostics, support details, or bug reporting, open Help from the title bar.",
   },
 ];
+
+const STEPS = ONBOARDING_TUTORIAL_STEPS;
 
 // ─── Spotlight overlay helpers ────────────────
 
@@ -373,13 +375,13 @@ function TourCardContent({
 // ─── Main component ───────────────────────────
 
 export function OnboardingTutorial({ onShellInertResync }: OnboardingTutorialProps) {
-  const hasCompleted = useUIStore((s) => s.hasCompletedOnboarding);
-  if (hasCompleted) return null;
+  const open = useUIStore((s) => s.onboardingTourOpen);
+  if (!open) return null;
   return <OnboardingTutorialInner onShellInertResync={onShellInertResync} />;
 }
 
 function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps) {
-  const setCompleted = useUIStore((s) => s.setHasCompletedOnboarding);
+  const setTourOpen = useUIStore((s) => s.setOnboardingTourOpen);
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const setSettingsTab = useUIStore((s) => s.setSettingsTab);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
@@ -463,7 +465,7 @@ function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps
     return () => cancelAnimationFrame(rafRef.current);
   }, [updateRect]);
 
-  const finish = useCallback(() => setCompleted(true), [setCompleted]);
+  const finish = useCallback(() => setTourOpen(false), [setTourOpen]);
 
   useEffect(() => {
     const root = rootRef.current;

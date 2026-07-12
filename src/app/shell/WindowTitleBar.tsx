@@ -36,6 +36,7 @@ export function WindowTitleBar({
   onOpenDeki,
   onGoHome,
   onOpenHelp,
+  onOpenDiscover,
   leftSidebarPanel = "chats",
   onLeftSidebarPanelChange,
   titlebarAccessory,
@@ -45,6 +46,7 @@ export function WindowTitleBar({
   onOpenDeki?: () => void;
   onGoHome?: () => void;
   onOpenHelp?: () => void;
+  onOpenDiscover?: () => void;
   leftSidebarPanel?: AppShellLeftSidebarPanel;
   onLeftSidebarPanelChange?: (panel: AppShellLeftSidebarPanel) => void;
   titlebarAccessory?: ReactNode;
@@ -225,7 +227,7 @@ export function WindowTitleBar({
           <button
             type="button"
             className={cn(
-              "mari-titlebar-action mari-title-home-button de-koi-icon-target relative rounded-md transition-all duration-200",
+              "mari-titlebar-action mari-title-home-button de-koi-icon-target relative flex min-h-11 shrink-0 items-center gap-1 rounded-md px-2 transition-all duration-200",
               isHomeSurface
                 ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
                 : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
@@ -238,6 +240,7 @@ export function WindowTitleBar({
             aria-current={isHomeSurface ? "page" : undefined}
           >
             <Home className="mari-title-icon" size="0.95rem" aria-hidden />
+            <span className="whitespace-nowrap text-xs font-semibold">Home</span>
             {isHomeSurface && (
               <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
             )}
@@ -260,7 +263,7 @@ export function WindowTitleBar({
               <HelpCircle size="1rem" aria-hidden />
             </button>
           )}
-          <PanelNavButtons />
+          <PanelNavButtons onOpenDiscover={onOpenDiscover} />
           <span className="mari-window-actions-divider" aria-hidden />
         </div>
       </div>

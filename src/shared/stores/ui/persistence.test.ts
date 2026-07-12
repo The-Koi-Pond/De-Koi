@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultImageStyleProfileSettings } from "../../../engine/generation/image-style-profiles";
 import type { UIState } from "./model";
-import { migrateUiState, partializeUiState, UI_STORE_VERSION } from "./persistence";
+import type { SetupJourneyIntent } from "../../../engine/onboarding";
+import {
+  migrateUiState,
+  partializeSetupJourneyState,
+  partializeUiState,
+  UI_STORE_VERSION,
+} from "./persistence";
 
 describe("ui persistence migration", () => {
   it("bumps the store version for the chibi visit setting removal", () => {
@@ -83,5 +89,49 @@ describe("ui persistence migration", () => {
     expect(partialized.echoChamberOpen).toBe(true);
     expect(partialized.echoChamberSide).toBe("top-left");
     expect(partialized.echoChamberDismissedChatIds).toEqual({ "chat-1": true });
+  });
+});
+
+describe("setup journey persistence", () => {
+  it("allowlists only resumable journey metadata", () => {
+    const intent: SetupJourneyIntent & Record<string, unknown> = {
+      journeyId: "journey-1",
+      mode: "roleplay",
+      originCharacterId: "character-1",
+      selectedConnectionId: "connection-1",
+      dismissed: true,
+      completed: false,
+      apiToken: "do-not-persist",
+      credential: "do-not-persist",
+      providerPayload: { secret: "do-not-persist" },
+    };
+
+    const serialized = partializeSetupJourneyState({
+      intent,
+      recovery: {
+        createdChatId: "chat-1",
+        journeyId: "journey-1",
+        stage: "finalizing",
+        greeting: "do-not-persist",
+        providerPayload: { secret: "do-not-persist" },
+      } as never,
+    });
+
+    expect(serialized).toEqual({
+      intent: {
+        journeyId: "journey-1",
+        mode: "roleplay",
+        originCharacterId: "character-1",
+        selectedConnectionId: "connection-1",
+        dismissed: true,
+        completed: false,
+      },
+      recovery: {
+        createdChatId: "chat-1",
+        journeyId: "journey-1",
+        stage: "finalizing",
+      },
+    });
+    expect(JSON.stringify(serialized)).not.toMatch(/api|credential|secret|token|providerPayload/i);
   });
 });

@@ -231,6 +231,7 @@ export const useUIStore = create<UIState>()(
       weatherEffects: true,
       hudPosition: "top" as HudPosition,
       hasCompletedOnboarding: false,
+      onboardingTourOpen: false,
       gameTutorialDisabled: false,
       linkApiBannerDismissed: false,
       echoChamberOpen: false,
@@ -576,6 +577,7 @@ export const useUIStore = create<UIState>()(
       setImpersonateConnectionId: (id) => set({ impersonateConnectionId: id }),
       setImpersonateBlockAgents: (v) => set({ impersonateBlockAgents: v }),
       setHasCompletedOnboarding: (v) => set({ hasCompletedOnboarding: v }),
+      setOnboardingTourOpen: (open) => set({ onboardingTourOpen: open }),
       setGameTutorialDisabled: (v) => set({ gameTutorialDisabled: v }),
       dismissLinkApiBanner: () => set({ linkApiBannerDismissed: true }),
       setEchoChamberOpen: (open, chatId) =>

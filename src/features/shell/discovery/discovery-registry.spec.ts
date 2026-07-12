@@ -18,4 +18,14 @@ describe("discovery showcase registry", () => {
       label: "Explore Sample World",
     });
   });
+
+  it("describes Discover as the dedicated home for resumable setup and optional orientation", () => {
+    const entry = DISCOVERY_ENTRIES.find((item) => item.id === "onboarding-tutorial");
+
+    expect(entry?.title).toBe("Show Me Around");
+    expect(entry?.summary.toLowerCase()).toContain("readiness checklist");
+    expect(entry?.summary.toLowerCase()).toContain("resume");
+    expect(entry?.where).toContain("Discover");
+    expect(entry?.actions).toContainEqual({ type: "replay-onboarding", label: "Show me around" });
+  });
 });

@@ -11,6 +11,7 @@ function renderMobileTabBar({
   dekiOpen = false,
   leftSidebarPanel = "chats" as const,
   onGoHome = vi.fn(),
+  toolsSheetOpen = false,
 } = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -22,13 +23,14 @@ function renderMobileTabBar({
       <MobileTabBar
         dekiOpen={dekiOpen}
         leftSidebarPanel={leftSidebarPanel}
-        toolsSheetOpen={false}
+        toolsSheetOpen={toolsSheetOpen}
         toolsSheetRef={createRef<HTMLDivElement>()}
         trackerPanelVisible={false}
         onToolsSheetOpenChange={vi.fn()}
         onLeftSidebarPanelChange={onLeftSidebarPanelChange}
         onToggleDeki={vi.fn()}
         onGoHome={onGoHome}
+        onOpenDiscover={vi.fn()}
       />,
     );
   });
@@ -72,5 +74,28 @@ describe("MobileTabBar left sidebar controls", () => {
 
     expect(rendered.onLeftSidebarPanelChange).toHaveBeenCalledWith("deki");
     expect(rendered.onGoHome).not.toHaveBeenCalled();
+  });
+
+  it("groups Library and Tools destinations in a touch-sized tools sheet", () => {
+    const rendered = renderMobileTabBar({ toolsSheetOpen: true });
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+
+    expect(rendered.container.textContent).toContain("Library");
+    expect(rendered.container.textContent).toContain("Tools");
+    const menuItems = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'));
+    expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
+      "Browser",
+      "Characters",
+      "Personas",
+      "Lorebooks",
+      "Presets",
+      "Gallery",
+      "Connections",
+      "Agents",
+      "Settings",
+      "Discover",
+    ]);
+    expect(menuItems.every((item) => item.className.includes("min-h-11"))).toBe(true);
   });
 });

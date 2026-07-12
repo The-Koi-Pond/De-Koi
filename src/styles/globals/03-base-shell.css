@@ -331,11 +331,11 @@ body {
 .mari-chat-title-controls button,
 .mari-panel-nav button {
   display: inline-flex;
-  width: 1.875rem;
+  width: auto;
+  min-width: 1.875rem;
   height: 1.875rem;
   align-items: center;
   justify-content: center;
-  padding: 0;
 }
 
 .mari-chat-title-controls svg,
@@ -377,11 +377,11 @@ body {
 .mari-title-home-button {
   -webkit-app-region: no-drag;
   display: inline-flex;
-  width: 2.125rem;
+  width: auto;
+  min-width: 2.125rem;
   height: 1.875rem;
   align-items: center;
   justify-content: center;
-  padding: 0;
 }
 
 .mari-mobile-topbar-button,

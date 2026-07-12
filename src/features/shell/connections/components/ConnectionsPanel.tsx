@@ -22,10 +22,12 @@ import {
 } from "../../../catalog/connections";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import type { ConnectionFolder } from "../../../../engine/contracts/types/connection";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { LocalSidecarCard } from "./LocalSidecarCard";
+import { SetupJourneyContextBanner } from "../../onboarding/shell";
 import {
   Plus,
   Trash2,
@@ -480,6 +482,7 @@ export function ConnectionFolderRow({
 
 export function ConnectionsPanel() {
   const { data: connections, isLoading } = useConnections();
+  const setupIntent = useSetupJourneyStore((state) => state.intent);
   const activeChat = useChatStore((s) => s.activeChat);
 
   const activeConnectionId = activeChat?.connectionId ?? null;
@@ -694,6 +697,9 @@ export function ConnectionsPanel() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
+      {setupIntent && !setupIntent.completed && (
+        <SetupJourneyContextBanner owner="connection" mode={setupIntent.mode} onReturn={() => useUIStore.getState().closeRightPanel()} />
+      )}
       <input
         ref={connectionImageInputRef}
         type="file"

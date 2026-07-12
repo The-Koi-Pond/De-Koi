@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { HealthDiagnosticsSettings } from "../../diagnostics/shell";
 import { CoreModulesSettings } from "../../plugins/settings";
 import {
@@ -23,6 +24,7 @@ import {
   ThemesSettings,
 } from "./settings/SettingsSurfaces";
 import { PrivacyDataSettings } from "./settings/PrivacyDataSettings";
+import { SetupJourneyContextBanner } from "../../onboarding/shell";
 
 const TABS = [
   {
@@ -83,6 +85,7 @@ const SETTINGS_COMPONENTS: Record<SettingsTabId, ComponentType> = {
 };
 
 export function SettingsPanel() {
+  const setupIntent = useSetupJourneyStore((s) => s.intent);
   const settingsTab = useUIStore((s) => s.settingsTab);
   const setSettingsTab = useUIStore((s) => s.setSettingsTab);
   const activeTab = TABS.find((tab) => tab.id === settingsTab) ?? TABS[0];
@@ -170,6 +173,9 @@ export function SettingsPanel() {
           aria-labelledby={`settings-tab-${activeTab.id}`}
         >
           <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
+            {setupIntent && !setupIntent.completed && (
+              <div className="mb-4"><SetupJourneyContextBanner owner="runtime" mode={setupIntent.mode} onReturn={() => useUIStore.getState().closeRightPanel()} /></div>
+            )}
             <header className="mb-5 border-b border-[var(--border)] pb-4">
               <h2 className="text-lg font-semibold leading-tight text-[var(--foreground)]">{activeTab.label}</h2>
               <p className="mt-1 max-w-[68ch] text-xs leading-relaxed text-[var(--muted-foreground)]">

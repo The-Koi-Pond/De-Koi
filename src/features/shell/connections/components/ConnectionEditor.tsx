@@ -4,6 +4,8 @@
 // ──────────────────────────────────────────────
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ChangeEvent } from "react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
+import { restoreSetupJourneyFocus } from "../../onboarding/shell";
 import { toast } from "sonner";
 import {
   useConnection,
@@ -532,6 +534,13 @@ export function ConnectionEditor() {
       setDirty(false);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
+      const setup = useSetupJourneyStore.getState();
+      if (setup.intent && !setup.intent.completed && !showsConnectionTest) {
+        setup.markConnectionSavedWithoutTest(connectionDetailId);
+        closeConnectionDetail();
+        useUIStore.getState().closeRightPanel();
+        restoreSetupJourneyFocus("connection");
+      }
       return true;
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to save connection");
@@ -568,6 +577,8 @@ export function ConnectionEditor() {
     updateConnection,
     saveConnectionDefaults,
     conn,
+    showsConnectionTest,
+    closeConnectionDetail,
   ]);
 
   const handleDelete = useCallback(async () => {
@@ -630,11 +641,22 @@ export function ConnectionEditor() {
     }
     setTestResult(null);
     testConnection.mutate(connectionDetailId, {
-      onSuccess: (data) => setTestResult(data),
+      onSuccess: (data) => {
+        setTestResult(data);
+        if (data.success) {
+          const setup = useSetupJourneyStore.getState();
+          if (setup.intent && !setup.intent.completed) {
+            setup.markConnectionTested(connectionDetailId);
+            closeConnectionDetail();
+            useUIStore.getState().closeRightPanel();
+            restoreSetupJourneyFocus("connection");
+          }
+        }
+      },
       onError: (err) =>
         setTestResult({ success: false, message: err instanceof Error ? err.message : "Failed", latencyMs: 0 }),
     });
-  }, [connectionDetailId, dirty, handleSave, testConnection]);
+  }, [connectionDetailId, dirty, handleSave, testConnection, closeConnectionDetail]);
 
   const handleTestMessage = useCallback(async () => {
     if (!connectionDetailId) return;

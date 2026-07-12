@@ -1,11 +1,30 @@
 import { LayoutGrid, MessageCircleHeart, MessageSquare } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
-import { TOOLS_PANELS, type MobileToolsPanel } from "../../shared/components/mobile-shell-actions";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { preloadRightPanelPanel } from "./right-panel-loaders";
+import {
+  LIBRARY_NAV_ITEMS,
+  TOOLS_NAV_ITEMS,
+  isShellPanelDestination,
+  type ShellPanelDestination,
+} from "./shell-navigation";
+import { BookOpen, Bot, FileText, Images, Link, Search, Settings, Sparkles, User, Users } from "lucide-react";
+
+const NAV_ICONS = {
+  browser: Bot,
+  characters: Users,
+  personas: User,
+  lorebooks: BookOpen,
+  presets: FileText,
+  gallery: Images,
+  connections: Link,
+  agents: Sparkles,
+  settings: Settings,
+  discover: Search,
+} as const;
 
 export function MobileTabBar({
   dekiOpen: _dekiOpen,
@@ -17,6 +36,7 @@ export function MobileTabBar({
   onLeftSidebarPanelChange,
   onToggleDeki: _onToggleDeki,
   onGoHome: _onGoHome,
+  onOpenDiscover,
 }: {
   dekiOpen: boolean;
   leftSidebarPanel: AppShellLeftSidebarPanel;
@@ -27,6 +47,7 @@ export function MobileTabBar({
   onLeftSidebarPanelChange: (panel: AppShellLeftSidebarPanel) => void;
   onToggleDeki: () => void;
   onGoHome: () => void;
+  onOpenDiscover: () => void;
 }) {
   const activeChatId = useChatStore((s) => s.activeChatId);
   const closeRightPanel = useUIStore((s) => s.closeRightPanel);
@@ -56,7 +77,7 @@ export function MobileTabBar({
     if (!wasOpen) onLeftSidebarPanelChange("deki");
   };
 
-  const openPanel = (panel: MobileToolsPanel) => {
+  const openPanel = (panel: ShellPanelDestination) => {
     preloadRightPanelPanel(panel);
     const wasThisPanel = rightPanelOpen && rightPanel === panel;
     closeAll();
@@ -93,47 +114,67 @@ export function MobileTabBar({
             paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))",
           }}
         >
-          <p className="px-5 pt-6 pb-3 text-[0.7rem] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]/60">
-            Panels
-          </p>
-          <div className="grid grid-cols-2 gap-2.5 px-4 pb-2 overflow-hidden">
-            {TOOLS_PANELS.map(({ panel, icon: Icon, label, gradient }) => {
-              const isActive = rightPanelOpen && rightPanel === panel;
-              return (
-                <button
-                  key={panel}
-                  type="button"
-                  onFocus={() => preloadRightPanelPanel(panel)}
-                  onPointerEnter={() => preloadRightPanelPanel(panel)}
-                  onPointerDown={() => preloadRightPanelPanel(panel)}
-                  onClick={() => openPanel(panel)}
-                  className={cn(
-                    "flex items-center gap-3 rounded-2xl border p-4 text-left transition-all active:scale-95",
-                    isActive
-                      ? "border-[var(--primary)]/40 bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))]"
-                      : "border-[var(--border)]/50 bg-[var(--secondary)]/50 hover:border-[var(--border)]",
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
-                      gradient,
-                    )}
-                  >
-                    <Icon size="1rem" />
-                  </div>
-                  <span
-                    className={cn(
-                      "text-sm font-semibold",
-                      isActive ? "text-[var(--primary)]" : "text-[var(--foreground)]",
-                    )}
-                  >
-                    {label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {[
+            { heading: "Library", items: LIBRARY_NAV_ITEMS },
+            { heading: "Tools", items: TOOLS_NAV_ITEMS },
+          ].map(({ heading, items }) => (
+            <section key={heading}>
+              <h2 className="px-5 pt-5 pb-2 text-xs font-semibold uppercase tracking-widest text-[var(--muted-foreground)]">
+                {heading}
+              </h2>
+              <div className="grid grid-cols-2 gap-2.5 px-4 pb-2 overflow-hidden">
+                {items.map((item) => {
+                  const Icon = NAV_ICONS[item.icon as keyof typeof NAV_ICONS];
+                  const isActive =
+                    isShellPanelDestination(item.destination) && rightPanelOpen && rightPanel === item.destination;
+                  return (
+                    <button
+                      key={item.destination}
+                      type="button"
+                      onFocus={() =>
+                        isShellPanelDestination(item.destination) && preloadRightPanelPanel(item.destination)
+                      }
+                      onPointerEnter={() =>
+                        isShellPanelDestination(item.destination) && preloadRightPanelPanel(item.destination)
+                      }
+                      onPointerDown={() =>
+                        isShellPanelDestination(item.destination) && preloadRightPanelPanel(item.destination)
+                      }
+                      onClick={() => {
+                        if (item.destination === "discover") {
+                          closeAll();
+                          onOpenDiscover();
+                        } else if (isShellPanelDestination(item.destination)) openPanel(item.destination);
+                      }}
+                      className={cn(
+                        "flex min-h-11 items-center gap-3 rounded-2xl border p-3 text-left transition-all active:scale-95",
+                        isActive
+                          ? "border-[var(--primary)]/40 bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))]"
+                          : "border-[var(--border)]/50 bg-[var(--secondary)]/50 hover:border-[var(--border)]",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
+                          item.gradient,
+                        )}
+                      >
+                        <Icon size="1rem" />
+                      </div>
+                      <span
+                        className={cn(
+                          "text-sm font-semibold",
+                          isActive ? "text-[var(--primary)]" : "text-[var(--foreground)]",
+                        )}
+                      >
+                        {item.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 

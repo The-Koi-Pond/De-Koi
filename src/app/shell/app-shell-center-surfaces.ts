@@ -5,10 +5,12 @@ export type AppShellCenterSurfaceInput = {
   detailViewOpen: boolean;
   dekiOpen: boolean;
   activeDekiSessionId: string | null;
+  discoverOpen: boolean;
 };
 
 export type AppShellCenterSurfaceState = {
   dekiSurfaceVisible: boolean;
+  discoverSurfaceVisible: boolean;
   mainSurfaceVisible: boolean;
 };
 
@@ -19,13 +21,16 @@ export function getAppShellCenterSurfaceState({
   detailViewOpen,
   dekiOpen,
   activeDekiSessionId,
+  discoverOpen,
 }: AppShellCenterSurfaceInput): AppShellCenterSurfaceState {
   const fullViewSurfaceOpen = botBrowserOpen || gameAssetsBrowserOpen;
   const dekiSurfaceVisible =
-    Boolean(activeDekiSessionId) && dekiOpen && !fullViewSurfaceOpen && !rightPanelOpen && !detailViewOpen;
+    Boolean(activeDekiSessionId) && dekiOpen && !discoverOpen && !fullViewSurfaceOpen && !rightPanelOpen && !detailViewOpen;
+  const discoverSurfaceVisible = discoverOpen && !fullViewSurfaceOpen && !rightPanelOpen && !detailViewOpen;
 
   return {
+    discoverSurfaceVisible,
     dekiSurfaceVisible,
-    mainSurfaceVisible: !fullViewSurfaceOpen && !dekiSurfaceVisible,
+    mainSurfaceVisible: !fullViewSurfaceOpen && !dekiSurfaceVisible && !discoverSurfaceVisible,
   };
 }

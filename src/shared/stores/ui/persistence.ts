@@ -1,4 +1,5 @@
 import { createJSONStorage } from "zustand/middleware";
+import type { SetupJourneyIntent, SetupJourneyRecovery } from "../../../engine/onboarding";
 import {
   normalizeImageStyleProfileSettings,
   type ImageStyleProfileSettings,
@@ -34,6 +35,37 @@ type PersistedUiState = Partial<UIState> & {
   trackerPanelWidth?: unknown;
   imageStyleProfiles?: unknown;
 };
+
+interface SetupJourneyPersistableState {
+  intent: SetupJourneyIntent | null;
+  recovery: SetupJourneyRecovery | null;
+}
+
+export function partializeSetupJourneyState(state: SetupJourneyPersistableState): SetupJourneyPersistableState {
+  const intent = state.intent;
+  const recovery = state.recovery;
+  const persistedRecovery = recovery && [
+    "created",
+    "reconciled",
+    "preset-applied",
+    "greeting-initialized",
+    "finalizing",
+  ].includes(recovery.stage)
+    ? { createdChatId: recovery.createdChatId, journeyId: recovery.journeyId, stage: recovery.stage }
+    : null;
+  if (!intent) return { intent: null, recovery: persistedRecovery };
+  return {
+    intent: {
+      journeyId: intent.journeyId,
+      mode: intent.mode,
+      originCharacterId: intent.originCharacterId,
+      selectedConnectionId: intent.selectedConnectionId,
+      dismissed: intent.dismissed,
+      completed: intent.completed,
+    },
+    recovery: persistedRecovery,
+  };
+}
 
 function normalizePersistedWidth(value: unknown, fallback: number, min: number, max: number): number {
   const width = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback;

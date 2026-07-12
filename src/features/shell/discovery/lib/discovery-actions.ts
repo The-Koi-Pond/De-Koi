@@ -9,6 +9,10 @@ function emitDiscoveryEvent(detail: DiscoveryAppEventDetail) {
   window.dispatchEvent(new CustomEvent<DiscoveryAppEventDetail>(DISCOVERY_APP_EVENT, { detail }));
 }
 
+export function openDiscover() {
+  emitDiscoveryEvent({ type: "open-discover" });
+}
+
 export function getDiscoveryActionLabel(action: DiscoveryAction) {
   if (action.label) return action.label;
   switch (action.type) {
@@ -43,7 +47,7 @@ export function runDiscoveryAction(action: DiscoveryAction) {
       ui.setSettingsTab(action.tab);
       return;
     case "replay-onboarding":
-      ui.setHasCompletedOnboarding(false);
+      ui.setOnboardingTourOpen(true);
       return;
     case "open-deki":
       emitDiscoveryEvent({ type: "open-deki" });

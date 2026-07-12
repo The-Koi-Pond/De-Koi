@@ -21,6 +21,8 @@ import {
   type VisualTheme,
 } from "../../../../../shared/stores/ui.store";
 import { cn } from "../../../../../shared/lib/utils";
+import { useSetupJourneyStore } from "../../../../../shared/stores/setup-journey.store";
+import { restoreSetupJourneyFocus } from "../../../onboarding/shell";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { stripDangerousCss } from "../../../../../shared/lib/chat-css";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
@@ -3453,6 +3455,7 @@ export function AdvancedSettings() {
   const [remoteRuntimeHealth, setRemoteRuntimeHealth] = useState<RemoteRuntimeHealthView>(() =>
     initialRemoteRuntimeHealth(remoteRuntimeUrl),
   );
+  const setupIntent = useSetupJourneyStore((state) => state.intent);
   const queryClient = useQueryClient();
 
   const runRemoteRuntimeHealthCheck = useCallback(() => {
@@ -3480,6 +3483,14 @@ export function AdvancedSettings() {
         setRemoteRuntimeHealth(remoteRuntimeHealthErrorView(error));
       });
   }, [remoteRuntimeUrl]);
+
+  useEffect(() => {
+    if (!setupIntent || setupIntent.completed || remoteRuntimeHealth.status !== "ok") return;
+    if (remoteRuntimeHealth.health.writable === false) return;
+    useSetupJourneyStore.getState().resume();
+    useUIStore.getState().closeRightPanel();
+    restoreSetupJourneyFocus("runtime");
+  }, [remoteRuntimeHealth, setupIntent]);
 
   useEffect(
     () => () => {
