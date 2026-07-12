@@ -39,8 +39,14 @@ export function SetupReadinessChecklist({
     }] : []),
     {
       key: "connection", label: "Connect a language model", ready: connectionReady,
-      action: connectionReady && !connectionTestReady ? onTestConnection : onCreateConnection,
-      actionLabel: connectionReady && !connectionTestReady ? "Test connection" : "Add connection",
+      action: onCreateConnection,
+      actionLabel: "Add connection",
+      icon: Circle,
+    },
+    {
+      key: "test-connection", label: "Test your language model", ready: connectionTestReady,
+      action: connectionReady ? onTestConnection : undefined,
+      actionLabel: "Test connection",
       icon: Circle,
     },
     { key: "experience", label: "Choose your experience", ready: runtimeReady && connectionReady && connectionTestReady, action: onContinueChat, actionLabel: "Continue to chat", icon: Sparkles },
