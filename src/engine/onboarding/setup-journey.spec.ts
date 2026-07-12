@@ -41,6 +41,14 @@ describe("setup journey model", () => {
     expect(deriveSetupJourneyAction(webFacts({ runtimeHealth: "error" }), intent("game"))).toBe("repair-runtime");
   });
 
+  it.each(["unknown", "not-required"] as const)(
+    "does not advance past a configured but %s web runtime",
+    (runtimeHealth) => {
+      expect(deriveSetupJourneyAction(webFacts({ runtimeHealth }), intent("game"))).toBe("repair-runtime");
+      expect(isSetupReady(webFacts({ runtimeHealth }))).toBe(false);
+    },
+  );
+
   it("creates a connection when desktop has none", () => {
     expect(deriveSetupJourneyAction(desktopFacts({ usableConnectionCount: 0 }), intent("roleplay"))).toBe(
       "create-connection",

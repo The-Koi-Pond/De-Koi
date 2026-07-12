@@ -39,7 +39,7 @@ export function deriveSetupJourneyAction(
 
   if (facts.environment === "web") {
     if (!facts.runtimeUrl?.trim()) return "configure-runtime";
-    if (facts.runtimeHealth === "error") return "repair-runtime";
+    if (facts.runtimeHealth !== "healthy") return "repair-runtime";
   }
 
   if (facts.usableConnectionCount < 1) return "create-connection";
