@@ -34,42 +34,25 @@ export const ONBOARDING_TUTORIAL_STEPS: TourStep[] = [
   {
     target: "sidebar-toggle",
     title: "Chats Sidebar",
-    body: "This is where all your conversations live. Create new chats, search through them, and organize your history. You can have as many chats as you want!",
+    body: "This is where your conversations live. Create a chat, search your history, or return to something recent.",
     side: "right",
   },
   {
     target: "panel-buttons",
-    title: "Tab Buttons",
-    body: "These buttons (from left to right) open panels for:\n- **Browser:** browse for downloadable cards and more,\n- **Characters:** view and manage all your character cards,\n- **Lorebooks:** lorebooks with all the information you want,\n- **Presets:** manage prompts and prompt sections,\n- **Connections:** set up your model connections here,\n- **Agents:** manage chat helpers that can track details, create images, and more,\n- **Personas:** personas you play as,\n- **Settings:** settings for the entire application.\n\nCheck them all out!",
+    title: "Workspace Navigation",
+    body: "Use these labeled menus to open your Library, tools, Connections, Settings, and Discover. You do not need to learn everything now—open a section when your current task calls for it.",
     side: "bottom",
   },
   {
     target: "chat-area",
-    title: "Chat Area",
-    body: "This is your main workspace, where you chat with AI characters, enjoy roleplay, and read generated stories. Messages appear here in real time.",
+    title: "Main Workspace",
+    body: "This is where your current Conversation, Roleplay, Game, or setup task appears. Home will guide you to the next useful action.",
     side: "left",
   },
   {
     target: null,
-    title: "Three Ways to Chat",
-    body: "De-Koi has three chat modes:\n\n**Conversation:** Like Discord DMs. Casual texting, character schedules, statuses, and autonomous messaging. Great for slice-of-life and hanging out.\n\n**Roleplay:** Creative writing and storytelling. Rich narration, AI agents that handle tracking, narrative, and more. Perfect for adventures and immersive stories.\n\n**Game:** An RPG-flavored visual novel layer on top of your story, directed by an AI Game Master. Visual effects, tactical combat, party management, a developed plot line, and more. The most immersive experience out of all the available ones.\n\nUpon selecting any of these options, you will be presented with a setup wizard, so don't worry about anything, we'll guide you through the process step by step!",
-  },
-  {
-    target: null,
-    title: "Set Up a Connection",
-    body: "Before you start chatting, you'll need to connect an AI provider. Click the chain-link icon (🔗) in the top-right tab buttons, then add your API key for OpenAI, Anthropic, or another provider.",
-  },
-  {
-    target: null,
-    title: "Importing from SillyTavern?",
-    body: "If you have characters, chats, or presets from SillyTavern, you can import them all in one go from the Settings panel.",
-    actionLabel: "Take Me There",
-    actionKey: "import",
-  },
-  {
-    target: null,
     title: "Ready to Explore",
-    body: "The readiness checklist handles connection and runtime setup, and you can resume it whenever you need. Open Discover to revisit this tour and find more features.\n\nFor diagnostics, support details, or bug reporting, open Help from the title bar.",
+    body: "Choose an experience on Home and follow the readiness checklist's Finish setup action if De-Koi needs anything first. Open Discover when you want to find another feature.\n\nFor diagnostics, support details, or bug reporting, open Help.",
   },
 ];
 
