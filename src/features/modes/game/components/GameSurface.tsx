@@ -1325,8 +1325,6 @@ export function GameSurface({
   const applyWidgetUpdate = useGameModeStore((s) => s.applyWidgetUpdate);
   const setDiceRollResult = useGameModeStore((s) => s.setDiceRollResult);
   const weatherEffectsEnabled = useUIStore((s) => s.weatherEffects);
-  const gameTutorialDisabled = useUIStore((s) => s.gameTutorialDisabled);
-  const setGameTutorialDisabled = useUIStore((s) => s.setGameTutorialDisabled);
   const gameFullBodySpriteScale = useUIStore((s) => s.gameFullBodySpriteScale);
   const gameMiddleMouseNav = useUIStore((s) => s.gameMiddleMouseNav);
   const messagesPerPage = useUIStore((s) => s.messagesPerPage);
@@ -1688,7 +1686,6 @@ export function GameSurface({
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const isMobileViewport = useIsMobile();
   const [compactHudWidgets, setCompactHudWidgets] = useState(isMobileViewport);
-  const tutorialAutoTriggeredRef = useRef(false);
   const volumePopoverRef = useRef<HTMLDivElement>(null);
   const mobileVolumePopoverRef = useRef<HTMLDivElement>(null);
   const retryMenuRef = useRef<HTMLDivElement>(null);
@@ -2449,8 +2446,6 @@ export function GameSurface({
     setStartSessionRequested(false);
     setPrepareInitialWidgetsOpen(false);
     setPrepareSessionWidgetsOpen(false);
-    // Allow the auto-tutorial to re-evaluate for the new chat (guard still gates on disabled flag)
-    tutorialAutoTriggeredRef.current = false;
   }, [chatMeta.gameRecentMusic, sceneRuntimeScopeKey, setNarrationDoneMsgId]);
 
   // Clean up audio + reset playback state when SWITCHING chats.
@@ -5147,26 +5142,9 @@ export function GameSurface({
     return baseMembers;
   }, [chatCharacterIds, chatMeta, characters, characterMap, npcs, personaInfo]);
 
-  // Auto-open the in-game tutorial on the user's first game.
-  // Guard: only when setup is complete, party is loaded, and the user
-  // hasn't permanently disabled it. Fires once per chat mount.
-  useEffect(() => {
-    if (tutorialAutoTriggeredRef.current) return;
-    if (gameTutorialDisabled) return;
-    if (isSetupActive) return;
-    if (partyMembers.length === 0) return;
-    tutorialAutoTriggeredRef.current = true;
-    // Small delay so the UI has time to mount/layout before the tooltip measures rects
-    const t = window.setTimeout(() => setTutorialOpen(true), 600);
-    return () => window.clearTimeout(t);
-  }, [gameTutorialDisabled, isSetupActive, partyMembers.length]);
-
   const handleCloseTutorial = useCallback(() => {
     setTutorialOpen(false);
-    // Mark as dismissed so it doesn't auto-open for future games.
-    // The (?) help button will still re-open it on demand.
-    setGameTutorialDisabled(true);
-  }, [setGameTutorialDisabled]);
+  }, []);
 
   const handleRemovePartyMemberFromBar = useCallback(
     async (member: { id: string; name: string; canRemove?: boolean }) => {
@@ -8839,7 +8817,7 @@ export function GameSurface({
                 )}
               </Suspense>
 
-              {/* First-game spotlight tutorial (auto-opens once; (?) button re-opens) */}
+              {/* Spotlight tutorial opens only from the explicit (?) help controls. */}
               <Suspense fallback={<GameOverlayLoadingFallback label="Loading tutorial..." zClassName="z-[9999]" />}>
                 {tutorialOpen && <GameTutorial open={tutorialOpen} onClose={handleCloseTutorial} />}
               </Suspense>

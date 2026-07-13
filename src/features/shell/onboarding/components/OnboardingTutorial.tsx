@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
-import { ChevronRight, ArrowRightLeft } from "lucide-react";
+import { ChevronRight, ArrowRightLeft, X } from "lucide-react";
 
 // ─── Step definitions ─────────────────────────
 
@@ -29,7 +29,7 @@ export const ONBOARDING_TUTORIAL_STEPS: TourStep[] = [
   {
     target: null,
     title: "Welcome to De-Koi!",
-    body: "Here's an optional tour to show you around. Skip it whenever you like; you can start it again later from Discover.",
+    body: "This quick tour only points things out, and you can exit at any time. You can start it again later from Discover.",
   },
   {
     target: "sidebar-toggle",
@@ -286,8 +286,17 @@ function TourCardContent({
   return (
     <>
       {/* Header */}
-      <div className="mb-3">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <h3 className="text-sm font-semibold text-[var(--foreground)]">{currentStep.title}</h3>
+        <button
+          type="button"
+          onClick={onSkip}
+          aria-label="Close tutorial"
+          title="Close tutorial"
+          className="-mr-1 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+        >
+          <X size="1rem" />
+        </button>
       </div>
 
       {/* Body */}
@@ -308,21 +317,32 @@ function TourCardContent({
         ))}
       </p>
 
+      {step > 0 && (
+        <p className="mb-3 text-xs font-medium leading-relaxed text-[var(--foreground)]">
+          Use Next to move through this tour. You don't need to click the highlighted controls.
+        </p>
+      )}
+
       {/* Progress dots */}
-      <div className="mb-3 flex items-center justify-center gap-1.5">
-        {STEPS.map((_, i) => (
-          <div
-            key={i}
-            className={`h-1.5 rounded-full transition-all duration-300 ${
-              i === step
-                ? "w-4 bg-[var(--primary)]"
-                : i < step
-                  ? "w-1.5 bg-[var(--primary)]/40"
-                  : "w-1.5 bg-[var(--muted-foreground)]/20"
-            }`}
-          />
-        ))}
-      </div>
+      {step > 0 && (
+        <div className="mb-3 flex items-center justify-center gap-1.5">
+          {STEPS.slice(1).map((_, index) => {
+            const stepIndex = index + 1;
+            return (
+              <div
+                key={stepIndex}
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  stepIndex === step
+                    ? "w-4 bg-[var(--primary)]"
+                    : stepIndex < step
+                      ? "w-1.5 bg-[var(--primary)]/40"
+                      : "w-1.5 bg-[var(--muted-foreground)]/20"
+                }`}
+              />
+            );
+          })}
+        </div>
+      )}
 
       {/* Action button */}
       {currentStep.actionLabel && currentStep.actionKey && onAction && (
@@ -339,15 +359,15 @@ function TourCardContent({
       <div className="flex items-center justify-between">
         <button
           onClick={onSkip}
-          className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+          className="min-h-10 rounded-lg px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
         >
-          {step === 0 ? "Skip Tutorial" : "Skip"}
+          Exit tutorial
         </button>
         <button
           onClick={onNext}
-          className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-1.5 text-xs font-medium text-[var(--primary-foreground)] shadow-sm transition-all hover:opacity-90 active:scale-95"
+          className="flex min-h-10 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-medium text-[var(--primary-foreground)] shadow-sm transition-all hover:opacity-90 active:scale-95"
         >
-          {isLast ? "Get Started" : "Next"}
+          {step === 0 ? "Start tour" : isLast ? "Get Started" : "Next"}
           {!isLast && <ChevronRight size="0.75rem" />}
         </button>
       </div>
@@ -467,6 +487,11 @@ function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps
     const frame = window.requestAnimationFrame(focusFirstControl);
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish();
+        return;
+      }
       if (event.key !== "Tab") return;
 
       const focusable = getFocusableElements(root);
@@ -512,7 +537,7 @@ function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps
       const previousFocus = previousFocusRef.current;
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, []);
+  }, [finish]);
 
   const handleAction = useCallback(
     (key: string) => {
@@ -560,9 +585,7 @@ function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps
         />
       )}
 
-      {isCentered && (
-        <div className="pointer-events-none fixed inset-0 bg-[rgba(1,7,13,0.72)] backdrop-blur-[2px]" />
-      )}
+      {isCentered && <div className="pointer-events-none fixed inset-0 bg-[rgba(1,7,13,0.72)] backdrop-blur-[2px]" />}
 
       {/* Centered steps use a flex wrapper so transforms do not override CSS centering. */}
       {isCentered ? (
@@ -572,22 +595,6 @@ function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps
             className="pointer-events-auto max-h-[90vh] overflow-x-hidden overflow-y-auto rounded-2xl border border-[color-mix(in_srgb,var(--primary)_36%,var(--border))] bg-[color-mix(in_srgb,var(--popover)_94%,black)] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.62),0_0_0_1px_rgba(255,255,255,0.04)_inset] ring-1 ring-[var(--primary)]/30 animate-message-in"
             style={{ width: Math.min(380, window.innerWidth - 32) }}
           >
-              <TourCardContent
-                step={step}
-                currentStep={currentStep}
-                isLast={isLast}
-                onNext={next}
-                onSkip={finish}
-                onAction={handleAction}
-              />
-          </div>
-        </div>
-      ) : (
-        <div
-          key={step}
-          className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 shadow-2xl ring-1 ring-[var(--primary)]/20 animate-message-in"
-          style={computeTooltipStyle(targetRect!, currentStep.side)}
-        >
             <TourCardContent
               step={step}
               currentStep={currentStep}
@@ -596,6 +603,22 @@ function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps
               onSkip={finish}
               onAction={handleAction}
             />
+          </div>
+        </div>
+      ) : (
+        <div
+          key={step}
+          className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 shadow-2xl ring-1 ring-[var(--primary)]/20 animate-message-in"
+          style={computeTooltipStyle(targetRect!, currentStep.side)}
+        >
+          <TourCardContent
+            step={step}
+            currentStep={currentStep}
+            isLast={isLast}
+            onNext={next}
+            onSkip={finish}
+            onAction={handleAction}
+          />
         </div>
       )}
     </div>

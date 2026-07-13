@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 
 const ASSISTANT_MARK_URL = "/koi-mark.svg";
 
@@ -212,6 +212,18 @@ function TutorialCard({
 }) {
   return (
     <>
+      <div className="mb-1 flex justify-end">
+        <button
+          type="button"
+          onClick={onSkip}
+          aria-label="Close tutorial"
+          title="Close tutorial"
+          className="-mr-1 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+        >
+          <X size="1rem" />
+        </button>
+      </div>
+
       {stepData.sprite && (
         <div className="mb-2 flex justify-center">
           <img
@@ -245,6 +257,10 @@ function TutorialCard({
         ))}
       </p>
 
+      <p className="mb-3 text-xs font-medium leading-relaxed text-[var(--foreground)]">
+        Use Next to move through this tour. You don't need to click the highlighted controls.
+      </p>
+
       <div className="mb-3 flex items-center justify-center gap-1.5">
         {STEPS.map((_, i) => (
           <div
@@ -263,13 +279,13 @@ function TutorialCard({
       <div className="flex items-center justify-between gap-2">
         <button
           onClick={onSkip}
-          className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+          className="min-h-10 rounded-lg px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
         >
-          Skip
+          Exit tutorial
         </button>
         <button
           onClick={onNext}
-          className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-1.5 text-xs font-medium text-[var(--primary-foreground)] shadow-sm transition-all hover:opacity-90 active:scale-95"
+          className="flex min-h-10 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-medium text-[var(--primary-foreground)] shadow-sm transition-all hover:opacity-90 active:scale-95"
         >
           {isLast ? "Got it!" : "Next"}
           {!isLast && <ChevronRight size="0.75rem" />}
@@ -299,6 +315,17 @@ export function GameTutorial({ open, onClose }: GameTutorialProps) {
   useEffect(() => {
     if (open) setStep(0);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [onClose, open]);
 
   const updateRect = useCallback(() => {
     if (!open || !stepData) {
