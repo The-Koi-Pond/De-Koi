@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { DISCOVERY_APP_EVENT } from "../../../../shared/lib/discovery-navigation";
-import { resolveDiscoveryAction, runDiscoveryAction } from "./discovery-actions";
+import { getDiscoveryActionLabel, resolveDiscoveryAction, runDiscoveryAction } from "./discovery-actions";
 
 describe("settings discovery actions", () => {
   beforeEach(() => {
@@ -75,5 +75,14 @@ describe("settings discovery actions", () => {
       message: "Slash Commands needs an active Conversation or Roleplay chat.",
       fallback: { type: "open-chat-list", label: "Choose a chat" },
     });
+  });
+
+  it("keeps malformed runtime destinations readable instead of rendering undefined", () => {
+    expect(
+      getDiscoveryActionLabel({
+        type: "open-chat-destination",
+        destination: "future-destination" as never,
+      }),
+    ).toBe("Open Chat destination");
   });
 });

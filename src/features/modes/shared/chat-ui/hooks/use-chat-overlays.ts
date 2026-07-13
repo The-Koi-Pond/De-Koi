@@ -87,24 +87,28 @@ export function useChatOverlays(activeChatId: string) {
 
   useEffect(() => {
     if (!settingsOpen || !pendingDiscoverySection) return;
-    let attempts = 0;
-    let timer = 0;
-    let cancelled = false;
-    const revealSection = () => {
-      if (cancelled) return;
+    const revealSection = (): boolean => {
       const element = document.getElementById(pendingDiscoverySection);
-      if (element) {
-        element.scrollIntoView({ block: "start", behavior: "smooth" });
-        setPendingDiscoverySection(null);
-        return;
-      }
-      attempts += 1;
-      if (attempts < 20) timer = window.setTimeout(revealSection, 50);
+      if (!element) return false;
+      element.scrollIntoView({ block: "start", behavior: "smooth" });
+      setPendingDiscoverySection(null);
+      return true;
     };
-    revealSection();
+
+    if (revealSection()) return;
+
+    const observer = new MutationObserver(() => {
+      if (revealSection()) observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    const timeout = window.setTimeout(() => {
+      observer.disconnect();
+      setPendingDiscoverySection(null);
+    }, 1_000);
+
     return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
+      observer.disconnect();
+      window.clearTimeout(timeout);
     };
   }, [pendingDiscoverySection, settingsOpen]);
 

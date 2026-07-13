@@ -1130,7 +1130,7 @@ export const ChatInput = memo(function ChatInput({
     }
   };
 
-  const handleInput = () => {
+  const handleInput = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
     const fixed = applyTextareaQuoteFormat(el, quoteFormat);
@@ -1170,7 +1170,7 @@ export const ChatInput = memo(function ChatInput({
     } else {
       setCompletions((prev) => (prev.length === 0 ? prev : []));
     }
-  };
+  }, [activeChatId, clearInputDraft, quoteFormat, setCurrentInput, setInputDraft]);
 
   useEffect(() => {
     const handleDiscoveryAction = (event: Event) => {
@@ -1187,7 +1187,7 @@ export const ChatInput = memo(function ChatInput({
 
     window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
     return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
-  });
+  }, [handleInput]);
 
   // Dismiss feedback on new input
   useEffect(() => {

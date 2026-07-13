@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Compass, HelpCircle, Search, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleAlert, Compass, HelpCircle, Search, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "../../../../shared/lib/utils";
 import {
@@ -86,10 +86,15 @@ function DiscoveryEntryRow({ entry }: { entry: DiscoveryEntry }) {
       )}
       {outcome?.status === "blocked" && (
         <div
-          className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-400/25 bg-amber-500/10 px-2.5 py-2 text-[0.72rem] text-[var(--foreground)]"
-          role="status"
+          className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-rose-400/35 bg-rose-500/10 px-2.5 py-2 text-[0.72rem] text-[var(--foreground)]"
+          data-discovery-status="blocked"
+          role="alert"
+          aria-live="assertive"
         >
-          <span className="min-w-0 flex-1">{outcome.message}</span>
+          <CircleAlert size="0.9rem" className="shrink-0 text-rose-500" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <strong className="font-semibold">Unavailable in the current context.</strong> {outcome.message}
+          </span>
           <button
             type="button"
             onClick={() => handleAction(outcome.fallback)}
