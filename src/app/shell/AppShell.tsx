@@ -1334,7 +1334,7 @@ export function AppShell() {
       <div
         data-component="AppShell"
         className={cn(
-          "mari-app fixed left-0 right-0 top-0 flex h-[var(--mari-visual-viewport-height,100dvh)] flex-col overflow-hidden bg-[var(--background)] max-md:pt-[env(safe-area-inset-top)]",
+          "mari-app fixed left-0 right-0 top-0 flex h-[var(--mari-visual-viewport-height,100dvh)] flex-col overflow-hidden bg-[var(--background)]",
           lowPowerShellMode && "mari-low-power-shell",
           showAmbientDecor && !lowPowerShellMode && "retro-scanlines noise-bg geometric-grid",
         )}
