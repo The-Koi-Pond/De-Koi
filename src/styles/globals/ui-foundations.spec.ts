@@ -21,4 +21,13 @@ describe("shared UI readability foundations", () => {
       /@media\s*\(pointer:\s*coarse\)[\s\S]*:is\(\.de-koi-icon-target,\s*\.de-koi-control-target\)[^{]*{[^}]*min-width:\s*2\.75rem[^}]*min-height:\s*2\.75rem/s,
     );
   });
+
+  it("keeps the mobile top safe area inside the visible app chrome", () => {
+    const css = readGlobalStyle("07-responsive-accessibility.css");
+    const appShell = readFileSync(resolve(process.cwd(), "src/app/shell/AppShell.tsx"), "utf8");
+
+    expect(css).toMatch(/\.mari-app\s*{[^}]*padding:\s*0\s+env\(safe-area-inset-right\)/s);
+    expect(css).toMatch(/\.mari-app-chrome\s*{[^}]*padding-top:\s*env\(safe-area-inset-top\)/s);
+    expect(appShell).not.toMatch(/"mari-app fixed[^"]*safe-area-inset-top[^"]*"/);
+  });
 });
