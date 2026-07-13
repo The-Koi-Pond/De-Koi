@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
+import {
+  DISCOVERY_APP_EVENT,
+  type DiscoveryAppEventDetail,
+} from "../../../../../shared/lib/discovery-navigation";
 
 type IdleWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -53,11 +57,51 @@ export function useChatOverlays(activeChatId: string) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [spriteArrangeMode, setSpriteArrangeMode] = useState(false);
   const [newChatSetupChatId, setNewChatSetupChatId] = useState<string | null>(null);
+  const [pendingDiscoverySection, setPendingDiscoverySection] = useState<string | null>(null);
   const pendingSetupOverlayOpenRef = useRef<PendingSetupOverlayOpen | null>(null);
 
   const newChatSetupIntent = useChatStore((state) => state.newChatSetupIntent);
   const shouldOpenSettings = useChatStore((state) => state.shouldOpenSettings);
   const shouldOpenWizard = useChatStore((state) => state.shouldOpenWizard);
+
+  useEffect(() => {
+    const handleDiscoveryAction = (event: Event) => {
+      const detail = (event as CustomEvent<DiscoveryAppEventDetail>).detail;
+      if (detail?.type !== "open-chat-destination") return;
+      if (
+        detail.destination !== "chat-settings" &&
+        detail.destination !== "chat-settings-continuity" &&
+        detail.destination !== "roleplay-context"
+      ) {
+        return;
+      }
+      setPendingDiscoverySection(
+        detail.destination === "chat-settings-continuity" ? "chat-settings-continuity" : null,
+      );
+      setSettingsOpen(true);
+    };
+
+    window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
+    return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsOpen || !pendingDiscoverySection) return;
+    let attempts = 0;
+    let timer = 0;
+    const revealSection = () => {
+      const element = document.getElementById(pendingDiscoverySection);
+      if (element) {
+        element.scrollIntoView({ block: "start", behavior: "smooth" });
+        setPendingDiscoverySection(null);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 20) timer = window.setTimeout(revealSection, 50);
+    };
+    revealSection();
+    return () => window.clearTimeout(timer);
+  }, [pendingDiscoverySection, settingsOpen]);
 
   const queueSetupOverlayOpen = useCallback((key: string, run: () => void, onCancel?: () => void): boolean => {
     if (pendingSetupOverlayOpenRef.current?.key === key) return false;

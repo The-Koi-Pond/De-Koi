@@ -9,7 +9,7 @@ import { TopBar } from "./TopBar";
 import { TopBarActionsProvider } from "../../shared/components/mobile-shell-actions";
 import { WindowTitleBar } from "./WindowTitleBar";
 import { MobileTabBar } from "./MobileTabBar";
-import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../features/shell/discovery/discovery-events";
+import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../shared/lib/discovery-navigation";
 import {
   getTrackerPanelWidthForProfile,
   RIGHT_PANEL_WIDTH_MAX,
@@ -20,6 +20,7 @@ import {
 } from "../../shared/stores/ui.store";
 import type { TrackerPanelSizeProfile } from "../../shared/stores/ui.store";
 import { useChatStore } from "../../shared/stores/chat.store";
+import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
 import { chatKeys } from "../../features/catalog/chats/index";
@@ -734,6 +735,41 @@ export function AppShell() {
         closeDekiShell();
         setLeftSidebarPanel(null);
         setTrackerPanelOpen(false);
+        return;
+      }
+
+      if (detail?.type === "open-mode-setup") {
+        closeDiscover();
+        useSetupJourneyStore.getState().begin(detail.mode);
+        useChatStore.getState().setPendingNewChatMode(detail.mode);
+        return;
+      }
+
+      if (detail?.type === "open-chat-list") {
+        closeDiscover();
+        closeDekiShell();
+        closeRightPanel();
+        setActiveChatSidebarTab("conversation");
+        setLeftSidebarPanel("chats");
+        return;
+      }
+
+      if (detail?.type === "show-active-chat") {
+        closeDiscover();
+        closeDekiShell();
+        closeRightPanel();
+        return;
+      }
+
+      if (detail?.type === "open-chat-destination") {
+        closeDiscover();
+        closeDekiShell();
+        closeRightPanel();
+        if (detail.destination === "prompt-inspector") {
+          toast.info("Choose Peek Prompt on an assistant message to inspect its prompt.");
+        } else if (detail.destination === "message-actions") {
+          toast.info("Hover or tap a message to reveal its message actions.");
+        }
         return;
       }
 

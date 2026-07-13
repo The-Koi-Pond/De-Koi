@@ -94,6 +94,10 @@ import { gameAssetFileUrlFromPath, userBackgroundUrl } from "../../../../shared/
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
+import {
+  DISCOVERY_APP_EVENT,
+  type DiscoveryAppEventDetail,
+} from "../../../../shared/lib/discovery-navigation";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { audioManager } from "../lib/game-audio";
 import { canStartGameWithConnection, GAME_START_CONNECTION_REQUIRED_MESSAGE } from "../lib/game-start-connection";
@@ -1684,6 +1688,19 @@ export function GameSurface({
   const [ambientVolume, setAmbientVolume] = useState(persistedGameAudioSettings.ambientVolume);
   const [audioSettingsHydrated, setAudioSettingsHydrated] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  useEffect(() => {
+    const handleDiscoveryAction = (event: Event) => {
+      const detail = (event as CustomEvent<DiscoveryAppEventDetail>).detail;
+      if (detail?.type !== "open-chat-destination") return;
+      if (detail.destination === "game-tutorial") setTutorialOpen(true);
+      else if (detail.destination === "game-journal") setJournalOpen(true);
+      else if (detail.destination === "game-checkpoints") setCheckpointsOpen(true);
+      else if (detail.destination === "game-tools") setMoreSheetOpen(true);
+    };
+
+    window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
+    return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
+  }, []);
   const isMobileViewport = useIsMobile();
   const [compactHudWidgets, setCompactHudWidgets] = useState(isMobileViewport);
   const volumePopoverRef = useRef<HTMLDivElement>(null);

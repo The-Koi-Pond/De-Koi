@@ -48,6 +48,10 @@ import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { isSendShortcut } from "../../../../../shared/lib/send-shortcuts";
 import { applyTextareaQuoteFormat } from "../../../../../shared/lib/textarea-quotes";
 import { requestChatScrollToBottom } from "../../../../../shared/lib/chat-scroll-events";
+import {
+  DISCOVERY_APP_EVENT,
+  type DiscoveryAppEventDetail,
+} from "../../../../../shared/lib/discovery-navigation";
 import { cn, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { UserQuickReplyIcon } from "../../../../../shared/components/ui/UserQuickReplyIcon";
@@ -169,6 +173,7 @@ export const ChatInput = memo(function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const inputBarRef = useRef<HTMLDivElement>(null);
+
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attachmentsRef = useRef<Attachment[]>([]);
   const pendingAttachmentDraftsRef = useRef<Map<string, Attachment[]>>(new Map());
@@ -1166,6 +1171,23 @@ export const ChatInput = memo(function ChatInput({
       setCompletions((prev) => (prev.length === 0 ? prev : []));
     }
   };
+
+  useEffect(() => {
+    const handleDiscoveryAction = (event: Event) => {
+      const detail = (event as CustomEvent<DiscoveryAppEventDetail>).detail;
+      if (detail?.type !== "open-chat-destination" || detail.destination !== "slash-commands") return;
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      if (!textarea.value.trim()) {
+        textarea.value = "/";
+        handleInput();
+      }
+      textarea.focus();
+    };
+
+    window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
+    return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
+  });
 
   // Dismiss feedback on new input
   useEffect(() => {

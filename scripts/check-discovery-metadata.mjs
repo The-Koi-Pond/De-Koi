@@ -14,6 +14,19 @@ const validCategories = new Set([
   "Help",
 ]);
 const validCoverage = new Set(["core", "advanced", "experimental", "needs-polish"]);
+const validModes = new Set(["conversation", "roleplay", "game"]);
+const validChatDestinations = new Set([
+  "chat-settings",
+  "chat-settings-continuity",
+  "slash-commands",
+  "prompt-inspector",
+  "message-actions",
+  "game-tutorial",
+  "game-journal",
+  "game-checkpoints",
+  "game-tools",
+  "roleplay-context",
+]);
 const validPanels = new Set([
   "characters",
   "lorebooks",
@@ -70,6 +83,18 @@ function validateAction(action, entryId, index) {
     case "open-help":
     case "report-bug":
     case "go-home":
+    case "open-chat-list":
+    case "show-active-chat":
+      break;
+    case "open-mode-setup":
+      if (!hasText(action.mode) || !validModes.has(action.mode)) {
+        errors.push(`${path}.mode must target a known chat mode.`);
+      }
+      break;
+    case "open-chat-destination":
+      if (!hasText(action.destination) || !validChatDestinations.has(action.destination)) {
+        errors.push(`${path}.destination must target a known chat destination.`);
+      }
       break;
     case "open-showcase":
       if (action.showcaseId !== "no-model-game-v1") {

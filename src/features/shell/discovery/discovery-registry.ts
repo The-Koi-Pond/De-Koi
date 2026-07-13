@@ -43,6 +43,19 @@ const DISCOVERY_PANEL_TARGETS = [
 const categorySet = new Set<string>(DISCOVERY_CATEGORIES);
 const coverageSet = new Set<string>(DISCOVERY_COVERAGE);
 const panelTargetSet = new Set<string>(DISCOVERY_PANEL_TARGETS);
+const modeSet = new Set(["conversation", "roleplay", "game"]);
+const chatDestinationSet = new Set([
+  "chat-settings",
+  "chat-settings-continuity",
+  "slash-commands",
+  "prompt-inspector",
+  "message-actions",
+  "game-tutorial",
+  "game-journal",
+  "game-checkpoints",
+  "game-tools",
+  "roleplay-context",
+]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -84,6 +97,16 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
     case "open-help":
     case "report-bug":
     case "go-home":
+    case "open-chat-list":
+    case "show-active-chat":
+      break;
+    case "open-mode-setup":
+      if (!hasText(action.mode) || !modeSet.has(action.mode)) errors.push(`${path}.mode must target a known chat mode.`);
+      break;
+    case "open-chat-destination":
+      if (!hasText(destination) || !chatDestinationSet.has(destination)) {
+        errors.push(`${path}.destination must target a known chat destination.`);
+      }
       break;
     case "open-showcase":
       if (showcaseId !== NO_MODEL_GAME_SHOWCASE_ID) {
