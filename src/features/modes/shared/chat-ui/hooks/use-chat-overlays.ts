@@ -89,7 +89,9 @@ export function useChatOverlays(activeChatId: string) {
     if (!settingsOpen || !pendingDiscoverySection) return;
     let attempts = 0;
     let timer = 0;
+    let cancelled = false;
     const revealSection = () => {
+      if (cancelled) return;
       const element = document.getElementById(pendingDiscoverySection);
       if (element) {
         element.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -100,7 +102,10 @@ export function useChatOverlays(activeChatId: string) {
       if (attempts < 20) timer = window.setTimeout(revealSection, 50);
     };
     revealSection();
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [pendingDiscoverySection, settingsOpen]);
 
   const queueSetupOverlayOpen = useCallback((key: string, run: () => void, onCancel?: () => void): boolean => {

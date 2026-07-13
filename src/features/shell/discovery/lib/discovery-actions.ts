@@ -39,7 +39,7 @@ function destinationLabel(destination: DiscoveryChatDestination) {
     "game-tools": "Game Tools",
     "roleplay-context": "Roleplay Context",
   };
-  return labels[destination];
+  return labels[destination] ?? "Chat destination";
 }
 
 export function getDiscoveryActionLabel(action: DiscoveryAction) {
@@ -90,6 +90,13 @@ export function resolveDiscoveryAction(action: DiscoveryAction): DiscoveryAction
 
   const requiredModes = DESTINATION_MODES[action.destination];
   if (requiredModes && !requiredModes.includes(activeChat.mode as DiscoveryMode)) {
+    if (requiredModes.length > 1) {
+      return {
+        status: "blocked",
+        message: `${destinationLabel(action.destination)} needs an active ${requiredModes.map(modeLabel).join(" or ")} chat.`,
+        fallback: { type: "open-chat-list", label: "Choose a chat" },
+      };
+    }
     const requiredMode = requiredModes[0];
     return {
       status: "blocked",

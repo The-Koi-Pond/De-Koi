@@ -63,4 +63,17 @@ describe("settings discovery actions", () => {
       fallback: { type: "open-chat-list", label: "Choose a chat" },
     });
   });
+
+  it("does not choose an arbitrary setup mode when a destination supports multiple modes", () => {
+    useChatStore.setState({
+      activeChatId: "game-chat",
+      activeChat: { id: "game-chat", mode: "game" } as never,
+    });
+
+    expect(resolveDiscoveryAction({ type: "open-chat-destination", destination: "slash-commands" })).toEqual({
+      status: "blocked",
+      message: "Slash Commands needs an active Conversation or Roleplay chat.",
+      fallback: { type: "open-chat-list", label: "Choose a chat" },
+    });
+  });
 });
