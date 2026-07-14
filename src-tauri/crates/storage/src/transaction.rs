@@ -7,6 +7,13 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(test)]
+pub(crate) type AppendApplyTestHook = Box<dyn FnMut(&Path) -> AppResult<()> + Send + 'static>;
+
+#[cfg(test)]
+pub(crate) static APPEND_APPLY_TEST_HOOK: std::sync::Mutex<Option<AppendApplyTestHook>> =
+    std::sync::Mutex::new(None);
+
 pub(crate) fn parse_collection_rows(collection: &str, raw: &str) -> AppResult<Vec<Value>> {
     let parsed: Value = serde_json::from_str(raw)?;
     match parsed {
@@ -79,32 +86,65 @@ pub(crate) fn write_file_atomically(path: &Path, bytes: &[u8]) -> AppResult<()> 
     Ok(())
 }
 
-pub(crate) fn stage_append_to_collection_file(
-    path: &Path,
-    tmp: &Path,
-    rows: &[Value],
-) -> AppResult<bool> {
+pub(crate) fn can_append_to_collection_file(path: &Path) -> AppResult<bool> {
+    if !path.exists() || fs::metadata(path)?.len() == 0 {
+        return Ok(true);
+    }
     if looks_nul_filled(path) {
         return Ok(false);
     }
-
     let mut file = fs::File::open(path)?;
     let mut cursor = file.metadata()?.len();
     let mut byte = [0_u8; 1];
-    let mut found_non_whitespace = false;
     while cursor > 0 {
         cursor -= 1;
         file.seek(SeekFrom::Start(cursor))?;
         file.read_exact(&mut byte)?;
         if !byte[0].is_ascii_whitespace() {
-            found_non_whitespace = true;
-            break;
+            return Ok(byte[0] == b']');
         }
     }
-    if !found_non_whitespace || byte[0] != b']' {
+    Ok(false)
+}
+
+pub(crate) fn append_to_collection_file_in_place(path: &Path, rows: &[Value]) -> AppResult<bool> {
+    #[cfg(test)]
+    {
+        let mut hook = APPEND_APPLY_TEST_HOOK
+            .lock()
+            .map_err(|_| AppError::new("lock_error", "Append apply test hook lock poisoned"))?;
+        if let Some(hook) = hook.as_mut() {
+            hook(path)?;
+        }
+    }
+    if rows.is_empty() {
+        return Ok(true);
+    }
+    if !path.exists() || fs::metadata(path)?.len() == 0 {
+        fs::write(path, serde_json::to_vec_pretty(rows)?)?;
+        sync_file(path)?;
+        return Ok(true);
+    }
+    if looks_nul_filled(path) {
         return Ok(false);
     }
 
+    let mut file = fs::OpenOptions::new().read(true).write(true).open(path)?;
+    let mut cursor = file.metadata()?.len();
+    let mut byte = [0_u8; 1];
+    let mut found_close = false;
+    while cursor > 0 {
+        cursor -= 1;
+        file.seek(SeekFrom::Start(cursor))?;
+        file.read_exact(&mut byte)?;
+        if !byte[0].is_ascii_whitespace() {
+            found_close = byte[0] == b']';
+            break;
+        }
+    }
+    if !found_close {
+        return Ok(false);
+    }
     let mut before_close = cursor;
     let mut is_empty = false;
     let mut found_array_prefix = false;
@@ -123,9 +163,7 @@ pub(crate) fn stage_append_to_collection_file(
         return Ok(false);
     }
 
-    let mut source = fs::File::open(path)?;
-    let mut output = fs::File::create(tmp)?;
-    std::io::copy(&mut Read::by_ref(&mut source).take(cursor), &mut output)?;
+    file.seek(SeekFrom::Start(cursor))?;
     for (index, row) in rows.iter().enumerate() {
         let serialized = serde_json::to_string_pretty(row)?;
         let indented = serialized
@@ -134,13 +172,15 @@ pub(crate) fn stage_append_to_collection_file(
             .collect::<Vec<_>>()
             .join("\n");
         if is_empty && index == 0 {
-            output.write_all(format!("\n{indented}").as_bytes())?;
+            file.write_all(format!("\n{indented}").as_bytes())?;
         } else {
-            output.write_all(format!(",\n{indented}").as_bytes())?;
+            file.write_all(format!(",\n{indented}").as_bytes())?;
         }
     }
-    output.write_all(b"\n]\n")?;
-    output.sync_all()?;
+    file.write_all(b"\n]\n")?;
+    let end = file.stream_position()?;
+    file.set_len(end)?;
+    file.sync_all()?;
     Ok(true)
 }
 
