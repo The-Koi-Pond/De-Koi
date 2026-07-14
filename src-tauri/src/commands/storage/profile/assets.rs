@@ -20,8 +20,8 @@ const PROFILE_ASSET_DIRS: &[&str] = &[
     "knowledge-sources",
     "lorebooks/images",
 ];
-const MAX_PROFILE_ASSET_BYTES: u64 = 256 * 1024 * 1024;
-const PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
+pub(super) const MAX_PROFILE_ASSET_BYTES: u64 = 256 * 1024 * 1024;
+pub(super) const PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
 
 const OLD_ASSET_MARKERS: &[&str] = &[
     "/api/avatars/file/",
@@ -67,6 +67,12 @@ pub(super) struct LegacyProfileGalleryAsset {
     pub(super) asset_url: String,
     pub(super) absolute_path: String,
     pub(super) filename: String,
+}
+
+pub(super) struct ProfileExportAsset {
+    pub relative: PathBuf,
+    pub absolute: PathBuf,
+    pub bytes: u64,
 }
 
 enum ProfileAssetSource {
@@ -316,6 +322,65 @@ pub(super) fn profile_assets_manifest(state: &AppState) -> AppResult<Vec<Value>>
         collect_profile_assets(&state.data_dir, relative, &mut assets, false)?;
     }
     Ok(assets)
+}
+
+pub(super) fn visit_profile_export_assets(
+    state: &AppState,
+    mut visit: impl FnMut(ProfileExportAsset) -> AppResult<()>,
+) -> AppResult<usize> {
+    let mut count = 0;
+    let mut dirs = PROFILE_ASSET_DIRS.to_vec();
+    dirs.sort_unstable();
+    for dir in dirs {
+        visit_profile_export_asset_dir(&state.data_dir, Path::new(dir), &mut visit, &mut count)?;
+    }
+    Ok(count)
+}
+
+fn visit_profile_export_asset_dir(
+    root: &Path,
+    relative: &Path,
+    visit: &mut impl FnMut(ProfileExportAsset) -> AppResult<()>,
+    count: &mut usize,
+) -> AppResult<()> {
+    let dir = root.join(relative);
+    let dir_metadata = match fs::symlink_metadata(&dir) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if dir_metadata.file_type().is_symlink() || !dir_metadata.is_dir() {
+        return Ok(());
+    }
+
+    let mut entries = fs::read_dir(&dir)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if name.starts_with('.') {
+            continue;
+        }
+        let next_relative = relative.join(name);
+        if metadata.is_dir() {
+            visit_profile_export_asset_dir(root, &next_relative, visit, count)?;
+        } else if metadata.is_file() {
+            let safe_relative = safe_profile_asset_path(&profile_relative_path(&next_relative))?;
+            visit(ProfileExportAsset {
+                absolute: root.join(&safe_relative),
+                relative: safe_relative,
+                bytes: metadata.len(),
+            })?;
+            *count += 1;
+        }
+    }
+    Ok(())
 }
 
 fn collect_profile_assets(

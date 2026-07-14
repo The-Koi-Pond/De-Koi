@@ -2,6 +2,9 @@
 mod assets;
 #[path = "profile/legacy.rs"]
 mod legacy;
+#[path = "profile/v2/mod.rs"]
+#[allow(dead_code)]
+mod v2;
 #[path = "profile/zip_import.rs"]
 mod zip_import;
 
