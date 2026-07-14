@@ -11,6 +11,10 @@ export interface SetupLaunchRequest {
   usableConnectionIds: string[];
 }
 
+export interface SetupLaunchOptions {
+  skipStarredPreset?: boolean;
+}
+
 export interface ClaimedSetupLaunch {
   token: number;
   journeyId: string;
@@ -107,7 +111,7 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
     return claim;
   };
 
-  const launch = async (request: SetupLaunchRequest): Promise<TChat | null> => {
+  const launch = async (request: SetupLaunchRequest, options: SetupLaunchOptions = {}): Promise<TChat | null> => {
     if (unrecoverableFailure) throw unrecoverableFailure.error;
     if (activeFlight && request.intent && request.ready && !request.intent.dismissed && !request.intent.completed) {
       activeFlight.journeyIds.add(request.intent.journeyId);
@@ -198,7 +202,9 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
       let stable = false;
       for (let attempt = 0; attempt < 8; attempt += 1) {
         if (!hasReached(recoveryStage, "preset-applied")) {
-          await dependencies.applyStarredPreset({ mode: effectiveClaim.mode, chatId: chat.id });
+          if (!options.skipStarredPreset) {
+            await dependencies.applyStarredPreset({ mode: effectiveClaim.mode, chatId: chat.id });
+          }
           recoveryStage = "preset-applied";
           dependencies.recordRecovery?.({ createdChatId: chat.id, journeyId: effectiveClaim.journeyId, stage: recoveryStage });
           if (await stabilizeIdentity()) continue;

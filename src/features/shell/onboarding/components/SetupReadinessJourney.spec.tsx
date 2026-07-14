@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   markCompleted: vi.fn(),
   recordRecovery: vi.fn(),
   clearRecovery: vi.fn(),
+  applyPreset: vi.fn(),
+  recovery: { current: null as import("../../../../engine/onboarding").SetupJourneyRecovery | null },
   testedConnectionIds: { current: ["saved"] as string[] },
   runtimeUrl: { current: "https://runtime-a.test" },
   invalidateQueries: vi.fn(),
@@ -27,7 +29,7 @@ vi.mock("../../../catalog/chats", () => ({
   useCreateChat: () => ({ mutateAsync: mocks.mutateAsync }),
   useUpdateChat: () => ({ mutateAsync: mocks.updateAsync }),
 }));
-vi.mock("../../../catalog/chat-presets", () => ({ useApplyUserStarredChatPreset: () => vi.fn(async () => undefined) }));
+vi.mock("../../../catalog/chat-presets", () => ({ useApplyUserStarredChatPreset: () => mocks.applyPreset }));
 vi.mock("../../../../shared/api/remote-runtime", () => ({
   hasEmbeddedTauriRuntime: () => mocks.embedded.current,
   checkRemoteRuntimeHealth: (...args: unknown[]) => mocks.health(...args),
@@ -42,13 +44,19 @@ vi.mock("../../../../shared/api/storage-api", () => ({
 vi.mock("../../../../shared/stores/setup-journey.store", () => {
   const state = {
     get intent() { return mocks.intent.current; },
-    recovery: null,
+    get recovery() { return mocks.recovery.current; },
     get testedConnectionIds() { return mocks.testedConnectionIds.current; },
     savedWithoutTestConnectionIds: [],
     markConnection: mocks.markConnection,
     markCompleted: mocks.markCompleted,
-    recordRecovery: mocks.recordRecovery,
-    clearRecovery: mocks.clearRecovery,
+    recordRecovery: (recovery: import("../../../../engine/onboarding").SetupJourneyRecovery) => {
+      mocks.recovery.current = recovery;
+      mocks.recordRecovery(recovery);
+    },
+    clearRecovery: () => {
+      mocks.recovery.current = null;
+      mocks.clearRecovery();
+    },
   };
   const useSetupJourneyStore = (selector: (value: typeof state) => unknown) => selector(state);
   useSetupJourneyStore.getState = () => state;
@@ -72,6 +80,8 @@ describe("SetupReadinessJourney", () => {
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
     mocks.intent.current = { journeyId: "journey-1", mode: "conversation", originCharacterId: null, selectedConnectionId: null, dismissed: false, completed: false };
     mocks.embedded.current = false; mocks.mutateAsync.mockReset(); mocks.markCompleted.mockReset(); mocks.markConnection.mockReset();
+    mocks.applyPreset.mockReset().mockResolvedValue(undefined);
+    mocks.recovery.current = null;
     mocks.runtimeUrl.current = "https://runtime-a.test";
     mocks.testedConnectionIds.current = ["saved"];
   });
@@ -128,5 +138,23 @@ describe("SetupReadinessJourney", () => {
     const retry = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Retry")!;
     await act(async () => retry.click());
     expect(mocks.mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers an explicit default fallback after preset application fails", async () => {
+    mocks.embedded.current = true;
+    mocks.mutateAsync.mockResolvedValue({ id: "chat-1" });
+    mocks.applyPreset.mockRejectedValue(new Error("preset unavailable"));
+    await act(async () => root.render(<SetupReadinessJourney />));
+    const continueButton = Array.from(container.querySelectorAll("button")).find((item) => item.textContent?.includes("Continue to chat"))!;
+
+    await act(async () => continueButton.click());
+
+    expect(container.textContent).toContain("preset unavailable");
+    const useDefaults = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Continue with defaults")!;
+    expect(useDefaults).toBeTruthy();
+    await act(async () => useDefaults.click());
+    expect(mocks.mutateAsync).toHaveBeenCalledOnce();
+    expect(mocks.applyPreset).toHaveBeenCalledOnce();
+    expect(mocks.markCompleted).toHaveBeenCalledOnce();
   });
 });

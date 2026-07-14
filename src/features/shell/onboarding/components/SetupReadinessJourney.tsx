@@ -26,6 +26,7 @@ export function SetupReadinessJourney() {
   const [checkedHealth, setCheckedHealth] = useState<CheckedHealth | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const intent = useSetupJourneyStore((state) => state.intent);
+  const recovery = useSetupJourneyStore((state) => state.recovery);
   const testedConnectionIds = useSetupJourneyStore((state) => state.testedConnectionIds) ?? [];
   const savedWithoutTestConnectionIds = useSetupJourneyStore((state) => state.savedWithoutTestConnectionIds) ?? [];
   const createChat = useCreateChat();
@@ -152,7 +153,7 @@ export function SetupReadinessJourney() {
     useUIStore.getState().openRightPanel("settings");
   };
   const openConnections = () => useUIStore.getState().openRightPanel("connections");
-  const continueChat = () => {
+  const launchChat = (skipStarredPreset = false) => {
     if (!intent) return;
     if (!isSetupReady(facts)) return;
     const connection =
@@ -166,11 +167,12 @@ export function SetupReadinessJourney() {
         intent: selectedIntent,
         ready: true,
         usableConnectionIds: languageConnections.map((row) => row.id),
-      })
+      }, { skipStarredPreset })
       .catch((error) => {
         setLaunchError(error instanceof Error ? error.message : "Setup could not be completed.");
       });
   };
+  const continueChat = () => launchChat();
 
   if (!intent || intent.completed) return null;
 
@@ -181,7 +183,14 @@ export function SetupReadinessJourney() {
         <div role="alert" className="mb-3 rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-sm">
           <p className="font-medium">Couldn’t finish setup</p>
           <p className="text-[var(--muted-foreground)]">{launchError}</p>
-          <button type="button" className="mt-2 rounded-lg bg-[var(--primary)] px-3 py-1.5" onClick={continueChat}>Retry</button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" className="rounded-lg bg-[var(--primary)] px-3 py-1.5" onClick={continueChat}>Retry</button>
+            {recovery?.stage === "reconciled" && (
+              <button type="button" className="rounded-lg border border-[var(--border)] px-3 py-1.5" onClick={() => launchChat(true)}>
+                Continue with defaults
+              </button>
+            )}
+          </div>
         </div>
       )}
       <SetupReadinessChecklist
