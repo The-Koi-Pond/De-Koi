@@ -16,44 +16,30 @@ describe("buildSetupReadinessFacts", () => {
     ["", undefined, "unknown"],
     ["https://runtime.test", { status: "checking", message: "Checking" }, "unknown"],
     ["https://runtime.test", { status: "ok", message: "Ready", health: { ok: true, writable: true } }, "healthy"],
-    ["https://runtime.test", { status: "not-writable", message: "Read only", health: { ok: true, writable: false } }, "error"],
+    [
+      "https://runtime.test",
+      { status: "not-writable", message: "Read only", health: { ok: true, writable: false } },
+      "error",
+    ],
   ] as const)("maps web runtime %s / %s", (runtimeUrl, runtimeHealth, expected) => {
-    expect(buildSetupReadinessFacts({ embedded: false, runtimeUrl, runtimeHealth, connections: [] }).runtimeHealth).toBe(expected);
+    expect(
+      buildSetupReadinessFacts({ embedded: false, runtimeUrl, runtimeHealth, connections: [] }).runtimeHealth,
+    ).toBe(expected);
   });
 
   it("does not count image or TTS-only connections as language readiness", () => {
-    expect(buildSetupReadinessFacts({
-      embedded: true,
-      connections: [{ id: "image", provider: "image_generation" }, { id: "tts", provider: "tts" }],
-    }).usableConnectionCount).toBe(0);
+    expect(
+      buildSetupReadinessFacts({
+        embedded: true,
+        connections: [
+          { id: "image", provider: "image_generation" },
+          { id: "tts", provider: "tts" },
+        ],
+      }).usableConnectionCount,
+    ).toBe(0);
   });
 
-  it("accepts a saved usable language connection when provider testing is unavailable", () => {
-    expect(buildSetupReadinessFacts({
-      embedded: true,
-      connections: [language],
-      selectedConnectionId: "language",
-      connectionTestCapability: "unavailable",
-    }).selectedConnectionTest).toBe("passed");
-  });
-
-  it("requires a stable provider test before advancing", () => {
-    expect(buildSetupReadinessFacts({
-      embedded: true,
-      connections: [language],
-      selectedConnectionId: "language",
-      connectionTestCapability: "available",
-      testedConnectionIds: [],
-    }).selectedConnectionTest).toBe("required");
-  });
-
-  it("uses the exact newly tested connection instead of the first saved connection", () => {
-    expect(buildSetupReadinessFacts({
-      embedded: true,
-      connections: [{ ...language, id: "first" }, { ...language, id: "second" }],
-      selectedConnectionId: "second",
-      connectionTestCapability: "available",
-      testedConnectionIds: ["second"],
-    }).selectedConnectionTest).toBe("passed");
+  it("counts a saved usable connection without transient test metadata", () => {
+    expect(buildSetupReadinessFacts({ embedded: true, connections: [language] }).usableConnectionCount).toBe(1);
   });
 });

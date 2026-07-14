@@ -293,6 +293,12 @@ export function hasEmbeddedTauriRuntime(): boolean {
   return Boolean(runtimeWindow.__TAURI__ || runtimeWindow.__TAURI_INTERNALS__);
 }
 
+export function sameOriginRemoteRuntimeUrl(): string {
+  if (typeof window === "undefined" || hasEmbeddedTauriRuntime()) return "";
+  if (window.location.protocol !== "http:" && window.location.protocol !== "https:") return "";
+  return window.location.origin;
+}
+
 export function unconfiguredRemoteRuntimeHealth(): RemoteRuntimeHealthCheck {
   return hasEmbeddedTauriRuntime()
     ? { status: "unconfigured", message: "Embedded Tauri runtime in use." }
@@ -320,7 +326,8 @@ function normalizeRemoteRuntimeUrl(raw: string): RuntimeTarget | null {
 }
 
 export function remoteRuntimeTarget(): RuntimeTarget | null {
-  const raw = useUIStore.getState().remoteRuntimeUrl;
+  const configured = useUIStore.getState().remoteRuntimeUrl.trim();
+  const raw = configured || sameOriginRemoteRuntimeUrl();
   try {
     return normalizeRemoteRuntimeUrl(raw);
   } catch {
@@ -439,11 +446,15 @@ function isAbortError(error: unknown): boolean {
 function remoteNetworkError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
   const message = error instanceof Error ? error.message : String(error ?? "Unknown network error");
-  return new ApiError("Remote runtime is unreachable. Check Settings and make sure the runtime server is running.", 503, {
-    code: "remote_runtime_unreachable",
-    cause: error,
-    causeMessage: message,
-  });
+  return new ApiError(
+    "Remote runtime is unreachable. Check Settings and make sure the runtime server is running.",
+    503,
+    {
+      code: "remote_runtime_unreachable",
+      cause: error,
+      causeMessage: message,
+    },
+  );
 }
 
 export async function checkRemoteRuntimeHealth(
@@ -466,11 +477,14 @@ export async function checkRemoteRuntimeHealth(
   }
 
   try {
-    const response = await fetch(`${target.baseUrl}/health?probe=1`, remoteFetchInit({
-      method: "GET",
-      headers: remoteHeaders(target, { accept: "application/json" }),
-      signal: options.signal,
-    }));
+    const response = await fetch(
+      `${target.baseUrl}/health?probe=1`,
+      remoteFetchInit({
+        method: "GET",
+        headers: remoteHeaders(target, { accept: "application/json" }),
+        signal: options.signal,
+      }),
+    );
 
     if (!response.ok) {
       return { status: "unreachable", message: `Remote runtime returned ${response.status}.` };
@@ -489,18 +503,21 @@ export async function checkRemoteRuntimeHealth(
       };
     }
 
-    const invokeReady = await fetch(`${target.baseUrl}/api/invoke`, remoteFetchInit({
-      method: "POST",
-      headers: remoteHeaders(target, { "content-type": "application/json" }),
-      body: JSON.stringify({
-        command: "storage_list",
-        args: {
-          entity: "chats",
-          options: { fields: ["id"], limit: 1 },
-        },
+    const invokeReady = await fetch(
+      `${target.baseUrl}/api/invoke`,
+      remoteFetchInit({
+        method: "POST",
+        headers: remoteHeaders(target, { "content-type": "application/json" }),
+        body: JSON.stringify({
+          command: "storage_list",
+          args: {
+            entity: "chats",
+            options: { fields: ["id"], limit: 1 },
+          },
+        }),
+        signal: options.signal,
       }),
-      signal: options.signal,
-    }));
+    );
 
     if (!invokeReady.ok) {
       if (invokeReady.status === 429) {
@@ -602,11 +619,14 @@ export async function invokeRemote<T>(command: string, args?: Record<string, unk
   const body = JSON.stringify({ command, args: args ?? null });
   let response: Response;
   try {
-    response = await fetch(`${target.baseUrl}/api/invoke`, remoteFetchInit({
-      method: "POST",
-      headers: remoteInvokeHeaders(target, command, args),
-      body,
-    }));
+    response = await fetch(
+      `${target.baseUrl}/api/invoke`,
+      remoteFetchInit({
+        method: "POST",
+        headers: remoteInvokeHeaders(target, command, args),
+        body,
+      }),
+    );
   } catch (error) {
     if (isAbortError(error)) throw error;
     throw remoteNetworkError(error);
@@ -622,16 +642,19 @@ export async function* streamRemoteJsonEvents(
 ): AsyncGenerator<{ type: string; data: unknown }> {
   const target = remoteRuntimeTarget();
   if (!target) throw new ApiError("Remote runtime URL is not configured", 400);
-  const response = await fetch(`${target.baseUrl}${path}`, remoteFetchInit({
-    method: "POST",
-    headers: remoteHeaders(target, {
-      "content-type": "application/json",
-      accept: "text/event-stream",
-      ...(options.privileged ? adminSecretHeader() : {}),
+  const response = await fetch(
+    `${target.baseUrl}${path}`,
+    remoteFetchInit({
+      method: "POST",
+      headers: remoteHeaders(target, {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+        ...(options.privileged ? adminSecretHeader() : {}),
+      }),
+      body: JSON.stringify(body ?? null),
+      signal: options.signal,
     }),
-    body: JSON.stringify(body ?? null),
-    signal: options.signal,
-  }));
+  );
   if (!response.ok) throw await readRemoteError(response);
   if (!response.body) throw new ApiError("Remote runtime did not return an event stream", 500);
 
@@ -727,16 +750,19 @@ export async function* streamRemoteLlm(
   target: RuntimeTarget,
   signal?: AbortSignal,
 ): AsyncGenerator<LlmChunk> {
-  const response = await fetch(`${target.baseUrl}/api/llm/stream`, remoteFetchInit({
-    method: "POST",
-    headers: remoteHeaders(target, {
-      "content-type": "application/json",
-      accept: "text/event-stream",
-      ...(requestUsesLocalSidecar(request) ? adminSecretHeader() : {}),
+  const response = await fetch(
+    `${target.baseUrl}/api/llm/stream`,
+    remoteFetchInit({
+      method: "POST",
+      headers: remoteHeaders(target, {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+        ...(requestUsesLocalSidecar(request) ? adminSecretHeader() : {}),
+      }),
+      body: JSON.stringify({ streamId, request }),
+      signal,
     }),
-    body: JSON.stringify({ streamId, request }),
-    signal,
-  }));
+  );
   if (!response.ok) throw await readRemoteError(response);
   if (!response.body) throw new ApiError("Remote runtime did not return a stream", 500);
 
@@ -771,11 +797,14 @@ export async function cancelRemoteLlmStream(
     "remote",
     streamId,
     (async () => {
-      const response = await fetch(`${target.baseUrl}/api/llm/stream/${encodeURIComponent(streamId)}/cancel`, remoteFetchInit({
-        method: "POST",
-        headers: remoteHeaders(target),
-        ...(options.keepalive === undefined ? {} : { keepalive: options.keepalive }),
-      }));
+      const response = await fetch(
+        `${target.baseUrl}/api/llm/stream/${encodeURIComponent(streamId)}/cancel`,
+        remoteFetchInit({
+          method: "POST",
+          headers: remoteHeaders(target),
+          ...(options.keepalive === undefined ? {} : { keepalive: options.keepalive }),
+        }),
+      );
       if (!response.ok) throw await readRemoteError(response);
     })(),
   );
