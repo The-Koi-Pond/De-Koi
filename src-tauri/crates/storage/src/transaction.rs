@@ -7,6 +7,41 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(test)]
+pub(crate) type AppendApplyTestHook = Box<dyn FnMut(&Path) -> AppResult<()> + 'static>;
+
+#[cfg(test)]
+std::thread_local! {
+    pub(crate) static APPEND_APPLY_TEST_HOOK: std::cell::RefCell<Option<AppendApplyTestHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static APPEND_PRIMARY_BYTES_WRITTEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_append_primary_bytes_written() {
+    APPEND_PRIMARY_BYTES_WRITTEN.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn append_primary_bytes_written() -> u64 {
+    APPEND_PRIMARY_BYTES_WRITTEN.get()
+}
+
+fn write_append_bytes(file: &mut fs::File, bytes: &[u8]) -> AppResult<()> {
+    #[cfg(test)]
+    APPEND_PRIMARY_BYTES_WRITTEN.set(
+        APPEND_PRIMARY_BYTES_WRITTEN
+            .get()
+            .saturating_add(bytes.len() as u64),
+    );
+    file.write_all(bytes)?;
+    Ok(())
+}
+
 pub(crate) fn parse_collection_rows(collection: &str, raw: &str) -> AppResult<Vec<Value>> {
     let parsed: Value = serde_json::from_str(raw)?;
     match parsed {
@@ -79,32 +114,111 @@ pub(crate) fn write_file_atomically(path: &Path, bytes: &[u8]) -> AppResult<()> 
     Ok(())
 }
 
-pub(crate) fn stage_append_to_collection_file(
-    path: &Path,
-    tmp: &Path,
-    rows: &[Value],
-) -> AppResult<bool> {
+pub(crate) fn can_append_to_collection_file(path: &Path) -> AppResult<bool> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(true),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.file_type().is_file() {
+        return Ok(false);
+    }
+    if metadata.len() == 0 {
+        return Ok(true);
+    }
     if looks_nul_filled(path) {
         return Ok(false);
     }
-
     let mut file = fs::File::open(path)?;
-    let mut cursor = file.metadata()?.len();
     let mut byte = [0_u8; 1];
-    let mut found_non_whitespace = false;
+    let mut prefix = 0;
+    let mut found_open = false;
+    while prefix < metadata.len() {
+        file.seek(SeekFrom::Start(prefix))?;
+        file.read_exact(&mut byte)?;
+        prefix += 1;
+        if !byte[0].is_ascii_whitespace() {
+            found_open = byte[0] == b'[';
+            break;
+        }
+    }
+    if !found_open {
+        return Ok(false);
+    }
+    let mut cursor = file.metadata()?.len();
     while cursor > 0 {
         cursor -= 1;
         file.seek(SeekFrom::Start(cursor))?;
         file.read_exact(&mut byte)?;
         if !byte[0].is_ascii_whitespace() {
-            found_non_whitespace = true;
-            break;
+            return Ok(byte[0] == b']');
         }
     }
-    if !found_non_whitespace || byte[0] != b']' {
+    Ok(false)
+}
+
+pub(crate) fn append_to_collection_file_in_place(path: &Path, rows: &[Value]) -> AppResult<bool> {
+    #[cfg(test)]
+    APPEND_APPLY_TEST_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
+            hook(path)?;
+        }
+        Ok::<(), AppError>(())
+    })?;
+    if rows.is_empty() {
+        return Ok(true);
+    }
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            fs::write(path, serde_json::to_vec_pretty(rows)?)?;
+            sync_file(path)?;
+            return Ok(true);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.file_type().is_file() {
+        return Ok(false);
+    }
+    if metadata.len() == 0 {
+        fs::write(path, serde_json::to_vec_pretty(rows)?)?;
+        sync_file(path)?;
+        return Ok(true);
+    }
+    if looks_nul_filled(path) {
         return Ok(false);
     }
 
+    let mut file = fs::OpenOptions::new().read(true).write(true).open(path)?;
+    let mut byte = [0_u8; 1];
+    let mut prefix = 0;
+    let mut found_open = false;
+    while prefix < file.metadata()?.len() {
+        file.seek(SeekFrom::Start(prefix))?;
+        file.read_exact(&mut byte)?;
+        prefix += 1;
+        if !byte[0].is_ascii_whitespace() {
+            found_open = byte[0] == b'[';
+            break;
+        }
+    }
+    if !found_open {
+        return Ok(false);
+    }
+    let mut cursor = file.metadata()?.len();
+    let mut found_close = false;
+    while cursor > 0 {
+        cursor -= 1;
+        file.seek(SeekFrom::Start(cursor))?;
+        file.read_exact(&mut byte)?;
+        if !byte[0].is_ascii_whitespace() {
+            found_close = byte[0] == b']';
+            break;
+        }
+    }
+    if !found_close {
+        return Ok(false);
+    }
     let mut before_close = cursor;
     let mut is_empty = false;
     let mut found_array_prefix = false;
@@ -123,9 +237,7 @@ pub(crate) fn stage_append_to_collection_file(
         return Ok(false);
     }
 
-    let mut source = fs::File::open(path)?;
-    let mut output = fs::File::create(tmp)?;
-    std::io::copy(&mut Read::by_ref(&mut source).take(cursor), &mut output)?;
+    file.seek(SeekFrom::Start(cursor))?;
     for (index, row) in rows.iter().enumerate() {
         let serialized = serde_json::to_string_pretty(row)?;
         let indented = serialized
@@ -134,13 +246,15 @@ pub(crate) fn stage_append_to_collection_file(
             .collect::<Vec<_>>()
             .join("\n");
         if is_empty && index == 0 {
-            output.write_all(format!("\n{indented}").as_bytes())?;
+            write_append_bytes(&mut file, format!("\n{indented}").as_bytes())?;
         } else {
-            output.write_all(format!(",\n{indented}").as_bytes())?;
+            write_append_bytes(&mut file, format!(",\n{indented}").as_bytes())?;
         }
     }
-    output.write_all(b"\n]\n")?;
-    output.sync_all()?;
+    write_append_bytes(&mut file, b"\n]\n")?;
+    let end = file.stream_position()?;
+    file.set_len(end)?;
+    file.sync_all()?;
     Ok(true)
 }
 
