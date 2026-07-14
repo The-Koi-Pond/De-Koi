@@ -13,4 +13,3 @@ Make paired message/swipe creation perform bounded foreground I/O while retainin
 5. Integrate startup replay before ordinary collection-journal recovery and checkpoint pending appends before superseding replacement paths.
 6. Run formatting, focused storage tests, architecture and Rust checks, then the full shipping gate.
 7. Run Bunny review, address actionable findings, publish a draft PR, wait for clean checks, mark ready, and merge to `main`.
-

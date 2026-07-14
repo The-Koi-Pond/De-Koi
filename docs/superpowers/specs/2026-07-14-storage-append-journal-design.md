@@ -1,6 +1,6 @@
 # Storage Append Journal Design
 
-Issue: #1018  
+Issue: #1018
 Owner: `src-tauri/crates/storage` Rust capability
 
 ## Problem
@@ -37,4 +37,3 @@ The synchronized journal entry is the commit point. Before De-Koi makes storage 
 - Recovery tests interrupt after the journal commit and after only one collection append, then prove startup restores the complete pair.
 - Existing transaction, journal, message/swipe, corruption, and concurrency tests remain green.
 - Run the Rust storage tests, `cargo check --manifest-path src-tauri/Cargo.toml`, `pnpm check:architecture`, and the full `pnpm check` shipping gate.
-
