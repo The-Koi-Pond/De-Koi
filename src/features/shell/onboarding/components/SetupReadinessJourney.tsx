@@ -16,7 +16,11 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { SetupReadinessChecklist } from "./SetupReadinessChecklist";
 import { buildSetupReadinessFacts } from "../lib/setup-readiness";
 import { isSetupReady } from "../../../../engine/onboarding";
-import { createSetupChatLaunchOrchestrator, type SetupLaunchRequest } from "../../../modes/router/shell";
+import {
+  createSetupChatLaunchOrchestrator,
+  SetupPresetApplicationError,
+  type SetupLaunchRequest,
+} from "../../../modes/router/shell";
 
 type Health = RemoteRuntimeHealthCheck | { status: "checking"; message: string };
 type CheckedHealth = { checkedUrl: string; result: Health };
@@ -24,9 +28,8 @@ type CheckedHealth = { checkedUrl: string; result: Health };
 export function SetupReadinessJourney() {
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
   const [checkedHealth, setCheckedHealth] = useState<CheckedHealth | null>(null);
-  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchError, setLaunchError] = useState<{ message: string; canContinueWithDefaults: boolean } | null>(null);
   const intent = useSetupJourneyStore((state) => state.intent);
-  const recovery = useSetupJourneyStore((state) => state.recovery);
   const testedConnectionIds = useSetupJourneyStore((state) => state.testedConnectionIds) ?? [];
   const savedWithoutTestConnectionIds = useSetupJourneyStore((state) => state.savedWithoutTestConnectionIds) ?? [];
   const createChat = useCreateChat();
@@ -169,7 +172,10 @@ export function SetupReadinessJourney() {
         usableConnectionIds: languageConnections.map((row) => row.id),
       }, { skipStarredPreset })
       .catch((error) => {
-        setLaunchError(error instanceof Error ? error.message : "Setup could not be completed.");
+        setLaunchError({
+          message: error instanceof Error ? error.message : "Setup could not be completed.",
+          canContinueWithDefaults: error instanceof SetupPresetApplicationError,
+        });
       });
   };
   const continueChat = () => launchChat();
@@ -182,10 +188,10 @@ export function SetupReadinessJourney() {
       {launchError && (
         <div role="alert" className="mb-3 rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-sm">
           <p className="font-medium">Couldn’t finish setup</p>
-          <p className="text-[var(--muted-foreground)]">{launchError}</p>
+          <p className="text-[var(--muted-foreground)]">{launchError.message}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button type="button" className="rounded-lg bg-[var(--primary)] px-3 py-1.5" onClick={continueChat}>Retry</button>
-            {recovery?.stage === "reconciled" && (
+            {launchError.canContinueWithDefaults && (
               <button type="button" className="rounded-lg border border-[var(--border)] px-3 py-1.5" onClick={() => launchChat(true)}>
                 Continue with defaults
               </button>

@@ -135,6 +135,7 @@ describe("SetupReadinessJourney", () => {
     const continueButton = Array.from(container.querySelectorAll("button")).find((item) => item.textContent?.includes("Continue to chat"))!;
     await act(async () => continueButton.click());
     expect(container.textContent).toContain("Couldn’t finish setup");
+    expect(container.textContent).not.toContain("Continue with defaults");
     const retry = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Retry")!;
     await act(async () => retry.click());
     expect(mocks.mutateAsync).toHaveBeenCalledTimes(2);
@@ -150,6 +151,13 @@ describe("SetupReadinessJourney", () => {
     await act(async () => continueButton.click());
 
     expect(container.textContent).toContain("preset unavailable");
+    mocks.recovery.current = {
+      createdChatId: "chat-1",
+      journeyId: "journey-1",
+      stage: "created",
+    };
+    mocks.updateAsync.mockResolvedValue({ id: "chat-1" });
+    act(() => root.render(<SetupReadinessJourney />));
     const useDefaults = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Continue with defaults")!;
     expect(useDefaults).toBeTruthy();
     await act(async () => useDefaults.click());
