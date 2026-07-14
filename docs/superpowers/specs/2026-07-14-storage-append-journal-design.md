@@ -18,12 +18,15 @@ Keep the canonical JSON collections and their existing read paths, but add a sto
 3. The journal remains as recovery evidence until a checkpoint refreshes the collection backups. A checkpoint is maintenance work, not part of normal message creation.
 4. Startup replays journal entries idempotently. A valid primary is the preferred base; an unreadable primary is recovered from its checkpoint backup. The journal is removed only after every affected primary and backup is durable.
 5. Non-append replacement paths checkpoint pending appends before superseding the affected collections, preserving mutation order.
+6. The fast path is limited to the `messages` and `message-swipes` lifecycle owners. Unsupported collections and non-regular or non-array-shaped files decline the fast path before a journal commit.
 
 The first use on an existing data directory may need to establish a trustworthy checkpoint backup. That is a one-time migration cost and must not recur for every created message.
 
 ## Crash-safety invariant
 
 The synchronized journal entry is the commit point. Before De-Koi makes storage available after an interruption, replay must produce both the message and its initial swipe, or fail closed while retaining the recovery evidence. Replay is idempotent by record ID, so an interruption during replay can be retried safely.
+
+If bounded application fails and synchronous replay also fails, the live storage handle rejects later reads and writes until restart. Recovery uses the checkpoint backup when an interrupted repair leaves a primary missing, and it synchronizes recovered primary and backup directory entries before clearing the journal.
 
 ## Rejected approaches
 

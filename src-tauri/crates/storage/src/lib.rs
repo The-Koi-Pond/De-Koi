@@ -1110,6 +1110,7 @@ impl FileStorage {
                 .lock
                 .read()
                 .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+            self.write_gate.ensure_available()?;
             read_only()
         };
 
@@ -2312,14 +2313,16 @@ impl FileStorage {
 
     fn write_collection_file(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
         let path = self.collection_path(collection)?;
+        let collections_dir = self.root.join("collections");
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
+        if append_journal::checkpoint_tracks(collection) {
+            append_journal::recover(&collections_dir)?;
+            append_journal::invalidate_checkpoint(&collections_dir)?;
+        }
         refresh_collection_backup(&path)?;
         write_file_atomically(&path, &serde_json::to_vec_pretty(rows)?)?;
-        if append_journal::checkpoint_tracks(collection) {
-            append_journal::invalidate_checkpoint(&self.root.join("collections"))?;
-        }
         Ok(())
     }
 
@@ -2327,6 +2330,11 @@ impl FileStorage {
         let path = self.collection_path(collection)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
+        }
+        if append_journal::checkpoint_tracks(collection) {
+            let collections_dir = self.root.join("collections");
+            append_journal::recover(&collections_dir)?;
+            append_journal::invalidate_checkpoint(&collections_dir)?;
         }
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             self.write_collection_immediate(collection, std::slice::from_ref(record))?;
@@ -2397,6 +2405,12 @@ impl FileStorage {
     }
 
     fn append_many_uncached_locked(&self, appends: Vec<(&str, Vec<Value>)>) -> AppResult<bool> {
+        if appends
+            .iter()
+            .any(|(collection, _)| !append_journal::checkpoint_tracks(collection))
+        {
+            return Ok(false);
+        }
         let mut seen_paths = HashSet::new();
         for (collection, _) in &appends {
             let path = self.collection_path(collection)?;
@@ -2434,7 +2448,10 @@ impl FileStorage {
                 "[storage] committed collection append required synchronous recovery: {}",
                 error.message
             );
-            append_journal::recover(&collections_dir)?;
+            if let Err(recovery_error) = append_journal::recover(&collections_dir) {
+                self.write_gate.mark_recovery_required()?;
+                return Err(recovery_error);
+            }
             self.append_cached_collection_rows(&appends)?;
             return Ok(true);
         }
@@ -2449,6 +2466,12 @@ impl FileStorage {
         path: &Path,
         error: AppError,
     ) -> AppResult<Vec<Value>> {
+        if append_journal::checkpoint_tracks(collection) {
+            append_journal::recover(&self.root.join("collections"))?;
+            if let Ok(rows) = parse_collection_file(collection, path) {
+                return Ok(rows);
+            }
+        }
         let backup = backup_path_for(path)?;
         if backup.exists() {
             match parse_collection_file(collection, &backup) {
@@ -2518,6 +2541,13 @@ impl FileStorage {
         F: FnOnce() -> AppResult<()>,
     {
         self.flush_dirty_collections_locked()?;
+        let collections_dir = self.root.join("collections");
+        if replacements
+            .iter()
+            .any(|(collection, _)| append_journal::checkpoint_tracks(collection))
+        {
+            append_journal::invalidate_checkpoint(&collections_dir)?;
+        }
         let transaction_id = storage_transaction_id();
         let mut pending = Vec::new();
         let mut seen_paths = HashSet::new();
@@ -2566,7 +2596,6 @@ impl FileStorage {
             return Err(error);
         }
 
-        let collections_dir = self.root.join("collections");
         let manifest_path = match write_prepared_collection_transaction_manifest(
             &collections_dir,
             &transaction_id,
@@ -2626,12 +2655,6 @@ impl FileStorage {
             );
         } else {
             remove_collection_transaction_manifest(&manifest_path)?;
-        }
-        if replacements
-            .iter()
-            .any(|(collection, _)| append_journal::checkpoint_tracks(collection))
-        {
-            append_journal::invalidate_checkpoint(&collections_dir)?;
         }
         for (collection, rows) in replacements {
             if collection == "chats" {
@@ -2734,6 +2757,20 @@ mod tests {
     fn write_test_collection(path: &Path, rows: Vec<Value>) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn file_identity(path: &Path) -> u128 {
+        use std::os::unix::fs::MetadataExt;
+
+        fs::metadata(path).unwrap().ino() as u128
+    }
+
+    #[cfg(windows)]
+    fn file_identity(path: &Path) -> u128 {
+        use std::os::windows::fs::MetadataExt;
+
+        fs::metadata(path).unwrap().creation_time() as u128
     }
 
     fn write_test_transaction_manifest(
@@ -3584,7 +3621,6 @@ mod tests {
     #[test]
     fn repeated_uncached_appends_reuse_checkpoint_and_write_only_bounded_journal_data() {
         let root = temp_storage_root("append-many-bounded-journal");
-        let storage = FileStorage::new(&root).unwrap();
         let collections = root.join("collections");
         let historical_messages = (0..1_024)
             .map(|index| {
@@ -3606,6 +3642,12 @@ mod tests {
             .collect::<Vec<_>>();
         write_test_collection(&collections.join("messages.json"), historical_messages);
         write_test_collection(&collections.join("message-swipes.json"), historical_swipes);
+        let storage = FileStorage::new(&root).unwrap();
+        let messages = collections.join("messages.json");
+        let swipes = collections.join("message-swipes.json");
+        let message_identity = file_identity(&messages);
+        let swipe_identity = file_identity(&swipes);
+        reset_append_primary_bytes_written();
 
         storage
             .append_many_uncached(vec![
@@ -3633,12 +3675,92 @@ mod tests {
 
         assert_eq!(fs::read(message_backup).unwrap(), message_checkpoint);
         assert_eq!(fs::read(swipe_backup).unwrap(), swipe_checkpoint);
+        assert_eq!(file_identity(&messages), message_identity);
+        assert_eq!(file_identity(&swipes), swipe_identity);
+        assert!(
+            append_primary_bytes_written() < 16 * 1024,
+            "two tiny appends should not rewrite historical primary bytes"
+        );
         let journal = collections.join(".collection-append-journal.jsonl");
         let journal_bytes = fs::metadata(journal).unwrap().len();
         assert!(
             journal_bytes < 16 * 1024,
             "two tiny appends should not journal historical collection bytes"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn append_many_uncached_rejects_non_array_outer_shape_before_journaling() {
+        let root = temp_storage_root("append-rejects-non-array");
+        let storage = FileStorage::new(&root).unwrap();
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let malformed = br#"{"not":"an array"}]"#;
+        fs::write(&messages, malformed).unwrap();
+        write_test_collection(&collections.join("message-swipes.json"), Vec::new());
+
+        let appended = storage
+            .append_many_uncached(vec![
+                ("messages", vec![json!({ "id": "message-1" })]),
+                (
+                    "message-swipes",
+                    vec![json!({ "id": "message-1::swipe::0", "messageId": "message-1" })],
+                ),
+            ])
+            .unwrap();
+
+        assert!(!appended);
+        assert_eq!(fs::read(messages).unwrap(), malformed);
+        assert!(!collections.join(".collection-append-journal.jsonl").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn append_many_uncached_declines_collections_without_checkpoint_lifecycle_support() {
+        let root = temp_storage_root("append-declines-untracked-collection");
+        let storage = FileStorage::new(&root).unwrap();
+        let collections = root.join("collections");
+
+        let appended = storage
+            .append_many_uncached(vec![(
+                "characters",
+                vec![json!({ "id": "character-1" })],
+            )])
+            .unwrap();
+
+        assert!(!appended);
+        assert!(!collections.join("characters.json").exists());
+        assert!(!collections.join(".collection-append-journal.jsonl").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_many_uncached_rejects_symlink_collection_before_journaling() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_storage_root("append-rejects-symlink");
+        let storage = FileStorage::new(&root).unwrap();
+        let collections = root.join("collections");
+        let target = root.join("outside-messages.json");
+        write_test_collection(&target, vec![json!({ "id": "outside" })]);
+        symlink(&target, collections.join("messages.json")).unwrap();
+        write_test_collection(&collections.join("message-swipes.json"), Vec::new());
+
+        let appended = storage
+            .append_many_uncached(vec![
+                ("messages", vec![json!({ "id": "message-1" })]),
+                (
+                    "message-swipes",
+                    vec![json!({ "id": "message-1::swipe::0", "messageId": "message-1" })],
+                ),
+            ])
+            .unwrap();
+
+        assert!(!appended);
+        assert_eq!(parse_collection_file("messages", &target).unwrap().len(), 1);
+        assert!(!collections.join(".collection-append-journal.jsonl").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3766,6 +3888,55 @@ mod tests {
     }
 
     #[test]
+    fn startup_replays_duplicate_append_transactions_in_order() {
+        let root = temp_storage_root("duplicate-append-replay");
+        let collections = root.join("collections");
+        write_test_collection(
+            &collections.join("messages.json"),
+            vec![json!({ "id": "message-1", "content": "baseline" })],
+        );
+        let storage = FileStorage::new(&root).unwrap();
+        drop(storage);
+        append_journal::append_transaction(
+            &collections,
+            &[("messages", vec![json!({ "id": "message-2", "content": "first" })])],
+        )
+        .unwrap();
+        append_journal::append_transaction(
+            &collections,
+            &[("messages", vec![json!({ "id": "message-2", "content": "retry" })])],
+        )
+        .unwrap();
+
+        let recovered = FileStorage::new(&root).unwrap();
+
+        assert_eq!(recovered.get("messages", "message-2").unwrap().unwrap()["content"], "retry");
+        assert_eq!(recovered.list("messages").unwrap().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_uses_checkpoint_when_append_primary_is_missing() {
+        let root = temp_storage_root("missing-append-primary");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        write_test_collection(&messages, vec![json!({ "id": "message-1" })]);
+        let storage = FileStorage::new(&root).unwrap();
+        drop(storage);
+        append_journal::append_transaction(
+            &collections,
+            &[("messages", vec![json!({ "id": "message-2" })])],
+        )
+        .unwrap();
+        fs::remove_file(&messages).unwrap();
+
+        let recovered = FileStorage::new(&root).unwrap();
+
+        assert_eq!(recovered.list("messages").unwrap().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn committed_append_recovers_synchronously_when_second_collection_apply_fails() {
         let root = temp_storage_root("atomic-append-apply-failure");
         let collections = root.join("collections");
@@ -3780,14 +3951,14 @@ mod tests {
         let storage = FileStorage::new(&root).unwrap();
         assert_eq!(storage.list("messages").unwrap().len(), 1);
         assert_eq!(storage.list("message-swipes").unwrap().len(), 1);
-        *APPEND_APPLY_TEST_HOOK.lock().unwrap() = Some(Box::new(|path| {
+        APPEND_APPLY_TEST_HOOK.with(|hook| *hook.borrow_mut() = Some(Box::new(|path| {
             if path.file_name().and_then(|name| name.to_str()) == Some("message-swipes.json") {
                 return Err(AppError::io(std::io::Error::other(
                     "injected second collection append failure",
                 )));
             }
             Ok(())
-        }));
+        })));
 
         let result = storage.append_many_uncached(vec![
             ("messages", vec![json!({ "id": "message-2" })]),
@@ -3796,11 +3967,77 @@ mod tests {
                 vec![json!({ "id": "message-2::swipe::0", "messageId": "message-2" })],
             ),
         ]);
-        *APPEND_APPLY_TEST_HOOK.lock().unwrap() = None;
+        APPEND_APPLY_TEST_HOOK.with(|hook| *hook.borrow_mut() = None);
 
         assert!(result.unwrap());
         assert_eq!(storage.list("messages").unwrap().len(), 2);
         assert_eq!(storage.list("message-swipes").unwrap().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_synchronous_append_recovery_blocks_reads_and_writes_until_restart() {
+        let root = temp_storage_root("atomic-append-recovery-failure");
+        let collections = root.join("collections");
+        write_test_collection(&collections.join("messages.json"), vec![json!({ "id": "message-1" })]);
+        write_test_collection(
+            &collections.join("message-swipes.json"),
+            vec![json!({ "id": "message-1::swipe::0", "messageId": "message-1" })],
+        );
+        let storage = FileStorage::new(&root).unwrap();
+        APPEND_APPLY_TEST_HOOK.with(|hook| *hook.borrow_mut() = Some(Box::new(|path| {
+            if path.file_name().and_then(|name| name.to_str()) == Some("message-swipes.json") {
+                return Err(AppError::io(std::io::Error::other("injected append failure")));
+            }
+            Ok(())
+        })));
+        append_journal::APPEND_RECOVERY_TEST_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(|| {
+                Err(AppError::io(std::io::Error::other("injected recovery failure")))
+            }))
+        });
+
+        let result = storage.append_many_uncached(vec![
+            ("messages", vec![json!({ "id": "message-2" })]),
+            (
+                "message-swipes",
+                vec![json!({ "id": "message-2::swipe::0", "messageId": "message-2" })],
+            ),
+        ]);
+        APPEND_APPLY_TEST_HOOK.with(|hook| *hook.borrow_mut() = None);
+        append_journal::APPEND_RECOVERY_TEST_HOOK.with(|hook| *hook.borrow_mut() = None);
+
+        assert!(result.is_err());
+        assert_eq!(storage.list("messages").unwrap_err().code, "storage_append_journal_recovery_required");
+        assert_eq!(
+            storage.replace_all("characters", vec![json!({ "id": "blocked" })]).unwrap_err().code,
+            "storage_append_journal_recovery_required"
+        );
+        drop(storage);
+
+        let recovered = FileStorage::new(&root).unwrap();
+        assert_eq!(recovered.list("messages").unwrap().len(), 2);
+        assert_eq!(recovered.list("message-swipes").unwrap().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn replacement_checkpoints_pending_appends_before_installing_new_rows() {
+        let root = temp_storage_root("replace-with-pending-append");
+        let collections = root.join("collections");
+        write_test_collection(&collections.join("messages.json"), vec![json!({ "id": "baseline" })]);
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .append_many_uncached(vec![("messages", vec![json!({ "id": "appended" })])])
+            .unwrap();
+
+        storage
+            .replace_all("messages", vec![json!({ "id": "replacement" })])
+            .unwrap();
+        drop(storage);
+        let restarted = FileStorage::new(&root).unwrap();
+
+        assert_eq!(restarted.list("messages").unwrap(), vec![json!({ "id": "replacement" })]);
         fs::remove_dir_all(root).unwrap();
     }
 

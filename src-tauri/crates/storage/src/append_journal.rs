@@ -8,13 +8,22 @@ use std::path::{Path, PathBuf};
 
 use crate::journal::{apply_collection_mutation, CollectionMutation};
 use crate::transaction::{
-    backup_path_for, parse_collection_file, preserve_corrupt_file, refresh_collection_backup, sync_directory,
-    write_file_atomically,
+    backup_path_for, parse_collection_file, preserve_corrupt_file, refresh_collection_backup,
+    sync_directory, write_file_atomically,
 };
 use crate::validate_collection_name;
 
 const APPEND_JOURNAL_VERSION: u8 = 1;
 const APPEND_JOURNAL_FILE: &str = ".collection-append-journal.jsonl";
+
+#[cfg(test)]
+pub(crate) type AppendRecoveryTestHook = Box<dyn FnMut() -> AppResult<()> + 'static>;
+
+#[cfg(test)]
+std::thread_local! {
+    pub(crate) static APPEND_RECOVERY_TEST_HOOK: std::cell::RefCell<Option<AppendRecoveryTestHook>> =
+        const { std::cell::RefCell::new(None) };
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct AppendJournalCollection {
@@ -74,7 +83,11 @@ fn validate_appends(appends: &[AppendJournalCollection]) -> AppResult<()> {
     Ok(())
 }
 
-fn initialize_checkpoint(collections_dir: &Path, journal: &Path, appends: &[AppendJournalCollection]) -> AppResult<()> {
+fn initialize_checkpoint(
+    collections_dir: &Path,
+    journal: &Path,
+    appends: &[AppendJournalCollection],
+) -> AppResult<()> {
     if journal.exists() {
         return Ok(());
     }
@@ -82,7 +95,10 @@ fn initialize_checkpoint(collections_dir: &Path, journal: &Path, appends: &[Appe
         let primary = collections_dir.join(format!("{}.json", append.collection));
         refresh_collection_backup(&primary)?;
     }
-    let file = fs::OpenOptions::new().create_new(true).write(true).open(journal)?;
+    let file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(journal)?;
     file.sync_all()?;
     sync_directory(collections_dir)
 }
@@ -103,12 +119,18 @@ pub(crate) fn prepare_known_checkpoint(collections_dir: &Path) -> AppResult<()> 
     for primary in primaries {
         refresh_collection_backup(&primary)?;
     }
-    let file = fs::OpenOptions::new().create_new(true).write(true).open(&journal)?;
+    let file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&journal)?;
     file.sync_all()?;
     sync_directory(collections_dir)
 }
 
-pub(crate) fn append_transaction(collections_dir: &Path, appends: &[(&str, Vec<Value>)]) -> AppResult<()> {
+pub(crate) fn append_transaction(
+    collections_dir: &Path,
+    appends: &[(&str, Vec<Value>)],
+) -> AppResult<()> {
     let appends = appends
         .iter()
         .map(|(collection, rows)| AppendJournalCollection {
@@ -126,7 +148,10 @@ pub(crate) fn append_transaction(collections_dir: &Path, appends: &[(&str, Vec<V
     };
     let mut bytes = serde_json::to_vec(&entry)?;
     bytes.push(b'\n');
-    let mut file = fs::OpenOptions::new().append(true).read(true).open(&journal)?;
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .read(true)
+        .open(&journal)?;
     file.write_all(&bytes)?;
     file.sync_all()?;
     Ok(())
@@ -140,12 +165,17 @@ fn read_entries(journal: &Path) -> AppResult<Vec<AppendJournalEntry>> {
         if line.trim().is_empty() {
             continue;
         }
-        let entry: AppendJournalEntry = serde_json::from_str(line)
-            .map_err(|error| recovery_error(journal, format!("entry {} is invalid: {error}", index + 1)))?;
+        let entry: AppendJournalEntry = serde_json::from_str(line).map_err(|error| {
+            recovery_error(journal, format!("entry {} is invalid: {error}", index + 1))
+        })?;
         if entry.version != APPEND_JOURNAL_VERSION {
             return Err(recovery_error(
                 journal,
-                format!("entry {} has unsupported version {}", index + 1, entry.version),
+                format!(
+                    "entry {} has unsupported version {}",
+                    index + 1,
+                    entry.version
+                ),
             ));
         }
         validate_appends(&entry.appends).map_err(|error| {
@@ -162,7 +192,19 @@ fn read_entries(journal: &Path) -> AppResult<Vec<AppendJournalEntry>> {
 fn base_rows(collections_dir: &Path, collection: &str, journal: &Path) -> AppResult<Vec<Value>> {
     let primary = collections_dir.join(format!("{collection}.json"));
     if !primary.exists() {
-        return Ok(Vec::new());
+        let backup = backup_path_for(&primary)?;
+        if !backup.exists() {
+            return Ok(Vec::new());
+        }
+        return parse_collection_file(collection, &backup).map_err(|backup_error| {
+            recovery_error(
+                journal,
+                format!(
+                    "{collection} primary is missing and checkpoint backup is unreadable: {}",
+                    backup_error.message
+                ),
+            )
+        });
     }
     match parse_collection_file(collection, &primary) {
         Ok(rows) => Ok(rows),
@@ -193,25 +235,33 @@ pub(crate) fn recover(collections_dir: &Path) -> AppResult<()> {
         return Ok(());
     }
 
-    let mut mutations: HashMap<String, Vec<Value>> = HashMap::new();
+    #[cfg(test)]
+    APPEND_RECOVERY_TEST_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
+            hook()?;
+        }
+        Ok::<(), AppError>(())
+    })?;
+
+    let mut mutations: HashMap<String, Vec<Vec<Value>>> = HashMap::new();
     let mut order = Vec::new();
     for entry in entries {
         for append in entry.appends {
             if !mutations.contains_key(&append.collection) {
                 order.push(append.collection.clone());
             }
-            mutations.entry(append.collection).or_default().extend(append.rows);
+            mutations
+                .entry(append.collection)
+                .or_default()
+                .push(append.rows);
         }
     }
 
     for collection in &order {
         let mut rows = base_rows(collections_dir, collection, &journal)?;
-        apply_collection_mutation(
-            &mut rows,
-            &CollectionMutation::UpsertMany {
-                records: mutations.remove(collection).unwrap_or_default(),
-            },
-        )?;
+        for records in mutations.remove(collection).unwrap_or_default() {
+            apply_collection_mutation(&mut rows, &CollectionMutation::UpsertMany { records })?;
+        }
         let primary = collections_dir.join(format!("{collection}.json"));
         write_file_atomically(&primary, &serde_json::to_vec_pretty(&rows)?)?;
     }
@@ -219,7 +269,11 @@ pub(crate) fn recover(collections_dir: &Path) -> AppResult<()> {
     for collection in &order {
         refresh_collection_backup(&collections_dir.join(format!("{collection}.json")))?;
     }
-    let file = fs::OpenOptions::new().write(true).truncate(true).open(&journal)?;
+    sync_directory(collections_dir)?;
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&journal)?;
     file.sync_all()?;
     Ok(())
 }

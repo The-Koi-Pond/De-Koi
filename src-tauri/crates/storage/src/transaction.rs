@@ -8,11 +8,39 @@ use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
-pub(crate) type AppendApplyTestHook = Box<dyn FnMut(&Path) -> AppResult<()> + Send + 'static>;
+pub(crate) type AppendApplyTestHook = Box<dyn FnMut(&Path) -> AppResult<()> + 'static>;
 
 #[cfg(test)]
-pub(crate) static APPEND_APPLY_TEST_HOOK: std::sync::Mutex<Option<AppendApplyTestHook>> =
-    std::sync::Mutex::new(None);
+std::thread_local! {
+    pub(crate) static APPEND_APPLY_TEST_HOOK: std::cell::RefCell<Option<AppendApplyTestHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static APPEND_PRIMARY_BYTES_WRITTEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_append_primary_bytes_written() {
+    APPEND_PRIMARY_BYTES_WRITTEN.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn append_primary_bytes_written() -> u64 {
+    APPEND_PRIMARY_BYTES_WRITTEN.get()
+}
+
+fn write_append_bytes(file: &mut fs::File, bytes: &[u8]) -> AppResult<()> {
+    #[cfg(test)]
+    APPEND_PRIMARY_BYTES_WRITTEN.set(
+        APPEND_PRIMARY_BYTES_WRITTEN
+            .get()
+            .saturating_add(bytes.len() as u64),
+    );
+    file.write_all(bytes)?;
+    Ok(())
+}
 
 pub(crate) fn parse_collection_rows(collection: &str, raw: &str) -> AppResult<Vec<Value>> {
     let parsed: Value = serde_json::from_str(raw)?;
@@ -87,15 +115,37 @@ pub(crate) fn write_file_atomically(path: &Path, bytes: &[u8]) -> AppResult<()> 
 }
 
 pub(crate) fn can_append_to_collection_file(path: &Path) -> AppResult<bool> {
-    if !path.exists() || fs::metadata(path)?.len() == 0 {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(true),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.file_type().is_file() {
+        return Ok(false);
+    }
+    if metadata.len() == 0 {
         return Ok(true);
     }
     if looks_nul_filled(path) {
         return Ok(false);
     }
     let mut file = fs::File::open(path)?;
-    let mut cursor = file.metadata()?.len();
     let mut byte = [0_u8; 1];
+    let mut prefix = 0;
+    let mut found_open = false;
+    while prefix < metadata.len() {
+        file.seek(SeekFrom::Start(prefix))?;
+        file.read_exact(&mut byte)?;
+        prefix += 1;
+        if !byte[0].is_ascii_whitespace() {
+            found_open = byte[0] == b'[';
+            break;
+        }
+    }
+    if !found_open {
+        return Ok(false);
+    }
+    let mut cursor = file.metadata()?.len();
     while cursor > 0 {
         cursor -= 1;
         file.seek(SeekFrom::Start(cursor))?;
@@ -109,18 +159,28 @@ pub(crate) fn can_append_to_collection_file(path: &Path) -> AppResult<bool> {
 
 pub(crate) fn append_to_collection_file_in_place(path: &Path, rows: &[Value]) -> AppResult<bool> {
     #[cfg(test)]
-    {
-        let mut hook = APPEND_APPLY_TEST_HOOK
-            .lock()
-            .map_err(|_| AppError::new("lock_error", "Append apply test hook lock poisoned"))?;
-        if let Some(hook) = hook.as_mut() {
+    APPEND_APPLY_TEST_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
             hook(path)?;
         }
-    }
+        Ok::<(), AppError>(())
+    })?;
     if rows.is_empty() {
         return Ok(true);
     }
-    if !path.exists() || fs::metadata(path)?.len() == 0 {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            fs::write(path, serde_json::to_vec_pretty(rows)?)?;
+            sync_file(path)?;
+            return Ok(true);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.file_type().is_file() {
+        return Ok(false);
+    }
+    if metadata.len() == 0 {
         fs::write(path, serde_json::to_vec_pretty(rows)?)?;
         sync_file(path)?;
         return Ok(true);
@@ -130,8 +190,22 @@ pub(crate) fn append_to_collection_file_in_place(path: &Path, rows: &[Value]) ->
     }
 
     let mut file = fs::OpenOptions::new().read(true).write(true).open(path)?;
-    let mut cursor = file.metadata()?.len();
     let mut byte = [0_u8; 1];
+    let mut prefix = 0;
+    let mut found_open = false;
+    while prefix < file.metadata()?.len() {
+        file.seek(SeekFrom::Start(prefix))?;
+        file.read_exact(&mut byte)?;
+        prefix += 1;
+        if !byte[0].is_ascii_whitespace() {
+            found_open = byte[0] == b'[';
+            break;
+        }
+    }
+    if !found_open {
+        return Ok(false);
+    }
+    let mut cursor = file.metadata()?.len();
     let mut found_close = false;
     while cursor > 0 {
         cursor -= 1;
@@ -172,12 +246,12 @@ pub(crate) fn append_to_collection_file_in_place(path: &Path, rows: &[Value]) ->
             .collect::<Vec<_>>()
             .join("\n");
         if is_empty && index == 0 {
-            file.write_all(format!("\n{indented}").as_bytes())?;
+            write_append_bytes(&mut file, format!("\n{indented}").as_bytes())?;
         } else {
-            file.write_all(format!(",\n{indented}").as_bytes())?;
+            write_append_bytes(&mut file, format!(",\n{indented}").as_bytes())?;
         }
     }
-    file.write_all(b"\n]\n")?;
+    write_append_bytes(&mut file, b"\n]\n")?;
     let end = file.stream_position()?;
     file.set_len(end)?;
     file.sync_all()?;

@@ -12,6 +12,7 @@ pub(crate) struct WriteGate {
 struct WriteGateState {
     atomic_owner: Option<ThreadId>,
     active_writes: usize,
+    recovery_required: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -26,6 +27,13 @@ pub(crate) struct WritePermit {
 }
 
 impl WriteGate {
+    fn recovery_required_error() -> AppError {
+        AppError::new(
+            "storage_append_journal_recovery_required",
+            "Collection append recovery failed; restart De-Koi after preserving the storage files for recovery",
+        )
+    }
+
     fn state(&self) -> AppResult<MutexGuard<'_, WriteGateState>> {
         self.state
             .lock()
@@ -36,6 +44,9 @@ impl WriteGate {
         let current = thread::current().id();
         let mut state = self.state()?;
         loop {
+            if state.recovery_required {
+                return Err(Self::recovery_required_error());
+            }
             match state.atomic_owner {
                 Some(owner) if owner == current => {
                     return Err(AppError::new(
@@ -44,6 +55,12 @@ impl WriteGate {
                     ));
                 }
                 Some(_) => {
+                    state = self
+                        .changed
+                        .wait(state)
+                        .map_err(|_| AppError::new("lock_error", "Storage write gate poisoned"))?;
+                }
+                None if state.active_writes > 0 => {
                     state = self
                         .changed
                         .wait(state)
@@ -63,6 +80,9 @@ impl WriteGate {
     pub(crate) fn begin_atomic_update(self: &Arc<Self>) -> AppResult<WritePermit> {
         let current = thread::current().id();
         let mut state = self.state()?;
+        if state.recovery_required {
+            return Err(Self::recovery_required_error());
+        }
         if state.atomic_owner == Some(current) {
             return Err(AppError::new(
                 "storage_transaction_active",
@@ -74,6 +94,9 @@ impl WriteGate {
                 .changed
                 .wait(state)
                 .map_err(|_| AppError::new("lock_error", "Storage write gate poisoned"))?;
+            if state.recovery_required {
+                return Err(Self::recovery_required_error());
+            }
         }
         state.atomic_owner = Some(current);
         drop(state);
@@ -85,6 +108,20 @@ impl WriteGate {
 
     pub(crate) fn atomic_update_active(&self) -> AppResult<bool> {
         Ok(self.state()?.atomic_owner.is_some())
+    }
+
+    pub(crate) fn ensure_available(&self) -> AppResult<()> {
+        if self.state()?.recovery_required {
+            return Err(Self::recovery_required_error());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn mark_recovery_required(&self) -> AppResult<()> {
+        let mut state = self.state()?;
+        state.recovery_required = true;
+        self.changed.notify_all();
+        Ok(())
     }
 }
 
@@ -104,5 +141,40 @@ impl Drop for WritePermit {
             }
         }
         self.gate.changed.notify_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn queued_writer_observes_recovery_poison_before_receiving_a_permit() {
+        let gate = Arc::new(WriteGate::default());
+        let active = gate.begin_write().unwrap();
+        let waiting_gate = Arc::clone(&gate);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let result = waiting_gate
+                .begin_write()
+                .map(drop)
+                .map_err(|error| error.code);
+            result_tx.send(result).unwrap();
+        });
+        started_rx.recv().unwrap();
+
+        assert!(result_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        gate.mark_recovery_required().unwrap();
+        drop(active);
+
+        assert_eq!(
+            result_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Err("storage_append_journal_recovery_required".to_string())
+        );
+        waiter.join().unwrap();
     }
 }
