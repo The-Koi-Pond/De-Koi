@@ -28,6 +28,8 @@ The synchronized journal entry is the commit point. Before De-Koi makes storage 
 
 If bounded application fails and synchronous replay also fails, the live storage handle rejects later reads and writes until restart. Recovery uses the checkpoint backup when an interrupted repair leaves a primary missing, and it synchronizes recovered primary and backup directory entries before clearing the journal.
 
+The journal file is also the checkpoint marker. Its first creation follows synchronized backup refreshes; while it contains pending entries, those pre-journal backups are preserved rather than refreshed from a possibly partial primary. A missing or empty required backup fails closed before another append, and startup never returns a storage handle after append-journal recovery failure.
+
 ## Rejected approaches
 
 - Removing synchronization or backups would reduce latency by weakening acknowledged-write durability.

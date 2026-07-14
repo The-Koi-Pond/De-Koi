@@ -122,17 +122,21 @@ impl FileStorage {
         let root = root.into();
         let collections = root.join("collections");
         fs::create_dir_all(&collections)?;
-        recover_pending_collection_transactions(&collections)?;
-        append_journal::recover(&collections)?;
-        recover_collection_journals(&collections)?;
-        append_journal::prepare_known_checkpoint(&collections)?;
-        Ok(Self {
+        let storage = Self {
             root,
             lock: Arc::new(RwLock::new(())),
             cache: Arc::new(RwLock::new(StorageCache::default())),
             flush_scheduled: Arc::new(AtomicBool::new(false)),
             write_gate: Arc::new(WriteGate::default()),
-        })
+        };
+        recover_pending_collection_transactions(&collections)?;
+        if let Err(error) = append_journal::recover(&collections) {
+            storage.write_gate.mark_recovery_required()?;
+            return Err(error);
+        }
+        recover_collection_journals(&collections)?;
+        append_journal::prepare_known_checkpoint(&collections)?;
+        Ok(storage)
     }
 
     pub fn root(&self) -> &Path {
@@ -2425,7 +2429,12 @@ impl FileStorage {
         }
 
         let collections_dir = self.root.join("collections");
-        append_journal::append_transaction(&collections_dir, &appends)?;
+        if let Err(error) = append_journal::append_transaction(&collections_dir, &appends) {
+            if error.code != "invalid_input" {
+                self.write_gate.mark_recovery_required()?;
+            }
+            return Err(error);
+        }
         let mut apply_error = None;
         for (collection, rows) in &appends {
             let path = self.collection_path(collection)?;
@@ -3575,21 +3584,16 @@ mod tests {
     #[test]
     fn append_many_uncached_appends_multiple_collections() {
         let root = temp_storage_root("append-many-uncached");
-        let storage = FileStorage::new(&root).unwrap();
         let collections = root.join("collections");
-        fs::write(
-            collections.join("messages.json"),
-            serde_json::to_vec_pretty(&json!([{ "id": "message-1" }])).unwrap(),
-        )
-        .unwrap();
-        fs::write(
-            collections.join("message-swipes.json"),
-            serde_json::to_vec_pretty(&json!([
-                { "id": "message-1::swipe::0", "messageId": "message-1" }
-            ]))
-            .unwrap(),
-        )
-        .unwrap();
+        write_test_collection(
+            &collections.join("messages.json"),
+            vec![json!({ "id": "message-1" })],
+        );
+        write_test_collection(
+            &collections.join("message-swipes.json"),
+            vec![json!({ "id": "message-1::swipe::0", "messageId": "message-1" })],
+        );
+        let storage = FileStorage::new(&root).unwrap();
 
         let appended = storage
             .append_many_uncached(vec![
@@ -3615,6 +3619,33 @@ mod tests {
             2
         );
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn consecutive_uncached_appends_from_empty_storage_reuse_empty_checkpoint() {
+        let root = temp_storage_root("consecutive-appends-empty-storage");
+        let storage = FileStorage::new(&root).unwrap();
+
+        for index in 1..=2 {
+            assert!(
+                storage
+                    .append_many_uncached(vec![
+                        ("messages", vec![json!({ "id": format!("message-{index}") })]),
+                        (
+                            "message-swipes",
+                            vec![json!({
+                                "id": format!("message-{index}::swipe::0"),
+                                "messageId": format!("message-{index}"),
+                            })],
+                        ),
+                    ])
+                    .unwrap()
+            );
+        }
+
+        assert_eq!(storage.list("messages").unwrap().len(), 2);
+        assert_eq!(storage.list("message-swipes").unwrap().len(), 2);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3712,7 +3743,12 @@ mod tests {
 
         assert!(!appended);
         assert_eq!(fs::read(messages).unwrap(), malformed);
-        assert!(!collections.join(".collection-append-journal.jsonl").exists());
+        assert_eq!(
+            fs::metadata(collections.join(".collection-append-journal.jsonl"))
+                .unwrap()
+                .len(),
+            0
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3731,7 +3767,12 @@ mod tests {
 
         assert!(!appended);
         assert!(!collections.join("characters.json").exists());
-        assert!(!collections.join(".collection-append-journal.jsonl").exists());
+        assert_eq!(
+            fs::metadata(collections.join(".collection-append-journal.jsonl"))
+                .unwrap()
+                .len(),
+            0
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3760,7 +3801,12 @@ mod tests {
 
         assert!(!appended);
         assert_eq!(parse_collection_file("messages", &target).unwrap().len(), 1);
-        assert!(!collections.join(".collection-append-journal.jsonl").exists());
+        assert_eq!(
+            fs::metadata(collections.join(".collection-append-journal.jsonl"))
+                .unwrap()
+                .len(),
+            0
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3933,6 +3979,114 @@ mod tests {
         let recovered = FileStorage::new(&root).unwrap();
 
         assert_eq!(recovered.list("messages").unwrap().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pending_checkpoint_with_missing_tracked_backup_fails_closed_before_new_append() {
+        let root = temp_storage_root("pending-checkpoint-missing-backup");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let swipes = collections.join("message-swipes.json");
+        let backup = collections.join("message-swipes.json.bak");
+        write_test_collection(&messages, vec![json!({ "id": "message-1" })]);
+        write_test_collection(
+            &swipes,
+            vec![json!({ "id": "message-1::swipe::0", "messageId": "message-1" })],
+        );
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .append_many_uncached(vec![
+                ("messages", vec![json!({ "id": "message-2" })]),
+                (
+                    "message-swipes",
+                    vec![json!({ "id": "message-2::swipe::0", "messageId": "message-2" })],
+                ),
+            ])
+            .unwrap();
+        fs::remove_file(&backup).unwrap();
+
+        let error = storage
+            .append_many_uncached(vec![("messages", vec![json!({ "id": "message-3" })])])
+            .unwrap_err();
+
+        assert_eq!(error.code, "storage_append_journal_recovery_required");
+        assert!(!backup.exists());
+        assert_eq!(
+            storage.list("messages").unwrap_err().code,
+            "storage_append_journal_recovery_required"
+        );
+        drop(storage);
+
+        let recovered = FileStorage::new(&root).unwrap();
+        assert_eq!(recovered.list("messages").unwrap().len(), 2);
+        assert!(backup.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pending_checkpoint_with_empty_backup_fails_closed_without_losing_history() {
+        let root = temp_storage_root("pending-checkpoint-empty-backup");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let backup = collections.join("messages.json.bak");
+        write_test_collection(&messages, vec![json!({ "id": "message-1" })]);
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .append_many_uncached(vec![("messages", vec![json!({ "id": "message-2" })])])
+            .unwrap();
+        fs::write(&backup, b"").unwrap();
+
+        let error = storage
+            .append_many_uncached(vec![("message-swipes", vec![json!({
+                "id": "message-3::swipe::0",
+                "messageId": "message-3",
+            })])])
+            .unwrap_err();
+
+        assert_eq!(error.code, "storage_append_journal_recovery_required");
+        assert_eq!(fs::metadata(&backup).unwrap().len(), 0);
+        fs::write(&messages, b"{ damaged primary").unwrap();
+        drop(storage);
+
+        let restart_error = FileStorage::new(&root)
+            .err()
+            .expect("startup should reject an empty pending checkpoint backup");
+        assert_eq!(restart_error.code, "storage_append_journal_recovery_required");
+        assert_eq!(fs::metadata(&backup).unwrap().len(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_recovery_failure_preserves_append_checkpoint_evidence() {
+        let root = temp_storage_root("preserve-failed-append-recovery-evidence");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let backup = collections.join("messages.json.bak");
+        let journal = collections.join(".collection-append-journal.jsonl");
+        write_test_collection(&messages, vec![json!({ "id": "checkpoint-message" })]);
+        let storage = FileStorage::new(&root).unwrap();
+        drop(storage);
+        append_journal::append_transaction(
+            &collections,
+            &[("messages", vec![json!({ "id": "pending-message" })])],
+        )
+        .unwrap();
+        let evidence = fs::read(&backup).unwrap();
+        append_journal::APPEND_RECOVERY_TEST_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(|| {
+                Err(AppError::io(std::io::Error::other(
+                    "injected startup recovery failure",
+                )))
+            }))
+        });
+
+        let result = FileStorage::new(&root);
+        append_journal::APPEND_RECOVERY_TEST_HOOK.with(|hook| *hook.borrow_mut() = None);
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&backup).unwrap(), evidence);
+        assert!(fs::metadata(journal).unwrap().len() > 0);
         fs::remove_dir_all(root).unwrap();
     }
 
