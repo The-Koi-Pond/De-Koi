@@ -53,14 +53,18 @@ describe("SettingsPanel", () => {
   });
 
   it("shows full tab labels and updates the page introduction on selection", () => {
-    const appearance = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((tab) => tab.textContent?.includes("Appearance"))!;
+    const appearance = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((tab) =>
+      tab.textContent?.includes("Appearance"),
+    )!;
     act(() => appearance.click());
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(container.querySelector("h2")?.textContent).toBe("Appearance");
   });
 
   it("exposes privacy and data controls as a first-class settings surface", () => {
-    const privacy = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((tab) => tab.textContent?.includes("Privacy & Data"))!;
+    const privacy = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((tab) =>
+      tab.textContent?.includes("Privacy & Data"),
+    )!;
     act(() => privacy.click());
     expect(useUIStore.getState().settingsTab).toBe("privacy");
     expect(container.textContent).toContain("Privacy surface");
@@ -68,7 +72,10 @@ describe("SettingsPanel", () => {
 
   it("keeps arrow-key tab navigation and focus behavior", async () => {
     const tabs = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-    act(() => { tabs[0]!.focus(); tabs[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); });
+    act(() => {
+      tabs[0]!.focus();
+      tabs[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
     await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(document.activeElement?.id).toBe("settings-tab-appearance");
@@ -81,10 +88,12 @@ describe("SettingsPanel", () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "notification");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    const result = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Notification sounds"))!;
+    const result = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+      button.textContent?.includes("Notification sounds"),
+    )!;
     act(() => result.click());
     expect(useUIStore.getState().settingsTab).toBe("appearance");
-    expect(container.querySelector('#settings-destination-notification-sounds')).toBeTruthy();
+    expect(container.querySelector("#settings-destination-notification-sounds")).toBeTruthy();
     expect(useUIStore.getState().pendingSettingsDestination).toBe("notification-sounds");
     act(() => vi.advanceTimersByTime(2_000));
     expect(useUIStore.getState().pendingSettingsDestination).toBeNull();
@@ -95,14 +104,33 @@ describe("SettingsPanel", () => {
     useSetupJourneyStore.getState().begin("conversation");
     function RuntimeOwnerHarness() {
       const open = useUIStore((state) => state.rightPanelOpen && state.rightPanel === "settings");
-      return <><SetupReadinessChecklist facts={{ environment: "web", runtimeUrl: null, runtimeHealth: "unknown", usableConnectionCount: 0, selectedConnectionTest: "not-selected" }} onConfigureRuntime={() => { useUIStore.getState().setSettingsTab("advanced"); useUIStore.getState().openRightPanel("settings"); }} />{open && <SettingsPanel />}</>;
+      return (
+        <>
+          <SetupReadinessChecklist
+            facts={{ environment: "web", runtimeUrl: null, runtimeHealth: "unknown", usableConnectionCount: 0 }}
+            onConfigureRuntime={() => {
+              useUIStore.getState().setSettingsTab("advanced");
+              useUIStore.getState().openRightPanel("settings");
+            }}
+          />
+          {open && <SettingsPanel />}
+        </>
+      );
     }
     act(() => root.render(<RuntimeOwnerHarness />));
-    act(() => Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Configure server"))!.click());
+    act(() =>
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Configure server"))!
+        .click(),
+    );
     expect(useUIStore.getState().settingsTab).toBe("advanced");
     expect(container.textContent).toContain("Advanced surface");
     expect(container.querySelector('[data-setup-focus="runtime"]')).toBeTruthy();
-    act(() => Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Return to setup"))!.click());
+    act(() =>
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Return to setup"))!
+        .click(),
+    );
     await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     expect(document.activeElement?.id).toBe("setup-step-runtime");
   });

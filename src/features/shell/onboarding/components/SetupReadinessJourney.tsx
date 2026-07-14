@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { chatKeys, useCreateChat, useUpdateChat } from "../../../catalog/chats";
 import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets";
@@ -30,8 +30,6 @@ export function SetupReadinessJourney() {
   const [checkedHealth, setCheckedHealth] = useState<CheckedHealth | null>(null);
   const [launchError, setLaunchError] = useState<{ message: string; canContinueWithDefaults: boolean } | null>(null);
   const intent = useSetupJourneyStore((state) => state.intent);
-  const testedConnectionIds = useSetupJourneyStore((state) => state.testedConnectionIds) ?? [];
-  const savedWithoutTestConnectionIds = useSetupJourneyStore((state) => state.savedWithoutTestConnectionIds) ?? [];
   const createChat = useCreateChat();
   const updateChat = useUpdateChat();
   const queryClient = useQueryClient();
@@ -137,18 +135,20 @@ export function SetupReadinessJourney() {
       ),
     [connections],
   );
-  const facts = buildSetupReadinessFacts({
-    embedded,
-    runtimeUrl: remoteRuntimeUrl,
-    runtimeHealth: health,
-    connections: languageConnections,
-    selectedConnectionId: intent?.selectedConnectionId,
-    connectionTestCapability: savedWithoutTestConnectionIds.includes(intent?.selectedConnectionId ?? "") ? "unavailable" : "available",
-    testedConnectionIds,
-  });
+  const facts = useMemo(
+    () =>
+      buildSetupReadinessFacts({
+        embedded,
+        runtimeUrl: remoteRuntimeUrl,
+        runtimeHealth: health,
+        connections: languageConnections,
+      }),
+    [embedded, health, languageConnections, remoteRuntimeUrl],
+  );
+  const setupReady = isSetupReady(facts);
   currentLaunchRequestRef.current = {
     intent,
-    ready: isSetupReady(facts),
+    ready: setupReady,
     usableConnectionIds: languageConnections.map((row) => row.id),
   };
   const openSettings = () => {
@@ -156,61 +156,79 @@ export function SetupReadinessJourney() {
     useUIStore.getState().openRightPanel("settings");
   };
   const openConnections = () => useUIStore.getState().openRightPanel("connections");
-  const launchChat = (skipStarredPreset = false) => {
-    if (!intent) return;
-    if (!isSetupReady(facts)) return;
-    const connection =
-      languageConnections.find((row) => row.id === intent?.selectedConnectionId) ?? languageConnections[0];
-    if (!connection) return;
-    useSetupJourneyStore.getState().markConnection(connection.id);
-    const selectedIntent = { ...intent, selectedConnectionId: connection.id };
-    setLaunchError(null);
-    void launchOrchestratorRef.current
-      ?.launch({
-        intent: selectedIntent,
-        ready: true,
-        usableConnectionIds: languageConnections.map((row) => row.id),
-      }, { skipStarredPreset })
-      .catch((error) => {
-        setLaunchError({
-          message: error instanceof Error ? error.message : "Setup could not be completed.",
-          canContinueWithDefaults: error instanceof SetupPresetApplicationError,
+  const launchChat = useCallback(
+    (skipStarredPreset = false) => {
+      if (!intent) return;
+      if (!setupReady) return;
+      const connection =
+        languageConnections.find((row) => row.id === intent?.selectedConnectionId) ?? languageConnections[0];
+      if (!connection) return;
+      useSetupJourneyStore.getState().markConnection(connection.id);
+      const selectedIntent = { ...intent, selectedConnectionId: connection.id };
+      setLaunchError(null);
+      void launchOrchestratorRef.current
+        ?.launch(
+          {
+            intent: selectedIntent,
+            ready: true,
+            usableConnectionIds: languageConnections.map((row) => row.id),
+          },
+          { skipStarredPreset },
+        )
+        .catch((error) => {
+          setLaunchError({
+            message: error instanceof Error ? error.message : "Setup could not be completed.",
+            canContinueWithDefaults: error instanceof SetupPresetApplicationError,
+          });
         });
-      });
-  };
+    },
+    [intent, languageConnections, setupReady],
+  );
   const continueChat = () => launchChat();
+
+  useEffect(() => {
+    if (!intent || !setupReady) return;
+    launchChat();
+  }, [intent, launchChat, setupReady]);
 
   if (!intent || intent.completed) return null;
 
   return (
     <div className="flex w-full justify-center" role="region" aria-label="Setup required">
       <div className="w-full">
-      {launchError && (
-        <div role="alert" className="mb-3 rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-sm">
-          <p className="font-medium">Couldn’t finish setup</p>
-          <p className="text-[var(--muted-foreground)]">{launchError.message}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" className="rounded-lg bg-[var(--primary)] px-3 py-1.5" onClick={continueChat}>Retry</button>
-            {launchError.canContinueWithDefaults && (
-              <button type="button" className="rounded-lg border border-[var(--border)] px-3 py-1.5" onClick={() => launchChat(true)}>
-                Continue with defaults
+        {launchError && (
+          <div role="alert" className="mb-3 rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-sm">
+            <p className="font-medium">Couldn’t finish setup</p>
+            <p className="text-[var(--muted-foreground)]">{launchError.message}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className="rounded-lg bg-[var(--primary)] px-3 py-1.5" onClick={continueChat}>
+                Retry
               </button>
-            )}
+              {launchError.canContinueWithDefaults && (
+                <button
+                  type="button"
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5"
+                  onClick={() => launchChat(true)}
+                >
+                  Continue with defaults
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
-      <SetupReadinessChecklist
-        facts={facts}
-        dismissed={intent?.dismissed}
-        completed={intent?.completed}
-        onDismiss={() => useSetupJourneyStore.getState().dismiss()}
-        onResume={() => useSetupJourneyStore.getState().resume()}
-        onConfigureRuntime={openSettings}
-        onRepairRuntime={openSettings}
-        onCreateConnection={openConnections}
-        onTestConnection={openConnections}
-        onContinueChat={continueChat}
-      />
+        )}
+        {!setupReady && (
+          <SetupReadinessChecklist
+            facts={facts}
+            dismissed={intent.dismissed}
+            completed={intent.completed}
+            onDismiss={() => useSetupJourneyStore.getState().dismiss()}
+            onResume={() => useSetupJourneyStore.getState().resume()}
+            onConfigureRuntime={openSettings}
+            onRepairRuntime={openSettings}
+            onCreateConnection={openConnections}
+            onContinueChat={continueChat}
+          />
+        )}
       </div>
     </div>
   );

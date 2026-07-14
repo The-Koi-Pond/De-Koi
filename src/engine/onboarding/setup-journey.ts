@@ -35,7 +35,6 @@ export interface SetupReadinessFacts {
   runtimeUrl: string | null;
   runtimeHealth: "not-required" | "unknown" | "healthy" | "error";
   usableConnectionCount: number;
-  selectedConnectionTest: "not-selected" | "required" | "passed";
 }
 
 export function isSetupReady(facts: SetupReadinessFacts): boolean {

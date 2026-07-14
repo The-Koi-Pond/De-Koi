@@ -20,7 +20,6 @@ const webFacts = (overrides: Partial<SetupReadinessFacts> = {}): SetupReadinessF
   runtimeUrl: "https://runtime.example",
   runtimeHealth: "healthy",
   usableConnectionCount: 1,
-  selectedConnectionTest: "passed",
   ...overrides,
 });
 
@@ -29,7 +28,6 @@ const desktopFacts = (overrides: Partial<SetupReadinessFacts> = {}): SetupReadin
   runtimeUrl: null,
   runtimeHealth: "not-required",
   usableConnectionCount: 1,
-  selectedConnectionTest: "passed",
   ...overrides,
 });
 
@@ -57,7 +55,7 @@ describe("setup journey model", () => {
   });
 
   it("treats a saved usable connection as launch-ready without a session test marker", () => {
-    const facts = desktopFacts({ selectedConnectionTest: "required" });
+    const facts = desktopFacts();
 
     expect(isSetupReady(facts)).toBe(true);
     expect(deriveSetupJourneyAction(facts, intent("conversation"))).toBe("configure-chat");

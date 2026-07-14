@@ -15,9 +15,6 @@ export interface BuildSetupReadinessInput {
   runtimeUrl?: string | null;
   runtimeHealth?: RuntimeHealthView | null;
   connections?: readonly SetupConnectionFact[] | null;
-  selectedConnectionId?: string | null;
-  connectionTestCapability?: "available" | "unavailable";
-  testedConnectionIds?: readonly string[];
 }
 
 function isUsableLanguageConnection(connection: SetupConnectionFact): boolean {
@@ -27,20 +24,17 @@ function isUsableLanguageConnection(connection: SetupConnectionFact): boolean {
 
 export function buildSetupReadinessFacts(input: BuildSetupReadinessInput): SetupReadinessFacts {
   const usableConnections = filterLanguageGenerationConnections(input.connections).filter(isUsableLanguageConnection);
-  const selected = input.selectedConnectionId
-    ? usableConnections.find((connection) => connection.id === input.selectedConnectionId)
-    : usableConnections[0];
-  const testPassed = !!selected && (
-    input.connectionTestCapability !== "available" || input.testedConnectionIds?.includes(selected.id) === true
-  );
 
   let runtimeHealth: SetupReadinessFacts["runtimeHealth"] = "not-required";
   if (!input.embedded) {
-    runtimeHealth = input.runtimeHealth?.status === "ok" && input.runtimeHealth.health.writable !== false
-      ? "healthy"
-      : input.runtimeHealth && input.runtimeHealth.status !== "checking" && input.runtimeHealth.status !== "unconfigured"
-        ? "error"
-        : "unknown";
+    runtimeHealth =
+      input.runtimeHealth?.status === "ok" && input.runtimeHealth.health.writable !== false
+        ? "healthy"
+        : input.runtimeHealth &&
+            input.runtimeHealth.status !== "checking" &&
+            input.runtimeHealth.status !== "unconfigured"
+          ? "error"
+          : "unknown";
   }
 
   return {
@@ -48,6 +42,5 @@ export function buildSetupReadinessFacts(input: BuildSetupReadinessInput): Setup
     runtimeUrl: input.runtimeUrl?.trim() || null,
     runtimeHealth,
     usableConnectionCount: usableConnections.length,
-    selectedConnectionTest: selected ? (testPassed ? "passed" : "required") : "not-selected",
   };
 }
