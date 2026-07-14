@@ -596,7 +596,18 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
     setGenerationParameters(gmParameterDefaults);
   }, [gmParameterDefaults]);
 
-  const canStart = !!gmConnectionId;
+  const hasUsableImageConnection =
+    !!imageConnectionId && imageConnections.some((connection) => connection.id === imageConnectionId);
+  const setupBlockingReasons = [
+    !gmConnectionId ? 'Select a GM model on the "You & Model" step.' : null,
+    gmMode === "character" && !gmCharacterId
+      ? "Select a GM character on the Party & GM step or choose Standalone GM."
+      : null,
+    enableSpriteGeneration && !hasUsableImageConnection
+      ? "Select an image generation connection on the You & Model step or turn Image Generation off."
+      : null,
+  ].filter((reason): reason is string => reason !== null);
+  const canStart = setupBlockingReasons.length === 0;
   const normalizedLanguage = normalizeGameLanguage(language);
 
   useEffect(() => {
@@ -1728,11 +1739,18 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
         )}
       </div>
 
-      {/* Warning when model not selected */}
-      {step === steps.length - 1 && !canStart && (
-        <p className="mb-3 text-[0.6875rem] text-[var(--destructive)]">
-          Select a GM model on the &quot;You &amp; Model&quot; step before starting.
-        </p>
+      {step === steps.length - 1 && setupBlockingReasons.length > 0 && (
+        <div
+          role="alert"
+          className="mb-3 rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 px-3 py-2 text-[0.6875rem] text-[var(--destructive)]"
+        >
+          <p className="font-medium">Complete setup before starting:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {setupBlockingReasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {error ? (
@@ -1769,7 +1787,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
             onClick={handleComplete}
             disabled={isLoading || !canStart}
             className="flex items-center gap-1 rounded-lg bg-[var(--primary)] px-4 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
-            title={!canStart ? "Select a GM model on the You & Model step" : undefined}
+            title={!canStart ? setupBlockingReasons.join(" ") : undefined}
           >
             {isLoading ? (
               <>
