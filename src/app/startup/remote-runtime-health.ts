@@ -1,21 +1,15 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { checkRemoteRuntimeHealth, hasEmbeddedTauriRuntime } from "../../shared/api/remote-runtime";
+import { checkRemoteRuntimeHealth, sameOriginRemoteRuntimeUrl } from "../../shared/api/remote-runtime";
 import { recordClientDiagnostic } from "../../shared/lib/client-diagnostics";
 import { useUIStore } from "../../shared/stores/ui.store";
-
-function sameOriginRuntimeCandidate(): string {
-  if (typeof window === "undefined" || hasEmbeddedTauriRuntime()) return "";
-  if (window.location.protocol !== "http:" && window.location.protocol !== "https:") return "";
-  return window.location.origin;
-}
 
 export function useRemoteRuntimeStartupHealthCheck() {
   useEffect(() => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => {
       const configuredRemoteRuntimeUrl = useUIStore.getState().remoteRuntimeUrl.trim();
-      const sameOriginCandidate = configuredRemoteRuntimeUrl ? "" : sameOriginRuntimeCandidate();
+      const sameOriginCandidate = configuredRemoteRuntimeUrl ? "" : sameOriginRemoteRuntimeUrl();
       const remoteRuntimeUrl = configuredRemoteRuntimeUrl || sameOriginCandidate;
       if (!remoteRuntimeUrl) return;
 

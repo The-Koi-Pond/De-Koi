@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "./api-errors";
-import { checkRemoteRuntimeHealth, invokeRemote, readRemoteError } from "./remote-runtime";
+import { checkRemoteRuntimeHealth, invokeRemote, readRemoteError, remoteRuntimeTarget } from "./remote-runtime";
 import { useUIStore } from "../stores/ui.store";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -59,10 +59,7 @@ describe("checkRemoteRuntimeHealth", () => {
   });
 
   it("keeps accepting the legacy Marinara server health marker", async () => {
-    stubFetch([
-      jsonResponse({ ok: true, runtime: "marinara-server", writable: true }),
-      jsonResponse([]),
-    ]);
+    stubFetch([jsonResponse({ ok: true, runtime: "marinara-server", writable: true }), jsonResponse([])]);
 
     await expect(checkRemoteRuntimeHealth("http://127.0.0.1:3080")).resolves.toMatchObject({
       status: "ok",
@@ -73,10 +70,7 @@ describe("checkRemoteRuntimeHealth", () => {
   it("treats an API invoke rate limit as a reachable busy runtime", async () => {
     stubFetch([
       jsonResponse({ ok: true, runtime: "de-koi-server", writable: true }),
-      jsonResponse(
-        { code: "rate_limited", message: "Too many requests" },
-        { status: 429 },
-      ),
+      jsonResponse({ code: "rate_limited", message: "Too many requests" }, { status: 429 }),
     ]);
 
     await expect(checkRemoteRuntimeHealth("http://127.0.0.1:3080")).resolves.toMatchObject({
@@ -87,9 +81,7 @@ describe("checkRemoteRuntimeHealth", () => {
   });
 
   it("rejects unrelated health payloads before invoking the API", async () => {
-    const fetchMock = stubFetch([
-      jsonResponse({ ok: true, runtime: "other-server", writable: true }),
-    ]);
+    const fetchMock = stubFetch([jsonResponse({ ok: true, runtime: "other-server", writable: true })]);
 
     await expect(checkRemoteRuntimeHealth("http://127.0.0.1:3080")).resolves.toEqual({
       status: "unreachable",
@@ -129,6 +121,36 @@ describe("readRemoteError", () => {
     expect(error.message).toBe(
       "This De-Koi server is older than the web app and cannot store Deki sessions. Update and restart the server, then refresh this page.",
     );
+  });
+});
+
+describe("remoteRuntimeTarget", () => {
+  afterEach(() => {
+    useUIStore.setState({ remoteRuntimeUrl: "" });
+    delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
+  it("uses the hosted page origin before startup health persistence completes", () => {
+    useUIStore.setState({ remoteRuntimeUrl: "" });
+
+    expect(remoteRuntimeTarget()).toEqual({ baseUrl: window.location.origin });
+  });
+
+  it("prefers an explicitly configured runtime URL", () => {
+    useUIStore.setState({ remoteRuntimeUrl: " http://127.0.0.1:8787/ " });
+
+    expect(remoteRuntimeTarget()).toEqual({ baseUrl: "http://127.0.0.1:8787" });
+  });
+
+  it("does not infer a hosted runtime inside Tauri", () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      value: {},
+      writable: true,
+      configurable: true,
+    });
+    useUIStore.setState({ remoteRuntimeUrl: "" });
+
+    expect(remoteRuntimeTarget()).toBeNull();
   });
 });
 
