@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   applyPreset: vi.fn(),
   recovery: { current: null as import("../../../../engine/onboarding").SetupJourneyRecovery | null },
   runtimeUrl: { current: "https://runtime-a.test" },
+  sameOriginRuntimeUrl: { current: "https://de-koi.test" },
   invalidateQueries: vi.fn(),
 }));
 
@@ -42,6 +43,7 @@ vi.mock("../../../catalog/chats", () => ({
 vi.mock("../../../catalog/chat-presets", () => ({ useApplyUserStarredChatPreset: () => mocks.applyPreset }));
 vi.mock("../../../../shared/api/remote-runtime", () => ({
   hasEmbeddedTauriRuntime: () => mocks.embedded.current,
+  sameOriginRemoteRuntimeUrl: () => mocks.sameOriginRuntimeUrl.current,
   checkRemoteRuntimeHealth: (...args: unknown[]) => mocks.health(...args),
 }));
 vi.mock("../../../../shared/api/storage-api", () => ({
@@ -112,12 +114,18 @@ describe("SetupReadinessJourney", () => {
       completed: false,
     };
     mocks.embedded.current = false;
+    mocks.health.mockReset().mockResolvedValue({
+      status: "ok",
+      message: "Ready",
+      health: { ok: true, writable: true },
+    });
     mocks.mutateAsync.mockReset().mockResolvedValue({ id: "chat-1" });
     mocks.markCompleted.mockReset();
     mocks.markConnection.mockReset();
     mocks.applyPreset.mockReset().mockResolvedValue(undefined);
     mocks.recovery.current = null;
     mocks.runtimeUrl.current = "https://runtime-a.test";
+    mocks.sameOriginRuntimeUrl.current = "https://de-koi.test";
     mocks.connections.current = [{ id: "saved", provider: "openai", model: "gpt" }];
   });
   afterEach(() => {
@@ -151,7 +159,26 @@ describe("SetupReadinessJourney", () => {
     expect(mocks.mutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ mode: "conversation", connectionId: "saved" }),
     );
+    expect(mocks.mutateAsync).toHaveBeenCalledOnce();
     expect(mocks.markCompleted).toHaveBeenCalled();
+    expect(container.textContent).not.toContain("Finish setting up De-Koi");
+  });
+
+  it("launches against the hosted page origin before runtime URL persistence", async () => {
+    mocks.runtimeUrl.current = "";
+    mocks.health.mockResolvedValue({ status: "ok", message: "Ready", health: { ok: true, writable: true } });
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.health).toHaveBeenCalledWith(
+      "https://de-koi.test",
+      expect.objectContaining({ signal: expect.anything() }),
+    );
+    expect(mocks.mutateAsync).toHaveBeenCalledOnce();
     expect(container.textContent).not.toContain("Finish setting up De-Koi");
   });
 

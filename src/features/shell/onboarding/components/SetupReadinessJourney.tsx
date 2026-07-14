@@ -6,6 +6,7 @@ import { useConnections } from "../../../catalog/connections";
 import {
   checkRemoteRuntimeHealth,
   hasEmbeddedTauriRuntime,
+  sameOriginRemoteRuntimeUrl,
   type RemoteRuntimeHealthCheck,
 } from "../../../../shared/api/remote-runtime";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
@@ -102,7 +103,7 @@ export function SetupReadinessJourney() {
     });
   }
   const embedded = hasEmbeddedTauriRuntime();
-  const runtimeTarget = remoteRuntimeUrl.trim();
+  const runtimeTarget = remoteRuntimeUrl.trim() || sameOriginRemoteRuntimeUrl();
   const health = checkedHealth?.checkedUrl === runtimeTarget ? checkedHealth.result : null;
   const journeyActive = !!intent && !intent.completed;
   const { data: connections } = useConnections(journeyActive && (embedded || health?.status === "ok"));
@@ -139,11 +140,11 @@ export function SetupReadinessJourney() {
     () =>
       buildSetupReadinessFacts({
         embedded,
-        runtimeUrl: remoteRuntimeUrl,
+        runtimeUrl: runtimeTarget,
         runtimeHealth: health,
         connections: languageConnections,
       }),
-    [embedded, health, languageConnections, remoteRuntimeUrl],
+    [embedded, health, languageConnections, runtimeTarget],
   );
   const setupReady = isSetupReady(facts);
   currentLaunchRequestRef.current = {
