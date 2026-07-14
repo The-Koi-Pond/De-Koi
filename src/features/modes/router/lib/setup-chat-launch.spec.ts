@@ -64,6 +64,32 @@ describe("setup chat launch orchestration", () => {
     expect(complete).toHaveBeenCalledTimes(1);
   });
 
+  it("surfaces a starred preset failure and retries it without creating another chat", async () => {
+    let recovery = null as import("../../../../engine/onboarding").SetupJourneyRecovery | null;
+    const createChat = vi.fn().mockResolvedValue({ id: "chat-1" });
+    const applyStarredPreset = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("preset unavailable"))
+      .mockResolvedValueOnce(undefined);
+    const complete = vi.fn();
+    const launch = createSetupChatLaunchOrchestrator({
+      createChat,
+      applyStarredPreset,
+      complete,
+      getRecovery: () => recovery,
+      recordRecovery: (next) => { recovery = next; },
+      clearRecovery: () => { recovery = null; },
+    });
+    const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
+
+    await expect(launch.launch(request)).rejects.toThrow("preset unavailable");
+    await expect(launch.launch(request)).resolves.toEqual({ id: "chat-1" });
+
+    expect(createChat).toHaveBeenCalledOnce();
+    expect(applyStarredPreset).toHaveBeenCalledTimes(2);
+    expect(complete).toHaveBeenCalledOnce();
+  });
+
   it("lets the latest mode replace an older uncompleted intent", () => {
     const launch = createSetupChatLaunchOrchestrator({ createChat: vi.fn(), applyStarredPreset: vi.fn(), complete: vi.fn() });
 

@@ -198,11 +198,7 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
       let stable = false;
       for (let attempt = 0; attempt < 8; attempt += 1) {
         if (!hasReached(recoveryStage, "preset-applied")) {
-          try {
-            await dependencies.applyStarredPreset({ mode: effectiveClaim.mode, chatId: chat.id });
-          } catch {
-            // Preset application is optional; the successfully created chat remains usable.
-          }
+          await dependencies.applyStarredPreset({ mode: effectiveClaim.mode, chatId: chat.id });
           recoveryStage = "preset-applied";
           dependencies.recordRecovery?.({ createdChatId: chat.id, journeyId: effectiveClaim.journeyId, stage: recoveryStage });
           if (await stabilizeIdentity()) continue;
