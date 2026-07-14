@@ -34,7 +34,7 @@ pub(crate) fn redact_custom_tool_webhook_urls(value: &mut Value) {
     }
 }
 
-fn redact_custom_tool_webhook_url(value: &mut Value) {
+pub(crate) fn redact_custom_tool_webhook_url(value: &mut Value) {
     let Some(object) = value.as_object_mut() else {
         return;
     };

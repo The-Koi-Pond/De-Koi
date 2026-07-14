@@ -1,12 +1,15 @@
 # Profile Export Format v2 Contract
 
-Current Marinara profile exports remain backward-compatible v1 packages with a
-single `marinara-profile.json` payload. A scalable v2 profile package should use
-a zip archive with a manifest and chunked record files so large profiles do not
-depend on one monolithic JSON document.
+Current De-Koi profile exports remain backward-compatible v1 packages with a
+single `marinara-profile.json` payload. The hidden v2 foundation uses a ZIP
+archive with a manifest and chunked record files so large profiles do not depend
+on one monolithic JSON document.
 
-This document defines the contract for a future implementation. It does not
-change current import/export behavior.
+The internal streaming codec, artifact exporter, and non-mutating validator are
+implemented. They are not connected to any Tauri command, HTTP route, shared
+TypeScript API, or Settings control, so user-facing export and import remain v1.
+V2 preflight, staged atomic import, transport, and product activation remain
+future work.
 
 ## Archive Layout
 
