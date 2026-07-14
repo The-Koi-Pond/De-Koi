@@ -1,5 +1,8 @@
 import type { Panel } from "../../../shared/stores/ui.store";
 import type { SettingsDestinationId, SettingsTabId } from "../settings/discovery";
+import type { DiscoveryChatDestination, DiscoveryMode } from "../../../shared/lib/discovery-navigation";
+
+export type { DiscoveryChatDestination, DiscoveryMode } from "../../../shared/lib/discovery-navigation";
 
 export const DISCOVERY_CATEGORIES = [
   "Getting started",
@@ -48,6 +51,24 @@ export type DiscoveryAction =
     }
   | {
       type: "go-home";
+      label?: string;
+    }
+  | {
+      type: "open-mode-setup";
+      mode: DiscoveryMode;
+      label?: string;
+    }
+  | {
+      type: "open-chat-destination";
+      destination: DiscoveryChatDestination;
+      label?: string;
+    }
+  | {
+      type: "open-chat-list";
+      label?: string;
+    }
+  | {
+      type: "show-active-chat";
       label?: string;
     }
   | {

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
+import {
+  DISCOVERY_APP_EVENT,
+  type DiscoveryAppEventDetail,
+} from "../../../../../shared/lib/discovery-navigation";
 
 type IdleWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -47,17 +51,103 @@ function scheduleSetupOverlayOpen(run: () => void): () => void {
 }
 
 export function useChatOverlays(activeChatId: string) {
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpenState] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [spriteArrangeMode, setSpriteArrangeMode] = useState(false);
   const [newChatSetupChatId, setNewChatSetupChatId] = useState<string | null>(null);
+  const [pendingDiscoverySection, setPendingDiscoverySection] = useState<string | null>(null);
   const pendingSetupOverlayOpenRef = useRef<PendingSetupOverlayOpen | null>(null);
+  const pendingDiscoverySectionRef = useRef<string | null>(null);
+  const pendingDiscoveryRevealRef = useRef<(() => void) | null>(null);
+
+  const cancelPendingDiscoveryReveal = useCallback(() => {
+    pendingDiscoveryRevealRef.current?.();
+    pendingDiscoveryRevealRef.current = null;
+  }, []);
+
+  const setSettingsOpen = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        cancelPendingDiscoveryReveal();
+        pendingDiscoverySectionRef.current = null;
+        setPendingDiscoverySection(null);
+      }
+      setSettingsOpenState(open);
+    },
+    [cancelPendingDiscoveryReveal],
+  );
 
   const newChatSetupIntent = useChatStore((state) => state.newChatSetupIntent);
   const shouldOpenSettings = useChatStore((state) => state.shouldOpenSettings);
   const shouldOpenWizard = useChatStore((state) => state.shouldOpenWizard);
+
+  useEffect(() => {
+    const handleDiscoveryAction = (event: Event) => {
+      const detail = (event as CustomEvent<DiscoveryAppEventDetail>).detail;
+      if (detail?.type !== "open-chat-destination") return;
+      if (
+        detail.destination !== "chat-settings" &&
+        detail.destination !== "chat-settings-continuity" &&
+        detail.destination !== "roleplay-context"
+      ) {
+        return;
+      }
+      const nextSection = detail.destination === "chat-settings-continuity" ? "chat-settings-continuity" : null;
+      if (pendingDiscoverySectionRef.current !== nextSection) cancelPendingDiscoveryReveal();
+      pendingDiscoverySectionRef.current = nextSection;
+      setPendingDiscoverySection(nextSection);
+      setSettingsOpen(true);
+    };
+
+    window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
+    return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
+  }, [cancelPendingDiscoveryReveal, setSettingsOpen]);
+
+  useEffect(() => {
+    if (!settingsOpen || !pendingDiscoverySection) return;
+    const sectionId = pendingDiscoverySection;
+    let canceled = false;
+    let observer: MutationObserver | null = null;
+    let timeout: number | null = null;
+
+    const cancelReveal = () => {
+      if (canceled) return;
+      canceled = true;
+      observer?.disconnect();
+      if (timeout != null) window.clearTimeout(timeout);
+      if (pendingDiscoveryRevealRef.current === cancelReveal) {
+        pendingDiscoveryRevealRef.current = null;
+      }
+    };
+
+    const revealSection = (): boolean => {
+      if (canceled) return false;
+      const element = document.getElementById(sectionId);
+      if (!element) return false;
+      element.scrollIntoView({ block: "start", behavior: "smooth" });
+      cancelReveal();
+      pendingDiscoverySectionRef.current = null;
+      setPendingDiscoverySection(null);
+      return true;
+    };
+
+    if (revealSection()) return;
+
+    observer = new MutationObserver(() => {
+      revealSection();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    timeout = window.setTimeout(() => {
+      cancelReveal();
+      pendingDiscoverySectionRef.current = null;
+      setPendingDiscoverySection(null);
+    }, 1_000);
+    pendingDiscoveryRevealRef.current = cancelReveal;
+
+    return cancelReveal;
+  }, [pendingDiscoverySection, settingsOpen]);
 
   const queueSetupOverlayOpen = useCallback((key: string, run: () => void, onCancel?: () => void): boolean => {
     if (pendingSetupOverlayOpenRef.current?.key === key) return false;
@@ -141,7 +231,7 @@ export function useChatOverlays(activeChatId: string) {
         cancelLegacyOpen,
       );
     }
-  }, [newChatSetupIntent, queueSetupOverlayOpen, shouldOpenSettings, shouldOpenWizard, activeChatId]);
+  }, [newChatSetupIntent, queueSetupOverlayOpen, setSettingsOpen, shouldOpenSettings, shouldOpenWizard, activeChatId]);
 
   return {
     settingsOpen,

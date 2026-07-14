@@ -18,7 +18,7 @@
     "keywords": ["dm", "chat", "group", "status", "schedule", "autonomous", "texting", "message", "bubbles", "speaker bubbles", "card css", "freshness", "anti repetition"],
     "audience": "Users who want companion-style chats, quick conversations, or character group messages.",
     "where": "Home > Conversation, then the chat setup wizard and chat settings drawer.",
-    "actions": [{ "type": "go-home", "label": "Go home" }],
+    "actions": [{ "type": "open-mode-setup", "mode": "conversation", "label": "Set up Conversation" }],
     "coverage": "core"
   },
   {
@@ -29,7 +29,7 @@
     "keywords": ["rp", "story", "writing", "narration", "narrator style", "narrator personality", "scene", "scene lifecycle", "reopen scene", "concluded scene", "sprites", "background", "adventure"],
     "audience": "Users who want immersive scenes and creative writing rather than quick texting.",
     "where": "Home > Roleplay, then the setup wizard and chat settings drawer.",
-    "actions": [{ "type": "go-home", "label": "Go home" }],
+    "actions": [{ "type": "open-mode-setup", "mode": "roleplay", "label": "Set up Roleplay" }],
     "coverage": "core"
   },
   {
@@ -40,7 +40,7 @@
     "keywords": ["game", "rpg", "gm", "map", "journal", "inventory", "combat", "party", "quest", "dice", "world tick", "living world", "advance world", "time", "elapsed time", "action duration"],
     "audience": "Players who want the app to help run an adventure instead of only writing dialogue.",
     "where": "Home > Game, then the setup wizard and in-game control panel.",
-    "actions": [{ "type": "go-home", "label": "Go home" }],
+    "actions": [{ "type": "open-mode-setup", "mode": "game", "label": "Set up Game" }],
     "coverage": "core"
   },
   {
@@ -270,7 +270,7 @@
     "keywords": ["game help", "tutorial", "map", "party", "controls", "first game"],
     "audience": "Game Mode users who need a quick orientation after setup.",
     "where": "Auto-opens on the first game, and can be reopened from the Game controls help button.",
-    "actions": [{ "type": "go-home", "label": "Start from Home" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "game-tutorial", "label": "Open Game Tutorial" }],
     "coverage": "advanced"
   },
   {
@@ -281,7 +281,7 @@
     "keywords": ["slash", "commands", "/help", "/amend", "dice", "roll", "guided", "revise", "impersonate", "autocomplete"],
     "audience": "Users who prefer quick typed actions instead of hunting through menus.",
     "where": "Conversation and Roleplay chat input; type / to open autocomplete.",
-    "actions": [{ "type": "go-home", "label": "Open a chat" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "slash-commands", "label": "Open Slash Commands" }],
     "coverage": "advanced"
   },
   {
@@ -328,7 +328,7 @@
     "keywords": ["discord", "webhook", "mirror", "share", "channel", "broadcast"],
     "audience": "Users who want to archive or share chat output outside De-Koi.",
     "where": "Per-chat settings drawer.",
-    "actions": [{ "type": "go-home", "label": "Open a chat" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" }],
     "coverage": "advanced"
   },
   {
@@ -372,7 +372,7 @@
     "keywords": ["chat presets", "settings preset", "reuse settings", "import preset", "export preset", "default preset"],
     "audience": "Users who regularly create similar chats and want setup choices to carry across sessions.",
     "where": "Open a chat > Chat Settings > preset controls at the top of the drawer.",
-    "actions": [{ "type": "go-home", "label": "Open a chat" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Preset Controls" }],
     "coverage": "advanced"
   },
   {
@@ -383,7 +383,7 @@
     "keywords": ["prompt inspector", "peek prompt", "prompt preview", "prompt budget", "context budget", "context attribution", "memory attribution", "knowledge attribution", "lorebook attribution", "tokens", "replay", "generation details", "variables"],
     "audience": "Power users checking context usage before sending or debugging why a model answered a certain way.",
     "where": "Assistant message Peek Prompt actions, context attribution controls, replay controls, and the Game More menu.",
-    "actions": [{ "type": "go-home", "label": "Open a chat" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "prompt-inspector", "label": "Show Prompt Tools" }],
     "coverage": "advanced"
   },
   {
@@ -405,7 +405,7 @@
     "keywords": ["save moment", "remember this", "brain", "moment", "message action", "illustrate", "illustration", "image prompt", "gallery", "lorebook draft", "draft lore entry", "lore entry", "world info draft", "chat summary", "summary draft", "source message", "branch from here", "clone from here", "game journal", "checkpoint", "manual save", "durable"],
     "audience": "Users who notice an important chat beat and want to preserve it as summary memory, lore, Game notes, checkpoints, a branch, or a targeted illustration from the message action bar.",
     "where": "Hover or tap a message action bar in Conversation, Roleplay, or Game transcripts, then choose the brain for Remember this, the branch icon to branch, or the paintbrush to illustrate that exact message.",
-    "actions": [{ "type": "go-home", "label": "Open a chat" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "message-actions", "label": "Show Message Actions" }],
     "coverage": "advanced"
   },
   {
@@ -416,7 +416,7 @@
     "keywords": ["journal", "npc log", "locations", "inventory log", "game notes", "campaign", "continuity", "world tick", "advance world", "recap"],
     "audience": "Game Mode players who need a readable record of what has happened and what the world contains.",
     "where": "Game Mode toolbar > Journal.",
-    "actions": [{ "type": "go-home", "label": "Open Game" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "game-journal", "label": "Open Game Journal" }],
     "coverage": "advanced"
   },
   {
@@ -427,7 +427,7 @@
     "keywords": ["checkpoint", "checkpoints", "save", "load", "branch", "alternate timeline", "autosave", "rollback", "restore", "game state"],
     "audience": "Game Mode players who want recovery points before risky scenes, combat, or long sessions.",
     "where": "Game Mode toolbar > Checkpoints.",
-    "actions": [{ "type": "go-home", "label": "Open Game" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "game-checkpoints", "label": "Open Checkpoints" }],
     "coverage": "advanced"
   },
   {
@@ -449,7 +449,7 @@
     "keywords": ["combat", "combat logs", "skill check", "interrupt", "new session", "end session", "history", "turns", "world tick", "advance world", "session tick"],
     "audience": "Game Mode players who want to understand the action tools around adventures and combat.",
     "where": "Game Mode toolbar and Game actions menu during an active game.",
-    "actions": [{ "type": "go-home", "label": "Open Game" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "game-tools", "label": "Open Game Tools" }],
     "coverage": "advanced"
   },
   {
@@ -526,7 +526,7 @@
     "keywords": ["author notes", "secret plot", "context injection", "active world info", "world info", "hud", "roleplay panels", "sprites"],
     "audience": "Roleplay users who want more control over hidden context, visible state, and scene presentation.",
     "where": "Roleplay chat HUD, chat settings, and agent-enabled roleplay panels.",
-    "actions": [{ "type": "go-home", "label": "Open Roleplay" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "roleplay-context", "label": "Open Roleplay Context" }],
     "coverage": "advanced"
   },
   {
@@ -537,7 +537,7 @@
     "keywords": ["continuity", "continuity overview", "memory", "summary", "summaries", "recall", "context", "long chat", "remember", "world info", "lorebooks", "trackers", "what will this chat remember"],
     "audience": "Users running long conversations, roleplays, or campaigns who want to know what context can carry forward.",
     "where": "Open a chat > Chat Settings > Continuity, with details in Memory Recall, Automatic Summarization, Lorebooks, and Function Calling.",
-    "actions": [{ "type": "go-home", "label": "Open a chat" }],
+    "actions": [{ "type": "open-chat-destination", "destination": "chat-settings-continuity", "label": "Open Chat Continuity" }],
     "coverage": "advanced"
   }
 ]

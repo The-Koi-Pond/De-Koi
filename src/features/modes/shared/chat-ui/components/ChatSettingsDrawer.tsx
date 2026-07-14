@@ -2085,6 +2085,7 @@ function ChatSettingsDrawerInner({
           )}
 
           <Section
+            id="chat-settings-continuity"
             label="Continuity"
             icon={<Brain size="0.875rem" />}
             count={continuityOverviewActiveCount}

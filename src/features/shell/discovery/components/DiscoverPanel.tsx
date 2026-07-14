@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Compass, HelpCircle, Search, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleAlert, Compass, HelpCircle, Search, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "../../../../shared/lib/utils";
 import {
@@ -8,7 +8,11 @@ import {
   type DiscoveryEntry,
 } from "../discovery-registry";
 import { DISCOVERY_CATEGORIES, DISCOVERY_COVERAGE } from "../discovery-types";
-import { getDiscoveryActionLabel, runDiscoveryAction } from "../lib/discovery-actions";
+import {
+  getDiscoveryActionLabel,
+  runDiscoveryAction,
+  type DiscoveryActionOutcome,
+} from "../lib/discovery-actions";
 import { filterDiscoveryEntries } from "../lib/discovery-search";
 import { DISCOVERY_TASKS, filterEntriesForDiscoveryTask, type DiscoveryTaskId } from "../lib/discovery-tasks";
 
@@ -29,6 +33,13 @@ const COVERAGE_CLASS: Record<DiscoveryCoverage, string> = {
 const DEFAULT_PREVIEW_COUNT = 0;
 
 function DiscoveryEntryRow({ entry }: { entry: DiscoveryEntry }) {
+  const [outcome, setOutcome] = useState<DiscoveryActionOutcome | null>(null);
+
+  const handleAction = (action: DiscoveryEntry["actions"][number]) => {
+    const nextOutcome = runDiscoveryAction(action);
+    setOutcome(nextOutcome.status === "blocked" ? nextOutcome : null);
+  };
+
   return (
     <article className="de-koi-discover-row rounded-lg border border-[var(--border)] bg-[var(--card)]/70 p-3 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -64,13 +75,33 @@ function DiscoveryEntryRow({ entry }: { entry: DiscoveryEntry }) {
             <button
               key={`${entry.id}-${action.type}-${getDiscoveryActionLabel(action)}`}
               type="button"
-              onClick={() => runDiscoveryAction(action)}
+              onClick={() => handleAction(action)}
               className="de-koi-discover-action inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--secondary)]/65 px-2.5 py-1 text-[0.72rem] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
             >
               <Sparkles size="0.75rem" aria-hidden />
               {getDiscoveryActionLabel(action)}
             </button>
           ))}
+        </div>
+      )}
+      {outcome?.status === "blocked" && (
+        <div
+          className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-rose-400/35 bg-rose-500/10 px-2.5 py-2 text-[0.72rem] text-[var(--foreground)]"
+          data-discovery-status="blocked"
+          role="alert"
+          aria-live="assertive"
+        >
+          <CircleAlert size="0.9rem" className="shrink-0 text-rose-500" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <strong className="font-semibold">Unavailable in the current context.</strong> {outcome.message}
+          </span>
+          <button
+            type="button"
+            onClick={() => handleAction(outcome.fallback)}
+            className="de-koi-discover-action inline-flex min-h-8 items-center rounded-md border border-[var(--border)] bg-[var(--card)] px-2.5 py-1 font-medium hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+          >
+            {getDiscoveryActionLabel(outcome.fallback)}
+          </button>
         </div>
       )}
     </article>

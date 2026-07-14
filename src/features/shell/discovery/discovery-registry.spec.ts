@@ -60,4 +60,29 @@ describe("discovery showcase registry", () => {
     expect(entry?.where).toContain("Discover");
     expect(entry?.actions).toContainEqual({ type: "replay-onboarding", label: "Show me around" });
   });
+
+  it("uses contextual destinations instead of sending feature actions home", () => {
+    const contextualIds = [
+      "conversation-mode",
+      "roleplay-mode",
+      "game-mode",
+      "game-tutorial",
+      "slash-commands",
+      "discord-mirror",
+      "chat-settings-presets",
+      "prompt-inspector",
+      "save-moment-actions",
+      "game-journal",
+      "game-checkpoints",
+      "game-combat-session-tools",
+      "roleplay-context-panels",
+      "chat-memory-summaries",
+    ];
+
+    for (const id of contextualIds) {
+      const entry = DISCOVERY_ENTRIES.find((item) => item.id === id);
+      expect(entry, id).toBeDefined();
+      expect(entry?.actions.some((action) => action.type === "go-home"), id).toBe(false);
+    }
+  });
 });
