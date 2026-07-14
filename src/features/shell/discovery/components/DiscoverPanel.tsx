@@ -155,13 +155,19 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <div className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1">
+        <div
+          className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1"
+          role="radiogroup"
+          aria-label="Feature category"
+        >
           {(["All", ...DISCOVERY_CATEGORIES] as const).map((item) => {
             const selected = category === item;
             return (
               <button
                 key={item}
                 type="button"
+                role="radio"
+                aria-checked={selected}
                 onClick={() => {
                   setCategory(item);
                   setActiveTask(null);
@@ -179,13 +185,19 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
           })}
         </div>
 
-        <div className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1">
+        <div
+          className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1"
+          role="radiogroup"
+          aria-label="Feature coverage"
+        >
           {(["All", ...DISCOVERY_COVERAGE] as const).map((item) => {
             const selected = coverage === item;
             return (
               <button
                 key={item}
                 type="button"
+                role="radio"
+                aria-checked={selected}
                 onClick={() => {
                   setCoverage(item);
                   setActiveTask(null);

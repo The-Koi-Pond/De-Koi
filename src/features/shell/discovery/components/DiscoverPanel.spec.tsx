@@ -45,4 +45,20 @@ describe("DiscoverPanel contextual destinations", () => {
     expect(blockedStatus?.textContent).toContain("Game Journal needs an active chat.");
     expect(blockedStatus?.textContent).toContain("Choose a chat");
   });
+
+  it("exposes each mutually exclusive filter as a selected radio option", () => {
+    const categoryGroup = container.querySelector('[role="radiogroup"][aria-label="Feature category"]');
+    const coverageGroup = container.querySelector('[role="radiogroup"][aria-label="Feature coverage"]');
+    expect(categoryGroup).not.toBeNull();
+    expect(coverageGroup).not.toBeNull();
+
+    const categoryOptions = Array.from(categoryGroup?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? []);
+    expect(categoryOptions.length).toBeGreaterThan(1);
+    expect(categoryOptions[0]?.getAttribute("aria-checked")).toBe("true");
+    expect(categoryOptions[1]?.getAttribute("aria-checked")).toBe("false");
+
+    act(() => categoryOptions[1]?.click());
+    expect(categoryOptions[0]?.getAttribute("aria-checked")).toBe("false");
+    expect(categoryOptions[1]?.getAttribute("aria-checked")).toBe("true");
+  });
 });

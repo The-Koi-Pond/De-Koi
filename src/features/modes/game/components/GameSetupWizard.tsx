@@ -236,7 +236,12 @@ function LearnedOptionChips({
                 : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
             )}
           >
-            <button type="button" onClick={() => onSelect(option)} className="px-2 py-0.5">
+            <button
+              type="button"
+              onClick={() => onSelect(option)}
+              aria-pressed={selected ? isSelected : undefined}
+              className="px-2 py-0.5"
+            >
               {option}
             </button>
             {onForget && (
@@ -696,7 +701,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                 {GENRES.map((g) => (
                   <button
                     key={g}
+                    type="button"
                     onClick={() => toggleGenre(g)}
+                    aria-pressed={genres.includes(g)}
                     className={cn(
                       "rounded-full px-3 py-1 text-xs transition-colors",
                       genres.includes(g)
@@ -713,7 +720,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   .map((g) => (
                     <button
                       key={g}
+                      type="button"
                       onClick={() => toggleGenre(g)}
+                      aria-pressed="true"
                       className="flex items-center gap-1 rounded-full bg-[var(--primary)]/20 px-3 py-1 text-xs text-[var(--primary)] ring-1 ring-[var(--primary)]/40 transition-colors"
                     >
                       {g}
@@ -788,7 +797,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                 {TONES.map((t) => (
                   <button
                     key={t}
+                    type="button"
                     onClick={() => toggleTone(t)}
+                    aria-pressed={tones.includes(t)}
                     className={cn(
                       "rounded-full px-3 py-1 text-xs transition-colors",
                       tones.includes(t)
@@ -805,7 +816,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   .map((t) => (
                     <button
                       key={t}
+                      type="button"
                       onClick={() => toggleTone(t)}
+                      aria-pressed="true"
                       className="flex items-center gap-1 rounded-full bg-[var(--primary)]/20 px-3 py-1 text-xs text-[var(--primary)] ring-1 ring-[var(--primary)]/40 transition-colors"
                     >
                       {t}
@@ -843,10 +856,13 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
             {/* Difficulty — single-select */}
             <div>
               <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">Difficulty</label>
-              <div className="flex gap-1.5">
+              <div className="flex gap-1.5" role="radiogroup" aria-label="Difficulty">
                 {DIFFICULTIES.map((d) => (
                   <button
                     key={d}
+                    type="button"
+                    role="radio"
+                    aria-checked={difficulty === d}
                     onClick={() => setDifficulty(d)}
                     className={cn(
                       "rounded-full px-3 py-1 text-xs transition-colors",
@@ -864,8 +880,11 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
             {/* Content Rating */}
             <div>
               <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">Content Rating</label>
-              <div className="flex gap-1.5">
+              <div className="flex gap-1.5" role="radiogroup" aria-label="Content rating">
                 <button
+                  type="button"
+                  role="radio"
+                  aria-checked={rating === "sfw"}
                   onClick={() => setRating("sfw")}
                   className={cn(
                     "rounded-full px-3 py-1 text-xs transition-colors",
@@ -877,6 +896,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   SFW
                 </button>
                 <button
+                  type="button"
+                  role="radio"
+                  aria-checked={rating === "nsfw"}
                   onClick={() => setRating("nsfw")}
                   className={cn(
                     "rounded-full px-3 py-1 text-xs transition-colors",
@@ -905,10 +927,13 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                 placeholder="English"
                 className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--foreground)] outline-none ring-1 ring-transparent transition-all placeholder:text-[var(--muted-foreground)] focus:ring-[var(--primary)]/40"
               />
-              <div className="mt-1.5 flex flex-wrap gap-1">
+              <div className="mt-1.5 flex flex-wrap gap-1" role="radiogroup" aria-label="Language shortcuts">
                 {GAME_LANGUAGE_OPTIONS.map((option) => (
                   <button
                     key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={normalizedLanguage === option.value}
                     onClick={() => setLanguage(option.label)}
                     className={cn(
                       "rounded-full px-2 py-0.5 text-[0.625rem] transition-colors",
@@ -933,8 +958,11 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
             {/* GM Mode */}
             <div>
               <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">Game Master Mode</label>
-              <div className="flex gap-2">
+              <div className="flex gap-2" role="radiogroup" aria-label="Game Master mode">
                 <button
+                  type="button"
+                  role="radio"
+                  aria-checked={gmMode === "standalone"}
                   onClick={() => setGmMode("standalone")}
                   className={cn(
                     "flex-1 rounded-lg p-3 text-left text-xs transition-colors ring-1",
@@ -947,6 +975,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   <div className="mt-1 text-[var(--muted-foreground)]">A snarky narrator running the show</div>
                 </button>
                 <button
+                  type="button"
+                  role="radio"
+                  aria-checked={gmMode === "character"}
                   onClick={() => setGmMode("character")}
                   className={cn(
                     "flex-1 rounded-lg p-3 text-left text-xs transition-colors ring-1",
@@ -999,6 +1030,8 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                     {filteredGmCharacters.map((c) => (
                       <button
                         key={c.id}
+                        type="button"
+                        aria-pressed={c.id === gmCharacterId}
                         onClick={() => setGmCharacterId(c.id === gmCharacterId ? null : c.id)}
                         className={cn(
                           "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
@@ -1087,6 +1120,8 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                     return (
                       <button
                         key={c.id}
+                        type="button"
+                        aria-pressed={isSelected}
                         onClick={() => togglePartyMember(c.id)}
                         className={cn(
                           "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
@@ -1182,6 +1217,8 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                     return (
                       <button
                         key={p.id}
+                        type="button"
+                        aria-pressed={p.id === personaId}
                         onClick={() => setPersonaId(p.id === personaId ? null : p.id)}
                         className={cn(
                           "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
@@ -1243,6 +1280,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
               </p>
               <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
                 <button
+                  type="button"
+                  role="switch"
+                  aria-checked={customizeParameters}
                   onClick={() => setCustomizeParameters((prev) => !prev)}
                   className="flex w-full items-center justify-between gap-3 text-left"
                 >
@@ -1319,6 +1359,8 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                 <div>
                   <button
                     type="button"
+                    role="switch"
+                    aria-checked={enableSpotifyDj}
                     onClick={() => setEnableSpotifyDj((prev) => !prev)}
                     className={cn(
                       "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-all",
@@ -1364,6 +1406,8 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
 
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={enableLorebookKeeper}
                   onClick={() => setEnableLorebookKeeper((prev) => !prev)}
                   className={cn(
                     "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-all",
@@ -1401,6 +1445,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
 
                 <div>
                   <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enableSpriteGeneration}
                     onClick={() => setEnableSpriteGeneration(!enableSpriteGeneration)}
                     className={cn(
                       "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all",
@@ -1471,6 +1518,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
             {/* Custom Widgets Toggle */}
             <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
               <button
+                type="button"
+                role="switch"
+                aria-checked={enableCustomWidgets}
                 onClick={() => setEnableCustomWidgets(!enableCustomWidgets)}
                 className="flex w-full items-center justify-between gap-2 text-left"
               >
@@ -1642,6 +1692,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
             {/* Start Muted */}
             <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
               <button
+                type="button"
+                role="switch"
+                aria-checked={startMuted}
                 onClick={() => setStartMuted(!startMuted)}
                 className="flex w-full items-center justify-between gap-2 text-left"
               >
