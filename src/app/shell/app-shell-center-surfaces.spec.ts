@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
+import {
+  getAppShellCenterSurfaceState,
+  getSetupJourneyHost,
+  shouldBeginSetupJourney,
+} from "./app-shell-center-surfaces";
 
 describe("getAppShellCenterSurfaceState", () => {
   it("lets Deki occupy the center surface when no full-view surface is active and a session is selected", () => {
@@ -104,5 +108,29 @@ describe("getAppShellCenterSurfaceState", () => {
         discoverOpen: true,
       }),
     ).toEqual({ discoverSurfaceVisible: true, dekiSurfaceVisible: false, mainSurfaceVisible: false });
+  });
+});
+
+describe("getSetupJourneyHost", () => {
+  it("keeps setup inline only on the visible Home surface", () => {
+    expect(getSetupJourneyHost({ activeChatId: null, detailViewOpen: false, mainSurfaceVisible: true })).toBe("home");
+  });
+
+  it.each([
+    { label: "active chat", activeChatId: "chat-1", detailViewOpen: false, mainSurfaceVisible: true },
+    { label: "detail view", activeChatId: null, detailViewOpen: true, mainSurfaceVisible: true },
+    { label: "full-view overlay", activeChatId: null, detailViewOpen: false, mainSurfaceVisible: false },
+  ])("uses the shell host for $label", ({ activeChatId, detailViewOpen, mainSurfaceVisible }) => {
+    expect(getSetupJourneyHost({ activeChatId, detailViewOpen, mainSurfaceVisible })).toBe("shell");
+  });
+});
+
+describe("shouldBeginSetupJourney", () => {
+  it("bridges every pending mode, including Game, when no active journey owns it", () => {
+    expect(shouldBeginSetupJourney("conversation", null)).toBe(true);
+    expect(shouldBeginSetupJourney("roleplay", null)).toBe(true);
+    expect(shouldBeginSetupJourney("game", null)).toBe(true);
+    expect(shouldBeginSetupJourney("game", { mode: "game", completed: false })).toBe(false);
+    expect(shouldBeginSetupJourney("game", { mode: "game", completed: true })).toBe(true);
   });
 });

@@ -14,6 +14,25 @@ export type AppShellCenterSurfaceState = {
   mainSurfaceVisible: boolean;
 };
 
+export function getSetupJourneyHost({
+  activeChatId,
+  detailViewOpen,
+  mainSurfaceVisible,
+}: {
+  activeChatId: string | null;
+  detailViewOpen: boolean;
+  mainSurfaceVisible: boolean;
+}): "home" | "shell" {
+  return !activeChatId && !detailViewOpen && mainSurfaceVisible ? "home" : "shell";
+}
+
+export function shouldBeginSetupJourney(
+  pendingMode: "conversation" | "roleplay" | "game" | null,
+  intent: { mode: string; completed: boolean } | null,
+): boolean {
+  return !!pendingMode && (!intent || intent.mode !== pendingMode || intent.completed);
+}
+
 export function getAppShellCenterSurfaceState({
   botBrowserOpen,
   gameAssetsBrowserOpen,
