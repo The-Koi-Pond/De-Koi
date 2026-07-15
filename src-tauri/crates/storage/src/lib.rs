@@ -159,9 +159,8 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        // Avoid checkpointing unrelated pending appends. If a dirty collection is
-        // checkpoint-tracked, write_collection_file recovers and invalidates its
-        // append checkpoint before replacing the collection file.
+        // Avoid checkpointing unrelated pending appends. The dirty flush recovers
+        // once up front if its write set contains a checkpoint-tracked collection.
         self.flush_dirty_collections_locked()
     }
 
@@ -1097,6 +1096,12 @@ impl FileStorage {
                 .map(|(collection, cached)| (collection.clone(), cached.rows.clone()))
                 .collect::<Vec<_>>()
         };
+        if dirty
+            .iter()
+            .any(|(collection, _)| append_journal::checkpoint_tracks(collection))
+        {
+            append_journal::recover(&self.root.join("collections"))?;
+        }
         for (collection, rows) in dirty {
             self.write_collection_file(&collection, &rows)?;
             if collection == "chats" {
