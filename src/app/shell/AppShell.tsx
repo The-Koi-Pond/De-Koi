@@ -48,6 +48,7 @@ import { shouldUseLowPowerShellMode, syncShellRootAttributes } from "./shell-per
 import { usePageActivity } from "../../shared/hooks/use-page-activity";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { subscribeAutomaticMemoryCaptureCompletions } from "../../engine/generation/automatic-memory-capture-queue";
 import { HelpCircle, Loader2 } from "lucide-react";
 import {
   lazy,
@@ -308,6 +309,7 @@ export function AppShell() {
   const chatNotificationCount = useChatStore((s) => s.chatNotifications.size);
   const [notificationBubblesMounted, setNotificationBubblesMounted] = useState(false);
   const debugMode = useUIStore((s) => s.debugMode);
+  const automaticMemoryCaptureNotifications = useUIStore((s) => s.automaticMemoryCaptureNotifications);
   const hasAgentDebugActivity = useAgentStore((s) => debugMode && (s.debugLog.length > 0 || s.lastResults.size > 0));
   const { data: musicDjMiniPlayerEnabled } = useIsCoreModuleEnabled(MUSIC_DJ_MINI_PLAYER_MODULE_ID);
   const sidebarDragWidthRef = useRef<number | null>(null);
@@ -336,6 +338,17 @@ export function AppShell() {
   }, []);
 
   useEffect(() => requestIdleWork(() => setBackgroundAutonomousPollingReady(true)), []);
+
+  useEffect(
+    () =>
+      subscribeAutomaticMemoryCaptureCompletions((completion) => {
+        if (!automaticMemoryCaptureNotifications) return;
+        toast.success(completion.operation === "created" ? "Memory saved" : "Memory updated", {
+          description: completion.memory.content,
+        });
+      }),
+    [automaticMemoryCaptureNotifications],
+  );
 
   useEffect(() => {
     const root = document.documentElement;

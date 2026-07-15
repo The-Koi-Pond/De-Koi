@@ -930,6 +930,10 @@ describe("ChatMessage", () => {
           jobId: "job-1",
           sourceMessageIds: ["user-1", "message-memory-indicators"],
           completedAt: "2026-01-01T00:03:00.000Z",
+          capture: {
+            operation: "created",
+            memory: { id: "memory-1", content: "Celia prefers concise recaps." },
+          },
         },
         generationPromptSnapshot: promptSnapshot,
       },
@@ -944,7 +948,13 @@ describe("ChatMessage", () => {
       );
     });
 
-    expect(container!.querySelector('[role="status"]')?.textContent).toContain("remembered");
+    const rememberedChip = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("remembered"),
+    );
+    expect(rememberedChip).toBeTruthy();
+    act(() => rememberedChip!.click());
+    expect(container!.textContent).toContain("Saved memory");
+    expect(container!.textContent).toContain("Celia prefers concise recaps.");
     const recalledChip = Array.from(container!.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("2 memories recalled"),
     );

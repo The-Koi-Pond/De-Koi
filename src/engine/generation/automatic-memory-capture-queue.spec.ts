@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { RefreshChatMemoriesOptions, StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { JsonRecord } from "./runtime-records";
-import { enqueueAutomaticMemoryCaptureJob, processAutomaticMemoryCaptureQueue } from "./automatic-memory-capture-queue";
+import {
+  enqueueAutomaticMemoryCaptureJob,
+  processAutomaticMemoryCaptureQueue,
+  subscribeAutomaticMemoryCaptureCompletions,
+} from "./automatic-memory-capture-queue";
 
 function message(id: string, role: string, content: string): JsonRecord {
   return {
@@ -92,7 +96,13 @@ function queueStorage(options: { refreshFailures?: number } = {}) {
         refreshFailures -= 1;
         throw new Error("provider unavailable");
       }
-      return { rebuilt: 1 } as T;
+      return {
+        rebuilt: 1,
+        capture: {
+          operation: "created",
+          memory: { id: "memory-1", content: "Celia's cat is named Miso." },
+        },
+      } as T;
     },
     async getWorldState<T = unknown>(): Promise<T | null> {
       return null;
@@ -155,8 +165,31 @@ describe("automatic memory capture queue", () => {
         jobId: String(job?.id),
         sourceMessageIds: ["user-1", "assistant-1"],
         completedAt: "2026-01-01T00:03:00.000Z",
+        capture: {
+          operation: "created",
+          memory: { id: "memory-1", content: "Celia's cat is named Miso." },
+        },
       },
     });
+  });
+
+  it("publishes the exact saved memory after durable capture completes", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    const notices: unknown[] = [];
+    const unsubscribe = subscribeAutomaticMemoryCaptureCompletions((notice) => notices.push(notice));
+
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    unsubscribe();
+
+    expect(notices).toEqual([
+      {
+        chatId: "chat-1",
+        assistantMessageId: "assistant-1",
+        operation: "created",
+        memory: { id: "memory-1", content: "Celia's cat is named Miso." },
+      },
+    ]);
   });
 
   it("retries transient failures with bounded backoff before succeeding", async () => {

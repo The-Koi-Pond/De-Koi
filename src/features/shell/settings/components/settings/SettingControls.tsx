@@ -38,6 +38,8 @@ export function ConversationSoundSetting() {
   const setCustomTextBlipSound = useUIStore((s) => s.setCustomTextBlipSound);
   const conversationBrowserNotifications = useUIStore((s) => s.conversationBrowserNotifications);
   const setConversationBrowserNotifications = useUIStore((s) => s.setConversationBrowserNotifications);
+  const automaticMemoryCaptureNotifications = useUIStore((s) => s.automaticMemoryCaptureNotifications);
+  const setAutomaticMemoryCaptureNotifications = useUIStore((s) => s.setAutomaticMemoryCaptureNotifications);
   const [localNotificationPermission, setLocalNotificationPermission] =
     useState<LocalNotificationPermission>("default");
   const [customSoundError, setCustomSoundError] = useState<string | null>(null);
@@ -172,6 +174,12 @@ export function ConversationSoundSetting() {
           setConversationBrowserNotifications(nextPermission === "granted");
         }}
         help={nativeNotificationsHelp}
+      />
+      <ToggleSetting
+        label="Show memories as they are saved"
+        checked={automaticMemoryCaptureNotifications}
+        onChange={setAutomaticMemoryCaptureNotifications}
+        help="Show the exact automatic memory in an in-app notification after it has been saved. Memory text is never sent to native OS notifications."
       />
       {localNotificationPermission === "default" && (
         <p className="pl-6 text-[0.625rem] leading-snug text-[var(--muted-foreground)]">

@@ -504,6 +504,10 @@ export interface MessageMemoryCaptureExtra {
   jobId: string;
   sourceMessageIds: string[];
   completedAt: string;
+  capture?: {
+    operation: "created" | "updated";
+    memory: { id: string; content: string };
+  };
 }
 /** Additional data attached to a message. */
 export interface MessageExtra {

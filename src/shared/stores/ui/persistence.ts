@@ -220,6 +220,7 @@ export function partializeUiState(state: UIState) {
     textBlipMode: state.textBlipMode,
     customTextBlipSound: state.customTextBlipSound,
     conversationBrowserNotifications: state.conversationBrowserNotifications,
+    automaticMemoryCaptureNotifications: state.automaticMemoryCaptureNotifications,
     customConversationPrompt: state.customConversationPrompt,
     scheduleGenerationPreferences: state.scheduleGenerationPreferences,
     impersonatePromptTemplate: state.impersonatePromptTemplate,

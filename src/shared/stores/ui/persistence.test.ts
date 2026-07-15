@@ -90,6 +90,14 @@ describe("ui persistence migration", () => {
     expect(partialized.echoChamberSide).toBe("top-left");
     expect(partialized.echoChamberDismissedChatIds).toEqual({ "chat-1": true });
   });
+
+  it("persists the automatic memory capture notification preference", () => {
+    const partialized = partializeUiState({
+      automaticMemoryCaptureNotifications: false,
+    } as UIState);
+
+    expect(partialized.automaticMemoryCaptureNotifications).toBe(false);
+  });
 });
 
 describe("setup journey persistence", () => {

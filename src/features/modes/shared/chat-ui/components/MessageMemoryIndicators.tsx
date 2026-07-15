@@ -36,11 +36,15 @@ export function MessageMemoryIndicators({
   className,
 }: MessageMemoryIndicatorsProps) {
   const [open, setOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
   const chipRef = useRef<HTMLButtonElement | null>(null);
+  const savedChipRef = useRef<HTMLButtonElement | null>(null);
+  const savedPopoverRef = useRef<HTMLDivElement | null>(null);
   const popoverAnchorRef = useRef<HTMLSpanElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
+  const savedTitleId = useId();
   const remembered = !isUser && memoryCapture?.status === "completed";
   const recalledItems = useMemo(() => recalledMemoryItems(promptSnapshot), [promptSnapshot]);
   const recalledCount = !isUser ? recalledItems.length : 0;
@@ -82,19 +86,25 @@ export function MessageMemoryIndicators({
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open && !savedOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (chipRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
+      if (
+        chipRef.current?.contains(target) ||
+        popoverRef.current?.contains(target) ||
+        savedChipRef.current?.contains(target) ||
+        savedPopoverRef.current?.contains(target)
+      )
+        return;
       setOpen(false);
-      chipRef.current?.focus();
+      setSavedOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       setOpen(false);
-      chipRef.current?.focus();
+      setSavedOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -102,21 +112,46 @@ export function MessageMemoryIndicators({
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open]);
+  }, [open, savedOpen]);
 
   if (!remembered && recalledCount === 0) return null;
 
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
       {remembered && (
-        <span
-          role="status"
-          tabIndex={0}
-          aria-label="Memory saved after this response"
-          title="Memory saved after this response"
-          className="inline-flex shrink-0 items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-300/80 outline-none transition-opacity duration-300 focus-visible:ring-1 focus-visible:ring-emerald-300/45"
-        >
-          ✦ remembered
+        <span className="relative inline-flex">
+          <button
+            ref={savedChipRef}
+            type="button"
+            aria-expanded={savedOpen}
+            aria-haspopup="dialog"
+            aria-controls={savedOpen ? savedTitleId : undefined}
+            aria-label="Open saved memory details"
+            title="Show saved memory"
+            onClick={(event) => {
+              event.stopPropagation();
+              setSavedOpen((value) => !value);
+            }}
+            className="inline-flex shrink-0 items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-300/80 outline-none transition-colors duration-150 hover:bg-emerald-400/15 focus-visible:ring-1 focus-visible:ring-emerald-300/45"
+          >
+            ✦ remembered
+          </button>
+          {savedOpen && (
+            <div
+              ref={savedPopoverRef}
+              role="dialog"
+              aria-labelledby={savedTitleId}
+              className="absolute left-0 top-full z-50 mt-1.5 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left text-[0.6875rem] shadow-xl shadow-black/25"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
+                {memoryCapture?.capture?.operation === "updated" ? "Updated memory" : "Saved memory"}
+              </div>
+              <p className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md bg-[var(--accent)]/35 px-2 py-1.5 leading-relaxed text-[var(--foreground)]/80">
+                {memoryCapture?.capture?.memory.content ?? "Saved memory details are unavailable for this response."}
+              </p>
+            </div>
+          )}
         </span>
       )}
       {recalledCount > 0 && (
@@ -188,4 +223,3 @@ export function MessageMemoryIndicators({
     </span>
   );
 }
-

@@ -222,6 +222,7 @@ export const useUIStore = create<UIState>()(
       textBlipMode: "off" as TextBlipMode,
       customTextBlipSound: null,
       conversationBrowserNotifications: false,
+      automaticMemoryCaptureNotifications: true,
       customConversationPrompt: null,
       scheduleGenerationPreferences: "",
       learnedGameSetupOptions: DEFAULT_GAME_SETUP_LEARNED_OPTIONS,
@@ -528,6 +529,7 @@ export const useUIStore = create<UIState>()(
       setTextBlipMode: (v) => set({ textBlipMode: normalizeTextBlipMode(v) }),
       setCustomTextBlipSound: (v) => set({ customTextBlipSound: normalizeCustomTextBlipSound(v) }),
       setConversationBrowserNotifications: (v) => set({ conversationBrowserNotifications: v }),
+      setAutomaticMemoryCaptureNotifications: (v) => set({ automaticMemoryCaptureNotifications: v }),
       setCustomConversationPrompt: (v) => set({ customConversationPrompt: v }),
       setScheduleGenerationPreferences: (v) => set({ scheduleGenerationPreferences: v }),
       rememberGameSetupOptions: (options, text) =>
