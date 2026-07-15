@@ -1,7 +1,7 @@
 use super::{
     agents, avatars, character_version_media, characters, chats, connection_secrets, contracts,
-    entity_images, game_state_snapshots, integrations, lorebook_images, managed_thumbnails,
-    media_uploads, message_swipes, personas, prompts, shared, sprites,
+    customization, entity_images, game_state_snapshots, integrations, lorebook_images,
+    managed_thumbnails, media_uploads, message_swipes, personas, prompts, shared, sprites,
 };
 use crate::builtins::is_protected_record;
 use crate::performance_diagnostics::{approx_json_bytes, log_span};
@@ -621,9 +621,9 @@ fn storage_create_inner_impl(
     validate_lorebook_folder_for_create(state, &entity, &value)?;
     validate_gallery_folder_for_create(state, &entity, &value)?;
     if entity == "extensions" {
-        return state
-            .storage
-            .create(&entity, prepare_entity_for_create(state, &entity, value)?);
+        let prepared = prepare_entity_for_create(state, &entity, value)?;
+        customization::validate_extension_create(&prepared)?;
+        return state.storage.create(&entity, prepared);
     }
     if entity == "messages" {
         return Ok(shared::project_timeline_message(
@@ -644,6 +644,9 @@ fn storage_create_inner_impl(
     }
     let should_remove_prepared_gallery_file = gallery_create_persists_inline_image(&entity, &value);
     let prepared = prepare_entity_for_create(state, &entity, value)?;
+    if entity == "themes" {
+        customization::validate_theme_create(&prepared)?;
+    }
     if entity == "lorebook-entries" {
         return create_lorebook_entry_with_character_book_sync(state, prepared);
     }
@@ -754,9 +757,13 @@ fn storage_update_inner_impl(
     validate_lorebook_folder_for_patch(state, &entity, &id, &patch)?;
     validate_gallery_folder_for_patch(state, &entity, &patch)?;
     if entity == "extensions" {
-        return state
-            .storage
-            .patch(&entity, &id, shared::normalize_extension_for_update(patch)?);
+        let patch = shared::normalize_extension_for_update(patch)?;
+        return state.storage.patch_with(
+            &entity,
+            &id,
+            patch,
+            customization::enforce_extension_update,
+        );
     }
     let normalized_patch = shared::normalize_update_patch(&entity, patch)?;
     let normalized_patch = normalize_chat_for_update(&entity, normalized_patch)?;
@@ -782,7 +789,14 @@ fn storage_update_inner_impl(
     } else {
         false
     };
-    let updated = if entity == "connections" {
+    let updated = if entity == "themes" {
+        state.storage.patch_with(
+            &entity,
+            &id,
+            normalized_patch,
+            customization::enforce_theme_update,
+        )?
+    } else if entity == "connections" {
         connection_secrets::patch_connection(state, &id, normalized_patch)?
     } else {
         state.storage.patch(&entity, &id, normalized_patch)?
@@ -2081,6 +2095,76 @@ mod tests {
         assert_eq!(updated["name"], "Theme Tweaks");
         assert_eq!(updated["installedAt"], "2026-06-14T12:00:00Z");
         assert!(updated.get("unknown").is_none());
+    }
+
+    #[test]
+    fn customization_mutations_reject_or_clear_fake_active_flags() {
+        let state = test_state("customization-active-content-contract");
+
+        let invalid_active_theme = storage_create_inner(
+            &state,
+            "themes".to_string(),
+            json!({ "id": "empty-theme", "name": "Empty", "css": " ", "isActive": true }),
+        )
+        .expect_err("an empty theme cannot be created active");
+        assert_eq!(invalid_active_theme.code, "invalid_input");
+
+        storage_create_inner(
+            &state,
+            "themes".to_string(),
+            json!({ "id": "theme-1", "name": "Valid", "css": "body { color: teal; }" }),
+        )
+        .expect("valid theme should seed");
+        let direct_activation = storage_update_inner(
+            &state,
+            "themes".to_string(),
+            "theme-1".to_string(),
+            json!({ "isActive": true }),
+        )
+        .expect_err("generic storage updates must not bypass atomic theme activation");
+        assert_eq!(direct_activation.code, "invalid_input");
+
+        super::super::customization::theme_set_active(&state, Some("theme-1"))
+            .expect("valid theme should activate through the atomic command");
+        let cleared_theme = storage_update_inner(
+            &state,
+            "themes".to_string(),
+            "theme-1".to_string(),
+            json!({ "css": "" }),
+        )
+        .expect("invalidating active theme content should deactivate it");
+        assert_eq!(cleared_theme["isActive"], false);
+        assert_eq!(cleared_theme["active"], false);
+
+        storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({ "id": "dead-extension", "name": "Dead", "css": " ", "enabled": false }),
+        )
+        .expect("disabled legacy extension should remain editable");
+        let dead_enable = storage_update_inner(
+            &state,
+            "extensions".to_string(),
+            "dead-extension".to_string(),
+            json!({ "enabled": true }),
+        )
+        .expect_err("an extension without runnable content cannot be enabled");
+        assert_eq!(dead_enable.code, "invalid_input");
+
+        storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({ "id": "live-extension", "name": "Live", "css": "body {}", "enabled": true }),
+        )
+        .expect("valid enabled extension should seed");
+        let cleared_extension = storage_update_inner(
+            &state,
+            "extensions".to_string(),
+            "live-extension".to_string(),
+            json!({ "css": null }),
+        )
+        .expect("removing the last runnable payload should disable the extension");
+        assert_eq!(cleared_extension["enabled"], false);
     }
 
     #[test]

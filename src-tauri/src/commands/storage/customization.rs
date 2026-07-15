@@ -25,12 +25,15 @@ pub(crate) fn theme_set_active(state: &AppState, theme_id: Option<&str>) -> AppR
                 ));
             }
             if let Some(id) = selected_id.as_deref() {
-                if !themes
+                let selected_theme = themes
                     .rows()
                     .iter()
-                    .any(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                {
-                    return Err(AppError::not_found(format!("themes/{id} was not found")));
+                    .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
+                    .ok_or_else(|| AppError::not_found(format!("themes/{id} was not found")))?;
+                if !shared::has_injectable_theme_css(selected_theme) {
+                    return Err(AppError::invalid_input(
+                        "Theme cannot be activated without valid, non-empty CSS",
+                    ));
                 }
             }
 
@@ -52,6 +55,69 @@ pub(crate) fn theme_set_active(state: &AppState, theme_id: Option<&str>) -> AppR
             }
             Ok(selected.unwrap_or(Value::Null))
         })
+}
+
+fn requests_true(value: &Value, field: &str) -> bool {
+    value.get(field).and_then(Value::as_bool) == Some(true)
+}
+
+fn map_requests_true(value: &Map<String, Value>, field: &str) -> bool {
+    value.get(field).and_then(Value::as_bool) == Some(true)
+}
+
+pub(crate) fn validate_theme_create(theme: &Value) -> AppResult<()> {
+    if (requests_true(theme, "isActive") || requests_true(theme, "active"))
+        && !shared::has_injectable_theme_css(theme)
+    {
+        return Err(AppError::invalid_input(
+            "Theme cannot be created active without valid, non-empty CSS",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn enforce_theme_update(
+    theme: &mut Map<String, Value>,
+    patch: &Map<String, Value>,
+) -> AppResult<()> {
+    if map_requests_true(patch, "isActive") || map_requests_true(patch, "active") {
+        return Err(AppError::invalid_input(
+            "Use theme_set_active to change the active theme",
+        ));
+    }
+    let candidate_is_active =
+        map_requests_true(theme, "isActive") || map_requests_true(theme, "active");
+    if candidate_is_active && !shared::has_injectable_theme_css(&Value::Object(theme.clone())) {
+        theme.insert("isActive".to_string(), Value::Bool(false));
+        theme.insert("active".to_string(), Value::Bool(false));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_extension_create(extension: &Value) -> AppResult<()> {
+    if requests_true(extension, "enabled") && !shared::has_runnable_extension_content(extension) {
+        return Err(AppError::invalid_input(
+            "Extension cannot be enabled without valid CSS or JavaScript",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn enforce_extension_update(
+    extension: &mut Map<String, Value>,
+    patch: &Map<String, Value>,
+) -> AppResult<()> {
+    if map_requests_true(extension, "enabled")
+        && !shared::has_runnable_extension_content(&Value::Object(extension.clone()))
+    {
+        if map_requests_true(patch, "enabled") {
+            return Err(AppError::invalid_input(
+                "Extension cannot be enabled without valid CSS or JavaScript",
+            ));
+        }
+        extension.insert("enabled".to_string(), Value::Bool(false));
+    }
+    Ok(())
 }
 
 const EXTENSIONS_COLLECTION: &str = "extensions";
@@ -327,14 +393,14 @@ mod tests {
             .storage
             .create(
                 "themes",
-                json!({ "id": "theme-a", "name": "A", "css": "", "isActive": true, "active": true }),
+                json!({ "id": "theme-a", "name": "A", "css": ":root { --primary: red; }", "isActive": true, "active": true }),
             )
             .expect("first theme should seed");
         state
             .storage
             .create(
                 "themes",
-                json!({ "id": "theme-b", "name": "B", "css": "", "isActive": false, "active": false }),
+                json!({ "id": "theme-b", "name": "B", "css": ":root { --primary: blue; }", "isActive": false, "active": false }),
             )
             .expect("second theme should seed");
     }
@@ -379,6 +445,22 @@ mod tests {
             .expect_err("missing theme should reject");
 
         assert_eq!(error.code, "not_found");
+        assert_eq!(active_theme_ids(&state), vec!["theme-a"]);
+    }
+
+    #[test]
+    fn theme_set_active_rejects_empty_css_without_changing_rows() {
+        let state = test_state("theme-invalid-css");
+        seed_themes(&state);
+        state
+            .storage
+            .patch("themes", "theme-b", json!({ "css": "   " }))
+            .expect("legacy invalid theme should seed");
+
+        let error = super::theme_set_active(&state, Some("theme-b"))
+            .expect_err("empty CSS theme should not activate");
+
+        assert_eq!(error.code, "invalid_input");
         assert_eq!(active_theme_ids(&state), vec!["theme-a"]);
     }
 
