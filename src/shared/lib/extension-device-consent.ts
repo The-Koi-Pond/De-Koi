@@ -4,6 +4,7 @@ export const EXTENSION_CONSENT_STORAGE_KEY = "de-koi.extension-device-consent.v1
 export const EXTENSION_CONSENT_CHANGED_EVENT = "de-koi-extension-consent-updated";
 
 export interface ExtensionConsentChangedDetail {
+  all?: boolean;
   runtimeScope?: string;
   extensionId?: string;
 }
@@ -39,7 +40,9 @@ function readEnvelope(storage: ConsentStorage): ConsentEnvelope {
 }
 
 function dispatchConsentChanged(detail: ExtensionConsentChangedDetail = {}) {
-  globalThis.dispatchEvent?.(new CustomEvent<ExtensionConsentChangedDetail>(EXTENSION_CONSENT_CHANGED_EVENT, { detail }));
+  globalThis.dispatchEvent?.(
+    new CustomEvent<ExtensionConsentChangedDetail>(EXTENSION_CONSENT_CHANGED_EVENT, { detail }),
+  );
 }
 
 function writeEnvelope(storage: ConsentStorage, envelope: ConsentEnvelope, detail: ExtensionConsentChangedDetail) {
@@ -53,7 +56,9 @@ export function extensionConsentEventAffects(
   extensionId: string | readonly string[],
 ) {
   const detail = (event as CustomEvent<ExtensionConsentChangedDetail>).detail;
-  if (!detail || (!detail.runtimeScope && !detail.extensionId)) return true;
+  if (!detail) return false;
+  if (detail.all === true) return true;
+  if (!detail.runtimeScope && !detail.extensionId) return false;
   if (detail.runtimeScope && detail.runtimeScope !== runtimeScope) return false;
   if (!detail.extensionId) return true;
   return Array.isArray(extensionId) ? extensionId.includes(detail.extensionId) : extensionId === detail.extensionId;
@@ -183,6 +188,6 @@ export const extensionDeviceConsentStore = {
   },
   clearAll(storage: ConsentStorage = localStorage) {
     storage.removeItem(EXTENSION_CONSENT_STORAGE_KEY);
-    dispatchConsentChanged();
+    dispatchConsentChanged({ all: true });
   },
 };

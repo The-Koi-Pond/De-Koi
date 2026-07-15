@@ -55,7 +55,11 @@ describe("extension device consent", () => {
   });
 
   it("filters consent events by runtime and extension", () => {
-    expect(extensionConsentEventAffects(new CustomEvent("change", { detail: {} }), "embedded", "pond")).toBe(true);
+    expect(extensionConsentEventAffects(new Event("change"), "embedded", "pond")).toBe(false);
+    expect(extensionConsentEventAffects(new CustomEvent("change", { detail: {} }), "embedded", "pond")).toBe(false);
+    expect(extensionConsentEventAffects(new CustomEvent("change", { detail: { all: true } }), "embedded", "pond")).toBe(
+      true,
+    );
     expect(
       extensionConsentEventAffects(
         new CustomEvent("change", { detail: { runtimeScope: "embedded", extensionId: "pond" } }),

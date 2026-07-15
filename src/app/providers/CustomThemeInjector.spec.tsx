@@ -69,7 +69,7 @@ describe("CustomThemeInjector", () => {
     expect(document.getElementById("marinara-custom-theme")).toBeNull();
   });
 
-  it.each([null, undefined, { nested: "css" }])("does not inject malformed stored theme CSS: %s", (css) => {
+  it.each([null, undefined, "", { nested: "css" }])("does not inject malformed stored theme CSS: %s", (css) => {
     settingsData.themes = [{ id: "malformed", name: "Malformed", css, isActive: true }];
 
     act(() => root.render(<CustomThemeInjector />));
@@ -111,7 +111,7 @@ describe("CustomThemeInjector", () => {
     });
   });
 
-  it.each([null, undefined, { nested: "css" }, "x".repeat(256 * 1024 + 1)])(
+  it.each([null, undefined, "", { nested: "css" }, "x".repeat(256 * 1024 + 1)])(
     "does not inject malformed or oversized extension CSS: %s",
     async (css) => {
       const extension = {

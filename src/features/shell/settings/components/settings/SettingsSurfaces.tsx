@@ -26,7 +26,10 @@ import { restoreSetupJourneyFocus } from "../../../onboarding/shell";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
-import { buildImportedExtensionInput } from "../../../../../shared/lib/extension-import";
+import {
+  buildImportedExtensionInput,
+  extensionHasRunnableJavaScript,
+} from "../../../../../shared/lib/extension-import";
 import {
   useExtensions,
   useCreateExtension,
@@ -91,6 +94,7 @@ import {
 } from "../../../../../shared/lib/extension-device-consent";
 import { currentRuntimeConsentScope } from "../../../../../shared/api/customization-api";
 import { extensionCompatibilityStatus } from "../../../../../engine/contracts/extension-compatibility";
+import { isInjectableExtensionCss, isInjectableThemeCss } from "../../../../../engine/contracts/customization-content";
 import { downloadBackupToBrowser } from "../../lib/backup-settings-actions";
 import {
   initialRemoteRuntimeHealth,
@@ -2763,7 +2767,9 @@ export function ThemesSettings() {
   const deleteTheme = useDeleteTheme();
   const setActiveTheme = useSetActiveTheme();
   const fileRef = useRef<HTMLInputElement>(null);
-  const activeCustomTheme = customThemes.find((theme) => theme.isActive) ?? null;
+  const storedActiveCustomTheme = customThemes.find((theme) => theme.isActive) ?? null;
+  const activeCustomTheme =
+    storedActiveCustomTheme && isInjectableThemeCss(storedActiveCustomTheme.css) ? storedActiveCustomTheme : null;
   const isSavingTheme = createTheme.isPending || updateTheme.isPending || setActiveTheme.isPending;
 
   // Editor state
@@ -2783,7 +2789,7 @@ export function ThemesSettings() {
   const openEditTheme = useCallback((theme: Theme) => {
     setEditingId(theme.id);
     setThemeName(theme.name);
-    setThemeCss(theme.css);
+    setThemeCss(typeof theme.css === "string" ? theme.css : "");
     setEditorOpen(true);
   }, []);
 
@@ -2991,80 +2997,91 @@ export function ThemesSettings() {
         </button>
 
         {/* Custom theme list */}
-        {customThemes.map((t) => (
-          <div
-            key={t.id}
-            className={cn(
-              "flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all",
-              activeCustomTheme?.id === t.id
-                ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-                : "bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:bg-[var(--accent)]",
-            )}
-          >
-            <button
-              onClick={() =>
-                setActiveTheme.mutate(t.id, {
-                  onError: (err) => {
-                    console.error("[ThemesSettings] Failed to activate theme:", err);
-                    toast.error("Failed to activate theme.");
-                  },
-                })
-              }
-              className="flex flex-1 items-center gap-2 min-w-0"
+        {customThemes.map((t) => {
+          const hasValidCss = isInjectableThemeCss(t.css);
+          const isActive = hasValidCss && activeCustomTheme?.id === t.id;
+          return (
+            <div
+              key={t.id}
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all",
+                isActive
+                  ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
+                  : "bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:bg-[var(--accent)]",
+              )}
             >
-              <FileCode2 size="0.75rem" className="shrink-0" />
-              <span className="truncate">{t.name}</span>
-              {activeCustomTheme?.id === t.id && <Check size="0.75rem" className="shrink-0" />}
-            </button>
-            <button
-              onClick={() => openEditTheme(t)}
-              className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
-              title="Edit theme CSS"
-            >
-              <Code size="0.6875rem" />
-            </button>
-            <button
-              onClick={() => {
-                void (async () => {
-                  try {
-                    const result = await saveTextFileToUserSelectedLocation({
-                      filename: `${t.name.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`,
-                      content: JSON.stringify({ name: t.name, css: t.css }, null, 2),
-                      title: "Export theme",
-                      mimeType: "application/json",
-                      filters: [{ name: "JSON", extensions: ["json"] }],
-                    });
-                    if (result !== "cancelled") toast.success(`Theme "${t.name}" exported`);
-                  } catch (err) {
-                    console.error("[ThemesSettings] Failed to export theme:", err);
-                    toast.error("Failed to export theme.");
-                  }
-                })();
-              }}
-              className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
-              title="Export theme"
-            >
-              <Download size="0.6875rem" />
-            </button>
-            <button
-              onClick={() => {
-                void (async () => {
-                  try {
-                    await deleteTheme.mutateAsync(t.id);
-                    toast.success(`Theme "${t.name}" removed`);
-                  } catch (err) {
-                    console.error("[ThemesSettings] Failed to remove theme:", err);
-                    toast.error("Failed to remove theme.");
-                  }
-                })();
-              }}
-              className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-              title="Remove theme"
-            >
-              <Trash2 size="0.6875rem" />
-            </button>
-          </div>
-        ))}
+              <button
+                disabled={!hasValidCss}
+                onClick={() =>
+                  setActiveTheme.mutate(t.id, {
+                    onError: (err) => {
+                      console.error("[ThemesSettings] Failed to activate theme:", err);
+                      toast.error("Failed to activate theme.");
+                    },
+                  })
+                }
+                className="flex min-w-0 flex-1 items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+                title={hasValidCss ? "Activate theme" : "This theme has invalid or empty CSS"}
+              >
+                <FileCode2 size="0.75rem" className="shrink-0" />
+                <span className="flex min-w-0 flex-1 flex-col items-start">
+                  <span className="truncate">{t.name}</span>
+                  {!hasValidCss && (
+                    <span className="text-[0.5625rem] text-[var(--destructive)]">Invalid or empty CSS</span>
+                  )}
+                </span>
+                {isActive && <Check size="0.75rem" className="shrink-0" />}
+              </button>
+              <button
+                onClick={() => openEditTheme(t)}
+                className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
+                title="Edit theme CSS"
+              >
+                <Code size="0.6875rem" />
+              </button>
+              <button
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const result = await saveTextFileToUserSelectedLocation({
+                        filename: `${t.name.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`,
+                        content: JSON.stringify({ name: t.name, css: t.css }, null, 2),
+                        title: "Export theme",
+                        mimeType: "application/json",
+                        filters: [{ name: "JSON", extensions: ["json"] }],
+                      });
+                      if (result !== "cancelled") toast.success(`Theme "${t.name}" exported`);
+                    } catch (err) {
+                      console.error("[ThemesSettings] Failed to export theme:", err);
+                      toast.error("Failed to export theme.");
+                    }
+                  })();
+                }}
+                className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
+                title="Export theme"
+              >
+                <Download size="0.6875rem" />
+              </button>
+              <button
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      await deleteTheme.mutateAsync(t.id);
+                      toast.success(`Theme "${t.name}" removed`);
+                    } catch (err) {
+                      console.error("[ThemesSettings] Failed to remove theme:", err);
+                      toast.error("Failed to remove theme.");
+                    }
+                  })();
+                }}
+                className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                title="Remove theme"
+              >
+                <Trash2 size="0.6875rem" />
+              </button>
+            </div>
+          );
+        })}
 
         {isLoading && customThemes.length === 0 && (
           <p className="py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">Loading custom themes...</p>
@@ -3213,57 +3230,81 @@ export function ExtensionsSettings() {
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium">Installed Extensions</span>
 
-        {extensionList.map((ext) => (
-          <div
-            key={ext.id}
-            className={cn(
-              "flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all",
-              ext.enabled
-                ? "bg-[var(--secondary)] text-[var(--secondary-foreground)]"
-                : "bg-[var(--secondary)]/40 text-[var(--muted-foreground)]",
-            )}
-          >
-            <button
-              onClick={() => void handleToggleExtension(ext)}
+        {extensionList.map((ext) => {
+          const hasValidCss = isInjectableExtensionCss(ext.css);
+          const hasValidJavaScript = extensionHasRunnableJavaScript(ext);
+          const hasRunnableContent = hasValidCss || hasValidJavaScript;
+          const isEffectivelyEnabled = ext.enabled && hasRunnableContent;
+          return (
+            <div
+              key={ext.id}
               className={cn(
-                "rounded p-0.5 transition-colors",
-                ext.enabled
-                  ? "text-emerald-400 hover:text-emerald-300"
-                  : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all",
+                isEffectivelyEnabled
+                  ? "bg-[var(--secondary)] text-[var(--secondary-foreground)]"
+                  : "bg-[var(--secondary)]/40 text-[var(--muted-foreground)]",
               )}
-              title={ext.enabled ? "Disable extension" : "Enable extension"}
             >
-              {ext.enabled ? <Power size="0.75rem" /> : <PowerOff size="0.75rem" />}
-            </button>
-            <div className="flex flex-1 flex-col min-w-0">
-              <span className="truncate font-medium">{ext.name}</span>
-              {ext.description && (
-                <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">{ext.description}</span>
-              )}
-              {ext.packageId && (
-                <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                  {ext.packageId}
-                  {ext.packageVersion ? ` v${ext.packageVersion}` : ""}
-                  {ext.permissions?.length ? ` - ${ext.permissions.length} permissions` : ""}
-                </span>
-              )}
+              <button
+                disabled={!hasRunnableContent && !ext.enabled}
+                onClick={() => void handleToggleExtension(ext)}
+                className={cn(
+                  "rounded p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  isEffectivelyEnabled
+                    ? "text-emerald-400 hover:text-emerald-300"
+                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+                )}
+                title={
+                  !hasRunnableContent
+                    ? "This extension has no valid CSS or JavaScript"
+                    : ext.enabled
+                      ? "Disable extension"
+                      : "Enable extension"
+                }
+              >
+                {isEffectivelyEnabled ? <Power size="0.75rem" /> : <PowerOff size="0.75rem" />}
+              </button>
+              <div className="flex flex-1 flex-col min-w-0">
+                <span className="truncate font-medium">{ext.name}</span>
+                {ext.description && (
+                  <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">{ext.description}</span>
+                )}
+                {ext.packageId && (
+                  <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                    {ext.packageId}
+                    {ext.packageVersion ? ` v${ext.packageVersion}` : ""}
+                    {ext.permissions?.length ? ` - ${ext.permissions.length} permissions` : ""}
+                  </span>
+                )}
+                {!hasRunnableContent && (
+                  <span className="text-[0.5625rem] text-[var(--destructive)]">
+                    Inactive: no valid CSS or JavaScript
+                  </span>
+                )}
+                {ext.css != null && !hasValidCss && hasValidJavaScript && (
+                  <span className="text-[0.5625rem] text-[var(--destructive)]">Invalid CSS will not run</span>
+                )}
+              </div>
+              <button
+                onClick={() => setRemovingExtension(ext)}
+                className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                title="Remove extension"
+              >
+                <Trash2 size="0.6875rem" />
+              </button>
+              <button
+                onClick={() => setActivatingExtension(ext)}
+                disabled={!hasRunnableContent}
+                className="rounded px-1.5 py-1 text-[0.625rem] text-[var(--primary)] ring-1 ring-[var(--primary)]/30 disabled:cursor-not-allowed disabled:opacity-50"
+                title={
+                  hasRunnableContent ? "Manage activation on this device" : "No valid extension content to activate"
+                }
+              >
+                Device access
+              </button>
             </div>
-            <button
-              onClick={() => setRemovingExtension(ext)}
-              className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-              title="Remove extension"
-            >
-              <Trash2 size="0.6875rem" />
-            </button>
-            <button
-              onClick={() => setActivatingExtension(ext)}
-              className="rounded px-1.5 py-1 text-[0.625rem] text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-              title="Manage activation on this device"
-            >
-              Device access
-            </button>
-          </div>
-        ))}
+          );
+        })}
 
         {!isLoading && extensionList.length === 0 && (
           <p className="py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">

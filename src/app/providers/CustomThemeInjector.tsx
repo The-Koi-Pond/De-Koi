@@ -8,9 +8,7 @@ import { useExtensions } from "../../features/shell/settings/index";
 import { stripDangerousCss } from "../../shared/lib/chat-css";
 import { extensionHasRunnableJavaScript } from "../../shared/lib/extension-import";
 import { executeCustomExtensionJavaScript } from "./extension-runtime";
-import { MAX_THEME_CSS_BYTES } from "../../engine/contracts/schemas/theme.schema";
-import { MAX_EXTENSION_CSS_BYTES } from "../../engine/contracts/schemas/extension.schema";
-import { utf8ByteLength } from "../../engine/contracts/text-bytes";
+import { isInjectableExtensionCss, isInjectableThemeCss } from "../../engine/contracts/customization-content";
 import {
   EXTENSION_CONSENT_CHANGED_EVENT,
   extensionConsentEventAffects,
@@ -82,11 +80,7 @@ export function CustomThemeInjector() {
     const id = "marinara-custom-theme";
     let style = document.getElementById(id) as HTMLStyleElement | null;
 
-    if (
-      !activeTheme ||
-      typeof activeTheme.css !== "string" ||
-      utf8ByteLength(activeTheme.css) > MAX_THEME_CSS_BYTES
-    ) {
+    if (!activeTheme || !isInjectableThemeCss(activeTheme.css)) {
       style?.remove();
       return;
     }
@@ -116,14 +110,8 @@ export function CustomThemeInjector() {
     // Inject enabled ones
     for (const ext of installedExtensions) {
       if (!ext) continue;
-      if (
-        !ext.enabled ||
-        !extensionCanRun(ext) ||
-        !deviceActivation[ext.id]?.css ||
-        typeof ext.css !== "string" ||
-        !ext.css ||
-        utf8ByteLength(ext.css) > MAX_EXTENSION_CSS_BYTES
-      ) continue;
+      if (!ext.enabled || !extensionCanRun(ext) || !deviceActivation[ext.id]?.css || !isInjectableExtensionCss(ext.css))
+        continue;
       const style = document.createElement("style");
       style.id = `${prefix}${ext.id}`;
       style.textContent = stripDangerousCss(ext.css);
@@ -150,7 +138,8 @@ export function CustomThemeInjector() {
         !extensionCanRun(ext) ||
         !deviceActivation[ext.id]?.javascript ||
         !extensionHasRunnableJavaScript(ext)
-      ) continue;
+      )
+        continue;
 
       try {
         const runningExtension = executeCustomExtensionJavaScript(ext);
