@@ -1,7 +1,7 @@
 # Customization Safety and Portability Design
 
-**Issues:** #1023, #1024, #1025, #1026, #1027, #1028  
-**Status:** Approved  
+**Issues:** #1023, #1024, #1025, #1026, #1027, #1028
+**Status:** Approved
 **Scope:** One coordinated PR delivered as four independently testable vertical slices
 
 ## Goals

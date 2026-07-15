@@ -29,6 +29,7 @@ The protected invariants involve storage atomicity, destructive user-data choice
 ### Task 1: Shared customization contracts
 
 **Files:**
+
 - Modify: `src/engine/contracts/constants/defaults.ts`
 - Modify: `src/engine/contracts/schemas/theme.schema.ts`
 - Create: `src/engine/contracts/schemas/theme.schema.spec.ts`
@@ -39,6 +40,7 @@ The protected invariants involve storage atomicity, destructive user-data choice
 - Create: `src/engine/contracts/extension-compatibility.spec.ts`
 
 **Interfaces:**
+
 - Produces: `MAX_THEME_CSS_BYTES`, `MAX_FONT_UPLOAD_BYTES`, and `extensionCompatibilityStatus(range, appVersion)`.
 
 - [ ] **Step 1: Add failing theme-limit and compatibility tests**
@@ -88,6 +90,7 @@ git commit -m "feat: define customization safety contracts"
 ### Task 2: Atomic active-theme capability
 
 **Files:**
+
 - Create: `src-tauri/src/commands/storage/customization.rs`
 - Create: `src-tauri/src/commands/storage/commands/customization.rs`
 - Modify: `src-tauri/src/commands/storage.rs`
@@ -100,6 +103,7 @@ git commit -m "feat: define customization safety contracts"
 - Modify: `src/features/shell/settings/hooks/use-themes.spec.tsx`
 
 **Interfaces:**
+
 - Rust: `theme_set_active(state: &AppState, theme_id: Option<&str>) -> AppResult<Value>`.
 - Shared API: `themesApi.setActive(themeId: string | null): Promise<Theme | null>`.
 
@@ -159,6 +163,7 @@ git commit -m "fix: make active theme selection atomic"
 ### Task 3: Isolated theme preview and customization safe mode
 
 **Files:**
+
 - Create: `src/features/shell/settings/components/settings/ThemePreview.tsx`
 - Create: `src/features/shell/settings/components/settings/ThemePreview.spec.tsx`
 - Create: `src/app/CustomizationSafeMode.tsx`
@@ -171,6 +176,7 @@ git commit -m "fix: make active theme selection atomic"
 - Create: `src/app/providers/CustomThemeInjector.spec.tsx`
 
 **Interfaces:**
+
 - `isCustomizationSafeMode(location: Pick<Location, "search">): boolean`.
 - `ThemePreview({ css, enabled })` writes sanitized CSS only into sandboxed iframe `srcDoc`.
 - `CustomizationSafeMode` deactivates the active theme and clears local extension consent without mounting customization injectors.
@@ -178,7 +184,7 @@ git commit -m "fix: make active theme selection atomic"
 - [ ] **Step 1: Add red tests proving draft CSS never reaches the parent document and safe mode bypasses injection**
 
 ```tsx
-render(<ThemePreview enabled css={'button { display: none !important; }'} />);
+render(<ThemePreview enabled css={"button { display: none !important; }"} />);
 expect(document.head.textContent).not.toContain("display: none");
 expect(screen.getByTitle("Theme preview")).toHaveAttribute("sandbox", "");
 expect(isCustomizationSafeMode({ search: "?safe-mode=customizations" })).toBe(true);
@@ -196,7 +202,11 @@ Build `srcDoc` from a fixed representative fixture, escaped theme CSS, and built
 ```tsx
 export function App() {
   if (isCustomizationSafeMode(window.location)) return <CustomizationSafeMode />;
-  return <Suspense fallback={<BootShellFallback />}><AppExperience /></Suspense>;
+  return (
+    <Suspense fallback={<BootShellFallback />}>
+      <AppExperience />
+    </Suspense>
+  );
 }
 ```
 
@@ -222,6 +232,7 @@ git commit -m "feat: contain theme preview and add safe mode"
 ### Task 4: Validated remote font upload
 
 **Files:**
+
 - Modify: `src/shared/api/file-payload.ts`
 - Create: `src/shared/api/settings-assets-api.spec.ts`
 - Modify: `src/shared/api/settings-assets-api.ts`
@@ -235,6 +246,7 @@ git commit -m "feat: contain theme preview and add safe mode"
 - Modify: `src/features/shell/settings/components/settings/SettingsSurfaces.tsx`
 
 **Interfaces:**
+
 - Shared API: `fontsApi.upload<T>(file: File): Promise<T>` sending `{ body: { file: UploadFilePayload } }`.
 - Rust: `fonts_upload(state: &AppState, body: Value) -> AppResult<Value>`.
 - UI helper: `fontManagementMode(remoteTarget): "folder" | "upload"`.
@@ -254,7 +266,9 @@ Decode the existing upload payload shape, normalize to a basename, compare exten
 
 ```ts
 await fontsApi.upload(file);
-expect(invokeTauri).toHaveBeenCalledWith("fonts_upload", { body: { file: expect.objectContaining({ name: "custom.woff2" }) } });
+expect(invokeTauri).toHaveBeenCalledWith("fonts_upload", {
+  body: { file: expect.objectContaining({ name: "custom.woff2" }) },
+});
 ```
 
 Run: `pnpm vitest run src/shared/api/settings-assets-api.spec.ts`  
@@ -284,6 +298,7 @@ git commit -m "feat: upload custom fonts across runtimes"
 ### Task 5: Atomic extension removal and retained-data recovery
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/extension.ts`
 - Modify: `src/engine/contracts/schemas/extension.schema.ts`
 - Modify: `src/engine/capabilities/storage-collections.ts`
@@ -304,6 +319,7 @@ git commit -m "feat: upload custom fonts across runtimes"
 - Modify: `src/features/shell/settings/components/settings/SettingsSurfaces.tsx`
 
 **Interfaces:**
+
 - `extension_remove(extension_id, data_policy)` returns `{ extensionId, dataPolicy, removedMemoryRows, retentionId }`.
 - `extension_retained_data_list()` returns retention DTOs without plugin values.
 - `extension_reconnect_data(extension_id, retention_id)` validates package identity and assigns the host-controlled namespace.
@@ -355,6 +371,7 @@ git commit -m "feat: define extension data removal lifecycle"
 ### Task 6: Device-local activation and truthful capabilities
 
 **Files:**
+
 - Modify: `src/shared/lib/extension-import.ts`
 - Modify: `src/shared/lib/extension-import.spec.ts`
 - Create: `src/shared/lib/extension-device-consent.ts`
@@ -372,6 +389,7 @@ git commit -m "feat: define extension data removal lifecycle"
 - Modify: `src/features/shell/settings/components/settings/SettingsSurfaces.tsx`
 
 **Interfaces:**
+
 - Runtime: `executeCustomExtensionJavaScript(ext, { permissions, storageNamespaceId, ...deps })` exposes only declared De-Koi helpers for package extensions.
 - Hook: `useExtensionDeviceActivation(extension)` returns compatibility, fingerprint, CSS/JS activation, grant, revoke, and stale state.
 - View helper maps every declared permission to `available`, `unavailable`, or `legacy-unscoped` plus user-facing text.
@@ -426,6 +444,7 @@ git commit -m "fix: keep extension activation device local"
 ### Task 7: Documentation, discovery, and integrated UI proof
 
 **Files:**
+
 - Modify: `docs/developer/extensions.html`
 - Modify: `src/features/shell/discovery/discovery-entries.json`
 - Modify: `src/features/shell/discovery/discovery-registry.spec.ts`
@@ -460,6 +479,7 @@ git commit -m "docs: explain customization safety controls"
 ### Task 8: Full verification, Bunny, PR, CI, and merge
 
 **Files:**
+
 - Review all changes against `origin/main`.
 - Create PR text from `.github/pull_request_template.md`; leave human checkboxes unchecked.
 
