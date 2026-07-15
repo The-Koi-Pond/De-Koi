@@ -22,12 +22,14 @@ describe("shared UI readability foundations", () => {
     );
   });
 
-  it("keeps the mobile top safe area inside the visible app chrome", () => {
+  it("does not duplicate native mobile top insets without an edge-to-edge viewport", () => {
     const css = readGlobalStyle("07-responsive-accessibility.css");
     const appShell = readFileSync(resolve(process.cwd(), "src/app/shell/AppShell.tsx"), "utf8");
+    const html = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
 
+    expect(html).not.toMatch(/viewport-fit=cover/);
     expect(css).toMatch(/\.mari-app\s*{[^}]*padding:\s*0\s+env\(safe-area-inset-right\)/s);
-    expect(css).toMatch(/\.mari-app-chrome\s*{[^}]*padding-top:\s*env\(safe-area-inset-top\)/s);
+    expect(css).not.toMatch(/\.mari-app-chrome\s*{[^}]*padding-top:\s*env\(safe-area-inset-top\)/s);
     expect(appShell).not.toMatch(/"mari-app fixed[^"]*safe-area-inset-top[^"]*"/);
   });
 });
