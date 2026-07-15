@@ -46,6 +46,7 @@ import {
   scheduleTranscriptBottomLock,
   scheduleTranscriptScrollWrite,
   scrollTranscriptToBottom,
+  shouldRevealLatestTranscriptWindow,
   TRANSCRIPT_RENDER_WINDOW_STEP,
 } from "../../shared/chat-ui/index";
 
@@ -749,12 +750,21 @@ export function ConversationView({
     const previousTail = previousTailRef.current;
     const tailMessageChanged = !!newestMsgId && !!previousTail.messageId && previousTail.messageId !== newestMsgId;
     const streamingStarted = isStreaming && !previousTail.isStreaming;
+    const forcedBottomScroll = forcedBottomScrollRef.current;
+    const hasFreshForcedBottomScroll = !!forcedBottomScroll && Date.now() - forcedBottomScroll.requestedAt < 5000;
+    const startsNewOutboundTurn = !!isOptimistic || hasFreshForcedBottomScroll;
     if (
-      transcriptWindowStart !== null &&
-      !isLoadingMoreRef.current &&
-      !userScrolledAwayRef.current &&
-      (tailMessageChanged || streamingStarted)
+      shouldRevealLatestTranscriptWindow({
+        hasOlderWindow: transcriptWindowStart !== null,
+        isLoadingMore: isLoadingMoreRef.current,
+        tailMessageChanged,
+        streamingStarted,
+        isOptimisticTail: !!isOptimistic,
+        hasFreshForcedBottomScroll,
+        userScrolledAway: userScrolledAwayRef.current,
+      })
     ) {
+      if (startsNewOutboundTurn) userScrolledAwayRef.current = false;
       setTranscriptWindowStart(null);
     }
     previousTailRef.current = { messageId: newestMsgId, isStreaming };

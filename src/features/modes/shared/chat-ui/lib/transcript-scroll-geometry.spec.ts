@@ -4,6 +4,7 @@ import {
   resolveTranscriptScrollState,
   scheduleTranscriptBottomLock,
   shouldFollowTranscriptBottom,
+  shouldRevealLatestTranscriptWindow,
 } from "./transcript-scroll-geometry";
 
 describe("transcript scroll geometry", () => {
@@ -64,7 +65,7 @@ describe("transcript scroll geometry", () => {
 
     expect(writeBottom).toHaveBeenCalledTimes(2);
   });
-  it("does not let forced or optimistic bottom jumps bypass user scroll-away", () => {
+  it("lets an explicit or optimistic new turn replace an idle scroll-away latch", () => {
     expect(
       shouldFollowTranscriptBottom({
         hasFreshForcedBottomScroll: true,
@@ -73,7 +74,7 @@ describe("transcript scroll geometry", () => {
         isStreamingWithUserTail: false,
         userScrolledAway: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldFollowTranscriptBottom({
         hasFreshForcedBottomScroll: false,
@@ -82,7 +83,7 @@ describe("transcript scroll geometry", () => {
         isStreamingWithUserTail: false,
         userScrolledAway: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -181,22 +182,26 @@ describe("transcript scroll state", () => {
       }),
     ).toBe(true);
   });
-  it("does not let forced or optimistic bottom jumps bypass user scroll-away", () => {
+  it("reveals the newest transcript window for a new outbound turn", () => {
     expect(
-      shouldFollowTranscriptBottom({
+      shouldRevealLatestTranscriptWindow({
+        hasOlderWindow: true,
+        isLoadingMore: false,
+        tailMessageChanged: true,
+        streamingStarted: false,
+        isOptimisticTail: true,
         hasFreshForcedBottomScroll: true,
-        isNearBottom: false,
-        isOptimisticTail: false,
-        isStreamingWithUserTail: false,
         userScrolledAway: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
-      shouldFollowTranscriptBottom({
+      shouldRevealLatestTranscriptWindow({
+        hasOlderWindow: true,
+        isLoadingMore: false,
+        tailMessageChanged: true,
+        streamingStarted: true,
+        isOptimisticTail: false,
         hasFreshForcedBottomScroll: false,
-        isNearBottom: false,
-        isOptimisticTail: true,
-        isStreamingWithUserTail: false,
         userScrolledAway: true,
       }),
     ).toBe(false);
