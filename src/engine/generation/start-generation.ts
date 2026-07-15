@@ -132,6 +132,7 @@ import {
   hiddenFromAi,
   isRecord,
   nowIso,
+  parseArray,
   parseRecord,
   readNumber,
   readString,
@@ -4332,19 +4333,7 @@ export async function* startGeneration(
   if (saveUserMessageTiming) yield saveUserMessageTiming;
   const prepareContextStartedAt = generationTimingStartedAt();
   const primaryConnection = await resolveGenerationConnection(deps.storage, chat, input);
-  const connection = await resolveForegroundGenerationConnection(
-    deps.storage,
-    chat,
-    primaryConnection,
-    preparedUserInput.images.length > 0,
-  );
   throwIfAborted(signal);
-  for (const warning of [
-    ...preparedUserInput.imageWarnings,
-    ...applyImageAttachmentConnectionSupport(preparedUserInput, connection),
-  ]) {
-    yield { type: "agent_warning", data: warning };
-  }
   let savedTimelineMessage: JsonRecord | null = null;
   if (savesUserMessage) {
     savedTimelineMessage = savedUserMessageForTimeline(savedUserMessage, chatId);
@@ -4370,6 +4359,19 @@ export async function* startGeneration(
     skippedStoredImageMessageIds,
   );
   generationMessages = storedImageDelivery.messages;
+  const connection = await resolveForegroundGenerationConnection(
+    deps.storage,
+    chat,
+    primaryConnection,
+    preparedUserInput.images.length > 0 ||
+      generationMessages.some((message) => parseArray(message.images).length > 0),
+  );
+  for (const warning of [
+    ...preparedUserInput.imageWarnings,
+    ...applyImageAttachmentConnectionSupport(preparedUserInput, connection),
+  ]) {
+    yield { type: "agent_warning", data: warning };
+  }
   const storedImageConnectionSupport = applyStoredImageAttachmentConnectionSupport(generationMessages, connection);
   generationMessages = storedImageConnectionSupport.messages;
   for (const warning of [...storedImageDelivery.warnings, ...storedImageConnectionSupport.warnings]) {

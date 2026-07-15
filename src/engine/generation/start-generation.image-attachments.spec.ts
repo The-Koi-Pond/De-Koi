@@ -23,6 +23,7 @@ function imageAttachmentStorage(
   connectionOverrides: Record<string, unknown> = {},
   options: {
     visionConnection?: Record<string, unknown>;
+    storedImage?: boolean;
   } = {},
 ) {
   const records: Record<string, Record<string, unknown>> = {
@@ -46,7 +47,7 @@ function imageAttachmentStorage(
       : {}),
     "char-a": { id: "char-a", name: "Aki", data: { name: "Aki", personality: "warm" } },
   };
-  const messages: StoredMessage[] = [
+  const messages: StoredMessage[] = options.storedImage === false ? [] : [
     {
       id: "message-1",
       chatId: "chat-1",
@@ -232,7 +233,7 @@ describe("startGeneration image attachments", () => {
   it("keeps text-only foreground requests on the normal chat connection", async () => {
     const { storage } = imageAttachmentStorage(
       { capabilities: { vision: true } },
-      { visionConnection: { capabilities: { vision: true } } },
+      { visionConnection: { capabilities: { vision: true } }, storedImage: false },
     );
     const requests: LlmRequest[] = [];
 
@@ -249,6 +250,26 @@ describe("startGeneration image attachments", () => {
     );
 
     expect(requests.at(-1)?.connectionId).toBe("conn-1");
+  });
+
+  it("routes rehydrated stored image prompts through the configured vision connection", async () => {
+    const { storage } = imageAttachmentStorage(
+      { capabilities: { vision: false } },
+      { visionConnection: { capabilities: { vision: true } } },
+    );
+    const requests: LlmRequest[] = [];
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm: capturingLlm(requests), integrations: {} as IntegrationGateway },
+        { chatId: "chat-1", connectionId: "conn-1", impersonateBlockAgents: true },
+      ),
+    );
+
+    expect(requests.at(-1)?.connectionId).toBe("conn-vision");
+    expect(requests.flatMap((request) => request.messages.flatMap((message) => message.images ?? []))).toContain(
+      IMAGE_DATA_URL,
+    );
   });
 
   it("keeps attachment metadata out of newly saved and forwarded message text", async () => {
