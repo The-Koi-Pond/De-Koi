@@ -24,7 +24,7 @@
   }
 
   body {
-    /* The browser owns top clearance; AppShell handles side and bottom safe-area insets. */
+    /* Without viewport-fit=cover, the browser owns top clearance; AppShell applies only side and bottom safe-area insets. */
   }
 
   .app-sidebar-mobile {
