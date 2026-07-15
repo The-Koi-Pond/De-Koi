@@ -22,11 +22,12 @@ describe("essential action visibility", () => {
     expect(source).toContain('data-de-koi-action-group="connection-folder"');
   });
 
-  it("keeps marked action groups visible for coarse pointers", () => {
+  it("keeps non-message action groups visible for coarse pointers without exposing every message toolbar", () => {
     const css = readSource("src/styles/globals/07-responsive-accessibility.css");
 
     expect(css).toMatch(
-      /@media\s*\(pointer:\s*coarse\)[\s\S]*\[data-de-koi-action-group\][^{]*{[^}]*opacity:\s*1[^}]*visibility:\s*visible[^}]*pointer-events:\s*auto/s,
+      /@media\s*\(pointer:\s*coarse\)[\s\S]*\[data-de-koi-action-group\]:not\(\[data-de-koi-action-group=["']message["']\]\)[^{]*{[^}]*opacity:\s*1[^}]*visibility:\s*visible[^}]*pointer-events:\s*auto/s,
     );
+    expect(css).not.toMatch(/\n\s*\[data-de-koi-action-group\]\s*{/);
   });
 });
