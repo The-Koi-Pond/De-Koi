@@ -497,6 +497,28 @@
     "coverage": "advanced"
   },
   {
+    "id": "extension-device-activation",
+    "title": "Extension Device Access",
+    "category": "Settings",
+    "summary": "Review compatibility and requested helpers, then activate CSS or trusted page-level JavaScript only on this runtime and device.",
+    "keywords": ["extension consent", "device activation", "trusted javascript", "permissions", "capabilities", "compatibility", "device access"],
+    "audience": "Users reviewing whether an installed extension should run on this device.",
+    "where": "Settings > Extensions > Device access.",
+    "actions": [{ "type": "open-settings", "tab": "extensions", "destination": "extensions", "label": "Review Device Access" }],
+    "coverage": "advanced"
+  },
+  {
+    "id": "customization-safe-mode",
+    "title": "Customization Safe Mode",
+    "category": "Help",
+    "summary": "Recover from a broken theme or extension without loading customizations by opening De-Koi with ?safe-mode=customizations.",
+    "keywords": ["safe mode", "broken theme", "extension recovery", "disable customizations", "recover css"],
+    "audience": "Users whose custom CSS or extension made the normal interface difficult to use.",
+    "where": "Append ?safe-mode=customizations to the De-Koi URL, or review Settings > Themes before a problem occurs.",
+    "actions": [{ "type": "open-settings", "tab": "themes", "destination": "themes", "label": "Open Theme Safety Controls" }],
+    "coverage": "advanced"
+  },
+  {
     "id": "backups-profile-export",
     "title": "Backups And Profile Export",
     "category": "Getting started",
@@ -516,6 +538,17 @@
     "audience": "Users who want De-Koi to look or read differently for their setup, screenshots, or accessibility needs.",
     "where": "Settings > Appearance and Settings > Themes.",
     "actions": [{ "type": "open-settings", "tab": "appearance", "label": "Open Appearance" }],
+    "coverage": "advanced"
+  },
+  {
+    "id": "custom-font-upload",
+    "title": "Custom Font Upload",
+    "category": "Settings",
+    "summary": "Install validated TTF, OTF, WOFF, or WOFF2 fonts from Settings; remote runtimes upload while embedded apps can open the managed folder.",
+    "keywords": ["font upload", "remote font", "ttf", "otf", "woff", "woff2", "managed fonts"],
+    "audience": "Users tailoring typography on embedded or remote De-Koi runtimes.",
+    "where": "Settings > Appearance > Font.",
+    "actions": [{ "type": "open-settings", "tab": "appearance", "destination": "fonts", "label": "Manage Custom Fonts" }],
     "coverage": "advanced"
   },
   {

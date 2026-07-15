@@ -46,12 +46,12 @@
             <tr>
               <td><code>.css</code></td>
               <td>The whole file is stored as extension CSS and injected while the extension is enabled.</td>
-              <td>Enabled immediately.</td>
+              <td>Activated on the importing device after its content fingerprint is recorded.</td>
             </tr>
             <tr>
               <td><code>.js</code></td>
               <td>The whole file is stored as extension JavaScript and executed through the extension runtime.</td>
-              <td>Installed disabled. The user must review and enable it.</td>
+              <td>Installed disabled. The user must review it and grant device-local activation.</td>
             </tr>
             <tr>
               <td><code>.json</code></td>
@@ -85,12 +85,13 @@
   }
 }</code></pre>
         <p>
-          Packages with JavaScript are installed disabled and must be explicitly enabled in Settings. Profile imports
-          also force extension rows disabled even when exported metadata says otherwise.
+          Package compatibility uses semantic version ranges. Incompatible packages cannot be activated. Profile imports
+          never create device-local activation, even if exported metadata marks an extension available.
         </p>
         <div class="callout">
-          JavaScript extensions are trusted local code. They can change the page and use extension storage, so De-Koi
-          imports runnable JavaScript disabled by default and asks for confirmation before enabling it.
+          JavaScript extensions run as trusted page-level code. Manifest permissions limit only the helpers De-Koi puts
+          on <code>marinara</code>; they are not a browser sandbox and do not prevent direct page access. Activation is
+          stored per runtime and device and becomes stale whenever code, styles, package identity, version, or permissions change.
         </div>
 
         <h2>Runtime API</h2>
@@ -98,6 +99,12 @@
           JavaScript is wrapped by the extension loader and receives one object named <code>marinara</code>. This object
           is the public API. Do not import app source files, call internal stores, or depend on private React component
           names.
+        </p>
+        <p>
+          Package extensions receive helper groups only when declared: <code>ui:styles</code> exposes
+          <code>addStyle</code>, <code>runtime:dom</code> exposes DOM, timer, observer, and cleanup helpers, and
+          <code>storage:plugin-memory</code> exposes storage. Settings labels other declarations unavailable until De-Koi
+          implements them. Legacy file extensions retain the older unscoped helper surface after local activation.
         </p>
 
         <table>
@@ -149,17 +156,22 @@
         <h2>Storage Scope</h2>
         <p>
           Extension storage is intentionally narrow. The runtime allows only the <code>plugin-memory</code> entity and
-          automatically scopes records to the current extension.
+          automatically scopes records to a host-controlled namespace. A package manifest cannot choose this namespace.
         </p>
         <ul>
           <li>List calls are filtered to the current extension's <code>pluginId</code>.</li>
-          <li>Create calls force <code>pluginId</code> to <code>marinara.extensionId</code>.</li>
+          <li>Create calls force <code>pluginId</code> to the host-assigned namespace.</li>
           <li>
             Record IDs must stay inside the extension namespace:
             <code>&lt;extensionId&gt;:&lt;encoded key&gt;</code>.
           </li>
           <li>Update calls cannot change <code>id</code> or <code>key</code>.</li>
         </ul>
+        <p>
+          Removing an extension offers two explicit choices: retain its data for a later reinstall, or purge it.
+          Retained records expose identity and row-count metadata in Settings, never their stored values. Reconnection
+          requires an explicit action and an exact package-id match.
+        </p>
 
         <pre><code class="language-js">const key = "panel-enabled";
 const id = `${marinara.extensionId}:${encodeURIComponent(key)}`;
@@ -217,6 +229,16 @@ if (existing) {
           <li>Prefer stable selectors you create yourself over De-Koi's private internal DOM structure.</li>
           <li>Keep extensions small and reversible so disabling them returns the page to normal.</li>
         </ul>
+        <h2>Customization Recovery And Fonts</h2>
+        <p>
+          Theme drafts preview inside a sandboxed iframe and start with preview off. If a saved customization breaks the
+          interface, open De-Koi with <code>?safe-mode=customizations</code>; that route mounts without theme or extension
+          providers and can deactivate the active theme and clear this device's extension activations.
+        </p>
+        <p>
+          Embedded De-Koi can open its managed fonts folder. Remote runtimes instead offer a validated upload for TTF,
+          OTF, WOFF, and WOFF2 files up to 10 MiB; the server verifies filename safety, extension, and file signature.
+        </p>
 
         <p class="footer">
           Runtime implementation references:

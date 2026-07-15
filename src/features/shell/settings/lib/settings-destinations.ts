@@ -16,6 +16,7 @@ export const SETTINGS_DESTINATIONS = [
   { id: "image-settings", tab: "general", title: "Image generation", keywords: ["images", "gallery", "dimensions"] },
   { id: "quick-replies", tab: "general", title: "Quick replies", keywords: ["toolbar", "commands", "shortcuts"] },
   { id: "notification-sounds", tab: "appearance", title: "Notification sounds", keywords: ["audio", "alerts", "sound"] },
+  { id: "fonts", tab: "appearance", title: "Custom fonts", keywords: ["font", "upload", "remote"] },
   { id: "themes", tab: "themes", title: "Themes", keywords: ["colors", "style", "appearance"] },
   { id: "modules", tab: "plugins", title: "Modules", keywords: ["plugins", "optional", "tools"] },
   { id: "extensions", tab: "extensions", title: "Extensions", keywords: ["css", "customization", "addons"] },

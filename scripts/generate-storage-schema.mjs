@@ -142,6 +142,12 @@ const collectionMetadata = {
     confidence: "Type-backed",
     notes: "Namespaced plugin KV storage with `pluginId`, `key`, arbitrary `value`, and `schemaVersion`.",
   },
+  "extension-data-retention": {
+    model: "`ExtensionDataRetention`",
+    confidence: "Type-backed",
+    notes:
+      "Metadata-only records for explicitly retained extension storage, including host-controlled namespace, package identity, row count, and retention timestamps.",
+  },
   "memory-capture-jobs": {
     model: "`MemoryCaptureJob`",
     confidence: "Type-backed",

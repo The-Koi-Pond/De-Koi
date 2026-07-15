@@ -1666,7 +1666,7 @@ export function AppearanceSettings() {
         </select>
       </label>
 
-      <label className="flex flex-col gap-1">
+      <label id="settings-destination-fonts" className="scroll-mt-4 flex flex-col gap-1 rounded-xl transition-shadow duration-700">
         <span className="text-xs font-medium inline-flex items-center gap-1">
           Font{" "}
           <HelpTooltip text="Choose the font used across the app. 'Default (Inter)' is optimized for screen readability. Drop .ttf, .otf, .woff, or .woff2 font files into the data/fonts/ folder to add custom fonts." />
