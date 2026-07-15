@@ -1,7 +1,15 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useCreateExtension, useDeleteExtension, useExtensions, useUpdateExtension } from "./use-extensions";
+import {
+  useCreateExtension,
+  useDeleteExtension,
+  useExtensionRetainedData,
+  useExtensions,
+  usePurgeRetainedExtensionData,
+  useReconnectExtensionData,
+  useUpdateExtension,
+} from "./use-extensions";
 
 const queryClientMock = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
@@ -30,7 +38,13 @@ describe("extension query policy", () => {
   });
 
   it("keeps every extension mutation wired to the extension query family", () => {
-    const mutationOptions = [useCreateExtension(), useUpdateExtension(), useDeleteExtension()] as const;
+    const mutationOptions = [
+      useCreateExtension(),
+      useUpdateExtension(),
+      useDeleteExtension(),
+      useReconnectExtensionData(),
+      usePurgeRetainedExtensionData(),
+    ] as const;
 
     for (const mutationOption of mutationOptions) {
       queryClientMock.invalidateQueries.mockClear();
@@ -40,5 +54,11 @@ describe("extension query policy", () => {
     }
 
     expect(useMutation).toHaveBeenCalledTimes(mutationOptions.length);
+  });
+
+  it("loads retained extension data from its focused query", () => {
+    const options = useExtensionRetainedData() as unknown as Record<string, unknown>;
+    expect(options.queryKey).toEqual(["extensions", "retained-data"]);
+    expect(options.queryFn).toBeTypeOf("function");
   });
 });

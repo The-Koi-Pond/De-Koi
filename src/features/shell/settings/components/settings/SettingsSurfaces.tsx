@@ -30,7 +30,15 @@ import {
   buildImportedExtensionInput,
   extensionHasRunnableJavaScript,
 } from "../../../../../shared/lib/extension-import";
-import { useExtensions, useCreateExtension, useDeleteExtension, useUpdateExtension } from "../../hooks/use-extensions";
+import {
+  useExtensions,
+  useCreateExtension,
+  useDeleteExtension,
+  useExtensionRetainedData,
+  usePurgeRetainedExtensionData,
+  useReconnectExtensionData,
+  useUpdateExtension,
+} from "../../hooks/use-extensions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gameAssetsApi } from "../../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
@@ -77,6 +85,7 @@ import {
 import type { Theme } from "../../../../../engine/contracts/types/theme";
 import { useCreateTheme, useDeleteTheme, useSetActiveTheme, useThemes, useUpdateTheme } from "../../hooks/use-themes";
 import { ThemePreview } from "./ThemePreview";
+import { ExtensionRemovalDialog } from "./ExtensionRemovalDialog";
 import { downloadBackupToBrowser } from "../../lib/backup-settings-actions";
 import {
   initialRemoteRuntimeHealth,
@@ -3099,7 +3108,26 @@ export function ExtensionsSettings() {
   const createExtension = useCreateExtension();
   const updateExtension = useUpdateExtension();
   const deleteExtension = useDeleteExtension();
+  const { data: retainedData = [] } = useExtensionRetainedData();
+  const purgeRetainedData = usePurgeRetainedExtensionData();
+  const reconnectData = useReconnectExtensionData();
+  const [removingExtension, setRemovingExtension] = useState<(typeof extensionList)[number] | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleRemoveExtension = async (dataPolicy: "retain" | "purge") => {
+    if (!removingExtension) return;
+    try {
+      const result = await deleteExtension.mutateAsync({ id: removingExtension.id, dataPolicy });
+      toast.success(
+        result.retainedMemoryRows > 0
+          ? `Removed ${removingExtension.name} and kept ${result.retainedMemoryRows} data record${result.retainedMemoryRows === 1 ? "" : "s"}.`
+          : `Removed ${removingExtension.name}.`,
+      );
+      setRemovingExtension(null);
+    } catch (error) {
+      toast.error(toUserMessage(error, { fallback: "Couldn't remove that extension." }));
+    }
+  };
 
   const handleToggleExtension = async (ext: (typeof extensionList)[number]) => {
     const nextEnabled = !ext.enabled;
@@ -3196,7 +3224,7 @@ export function ExtensionsSettings() {
               )}
             </div>
             <button
-              onClick={() => deleteExtension.mutate(ext.id)}
+              onClick={() => setRemovingExtension(ext)}
               className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
               title="Remove extension"
             >
@@ -3212,12 +3240,61 @@ export function ExtensionsSettings() {
         )}
       </div>
 
+      {retainedData.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg bg-[var(--secondary)]/40 p-3 ring-1 ring-[var(--border)]">
+          <span className="text-xs font-medium">Retained extension data</span>
+          <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+            Data kept after removal stays inactive until you explicitly reconnect it to the same package.
+          </p>
+          {retainedData.map((retained) => {
+            const match = extensionList.find(
+              (extension) => retained.packageId && extension.packageId === retained.packageId,
+            );
+            return (
+              <div key={retained.id} className="flex flex-wrap items-center gap-2 rounded-md bg-[var(--card)] p-2 text-[0.625rem]">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{retained.name || retained.packageId || "Removed extension"}</div>
+                  <div className="text-[var(--muted-foreground)]">
+                    {retained.packageId || "Legacy extension"}{retained.packageVersion ? ` v${retained.packageVersion}` : ""}
+                    {` · ${retained.rowCount} record${retained.rowCount === 1 ? "" : "s"}`}
+                  </div>
+                </div>
+                {match && (
+                  <button
+                    onClick={() => reconnectData.mutate({ extensionId: match.id, retentionId: retained.id })}
+                    disabled={reconnectData.isPending}
+                    className="rounded-md bg-[var(--secondary)] px-2 py-1"
+                  >
+                    Reconnect
+                  </button>
+                )}
+                <button
+                  onClick={() => purgeRetainedData.mutate(retained.id)}
+                  disabled={purgeRetainedData.isPending}
+                  className="rounded-md px-2 py-1 text-[var(--destructive)]"
+                >
+                  Delete data
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Info box */}
       <div className="rounded-lg bg-[var(--secondary)]/50 p-2.5 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
         <strong>JSON format:</strong>{" "}
         <code className="rounded bg-[var(--secondary)] px-1">{`{ "name": "...", "description": "...", "css": "..." }`}</code>
         . Extensions can inject custom CSS and/or JavaScript to modify the UI.
       </div>
+      {removingExtension && (
+        <ExtensionRemovalDialog
+          extension={removingExtension}
+          pending={deleteExtension.isPending}
+          onCancel={() => setRemovingExtension(null)}
+          onRemove={(policy) => void handleRemoveExtension(policy)}
+        />
+      )}
     </div>
   );
 }

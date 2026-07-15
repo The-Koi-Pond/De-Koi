@@ -71,6 +71,7 @@ const STORAGE_COLLECTIONS = {
   themes: { genericApi: true },
   extensions: { genericApi: true },
   "plugin-memory": { genericApi: true },
+  "extension-data-retention": { genericApi: true },
   "memory-capture-jobs": {
     genericApi: true,
     readJsonFields: [

@@ -30,6 +30,8 @@ export type ExtensionSource = "file" | "package" | "profile";
  */
 export interface InstalledExtension {
   id: string;
+  /** Host-assigned plugin-memory namespace. Extension manifests cannot set this. */
+  storageNamespaceId?: string | null;
   name: string;
   description: string;
   /** Optional CSS injected as a <style> tag while enabled. */
@@ -55,5 +57,17 @@ export interface InstalledExtension {
   /** Where this extension row came from. */
   source?: ExtensionSource | null;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExtensionDataRetention {
+  id: string;
+  storageNamespaceId: string;
+  originalExtensionId: string;
+  packageId?: string | null;
+  packageVersion?: string | null;
+  name?: string | null;
+  rowCount: number;
+  retainedAt: string;
   updatedAt: string;
 }

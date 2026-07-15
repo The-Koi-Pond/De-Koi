@@ -242,6 +242,21 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "theme_set_active" => {
             customization::theme_set_active(state, args.get("themeId").and_then(Value::as_str))
         }
+        "extension_remove" => customization::extension_remove(
+            state,
+            required_string(&args, "extensionId")?,
+            required_string(&args, "dataPolicy")?,
+        ),
+        "extension_retained_data_list" => customization::extension_retained_data_list(state),
+        "extension_reconnect_data" => customization::extension_reconnect_data(
+            state,
+            required_string(&args, "extensionId")?,
+            required_string(&args, "retentionId")?,
+        ),
+        "extension_retained_data_purge" => customization::extension_retained_data_purge(
+            state,
+            required_string(&args, "retentionId")?,
+        ),
         "bot_browser_get" => bot_browser_get(state, &args).await,
         "bot_browser_post" => bot_browser_post(state, &args).await,
         "game_assets_list" => game_assets_list(state, &args),

@@ -11,7 +11,7 @@ type ExtensionStorageSource = Pick<StorageGateway, "list" | "get" | "create" | "
 
 type ExtensionRuntimeConsole = Pick<Console, "error" | "warn">;
 
-type RunnableExtension = Pick<InstalledExtension, "id" | "name" | "js"> & { js: string };
+type RunnableExtension = Pick<InstalledExtension, "id" | "name" | "js" | "storageNamespaceId"> & { js: string };
 
 export type ExtensionRuntimeDeps = {
   console?: ExtensionRuntimeConsole;
@@ -135,7 +135,7 @@ export function executeCustomExtensionJavaScript(
       return el;
     },
 
-    storage: createExtensionStorageApi(extensionStorage, ext.id),
+    storage: createExtensionStorageApi(extensionStorage, ext.storageNamespaceId ?? ext.id),
 
     // addEventListener with auto-cleanup
     on: (target: EventTarget, event: string, handler: EventListenerOrEventListenerObject) => {
