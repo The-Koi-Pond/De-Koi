@@ -30,6 +30,7 @@ const REMOTE_COMMANDS = new Set([
   "background_rename",
   "fonts_list",
   "fonts_google_download",
+  "fonts_upload",
   "bot_browser_get",
   "bot_browser_post",
   "game_assets_list",

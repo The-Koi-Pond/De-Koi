@@ -236,6 +236,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
+        "fonts_upload" => {
+            fonts::fonts_call(state, "POST", &["upload"], optional_value(&args, "body")).await
+        }
         "theme_set_active" => {
             customization::theme_set_active(state, args.get("themeId").and_then(Value::as_str))
         }

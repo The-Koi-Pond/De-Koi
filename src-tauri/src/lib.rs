@@ -289,6 +289,7 @@ pub fn run() {
             storage_commands::asset_commands::background_rename,
             storage_commands::asset_commands::fonts_list,
             storage_commands::asset_commands::fonts_google_download,
+            storage_commands::asset_commands::fonts_upload,
             storage_commands::asset_commands::fonts_open_folder,
             storage_commands::customization_commands::theme_set_active,
             storage_commands::bot_browser_commands::bot_browser_get,

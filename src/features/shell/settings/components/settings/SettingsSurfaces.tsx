@@ -89,6 +89,7 @@ import {
   findImportedThemeDuplicate,
   parseThemeImportText,
 } from "../../lib/theme-settings-actions";
+import { fontManagementMode } from "../../lib/font-settings-actions";
 import {
   ArrowDown,
   ArrowUp,
@@ -1563,6 +1564,7 @@ export function AppearanceSettings() {
 
   // Google Fonts download
   const [googleFontName, setGoogleFontName] = useState("");
+  const fontUploadRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const googleFontMutation = useMutation({
     mutationFn: (family: string) =>
@@ -1577,6 +1579,20 @@ export function AppearanceSettings() {
       toast.error(toUserMessage(err, { fallback: "Couldn't download that font. Check the URL and try again." }));
     },
   });
+  const fontUploadMutation = useMutation({
+    mutationFn: (file: File) =>
+      fontsApi.upload<{ filename: string; family: string; files?: CustomFontFace[] }>(file),
+    onSuccess: (data) => {
+      toast.success(`Installed "${data.family}"`);
+      setFontFamily(data.family);
+      queryClient.invalidateQueries({ queryKey: ["custom-fonts"] });
+      window.dispatchEvent(new Event("marinara-fonts-updated"));
+    },
+    onError: (err: Error) => {
+      toast.error(toUserMessage(err, { fallback: "Couldn't upload that font. Check the file and try again." }));
+    },
+  });
+  const fontMode = fontManagementMode(fontsApi.canOpenFolder());
 
   return (
     <div className="flex flex-col gap-4">
@@ -1657,13 +1673,45 @@ export function AppearanceSettings() {
             to add custom fonts.
           </p>
         )}
-        <button
-          onClick={() => fontsApi.openFolder().catch(() => {})}
-          className="mt-1 inline-flex items-center gap-1.5 self-start rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-        >
-          <FolderOpen size="0.75rem" />
-          Open Fonts Folder
-        </button>
+        {fontMode === "folder" ? (
+          <button
+            onClick={() =>
+              fontsApi
+                .openFolder()
+                .catch((error) => toast.error(toUserMessage(error, { fallback: "Couldn't open the fonts folder." })))
+            }
+            className="mt-1 inline-flex items-center gap-1.5 self-start rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+          >
+            <FolderOpen size="0.75rem" />
+            Open Fonts Folder
+          </button>
+        ) : (
+          <>
+            <input
+              ref={fontUploadRef}
+              type="file"
+              accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) fontUploadMutation.mutate(file);
+                event.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fontUploadRef.current?.click()}
+              disabled={fontUploadMutation.isPending}
+              className="mt-1 inline-flex items-center gap-1.5 self-start rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-50"
+            >
+              {fontUploadMutation.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Upload size="0.75rem" />}
+              {fontUploadMutation.isPending ? "Uploading…" : "Upload Font"}
+            </button>
+            <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+              TTF, OTF, WOFF, or WOFF2 · 10 MiB maximum
+            </p>
+          </>
+        )}
       </label>
 
       {/* â”€â”€ Google Fonts â”€â”€ */}

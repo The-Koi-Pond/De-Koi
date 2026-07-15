@@ -46,6 +46,7 @@ export const MAX_FILE_SIZES = {
   CHAT_JSONL: 50 * 1024 * 1024, // 50 MB
   KNOWLEDGE_SOURCE: 50 * 1024 * 1024, // 50 MB
   GAME_ASSET: 50 * 1024 * 1024, // 50 MB (matches the Settings game-asset upload gate; under the 75 MB Rust server ceiling)
+  FONT_UPLOAD: 10 * 1024 * 1024, // 10 MiB (matches the Rust font upload capability)
 } as const;
 
 /** Limits for various entities. */

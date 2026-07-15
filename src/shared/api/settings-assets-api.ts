@@ -1,11 +1,29 @@
-import { fileToUploadPayload, IMAGE_UPLOAD_SIZE_ERROR, MAX_IMAGE_UPLOAD_BYTES } from "./file-payload";
+import { fileToUploadPayload, FONT_UPLOAD_SIZE_ERROR, IMAGE_UPLOAD_SIZE_ERROR, MAX_IMAGE_UPLOAD_BYTES } from "./file-payload";
+import { MAX_FILE_SIZES } from "../../engine/contracts/constants/defaults";
 import { invokeTauri } from "./tauri-client";
 import { invalidateRemoteManagedAssetObjectUrlsAfter } from "./local-file-api";
+import { remoteRuntimeTarget } from "./remote-runtime";
 
 export const fontsApi = {
   list: <T = unknown>() => invokeTauri<T>("fonts_list"),
   downloadGoogle: <T = unknown>(family: string) => invokeTauri<T>("fonts_google_download", { family }),
   openFolder: () => invokeTauri("fonts_open_folder"),
+  canOpenFolder: () => {
+    try {
+      return remoteRuntimeTarget() === null;
+    } catch {
+      return false;
+    }
+  },
+  upload: async <T = unknown>(file: File) =>
+    invokeTauri<T>("fonts_upload", {
+      body: {
+        file: await fileToUploadPayload(file, {
+          maxBytes: MAX_FILE_SIZES.FONT_UPLOAD,
+          tooLargeMessage: FONT_UPLOAD_SIZE_ERROR,
+        }),
+      },
+    }),
 };
 
 export const backgroundsApi = {
