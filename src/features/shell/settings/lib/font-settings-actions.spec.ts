@@ -3,7 +3,8 @@ import { fontManagementMode } from "./font-settings-actions";
 
 describe("font settings actions", () => {
   it("uses the folder action only for embedded desktop clients", () => {
-    expect(fontManagementMode(true)).toBe("folder");
-    expect(fontManagementMode(false)).toBe("upload");
+    expect(fontManagementMode("supported")).toBe("folder");
+    expect(fontManagementMode("unsupported")).toBe("upload");
+    expect(fontManagementMode("error")).toBe("unavailable");
   });
 });

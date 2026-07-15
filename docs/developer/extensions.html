@@ -46,7 +46,10 @@
             <tr>
               <td><code>.css</code></td>
               <td>The whole file is stored as extension CSS and injected while the extension is enabled.</td>
-              <td>Activated on the importing device after its content fingerprint is recorded.</td>
+              <td>
+                Activated only on the importing device after its content fingerprint is recorded. Profile and remote
+                imports do not activate it on other devices.
+              </td>
             </tr>
             <tr>
               <td><code>.js</code></td>
@@ -85,8 +88,10 @@
   }
 }</code></pre>
         <p>
-          Package compatibility uses semantic version ranges. Incompatible packages cannot be activated. Profile imports
-          never create device-local activation, even if exported metadata marks an extension available.
+          Package compatibility uses semantic version ranges. Package manifests must declare a matching
+          <code>compatibility.deKoi</code> range before activation; missing, malformed, and incompatible ranges remain
+          blocked. Profile imports never create device-local activation, even if exported metadata marks an extension
+          available.
         </p>
         <div class="callout">
           JavaScript extensions run as trusted page-level code. Manifest permissions limit only the helpers De-Koi puts
@@ -170,7 +175,8 @@
         <p>
           Removing an extension offers two explicit choices: retain its data for a later reinstall, or purge it.
           Retained records expose identity and row-count metadata in Settings, never their stored values. Reconnection
-          requires an explicit action and an exact package-id match.
+          requires an explicit action and an exact match for package ID, package version, and declared permissions.
+          Altered or mismatched packages cannot claim retained data.
         </p>
 
         <pre><code class="language-js">const key = "panel-enabled";
@@ -208,7 +214,8 @@ if (existing) {
             <h3>CSS-only extension</h3>
             <p>
               <a href="./samples/extensions/soft-reading-mode.css" download>soft-reading-mode.css</a>
-              adjusts reading surfaces with a small style tweak. Importing this file enables it immediately.
+              adjusts reading surfaces with a small style tweak. Importing this file enables it immediately on that
+              device; profile and remote imports still require activation on each receiving device.
             </p>
           </article>
           <article class="panel">
@@ -231,13 +238,14 @@ if (existing) {
         </ul>
         <h2>Customization Recovery And Fonts</h2>
         <p>
-          Theme drafts preview inside a sandboxed iframe and start with preview off. If a saved customization breaks the
-          interface, open De-Koi with <code>?safe-mode=customizations</code>; that route mounts without theme or extension
-          providers and can deactivate the active theme and clear this device's extension activations.
+          Theme preview starts off and runs in a sandboxed iframe. If a customization breaks the interface, open
+          <code>?safe-mode=customizations</code> to load without customization providers, deactivate the theme, and clear
+          this device's extension activations.
         </p>
         <p>
           Embedded De-Koi can open its managed fonts folder. Remote runtimes instead offer a validated upload for TTF,
           OTF, WOFF, and WOFF2 files up to 10 MiB; the server verifies filename safety, extension, and file signature.
+          Rejected uploads remain uninstalled and Settings displays the validation error so the file can be corrected.
         </p>
 
         <p class="footer">

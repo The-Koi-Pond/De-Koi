@@ -8,11 +8,11 @@ export const fontsApi = {
   list: <T = unknown>() => invokeTauri<T>("fonts_list"),
   downloadGoogle: <T = unknown>(family: string) => invokeTauri<T>("fonts_google_download", { family }),
   openFolder: () => invokeTauri("fonts_open_folder"),
-  canOpenFolder: () => {
+  folderCapability: (): "supported" | "unsupported" | "error" => {
     try {
-      return remoteRuntimeTarget() === null;
+      return remoteRuntimeTarget() === null ? "supported" : "unsupported";
     } catch {
-      return false;
+      return "error";
     }
   },
   upload: async <T = unknown>(file: File) =>

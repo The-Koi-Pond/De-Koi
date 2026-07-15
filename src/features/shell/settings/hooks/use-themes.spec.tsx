@@ -136,4 +136,28 @@ describe("theme settings hooks", () => {
       { ...second, isActive: true, active: true },
     ]);
   });
+
+  it("keeps the cached active theme unchanged until the runtime confirms activation", async () => {
+    const first = theme({ id: "theme-a", isActive: true, active: true });
+    const second = theme({ id: "theme-b", isActive: false, active: false });
+    queryClient.setQueryData<Theme[]>(["themes", "list"], [first, second]);
+    let rejectActivation!: (error: Error) => void;
+    vi.mocked(themesApi.setActive).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectActivation = reject;
+      }),
+    );
+
+    await renderProbe();
+    let activation!: Promise<Theme | null>;
+    act(() => {
+      activation = mutations!.setActiveTheme.mutateAsync("theme-b");
+    });
+
+    expect(queryClient.getQueryData<Theme[]>(["themes", "list"])).toEqual([first, second]);
+
+    rejectActivation(new Error("storage unavailable"));
+    await expect(activation).rejects.toThrow("storage unavailable");
+    expect(queryClient.getQueryData<Theme[]>(["themes", "list"])).toEqual([first, second]);
+  });
 });

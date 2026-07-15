@@ -1608,7 +1608,7 @@ export function AppearanceSettings() {
       toast.error(toUserMessage(err, { fallback: "Couldn't upload that font. Check the file and try again." }));
     },
   });
-  const fontMode = fontManagementMode(fontsApi.canOpenFolder());
+  const fontMode = fontManagementMode(fontsApi.folderCapability());
 
   return (
     <div className="flex flex-col gap-4">
@@ -1704,7 +1704,7 @@ export function AppearanceSettings() {
             <FolderOpen size="0.75rem" />
             Open Fonts Folder
           </button>
-        ) : (
+        ) : fontMode === "upload" ? (
           <>
             <input
               ref={fontUploadRef}
@@ -1732,6 +1732,10 @@ export function AppearanceSettings() {
             </button>
             <p className="text-[0.625rem] text-[var(--muted-foreground)]">TTF, OTF, WOFF, or WOFF2 · 10 MiB maximum</p>
           </>
+        ) : (
+          <p role="alert" className="mt-1 text-[0.625rem] text-[var(--destructive)]">
+            Font storage availability could not be detected. Check the Remote Runtime URL, then reopen Settings.
+          </p>
         )}
       </label>
 
@@ -2767,7 +2771,7 @@ export function ThemesSettings() {
   const [editingId, setEditingId] = useState<string | null>(null); // null = creating new
   const [themeName, setThemeName] = useState("");
   const [themeCss, setThemeCss] = useState("");
-  const [livePreview, setLivePreview] = useState(false);
+  const [previewEnabled, setPreviewEnabled] = useState(false);
 
   const openNewTheme = useCallback(() => {
     setEditingId(null);
@@ -2844,16 +2848,16 @@ export function ThemesSettings() {
           </div>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setLivePreview(!livePreview)}
+              onClick={() => setPreviewEnabled(!previewEnabled)}
               className={cn(
                 "flex items-center gap-1 rounded-md px-2 py-1 text-[0.625rem] transition-colors",
-                livePreview
+                previewEnabled
                   ? "bg-emerald-500/15 text-emerald-400"
                   : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
               )}
-              title={livePreview ? "Disable live preview" : "Enable live preview"}
+              title={previewEnabled ? "Disable live preview" : "Enable live preview"}
             >
-              {livePreview ? <Eye size="0.6875rem" /> : <EyeOff size="0.6875rem" />}
+              {previewEnabled ? <Eye size="0.6875rem" /> : <EyeOff size="0.6875rem" />}
               Preview
             </button>
             <button
@@ -2885,7 +2889,7 @@ export function ThemesSettings() {
           placeholder="/* Enter your CSS here... */"
         />
 
-        <ThemePreview css={themeCss} enabled={livePreview} />
+        <ThemePreview css={themeCss} enabled={previewEnabled} />
 
         {/* Quick reference */}
         <details className="group rounded-lg bg-[var(--secondary)]/50 ring-1 ring-[var(--border)]">
@@ -3334,6 +3338,7 @@ export function ExtensionsSettings() {
         <ExtensionActivationDialog
           extension={activatingExtension}
           compatibility={deviceActivation.compatibility}
+          canActivate={deviceActivation.canActivate}
           consent={deviceActivation.consent}
           onCancel={() => setActivatingExtension(null)}
           onActivate={(activation) => {

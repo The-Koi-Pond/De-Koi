@@ -1,3 +1,6 @@
-export function fontManagementMode(canOpenFolder: boolean): "folder" | "upload" {
-  return canOpenFolder ? "folder" : "upload";
+export type FontFolderCapability = "supported" | "unsupported" | "error";
+
+export function fontManagementMode(capability: FontFolderCapability): "folder" | "upload" | "unavailable" {
+  if (capability === "supported") return "folder";
+  return capability === "unsupported" ? "upload" : "unavailable";
 }

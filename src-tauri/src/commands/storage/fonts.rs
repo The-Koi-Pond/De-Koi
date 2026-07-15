@@ -52,9 +52,13 @@ pub(crate) fn upload_font(state: &AppState, body: Value) -> AppResult<Value> {
         MAX_FONT_BYTES,
         "Font uploads must be 10 MiB or smaller",
     )?;
-    let filename = uploaded.name.trim();
+    let filename = uploaded.name.as_str();
     if filename.is_empty()
+        || filename.trim() != filename
         || filename.len() > 200
+        || !filename
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
         || filename.contains("..")
         || filename.contains('/')
         || filename.contains('\\')
@@ -1407,6 +1411,11 @@ mod tests {
             ("font.png", b"\x00\x01\x00\x00font".as_slice()),
             ("../escape.woff2", b"wOF2font".as_slice()),
             ("folder\\escape.woff2", b"wOF2font".as_slice()),
+            ("confusable⁄escape.woff2", b"wOF2font".as_slice()),
+            ("café.woff2", b"wOF2font".as_slice()),
+            ("space name.woff2", b"wOF2font".as_slice()),
+            (" leading.woff2", b"wOF2font".as_slice()),
+            ("trailing.woff2 ", b"wOF2font".as_slice()),
         ] {
             let (_root, state) = test_state("rejected-upload");
             let error = upload_font(&state, upload_body(name, bytes))

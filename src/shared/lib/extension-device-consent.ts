@@ -3,6 +3,11 @@ import type { InstalledExtension } from "../../engine/contracts/types/extension"
 export const EXTENSION_CONSENT_STORAGE_KEY = "de-koi.extension-device-consent.v1";
 export const EXTENSION_CONSENT_CHANGED_EVENT = "de-koi-extension-consent-updated";
 
+export interface ExtensionConsentChangedDetail {
+  runtimeScope?: string;
+  extensionId?: string;
+}
+
 export interface ExtensionDeviceConsent {
   css: boolean;
   javascript: boolean;
@@ -33,9 +38,25 @@ function readEnvelope(storage: ConsentStorage): ConsentEnvelope {
   }
 }
 
-function writeEnvelope(storage: ConsentStorage, envelope: ConsentEnvelope) {
+function dispatchConsentChanged(detail: ExtensionConsentChangedDetail = {}) {
+  globalThis.dispatchEvent?.(new CustomEvent<ExtensionConsentChangedDetail>(EXTENSION_CONSENT_CHANGED_EVENT, { detail }));
+}
+
+function writeEnvelope(storage: ConsentStorage, envelope: ConsentEnvelope, detail: ExtensionConsentChangedDetail) {
   storage.setItem(EXTENSION_CONSENT_STORAGE_KEY, JSON.stringify(envelope));
-  globalThis.dispatchEvent?.(new Event(EXTENSION_CONSENT_CHANGED_EVENT));
+  dispatchConsentChanged(detail);
+}
+
+export function extensionConsentEventAffects(
+  event: Event,
+  runtimeScope: string,
+  extensionId: string | readonly string[],
+) {
+  const detail = (event as CustomEvent<ExtensionConsentChangedDetail>).detail;
+  if (!detail || (!detail.runtimeScope && !detail.extensionId)) return true;
+  if (detail.runtimeScope && detail.runtimeScope !== runtimeScope) return false;
+  if (!detail.extensionId) return true;
+  return Array.isArray(extensionId) ? extensionId.includes(detail.extensionId) : extensionId === detail.extensionId;
 }
 
 function canonicalExtension(extension: InstalledExtension) {
@@ -123,6 +144,8 @@ export async function sha256Hex(
 }
 
 export async function extensionConsentFingerprint(extension: InstalledExtension): Promise<string> {
+  // Fingerprints intentionally contain only canonical package data. Browser-specific entropy would make the Web
+  // Crypto and deterministic SHA-256 paths disagree and revoke valid consent when the runtime capability changes.
   return sha256Hex(new TextEncoder().encode(canonicalExtension(extension)));
 }
 
@@ -144,22 +167,22 @@ export const extensionDeviceConsentStore = {
       fingerprint,
       grantedAt: new Date().toISOString(),
     };
-    writeEnvelope(storage, envelope);
+    writeEnvelope(storage, envelope, { runtimeScope, extensionId });
   },
   revoke(runtimeScope: string, extensionId: string, storage: ConsentStorage = localStorage) {
     const envelope = readEnvelope(storage);
     delete envelope.records[recordKey(runtimeScope, extensionId)];
-    writeEnvelope(storage, envelope);
+    writeEnvelope(storage, envelope, { runtimeScope, extensionId });
   },
   clearRuntime(runtimeScope: string, storage: ConsentStorage = localStorage) {
     const envelope = readEnvelope(storage);
     for (const key of Object.keys(envelope.records)) {
       if (key.startsWith(`${runtimeScope.trim()}\n`)) delete envelope.records[key];
     }
-    writeEnvelope(storage, envelope);
+    writeEnvelope(storage, envelope, { runtimeScope });
   },
   clearAll(storage: ConsentStorage = localStorage) {
     storage.removeItem(EXTENSION_CONSENT_STORAGE_KEY);
-    globalThis.dispatchEvent?.(new Event(EXTENSION_CONSENT_CHANGED_EVENT));
+    dispatchConsentChanged();
   },
 };

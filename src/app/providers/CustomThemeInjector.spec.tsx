@@ -4,15 +4,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CustomThemeInjector } from "./CustomThemeInjector";
 import { extensionConsentFingerprint, extensionDeviceConsentStore } from "../../shared/lib/extension-device-consent";
 import { currentRuntimeConsentScope } from "../../shared/api/customization-api";
+import { executeCustomExtensionJavaScript } from "./extension-runtime";
 
 const settingsData = vi.hoisted(() => ({
-  themes: [] as Array<Record<string, unknown>>,
-  extensions: [] as Array<Record<string, unknown>>,
+  themes: [] as Array<Record<string, unknown>> | undefined,
+  extensions: [] as Array<Record<string, unknown>> | undefined,
 }));
 
 vi.mock("../../features/shell/settings/index", () => ({
   useThemes: () => ({ data: settingsData.themes }),
   useExtensions: () => ({ data: settingsData.extensions }),
+}));
+
+vi.mock("./extension-runtime", () => ({
+  executeCustomExtensionJavaScript: vi.fn(() => ({ cleanup: vi.fn() })),
 }));
 
 describe("CustomThemeInjector", () => {
@@ -26,6 +31,7 @@ describe("CustomThemeInjector", () => {
     settingsData.themes = [];
     settingsData.extensions = [];
     localStorage.clear();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -44,6 +50,27 @@ describe("CustomThemeInjector", () => {
         isActive: true,
       },
     ];
+
+    act(() => root.render(<CustomThemeInjector />));
+
+    expect(document.getElementById("marinara-custom-theme")).toBeNull();
+  });
+
+  it("settles when customization storage has no query data", async () => {
+    settingsData.themes = undefined;
+    settingsData.extensions = undefined;
+
+    await act(async () => {
+      root.render(<CustomThemeInjector />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(document.getElementById("marinara-custom-theme")).toBeNull();
+  });
+
+  it.each([null, undefined, { nested: "css" }])("does not inject malformed stored theme CSS: %s", (css) => {
+    settingsData.themes = [{ id: "malformed", name: "Malformed", css, isActive: true }];
 
     act(() => root.render(<CustomThemeInjector />));
 
@@ -82,5 +109,72 @@ describe("CustomThemeInjector", () => {
     await vi.waitFor(() => {
       expect(document.getElementById("marinara-ext-local-consent")?.textContent).toContain("color: teal");
     });
+  });
+
+  it.each([null, undefined, { nested: "css" }, "x".repeat(256 * 1024 + 1)])(
+    "does not inject malformed or oversized extension CSS: %s",
+    async (css) => {
+      const extension = {
+        id: "invalid-css",
+        name: "Invalid CSS",
+        description: "",
+        css,
+        enabled: true,
+        installedAt: "2026-01-01T00:00:00Z",
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      };
+      settingsData.extensions = [extension];
+      extensionDeviceConsentStore.grant(
+        currentRuntimeConsentScope(),
+        extension.id,
+        await extensionConsentFingerprint(extension as never),
+        { css: true, javascript: false },
+      );
+
+      await act(async () => {
+        root.render(<CustomThemeInjector />);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(document.getElementById("marinara-ext-invalid-css")).toBeNull();
+    },
+  );
+
+  it("stops executing JavaScript when an activated extension becomes incompatible", async () => {
+    const extension = {
+      id: "compatibility-change",
+      name: "Compatibility change",
+      description: "",
+      js: "console.log('compatible')",
+      enabled: true,
+      compatibility: { deKoi: "*" },
+      installedAt: "2026-01-01T00:00:00Z",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    settingsData.extensions = [extension];
+    extensionDeviceConsentStore.grant(
+      currentRuntimeConsentScope(),
+      extension.id,
+      await extensionConsentFingerprint(extension as never),
+      { css: false, javascript: true },
+    );
+
+    await act(async () => {
+      root.render(<CustomThemeInjector />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(executeCustomExtensionJavaScript).toHaveBeenCalledTimes(1));
+
+    settingsData.extensions = [{ ...extension, compatibility: { deKoi: ">=2.0.0" } }];
+    await act(async () => {
+      root.render(<CustomThemeInjector />);
+      await Promise.resolve();
+    });
+
+    expect(executeCustomExtensionJavaScript).toHaveBeenCalledTimes(1);
   });
 });

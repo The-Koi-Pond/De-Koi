@@ -13,24 +13,46 @@ import { MAX_EXTENSION_CSS_BYTES } from "../../engine/contracts/schemas/extensio
 import { utf8ByteLength } from "../../engine/contracts/text-bytes";
 import {
   EXTENSION_CONSENT_CHANGED_EVENT,
+  extensionConsentEventAffects,
   extensionConsentFingerprint,
   extensionDeviceConsentStore,
 } from "../../shared/lib/extension-device-consent";
 import { currentRuntimeConsentScope } from "../../shared/api/customization-api";
-import { extensionCompatibilityStatus } from "../../engine/contracts/extension-compatibility";
+import { extensionCompatibilityAllowsActivation } from "../../engine/contracts/extension-compatibility";
+import type { InstalledExtension } from "../../engine/contracts/types/extension";
+import type { Theme } from "../../engine/contracts/types/theme";
+
+const EMPTY_EXTENSIONS: InstalledExtension[] = [];
+const EMPTY_THEMES: Theme[] = [];
+
+function extensionCanRun(extension: InstalledExtension) {
+  try {
+    return extensionCompatibilityAllowsActivation(extension);
+  } catch {
+    return false;
+  }
+}
 
 export function CustomThemeInjector() {
-  const { data: installedExtensions = [] } = useExtensions();
-  const { data: customThemes = [] } = useThemes();
-  const activeTheme = customThemes.find((theme) => theme.isActive) ?? null;
+  const { data: installedExtensionRows } = useExtensions();
+  const { data: customThemeRows } = useThemes();
+  const installedExtensions = installedExtensionRows ?? EMPTY_EXTENSIONS;
+  const customThemes = customThemeRows ?? EMPTY_THEMES;
+  const activeTheme = customThemes.find((theme) => theme && typeof theme === "object" && theme.isActive) ?? null;
   const [consentRevision, setConsentRevision] = useState(0);
   const [deviceActivation, setDeviceActivation] = useState<Record<string, { css: boolean; javascript: boolean }>>({});
 
   useEffect(() => {
-    const refresh = () => setConsentRevision((revision) => revision + 1);
+    const refresh = (event: Event) => {
+      const runtimeScope = currentRuntimeConsentScope();
+      const extensionIds = installedExtensions.map((extension) => extension.id);
+      if (extensionConsentEventAffects(event, runtimeScope, extensionIds)) {
+        setConsentRevision((revision) => revision + 1);
+      }
+    };
     globalThis.addEventListener(EXTENSION_CONSENT_CHANGED_EVENT, refresh);
     return () => globalThis.removeEventListener(EXTENSION_CONSENT_CHANGED_EVENT, refresh);
-  }, []);
+  }, [installedExtensions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,11 +62,7 @@ export function CustomThemeInjector() {
         const runtimeScope = currentRuntimeConsentScope();
         for (const extension of installedExtensions) {
           if (!extension?.enabled) continue;
-          try {
-            if (extensionCompatibilityStatus(extension.compatibility?.deKoi) === "incompatible") continue;
-          } catch {
-            continue;
-          }
+          if (!extensionCanRun(extension)) continue;
           const fingerprint = await extensionConsentFingerprint(extension);
           const consent = extensionDeviceConsentStore.read(runtimeScope, extension.id, fingerprint);
           if (consent) next[extension.id] = { css: consent.css, javascript: consent.javascript };
@@ -64,7 +82,11 @@ export function CustomThemeInjector() {
     const id = "marinara-custom-theme";
     let style = document.getElementById(id) as HTMLStyleElement | null;
 
-    if (!activeTheme || utf8ByteLength(activeTheme.css) > MAX_THEME_CSS_BYTES) {
+    if (
+      !activeTheme ||
+      typeof activeTheme.css !== "string" ||
+      utf8ByteLength(activeTheme.css) > MAX_THEME_CSS_BYTES
+    ) {
       style?.remove();
       return;
     }
@@ -94,7 +116,14 @@ export function CustomThemeInjector() {
     // Inject enabled ones
     for (const ext of installedExtensions) {
       if (!ext) continue;
-      if (!ext.enabled || !deviceActivation[ext.id]?.css || !ext.css || utf8ByteLength(ext.css) > MAX_EXTENSION_CSS_BYTES) continue;
+      if (
+        !ext.enabled ||
+        !extensionCanRun(ext) ||
+        !deviceActivation[ext.id]?.css ||
+        typeof ext.css !== "string" ||
+        !ext.css ||
+        utf8ByteLength(ext.css) > MAX_EXTENSION_CSS_BYTES
+      ) continue;
       const style = document.createElement("style");
       style.id = `${prefix}${ext.id}`;
       style.textContent = stripDangerousCss(ext.css);
@@ -116,7 +145,12 @@ export function CustomThemeInjector() {
 
     for (const ext of installedExtensions) {
       if (!ext) continue;
-      if (!ext.enabled || !deviceActivation[ext.id]?.javascript || !extensionHasRunnableJavaScript(ext)) continue;
+      if (
+        !ext.enabled ||
+        !extensionCanRun(ext) ||
+        !deviceActivation[ext.id]?.javascript ||
+        !extensionHasRunnableJavaScript(ext)
+      ) continue;
 
       try {
         const runningExtension = executeCustomExtensionJavaScript(ext);

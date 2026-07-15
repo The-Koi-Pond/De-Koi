@@ -78,24 +78,6 @@ export function useSetActiveTheme() {
       const payload = setActiveThemeSchema.parse({ id });
       return themesApi.setActive(payload.id);
     },
-    onMutate: (id) => {
-      const previous = qc.getQueryData<Theme[]>(themeKeys.list());
-      if (previous) {
-        qc.setQueryData<Theme[]>(
-          themeKeys.list(),
-          previous.map((theme) => {
-            const isActive = !!id && theme.id === id;
-            return { ...theme, isActive, active: isActive };
-          }),
-        );
-      }
-      return { previous };
-    },
-    onError: (_error, _id, context) => {
-      if (context?.previous) {
-        qc.setQueryData(themeKeys.list(), context.previous);
-      }
-    },
     onSuccess: (selected, id) => {
       qc.setQueryData<Theme[] | undefined>(themeKeys.list(), (themes) =>
         themes?.map((theme) => {

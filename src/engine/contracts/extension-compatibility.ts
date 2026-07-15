@@ -1,4 +1,5 @@
 import { APP_VERSION } from "./constants/defaults";
+import type { InstalledExtension } from "./types/extension";
 
 export type ExtensionCompatibilityStatus = "compatible" | "incompatible" | "not-declared";
 
@@ -117,4 +118,13 @@ export function extensionCompatibilityStatus(
     .split("||")
     .some((part) => part.trim().split(/\s+/).every((token) => satisfiesComparator(version, token)));
   return compatible ? "compatible" : "incompatible";
+}
+
+export function extensionCompatibilityAllowsActivation(
+  extension: Pick<InstalledExtension, "compatibility" | "manifestVersion" | "packageId" | "source">,
+  appVersion = APP_VERSION,
+) {
+  const status = extensionCompatibilityStatus(extension.compatibility?.deKoi, appVersion);
+  const isPackage = extension.source === "package" || extension.manifestVersion != null || extension.packageId != null;
+  return isPackage ? status === "compatible" : status !== "incompatible";
 }

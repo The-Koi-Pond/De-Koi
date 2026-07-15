@@ -35,8 +35,12 @@ describe("fonts API", () => {
   });
 
   it("reports whether the active client can open the runtime font folder", () => {
-    expect(fontsApi.canOpenFolder()).toBe(true);
+    expect(fontsApi.folderCapability()).toBe("supported");
     vi.mocked(remoteRuntimeTarget).mockReturnValue({ baseUrl: "https://pi.example" });
-    expect(fontsApi.canOpenFolder()).toBe(false);
+    expect(fontsApi.folderCapability()).toBe("unsupported");
+    vi.mocked(remoteRuntimeTarget).mockImplementation(() => {
+      throw new Error("invalid runtime URL");
+    });
+    expect(fontsApi.folderCapability()).toBe("error");
   });
 });

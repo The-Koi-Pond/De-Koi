@@ -10,7 +10,8 @@ describe("ExtensionActivationDialog", () => {
     act(() => root.render(
       <ExtensionActivationDialog
         extension={{ id: "x", name: "Pond", source: "package", js: "x", permissions: ["prompt:read"] } as never}
-        compatibility="compatible"
+          compatibility="compatible"
+          canActivate
         consent={null}
         onCancel={vi.fn()}
         onActivate={vi.fn()}

@@ -26,6 +26,7 @@ export function ThemePreview({ css, enabled }: { css: string; enabled: boolean }
   return (
     <iframe
       title="Theme preview"
+      // An explicitly empty sandbox token list enables every restriction: no scripts, navigation, forms, or same-origin access.
       sandbox=""
       srcDoc={srcDoc}
       className="h-56 w-full rounded-lg border border-[var(--border)] bg-[#111827]"
