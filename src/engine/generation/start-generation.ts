@@ -4331,7 +4331,13 @@ export async function* startGeneration(
   });
   if (saveUserMessageTiming) yield saveUserMessageTiming;
   const prepareContextStartedAt = generationTimingStartedAt();
-  const connection = await resolveGenerationConnection(deps.storage, chat, input);
+  const primaryConnection = await resolveGenerationConnection(deps.storage, chat, input);
+  const connection = await resolveForegroundGenerationConnection(
+    deps.storage,
+    chat,
+    primaryConnection,
+    preparedUserInput.images.length > 0,
+  );
   throwIfAborted(signal);
   for (const warning of [
     ...preparedUserInput.imageWarnings,
@@ -5107,6 +5113,24 @@ export async function* startGeneration(
     scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
   }
   yield { type: "done" };
+}
+
+async function resolveForegroundGenerationConnection(
+  storage: StorageGateway,
+  chat: JsonRecord,
+  primaryConnection: JsonRecord,
+  hasImageAttachments: boolean,
+): Promise<JsonRecord> {
+  if (!hasImageAttachments) return primaryConnection;
+
+  const visionConnectionId = readString(parseRecord(chat.metadata).visionConnectionId).trim();
+  if (!visionConnectionId) return primaryConnection;
+
+  const visionConnection = await storage.get<unknown>("connections", visionConnectionId);
+  if (!isRecord(visionConnection) || readString(visionConnection.provider).trim() === "image_generation") {
+    return primaryConnection;
+  }
+  return visionConnection;
 }
 
 function generationGuideMessages(

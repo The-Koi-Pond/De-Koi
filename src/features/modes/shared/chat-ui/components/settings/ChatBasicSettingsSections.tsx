@@ -1,10 +1,10 @@
-import { AlertTriangle, Check, LetterText, Pencil, Plug, Sliders } from "lucide-react";
+import { AlertTriangle, Check, Eye, LetterText, Pencil, Plug, Sliders } from "lucide-react";
 
 import type { Chat } from "../../../../../../engine/contracts/types/chat";
 import type { ChatPreset } from "../../../../../../engine/contracts/types/chat-preset";
 import { ChatSettingsSection as Section } from "./ChatSettingsSections";
 
-type TextConnection = { id: string; name: string; model?: string };
+type TextConnection = { id: string; name: string; model?: string; capabilities?: { vision?: boolean } };
 
 export function ChatBasicSettingsSections({
   chat,
@@ -14,6 +14,7 @@ export function ChatBasicSettingsSections({
   editingName,
   nameVal,
   textConnectionsList,
+  visionConnectionId,
   presets,
   currentPromptPresetHasVariables,
   showLorebookMarkerWarning,
@@ -21,6 +22,7 @@ export function ChatBasicSettingsSections({
   onEditName,
   onSaveName,
   onConnectionChange,
+  onVisionConnectionChange,
   onPresetChange,
   onEditPresetChoices,
 }: {
@@ -31,6 +33,7 @@ export function ChatBasicSettingsSections({
   editingName: boolean;
   nameVal: string;
   textConnectionsList: TextConnection[];
+  visionConnectionId: string | null;
   presets: ChatPreset[] | undefined;
   currentPromptPresetHasVariables: boolean;
   showLorebookMarkerWarning: boolean;
@@ -38,6 +41,7 @@ export function ChatBasicSettingsSections({
   onEditName: () => void;
   onSaveName: () => void;
   onConnectionChange: (connectionId: string | null) => void;
+  onVisionConnectionChange: (connectionId: string | null) => void;
   onPresetChange: (presetId: string | null) => void;
   onEditPresetChoices: () => void;
 }) {
@@ -69,6 +73,25 @@ export function ChatBasicSettingsSections({
             {chat.name}
           </button>
         )}
+      </Section>
+
+      <Section
+        label="Vision / Image Input Connection"
+        icon={<Eye size="0.875rem" />}
+        help="Optional language model used when your message includes an image. Without an override, De-Koi uses the normal chat connection."
+      >
+        <ConnectionSelect
+          value={visionConnectionId ?? ""}
+          connections={textConnectionsList}
+          includeModel
+          includeRandom={false}
+          emptyLabel="Use chat connection"
+          showVisionCapability
+          onChange={onVisionConnectionChange}
+        />
+        <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+          Connections marked vision-capable are identified below. Confirm model support with your provider before relying on image input.
+        </p>
       </Section>
 
       <Section
@@ -155,11 +178,17 @@ function ConnectionSelect({
   value,
   connections,
   includeModel = false,
+  includeRandom = true,
+  emptyLabel = "None",
+  showVisionCapability = false,
   onChange,
 }: {
   value: string;
   connections: TextConnection[];
   includeModel?: boolean;
+  includeRandom?: boolean;
+  emptyLabel?: string;
+  showVisionCapability?: boolean;
   onChange: (connectionId: string | null) => void;
 }) {
   return (
@@ -168,12 +197,13 @@ function ConnectionSelect({
       onChange={(event) => onChange(event.target.value || null)}
       className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
     >
-      <option value="">None</option>
-      <option value="random">🎲 Random</option>
+      <option value="">{emptyLabel}</option>
+      {includeRandom && <option value="random">🎲 Random</option>}
       {connections.map((connection) => (
         <option key={connection.id} value={connection.id}>
           {connection.name}
           {includeModel && connection.model ? ` — ${connection.model}` : ""}
+          {showVisionCapability && connection.capabilities?.vision === true ? " (vision-capable)" : ""}
         </option>
       ))}
     </select>
