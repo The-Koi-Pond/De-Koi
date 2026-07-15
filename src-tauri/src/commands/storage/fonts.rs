@@ -24,12 +24,103 @@ pub(crate) async fn fonts_call(
         ("GET", []) => list_fonts(state),
         ("GET", ["file", filename]) => font_file(state, filename),
         ("POST", ["open-folder"]) => open_fonts_folder(state),
+        ("POST", ["upload"]) => upload_font(state, body),
         ("POST", ["google", "download"]) => download_google_font(state, body).await,
         _ => Err(AppError::new(
             "route_not_found",
             format!("fonts route {method} /{} was not found", rest.join("/")),
         )),
     }
+}
+
+fn valid_font_signature(extension: &str, bytes: &[u8]) -> bool {
+    match extension {
+        "ttf" => bytes.starts_with(&[0x00, 0x01, 0x00, 0x00]) || bytes.starts_with(b"true"),
+        "otf" => bytes.starts_with(b"OTTO"),
+        "woff" => bytes.starts_with(b"wOFF"),
+        "woff2" => bytes.starts_with(b"wOF2"),
+        _ => false,
+    }
+}
+
+pub(crate) fn upload_font(state: &AppState, body: Value) -> AppResult<Value> {
+    let file = body
+        .get("file")
+        .ok_or_else(|| AppError::invalid_input("file is required"))?;
+    let uploaded = shared::decode_uploaded_file_value_with_limit(
+        file,
+        MAX_FONT_BYTES,
+        "Font uploads must be 10 MiB or smaller",
+    )?;
+    let filename = uploaded.name.as_str();
+    if filename.is_empty()
+        || filename.trim() != filename
+        || filename.len() > 200
+        || !filename
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+        || filename.contains("..")
+        || filename.contains('/')
+        || filename.contains('\\')
+        || Path::new(filename)
+            .file_name()
+            .and_then(|name| name.to_str())
+            != Some(filename)
+    {
+        return Err(AppError::invalid_input("Invalid font filename"));
+    }
+    let extension = Path::new(filename)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !FONT_EXTS.contains(&extension.as_str()) {
+        return Err(AppError::invalid_input(
+            "Font uploads must use .ttf, .otf, .woff, or .woff2",
+        ));
+    }
+    if !valid_font_signature(&extension, &uploaded.bytes) {
+        return Err(AppError::invalid_input(format!(
+            "Uploaded file signature does not match .{extension}"
+        )));
+    }
+    let root = fonts_root(state)?;
+    let target = root.join(filename);
+    if target.exists() {
+        return Err(AppError::new(
+            "font_upload_conflict",
+            format!("{filename} is already installed"),
+        ));
+    }
+    write_managed_file_atomically(&target, &uploaded.bytes)?;
+
+    let fonts = match list_fonts(state) {
+        Ok(fonts) => fonts,
+        Err(error) => {
+            let _ = fs::remove_file(&target);
+            return Err(error);
+        }
+    };
+    let installed = fonts
+        .as_array()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|row| row.get("filename").and_then(Value::as_str) == Some(filename))
+        })
+        .cloned();
+    let Some(installed) = installed else {
+        let _ = fs::remove_file(&target);
+        return Err(AppError::new(
+            "font_upload_failed",
+            "Uploaded font could not be listed",
+        ));
+    };
+    Ok(json!({
+        "filename": filename,
+        "family": installed.get("family").cloned().unwrap_or(Value::Null),
+        "url": installed.get("url").cloned().unwrap_or(Value::Null),
+        "files": [installed]
+    }))
 }
 
 fn fonts_root(state: &AppState) -> AppResult<std::path::PathBuf> {
@@ -1280,5 +1371,84 @@ mod tests {
             .filter(|name| name.ends_with(".tmp") || name.ends_with(".bak"))
             .collect::<Vec<_>>();
         assert!(leftovers.is_empty(), "rollback should clean temp files");
+    }
+
+    fn upload_body(name: &str, bytes: &[u8]) -> Value {
+        json!({
+            "file": {
+                "name": name,
+                "type": "application/octet-stream",
+                "size": bytes.len(),
+                "lastModified": 0,
+                "base64": general_purpose::STANDARD.encode(bytes)
+            }
+        })
+    }
+
+    #[test]
+    fn upload_accepts_supported_font_signatures() {
+        for (name, bytes) in [
+            ("Example.ttf", b"\x00\x01\x00\x00font".as_slice()),
+            ("Example.otf", b"OTTOfont".as_slice()),
+            ("Example.woff", b"wOFFfont".as_slice()),
+            ("Example.woff2", b"wOF2font".as_slice()),
+        ] {
+            let (_root, state) = test_state(name);
+            let result = upload_font(&state, upload_body(name, bytes))
+                .expect("supported font should upload");
+            assert_eq!(result["filename"], name);
+            assert_eq!(
+                fs::read(fonts_root(&state).unwrap().join(name)).unwrap(),
+                bytes
+            );
+        }
+    }
+
+    #[test]
+    fn upload_rejects_renamed_non_fonts_and_unsafe_names_without_writes() {
+        for (name, bytes) in [
+            ("renamed.ttf", b"plain text".as_slice()),
+            ("font.png", b"\x00\x01\x00\x00font".as_slice()),
+            ("../escape.woff2", b"wOF2font".as_slice()),
+            ("folder\\escape.woff2", b"wOF2font".as_slice()),
+            ("confusable⁄escape.woff2", b"wOF2font".as_slice()),
+            ("café.woff2", b"wOF2font".as_slice()),
+            ("space name.woff2", b"wOF2font".as_slice()),
+            (" leading.woff2", b"wOF2font".as_slice()),
+            ("trailing.woff2 ", b"wOF2font".as_slice()),
+        ] {
+            let (_root, state) = test_state("rejected-upload");
+            let error = upload_font(&state, upload_body(name, bytes))
+                .expect_err("unsafe or mismatched font should reject");
+            assert_eq!(error.code, "invalid_input");
+            assert!(fs::read_dir(fonts_root(&state).unwrap())
+                .unwrap()
+                .next()
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn upload_rejects_invalid_base64_and_decoded_files_over_ten_mibibytes() {
+        let (_root, state) = test_state("invalid-upload-data");
+        let invalid = json!({ "file": { "name": "bad.woff2", "size": 4, "base64": "%%%" } });
+        assert_eq!(
+            upload_font(&state, invalid)
+                .expect_err("invalid base64 should reject")
+                .code,
+            "invalid_input"
+        );
+
+        let oversized = vec![0_u8; MAX_FONT_BYTES + 1];
+        assert_eq!(
+            upload_font(&state, upload_body("huge.ttf", &oversized))
+                .expect_err("oversized font should reject")
+                .code,
+            "invalid_input"
+        );
+        assert!(fs::read_dir(fonts_root(&state).unwrap())
+            .unwrap()
+            .next()
+            .is_none());
     }
 }

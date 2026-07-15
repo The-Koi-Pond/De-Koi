@@ -73,6 +73,11 @@ pub async fn fonts_google_download(
 }
 
 #[tauri::command]
+pub async fn fonts_upload(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    fonts::fonts_call(&state, "POST", &["upload"], body).await
+}
+
+#[tauri::command]
 pub async fn fonts_open_folder(state: State<'_, AppState>) -> Result<Value, AppError> {
     fonts::fonts_call(&state, "POST", &["open-folder"], Value::Null).await
 }

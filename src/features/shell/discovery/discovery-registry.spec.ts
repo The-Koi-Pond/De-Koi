@@ -85,4 +85,17 @@ describe("discovery showcase registry", () => {
       expect(entry?.actions.some((action) => action.type === "go-home"), id).toBe(false);
     }
   });
+
+  it("makes customization recovery, font upload, and device activation discoverable", () => {
+    expect(validateDiscoveryEntries()).toEqual([]);
+    expect(DISCOVERY_ENTRIES.find((entry) => entry.id === "customization-safe-mode")?.summary).toContain(
+      "?safe-mode=customizations",
+    );
+    expect(DISCOVERY_ENTRIES.find((entry) => entry.id === "custom-font-upload")?.actions).toContainEqual(
+      expect.objectContaining({ type: "open-settings", destination: "fonts" }),
+    );
+    expect(DISCOVERY_ENTRIES.find((entry) => entry.id === "extension-device-activation")?.summary).toContain(
+      "trusted page-level JavaScript",
+    );
+  });
 });

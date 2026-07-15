@@ -24,14 +24,21 @@ import { cn } from "../../../../../shared/lib/utils";
 import { useSetupJourneyStore } from "../../../../../shared/stores/setup-journey.store";
 import { restoreSetupJourneyFocus } from "../../../onboarding/shell";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
-import { stripDangerousCss } from "../../../../../shared/lib/chat-css";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
 import {
   buildImportedExtensionInput,
   extensionHasRunnableJavaScript,
 } from "../../../../../shared/lib/extension-import";
-import { useExtensions, useCreateExtension, useDeleteExtension, useUpdateExtension } from "../../hooks/use-extensions";
+import {
+  useExtensions,
+  useCreateExtension,
+  useDeleteExtension,
+  useExtensionRetainedData,
+  usePurgeRetainedExtensionData,
+  useReconnectExtensionData,
+  useUpdateExtension,
+} from "../../hooks/use-extensions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gameAssetsApi } from "../../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
@@ -77,6 +84,17 @@ import {
 } from "../../../../../engine/generation/image-style-profiles";
 import type { Theme } from "../../../../../engine/contracts/types/theme";
 import { useCreateTheme, useDeleteTheme, useSetActiveTheme, useThemes, useUpdateTheme } from "../../hooks/use-themes";
+import { ThemePreview } from "./ThemePreview";
+import { ExtensionRemovalDialog } from "./ExtensionRemovalDialog";
+import { ExtensionActivationDialog } from "./ExtensionActivationDialog";
+import { useExtensionDeviceActivation } from "../../hooks/use-extension-device-activation";
+import {
+  extensionConsentFingerprint,
+  extensionDeviceConsentStore,
+} from "../../../../../shared/lib/extension-device-consent";
+import { currentRuntimeConsentScope } from "../../../../../shared/api/customization-api";
+import { extensionCompatibilityStatus } from "../../../../../engine/contracts/extension-compatibility";
+import { isInjectableExtensionCss, isInjectableThemeCss } from "../../../../../engine/contracts/customization-content";
 import { downloadBackupToBrowser } from "../../lib/backup-settings-actions";
 import {
   initialRemoteRuntimeHealth,
@@ -89,6 +107,7 @@ import {
   findImportedThemeDuplicate,
   parseThemeImportText,
 } from "../../lib/theme-settings-actions";
+import { fontManagementMode } from "../../lib/font-settings-actions";
 import {
   ArrowDown,
   ArrowUp,
@@ -1164,7 +1183,10 @@ export function GeneralSettings() {
         help="When on, double-clicking or double-tapping a chat message opens the message editor. Edit buttons and keyboard shortcuts still work when this is off."
       />
 
-      <div id="settings-destination-image-settings" className="scroll-mt-4 rounded-xl bg-[var(--secondary)]/50 p-4 ring-1 ring-[var(--border)] transition-shadow duration-700">
+      <div
+        id="settings-destination-image-settings"
+        className="scroll-mt-4 rounded-xl bg-[var(--secondary)]/50 p-4 ring-1 ring-[var(--border)] transition-shadow duration-700"
+      >
         <div className="mb-3 flex flex-col gap-1">
           <div className="text-xs font-semibold text-[var(--foreground)]">Image Generation</div>
           <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
@@ -1563,6 +1585,7 @@ export function AppearanceSettings() {
 
   // Google Fonts download
   const [googleFontName, setGoogleFontName] = useState("");
+  const fontUploadRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const googleFontMutation = useMutation({
     mutationFn: (family: string) =>
@@ -1577,6 +1600,19 @@ export function AppearanceSettings() {
       toast.error(toUserMessage(err, { fallback: "Couldn't download that font. Check the URL and try again." }));
     },
   });
+  const fontUploadMutation = useMutation({
+    mutationFn: (file: File) => fontsApi.upload<{ filename: string; family: string; files?: CustomFontFace[] }>(file),
+    onSuccess: (data) => {
+      toast.success(`Installed "${data.family}"`);
+      setFontFamily(data.family);
+      queryClient.invalidateQueries({ queryKey: ["custom-fonts"] });
+      window.dispatchEvent(new Event("marinara-fonts-updated"));
+    },
+    onError: (err: Error) => {
+      toast.error(toUserMessage(err, { fallback: "Couldn't upload that font. Check the file and try again." }));
+    },
+  });
+  const fontMode = fontManagementMode(fontsApi.folderCapability());
 
   return (
     <div className="flex flex-col gap-4">
@@ -1634,7 +1670,10 @@ export function AppearanceSettings() {
         </select>
       </label>
 
-      <label className="flex flex-col gap-1">
+      <label
+        id="settings-destination-fonts"
+        className="scroll-mt-4 flex flex-col gap-1 rounded-xl transition-shadow duration-700"
+      >
         <span className="text-xs font-medium inline-flex items-center gap-1">
           Font{" "}
           <HelpTooltip text="Choose the font used across the app. 'Default (Inter)' is optimized for screen readability. Drop .ttf, .otf, .woff, or .woff2 font files into the data/fonts/ folder to add custom fonts." />
@@ -1657,13 +1696,51 @@ export function AppearanceSettings() {
             to add custom fonts.
           </p>
         )}
-        <button
-          onClick={() => fontsApi.openFolder().catch(() => {})}
-          className="mt-1 inline-flex items-center gap-1.5 self-start rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-        >
-          <FolderOpen size="0.75rem" />
-          Open Fonts Folder
-        </button>
+        {fontMode === "folder" ? (
+          <button
+            onClick={() =>
+              fontsApi
+                .openFolder()
+                .catch((error) => toast.error(toUserMessage(error, { fallback: "Couldn't open the fonts folder." })))
+            }
+            className="mt-1 inline-flex items-center gap-1.5 self-start rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+          >
+            <FolderOpen size="0.75rem" />
+            Open Fonts Folder
+          </button>
+        ) : fontMode === "upload" ? (
+          <>
+            <input
+              ref={fontUploadRef}
+              type="file"
+              accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) fontUploadMutation.mutate(file);
+                event.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fontUploadRef.current?.click()}
+              disabled={fontUploadMutation.isPending}
+              className="mt-1 inline-flex items-center gap-1.5 self-start rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-50"
+            >
+              {fontUploadMutation.isPending ? (
+                <Loader2 size="0.75rem" className="animate-spin" />
+              ) : (
+                <Upload size="0.75rem" />
+              )}
+              {fontUploadMutation.isPending ? "Uploading…" : "Upload Font"}
+            </button>
+            <p className="text-[0.625rem] text-[var(--muted-foreground)]">TTF, OTF, WOFF, or WOFF2 · 10 MiB maximum</p>
+          </>
+        ) : (
+          <p role="alert" className="mt-1 text-[0.625rem] text-[var(--destructive)]">
+            Font storage availability could not be detected. Check the Remote Runtime URL, then reopen Settings.
+          </p>
+        )}
       </label>
 
       {/* â”€â”€ Google Fonts â”€â”€ */}
@@ -2690,7 +2767,9 @@ export function ThemesSettings() {
   const deleteTheme = useDeleteTheme();
   const setActiveTheme = useSetActiveTheme();
   const fileRef = useRef<HTMLInputElement>(null);
-  const activeCustomTheme = customThemes.find((theme) => theme.isActive) ?? null;
+  const storedActiveCustomTheme = customThemes.find((theme) => theme.isActive) ?? null;
+  const activeCustomTheme =
+    storedActiveCustomTheme && isInjectableThemeCss(storedActiveCustomTheme.css) ? storedActiveCustomTheme : null;
   const isSavingTheme = createTheme.isPending || updateTheme.isPending || setActiveTheme.isPending;
 
   // Editor state
@@ -2698,30 +2777,7 @@ export function ThemesSettings() {
   const [editingId, setEditingId] = useState<string | null>(null); // null = creating new
   const [themeName, setThemeName] = useState("");
   const [themeCss, setThemeCss] = useState("");
-  const [livePreview, setLivePreview] = useState(true);
-
-  // Inject live preview CSS
-  useEffect(() => {
-    if (!editorOpen || !livePreview) {
-      const el = document.getElementById("marinara-css-editor-preview");
-      if (el) el.textContent = "";
-      return;
-    }
-    let style = document.getElementById("marinara-css-editor-preview") as HTMLStyleElement | null;
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "marinara-css-editor-preview";
-    }
-    // Sanitize the live preview the same way the saved-activation injector does, so editing
-    // (or importing) a malicious theme can't fire url() beacons / scripts during preview (#2365).
-    style.textContent = stripDangerousCss(themeCss);
-    // Always (re-)append so it's the last <style> in <head>,
-    // overriding the active-theme injector's saved CSS.
-    document.head.appendChild(style);
-    return () => {
-      style!.textContent = "";
-    };
-  }, [editorOpen, livePreview, themeCss]);
+  const [previewEnabled, setPreviewEnabled] = useState(false);
 
   const openNewTheme = useCallback(() => {
     setEditingId(null);
@@ -2733,7 +2789,7 @@ export function ThemesSettings() {
   const openEditTheme = useCallback((theme: Theme) => {
     setEditingId(theme.id);
     setThemeName(theme.name);
-    setThemeCss(theme.css);
+    setThemeCss(typeof theme.css === "string" ? theme.css : "");
     setEditorOpen(true);
   }, []);
 
@@ -2798,16 +2854,16 @@ export function ThemesSettings() {
           </div>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setLivePreview(!livePreview)}
+              onClick={() => setPreviewEnabled(!previewEnabled)}
               className={cn(
                 "flex items-center gap-1 rounded-md px-2 py-1 text-[0.625rem] transition-colors",
-                livePreview
+                previewEnabled
                   ? "bg-emerald-500/15 text-emerald-400"
                   : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
               )}
-              title={livePreview ? "Disable live preview" : "Enable live preview"}
+              title={previewEnabled ? "Disable live preview" : "Enable live preview"}
             >
-              {livePreview ? <Eye size="0.6875rem" /> : <EyeOff size="0.6875rem" />}
+              {previewEnabled ? <Eye size="0.6875rem" /> : <EyeOff size="0.6875rem" />}
               Preview
             </button>
             <button
@@ -2838,6 +2894,8 @@ export function ThemesSettings() {
           className="min-h-[22.5rem] resize-y rounded-lg border border-[var(--border)] bg-[#0d1117] p-3 font-mono text-[0.6875rem] leading-relaxed text-emerald-300 outline-none transition-colors focus:border-[var(--primary)]/50 placeholder:text-white/20"
           placeholder="/* Enter your CSS here... */"
         />
+
+        <ThemePreview css={themeCss} enabled={previewEnabled} />
 
         {/* Quick reference */}
         <details className="group rounded-lg bg-[var(--secondary)]/50 ring-1 ring-[var(--border)]">
@@ -2881,12 +2939,21 @@ export function ThemesSettings() {
 
   // â”€â”€ Theme List View â”€â”€
   return (
-    <div id="settings-destination-themes" className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700">
+    <div
+      id="settings-destination-themes"
+      className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700"
+    >
       <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
         <Palette size="0.75rem" />
         Create or import custom CSS themes. Themes are stored locally in this Tauri app, while extensions stay local to
         this device.
       </div>
+      <a
+        href="?safe-mode=customizations"
+        className="self-start text-[0.6875rem] text-[var(--primary)] underline-offset-4 hover:underline"
+      >
+        Open customization safe mode
+      </a>
 
       {/* Action buttons */}
       <div className="flex gap-2">
@@ -2930,80 +2997,91 @@ export function ThemesSettings() {
         </button>
 
         {/* Custom theme list */}
-        {customThemes.map((t) => (
-          <div
-            key={t.id}
-            className={cn(
-              "flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all",
-              activeCustomTheme?.id === t.id
-                ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-                : "bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:bg-[var(--accent)]",
-            )}
-          >
-            <button
-              onClick={() =>
-                setActiveTheme.mutate(t.id, {
-                  onError: (err) => {
-                    console.error("[ThemesSettings] Failed to activate theme:", err);
-                    toast.error("Failed to activate theme.");
-                  },
-                })
-              }
-              className="flex flex-1 items-center gap-2 min-w-0"
+        {customThemes.map((t) => {
+          const hasValidCss = isInjectableThemeCss(t.css);
+          const isActive = hasValidCss && activeCustomTheme?.id === t.id;
+          return (
+            <div
+              key={t.id}
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all",
+                isActive
+                  ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
+                  : "bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:bg-[var(--accent)]",
+              )}
             >
-              <FileCode2 size="0.75rem" className="shrink-0" />
-              <span className="truncate">{t.name}</span>
-              {activeCustomTheme?.id === t.id && <Check size="0.75rem" className="shrink-0" />}
-            </button>
-            <button
-              onClick={() => openEditTheme(t)}
-              className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
-              title="Edit theme CSS"
-            >
-              <Code size="0.6875rem" />
-            </button>
-            <button
-              onClick={() => {
-                void (async () => {
-                  try {
-                    const result = await saveTextFileToUserSelectedLocation({
-                      filename: `${t.name.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`,
-                      content: JSON.stringify({ name: t.name, css: t.css }, null, 2),
-                      title: "Export theme",
-                      mimeType: "application/json",
-                      filters: [{ name: "JSON", extensions: ["json"] }],
-                    });
-                    if (result !== "cancelled") toast.success(`Theme "${t.name}" exported`);
-                  } catch (err) {
-                    console.error("[ThemesSettings] Failed to export theme:", err);
-                    toast.error("Failed to export theme.");
-                  }
-                })();
-              }}
-              className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
-              title="Export theme"
-            >
-              <Download size="0.6875rem" />
-            </button>
-            <button
-              onClick={() => {
-                void (async () => {
-                  try {
-                    await deleteTheme.mutateAsync(t.id);
-                    toast.success(`Theme "${t.name}" removed`);
-                  } catch (err) {
-                    console.error("[ThemesSettings] Failed to remove theme:", err);
-                    toast.error("Failed to remove theme.");
-                  }
-                })();
-              }}
-              className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-              title="Remove theme"
-            >
-              <Trash2 size="0.6875rem" />
-            </button>
-          </div>
-        ))}
+              <button
+                disabled={!hasValidCss}
+                onClick={() =>
+                  setActiveTheme.mutate(t.id, {
+                    onError: (err) => {
+                      console.error("[ThemesSettings] Failed to activate theme:", err);
+                      toast.error("Failed to activate theme.");
+                    },
+                  })
+                }
+                className="flex min-w-0 flex-1 items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+                title={hasValidCss ? "Activate theme" : "This theme has invalid or empty CSS"}
+              >
+                <FileCode2 size="0.75rem" className="shrink-0" />
+                <span className="flex min-w-0 flex-1 flex-col items-start">
+                  <span className="truncate">{t.name}</span>
+                  {!hasValidCss && (
+                    <span className="text-[0.5625rem] text-[var(--destructive)]">Invalid or empty CSS</span>
+                  )}
+                </span>
+                {isActive && <Check size="0.75rem" className="shrink-0" />}
+              </button>
+              <button
+                onClick={() => openEditTheme(t)}
+                className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
+                title="Edit theme CSS"
+              >
+                <Code size="0.6875rem" />
+              </button>
+              <button
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const result = await saveTextFileToUserSelectedLocation({
+                        filename: `${t.name.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`,
+                        content: JSON.stringify({ name: t.name, css: t.css }, null, 2),
+                        title: "Export theme",
+                        mimeType: "application/json",
+                        filters: [{ name: "JSON", extensions: ["json"] }],
+                      });
+                      if (result !== "cancelled") toast.success(`Theme "${t.name}" exported`);
+                    } catch (err) {
+                      console.error("[ThemesSettings] Failed to export theme:", err);
+                      toast.error("Failed to export theme.");
+                    }
+                  })();
+                }}
+                className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
+                title="Export theme"
+              >
+                <Download size="0.6875rem" />
+              </button>
+              <button
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      await deleteTheme.mutateAsync(t.id);
+                      toast.success(`Theme "${t.name}" removed`);
+                    } catch (err) {
+                      console.error("[ThemesSettings] Failed to remove theme:", err);
+                      toast.error("Failed to remove theme.");
+                    }
+                  })();
+                }}
+                className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                title="Remove theme"
+              >
+                <Trash2 size="0.6875rem" />
+              </button>
+            </div>
+          );
+        })}
 
         {isLoading && customThemes.length === 0 && (
           <p className="py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">Loading custom themes...</p>
@@ -3066,20 +3144,31 @@ export function ExtensionsSettings() {
   const createExtension = useCreateExtension();
   const updateExtension = useUpdateExtension();
   const deleteExtension = useDeleteExtension();
+  const { data: retainedData = [] } = useExtensionRetainedData();
+  const purgeRetainedData = usePurgeRetainedExtensionData();
+  const reconnectData = useReconnectExtensionData();
+  const [removingExtension, setRemovingExtension] = useState<(typeof extensionList)[number] | null>(null);
+  const [activatingExtension, setActivatingExtension] = useState<(typeof extensionList)[number] | null>(null);
+  const deviceActivation = useExtensionDeviceActivation(activatingExtension);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleRemoveExtension = async (dataPolicy: "retain" | "purge") => {
+    if (!removingExtension) return;
+    try {
+      const result = await deleteExtension.mutateAsync({ id: removingExtension.id, dataPolicy });
+      toast.success(
+        result.retainedMemoryRows > 0
+          ? `Removed ${removingExtension.name} and kept ${result.retainedMemoryRows} data record${result.retainedMemoryRows === 1 ? "" : "s"}.`
+          : `Removed ${removingExtension.name}.`,
+      );
+      setRemovingExtension(null);
+    } catch (error) {
+      toast.error(toUserMessage(error, { fallback: "Couldn't remove that extension." }));
+    }
+  };
 
   const handleToggleExtension = async (ext: (typeof extensionList)[number]) => {
     const nextEnabled = !ext.enabled;
-    if (nextEnabled && extensionHasRunnableJavaScript(ext)) {
-      const confirmed = await showConfirmDialog({
-        title: "Enable JavaScript extension?",
-        message: `JavaScript extensions can change the page and use extension storage. Enable "${ext.name}" only if you trust this file.`,
-        confirmLabel: "Enable",
-        cancelLabel: "Keep disabled",
-        tone: "destructive",
-      });
-      if (!confirmed) return;
-    }
     updateExtension.mutate({ id: ext.id, enabled: nextEnabled });
   };
 
@@ -3091,7 +3180,18 @@ export function ExtensionsSettings() {
       const installedAt = new Date().toISOString();
 
       const result = buildImportedExtensionInput(file.name, text, installedAt);
-      await createExtension.mutateAsync(result.input);
+      const created = await createExtension.mutateAsync(result.input);
+      if (
+        !result.hasRunnableJavaScript &&
+        created.css?.trim() &&
+        extensionCompatibilityStatus(created.compatibility?.deKoi) !== "incompatible"
+      ) {
+        const fingerprint = await extensionConsentFingerprint(created);
+        extensionDeviceConsentStore.grant(currentRuntimeConsentScope(), created.id, fingerprint, {
+          css: true,
+          javascript: false,
+        });
+      }
       toast.success(
         result.hasRunnableJavaScript
           ? `Extension "${result.input.name}" installed disabled. Review it before enabling.`
@@ -3108,7 +3208,10 @@ export function ExtensionsSettings() {
   };
 
   return (
-    <div id="settings-destination-extensions" className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700">
+    <div
+      id="settings-destination-extensions"
+      className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700"
+    >
       <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
         <Puzzle size="0.75rem" />
         Install custom extensions to add new features and styles.
@@ -3127,50 +3230,81 @@ export function ExtensionsSettings() {
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium">Installed Extensions</span>
 
-        {extensionList.map((ext) => (
-          <div
-            key={ext.id}
-            className={cn(
-              "flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all",
-              ext.enabled
-                ? "bg-[var(--secondary)] text-[var(--secondary-foreground)]"
-                : "bg-[var(--secondary)]/40 text-[var(--muted-foreground)]",
-            )}
-          >
-            <button
-              onClick={() => void handleToggleExtension(ext)}
+        {extensionList.map((ext) => {
+          const hasValidCss = isInjectableExtensionCss(ext.css);
+          const hasValidJavaScript = extensionHasRunnableJavaScript(ext);
+          const hasRunnableContent = hasValidCss || hasValidJavaScript;
+          const isEffectivelyEnabled = ext.enabled && hasRunnableContent;
+          return (
+            <div
+              key={ext.id}
               className={cn(
-                "rounded p-0.5 transition-colors",
-                ext.enabled
-                  ? "text-emerald-400 hover:text-emerald-300"
-                  : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all",
+                isEffectivelyEnabled
+                  ? "bg-[var(--secondary)] text-[var(--secondary-foreground)]"
+                  : "bg-[var(--secondary)]/40 text-[var(--muted-foreground)]",
               )}
-              title={ext.enabled ? "Disable extension" : "Enable extension"}
             >
-              {ext.enabled ? <Power size="0.75rem" /> : <PowerOff size="0.75rem" />}
-            </button>
-            <div className="flex flex-1 flex-col min-w-0">
-              <span className="truncate font-medium">{ext.name}</span>
-              {ext.description && (
-                <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">{ext.description}</span>
-              )}
-              {ext.packageId && (
-                <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                  {ext.packageId}
-                  {ext.packageVersion ? ` v${ext.packageVersion}` : ""}
-                  {ext.permissions?.length ? ` - ${ext.permissions.length} permissions` : ""}
-                </span>
-              )}
+              <button
+                disabled={!hasRunnableContent && !ext.enabled}
+                onClick={() => void handleToggleExtension(ext)}
+                className={cn(
+                  "rounded p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  isEffectivelyEnabled
+                    ? "text-emerald-400 hover:text-emerald-300"
+                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+                )}
+                title={
+                  !hasRunnableContent
+                    ? "This extension has no valid CSS or JavaScript"
+                    : ext.enabled
+                      ? "Disable extension"
+                      : "Enable extension"
+                }
+              >
+                {isEffectivelyEnabled ? <Power size="0.75rem" /> : <PowerOff size="0.75rem" />}
+              </button>
+              <div className="flex flex-1 flex-col min-w-0">
+                <span className="truncate font-medium">{ext.name}</span>
+                {ext.description && (
+                  <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">{ext.description}</span>
+                )}
+                {ext.packageId && (
+                  <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                    {ext.packageId}
+                    {ext.packageVersion ? ` v${ext.packageVersion}` : ""}
+                    {ext.permissions?.length ? ` - ${ext.permissions.length} permissions` : ""}
+                  </span>
+                )}
+                {!hasRunnableContent && (
+                  <span className="text-[0.5625rem] text-[var(--destructive)]">
+                    Inactive: no valid CSS or JavaScript
+                  </span>
+                )}
+                {ext.css != null && !hasValidCss && hasValidJavaScript && (
+                  <span className="text-[0.5625rem] text-[var(--destructive)]">Invalid CSS will not run</span>
+                )}
+              </div>
+              <button
+                onClick={() => setRemovingExtension(ext)}
+                className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                title="Remove extension"
+              >
+                <Trash2 size="0.6875rem" />
+              </button>
+              <button
+                onClick={() => setActivatingExtension(ext)}
+                disabled={!hasRunnableContent}
+                className="rounded px-1.5 py-1 text-[0.625rem] text-[var(--primary)] ring-1 ring-[var(--primary)]/30 disabled:cursor-not-allowed disabled:opacity-50"
+                title={
+                  hasRunnableContent ? "Manage activation on this device" : "No valid extension content to activate"
+                }
+              >
+                Device access
+              </button>
             </div>
-            <button
-              onClick={() => deleteExtension.mutate(ext.id)}
-              className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-              title="Remove extension"
-            >
-              <Trash2 size="0.6875rem" />
-            </button>
-          </div>
-        ))}
+          );
+        })}
 
         {!isLoading && extensionList.length === 0 && (
           <p className="py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
@@ -3179,12 +3313,89 @@ export function ExtensionsSettings() {
         )}
       </div>
 
+      {retainedData.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg bg-[var(--secondary)]/40 p-3 ring-1 ring-[var(--border)]">
+          <span className="text-xs font-medium">Retained extension data</span>
+          <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+            Data kept after removal stays inactive until you explicitly reconnect it to the same package.
+          </p>
+          {retainedData.map((retained) => {
+            const match = extensionList.find(
+              (extension) => retained.packageId && extension.packageId === retained.packageId,
+            );
+            return (
+              <div
+                key={retained.id}
+                className="flex flex-wrap items-center gap-2 rounded-md bg-[var(--card)] p-2 text-[0.625rem]"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">
+                    {retained.name || retained.packageId || "Removed extension"}
+                  </div>
+                  <div className="text-[var(--muted-foreground)]">
+                    {retained.packageId || "Legacy extension"}
+                    {retained.packageVersion ? ` v${retained.packageVersion}` : ""}
+                    {` · ${retained.rowCount} record${retained.rowCount === 1 ? "" : "s"}`}
+                    {` · kept ${Number.isNaN(Date.parse(retained.retainedAt)) ? retained.retainedAt : new Date(retained.retainedAt).toLocaleString()}`}
+                  </div>
+                </div>
+                {match && (
+                  <button
+                    onClick={() => reconnectData.mutate({ extensionId: match.id, retentionId: retained.id })}
+                    disabled={reconnectData.isPending}
+                    className="rounded-md bg-[var(--secondary)] px-2 py-1"
+                  >
+                    Reconnect
+                  </button>
+                )}
+                <button
+                  onClick={() => purgeRetainedData.mutate(retained.id)}
+                  disabled={purgeRetainedData.isPending}
+                  className="rounded-md px-2 py-1 text-[var(--destructive)]"
+                >
+                  Delete data
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Info box */}
       <div className="rounded-lg bg-[var(--secondary)]/50 p-2.5 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
         <strong>JSON format:</strong>{" "}
         <code className="rounded bg-[var(--secondary)] px-1">{`{ "name": "...", "description": "...", "css": "..." }`}</code>
         . Extensions can inject custom CSS and/or JavaScript to modify the UI.
       </div>
+      {removingExtension && (
+        <ExtensionRemovalDialog
+          extension={removingExtension}
+          pending={deleteExtension.isPending}
+          onCancel={() => setRemovingExtension(null)}
+          onRemove={(policy) => void handleRemoveExtension(policy)}
+        />
+      )}
+      {activatingExtension && (
+        <ExtensionActivationDialog
+          extension={activatingExtension}
+          compatibility={deviceActivation.compatibility}
+          canActivate={deviceActivation.canActivate}
+          consent={deviceActivation.consent}
+          onCancel={() => setActivatingExtension(null)}
+          onActivate={(activation) => {
+            if (!activatingExtension.enabled) updateExtension.mutate({ id: activatingExtension.id, enabled: true });
+            if (deviceActivation.grant(activation)) {
+              toast.success(`${activatingExtension.name} is active on this device.`);
+              setActivatingExtension(null);
+            }
+          }}
+          onRevoke={() => {
+            deviceActivation.revoke();
+            toast.success(`${activatingExtension.name} is inactive on this device.`);
+            setActivatingExtension(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -4152,7 +4363,10 @@ export function AdvancedSettings() {
 
       {/* Backup */}
       <div className="retro-divider" />
-      <div id="settings-destination-backups" className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700">
+      <div
+        id="settings-destination-backups"
+        className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700"
+      >
         <div className="flex items-center gap-1.5">
           <Download size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Backup & Export</span>

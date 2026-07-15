@@ -2,24 +2,85 @@
 // CustomThemeInjector: Injects active custom theme
 // CSS and enabled extension CSS/JS into the DOM
 // ──────────────────────────────────────────────
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useThemes } from "../../features/shell/settings/index";
 import { useExtensions } from "../../features/shell/settings/index";
 import { stripDangerousCss } from "../../shared/lib/chat-css";
 import { extensionHasRunnableJavaScript } from "../../shared/lib/extension-import";
 import { executeCustomExtensionJavaScript } from "./extension-runtime";
+import { isInjectableExtensionCss, isInjectableThemeCss } from "../../engine/contracts/customization-content";
+import {
+  EXTENSION_CONSENT_CHANGED_EVENT,
+  extensionConsentEventAffects,
+  extensionConsentFingerprint,
+  extensionDeviceConsentStore,
+} from "../../shared/lib/extension-device-consent";
+import { currentRuntimeConsentScope } from "../../shared/api/customization-api";
+import { extensionCompatibilityAllowsActivation } from "../../engine/contracts/extension-compatibility";
+import type { InstalledExtension } from "../../engine/contracts/types/extension";
+import type { Theme } from "../../engine/contracts/types/theme";
+
+const EMPTY_EXTENSIONS: InstalledExtension[] = [];
+const EMPTY_THEMES: Theme[] = [];
+
+function extensionCanRun(extension: InstalledExtension) {
+  try {
+    return extensionCompatibilityAllowsActivation(extension);
+  } catch {
+    return false;
+  }
+}
 
 export function CustomThemeInjector() {
-  const { data: installedExtensions = [] } = useExtensions();
-  const { data: customThemes = [] } = useThemes();
-  const activeTheme = customThemes.find((theme) => theme.isActive) ?? null;
+  const { data: installedExtensionRows } = useExtensions();
+  const { data: customThemeRows } = useThemes();
+  const installedExtensions = installedExtensionRows ?? EMPTY_EXTENSIONS;
+  const customThemes = customThemeRows ?? EMPTY_THEMES;
+  const activeTheme = customThemes.find((theme) => theme && typeof theme === "object" && theme.isActive) ?? null;
+  const [consentRevision, setConsentRevision] = useState(0);
+  const [deviceActivation, setDeviceActivation] = useState<Record<string, { css: boolean; javascript: boolean }>>({});
+
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const runtimeScope = currentRuntimeConsentScope();
+      const extensionIds = installedExtensions.map((extension) => extension.id);
+      if (extensionConsentEventAffects(event, runtimeScope, extensionIds)) {
+        setConsentRevision((revision) => revision + 1);
+      }
+    };
+    globalThis.addEventListener(EXTENSION_CONSENT_CHANGED_EVENT, refresh);
+    return () => globalThis.removeEventListener(EXTENSION_CONSENT_CHANGED_EVENT, refresh);
+  }, [installedExtensions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const next: Record<string, { css: boolean; javascript: boolean }> = {};
+      try {
+        const runtimeScope = currentRuntimeConsentScope();
+        for (const extension of installedExtensions) {
+          if (!extension?.enabled) continue;
+          if (!extensionCanRun(extension)) continue;
+          const fingerprint = await extensionConsentFingerprint(extension);
+          const consent = extensionDeviceConsentStore.read(runtimeScope, extension.id, fingerprint);
+          if (consent) next[extension.id] = { css: consent.css, javascript: consent.javascript };
+        }
+      } catch (error) {
+        console.error("[Extensions] Device activation could not be verified:", error);
+      }
+      if (!cancelled) setDeviceActivation(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [installedExtensions, consentRevision]);
 
   // Inject active custom theme CSS
   useEffect(() => {
     const id = "marinara-custom-theme";
     let style = document.getElementById(id) as HTMLStyleElement | null;
 
-    if (!activeTheme) {
+    if (!activeTheme || !isInjectableThemeCss(activeTheme.css)) {
       style?.remove();
       return;
     }
@@ -49,7 +110,8 @@ export function CustomThemeInjector() {
     // Inject enabled ones
     for (const ext of installedExtensions) {
       if (!ext) continue;
-      if (!ext.enabled || !ext.css) continue;
+      if (!ext.enabled || !extensionCanRun(ext) || !deviceActivation[ext.id]?.css || !isInjectableExtensionCss(ext.css))
+        continue;
       const style = document.createElement("style");
       style.id = `${prefix}${ext.id}`;
       style.textContent = stripDangerousCss(ext.css);
@@ -59,7 +121,7 @@ export function CustomThemeInjector() {
     return () => {
       document.querySelectorAll(`style[id^="${prefix}"]`).forEach((el) => el.remove());
     };
-  }, [installedExtensions]);
+  }, [installedExtensions, deviceActivation]);
 
   // Execute enabled extension JS
   useEffect(() => {
@@ -71,7 +133,13 @@ export function CustomThemeInjector() {
 
     for (const ext of installedExtensions) {
       if (!ext) continue;
-      if (!ext.enabled || !extensionHasRunnableJavaScript(ext)) continue;
+      if (
+        !ext.enabled ||
+        !extensionCanRun(ext) ||
+        !deviceActivation[ext.id]?.javascript ||
+        !extensionHasRunnableJavaScript(ext)
+      )
+        continue;
 
       try {
         const runningExtension = executeCustomExtensionJavaScript(ext);
@@ -84,7 +152,7 @@ export function CustomThemeInjector() {
     return () => {
       cleanupFns.forEach((fn) => fn());
     };
-  }, [installedExtensions]);
+  }, [installedExtensions, deviceActivation]);
 
   return null;
 }

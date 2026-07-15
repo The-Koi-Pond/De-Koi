@@ -10,10 +10,12 @@ import {
   type UpdateExtensionInput,
 } from "../../../../engine/contracts/schemas/extension.schema";
 import type { InstalledExtension } from "../../../../engine/contracts/types/extension";
+import { extensionsApi, type ExtensionDataPolicy } from "../../../../shared/api/customization-api";
 
 const extensionKeys = {
   all: ["extensions"] as const,
   list: () => [...extensionKeys.all, "list"] as const,
+  retained: () => [...extensionKeys.all, "retained-data"] as const,
 };
 
 function isInstalledExtension(value: unknown): value is InstalledExtension {
@@ -62,9 +64,35 @@ export function useUpdateExtension() {
 export function useDeleteExtension() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => storageApi.delete("extensions", id),
+    mutationFn: ({ id, dataPolicy }: { id: string; dataPolicy: ExtensionDataPolicy }) =>
+      extensionsApi.remove(id, dataPolicy),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: extensionKeys.all });
     },
+  });
+}
+
+export function useExtensionRetainedData() {
+  return useQuery({
+    queryKey: extensionKeys.retained(),
+    queryFn: extensionsApi.retainedData,
+    staleTime: 60_000,
+  });
+}
+
+export function useReconnectExtensionData() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ extensionId, retentionId }: { extensionId: string; retentionId: string }) =>
+      extensionsApi.reconnect(extensionId, retentionId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: extensionKeys.all }),
+  });
+}
+
+export function usePurgeRetainedExtensionData() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (retentionId: string) => extensionsApi.purgeRetained(retentionId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: extensionKeys.all }),
   });
 }

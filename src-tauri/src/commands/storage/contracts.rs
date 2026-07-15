@@ -424,6 +424,14 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         EMPTY_CLEANUP,
     ),
     contract(
+        "extension-data-retention",
+        true,
+        false,
+        EMPTY_DEFAULTS,
+        EMPTY_FIELDS,
+        EMPTY_CLEANUP,
+    ),
+    contract(
         "memory-capture-jobs",
         true,
         false,

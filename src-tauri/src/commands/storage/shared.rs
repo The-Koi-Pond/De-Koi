@@ -671,6 +671,7 @@ pub(crate) fn normalize_character_data_for_storage(data: &Value) -> AppResult<Va
 
 const MAX_EXTENSION_NAME_CHARS: usize = 200;
 const MAX_EXTENSION_DESCRIPTION_CHARS: usize = 2000;
+const MAX_THEME_CSS_BYTES: usize = 256 * 1024;
 const MAX_EXTENSION_CSS_BYTES: usize = 256 * 1024;
 const MAX_EXTENSION_JS_BYTES: usize = 1024 * 1024;
 const EXTENSION_PACKAGE_PERMISSIONS: &[&str] = &[
@@ -685,6 +686,21 @@ const EXTENSION_PACKAGE_PERMISSIONS: &[&str] = &[
 ];
 const EXTENSION_UI_SLOTS: &[&str] = &["settings", "overlay", "messages", "theme"];
 const EXTENSION_SOURCES: &[&str] = &["file", "package", "profile"];
+
+fn is_runnable_source(value: Option<&Value>, max_bytes: usize) -> bool {
+    value
+        .and_then(Value::as_str)
+        .is_some_and(|source| !source.trim().is_empty() && source.len() <= max_bytes)
+}
+
+pub(crate) fn has_injectable_theme_css(theme: &Value) -> bool {
+    is_runnable_source(theme.get("css"), MAX_THEME_CSS_BYTES)
+}
+
+pub(crate) fn has_runnable_extension_content(extension: &Value) -> bool {
+    is_runnable_source(extension.get("css"), MAX_EXTENSION_CSS_BYTES)
+        || is_runnable_source(extension.get("js"), MAX_EXTENSION_JS_BYTES)
+}
 
 fn is_valid_extension_package_id(value: &str) -> bool {
     let mut chars = value.chars();

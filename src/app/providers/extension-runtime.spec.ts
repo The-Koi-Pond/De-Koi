@@ -189,4 +189,37 @@ describe("custom extension runtime", () => {
     expect(testGlobal().__marinaraExtensionApis?.size).toBe(0);
     expect(testGlobal().__extensionRan).toBeUndefined();
   });
+
+  it("exposes only declared De-Koi helpers to package extensions", () => {
+    const running = executeCustomExtensionJavaScript(
+      createExtension({ source: "package", manifestVersion: 1, permissions: ["ui:styles"] }),
+      {
+        createObjectUrl: () => "blob:filtered-extension",
+        importModule: () => new Promise(() => undefined),
+        revokeObjectUrl: vi.fn(),
+        storage: createStorageStub(),
+      },
+    );
+    const api = [...(testGlobal().__marinaraExtensionApis?.values() ?? [])][0] as Record<string, unknown>;
+
+    expect(api.addStyle).toBeTypeOf("function");
+    expect(api.storage).toBeUndefined();
+    expect(api.addElement).toBeUndefined();
+    running.cleanup();
+  });
+
+  it("preserves the legacy helper surface for file extensions", () => {
+    const running = executeCustomExtensionJavaScript(createExtension({ source: "file" }), {
+      createObjectUrl: () => "blob:legacy-extension",
+      importModule: () => new Promise(() => undefined),
+      revokeObjectUrl: vi.fn(),
+      storage: createStorageStub(),
+    });
+    const api = [...(testGlobal().__marinaraExtensionApis?.values() ?? [])][0] as Record<string, unknown>;
+
+    expect(api.addStyle).toBeTypeOf("function");
+    expect(api.storage).toBeDefined();
+    expect(api.addElement).toBeTypeOf("function");
+    running.cleanup();
+  });
 });

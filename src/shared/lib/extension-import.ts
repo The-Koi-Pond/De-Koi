@@ -1,5 +1,6 @@
 import type { CreateExtensionInput } from "../../engine/contracts/schemas/extension.schema";
 import type { ExtensionPackagePermission, ExtensionPackageUiSlot } from "../../engine/contracts/types/extension";
+import { assertValidExtensionCompatibility } from "../../engine/contracts/extension-compatibility";
 
 type ExtensionImportPayload = {
   js?: string | null;
@@ -133,7 +134,14 @@ function parseJsonExtension(fileName: string, text: string, installedAt: string)
     packageId,
     packageVersion,
     manifestVersion: 1,
-    compatibility: compatibility ? { deKoi: readString(compatibility.deKoi) ?? undefined } : null,
+    compatibility: compatibility
+      ? {
+          deKoi:
+            compatibility.deKoi === undefined
+              ? undefined
+              : assertValidExtensionCompatibility(readString(compatibility.deKoi) ?? ""),
+        }
+      : null,
     permissions: normalizePermissions(parsed.permissions),
     ...(ui ? { uiContributions: declaredSlots ? { slots: declaredSlots } : {} } : {}),
     source: "package",
