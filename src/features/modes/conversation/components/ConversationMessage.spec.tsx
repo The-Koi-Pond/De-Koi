@@ -1034,6 +1034,10 @@ describe("ConversationMessage memo subscriptions", () => {
           jobId: "job-1",
           sourceMessageIds: ["user-1", "conversation-memory-indicators"],
           completedAt: "2026-01-01T00:03:00.000Z",
+          capture: {
+            operation: "created",
+            memory: { id: "captured-memory-1", content: "Aster remembers the quiet signal." },
+          },
         },
         generationPromptSnapshot: promptSnapshot,
       },

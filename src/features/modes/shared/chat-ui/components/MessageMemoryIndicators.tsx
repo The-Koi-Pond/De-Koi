@@ -45,7 +45,12 @@ export function MessageMemoryIndicators({
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
   const savedTitleId = useId();
-  const remembered = !isUser && memoryCapture?.status === "completed";
+  const savedCapture = memoryCapture?.capture;
+  const remembered =
+    !isUser &&
+    memoryCapture?.status === "completed" &&
+    !!savedCapture?.memory?.id?.trim() &&
+    !!savedCapture.memory.content?.trim();
   const recalledItems = useMemo(() => recalledMemoryItems(promptSnapshot), [promptSnapshot]);
   const recalledCount = !isUser ? recalledItems.length : 0;
   const visibleSnippets = recalledItems
@@ -145,10 +150,10 @@ export function MessageMemoryIndicators({
               onClick={(event) => event.stopPropagation()}
             >
               <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
-                {memoryCapture?.capture?.operation === "updated" ? "Updated memory" : "Saved memory"}
+                {savedCapture?.operation === "updated" ? "Updated memory" : "Saved memory"}
               </div>
               <p className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md bg-[var(--accent)]/35 px-2 py-1.5 leading-relaxed text-[var(--foreground)]/80">
-                {memoryCapture?.capture?.memory.content ?? "Saved memory details are unavailable for this response."}
+                {savedCapture?.memory?.content}
               </p>
             </div>
           )}

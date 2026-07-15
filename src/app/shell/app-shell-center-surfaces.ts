@@ -33,6 +33,17 @@ export function shouldBeginSetupJourney(
   return !!pendingMode && (!intent || intent.mode !== pendingMode || intent.completed);
 }
 
+export function getAutomaticMemoryCaptureToast(
+  enabled: boolean,
+  completion: { operation: "created" | "updated"; memory: { content: string } },
+): { title: string; description: string } | null {
+  if (!enabled) return null;
+  return {
+    title: completion.operation === "created" ? "Memory saved" : "Memory updated",
+    description: completion.memory.content,
+  };
+}
+
 export function getAppShellCenterSurfaceState({
   botBrowserOpen,
   gameAssetsBrowserOpen,

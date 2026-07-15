@@ -39,6 +39,7 @@ import { onDesktopWindowCloseRequested } from "../../shared/api/window-controls-
 import { hasPendingAppCloseWork, requestGuardedAppClose } from "../../shared/lib/app-close-guard";
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
 import {
+  getAutomaticMemoryCaptureToast,
   getAppShellCenterSurfaceState,
   getSetupJourneyHost,
   shouldBeginSetupJourney,
@@ -346,10 +347,9 @@ export function AppShell() {
   useEffect(
     () =>
       subscribeAutomaticMemoryCaptureCompletions((completion) => {
-        if (!automaticMemoryCaptureNotifications) return;
-        toast.success(completion.operation === "created" ? "Memory saved" : "Memory updated", {
-          description: completion.memory.content,
-        });
+        const feedback = getAutomaticMemoryCaptureToast(automaticMemoryCaptureNotifications, completion);
+        if (!feedback) return;
+        toast.success(feedback.title, { description: feedback.description });
       }),
     [automaticMemoryCaptureNotifications],
   );

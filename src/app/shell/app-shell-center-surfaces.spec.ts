@@ -134,3 +134,26 @@ describe("shouldBeginSetupJourney", () => {
     expect(shouldBeginSetupJourney("game", { mode: "game", completed: true })).toBe(true);
   });
 });
+
+describe("automatic memory capture notification policy", () => {
+  it("returns exact capture feedback only while the preference is enabled", async () => {
+    const module = (await import("./app-shell-center-surfaces")) as Record<string, unknown>;
+    expect(module).toHaveProperty("getAutomaticMemoryCaptureToast");
+
+    const getAutomaticMemoryCaptureToast = module.getAutomaticMemoryCaptureToast as (
+      enabled: boolean,
+      completion: { operation: "created" | "updated"; memory: { content: string } },
+    ) => { title: string; description: string } | null;
+    const completion = { operation: "created" as const, memory: { content: "Celia's cat is named Miso." } };
+
+    expect(getAutomaticMemoryCaptureToast(false, completion)).toBeNull();
+    expect(getAutomaticMemoryCaptureToast(true, completion)).toEqual({
+      title: "Memory saved",
+      description: "Celia's cat is named Miso.",
+    });
+    expect(getAutomaticMemoryCaptureToast(true, { ...completion, operation: "updated" })).toEqual({
+      title: "Memory updated",
+      description: "Celia's cat is named Miso.",
+    });
+  });
+});

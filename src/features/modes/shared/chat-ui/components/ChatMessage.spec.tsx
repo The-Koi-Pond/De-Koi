@@ -982,4 +982,63 @@ describe("ChatMessage", () => {
       promptSnapshot,
     });
   });
+
+  it("does not claim a memory was remembered when completed capture details are missing", () => {
+    const legacyCompletedMessage: Message = {
+      ...message,
+      id: "message-memory-capture-without-details",
+      extra: {
+        ...message.extra,
+        memoryCapture: {
+          status: "completed",
+          jobId: "legacy-job",
+          sourceMessageIds: ["user-legacy", "message-memory-capture-without-details"],
+          completedAt: "2026-01-01T00:03:00.000Z",
+        },
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={legacyCompletedMessage} characterMap={characterMap} />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(
+      Array.from(container!.querySelectorAll("button")).find((button) => button.textContent?.includes("remembered")),
+    ).toBeUndefined();
+    expect(container!.textContent).not.toContain("Saved memory details are unavailable");
+  });
+
+  it("does not throw or show remembered for a malformed capture without memory data", () => {
+    const malformedCaptureMessage = {
+      ...message,
+      id: "message-malformed-memory-capture",
+      extra: {
+        ...message.extra,
+        memoryCapture: {
+          status: "completed",
+          jobId: "malformed-job",
+          sourceMessageIds: ["user-malformed", "message-malformed-memory-capture"],
+          completedAt: "2026-01-01T00:03:00.000Z",
+          capture: { operation: "created" },
+        },
+      },
+    } as unknown as Message;
+
+    expect(() => {
+      act(() => {
+        root = createRoot(container!);
+        root.render(
+          <QueryClientProvider client={queryClient!}>
+            <ChatMessage message={malformedCaptureMessage} characterMap={characterMap} />
+          </QueryClientProvider>,
+        );
+      });
+    }).not.toThrow();
+    expect(container!.textContent).not.toContain("remembered");
+  });
 });
