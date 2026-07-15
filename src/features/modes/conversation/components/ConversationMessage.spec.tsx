@@ -1048,7 +1048,9 @@ describe("ConversationMessage memo subscriptions", () => {
       );
     });
 
-    expect(container!.querySelector('[role="status"]')?.textContent).toContain("remembered");
+    expect(
+      Array.from(container!.querySelectorAll("button")).some((button) => button.textContent?.includes("remembered")),
+    ).toBe(true);
     const recalledChip = Array.from(container!.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("1 memory recalled"),
     );
