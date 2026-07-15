@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { themesApi } from "../shared/api/customization-api";
 import { normalAppUrl } from "./customization-safe-mode";
-
-const EXTENSION_CONSENT_STORAGE_KEY = "de-koi.extension-device-consent.v1";
+import { extensionDeviceConsentStore } from "../shared/lib/extension-device-consent";
 
 export function CustomizationSafeMode() {
   const [status, setStatus] = useState<"idle" | "working" | "done" | "error">("idle");
@@ -13,7 +12,7 @@ export function CustomizationSafeMode() {
     setMessage("");
     try {
       await themesApi.setActive(null);
-      window.localStorage.removeItem(EXTENSION_CONSENT_STORAGE_KEY);
+      extensionDeviceConsentStore.clearAll();
       setStatus("done");
       setMessage("The active custom theme and this device's extension activations are disabled.");
     } catch (error) {

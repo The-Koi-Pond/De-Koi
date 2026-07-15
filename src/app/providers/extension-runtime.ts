@@ -11,7 +11,10 @@ type ExtensionStorageSource = Pick<StorageGateway, "list" | "get" | "create" | "
 
 type ExtensionRuntimeConsole = Pick<Console, "error" | "warn">;
 
-type RunnableExtension = Pick<InstalledExtension, "id" | "name" | "js" | "storageNamespaceId"> & { js: string };
+type RunnableExtension = Pick<
+  InstalledExtension,
+  "id" | "name" | "js" | "storageNamespaceId" | "source" | "manifestVersion" | "permissions"
+> & { js: string };
 
 export type ExtensionRuntimeDeps = {
   console?: ExtensionRuntimeConsole;
@@ -176,6 +179,18 @@ export function executeCustomExtensionJavaScript(
       extensionCleanups.push(fn);
     },
   };
+
+  if (ext.source === "package" || ext.manifestVersion != null) {
+    const permissions = new Set(ext.permissions ?? []);
+    const filteredApi = extensionAPI as Record<string, unknown>;
+    if (!permissions.has("ui:styles")) delete filteredApi.addStyle;
+    if (!permissions.has("storage:plugin-memory")) delete filteredApi.storage;
+    if (!permissions.has("runtime:dom")) {
+      for (const helper of ["addElement", "on", "setInterval", "setTimeout", "observe", "onCleanup"]) {
+        delete filteredApi[helper];
+      }
+    }
+  }
 
   const moduleSource = buildExtensionModuleSource(apiKey, ext.name, ext.js);
   const blob = new Blob([moduleSource], { type: "text/javascript" });

@@ -1,6 +1,12 @@
 import type { ExtensionDataRetention, InstalledExtension } from "../../engine/contracts/types/extension";
 import type { Theme } from "../../engine/contracts/types/theme";
 import { invokeTauri } from "./tauri-client";
+import { remoteRuntimeTarget } from "./remote-runtime";
+
+export function currentRuntimeConsentScope() {
+  const target = remoteRuntimeTarget();
+  return target ? `remote:${target.baseUrl}` : "embedded";
+}
 
 export const themesApi = {
   setActive: (themeId: string | null) => invokeTauri<Theme | null>("theme_set_active", { themeId }),

@@ -28,7 +28,6 @@ import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
 import {
   buildImportedExtensionInput,
-  extensionHasRunnableJavaScript,
 } from "../../../../../shared/lib/extension-import";
 import {
   useExtensions,
@@ -86,6 +85,14 @@ import type { Theme } from "../../../../../engine/contracts/types/theme";
 import { useCreateTheme, useDeleteTheme, useSetActiveTheme, useThemes, useUpdateTheme } from "../../hooks/use-themes";
 import { ThemePreview } from "./ThemePreview";
 import { ExtensionRemovalDialog } from "./ExtensionRemovalDialog";
+import { ExtensionActivationDialog } from "./ExtensionActivationDialog";
+import { useExtensionDeviceActivation } from "../../hooks/use-extension-device-activation";
+import {
+  extensionConsentFingerprint,
+  extensionDeviceConsentStore,
+} from "../../../../../shared/lib/extension-device-consent";
+import { currentRuntimeConsentScope } from "../../../../../shared/api/customization-api";
+import { extensionCompatibilityStatus } from "../../../../../engine/contracts/extension-compatibility";
 import { downloadBackupToBrowser } from "../../lib/backup-settings-actions";
 import {
   initialRemoteRuntimeHealth,
@@ -3112,6 +3119,8 @@ export function ExtensionsSettings() {
   const purgeRetainedData = usePurgeRetainedExtensionData();
   const reconnectData = useReconnectExtensionData();
   const [removingExtension, setRemovingExtension] = useState<(typeof extensionList)[number] | null>(null);
+  const [activatingExtension, setActivatingExtension] = useState<(typeof extensionList)[number] | null>(null);
+  const deviceActivation = useExtensionDeviceActivation(activatingExtension);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleRemoveExtension = async (dataPolicy: "retain" | "purge") => {
@@ -3131,16 +3140,6 @@ export function ExtensionsSettings() {
 
   const handleToggleExtension = async (ext: (typeof extensionList)[number]) => {
     const nextEnabled = !ext.enabled;
-    if (nextEnabled && extensionHasRunnableJavaScript(ext)) {
-      const confirmed = await showConfirmDialog({
-        title: "Enable JavaScript extension?",
-        message: `JavaScript extensions can change the page and use extension storage. Enable "${ext.name}" only if you trust this file.`,
-        confirmLabel: "Enable",
-        cancelLabel: "Keep disabled",
-        tone: "destructive",
-      });
-      if (!confirmed) return;
-    }
     updateExtension.mutate({ id: ext.id, enabled: nextEnabled });
   };
 
@@ -3152,7 +3151,18 @@ export function ExtensionsSettings() {
       const installedAt = new Date().toISOString();
 
       const result = buildImportedExtensionInput(file.name, text, installedAt);
-      await createExtension.mutateAsync(result.input);
+      const created = await createExtension.mutateAsync(result.input);
+      if (
+        !result.hasRunnableJavaScript &&
+        created.css?.trim() &&
+        extensionCompatibilityStatus(created.compatibility?.deKoi) !== "incompatible"
+      ) {
+        const fingerprint = await extensionConsentFingerprint(created);
+        extensionDeviceConsentStore.grant(currentRuntimeConsentScope(), created.id, fingerprint, {
+          css: true,
+          javascript: false,
+        });
+      }
       toast.success(
         result.hasRunnableJavaScript
           ? `Extension "${result.input.name}" installed disabled. Review it before enabling.`
@@ -3230,6 +3240,13 @@ export function ExtensionsSettings() {
             >
               <Trash2 size="0.6875rem" />
             </button>
+            <button
+              onClick={() => setActivatingExtension(ext)}
+              className="rounded px-1.5 py-1 text-[0.625rem] text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
+              title="Manage activation on this device"
+            >
+              Device access
+            </button>
           </div>
         ))}
 
@@ -3293,6 +3310,26 @@ export function ExtensionsSettings() {
           pending={deleteExtension.isPending}
           onCancel={() => setRemovingExtension(null)}
           onRemove={(policy) => void handleRemoveExtension(policy)}
+        />
+      )}
+      {activatingExtension && (
+        <ExtensionActivationDialog
+          extension={activatingExtension}
+          compatibility={deviceActivation.compatibility}
+          consent={deviceActivation.consent}
+          onCancel={() => setActivatingExtension(null)}
+          onActivate={(activation) => {
+            if (!activatingExtension.enabled) updateExtension.mutate({ id: activatingExtension.id, enabled: true });
+            if (deviceActivation.grant(activation)) {
+              toast.success(`${activatingExtension.name} is active on this device.`);
+              setActivatingExtension(null);
+            }
+          }}
+          onRevoke={() => {
+            deviceActivation.revoke();
+            toast.success(`${activatingExtension.name} is inactive on this device.`);
+            setActivatingExtension(null);
+          }}
         />
       )}
     </div>
