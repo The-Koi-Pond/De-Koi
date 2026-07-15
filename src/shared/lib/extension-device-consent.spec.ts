@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { InstalledExtension } from "../../engine/contracts/types/extension";
-import { extensionConsentFingerprint, extensionDeviceConsentStore } from "./extension-device-consent";
+import { extensionConsentFingerprint, extensionDeviceConsentStore, sha256Hex } from "./extension-device-consent";
 
 const extension = {
   id: "pond",
@@ -22,11 +22,25 @@ describe("extension device consent", () => {
 
     expect(extensionDeviceConsentStore.read("embedded", extension.id, fingerprint)?.javascript).toBe(true);
     expect(extensionDeviceConsentStore.read("remote:https://pond.test", extension.id, fingerprint)).toBeNull();
-    expect(extensionDeviceConsentStore.read("embedded", extension.id, await extensionConsentFingerprint({ ...extension, js: "changed" }))).toBeNull();
+    expect(
+      extensionDeviceConsentStore.read(
+        "embedded",
+        extension.id,
+        await extensionConsentFingerprint({ ...extension, js: "changed" }),
+      ),
+    ).toBeNull();
   });
 
   it("fails closed for malformed storage", async () => {
     localStorage.setItem("de-koi.extension-device-consent.v1", "not-json");
-    expect(extensionDeviceConsentStore.read("embedded", extension.id, await extensionConsentFingerprint(extension))).toBeNull();
+    expect(
+      extensionDeviceConsentStore.read("embedded", extension.id, await extensionConsentFingerprint(extension)),
+    ).toBeNull();
+  });
+
+  it("keeps SHA-256 fingerprints available without Web Crypto", async () => {
+    expect(await sha256Hex(new TextEncoder().encode("abc"), null)).toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
   });
 });
