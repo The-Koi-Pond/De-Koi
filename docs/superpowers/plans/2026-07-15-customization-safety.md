@@ -54,7 +54,7 @@ expect(() => assertValidExtensionCompatibility("not a range")).toThrow(/semantic
 
 - [ ] **Step 2: Run red tests**
 
-Run: `pnpm vitest run src/engine/contracts/extension-compatibility.spec.ts src/engine/contracts/schemas/theme.schema.spec.ts`  
+Run: `pnpm vitest run src/engine/contracts/extension-compatibility.spec.ts src/engine/contracts/schemas/theme.schema.spec.ts`
 Expected: FAIL because the limit and compatibility functions do not exist.
 
 - [ ] **Step 3: Implement the documented semantic comparator-range grammar and engine contracts**
@@ -117,7 +117,7 @@ assert_eq!(theme_set_active(&state, None)?, Value::Null);
 assert!(active_theme_ids(&state).is_empty());
 ```
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml customization::tests::theme_set_active -- --nocapture`  
+Run: `cargo test --manifest-path src-tauri/Cargo.toml customization::tests::theme_set_active -- --nocapture`
 Expected: FAIL because the focused owner does not exist.
 
 - [ ] **Step 2: Implement one-collection atomic mutation**
@@ -143,14 +143,14 @@ await mutation.mutateAsync("theme-b");
 expect(storageApi.update).not.toHaveBeenCalled();
 ```
 
-Run: `pnpm vitest run src/shared/api/customization-api.spec.ts src/features/shell/settings/hooks/use-themes.spec.tsx`  
+Run: `pnpm vitest run src/shared/api/customization-api.spec.ts src/features/shell/settings/hooks/use-themes.spec.tsx`
 Expected: FAIL until the wrapper and hook use the command.
 
 - [ ] **Step 5: Run green checks and commit**
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml customization::tests::theme_set_active -- --nocapture`  
-Run: `pnpm vitest run src/shared/api/customization-api.spec.ts src/features/shell/settings/hooks/use-themes.spec.tsx`  
-Run: `pnpm check:architecture`  
+Run: `cargo test --manifest-path src-tauri/Cargo.toml customization::tests::theme_set_active -- --nocapture`
+Run: `pnpm vitest run src/shared/api/customization-api.spec.ts src/features/shell/settings/hooks/use-themes.spec.tsx`
+Run: `pnpm check:architecture`
 Expected: PASS.
 
 ```sh
@@ -190,7 +190,7 @@ expect(screen.getByTitle("Theme preview")).toHaveAttribute("sandbox", "");
 expect(isCustomizationSafeMode({ search: "?safe-mode=customizations" })).toBe(true);
 ```
 
-Run: `pnpm vitest run src/features/shell/settings/components/settings/ThemePreview.spec.tsx src/app/customization-safe-mode.spec.ts src/app/providers/CustomThemeInjector.spec.tsx`  
+Run: `pnpm vitest run src/features/shell/settings/components/settings/ThemePreview.spec.tsx src/app/customization-safe-mode.spec.ts src/app/providers/CustomThemeInjector.spec.tsx`
 Expected: FAIL because the preview and route do not exist.
 
 - [ ] **Step 2: Implement the isolated iframe and default preview-off editor state**
@@ -218,8 +218,8 @@ Treat invalid stored data as inactive and log one bounded diagnostic. Safe mode 
 
 - [ ] **Step 5: Run focused tests, typecheck, and commit**
 
-Run: `pnpm vitest run src/features/shell/settings/components/settings/ThemePreview.spec.tsx src/app/customization-safe-mode.spec.ts src/app/providers/CustomThemeInjector.spec.tsx`  
-Run: `pnpm typecheck`  
+Run: `pnpm vitest run src/features/shell/settings/components/settings/ThemePreview.spec.tsx src/app/customization-safe-mode.spec.ts src/app/providers/CustomThemeInjector.spec.tsx`
+Run: `pnpm typecheck`
 Expected: PASS.
 
 ```sh
@@ -255,7 +255,7 @@ git commit -m "feat: contain theme preview and add safe mode"
 
 Cover TTF, OTF, WOFF, WOFF2; reject a `.ttf` containing text, a valid TTF named `.png`, path separators, invalid base64, and decoded bytes over 10 MiB. Assert the fonts directory remains unchanged after every rejection.
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml fonts::tests::upload -- --nocapture`  
+Run: `cargo test --manifest-path src-tauri/Cargo.toml fonts::tests::upload -- --nocapture`
 Expected: FAIL because upload is unavailable.
 
 - [ ] **Step 2: Implement validation and atomic managed write**
@@ -271,21 +271,21 @@ expect(invokeTauri).toHaveBeenCalledWith("fonts_upload", {
 });
 ```
 
-Run: `pnpm vitest run src/shared/api/settings-assets-api.spec.ts`  
+Run: `pnpm vitest run src/shared/api/settings-assets-api.spec.ts`
 Expected: FAIL, then PASS after wrapper implementation.
 
 - [ ] **Step 4: Add runtime-specific Settings behavior test and UI**
 
 Embedded shows **Open Fonts Folder**; a configured or same-origin remote target shows **Upload Font**. Successful upload invalidates `custom-fonts`, dispatches `marinara-fonts-updated`, and selects the returned family. Failure uses `toUserMessage` in a toast.
 
-Run: `pnpm vitest run src/features/shell/settings/lib/font-settings-actions.spec.ts src/shared/api/settings-assets-api.spec.ts`  
+Run: `pnpm vitest run src/features/shell/settings/lib/font-settings-actions.spec.ts src/shared/api/settings-assets-api.spec.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Run Rust, architecture, type checks, and commit**
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml fonts::tests::upload -- --nocapture`  
-Run: `pnpm check:architecture`  
-Run: `pnpm typecheck`  
+Run: `cargo test --manifest-path src-tauri/Cargo.toml fonts::tests::upload -- --nocapture`
+Run: `pnpm check:architecture`
+Run: `pnpm typecheck`
 Expected: PASS.
 
 ```sh
@@ -329,7 +329,7 @@ git commit -m "feat: upload custom fonts across runtimes"
 
 Seed two extensions and both namespaces. Prove purge removes only the selected namespace, retain creates a metadata-only retention row, a missing extension changes nothing, matching package reconnection succeeds only after explicit call, and a different package ID cannot reconnect.
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml customization::tests::extension_ -- --nocapture`  
+Run: `cargo test --manifest-path src-tauri/Cargo.toml customization::tests::extension_ -- --nocapture`
 Expected: FAIL because lifecycle commands do not exist.
 
 - [ ] **Step 2: Implement the three-collection atomic owner and storage contracts**
@@ -356,9 +356,9 @@ The dialog describes retained data and destructive purge precisely. A retained-d
 
 - [ ] **Step 5: Run focused tests and commit**
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml customization::tests::extension_ -- --nocapture`  
-Run: `pnpm vitest run src/shared/api/customization-api.spec.ts src/app/providers/extension-storage-api.spec.ts src/features/shell/settings/hooks/use-extensions.spec.ts src/features/shell/settings/components/settings/ExtensionRemovalDialog.spec.tsx`  
-Run: `pnpm check:storage-contracts`  
+Run: `cargo test --manifest-path src-tauri/Cargo.toml customization::tests::extension_ -- --nocapture`
+Run: `pnpm vitest run src/shared/api/customization-api.spec.ts src/app/providers/extension-storage-api.spec.ts src/features/shell/settings/hooks/use-extensions.spec.ts src/features/shell/settings/components/settings/ExtensionRemovalDialog.spec.tsx`
+Run: `pnpm check:storage-contracts`
 Expected: PASS.
 
 ```sh
@@ -407,7 +407,7 @@ expect(api.addStyle).toBeTypeOf("function");
 expect(api.storage).toBeDefined();
 ```
 
-Run: `pnpm vitest run src/app/providers/extension-runtime.spec.ts`  
+Run: `pnpm vitest run src/app/providers/extension-runtime.spec.ts`
 Expected: FAIL because every helper is currently exposed.
 
 - [ ] **Step 2: Implement the capability-filtered API without sandbox claims**
@@ -430,8 +430,8 @@ The activation dialog states: “JavaScript extensions run as trusted page-level
 
 - [ ] **Step 6: Run focused tests, typecheck, and commit**
 
-Run: `pnpm vitest run src/shared/lib/extension-import.spec.ts src/app/providers/extension-runtime.spec.ts src/app/providers/CustomThemeInjector.spec.tsx src/features/shell/settings/hooks/use-extension-device-activation.spec.tsx src/features/shell/settings/lib/extension-capability-view.spec.ts src/features/shell/settings/components/settings/ExtensionActivationDialog.spec.tsx`  
-Run: `pnpm typecheck`  
+Run: `pnpm vitest run src/shared/lib/extension-import.spec.ts src/app/providers/extension-runtime.spec.ts src/app/providers/CustomThemeInjector.spec.tsx src/features/shell/settings/hooks/use-extension-device-activation.spec.tsx src/features/shell/settings/lib/extension-capability-view.spec.ts src/features/shell/settings/components/settings/ExtensionActivationDialog.spec.tsx`
+Run: `pnpm typecheck`
 Expected: PASS.
 
 ```sh
@@ -458,9 +458,9 @@ Document trusted page-level execution, De-Koi helper permission filtering, per-d
 
 Add searchable entries/actions for customization safe mode, custom font upload, and device-local extension activation using existing Settings destinations.
 
-Run: `pnpm vitest run src/features/shell/discovery/discovery-registry.spec.ts`  
-Run: `pnpm check:discovery`  
-Run: `pnpm check:docs`  
+Run: `pnpm vitest run src/features/shell/discovery/discovery-registry.spec.ts`
+Run: `pnpm check:discovery`
+Run: `pnpm check:docs`
 Expected: PASS.
 
 - [ ] **Step 3: Run browser proof for the actual UI claims**
@@ -485,10 +485,10 @@ git commit -m "docs: explain customization safety controls"
 
 - [ ] **Step 1: Run focused and full local gates**
 
-Run: `pnpm test -- --reporter=dot`  
-Run: `cargo test --manifest-path src-tauri/Cargo.toml --workspace`  
-Run: `pnpm check:architecture`  
-Run: `pnpm check`  
+Run: `pnpm test -- --reporter=dot`
+Run: `cargo test --manifest-path src-tauri/Cargo.toml --workspace`
+Run: `pnpm check:architecture`
+Run: `pnpm check`
 Expected: all exit 0.
 
 - [ ] **Step 2: Audit the final boundary and risk matrix**
