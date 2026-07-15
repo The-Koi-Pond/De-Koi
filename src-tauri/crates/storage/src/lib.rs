@@ -159,6 +159,9 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        // Avoid checkpointing unrelated pending appends. If a dirty collection is
+        // checkpoint-tracked, write_collection_file recovers and invalidates its
+        // append checkpoint before replacing the collection file.
         self.flush_dirty_collections_locked()
     }
 
@@ -3808,6 +3811,46 @@ mod tests {
         );
         assert_eq!(fs::metadata(journal).unwrap().len(), 0);
         drop(recovered);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn deferred_flush_checkpoints_pending_appends_before_writing_tracked_collection() {
+        let root = temp_storage_root("deferred-flush-tracked-collection");
+        let collections = root.join("collections");
+        write_test_collection(
+            &collections.join("messages.json"),
+            vec![json!({ "id": "baseline-message" })],
+        );
+        write_test_collection(&collections.join("message-swipes.json"), Vec::new());
+        let storage = FileStorage::new(&root).unwrap();
+
+        assert!(storage
+            .append_many_uncached(vec![(
+                "messages",
+                vec![json!({ "id": "pending-message", "content": "before" })],
+            )])
+            .unwrap());
+        let journal = collections.join(".collection-append-journal.jsonl");
+        assert!(fs::metadata(&journal).unwrap().len() > 0);
+
+        storage
+            .patch(
+                "messages",
+                "pending-message",
+                json!({ "content": "after" }),
+            )
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert!(!journal.exists());
+        drop(storage);
+        let restarted = FileStorage::new(&root).unwrap();
+        let messages = restarted.list("messages").unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1]["id"], "pending-message");
+        assert_eq!(messages[1]["content"], "after");
+
         fs::remove_dir_all(root).unwrap();
     }
 
