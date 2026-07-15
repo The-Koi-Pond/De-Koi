@@ -114,6 +114,7 @@ const REMOTE_COMMANDS = new Set([
   "prompt_preset_bundle",
   "prompt_nested_reorder",
   "prompt_set_default",
+  "theme_set_active",
   "chat_preset_set_active",
   "chat_folder_reorder",
   "regex_script_reorder",

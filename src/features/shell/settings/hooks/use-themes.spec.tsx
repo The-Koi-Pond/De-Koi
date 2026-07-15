@@ -5,7 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Theme } from "../../../../engine/contracts/types/theme";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { useCreateTheme } from "./use-themes";
+import { themesApi } from "../../../../shared/api/customization-api";
+import { useCreateTheme, useSetActiveTheme } from "./use-themes";
 
 vi.mock("../../../../shared/api/storage-api", () => ({
   storageApi: {
@@ -16,8 +17,13 @@ vi.mock("../../../../shared/api/storage-api", () => ({
   },
 }));
 
+vi.mock("../../../../shared/api/customization-api", () => ({
+  themesApi: { setActive: vi.fn() },
+}));
+
 type ThemeMutations = {
   createTheme: ReturnType<typeof useCreateTheme>;
+  setActiveTheme: ReturnType<typeof useSetActiveTheme>;
 };
 
 function theme(overrides: Partial<Theme>): Theme {
@@ -35,10 +41,11 @@ function theme(overrides: Partial<Theme>): Theme {
 
 function ThemeMutationProbe({ onReady }: { onReady: (mutations: ThemeMutations) => void }) {
   const createTheme = useCreateTheme();
+  const setActiveTheme = useSetActiveTheme();
 
   useEffect(() => {
-    onReady({ createTheme });
-  }, [createTheme, onReady]);
+    onReady({ createTheme, setActiveTheme });
+  }, [createTheme, onReady, setActiveTheme]);
 
   return null;
 }
@@ -108,5 +115,25 @@ describe("theme settings hooks", () => {
     });
 
     expect(queryClient.getQueryData<Theme[]>(["themes", "list"])).toEqual([activeTheme, createdTheme]);
+  });
+
+  it("sets the active theme through one atomic runtime command", async () => {
+    const first = theme({ id: "theme-a", isActive: true, active: true });
+    const second = theme({ id: "theme-b", isActive: false, active: false });
+    queryClient.setQueryData<Theme[]>(["themes", "list"], [first, second]);
+    vi.mocked(themesApi.setActive).mockResolvedValue({ ...second, isActive: true, active: true });
+
+    await renderProbe();
+    await act(async () => {
+      await mutations!.setActiveTheme.mutateAsync("theme-b");
+    });
+
+    expect(themesApi.setActive).toHaveBeenCalledWith("theme-b");
+    expect(storageApi.list).not.toHaveBeenCalled();
+    expect(storageApi.update).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData<Theme[]>(["themes", "list"])).toEqual([
+      { ...first, isActive: false, active: false },
+      { ...second, isActive: true, active: true },
+    ]);
   });
 });

@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { themesApi } from "../../../../shared/api/customization-api";
 import {
   createThemeSchema,
   setActiveThemeSchema,
@@ -75,24 +76,7 @@ export function useSetActiveTheme() {
   return useMutation({
     mutationFn: async (id: string | null): Promise<Theme | null> => {
       const payload = setActiveThemeSchema.parse({ id });
-      const themes = await storageApi.list<Theme>("themes");
-      let selected: Theme | null = null;
-      await Promise.all(
-        themes.flatMap((theme) => {
-          const isActive = !!payload.id && theme.id === payload.id;
-          const currentlyActive = !!(theme.isActive || theme.active);
-          if (currentlyActive === isActive) {
-            if (isActive) selected = theme;
-            return [];
-          }
-          return storageApi
-            .update<Theme>("themes", theme.id, updateThemeSchema.parse({ isActive, active: isActive }))
-            .then((updated) => {
-              if (isActive) selected = updated;
-            });
-        }),
-      );
-      return selected;
+      return themesApi.setActive(payload.id);
     },
     onMutate: (id) => {
       const previous = qc.getQueryData<Theme[]>(themeKeys.list());

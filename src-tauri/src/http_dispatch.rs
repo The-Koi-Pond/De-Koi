@@ -2,9 +2,10 @@ use crate::http_storage_dispatch;
 use crate::state::AppState;
 use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, canonical_memory, characters,
-    chat_memory, chats, connection_secrets, custom_tools, deki, entity_images, exports, fonts,
-    game_assets, generation, http, images, imports, integrations, knowledge, llm, lorebook_images,
-    managed_thumbnails, personas, profile, prompts, shared, sidecar, sprites, translation, updates,
+    chat_memory, chats, connection_secrets, custom_tools, customization, deki, entity_images,
+    exports, fonts, game_assets, generation, http, images, imports, integrations, knowledge, llm,
+    lorebook_images, managed_thumbnails, personas, profile, prompts, shared, sidecar, sprites,
+    translation, updates,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -234,6 +235,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 json!({ "family": required_string(&args, "family")? }),
             )
             .await
+        }
+        "theme_set_active" => {
+            customization::theme_set_active(state, args.get("themeId").and_then(Value::as_str))
         }
         "bot_browser_get" => bot_browser_get(state, &args).await,
         "bot_browser_post" => bot_browser_post(state, &args).await,

@@ -21,12 +21,12 @@ pub(crate) mod backup;
 pub(crate) mod bot_browser;
 #[path = "storage/canonical_memory.rs"]
 pub(crate) mod canonical_memory;
-#[path = "storage/characters.rs"]
-pub(crate) mod characters;
 #[path = "storage/character_version_media.rs"]
 pub(crate) mod character_version_media;
 #[path = "storage/character_version_retention.rs"]
 pub(crate) mod character_version_retention;
+#[path = "storage/characters.rs"]
+pub(crate) mod characters;
 #[path = "storage/chat_memory.rs"]
 pub(crate) mod chat_memory;
 #[path = "storage/chats.rs"]
@@ -37,6 +37,8 @@ pub(crate) mod connection_secrets;
 pub(crate) mod contracts;
 #[path = "storage/custom_tools.rs"]
 pub(crate) mod custom_tools;
+#[path = "storage/customization.rs"]
+pub(crate) mod customization;
 #[path = "storage/deki.rs"]
 pub(crate) mod deki;
 #[path = "storage/entity_images.rs"]
@@ -133,6 +135,9 @@ pub mod bot_browser_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/chats.rs"]
 pub mod chat_commands;
+#[cfg(feature = "desktop")]
+#[path = "storage/commands/customization.rs"]
+pub mod customization_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/deki.rs"]
 pub mod deki_commands;
