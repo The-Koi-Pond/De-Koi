@@ -8,6 +8,9 @@ import { useExtensions } from "../../features/shell/settings/index";
 import { stripDangerousCss } from "../../shared/lib/chat-css";
 import { extensionHasRunnableJavaScript } from "../../shared/lib/extension-import";
 import { executeCustomExtensionJavaScript } from "./extension-runtime";
+import { MAX_THEME_CSS_BYTES } from "../../engine/contracts/schemas/theme.schema";
+import { MAX_EXTENSION_CSS_BYTES } from "../../engine/contracts/schemas/extension.schema";
+import { utf8ByteLength } from "../../engine/contracts/text-bytes";
 
 export function CustomThemeInjector() {
   const { data: installedExtensions = [] } = useExtensions();
@@ -19,7 +22,7 @@ export function CustomThemeInjector() {
     const id = "marinara-custom-theme";
     let style = document.getElementById(id) as HTMLStyleElement | null;
 
-    if (!activeTheme) {
+    if (!activeTheme || utf8ByteLength(activeTheme.css) > MAX_THEME_CSS_BYTES) {
       style?.remove();
       return;
     }
@@ -49,7 +52,7 @@ export function CustomThemeInjector() {
     // Inject enabled ones
     for (const ext of installedExtensions) {
       if (!ext) continue;
-      if (!ext.enabled || !ext.css) continue;
+      if (!ext.enabled || !ext.css || utf8ByteLength(ext.css) > MAX_EXTENSION_CSS_BYTES) continue;
       const style = document.createElement("style");
       style.id = `${prefix}${ext.id}`;
       style.textContent = stripDangerousCss(ext.css);

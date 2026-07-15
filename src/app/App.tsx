@@ -1,4 +1,6 @@
 import { lazy, Suspense } from "react";
+import { CustomizationSafeMode } from "./CustomizationSafeMode";
+import { isCustomizationSafeMode } from "./customization-safe-mode";
 
 const AppExperience = lazy(() =>
   import("./AppExperience").then((module) => ({
@@ -13,6 +15,7 @@ function BootShellFallback() {
 }
 
 export function App() {
+  if (isCustomizationSafeMode(window.location)) return <CustomizationSafeMode />;
   return (
     <Suspense fallback={<BootShellFallback />}>
       <AppExperience />

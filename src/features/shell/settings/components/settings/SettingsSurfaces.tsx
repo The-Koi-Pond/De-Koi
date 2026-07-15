@@ -24,7 +24,6 @@ import { cn } from "../../../../../shared/lib/utils";
 import { useSetupJourneyStore } from "../../../../../shared/stores/setup-journey.store";
 import { restoreSetupJourneyFocus } from "../../../onboarding/shell";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
-import { stripDangerousCss } from "../../../../../shared/lib/chat-css";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
 import {
@@ -77,6 +76,7 @@ import {
 } from "../../../../../engine/generation/image-style-profiles";
 import type { Theme } from "../../../../../engine/contracts/types/theme";
 import { useCreateTheme, useDeleteTheme, useSetActiveTheme, useThemes, useUpdateTheme } from "../../hooks/use-themes";
+import { ThemePreview } from "./ThemePreview";
 import { downloadBackupToBrowser } from "../../lib/backup-settings-actions";
 import {
   initialRemoteRuntimeHealth,
@@ -2698,30 +2698,7 @@ export function ThemesSettings() {
   const [editingId, setEditingId] = useState<string | null>(null); // null = creating new
   const [themeName, setThemeName] = useState("");
   const [themeCss, setThemeCss] = useState("");
-  const [livePreview, setLivePreview] = useState(true);
-
-  // Inject live preview CSS
-  useEffect(() => {
-    if (!editorOpen || !livePreview) {
-      const el = document.getElementById("marinara-css-editor-preview");
-      if (el) el.textContent = "";
-      return;
-    }
-    let style = document.getElementById("marinara-css-editor-preview") as HTMLStyleElement | null;
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "marinara-css-editor-preview";
-    }
-    // Sanitize the live preview the same way the saved-activation injector does, so editing
-    // (or importing) a malicious theme can't fire url() beacons / scripts during preview (#2365).
-    style.textContent = stripDangerousCss(themeCss);
-    // Always (re-)append so it's the last <style> in <head>,
-    // overriding the active-theme injector's saved CSS.
-    document.head.appendChild(style);
-    return () => {
-      style!.textContent = "";
-    };
-  }, [editorOpen, livePreview, themeCss]);
+  const [livePreview, setLivePreview] = useState(false);
 
   const openNewTheme = useCallback(() => {
     setEditingId(null);
@@ -2839,6 +2816,8 @@ export function ThemesSettings() {
           placeholder="/* Enter your CSS here... */"
         />
 
+        <ThemePreview css={themeCss} enabled={livePreview} />
+
         {/* Quick reference */}
         <details className="group rounded-lg bg-[var(--secondary)]/50 ring-1 ring-[var(--border)]">
           <summary className="cursor-pointer px-3 py-2 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]">
@@ -2887,6 +2866,12 @@ export function ThemesSettings() {
         Create or import custom CSS themes. Themes are stored locally in this Tauri app, while extensions stay local to
         this device.
       </div>
+      <a
+        href="?safe-mode=customizations"
+        className="self-start text-[0.6875rem] text-[var(--primary)] underline-offset-4 hover:underline"
+      >
+        Open customization safe mode
+      </a>
 
       {/* Action buttons */}
       <div className="flex gap-2">

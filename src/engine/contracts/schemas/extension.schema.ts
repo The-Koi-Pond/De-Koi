@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const MAX_EXTENSION_CSS_BYTES = 256 * 1024; // 256 KiB
+export const MAX_EXTENSION_CSS_BYTES = 256 * 1024; // 256 KiB
 const MAX_EXTENSION_JS_BYTES = 1024 * 1024; // 1 MiB
 
 function utf8ByteLength(value: string): number {
