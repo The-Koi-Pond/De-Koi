@@ -93,6 +93,7 @@ fn storage_list_inner_impl(
     options: Option<Value>,
 ) -> Result<Value, AppError> {
     validate_storage_entity(&entity)?;
+    customization::repair_invalid_activation_flags(state, &entity)?;
     if options
         .as_ref()
         .and_then(|value| value.get("limit"))
@@ -2165,6 +2166,50 @@ mod tests {
         )
         .expect("removing the last runnable payload should disable the extension");
         assert_eq!(cleared_extension["enabled"], false);
+    }
+
+    #[test]
+    fn customization_lists_repair_stale_legacy_activation_flags() {
+        let state = test_state("customization-list-repair");
+        state
+            .storage
+            .create(
+                "themes",
+                json!({ "id": "legacy-theme", "name": "Legacy", "css": " ", "isActive": true, "active": true }),
+            )
+            .expect("legacy theme should seed below the command boundary");
+        state
+            .storage
+            .create(
+                "extensions",
+                json!({ "id": "legacy-extension", "name": "Legacy", "css": null, "js": "", "enabled": true }),
+            )
+            .expect("legacy extension should seed below the command boundary");
+
+        let themes = storage_list_inner(&state, "themes".to_string(), None)
+            .expect("theme listing should repair stale activation");
+        let extensions = storage_list_inner(&state, "extensions".to_string(), None)
+            .expect("extension listing should repair stale enablement");
+
+        assert_eq!(themes[0]["isActive"], false);
+        assert_eq!(themes[0]["active"], false);
+        assert_eq!(extensions[0]["enabled"], false);
+        assert_eq!(
+            state
+                .storage
+                .get("themes", "legacy-theme")
+                .expect("theme should read")
+                .expect("theme should remain")["isActive"],
+            false
+        );
+        assert_eq!(
+            state
+                .storage
+                .get("extensions", "legacy-extension")
+                .expect("extension should read")
+                .expect("extension should remain")["enabled"],
+            false
+        );
     }
 
     #[test]

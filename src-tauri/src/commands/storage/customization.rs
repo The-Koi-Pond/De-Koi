@@ -8,6 +8,7 @@ pub(crate) fn theme_set_active(state: &AppState, theme_id: Option<&str>) -> AppR
     if theme_id.is_some() && selected_id.is_none() {
         return Err(AppError::invalid_input("themeId must not be empty"));
     }
+    repair_invalid_activation_flags(state, "themes")?;
 
     state
         .storage
@@ -54,6 +55,70 @@ pub(crate) fn theme_set_active(state: &AppState, theme_id: Option<&str>) -> AppR
                 }
             }
             Ok(selected.unwrap_or(Value::Null))
+        })
+}
+
+fn has_stale_activation_flag(collection: &str, row: &Value) -> bool {
+    match collection {
+        "themes" => {
+            (requests_true(row, "isActive") || requests_true(row, "active"))
+                && !shared::has_injectable_theme_css(row)
+        }
+        "extensions" => {
+            requests_true(row, "enabled") && !shared::has_runnable_extension_content(row)
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn repair_invalid_activation_flags(
+    state: &AppState,
+    collection: &str,
+) -> AppResult<usize> {
+    if !matches!(collection, "themes" | "extensions") {
+        return Ok(0);
+    }
+    if !state
+        .storage
+        .list(collection)?
+        .iter()
+        .any(|row| has_stale_activation_flag(collection, row))
+    {
+        return Ok(0);
+    }
+
+    state
+        .storage
+        .update_collections_atomically(vec![collection], |collections| {
+            let [rows] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Customization repair expected one collection",
+                ));
+            };
+            let now = now_iso();
+            let mut repaired = 0;
+            for row in rows.rows_mut() {
+                if !has_stale_activation_flag(collection, row) {
+                    continue;
+                }
+                let Some(object) = row.as_object_mut() else {
+                    continue;
+                };
+                match collection {
+                    "themes" => {
+                        object.insert("isActive".to_string(), Value::Bool(false));
+                        object.insert("active".to_string(), Value::Bool(false));
+                    }
+                    "extensions" => {
+                        object.insert("enabled".to_string(), Value::Bool(false));
+                    }
+                    _ => unreachable!("collection was checked before repair"),
+                }
+                object.insert("updatedAt".to_string(), Value::String(now.clone()));
+                repaired += 1;
+            }
+            Ok(repaired)
         })
 }
 
