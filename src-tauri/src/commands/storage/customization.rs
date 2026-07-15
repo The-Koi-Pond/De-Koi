@@ -61,7 +61,9 @@ const EXTENSION_RETENTION_COLLECTION: &str = "extension-data-retention";
 fn required_id(value: &str, field: &str) -> AppResult<String> {
     let value = value.trim();
     if value.is_empty() {
-        return Err(AppError::invalid_input(format!("{field} must not be empty")));
+        return Err(AppError::invalid_input(format!(
+            "{field} must not be empty"
+        )));
     }
     Ok(value.to_string())
 }
@@ -162,6 +164,7 @@ pub(crate) fn extension_remove(
 
             Ok(json!({
                 "extensionId": extension_id,
+                "dataPolicy": if retain_data { "retain" } else { "purge" },
                 "retentionId": retention_id,
                 "removedMemoryRows": removed_memory_rows,
                 "retainedMemoryRows": if retain_data { memory_count } else { 0 },
@@ -444,8 +447,13 @@ mod tests {
             .expect("retained removal should commit");
 
         assert_eq!(result["removedMemoryRows"], 0);
+        assert_eq!(result["dataPolicy"], "retain");
         assert_eq!(result["retainedMemoryRows"], 1);
-        assert!(state.storage.get("extensions", "extension-a").unwrap().is_none());
+        assert!(state
+            .storage
+            .get("extensions", "extension-a")
+            .unwrap()
+            .is_none());
         assert!(state
             .storage
             .get("plugin-memory", "extension-a:settings")
@@ -469,10 +477,14 @@ mod tests {
         let error = super::extension_remove(&state, "missing", "purge")
             .expect_err("missing extension should reject");
         assert_eq!(error.code, "not_found");
-        assert!(state.storage.get("extensions", "extension-a").unwrap().is_some());
+        assert!(state
+            .storage
+            .get("extensions", "extension-a")
+            .unwrap()
+            .is_some());
 
-        let result = super::extension_remove(&state, "extension-a", "purge")
-            .expect("purge should commit");
+        let result =
+            super::extension_remove(&state, "extension-a", "purge").expect("purge should commit");
         assert_eq!(result["removedMemoryRows"], 1);
         assert!(state
             .storage
@@ -504,6 +516,37 @@ mod tests {
         let connected = super::extension_reconnect_data(&state, "new-extension", retention_id)
             .expect("matching package should reconnect");
         assert_eq!(connected["storageNamespaceId"], "old-extension");
+        assert!(super::extension_retained_data_list(&state)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn retained_data_purge_removes_only_the_retained_namespace() {
+        let state = test_state("retained-purge");
+        seed_extension(&state, "extension-a", Some("pond.a"));
+        seed_plugin_memory(&state, "extension-a", "settings");
+        seed_plugin_memory(&state, "other-extension", "settings");
+        let removed = super::extension_remove(&state, "extension-a", "retain")
+            .expect("retained removal should commit");
+        let retention_id = removed["retentionId"].as_str().unwrap();
+
+        let purged = super::extension_retained_data_purge(&state, retention_id)
+            .expect("retained data purge should commit");
+
+        assert_eq!(purged["removedMemoryRows"], 1);
+        assert!(state
+            .storage
+            .get("plugin-memory", "extension-a:settings")
+            .unwrap()
+            .is_none());
+        assert!(state
+            .storage
+            .get("plugin-memory", "other-extension:settings")
+            .unwrap()
+            .is_some());
         assert!(super::extension_retained_data_list(&state)
             .unwrap()
             .as_array()

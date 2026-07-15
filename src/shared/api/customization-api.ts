@@ -15,6 +15,7 @@ export const themesApi = {
 export type ExtensionDataPolicy = "retain" | "purge";
 export interface ExtensionRemovalResult {
   extensionId: string;
+  dataPolicy: ExtensionDataPolicy;
   retentionId: string | null;
   removedMemoryRows: number;
   retainedMemoryRows: number;

@@ -26,9 +26,7 @@ import { restoreSetupJourneyFocus } from "../../../onboarding/shell";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
-import {
-  buildImportedExtensionInput,
-} from "../../../../../shared/lib/extension-import";
+import { buildImportedExtensionInput } from "../../../../../shared/lib/extension-import";
 import {
   useExtensions,
   useCreateExtension,
@@ -1181,7 +1179,10 @@ export function GeneralSettings() {
         help="When on, double-clicking or double-tapping a chat message opens the message editor. Edit buttons and keyboard shortcuts still work when this is off."
       />
 
-      <div id="settings-destination-image-settings" className="scroll-mt-4 rounded-xl bg-[var(--secondary)]/50 p-4 ring-1 ring-[var(--border)] transition-shadow duration-700">
+      <div
+        id="settings-destination-image-settings"
+        className="scroll-mt-4 rounded-xl bg-[var(--secondary)]/50 p-4 ring-1 ring-[var(--border)] transition-shadow duration-700"
+      >
         <div className="mb-3 flex flex-col gap-1">
           <div className="text-xs font-semibold text-[var(--foreground)]">Image Generation</div>
           <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
@@ -1596,8 +1597,7 @@ export function AppearanceSettings() {
     },
   });
   const fontUploadMutation = useMutation({
-    mutationFn: (file: File) =>
-      fontsApi.upload<{ filename: string; family: string; files?: CustomFontFace[] }>(file),
+    mutationFn: (file: File) => fontsApi.upload<{ filename: string; family: string; files?: CustomFontFace[] }>(file),
     onSuccess: (data) => {
       toast.success(`Installed "${data.family}"`);
       setFontFamily(data.family);
@@ -1666,7 +1666,10 @@ export function AppearanceSettings() {
         </select>
       </label>
 
-      <label id="settings-destination-fonts" className="scroll-mt-4 flex flex-col gap-1 rounded-xl transition-shadow duration-700">
+      <label
+        id="settings-destination-fonts"
+        className="scroll-mt-4 flex flex-col gap-1 rounded-xl transition-shadow duration-700"
+      >
         <span className="text-xs font-medium inline-flex items-center gap-1">
           Font{" "}
           <HelpTooltip text="Choose the font used across the app. 'Default (Inter)' is optimized for screen readability. Drop .ttf, .otf, .woff, or .woff2 font files into the data/fonts/ folder to add custom fonts." />
@@ -1720,12 +1723,14 @@ export function AppearanceSettings() {
               disabled={fontUploadMutation.isPending}
               className="mt-1 inline-flex items-center gap-1.5 self-start rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-50"
             >
-              {fontUploadMutation.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Upload size="0.75rem" />}
+              {fontUploadMutation.isPending ? (
+                <Loader2 size="0.75rem" className="animate-spin" />
+              ) : (
+                <Upload size="0.75rem" />
+              )}
               {fontUploadMutation.isPending ? "Uploading…" : "Upload Font"}
             </button>
-            <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-              TTF, OTF, WOFF, or WOFF2 · 10 MiB maximum
-            </p>
+            <p className="text-[0.625rem] text-[var(--muted-foreground)]">TTF, OTF, WOFF, or WOFF2 · 10 MiB maximum</p>
           </>
         )}
       </label>
@@ -2924,7 +2929,10 @@ export function ThemesSettings() {
 
   // â”€â”€ Theme List View â”€â”€
   return (
-    <div id="settings-destination-themes" className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700">
+    <div
+      id="settings-destination-themes"
+      className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700"
+    >
       <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
         <Palette size="0.75rem" />
         Create or import custom CSS themes. Themes are stored locally in this Tauri app, while extensions stay local to
@@ -3179,7 +3187,10 @@ export function ExtensionsSettings() {
   };
 
   return (
-    <div id="settings-destination-extensions" className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700">
+    <div
+      id="settings-destination-extensions"
+      className="scroll-mt-4 flex flex-col gap-4 rounded-xl transition-shadow duration-700"
+    >
       <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
         <Puzzle size="0.75rem" />
         Install custom extensions to add new features and styles.
@@ -3268,12 +3279,19 @@ export function ExtensionsSettings() {
               (extension) => retained.packageId && extension.packageId === retained.packageId,
             );
             return (
-              <div key={retained.id} className="flex flex-wrap items-center gap-2 rounded-md bg-[var(--card)] p-2 text-[0.625rem]">
+              <div
+                key={retained.id}
+                className="flex flex-wrap items-center gap-2 rounded-md bg-[var(--card)] p-2 text-[0.625rem]"
+              >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{retained.name || retained.packageId || "Removed extension"}</div>
+                  <div className="truncate font-medium">
+                    {retained.name || retained.packageId || "Removed extension"}
+                  </div>
                   <div className="text-[var(--muted-foreground)]">
-                    {retained.packageId || "Legacy extension"}{retained.packageVersion ? ` v${retained.packageVersion}` : ""}
+                    {retained.packageId || "Legacy extension"}
+                    {retained.packageVersion ? ` v${retained.packageVersion}` : ""}
                     {` · ${retained.rowCount} record${retained.rowCount === 1 ? "" : "s"}`}
+                    {` · kept ${Number.isNaN(Date.parse(retained.retainedAt)) ? retained.retainedAt : new Date(retained.retainedAt).toLocaleString()}`}
                   </div>
                 </div>
                 {match && (
@@ -4299,7 +4317,10 @@ export function AdvancedSettings() {
 
       {/* Backup */}
       <div className="retro-divider" />
-      <div id="settings-destination-backups" className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700">
+      <div
+        id="settings-destination-backups"
+        className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700"
+      >
         <div className="flex items-center gap-1.5">
           <Download size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Backup & Export</span>

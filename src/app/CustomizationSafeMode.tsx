@@ -10,14 +10,36 @@ export function CustomizationSafeMode() {
   const disableCustomizations = async () => {
     setStatus("working");
     setMessage("");
+    let consentError: unknown = null;
+    let themeError: unknown = null;
+    try {
+      extensionDeviceConsentStore.clearAll();
+    } catch (error) {
+      consentError = error;
+    }
     try {
       await themesApi.setActive(null);
-      extensionDeviceConsentStore.clearAll();
+    } catch (error) {
+      themeError = error;
+    }
+    if (!consentError && !themeError) {
       setStatus("done");
       setMessage("The active custom theme and this device's extension activations are disabled.");
-    } catch (error) {
-      setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Recovery failed. Try again.");
+      return;
+    }
+    setStatus("error");
+    if (!consentError) {
+      setMessage(
+        "This device's extension activations were disabled, but the active theme could not be disabled. Check the runtime connection and try again.",
+      );
+    } else if (!themeError) {
+      setMessage(
+        "The active theme was disabled, but this device's extension activations could not be cleared. Check browser storage access and try again.",
+      );
+    } else {
+      setMessage(
+        "Neither the active theme nor this device's extension activations could be disabled. Check runtime and browser storage access, then try again.",
+      );
     }
   };
 
@@ -27,8 +49,8 @@ export function CustomizationSafeMode() {
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">De-Koi recovery</div>
         <h1 className="text-2xl font-semibold">Customization safe mode</h1>
         <p className="text-sm leading-6 text-slate-300">
-          Custom themes and extensions are not loaded on this page. Disable them here if a customization made the
-          normal interface hard to use.
+          Custom themes and extensions are not loaded on this page. Disable them here if a customization made the normal
+          interface hard to use.
         </p>
         <button
           type="button"
@@ -43,7 +65,10 @@ export function CustomizationSafeMode() {
             {message}
           </p>
         )}
-        <a className="text-center text-sm text-sky-300 underline-offset-4 hover:underline" href={normalAppUrl(window.location.href)}>
+        <a
+          className="text-center text-sm text-sky-300 underline-offset-4 hover:underline"
+          href={normalAppUrl(window.location.href)}
+        >
           Return to De-Koi
         </a>
       </section>
