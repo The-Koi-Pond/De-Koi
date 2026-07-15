@@ -2,17 +2,24 @@
 // Theme Zod Schemas
 // ──────────────────────────────────────────────
 import { z } from "zod";
+import { utf8ByteLength } from "../text-bytes";
+
+export const MAX_THEME_CSS_BYTES = 256 * 1024;
+
+const themeCssSchema = z.string().refine((css) => utf8ByteLength(css) <= MAX_THEME_CSS_BYTES, {
+  message: "Theme CSS must be 256 KiB or smaller",
+});
 
 export const createThemeSchema = z.object({
   name: z.string().min(1).max(200),
-  css: z.string().default(""),
+  css: themeCssSchema.default(""),
   installedAt: z.string().datetime().optional(),
 });
 
 export const updateThemeSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
-    css: z.string().optional(),
+    css: themeCssSchema.optional(),
     isActive: z.boolean().optional(),
     active: z.boolean().optional(),
   })

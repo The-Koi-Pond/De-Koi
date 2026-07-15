@@ -194,6 +194,20 @@ describe("extension import safety", () => {
         installedAt,
       ),
     ).toThrow(/compatibility\.deKoi must be a string/);
+
+    expect(() =>
+      buildImportedExtensionInput(
+        "bad-compatibility-range.json",
+        JSON.stringify({
+          manifestVersion: 1,
+          id: "bad-compatibility-range",
+          name: "Bad Compatibility Range",
+          version: "1.0.0",
+          compatibility: { deKoi: "definitely not a semantic version range" },
+        }),
+        installedAt,
+      ),
+    ).toThrow(/compatibility\.deKoi must be a valid semantic version range/);
   });
   it("rejects malformed package permission and slot arrays", () => {
     expect(() =>

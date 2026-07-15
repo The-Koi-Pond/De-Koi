@@ -29,21 +29,17 @@ The protected invariants involve storage atomicity, destructive user-data choice
 ### Task 1: Shared customization contracts
 
 **Files:**
-- Modify: `package.json`
-- Modify: `pnpm-lock.yaml`
 - Modify: `src/engine/contracts/constants/defaults.ts`
 - Modify: `src/engine/contracts/schemas/theme.schema.ts`
 - Create: `src/engine/contracts/schemas/theme.schema.spec.ts`
 - Modify: `src/engine/contracts/types/extension.ts`
 - Modify: `src/engine/contracts/schemas/extension.schema.ts`
+- Create: `src/engine/contracts/text-bytes.ts`
 - Create: `src/engine/contracts/extension-compatibility.ts`
 - Create: `src/engine/contracts/extension-compatibility.spec.ts`
-- Create: `src/shared/lib/extension-device-consent.ts`
-- Create: `src/shared/lib/extension-device-consent.spec.ts`
 
 **Interfaces:**
-- Produces: `MAX_THEME_CSS_BYTES`, `MAX_FONT_UPLOAD_BYTES`, `extensionCompatibilityStatus(range, appVersion)`, `extensionConsentFingerprint(extension)`, and `extensionDeviceConsentStore`.
-- Consent records: `{ css: boolean; javascript: boolean; fingerprint: string; grantedAt: string }`, keyed by normalized runtime target plus extension row ID.
+- Produces: `MAX_THEME_CSS_BYTES`, `MAX_FONT_UPLOAD_BYTES`, and `extensionCompatibilityStatus(range, appVersion)`.
 
 - [ ] **Step 1: Add failing theme-limit and compatibility tests**
 
@@ -59,7 +55,7 @@ expect(() => assertValidExtensionCompatibility("not a range")).toThrow(/semantic
 Run: `pnpm vitest run src/engine/contracts/extension-compatibility.spec.ts src/engine/contracts/schemas/theme.schema.spec.ts`  
 Expected: FAIL because the limit and compatibility functions do not exist.
 
-- [ ] **Step 3: Add direct `semver` and implement minimal engine contracts**
+- [ ] **Step 3: Implement the documented semantic comparator-range grammar and engine contracts**
 
 ```ts
 export const MAX_THEME_CSS_BYTES = 256 * 1024;
@@ -68,35 +64,22 @@ export const MAX_FONT_UPLOAD_BYTES = 10 * 1024 * 1024;
 export type ExtensionCompatibilityStatus = "compatible" | "incompatible" | "not-declared";
 export function extensionCompatibilityStatus(range: string | null | undefined, appVersion = APP_VERSION) {
   if (!range?.trim()) return "not-declared";
-  if (!validRange(range)) throw new Error("Extension compatibility must be a valid semantic version range.");
-  return satisfies(appVersion, range) ? "compatible" : "incompatible";
+  const normalized = assertValidExtensionCompatibility(range);
+  return satisfiesComparatorRange(appVersion, normalized) ? "compatible" : "incompatible";
 }
 ```
 
-Add byte-length refinements to both theme create and update schemas and semantic-range validation to package compatibility data.
+Add byte-length refinements to both theme create and update schemas and semantic-range validation to package compatibility data. The range grammar accepts exact versions, comparator intersections, caret/tilde ranges, and `||` alternatives. It rejects unsupported or malformed syntax instead of guessing.
 
-- [ ] **Step 4: Add failing consent-store tests**
+- [ ] **Step 4: Run green contract tests**
 
-```ts
-const first = await extensionConsentFingerprint(extension);
-expect(await extensionConsentFingerprint({ ...extension, js: "changed" })).not.toBe(first);
-store.grant("https://pi.example", extension.id, { css: true, javascript: false, fingerprint: first });
-expect(store.read("https://pi.example", extension.id, first)?.javascript).toBe(false);
-expect(store.read("https://other.example", extension.id, first)).toBeNull();
-expect(store.read("https://pi.example", extension.id, "stale")).toBeNull();
-```
-
-- [ ] **Step 5: Run consent red test, implement fail-closed local storage, then run green tests**
-
-Use Web Crypto SHA-256 over canonical JSON containing row ID, package ID/version, CSS, JS, and sorted permissions. Catch local-storage read/parse/write failures and return no consent. Normalize runtime keys to `embedded` or a URL without a trailing slash.
-
-Run: `pnpm vitest run src/shared/lib/extension-device-consent.spec.ts src/engine/contracts/extension-compatibility.spec.ts src/engine/contracts/schemas/theme.schema.spec.ts`  
+Run: `pnpm vitest run src/shared/lib/extension-import.spec.ts src/engine/contracts/schemas/theme.schema.spec.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Commit the contract slice**
+- [ ] **Step 5: Commit the contract slice**
 
 ```sh
-git add package.json pnpm-lock.yaml src/engine/contracts src/shared/lib/extension-device-consent.ts src/shared/lib/extension-device-consent.spec.ts
+git add docs/superpowers/plans/2026-07-15-customization-safety.md src/engine/contracts src/shared/lib/extension-import.ts src/shared/lib/extension-import.spec.ts
 git commit -m "feat: define customization safety contracts"
 ```
 
@@ -374,6 +357,8 @@ git commit -m "feat: define extension data removal lifecycle"
 **Files:**
 - Modify: `src/shared/lib/extension-import.ts`
 - Modify: `src/shared/lib/extension-import.spec.ts`
+- Create: `src/shared/lib/extension-device-consent.ts`
+- Create: `src/shared/lib/extension-device-consent.spec.ts`
 - Modify: `src/app/providers/extension-runtime.ts`
 - Modify: `src/app/providers/extension-runtime.spec.ts`
 - Modify: `src/app/providers/CustomThemeInjector.tsx`
@@ -414,6 +399,8 @@ Map `ui:styles`, `runtime:dom`, and `storage:plugin-memory` to the existing help
 - [ ] **Step 3: Add provider red tests for per-runtime consent, stale fingerprints, import behavior, and CSS scope**
 
 Prove a shared enabled row does not execute without local consent, consent on runtime A does not apply on runtime B, source/permission changes revoke execution, CSS and JS flags act independently, and safe mode injects neither.
+
+Add the dedicated consent-store test first, then implement fail-closed local storage and Web Crypto SHA-256 over canonical row ID, package identity/version, CSS, JavaScript, and sorted permissions. Consent records are `{ css, javascript, fingerprint, grantedAt }`, keyed by normalized runtime target plus extension row ID.
 
 - [ ] **Step 4: Implement async consent resolution in the provider**
 
