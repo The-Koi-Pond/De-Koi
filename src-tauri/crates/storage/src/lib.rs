@@ -149,6 +149,18 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        append_journal::recover(&self.root.join("collections"))?;
+        self.flush_dirty_collections_locked()
+    }
+
+    fn flush_deferred_writes(&self) -> AppResult<()> {
+        let _write_permit = self.write_gate.begin_write()?;
+        let _guard = self
+            .lock
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        // Avoid checkpointing unrelated pending appends. The dirty flush recovers
+        // once up front if its write set contains a checkpoint-tracked collection.
         self.flush_dirty_collections_locked()
     }
 
@@ -1061,7 +1073,7 @@ impl FileStorage {
         let storage = self.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(STORAGE_SAVE_DEBOUNCE_MS));
-            if let Err(error) = storage.flush() {
+            if let Err(error) = storage.flush_deferred_writes() {
                 eprintln!("[storage] delayed flush failed: {}", error.message);
             }
             storage.flush_scheduled.store(false, Ordering::SeqCst);
@@ -1072,7 +1084,6 @@ impl FileStorage {
     }
 
     fn flush_dirty_collections_locked(&self) -> AppResult<()> {
-        append_journal::recover(&self.root.join("collections"))?;
         let dirty = {
             let cache = self
                 .cache
@@ -1085,6 +1096,12 @@ impl FileStorage {
                 .map(|(collection, cached)| (collection.clone(), cached.rows.clone()))
                 .collect::<Vec<_>>()
         };
+        if dirty
+            .iter()
+            .any(|(collection, _)| append_journal::checkpoint_tracks(collection))
+        {
+            append_journal::recover(&self.root.join("collections"))?;
+        }
         for (collection, rows) in dirty {
             self.write_collection_file(&collection, &rows)?;
             if collection == "chats" {
@@ -2551,10 +2568,11 @@ impl FileStorage {
     {
         self.flush_dirty_collections_locked()?;
         let collections_dir = self.root.join("collections");
-        if replacements
+        let replaces_append_checkpoint = replacements
             .iter()
-            .any(|(collection, _)| append_journal::checkpoint_tracks(collection))
-        {
+            .any(|(collection, _)| append_journal::checkpoint_tracks(collection));
+        if replaces_append_checkpoint {
+            append_journal::recover(&collections_dir)?;
             append_journal::invalidate_checkpoint(&collections_dir)?;
         }
         let transaction_id = storage_transaction_id();
@@ -3718,6 +3736,126 @@ mod tests {
             journal_bytes < 16 * 1024,
             "two tiny appends should not journal historical collection bytes"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn flushing_unrelated_dirty_collection_preserves_pending_message_appends() {
+        let root = temp_storage_root("unrelated-flush-preserves-message-appends");
+        let collections = root.join("collections");
+        write_test_collection(
+            &collections.join("messages.json"),
+            vec![json!({ "id": "historical-message", "chatId": "chat-1" })],
+        );
+        write_test_collection(
+            &collections.join("message-swipes.json"),
+            vec![json!({
+                "id": "historical-message::swipe::0",
+                "messageId": "historical-message",
+            })],
+        );
+        let storage = FileStorage::new(&root).unwrap();
+
+        assert!(
+            storage
+                .append_many_uncached(vec![
+                    (
+                        "messages",
+                        vec![json!({ "id": "pending-message", "chatId": "fixture-chat" })],
+                    ),
+                    (
+                        "message-swipes",
+                        vec![json!({
+                            "id": "pending-message::swipe::0",
+                            "messageId": "pending-message",
+                        })],
+                    ),
+                ])
+                .unwrap()
+        );
+        let journal = collections.join(".collection-append-journal.jsonl");
+        let pending_journal = fs::read(&journal).unwrap();
+        assert!(!pending_journal.is_empty());
+        let messages_before_flush = fs::read(collections.join("messages.json")).unwrap();
+        let swipes_before_flush = fs::read(collections.join("message-swipes.json")).unwrap();
+
+        storage
+            .cache_collection("chats", &[json!({ "id": "fixture-chat" })], true)
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert_eq!(fs::read(&journal).unwrap(), pending_journal);
+        assert_eq!(
+            fs::read(collections.join("messages.json")).unwrap(),
+            messages_before_flush
+        );
+        assert_eq!(
+            fs::read(collections.join("message-swipes.json")).unwrap(),
+            swipes_before_flush
+        );
+        assert_eq!(
+            parse_collection_file("chats", &collections.join("chats.json"))
+                .unwrap()
+                .len(),
+            1
+        );
+
+        drop(storage);
+        let recovered = FileStorage::new(&root).unwrap();
+        assert!(
+            recovered
+                .get("messages", "pending-message")
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            recovered
+                .get("message-swipes", "pending-message::swipe::0")
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(fs::metadata(journal).unwrap().len(), 0);
+        drop(recovered);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn deferred_flush_checkpoints_pending_appends_before_writing_tracked_collection() {
+        let root = temp_storage_root("deferred-flush-tracked-collection");
+        let collections = root.join("collections");
+        write_test_collection(
+            &collections.join("messages.json"),
+            vec![json!({ "id": "baseline-message" })],
+        );
+        write_test_collection(&collections.join("message-swipes.json"), Vec::new());
+        let storage = FileStorage::new(&root).unwrap();
+
+        assert!(storage
+            .append_many_uncached(vec![(
+                "messages",
+                vec![json!({ "id": "pending-message", "content": "before" })],
+            )])
+            .unwrap());
+        let journal = collections.join(".collection-append-journal.jsonl");
+        assert!(fs::metadata(&journal).unwrap().len() > 0);
+
+        storage
+            .patch(
+                "messages",
+                "pending-message",
+                json!({ "content": "after" }),
+            )
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert!(!journal.exists());
+        drop(storage);
+        let restarted = FileStorage::new(&root).unwrap();
+        let messages = restarted.list("messages").unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1]["id"], "pending-message");
+        assert_eq!(messages[1]["content"], "after");
+
         fs::remove_dir_all(root).unwrap();
     }
 
