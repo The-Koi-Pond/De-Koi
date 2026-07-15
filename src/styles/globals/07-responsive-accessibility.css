@@ -23,12 +23,8 @@
         border-box !important;
   }
 
-  .mari-app-chrome {
-    padding-top: env(safe-area-inset-top);
-  }
-
   body {
-    /* Safe-area insets are handled by AppShell. */
+    /* Without viewport-fit=cover, the browser owns top clearance; AppShell applies only side and bottom safe-area insets. */
   }
 
   .app-sidebar-mobile {
