@@ -163,7 +163,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
                 disabled={exportChat.isPending}
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98] disabled:opacity-50"
               >
-                <Download size="0.8125rem" />
+                <Upload size="0.8125rem" />
                 JSONL
               </button>
               <button
@@ -186,7 +186,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
               disabled={isImporting}
               className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98] disabled:opacity-50"
             >
-              <Upload size="0.8125rem" />
+              <Download size="0.8125rem" />
               {isImporting ? "Importingâ€¦" : "JSONL"}
             </button>
             <p className="mt-2 text-center text-[0.625rem] text-[var(--muted-foreground)]/60">
@@ -238,7 +238,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
               disabled={exportChat.isPending || isGroupDeletePending}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-50 disabled:hover:bg-[var(--secondary)]"
             >
-              <Download size="0.8125rem" />
+              <Upload size="0.8125rem" />
               JSONL
             </button>
             <button
@@ -269,7 +269,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
             disabled={isImporting || isGroupDeletePending}
             className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-50 disabled:hover:bg-[var(--secondary)]"
           >
-            <Upload size="0.8125rem" />
+            <Download size="0.8125rem" />
             {isImporting ? "Importingâ€¦" : "JSONL"}
           </button>
           <p className="mt-2 text-center text-[0.625rem] text-[var(--muted-foreground)]/60">

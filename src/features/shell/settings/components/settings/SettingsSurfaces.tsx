@@ -2561,7 +2561,7 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
         pendingLabel="Importing..."
         dragLabel="Drop backgrounds to import"
         onFilesSelected={(files) => void handleUpload(files)}
-        icon={uploading ? <Loader2 size="0.875rem" className="animate-spin" /> : <Upload size="0.875rem" />}
+        icon={uploading ? <Loader2 size="0.875rem" className="animate-spin" /> : <Download size="0.875rem" />}
         className="gap-1.5 rounded-lg p-3 hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
       />
 
@@ -3060,7 +3060,7 @@ export function ThemesSettings() {
                 className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
                 title="Export theme"
               >
-                <Download size="0.6875rem" />
+                <Upload size="0.6875rem" />
               </button>
               <button
                 onClick={() => {
@@ -4368,7 +4368,7 @@ export function AdvancedSettings() {
         className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700"
       >
         <div className="flex items-center gap-1.5">
-          <Download size="0.75rem" className="text-[var(--muted-foreground)]" />
+          <Upload size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Backup & Export</span>
           <HelpTooltip text="Creates, lists, downloads, and deletes managed full backups. Backups include data collections plus managed asset folders for recovery." />
         </div>
@@ -4451,7 +4451,7 @@ export function AdvancedSettings() {
       <div className="retro-divider" />
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-1.5">
-          <Download size="0.75rem" className="text-[var(--muted-foreground)]" />
+          <Upload size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Profile Export</span>
           <HelpTooltip text="Exports the current profile as native JSON, compatible bundle, or ZIP for large profiles and recovery." />
         </div>
@@ -4467,7 +4467,7 @@ export function AdvancedSettings() {
             </>
           ) : (
             <>
-              <Download size="0.8125rem" />
+              <Upload size="0.8125rem" />
               Export Profile
             </>
           )}
@@ -4481,7 +4481,7 @@ export function AdvancedSettings() {
             <Loader2 size="0.8125rem" className="animate-spin" />
           ) : (
             <>
-              <Download size="0.8125rem" />
+              <Upload size="0.8125rem" />
               Export Browser State
             </>
           )}

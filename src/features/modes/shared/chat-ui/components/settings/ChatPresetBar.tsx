@@ -156,7 +156,7 @@ export function ChatPresetBar({
           title="Import preset (.json)"
           className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
         >
-          <Upload size="0.875rem" />
+          <Download size="0.875rem" />
         </button>
         <button
           onClick={onExportPreset}
@@ -164,7 +164,7 @@ export function ChatPresetBar({
           title="Export preset (.json)"
           className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Download size="0.875rem" />
+          <Upload size="0.875rem" />
         </button>
         <button
           onClick={onDeletePreset}

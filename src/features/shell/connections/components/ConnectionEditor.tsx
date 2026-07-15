@@ -45,7 +45,7 @@ import {
   ImageIcon,
   RotateCcw,
   SlidersHorizontal,
-  Upload,
+  Download,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
@@ -1515,7 +1515,7 @@ export function ConnectionEditor() {
                     onClick={() => comfyWorkflowFileInputRef.current?.click()}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] active:scale-[0.98]"
                   >
-                    <Upload size="0.8125rem" />
+                    <Download size="0.8125rem" />
                     Import JSON
                   </button>
                 </div>

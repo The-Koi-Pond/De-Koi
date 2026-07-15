@@ -1,4 +1,4 @@
-import { Download } from "lucide-react";
+import { Upload } from "lucide-react";
 
 interface PersonasSelectionToolbarProps {
   selectedCount: number;
@@ -41,7 +41,7 @@ export function PersonasSelectionToolbar({
         disabled={selectedCount === 0 || exportingSelected}
         className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-2.5 py-1 text-[0.625rem] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40"
       >
-        <Download size="0.6875rem" />
+        <Upload size="0.6875rem" />
         {exportingSelected ? "Exporting..." : "Export ZIP"}
       </button>
       <button
