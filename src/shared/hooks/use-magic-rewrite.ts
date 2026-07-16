@@ -1,23 +1,12 @@
 import { useEffect, useState } from "react";
+import { connectionCatalogApi } from "../api/connection-catalog-api";
 import { llmApi } from "../api/llm-api";
-import { storageApi } from "../api/storage-api";
 
 const PROMPT_KEY = "magic-rewrite-prompt";
 
 const REWRITE_SYSTEM_PROMPT = `You are a rewriting assistant for roleplay, fiction, and worldbuilding content.
 Rewrite or generate the requested text according to the user's instructions.
 Return ONLY the rewritten text -- no explanations, no markdown fences, no preamble.`;
-
-type ConnectionRecord = {
-  id?: unknown;
-  provider?: unknown;
-  isDefault?: unknown;
-  default?: unknown;
-};
-
-function boolish(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
 
 function readStoredInstruction() {
   try {
@@ -53,19 +42,6 @@ function buildRewriteMessages(value: string, instructionValue: string) {
   ];
 }
 
-async function resolveDefaultConnectionId() {
-  const connections = await storageApi.list<ConnectionRecord>("connections");
-  const textConnections = connections.filter((connection) => connection.provider !== "image_generation");
-  const selected =
-    textConnections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ??
-    textConnections[0];
-  const connectionId = typeof selected?.id === "string" ? selected.id.trim() : "";
-
-  if (!connectionId) throw new Error("No text connection configured");
-
-  return connectionId;
-}
-
 export function useMagicRewrite(value: string) {
   const [instruction, setInstruction] = useState(readStoredInstruction);
   const [result, setResult] = useState("");
@@ -82,7 +58,7 @@ export function useMagicRewrite(value: string) {
     setError("");
     setResult("");
     try {
-      const connectionId = await resolveDefaultConnectionId();
+      const connectionId = await connectionCatalogApi.resolveDefaultTextConnectionId();
       const text = await llmApi.complete({
         connectionId,
         messages: buildRewriteMessages(value, instruction),

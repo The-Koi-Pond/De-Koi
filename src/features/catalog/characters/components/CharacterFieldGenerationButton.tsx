@@ -3,8 +3,8 @@ import { Loader2, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type { DepthPrompt } from "../../../../engine/contracts/types/character";
+import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { llmApi } from "../../../../shared/api/llm-api";
-import { storageApi } from "../../../../shared/api/storage-api";
 import {
   CHARACTER_FIELD_LABELS,
   generateCharacterField,
@@ -13,34 +13,12 @@ import {
   type CharacterFieldGenerationValue,
 } from "../lib/character-field-generation";
 
-type ConnectionRecord = {
-  id?: unknown;
-  provider?: unknown;
-  isDefault?: unknown;
-  default?: unknown;
-};
-
 type CharacterFieldGenerationButtonProps = CharacterFieldGenerationInput & {
   field: CharacterFieldGenerationField;
   mode?: "preview" | "direct";
   onApply: (value: CharacterFieldGenerationValue) => void;
   className?: string;
 };
-
-function boolish(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
-async function resolveDefaultTextConnectionId(): Promise<string> {
-  const connections = await storageApi.list<ConnectionRecord>("connections");
-  const textConnections = connections.filter((connection) => connection.provider !== "image_generation");
-  const selected =
-    textConnections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ??
-    textConnections[0];
-  const connectionId = typeof selected?.id === "string" ? selected.id.trim() : "";
-  if (!connectionId) throw new Error("No text connection configured");
-  return connectionId;
-}
 
 function isDepthPrompt(value: CharacterFieldGenerationValue): value is DepthPrompt {
   return !Array.isArray(value) && typeof value === "object";
@@ -67,7 +45,7 @@ export function CharacterFieldGenerationButton({
     setGenerating(true);
 
     try {
-      const connectionId = await resolveDefaultTextConnectionId();
+      const connectionId = await connectionCatalogApi.resolveDefaultTextConnectionId();
       const value = await generateCharacterField({
         field,
         data,

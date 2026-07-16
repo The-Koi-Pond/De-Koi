@@ -6,7 +6,7 @@ import type { CharacterData } from "../../../../engine/contracts/types/character
 import { CharacterMetadataTab } from "./CharacterMetadataTab";
 
 const apiMocks = vi.hoisted(() => ({
-  listConnections: vi.fn(async () => [{ id: "conn-1", provider: "openai", isDefault: true }]),
+  resolveDefaultTextConnectionId: vi.fn(async () => "conn-1"),
   streamCompletion: vi.fn(async function* (_request?: unknown) {
     yield { type: "token", text: "I turn fear into a headline. Smile for the camera." };
   }),
@@ -14,8 +14,8 @@ const apiMocks = vi.hoisted(() => ({
   uploadCharacterDataUrl: vi.fn(async () => ({ url: "http://pi:7860/api/assets/gallery/rook-banner.png" })),
 }));
 
-vi.mock("../../../../shared/api/storage-api", () => ({
-  storageApi: { list: apiMocks.listConnections },
+vi.mock("../../../../shared/api/connection-catalog-api", () => ({
+  connectionCatalogApi: { resolveDefaultTextConnectionId: apiMocks.resolveDefaultTextConnectionId },
 }));
 
 vi.mock("../../../../shared/api/llm-api", () => ({
