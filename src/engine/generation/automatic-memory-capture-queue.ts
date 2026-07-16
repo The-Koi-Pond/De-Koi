@@ -49,6 +49,44 @@ export interface AutomaticMemoryCaptureProcessOptions {
   limit?: number;
 }
 
+export interface AutomaticMemoryCaptureCompletion {
+  chatId: string;
+  assistantMessageId: string;
+  operation: "created" | "updated";
+  memory: { id: string; content: string };
+}
+
+type AutomaticMemoryCaptureCompletionListener = (completion: AutomaticMemoryCaptureCompletion) => void;
+
+const completionListeners = new Set<AutomaticMemoryCaptureCompletionListener>();
+
+export function subscribeAutomaticMemoryCaptureCompletions(
+  listener: AutomaticMemoryCaptureCompletionListener,
+): () => void {
+  completionListeners.add(listener);
+  return () => completionListeners.delete(listener);
+}
+
+function memoryCaptureFromRefresh(value: unknown): Omit<AutomaticMemoryCaptureCompletion, "chatId" | "assistantMessageId"> | null {
+  const capture = parseRecord(parseRecord(value).capture);
+  const memory = parseRecord(capture.memory);
+  const operation = readString(capture.operation).trim();
+  const id = readString(memory.id).trim();
+  const content = readString(memory.content).trim();
+  if ((operation !== "created" && operation !== "updated") || !id || !content) return null;
+  return { operation, memory: { id, content } };
+}
+
+function publishMemoryCaptureCompletion(completion: AutomaticMemoryCaptureCompletion): void {
+  for (const listener of completionListeners) {
+    try {
+      listener(completion);
+    } catch {
+      // UI observers cannot invalidate a capture that is already durable.
+    }
+  }
+}
+
 const activeWorkers = new WeakSet<StorageGateway>();
 const pendingWorkerReruns = new WeakSet<StorageGateway>();
 
@@ -226,7 +264,9 @@ export async function processAutomaticMemoryCaptureQueue(
 
     try {
       const sourceMessageIds = jobSourceIds(job);
-      await storage.refreshChatMemories(readString(job.chatId).trim(), { sourceMessageIds });
+      const chatId = readString(job.chatId).trim();
+      const refreshResult = await storage.refreshChatMemories(chatId, { sourceMessageIds });
+      const capture = memoryCaptureFromRefresh(refreshResult);
       const assistantMessageId = readString(job.assistantMessageId).trim();
       if (assistantMessageId) {
         await storage.patchChatMessageExtra(assistantMessageId, {
@@ -235,6 +275,7 @@ export async function processAutomaticMemoryCaptureQueue(
             jobId: id,
             sourceMessageIds,
             completedAt: now,
+            ...(capture ? { capture } : {}),
           },
         });
       }
@@ -246,6 +287,9 @@ export async function processAutomaticMemoryCaptureQueue(
         nextAttemptAt: null,
       });
       result.completed += 1;
+      if (capture && assistantMessageId) {
+        publishMemoryCaptureCompletion({ chatId, assistantMessageId, ...capture });
+      }
     } catch (error) {
       const terminal = attempts >= maxAttempts;
       await updateJob(storage, id, {

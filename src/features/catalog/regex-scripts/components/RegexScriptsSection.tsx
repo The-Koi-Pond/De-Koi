@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { ChevronDown, GripVertical, Pencil, Plus, Regex, ToggleLeft, ToggleRight, Trash2, Upload } from "lucide-react";
+import { ChevronDown, Download, GripVertical, Pencil, Plus, Regex, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
@@ -114,7 +114,7 @@ export function RegexScriptsSection({
             title="Import regex scripts from JSON"
           >
             <input type="file" accept="application/json" className="hidden" onChange={handleImportRegex} />
-            <Upload size="0.8125rem" />
+            <Download size="0.8125rem" />
           </label>
         </div>
       }

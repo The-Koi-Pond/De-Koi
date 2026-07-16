@@ -38,7 +38,12 @@ import { markPerformanceMilestoneOnce } from "../../shared/lib/performance-diagn
 import { onDesktopWindowCloseRequested } from "../../shared/api/window-controls-api";
 import { hasPendingAppCloseWork, requestGuardedAppClose } from "../../shared/lib/app-close-guard";
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
-import { getAppShellCenterSurfaceState } from "./app-shell-center-surfaces";
+import {
+  getAutomaticMemoryCaptureToast,
+  getAppShellCenterSurfaceState,
+  getSetupJourneyHost,
+  shouldBeginSetupJourney,
+} from "./app-shell-center-surfaces";
 import { closeDiscoverHistory, useDiscoverHistoryLifecycle } from "./app-shell-discover-history";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
@@ -48,6 +53,7 @@ import { shouldUseLowPowerShellMode, syncShellRootAttributes } from "./shell-per
 import { usePageActivity } from "../../shared/hooks/use-page-activity";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { subscribeAutomaticMemoryCaptureCompletions } from "../../engine/generation/automatic-memory-capture-queue";
 import { HelpCircle, Loader2 } from "lucide-react";
 import {
   lazy,
@@ -308,6 +314,7 @@ export function AppShell() {
   const chatNotificationCount = useChatStore((s) => s.chatNotifications.size);
   const [notificationBubblesMounted, setNotificationBubblesMounted] = useState(false);
   const debugMode = useUIStore((s) => s.debugMode);
+  const automaticMemoryCaptureNotifications = useUIStore((s) => s.automaticMemoryCaptureNotifications);
   const hasAgentDebugActivity = useAgentStore((s) => debugMode && (s.debugLog.length > 0 || s.lastResults.size > 0));
   const { data: musicDjMiniPlayerEnabled } = useIsCoreModuleEnabled(MUSIC_DJ_MINI_PLAYER_MODULE_ID);
   const sidebarDragWidthRef = useRef<number | null>(null);
@@ -336,6 +343,16 @@ export function AppShell() {
   }, []);
 
   useEffect(() => requestIdleWork(() => setBackgroundAutonomousPollingReady(true)), []);
+
+  useEffect(
+    () =>
+      subscribeAutomaticMemoryCaptureCompletions((completion) => {
+        const feedback = getAutomaticMemoryCaptureToast(automaticMemoryCaptureNotifications, completion);
+        if (!feedback) return;
+        toast.success(feedback.title, { description: feedback.description });
+      }),
+    [automaticMemoryCaptureNotifications],
+  );
 
   useEffect(() => {
     const root = document.documentElement;
@@ -471,6 +488,15 @@ export function AppShell() {
   const hasCompletedOnboarding = !onboardingTourOpen;
   const [helpHubOpen, setHelpHubOpen] = useState(false);
   const activeChatId = useChatStore((s) => s.activeChatId);
+  const pendingNewChatMode = useChatStore((s) => s.pendingNewChatMode);
+  const setupJourneyIntent = useSetupJourneyStore((s) => s.intent);
+  useEffect(() => {
+    if (!pendingNewChatMode) return;
+    const intent = useSetupJourneyStore.getState().intent;
+    if (shouldBeginSetupJourney(pendingNewChatMode, intent)) {
+      useSetupJourneyStore.getState().begin(pendingNewChatMode);
+    }
+  }, [pendingNewChatMode]);
   const activeChat = useChatStore((s) => s.activeChat);
   const clearUnread = useChatStore((s) => s.clearUnread);
   const { mutate: clearAutonomousUnread, isPending: isClearingAutonomousUnread } = useClearAutonomousUnread();
@@ -955,6 +981,11 @@ export function AppShell() {
     dekiOpen,
     activeDekiSessionId,
     discoverOpen,
+  });
+  const setupJourneyHost = getSetupJourneyHost({
+    activeChatId,
+    detailViewOpen: hasDetailView,
+    mainSurfaceVisible,
   });
   useEffect(() => {
     if (hasDetailView) setDekiOpen(false);
@@ -1588,9 +1619,11 @@ export function AppShell() {
                   {detailView ?? (
                     <ModeSurface
                       readinessSurface={
-                        <Suspense fallback={null}>
-                          <SetupReadinessJourney />
-                        </Suspense>
+                        setupJourneyHost === "home" ? (
+                          <Suspense fallback={null}>
+                            <SetupReadinessJourney />
+                          </Suspense>
+                        ) : null
                       }
                       onOpenDiscover={openDiscover}
                       onOpenNoModelShowcase={openNoModelShowcase}
@@ -1598,6 +1631,15 @@ export function AppShell() {
                   )}
                 </Suspense>
               </div>
+              {setupJourneyHost === "shell" && setupJourneyIntent && !setupJourneyIntent.completed && (
+                <div className="absolute inset-0 z-[90] overflow-y-auto bg-[var(--background)]/90 p-4 backdrop-blur-sm sm:p-8">
+                  <div className="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-2xl sm:p-5">
+                    <Suspense fallback={<ShellLoadingFallback compact />}>
+                      <SetupReadinessJourney />
+                    </Suspense>
+                  </div>
+                </div>
+              )}
             </div>
             {/* Floating avatar notification bubbles (right edge) */}
             {notificationBubblesMounted && (

@@ -207,6 +207,8 @@ export function getEffectiveMemoryRecallEnabled(
 
 /** Extra metadata stored on a chat. */
 export interface ChatMetadata {
+  /** Optional language-generation connection used for foreground turns that include image attachments. */
+  visionConnectionId?: string | null;
   /** Compiled enabled rolling summary text for context injection. */
   summary: string | null;
   /** Structured rolling summary entries. */
@@ -502,6 +504,10 @@ export interface MessageMemoryCaptureExtra {
   jobId: string;
   sourceMessageIds: string[];
   completedAt: string;
+  capture?: {
+    operation: "created" | "updated";
+    memory: { id: string; content: string };
+  };
 }
 /** Additional data attached to a message. */
 export interface MessageExtra {

@@ -556,7 +556,13 @@ function ChatSettingsDrawerInner({
   const textConnectionsList = useMemo(
     () =>
       filterLanguageGenerationConnections(
-        (connections as Array<{ id: string; name: string; model?: string; provider?: string }>) ?? [],
+        (connections as Array<{
+          id: string;
+          name: string;
+          model?: string;
+          provider?: string;
+          capabilities?: { vision?: boolean };
+        }>) ?? [],
       ),
     [connections],
   );
@@ -2106,6 +2112,7 @@ function ChatSettingsDrawerInner({
             editingName={editingName}
             nameVal={nameVal}
             textConnectionsList={textConnectionsList}
+            visionConnectionId={typeof metadata.visionConnectionId === "string" ? metadata.visionConnectionId : null}
             presets={(presets ?? []) as ChatPreset[]}
             currentPromptPresetHasVariables={currentPromptPresetHasVariables}
             showLorebookMarkerWarning={showLorebookMarkerWarning}
@@ -2116,6 +2123,9 @@ function ChatSettingsDrawerInner({
             }}
             onSaveName={saveName}
             onConnectionChange={setConnection}
+            onVisionConnectionChange={(visionConnectionId) =>
+              updateMeta.mutate({ id: chat.id, visionConnectionId })
+            }
             onPresetChange={setPreset}
             onEditPresetChoices={() => {
               if (chat.promptPresetId) setChoiceModalPresetId(chat.promptPresetId);

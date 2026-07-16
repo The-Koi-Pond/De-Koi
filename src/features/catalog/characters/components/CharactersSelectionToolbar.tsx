@@ -1,4 +1,4 @@
-import { Download, Trash2 } from "lucide-react";
+import { Trash2, Upload } from "lucide-react";
 
 export function CharactersSelectionToolbar({
   selectedCount,
@@ -49,7 +49,7 @@ export function CharactersSelectionToolbar({
         disabled={selectedCount === 0 || exportingSelected}
         className="inline-flex items-center gap-1 rounded-lg bg-[var(--primary)] px-2.5 py-1 text-[0.625rem] font-medium text-[var(--primary-foreground)] transition-all hover:opacity-90 disabled:opacity-40"
       >
-        <Download size="0.6875rem" />
+        <Upload size="0.6875rem" />
         {exportingSelected ? "Exporting..." : "Export ZIP"}
       </button>
       <button

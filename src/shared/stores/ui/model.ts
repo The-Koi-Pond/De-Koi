@@ -566,6 +566,8 @@ export interface UIState {
   customTextBlipSound: CustomTextBlipSound | null;
   /** When true, show native local notifications for new Conversation messages while De-Koi is unfocused. */
   conversationBrowserNotifications: boolean;
+  /** Show an in-app notification containing the exact automatic memory capture. */
+  automaticMemoryCaptureNotifications: boolean;
 
   // ── Custom Conversation Prompt ──
   /** User's custom default system prompt for new conversations (null = built-in default). */
@@ -768,6 +770,7 @@ export interface UIState {
   setTextBlipMode: (v: TextBlipMode) => void;
   setCustomTextBlipSound: (v: CustomTextBlipSound | null) => void;
   setConversationBrowserNotifications: (v: boolean) => void;
+  setAutomaticMemoryCaptureNotifications: (v: boolean) => void;
   setCustomConversationPrompt: (v: string | null) => void;
   setScheduleGenerationPreferences: (v: string) => void;
   rememberGameSetupOptions: (

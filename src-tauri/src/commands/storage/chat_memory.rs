@@ -1283,6 +1283,8 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
     let mut chunks: Vec<Value> = Vec::new();
     let mut pending = Vec::new();
     let mut reused = 0usize;
+    let mut focused_capture_index = None;
+    let mut focused_capture_operation = None;
     if !source_message_id_set.is_empty() {
         let focused_messages = visible_messages
             .iter()
@@ -1299,6 +1301,15 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
             .last()
             .is_some_and(|message| message_role(message) == "assistant")
         {
+            let focused_message_ids = capture_message_ids(&focused_messages);
+            focused_capture_operation = Some(
+                if existing_by_chunk.contains_key(&memory_chunk_key(&focused_message_ids)) {
+                    "updated"
+                } else {
+                    "created"
+                },
+            );
+            focused_capture_index = Some(chunks.len());
             let context = RefreshMemoryCaptureContext {
                 existing_by_chunk: &existing_by_chunk,
                 embedding_context: embedding_context.as_ref(),
@@ -1346,11 +1357,28 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
             chunks[index] = Value::Object(memory);
         }
     }
+    let focused_capture = focused_capture_index
+        .and_then(|index| chunks.get(index))
+        .and_then(|memory| {
+            Some(json!({
+                "operation": focused_capture_operation?,
+                "memory": {
+                    "id": memory.get("id")?.as_str()?,
+                    "content": memory.get("content")?.as_str()?,
+                }
+            }))
+        });
     chunks.extend(preserved_memories);
     state
         .storage
         .patch("chats", chat_id, json!({ "memories": chunks }))?;
-    Ok(json!({ "rebuilt": chunks.len(), "embedded": embedded, "reused": reused, "chunks": chunks }))
+    Ok(json!({
+        "rebuilt": chunks.len(),
+        "embedded": embedded,
+        "reused": reused,
+        "chunks": chunks,
+        "capture": focused_capture,
+    }))
 }
 pub(crate) fn export_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
     let chat = get_required(state, "chats", chat_id)?;
@@ -3953,6 +3981,53 @@ mod tests {
             .as_str()
             .expect("content should be a string")
             .contains("visible memory 5"));
+    }
+
+    #[tokio::test]
+    async fn focused_refresh_returns_the_exact_created_or_updated_capture() {
+        let state = test_state("memory-focused-capture-result");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "name": "Memory chat" }))
+            .expect("chat should seed");
+        for (id, role, content) in [
+            ("user-1", "user", "My cat's name is Miso."),
+            ("assistant-1", "assistant", "I'll remember that."),
+        ] {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": id,
+                        "chatId": "chat-1",
+                        "role": role,
+                        "content": content,
+                        "createdAt": "2026-06-01T10:00:00.000Z"
+                    }),
+                )
+                .expect("message should seed");
+        }
+
+        let source_ids = vec!["user-1".to_string(), "assistant-1".to_string()];
+        let created =
+            refresh_chat_memories_for_source_messages(&state, "chat-1", source_ids.clone())
+                .await
+                .expect("focused refresh should succeed");
+        assert_eq!(created["capture"]["operation"], json!("created"));
+        assert!(created["capture"]["memory"]["content"]
+            .as_str()
+            .expect("capture content should exist")
+            .contains("My cat's name is Miso."));
+
+        let updated = refresh_chat_memories_for_source_messages(&state, "chat-1", source_ids)
+            .await
+            .expect("focused refresh should be reusable");
+        assert_eq!(updated["capture"]["operation"], json!("updated"));
+        assert_eq!(
+            updated["capture"]["memory"]["id"],
+            created["capture"]["memory"]["id"]
+        );
     }
 
     #[tokio::test]

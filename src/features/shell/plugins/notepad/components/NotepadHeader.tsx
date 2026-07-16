@@ -1,4 +1,4 @@
-import { Download, FileUp, GripVertical, Minus, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Download, GripVertical, Minus, MoreHorizontal, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { characterLabel } from "../lib/state";
 import type { BranchMode, NoteScope, NotepadContext, NotepadTab } from "../types";
@@ -69,11 +69,11 @@ export function NotepadHeader({
         {actionsMenuOpen && (
           <div className="me-notes-menu-popover me-notes-menu-popover--actions">
             <button type="button" className="me-notes-menu-item" onClick={onImportBackup}>
-              <FileUp size="0.8125rem" />
+              <Download size="0.8125rem" />
               Import backup
             </button>
             <button type="button" className="me-notes-menu-item" onClick={onExportBackup}>
-              <Download size="0.8125rem" />
+              <Upload size="0.8125rem" />
               Export backup
             </button>
             <button type="button" className="me-notes-menu-item" onClick={onResetLayout}>

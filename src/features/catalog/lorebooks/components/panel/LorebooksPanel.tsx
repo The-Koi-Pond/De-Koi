@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   Plus,
   Download,
+  Upload,
   Check,
   Sparkles,
   BookOpen,
@@ -631,7 +632,7 @@ export function LorebooksPanel() {
             disabled={selectedLorebookIds.size === 0 || exportingSelected}
             className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-2.5 py-1 text-[0.625rem] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40"
           >
-            <Download size="0.6875rem" />
+            <Upload size="0.6875rem" />
             {exportingSelected ? "Exporting..." : "Export ZIP"}
           </button>
           <button

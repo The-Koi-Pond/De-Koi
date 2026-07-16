@@ -1034,6 +1034,10 @@ describe("ConversationMessage memo subscriptions", () => {
           jobId: "job-1",
           sourceMessageIds: ["user-1", "conversation-memory-indicators"],
           completedAt: "2026-01-01T00:03:00.000Z",
+          capture: {
+            operation: "created",
+            memory: { id: "captured-memory-1", content: "Aster remembers the quiet signal." },
+          },
         },
         generationPromptSnapshot: promptSnapshot,
       },
@@ -1048,7 +1052,9 @@ describe("ConversationMessage memo subscriptions", () => {
       );
     });
 
-    expect(container!.querySelector('[role="status"]')?.textContent).toContain("remembered");
+    expect(
+      Array.from(container!.querySelectorAll("button")).some((button) => button.textContent?.includes("remembered")),
+    ).toBe(true);
     const recalledChip = Array.from(container!.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("1 memory recalled"),
     );

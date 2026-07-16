@@ -930,6 +930,10 @@ describe("ChatMessage", () => {
           jobId: "job-1",
           sourceMessageIds: ["user-1", "message-memory-indicators"],
           completedAt: "2026-01-01T00:03:00.000Z",
+          capture: {
+            operation: "created",
+            memory: { id: "memory-1", content: "Celia prefers concise recaps." },
+          },
         },
         generationPromptSnapshot: promptSnapshot,
       },
@@ -944,7 +948,13 @@ describe("ChatMessage", () => {
       );
     });
 
-    expect(container!.querySelector('[role="status"]')?.textContent).toContain("remembered");
+    const rememberedChip = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("remembered"),
+    );
+    expect(rememberedChip).toBeTruthy();
+    act(() => rememberedChip!.click());
+    expect(container!.textContent).toContain("Saved memory");
+    expect(container!.textContent).toContain("Celia prefers concise recaps.");
     const recalledChip = Array.from(container!.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("2 memories recalled"),
     );
@@ -971,5 +981,64 @@ describe("ChatMessage", () => {
       messageId: "message-memory-indicators",
       promptSnapshot,
     });
+  });
+
+  it("does not claim a memory was remembered when completed capture details are missing", () => {
+    const legacyCompletedMessage: Message = {
+      ...message,
+      id: "message-memory-capture-without-details",
+      extra: {
+        ...message.extra,
+        memoryCapture: {
+          status: "completed",
+          jobId: "legacy-job",
+          sourceMessageIds: ["user-legacy", "message-memory-capture-without-details"],
+          completedAt: "2026-01-01T00:03:00.000Z",
+        },
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={legacyCompletedMessage} characterMap={characterMap} />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(
+      Array.from(container!.querySelectorAll("button")).find((button) => button.textContent?.includes("remembered")),
+    ).toBeUndefined();
+    expect(container!.textContent).not.toContain("Saved memory details are unavailable");
+  });
+
+  it("does not throw or show remembered for a malformed capture without memory data", () => {
+    const malformedCaptureMessage = {
+      ...message,
+      id: "message-malformed-memory-capture",
+      extra: {
+        ...message.extra,
+        memoryCapture: {
+          status: "completed",
+          jobId: "malformed-job",
+          sourceMessageIds: ["user-malformed", "message-malformed-memory-capture"],
+          completedAt: "2026-01-01T00:03:00.000Z",
+          capture: { operation: "created" },
+        },
+      },
+    } as unknown as Message;
+
+    expect(() => {
+      act(() => {
+        root = createRoot(container!);
+        root.render(
+          <QueryClientProvider client={queryClient!}>
+            <ChatMessage message={malformedCaptureMessage} characterMap={characterMap} />
+          </QueryClientProvider>,
+        );
+      });
+    }).not.toThrow();
+    expect(container!.textContent).not.toContain("remembered");
   });
 });

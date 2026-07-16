@@ -346,10 +346,10 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
               onChange={(event) => void handleImportFile(event.currentTarget.files?.[0])}
             />
             <button type="button" onClick={() => void handleExport()} disabled={memories.length === 0 || exportMemories.isPending} className={iconButtonClass()} title="Export memories" aria-label="Export memories">
-              <Download size="0.875rem" />
+              <Upload size="0.875rem" />
             </button>
             <button type="button" onClick={() => importInputRef.current?.click()} disabled={importMemories.isPending} className={iconButtonClass()} title="Import memories" aria-label="Import memories">
-              {importMemories.isPending ? <Loader2 size="0.875rem" className="animate-spin" /> : <Upload size="0.875rem" />}
+              {importMemories.isPending ? <Loader2 size="0.875rem" className="animate-spin" /> : <Download size="0.875rem" />}
             </button>
             <button type="button" onClick={() => refreshMemories.mutate()} disabled={memoriesQuery.isFetching || refreshMemories.isPending || importMemories.isPending} className={iconButtonClass()} title="Rebuild memories" aria-label="Rebuild memories">
               <RefreshCw size="0.875rem" className={cn((memoriesQuery.isFetching || refreshMemories.isPending) && "animate-spin")} />

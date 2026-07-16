@@ -24,7 +24,7 @@ import {
   ArrowUpDown,
   Tag,
   Pencil,
-  Download,
+  Upload,
   X,
   Star,
   Loader2,
@@ -1433,7 +1433,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
                 disabled={selectedChatIds.size === 0 || bulkExportChats.isPending}
                 className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)] disabled:opacity-40"
               >
-                <Download size="0.75rem" />
+                <Upload size="0.75rem" />
                 Export
               </button>
               {batchExportMenuOpen && (

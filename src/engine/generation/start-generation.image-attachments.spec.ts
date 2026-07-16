@@ -19,19 +19,35 @@ type StoredMessage = {
   extra: Record<string, unknown>;
 };
 
-function imageAttachmentStorage(connectionOverrides: Record<string, unknown> = {}) {
+function imageAttachmentStorage(
+  connectionOverrides: Record<string, unknown> = {},
+  options: {
+    visionConnection?: Record<string, unknown>;
+    storedImage?: boolean;
+  } = {},
+) {
   const records: Record<string, Record<string, unknown>> = {
     "chat-1": {
       id: "chat-1",
       mode: "conversation",
       connectionId: "conn-1",
       characterIds: ["char-a"],
-      metadata: {},
+      metadata: options.visionConnection ? { visionConnectionId: "conn-vision" } : {},
     },
     "conn-1": { id: "conn-1", provider: "test-provider", model: "test-model", ...connectionOverrides },
+    ...(options.visionConnection
+      ? {
+          "conn-vision": {
+            id: "conn-vision",
+            provider: "test-provider",
+            model: "vision-model",
+            ...options.visionConnection,
+          },
+        }
+      : {}),
     "char-a": { id: "char-a", name: "Aki", data: { name: "Aki", personality: "warm" } },
   };
-  const messages: StoredMessage[] = [
+  const messages: StoredMessage[] = options.storedImage === false ? [] : [
     {
       id: "message-1",
       chatId: "chat-1",
@@ -47,7 +63,7 @@ function imageAttachmentStorage(connectionOverrides: Record<string, unknown> = {
   ];
   const storage: StorageGateway = {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
-      if (entity === "connections") return [records["conn-1"]] as T[];
+      if (entity === "connections") return Object.values(records).filter((record) => record.provider) as T[];
       if (entity === "personas") return [] as T[];
       if (entity === "prompts") return [] as T[];
       if (entity === "regex-scripts") return [] as T[];
@@ -56,7 +72,7 @@ function imageAttachmentStorage(connectionOverrides: Record<string, unknown> = {
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "chats" && id === "chat-1") return records["chat-1"] as T;
-      if (entity === "connections" && id === "conn-1") return records["conn-1"] as T;
+      if (entity === "connections" && records[id]?.provider) return records[id] as T;
       if (entity === "characters" && id === "char-a") return records["char-a"] as T;
       return null;
     },
@@ -179,6 +195,78 @@ describe("startGeneration image attachments", () => {
       ),
     );
 
+    expect(requests.flatMap((request) => request.messages.flatMap((message) => message.images ?? []))).toContain(
+      IMAGE_DATA_URL,
+    );
+  });
+
+  it("routes an image-bearing foreground request through the configured vision connection", async () => {
+    const { storage } = imageAttachmentStorage(
+      { capabilities: { vision: false } },
+      { visionConnection: { capabilities: { vision: true } } },
+    );
+    const requests: LlmRequest[] = [];
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm: capturingLlm(requests),
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "what is in this image?",
+          attachments: [{ type: "image/png", data: IMAGE_DATA_URL, filename: "cat.png", name: "cat.png" }],
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(requests.at(-1)?.connectionId).toBe("conn-vision");
+    expect(requests.flatMap((request) => request.messages.flatMap((message) => message.images ?? []))).toContain(
+      IMAGE_DATA_URL,
+    );
+  });
+
+  it("keeps text-only foreground requests on the normal chat connection", async () => {
+    const { storage } = imageAttachmentStorage(
+      { capabilities: { vision: true } },
+      { visionConnection: { capabilities: { vision: true } }, storedImage: false },
+    );
+    const requests: LlmRequest[] = [];
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm: capturingLlm(requests), integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "hello",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(requests.at(-1)?.connectionId).toBe("conn-1");
+  });
+
+  it("routes rehydrated stored image prompts through the configured vision connection", async () => {
+    const { storage } = imageAttachmentStorage(
+      { capabilities: { vision: false } },
+      { visionConnection: { capabilities: { vision: true } } },
+    );
+    const requests: LlmRequest[] = [];
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm: capturingLlm(requests), integrations: {} as IntegrationGateway },
+        { chatId: "chat-1", connectionId: "conn-1", impersonateBlockAgents: true },
+      ),
+    );
+
+    expect(requests.at(-1)?.connectionId).toBe("conn-vision");
     expect(requests.flatMap((request) => request.messages.flatMap((message) => message.images ?? []))).toContain(
       IMAGE_DATA_URL,
     );

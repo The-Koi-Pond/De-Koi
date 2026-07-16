@@ -168,7 +168,7 @@
     min-height: 2.75rem;
   }
 
-  [data-de-koi-action-group] {
+  [data-de-koi-action-group]:not([data-de-koi-action-group="message"]) {
     opacity: 1 !important;
     visibility: visible !important;
     pointer-events: auto !important;
