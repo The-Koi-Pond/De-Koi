@@ -10,6 +10,7 @@ import {
 import type { CharacterData } from "../../../../engine/contracts/types/character";
 import type { Lorebook, LorebookScope } from "../../../../engine/contracts/types/lorebook";
 import { generateLorebookMaker } from "../../../../engine/generation/makers";
+import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { DekiWorkingWindow } from "../../../../shared/components/ui/DekiWorkingWindow";
@@ -17,13 +18,6 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { lorebookKeys, useCreateLorebook } from "../../lorebooks/index";
 import { characterKeys } from "../hooks/use-characters";
 import { buildCharacterLorebookPrompt, characterLorebookName } from "../lib/character-lorebook-generation";
-
-type ConnectionRecord = {
-  id?: unknown;
-  provider?: unknown;
-  isDefault?: unknown;
-  default?: unknown;
-};
 
 type GeneratedLorebook = {
   lorebook_name?: string;
@@ -47,21 +41,6 @@ type CharacterLorebookGenerationButtonProps = {
 };
 
 const DEFAULT_CHARACTER_LOREBOOK_SCOPE: LorebookScope = { mode: "all", chatIds: [] };
-
-function boolish(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
-async function resolveDefaultTextConnectionId(): Promise<string> {
-  const connections = await storageApi.list<ConnectionRecord>("connections");
-  const textConnections = connections.filter((connection) => connection.provider !== "image_generation");
-  const selected =
-    textConnections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ??
-    textConnections[0];
-  const connectionId = typeof selected?.id === "string" ? selected.id.trim() : "";
-  if (!connectionId) throw new Error("No text connection configured");
-  return connectionId;
-}
 
 function parseGeneratedLorebook(raw: string): GeneratedLorebook | null {
   try {
@@ -92,7 +71,7 @@ export function CharacterLorebookGenerationButton({ characterId, data }: Charact
     setGenerating(true);
 
     try {
-      const connectionId = await resolveDefaultTextConnectionId();
+      const connectionId = await connectionCatalogApi.resolveDefaultTextConnectionId();
       let generated: GeneratedLorebook | null = null;
 
       for await (const event of generateLorebookMaker(

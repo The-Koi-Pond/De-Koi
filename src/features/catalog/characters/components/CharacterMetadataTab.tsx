@@ -7,13 +7,13 @@ import type {
   CharacterMusicProfile,
   CharacterPublicProfile,
 } from "../../../../engine/contracts/types/character";
+import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { TagInput } from "../../../../shared/components/ui/TagInput";
 import { galleryApi, imageGenerationApi } from "../../../../shared/api/image-generation-api";
 import { llmApi } from "../../../../shared/api/llm-api";
-import { storageApi } from "../../../../shared/api/storage-api";
 import type { AvatarCrop } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
@@ -39,13 +39,6 @@ import {
 function readPublicProfile(value: unknown): CharacterPublicProfile {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as CharacterPublicProfile) : {};
 }
-
-type ConnectionRecord = {
-  id?: unknown;
-  provider?: unknown;
-  isDefault?: unknown;
-  default?: unknown;
-};
 
 const publicProfileFieldLabels: Record<CharacterPublicProfileSuggestionField, string> = {
   displayName: "display name",
@@ -75,21 +68,6 @@ function uploadedBannerUrl(value: unknown): string {
       ? record.filePath.trim()
       : "";
 }
-function boolish(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
-async function resolveDefaultTextConnectionId(): Promise<string> {
-  const connections = await storageApi.list<ConnectionRecord>("connections");
-  const textConnections = connections.filter((connection) => connection.provider !== "image_generation");
-  const selected =
-    textConnections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ??
-    textConnections[0];
-  const connectionId = typeof selected?.id === "string" ? selected.id.trim() : "";
-  if (!connectionId) throw new Error("No text connection configured");
-  return connectionId;
-}
-
 export function CharacterMetadataTab({
   characterId,
   formData,
@@ -187,7 +165,7 @@ export function CharacterMetadataTab({
     setPublicProfileGenerationError("");
 
     try {
-      const connectionId = await resolveDefaultTextConnectionId();
+      const connectionId = await connectionCatalogApi.resolveDefaultTextConnectionId();
       const value = await generateCharacterPublicProfileField({
         field,
         data: formData,

@@ -10,14 +10,14 @@ import {
   type CreateConnectionInput,
   updateConnectionSchema,
 } from "../../../../engine/contracts/schemas/connection.schema";
+import {
+  connectionCatalogApi,
+  type AvailableConnectionSummary,
+} from "../../../../shared/api/connection-catalog-api";
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
-import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
-import {
-  LOCAL_SIDECAR_CONNECTION_ID,
-  type LocalSidecarStatusResponse,
-} from "../../../../engine/contracts/types/sidecar";
+import { LOCAL_SIDECAR_CONNECTION_ID } from "../../../../engine/contracts/types/sidecar";
 import type { ConnectionRow, ConnectionTestResult } from "../types";
 
 export { connectionKeys } from "../query-keys";
@@ -38,44 +38,7 @@ const CONNECTION_LIST_STALE_TIME_MS = 60_000;
 const CONNECTION_LIST_REFETCH_INTERVAL_MS = 60_000;
 const CONNECTION_REF_AGENT_QUERY_KEY = ["agents"] as const;
 
-const CONNECTION_SUMMARY_OPTIONS = {
-  fields: [
-    "id",
-    "name",
-    "provider",
-    "model",
-    "baseUrl",
-    "folderId",
-    "imagePath",
-    "imageFilePath",
-    "imageFilename",
-    "isDefault",
-    "default",
-    "useForRandom",
-    "defaultForAgents",
-    "defaultParameters",
-    "promptPresetId",
-    "embeddingModel",
-    "createdAt",
-    "updatedAt",
-  ],
-};
-
-export type ConnectionSummary = Pick<
-  ConnectionRow,
-  "id" | "name" | "provider" | "model" | "baseUrl" | "useForRandom" | "createdAt" | "updatedAt" | "synthetic"
-> & {
-  folderId?: string | null;
-  imagePath?: string | null;
-  imageFilePath?: string | null;
-  imageFilename?: string | null;
-  isDefault?: string | boolean | null;
-  default?: string | boolean | null;
-  defaultForAgents?: string | boolean | null;
-  defaultParameters?: Record<string, unknown> | null;
-  promptPresetId?: string | null;
-  embeddingModel?: string | null;
-};
+export type ConnectionSummary = AvailableConnectionSummary;
 
 function isSyntheticConnectionId(id: string | null | undefined): boolean {
   return id === LOCAL_SIDECAR_CONNECTION_ID;
@@ -94,46 +57,10 @@ export function assertStoredConnectionId(id: string): string {
   return id;
 }
 
-function canAdvertiseLocalSidecar(status: LocalSidecarStatusResponse): boolean {
-  const hasRuntime = status.runtime.installed || !!status.config.executablePath?.trim();
-  return (
-    status.configured &&
-    status.enabled &&
-    status.modelDownloaded &&
-    hasRuntime &&
-    status.status === "ready" &&
-    status.ready &&
-    !!status.baseUrl
-  );
-}
-
 export function useConnections(enabled = true) {
   return useQuery({
     queryKey: connectionKeys.list(),
-    queryFn: async () => {
-      const [rows, sidecarStatus] = await Promise.all([
-        storageApi.list<ConnectionSummary>("connections", CONNECTION_SUMMARY_OPTIONS),
-        localSidecarApi.status().catch(() => null),
-      ]);
-      if (!sidecarStatus || !canAdvertiseLocalSidecar(sidecarStatus)) return rows;
-      return [
-        {
-          id: LOCAL_SIDECAR_CONNECTION_ID,
-          name: "Local Model",
-          provider: "custom",
-          synthetic: true,
-          model: sidecarStatus.config.model,
-          baseUrl: sidecarStatus.baseUrl ?? "",
-          useForRandom: false,
-          isDefault: false,
-          defaultForAgents: false,
-          embeddingModel: sidecarStatus.config.model,
-          createdAt: "",
-          updatedAt: "",
-        },
-        ...rows,
-      ];
-    },
+    queryFn: connectionCatalogApi.listAvailable,
     enabled,
     staleTime: CONNECTION_LIST_STALE_TIME_MS,
     refetchInterval: CONNECTION_LIST_REFETCH_INTERVAL_MS,

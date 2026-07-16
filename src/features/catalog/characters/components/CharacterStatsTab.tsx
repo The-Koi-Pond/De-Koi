@@ -1,34 +1,12 @@
 import { useRef, useState } from "react";
 import { Loader2, Plus, Wand2, X } from "lucide-react";
 import type { CharacterData, RPGStatsConfig } from "../../../../engine/contracts/types/character";
+import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { llmApi } from "../../../../shared/api/llm-api";
-import { storageApi } from "../../../../shared/api/storage-api";
 import { generateClientId } from "../../../../shared/lib/utils";
 import { DEFAULT_RPG_STATS } from "../lib/character-editor-model";
 import { generateCharacterRpgStatsConfig } from "../lib/character-rpg-stats-generation";
 import { CharacterEditorSectionHeader } from "./CharacterEditorSectionHeader";
-
-type ConnectionRecord = {
-  id?: unknown;
-  provider?: unknown;
-  isDefault?: unknown;
-  default?: unknown;
-};
-
-function boolish(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
-async function resolveDefaultTextConnectionId(): Promise<string> {
-  const connections = await storageApi.list<ConnectionRecord>("connections");
-  const textConnections = connections.filter((connection) => connection.provider !== "image_generation");
-  const selected =
-    textConnections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ??
-    textConnections[0];
-  const connectionId = typeof selected?.id === "string" ? selected.id.trim() : "";
-  if (!connectionId) throw new Error("No text connection configured");
-  return connectionId;
-}
 
 export function CharacterStatsTab({
   formData,
@@ -74,7 +52,7 @@ export function CharacterStatsTab({
     setGenerationError("");
 
     try {
-      const connectionId = await resolveDefaultTextConnectionId();
+      const connectionId = await connectionCatalogApi.resolveDefaultTextConnectionId();
       const generated = await generateCharacterRpgStatsConfig({
         data: formData,
         connectionId,
