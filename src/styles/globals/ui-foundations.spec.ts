@@ -31,5 +31,6 @@ describe("shared UI readability foundations", () => {
     expect(css).toMatch(/\.mari-app\s*{[^}]*padding:\s*0\s+env\(safe-area-inset-right\)/s);
     expect(css).not.toMatch(/\.mari-app-chrome\s*{[^}]*padding-top:\s*env\(safe-area-inset-top\)/s);
     expect(appShell).not.toMatch(/"mari-app fixed[^"]*safe-area-inset-top[^"]*"/);
+    expect(appShell).not.toMatch(/(?:max-md:)?pt-\[env\(safe-area-inset-top\)\]/);
   });
 });

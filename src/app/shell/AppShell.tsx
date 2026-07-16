@@ -1491,7 +1491,7 @@ export function AppShell() {
               "mari-sidebar flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
               sidebarDragWidth == null && "transition-none",
               // Mobile: fixed overlay
-              "max-md:fixed max-md:top-0 max-md:left-0 max-md:z-[70] max-md:shadow-2xl max-md:pt-[env(safe-area-inset-top)]",
+              "max-md:fixed max-md:top-0 max-md:left-0 max-md:z-[70] max-md:shadow-2xl",
               !chatSidebarVisible && "max-md:w-0!",
             )}
             style={{
@@ -1515,7 +1515,7 @@ export function AppShell() {
             className={cn(
               "mari-sidebar flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
               sidebarDragWidth == null && "transition-none",
-              "max-md:fixed max-md:top-0 max-md:left-0 max-md:z-[70] max-md:shadow-2xl max-md:pt-[env(safe-area-inset-top)]",
+              "max-md:fixed max-md:top-0 max-md:left-0 max-md:z-[70] max-md:shadow-2xl",
               !dekiSidebarVisible && "max-md:w-0!",
             )}
             style={{
@@ -1696,7 +1696,7 @@ export function AppShell() {
                 aria-modal="true"
                 role="dialog"
                 tabIndex={-1}
-                className="mari-right-panel fixed! top-0 right-0 z-[70] w-full! shadow-2xl overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl pt-[env(safe-area-inset-top)] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                className="mari-right-panel fixed! top-0 right-0 z-[70] w-full! shadow-2xl overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
                 style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
               >
                 <Suspense fallback={<SidePanelFallback />}>
