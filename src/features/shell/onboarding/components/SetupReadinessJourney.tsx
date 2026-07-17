@@ -106,7 +106,9 @@ export function SetupReadinessJourney() {
   const runtimeTarget = remoteRuntimeUrl.trim() || sameOriginRemoteRuntimeUrl();
   const health = checkedHealth?.checkedUrl === runtimeTarget ? checkedHealth.result : null;
   const journeyActive = !!intent && !intent.completed;
-  const { data: connections } = useConnections(journeyActive && (embedded || health?.status === "ok"));
+  const { data: connections, isPending: connectionsPending } = useConnections(
+    journeyActive && (embedded || health?.status === "ok"),
+  );
 
   useEffect(() => {
     if (!journeyActive || embedded || !runtimeTarget) {
@@ -147,6 +149,9 @@ export function SetupReadinessJourney() {
     [embedded, health, languageConnections, runtimeTarget],
   );
   const setupReady = isSetupReady(facts);
+  const readinessKnown = embedded
+    ? !connectionsPending
+    : !runtimeTarget || (!!health && health.status !== "checking" && (health.status !== "ok" || !connectionsPending));
   currentLaunchRequestRef.current = {
     intent,
     ready: setupReady,
@@ -192,7 +197,7 @@ export function SetupReadinessJourney() {
     launchChat();
   }, [intent, launchChat, setupReady]);
 
-  if (!intent || intent.completed) return null;
+  if (!intent || intent.completed || !readinessKnown) return null;
 
   return (
     <div className="flex w-full justify-center" role="region" aria-label="Setup required">
