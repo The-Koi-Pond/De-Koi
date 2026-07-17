@@ -5,7 +5,7 @@
     "title": "Character memory continuity and portable Memory Recall imports",
     "source": "GitHub issue #1047 plus reported Memory Recall import failure",
     "classification": "cross-boundary storage, import/export, prompt, and UI change",
-    "status": "waiting_on_ci"
+    "status": "verified"
   },
   "coreClaim": "Explicitly attributed character memories persist and recall across Conversations and Roleplays by default while chat-only and ambiguous captures remain local, and Memory Recall files import without resolving destination provider connections.",
   "rootCause": "Automatic capture refreshed only chat-local memory rows, canonical recall required an opt-in metadata flag, and file import tried to validate and use the destination embedding connection instead of treating imported memory content as portable data.",
@@ -231,7 +231,7 @@
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm check",
-    "baselineEvidence": "Full check passed on the final code diff after rebasing onto current origin/main.",
+    "baselineEvidence": "The full 375-file, 1,769-test suite passed with four bounded workers, full pnpm check passed, and cargo check --workspace passed on the ready-gate head.",
     "githubValidationPassed": false,
     "edgeRowsTested": [
       "Conversation capture recalled in later Roleplay",
@@ -252,7 +252,7 @@
       "No import/export icon reversal"
     ],
     "afterEvidence": [
-      "pnpm test",
+      "pnpm test -- --maxWorkers=4",
       "pnpm check",
       "pnpm build",
       "pnpm check:architecture",
@@ -267,9 +267,9 @@
     "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1052",
     "headRefName": "feature/character-memory-continuity",
     "baseRefName": "main",
-    "healthStatus": "waiting_on_ci",
+    "healthStatus": "ready_gate_requested",
     "bunnyReviewStatus": "local_pass",
-    "checksStatus": "pending",
+    "checksStatus": "draft_checks_complete",
     "merged": false
   },
   "finalGate": {
@@ -291,6 +291,6 @@
   },
   "notes": [
     "Bunny local review passed after two in-scope findings were fixed.",
-    "The PR intentionally remains draft; ready and merge were not authorized for this new PR."
+    "The user explicitly authorized marking PR #1052 ready and merging it after all hosted gates pass."
   ]
 }

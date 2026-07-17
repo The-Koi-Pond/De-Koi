@@ -509,7 +509,7 @@ git diff --check origin/main...HEAD
 
 Use the Bunny skill on the complete branch. Address blocker findings with red tests and rerun focused/full gates. Record the final READY result.
 
-- [ ] **Step 4: Push and open one draft PR**
+- [x] **Step 4: Push and open one draft PR**
 
 Push only to `origin`. The PR must:
 
@@ -519,7 +519,7 @@ Push only to `origin`. The PR must:
 - include storage, import/export, prompt, cross-mode, privacy, and remote-runtime risk claims;
 - leave human validation unchecked.
 
-- [ ] **Step 5: Verify PR health**
+- [x] **Step 5: Verify PR health**
 
 ```powershell
 $prNumber = gh pr view --json number --jq '.number'
