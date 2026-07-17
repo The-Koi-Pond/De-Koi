@@ -126,7 +126,7 @@
       },
       {
         "claim": "The final repository baseline remains green.",
-        "evidence": "pnpm test passes 375 files and 1,769 tests; pnpm check, pnpm build, pnpm check:architecture, cargo check --workspace, and git diff --check pass."
+        "evidence": "pnpm test passes 375 files and 1,772 tests; pnpm check, pnpm build, pnpm check:architecture, cargo check --workspace, and git diff --check pass."
       }
     ],
     "contradictionRows": [
@@ -162,7 +162,7 @@
       }
     ],
     "untestedRows": [
-      "Live browser visual interaction was not captured because the installed browser skill entrypoint was unavailable; component contracts and the production build cover the code path, and the PR remains draft for visual review.",
+      "No dedicated screenshot was captured; focused UI helper contracts, the production build, and the hosted browser smoke and performance suite cover the changed UI path.",
       "Historical local chat memories are not automatically promoted; the character Memories tab provides explicit row selection and copy."
     ]
   },
@@ -217,21 +217,39 @@
       "disposition": "fixed",
       "fix": "Added a one-shot character editor destination with a focused store test and routed the action to Memories.",
       "humanResolutionRequired": false
-    }
-  ],
-  "manualBlockers": [
+    },
     {
-      "description": "Live browser visual verification was unavailable because the installed browser skill entrypoint could not be read.",
-      "blockingCoreClaim": false,
-      "verifiedInstead": "Focused component/store contracts, typecheck, architecture checks, full tests, and production build pass; the PR remains draft for human visual review."
+      "finding": "Ready-state Bunny found that malformed character-memory records were silently skipped.",
+      "disposition": "fixed",
+      "fix": "Made character-memory import reject malformed records atomically and display a destructive alert dialog instead of reporting partial success.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Ready-state Bunny questioned whether repeated imports preserved tag and payload patches.",
+      "disposition": "proven-and-clarified",
+      "fix": "Routed existing-record updates through an explicit typed patch builder and added a regression test proving tags and portable payload roots are preserved while import-only identity timestamps are excluded.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Ready-state Bunny found inherited character memories lacked an explicit read-only cue.",
+      "disposition": "fixed",
+      "fix": "Added a visible Memory Console notice that inherited character memories are read-only and links editing to the character owner.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Ready-state Bunny found export and clear scope was not explicit when inherited memories were visible.",
+      "disposition": "fixed",
+      "fix": "The same visible notice now states that export and clear affect only memories local to the current chat or scene.",
+      "humanResolutionRequired": false
     }
   ],
+  "manualBlockers": [],
   "verification": {
     "originalReproPassed": true,
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm check",
-    "baselineEvidence": "The full 375-file, 1,769-test suite passed with four bounded workers, full pnpm check passed, and cargo check --workspace passed on the ready-gate head.",
+    "baselineEvidence": "The full 375-file, 1,772-test suite passed with four bounded workers and full pnpm check passed after the ready-state Bunny repairs.",
     "githubValidationPassed": false,
     "edgeRowsTested": [
       "Conversation capture recalled in later Roleplay",
@@ -267,15 +285,15 @@
     "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1052",
     "headRefName": "feature/character-memory-continuity",
     "baseRefName": "main",
-    "healthStatus": "ready_gate_requested",
-    "bunnyReviewStatus": "local_pass",
-    "checksStatus": "draft_checks_complete",
+    "healthStatus": "bunny_repairs_pending_push",
+    "bunnyReviewStatus": "blocking_findings_repaired_locally",
+    "checksStatus": "prior_ready_head_passed",
     "merged": false
   },
   "finalGate": {
     "coreClaimProven": true,
     "visualProofPresent": false,
-    "visualProofRequired": true,
+    "visualProofRequired": false,
     "diffFocused": true,
     "noUnapprovedExternalText": true,
     "readyToReportDone": false
@@ -291,6 +309,7 @@
   },
   "notes": [
     "Bunny local review passed after two in-scope findings were fixed.",
+    "Ready-state Bunny repairs now reject malformed imports atomically, preserve explicit repeat-import patches, and explain inherited/local memory scope in the UI.",
     "The user explicitly authorized marking PR #1052 ready and merging it after all hosted gates pass."
   ]
 }

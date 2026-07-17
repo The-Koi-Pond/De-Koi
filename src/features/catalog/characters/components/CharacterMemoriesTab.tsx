@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import type { CharacterMemoryPersistence } from "../../../../engine/contracts/types/character";
 import type { CanonicalMemoryRecord, MemoryStatus } from "../../../../engine/contracts/types/memory";
 import { triggerDownload } from "../../../../shared/api/download-payload";
-import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
+import { showAlertDialog, showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
 import {
   useCharacterMemories,
@@ -137,7 +137,13 @@ export function CharacterMemoriesTab({
       await importMemories.mutateAsync(inputs);
       toast.success(`Imported ${inputs.length} ${inputs.length === 1 ? "memory" : "memories"}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not import memories.");
+      const message = error instanceof Error ? error.message : "Could not import memories.";
+      toast.error(message);
+      await showAlertDialog({
+        title: "Memory import failed",
+        message,
+        tone: "destructive",
+      });
     } finally {
       if (importInputRef.current) importInputRef.current.value = "";
     }

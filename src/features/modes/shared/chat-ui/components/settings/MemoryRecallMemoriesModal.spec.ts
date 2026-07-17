@@ -6,6 +6,7 @@ import {
   displayInheritedMemory,
   displayLocalMemory,
   filterMemories,
+  inheritedMemoryScopeNotice,
   memoryScope,
   memoryStatus,
   memoryType,
@@ -98,5 +99,12 @@ describe("MemoryRecallMemoriesModal helpers", () => {
     expect(inherited.readOnly).toBe(true);
     expect(filterMemories([inherited], { query: "source-chat", status: "active", type: "all", scope: "all" }))
       .toHaveLength(1);
+  });
+
+  it("explains that inherited memories are read-only and excluded from local export and clear", () => {
+    expect(inheritedMemoryScopeNotice(0)).toBeNull();
+    expect(inheritedMemoryScopeNotice(2)).toBe(
+      "Character memories are read-only here. Open the character to edit them. Export and clear only affect memories local to this chat or scene.",
+    );
   });
 });

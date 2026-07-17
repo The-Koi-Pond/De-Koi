@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CanonicalMemoryRecord } from "../../../../engine/contracts/types/memory";
 import {
+  characterMemoryImportPatch,
   characterMemoryStatusLabel,
   createCharacterMemoryExport,
   normalizeChatMemoriesForCharacter,
@@ -102,6 +103,56 @@ describe("character memory import", () => {
         importedAt: "2026-07-17T13:00:00.000Z",
       }),
     ).toThrow("De-Koi character memories v1");
+  });
+
+  it("rejects an envelope containing malformed memory records instead of silently skipping them", () => {
+    const envelope = createCharacterMemoryExport({
+      character: { id: "source-character", name: "Source Mira" },
+      memories: [memory()],
+      exportedAt: "2026-07-17T12:00:00.000Z",
+    });
+    envelope.memories.push({
+      ...memory({ id: "memory-2" }),
+      provenance: { messageIds: "not-an-array" },
+    } as unknown as CanonicalMemoryRecord);
+
+    expect(() =>
+      normalizeCharacterMemoryImport(envelope, {
+        characterId: "target-character",
+        importedAt: "2026-07-17T13:00:00.000Z",
+      }),
+    ).toThrow("Memory 2 is malformed");
+  });
+
+  it("keeps imported tags and payload when an existing memory is patched", () => {
+    const [input] = normalizeCharacterMemoryImport(
+      createCharacterMemoryExport({
+        character: { id: "source-character", name: "Source Mira" },
+        memories: [
+          memory({
+            tags: ["friend", "harbor"],
+            payload: { importRoot: "portable-root" },
+          }),
+        ],
+      }),
+      {
+        characterId: "target-character",
+        importedAt: "2026-07-17T13:00:00.000Z",
+      },
+    );
+
+    expect(characterMemoryImportPatch(input!)).toEqual(
+      expect.objectContaining({
+        tags: ["friend", "harbor"],
+        payload: expect.objectContaining({
+          importRoot: "portable-root",
+          importedFromMemoryId: "memory-1",
+        }),
+      }),
+    );
+    expect(characterMemoryImportPatch(input!)).not.toHaveProperty("id");
+    expect(characterMemoryImportPatch(input!)).not.toHaveProperty("createdAt");
+    expect(characterMemoryImportPatch(input!)).not.toHaveProperty("updatedAt");
   });
 });
 

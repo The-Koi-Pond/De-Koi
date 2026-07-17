@@ -1,5 +1,6 @@
 import type {
   CanonicalMemoryInput,
+  CanonicalMemoryPatch,
   CanonicalMemoryRecord,
   MemoryStatus,
 } from "../../../../engine/contracts/types/memory";
@@ -13,6 +14,13 @@ export type CharacterMemoryExportV1 = {
 };
 
 type CharacterMemoryImportInput = CanonicalMemoryInput & { id: string };
+
+export function characterMemoryImportPatch(
+  input: CharacterMemoryImportInput,
+): CanonicalMemoryPatch {
+  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...patch } = input;
+  return patch;
+}
 
 const NON_PORTABLE_KEYS = new Set([
   "vector",
@@ -104,16 +112,19 @@ export function normalizeCharacterMemoryImport(
   if (!characterId) throw new Error("Choose a character before importing memories.");
   const importedAt = target.importedAt ?? new Date().toISOString();
 
-  return value.memories.flatMap((memory) => {
+  return value.memories.map((memory, index) => {
     if (
       !isRecord(memory) ||
       typeof memory.id !== "string" ||
+      !memory.id.trim() ||
       typeof memory.content !== "string" ||
+      !memory.content.trim() ||
       typeof memory.kind !== "string" ||
       !isRecord(memory.provenance) ||
-      !Array.isArray(memory.provenance.messageIds)
+      !Array.isArray(memory.provenance.messageIds) ||
+      memory.provenance.messageIds.some((messageId) => typeof messageId !== "string")
     ) {
-      return [];
+      throw new Error(`Memory ${index + 1} is malformed and was not imported.`);
     }
     const sourceScope: Record<string, unknown> = isRecord(memory.scope) ? memory.scope : {};
     const sourceCharacterId =
@@ -122,7 +133,7 @@ export function normalizeCharacterMemoryImport(
         : value.character.id;
     const id = `character-memory-import-${stableHash(`${characterId}\u001f${memory.id}\u001f${memory.content}`)}`;
     const payload = isRecord(memory.payload) ? portableValue(memory.payload) as Record<string, unknown> : {};
-    return [{
+    return {
       id,
       kind: memory.kind as CanonicalMemoryRecord["kind"],
       status: "active" as const,
@@ -154,8 +165,8 @@ export function normalizeCharacterMemoryImport(
       },
       createdAt: typeof memory.createdAt === "string" ? memory.createdAt : importedAt,
       updatedAt: importedAt,
-    }];
-  }).filter((memory) => memory.content);
+    };
+  });
 }
 
 export function characterMemoryStatusLabel(status: MemoryStatus): string {

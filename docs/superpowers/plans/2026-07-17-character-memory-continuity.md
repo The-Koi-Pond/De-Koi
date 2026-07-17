@@ -527,3 +527,11 @@ node .agents/automation/scripts/pr-health.mjs $prNumber --repo The-Koi-Pond/De-K
 ```
 
 Do not mark ready or merge this new PR without a new explicit instruction.
+
+- [x] **Step 6: Repair ready-state Bunny findings**
+
+Reject malformed character-memory records atomically, surface import failures in a destructive alert dialog, prove repeated imports preserve tag and payload patches, and visibly explain inherited read-only/local-only operations in Memory Recall.
+
+- [ ] **Step 7: Re-run hosted gates and merge**
+
+With the user's explicit ready-and-merge instruction, push the repair commit, require clean CI and Bunny results for the new head, run final PR health with zero unresolved review threads, and squash-merge PR #1052.

@@ -7,6 +7,7 @@ import type {
 } from "../../../../engine/contracts/types/memory";
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { characterMemoryImportPatch } from "../lib/character-memory-model";
 
 export const characterMemoryKeys = {
   detail: (characterId: string) => ["character-memories", characterId] as const,
@@ -81,8 +82,7 @@ export function useImportCharacterMemories(characterId: string) {
       const stored: CanonicalMemoryRecord[] = [];
       for (const input of inputs) {
         if (existingIds.has(input.id)) {
-          const { id, createdAt: _createdAt, updatedAt: _updatedAt, ...patch } = input;
-          stored.push(await canonicalMemoryApi.update(id, patch));
+          stored.push(await canonicalMemoryApi.update(input.id, characterMemoryImportPatch(input)));
         } else {
           stored.push(await canonicalMemoryApi.create(input));
           existingIds.add(input.id);

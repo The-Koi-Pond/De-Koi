@@ -57,6 +57,11 @@ export type DisplayMemory = ChatMemoryChunk & {
   canonicalMemory?: CanonicalMemoryRecord;
 };
 
+export function inheritedMemoryScopeNotice(inheritedCount: number): string | null {
+  if (inheritedCount <= 0) return null;
+  return "Character memories are read-only here. Open the character to edit them. Export and clear only affect memories local to this chat or scene.";
+}
+
 export function displayLocalMemory(memory: ChatMemoryChunk, _chatId: string): DisplayMemory {
   return {
     ...memory,
@@ -276,6 +281,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   );
   const totalTokens = useMemo(() => estimateMemoryTokens(memories), [memories]);
   const embeddingSummary = useMemo(() => memoryEmbeddingSummary(memories), [memories]);
+  const inheritedScopeNotice = inheritedMemoryScopeNotice(inheritedMemoriesQuery.data?.length ?? 0);
   const busy =
     softDeleteMemory.isPending ||
     restoreMemory.isPending ||
@@ -434,6 +440,16 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
             </button>
           </div>
         </div>
+
+        {inheritedScopeNotice && (
+          <div
+            className="flex items-start gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)]/45 px-3 py-2 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]"
+            role="note"
+          >
+            <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" />
+            <span>{inheritedScopeNotice}</span>
+          </div>
+        )}
 
         <div className="grid gap-3 lg:grid-cols-[minmax(20rem,0.9fr)_minmax(0,1.35fr)]">
           <section className="min-h-[28rem] rounded-md border border-[var(--border)] bg-[var(--card)]" aria-label="Memory list">
