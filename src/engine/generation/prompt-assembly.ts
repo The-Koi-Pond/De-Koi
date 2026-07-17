@@ -32,6 +32,7 @@ import {
 } from "../shared/macros/macro-engine";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { cleanPromptText, stripPromptComments } from "../shared/text/prompt-comments";
+import { prepareMemoryPromptContent } from "./memory-prompt-content";
 import {
   attributionForChatHistory,
   attributionForChatSummary,
@@ -531,7 +532,7 @@ function sameDayCharacterMemories(extensions: JsonRecord): string[] {
     .filter(isRecord)
     .filter((memory) => characterMemoryDate(memory.createdAt) === today)
     .map((memory) => {
-      const summary = cleanPromptText(readString(memory.summary).trim());
+      const summary = prepareMemoryPromptContent(cleanPromptText(readString(memory.summary).trim()));
       if (!summary) return "";
       const createdDate = characterMemoryDate(memory.createdAt);
       const from = readString(memory.from).trim();
@@ -2478,7 +2479,7 @@ async function buildMemoryRecallBlock(
   const recalled = memories
     .filter(memoryRecallRetrievable)
     .map((memory) => {
-      const content = readString(memory.content).trim();
+      const content = prepareMemoryPromptContent(readString(memory.content));
       if (!content) return null;
       const providerVector = semanticQueryVector ? memoryVector(memory, semanticQueryVector.length) : null;
       const vector = providerVector ?? memoryVector(memory, MEMORY_EMBEDDING_DIMS) ?? lexicalMemoryEmbedding(content);
