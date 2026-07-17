@@ -116,15 +116,28 @@ function statusMessageJsonCandidate(raw: string): string {
   return languagePrefixed?.[1]?.trim() ?? trimmed;
 }
 
-function parseGeneratedStatusMessage(raw: string): string {
+const STATUS_MESSAGE_RAW_MAX_LENGTH = 4096;
+
+function looksLikeStructuredStatusOutput(value: string): boolean {
+  return (
+    /^```/i.test(value) ||
+    /^json\b/i.test(value) ||
+    /[{}[\]]/.test(value) ||
+    /["']?message["']?\s*:/i.test(value)
+  );
+}
+
+export function parseGeneratedStatusMessage(raw: string): string {
+  if (raw.length > STATUS_MESSAGE_RAW_MAX_LENGTH) return "";
   const trimmed = raw.trim();
+  if (!trimmed) return "";
   const candidate = statusMessageJsonCandidate(trimmed);
   try {
-    const parsed = JSON.parse(candidate) as JsonRecord;
-    const message = typeof parsed.message === "string" ? parsed.message : "";
+    const parsed = readRecord(JSON.parse(candidate));
+    const message = readString(parsed.message);
     return sanitizeStatusMessage(message);
   } catch {
-    return sanitizeStatusMessage(trimmed);
+    return looksLikeStructuredStatusOutput(trimmed) ? "" : sanitizeStatusMessage(trimmed);
   }
 }
 
