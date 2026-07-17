@@ -19,18 +19,21 @@ import { Modal } from "../../../../../../shared/components/ui/Modal";
 import { showConfirmDialog } from "../../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../../shared/lib/utils";
 import type { ChatMemoryChunk, ChatMemoryKind } from "../../../../../../engine/contracts/types/chat";
+import type { CanonicalMemoryRecord } from "../../../../../../engine/contracts/types/memory";
 import {
   useChatMemories,
   useClearChatMemories,
   useCorrectChatMemory,
   useExportChatMemories,
   useImportChatMemories,
+  useInheritedCharacterMemories,
   usePinChatMemory,
   useRefreshChatMemories,
   useRestoreChatMemory,
   useSoftDeleteChatMemory,
   useUpdateChatMemory,
 } from "../../../../../catalog/chats/index";
+import { useUIStore } from "../../../../../../shared/stores/ui.store";
 
 export function formatMemoryDate(value: string | null | undefined): string {
   if (!value) return "Unknown";
@@ -45,6 +48,64 @@ export function formatMemoryDate(value: string | null | undefined): string {
 export type MemoryStatusFilter = "all" | "active" | "deleted" | "wrong";
 export type MemoryTypeFilter = "all" | ChatMemoryKind;
 export type MemoryScopeFilter = "all" | "current" | "imported" | "targeted";
+export type DisplayMemoryOwner =
+  | { kind: "local"; label: "Local to this chat" | "Local to this scene" }
+  | { kind: "character"; characterId: string; label: string };
+export type DisplayMemory = ChatMemoryChunk & {
+  owner: DisplayMemoryOwner;
+  readOnly: boolean;
+  canonicalMemory?: CanonicalMemoryRecord;
+};
+
+export function displayLocalMemory(memory: ChatMemoryChunk, _chatId: string): DisplayMemory {
+  return {
+    ...memory,
+    owner: {
+      kind: "local",
+      label: memory.scopeType === "scene" ? "Local to this scene" : "Local to this chat",
+    },
+    readOnly: false,
+  };
+}
+
+export function displayInheritedMemory(
+  memory: CanonicalMemoryRecord,
+  character: { id: string; name: string },
+  chatId: string,
+): DisplayMemory {
+  const timestamp = memory.provenance.timestamp || memory.updatedAt || memory.createdAt;
+  return {
+    id: memory.id,
+    chatId,
+    content: memory.content,
+    memoryKind: memory.kind === "episode" ? "character" : memory.kind === "summary" ? "summary" : "character",
+    scopeType: "character",
+    scopeId: character.id,
+    status: memory.status === "deleted" ? "deleted" : memory.status === "active" || memory.status === "pinned" ? "active" : "wrong",
+    pinned: memory.status === "pinned",
+    confidence: memory.confidence,
+    creationReason: "Inherited character memory",
+    messageCount: Math.max(1, memory.provenance.messageIds.length),
+    messageIds: [...memory.provenance.messageIds],
+    firstMessageAt: timestamp,
+    lastMessageAt: timestamp,
+    createdAt: memory.createdAt,
+    source: "canonical_character",
+    sourceChatId: memory.provenance.sourceChatId ?? null,
+    targetCharacterId: character.id,
+    targetCharacterName: character.name,
+    hasEmbedding: true,
+    embeddingStatus: "vectorized",
+    embeddingSource: "lexical",
+    owner: {
+      kind: "character",
+      characterId: character.id,
+      label: `Inherited from ${character.name}`,
+    },
+    readOnly: true,
+    canonicalMemory: memory,
+  };
+}
 
 const MEMORY_CONTENT_CLASS =
   "min-h-44 max-h-64 w-full resize-y rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)] outline-none transition focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/25";
@@ -111,6 +172,7 @@ function memoryEmbeddingSummary(memories: ChatMemoryChunk[]): string {
 }
 
 function memorySearchText(memory: ChatMemoryChunk): string {
+  const owner = (memory as Partial<DisplayMemory>).owner;
   return [
     memory.content,
     memory.source,
@@ -125,16 +187,17 @@ function memorySearchText(memory: ChatMemoryChunk): string {
     memory.legacySourceLane,
     memory.legacySourceId,
     memory.id,
+    owner?.label,
   ]
     .filter(Boolean)
     .join("\n")
     .toLowerCase();
 }
 
-export function filterMemories(
-  memories: ChatMemoryChunk[],
+export function filterMemories<T extends ChatMemoryChunk>(
+  memories: T[],
   filters: { query: string; status: MemoryStatusFilter; type: MemoryTypeFilter; scope: MemoryScopeFilter },
-): ChatMemoryChunk[] {
+): T[] {
   const query = filters.query.trim().toLowerCase();
   return memories.filter((memory) => {
     if (filters.status !== "all" && memoryStatus(memory) !== filters.status) return false;
@@ -172,6 +235,8 @@ function iconButtonClass(active = false, destructive = false) {
 
 export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: string; open: boolean; onClose: () => void }) {
   const memoriesQuery = useChatMemories(chatId, open);
+  const inheritedMemoriesQuery = useInheritedCharacterMemories(chatId, open);
+  const openCharacterDetail = useUIStore((state) => state.openCharacterDetail);
   const softDeleteMemory = useSoftDeleteChatMemory(chatId);
   const restoreMemory = useRestoreChatMemory(chatId);
   const updateMemory = useUpdateChatMemory(chatId);
@@ -186,7 +251,16 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   const editId = useId();
   const replacementId = useId();
 
-  const memories = useMemo(() => memoriesQuery.data ?? [], [memoriesQuery.data]);
+  const localMemories = useMemo(() => memoriesQuery.data ?? [], [memoriesQuery.data]);
+  const memories = useMemo<DisplayMemory[]>(
+    () => [
+      ...localMemories.map((memory) => displayLocalMemory(memory, chatId)),
+      ...(inheritedMemoriesQuery.data ?? []).map(({ memory, characterId, characterName }) =>
+        displayInheritedMemory(memory, { id: characterId, name: characterName }, chatId),
+      ),
+    ],
+    [chatId, inheritedMemoriesQuery.data, localMemories],
+  );
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<MemoryStatusFilter>("active");
   const [type, setType] = useState<MemoryTypeFilter>("all");
@@ -221,7 +295,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   }, [selected?.id, selected?.content]);
 
   const handleExport = async () => {
-    if (memories.length === 0) {
+    if (localMemories.length === 0) {
       toast.error("There are no recall memories to export yet.");
       return;
     }
@@ -247,7 +321,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   };
 
   const handleSave = async () => {
-    if (!selected) return;
+    if (!selected || selected.readOnly) return;
     const selectedStatusAtSave = memoryStatus(selected);
     const currentMemory = memories.find((memory) => memory.id === selected.id);
     if (selectedStatusAtSave !== "active" || !currentMemory || draft.memoryId !== currentMemory.id || memoryStatus(currentMemory) !== "active") {
@@ -268,7 +342,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   };
 
   const handleSoftDelete = async () => {
-    if (!selected) return;
+    if (!selected || selected.readOnly) return;
     const ok = await showConfirmDialog({
       title: "Delete Memory",
       message: "Move this memory out of recall? It can be restored later.",
@@ -285,7 +359,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   };
 
   const handleRestore = async () => {
-    if (!selected) return;
+    if (!selected || selected.readOnly) return;
     try {
       await restoreMemory.mutateAsync(selected.id);
       toast.success("Memory restored and re-indexed.");
@@ -295,7 +369,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   };
 
   const handlePin = async () => {
-    if (!selected) return;
+    if (!selected || selected.readOnly) return;
     try {
       await pinMemory.mutateAsync({ memoryId: selected.id, pinned: !selected.pinned });
       toast.success(selected.pinned ? "Memory unpinned." : "Memory pinned for recall.");
@@ -305,7 +379,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   };
 
   const handleCorrect = async () => {
-    if (!selected) return;
+    if (!selected || selected.readOnly) return;
     try {
       await correctMemory.mutateAsync({ memoryId: selected.id, replacementContent: replacementDraft.trim() || undefined });
       toast.success(replacementDraft.trim() ? "Correction saved and indexed." : "Memory marked wrong.");
@@ -315,7 +389,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   };
 
   const handleClear = async () => {
-    if (memories.length === 0) return;
+    if (localMemories.length === 0) return;
     const ok = await showConfirmDialog({
       title: "Clear Memories",
       message: "Remove all recall memories for this chat? This cannot be restored from the console.",
@@ -326,6 +400,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   };
 
   const selectedStatus = selected ? memoryStatus(selected) : "active";
+  const selectedCharacterId = selected?.owner.kind === "character" ? selected.owner.characterId : null;
   const draftContent = draft.memoryId === selected?.id ? draft.content : selected?.content ?? "";
 
   return (
@@ -345,7 +420,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
               className="hidden"
               onChange={(event) => void handleImportFile(event.currentTarget.files?.[0])}
             />
-            <button type="button" onClick={() => void handleExport()} disabled={memories.length === 0 || exportMemories.isPending} className={iconButtonClass()} title="Export memories" aria-label="Export memories">
+            <button type="button" onClick={() => void handleExport()} disabled={localMemories.length === 0 || exportMemories.isPending} className={iconButtonClass()} title="Export local memories" aria-label="Export local memories">
               <Upload size="0.875rem" />
             </button>
             <button type="button" onClick={() => importInputRef.current?.click()} disabled={importMemories.isPending} className={iconButtonClass()} title="Import memories" aria-label="Import memories">
@@ -354,7 +429,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
             <button type="button" onClick={() => refreshMemories.mutate()} disabled={memoriesQuery.isFetching || refreshMemories.isPending || importMemories.isPending} className={iconButtonClass()} title="Rebuild memories" aria-label="Rebuild memories">
               <RefreshCw size="0.875rem" className={cn((memoriesQuery.isFetching || refreshMemories.isPending) && "animate-spin")} />
             </button>
-            <button type="button" onClick={handleClear} disabled={memories.length === 0 || clearMemories.isPending} className={iconButtonClass(false, true)} title="Clear all memories" aria-label="Clear all memories">
+            <button type="button" onClick={handleClear} disabled={localMemories.length === 0 || clearMemories.isPending} className={iconButtonClass(false, true)} title="Clear local memories" aria-label="Clear local memories">
               <Trash2 size="0.875rem" />
             </button>
           </div>
@@ -410,12 +485,12 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
               </div>
             </div>
 
-            {memoriesQuery.isLoading && (
+            {(memoriesQuery.isLoading || inheritedMemoriesQuery.isLoading) && (
               <div className="flex min-h-80 items-center justify-center gap-2 text-xs text-[var(--muted-foreground)]">
                 <Loader2 size="1rem" className="animate-spin" /> Loading memories...
               </div>
             )}
-            {memoriesQuery.error && (
+            {(memoriesQuery.error || inheritedMemoriesQuery.error) && (
               <div className="m-3 rounded-md bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)] ring-1 ring-[var(--destructive)]/25" role="alert">
                 Failed to load memories.
               </div>
@@ -454,6 +529,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
                       </div>
                       <div className="mt-1 line-clamp-2 text-xs leading-snug text-[var(--foreground)]">{memory.content}</div>
                       <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
+                        <span>{memory.owner.label}</span>
                         <span>{memory.messageCount || 1} msg</span>
                         <span title={memoryEmbeddingTitle(memory)}>{memoryEmbeddingLabel(memory)}</span>
                         <span>{formatMemoryDate(memory.lastMessageAt || memory.createdAt)}</span>
@@ -480,23 +556,39 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
                     <div className="mt-1 truncate text-[0.6875rem] text-[var(--muted-foreground)]" title={selected.id}>{selected.id}</div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button type="button" onClick={handlePin} disabled={busy || selectedStatus !== "active"} className={iconButtonClass(!!selected.pinned)} title={selected.pinned ? "Unpin memory" : "Pin memory"} aria-label={selected.pinned ? "Unpin memory" : "Pin memory"}>
-                      {selected.pinned ? <PinOff size="0.875rem" /> : <Pin size="0.875rem" />}
-                    </button>
-                    {selectedStatus === "active" ? (
-                      <button type="button" onClick={() => void handleSoftDelete()} disabled={busy} className={iconButtonClass(false, true)} title="Delete memory" aria-label="Delete memory">
-                        <Trash2 size="0.875rem" />
+                    {selected.readOnly && selectedCharacterId ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          openCharacterDetail(selectedCharacterId);
+                        }}
+                        className="rounded-md border border-[var(--border)] px-2 py-1 text-[0.6875rem] font-medium hover:bg-[var(--accent)]"
+                      >
+                        Open character memories
                       </button>
                     ) : (
-                      <button type="button" onClick={() => void handleRestore()} disabled={busy} className={iconButtonClass()} title="Restore memory" aria-label="Restore memory">
-                        <RotateCcw size="0.875rem" />
-                      </button>
+                      <>
+                        <button type="button" onClick={handlePin} disabled={busy || selectedStatus !== "active"} className={iconButtonClass(!!selected.pinned)} title={selected.pinned ? "Unpin memory" : "Pin memory"} aria-label={selected.pinned ? "Unpin memory" : "Pin memory"}>
+                          {selected.pinned ? <PinOff size="0.875rem" /> : <Pin size="0.875rem" />}
+                        </button>
+                        {selectedStatus === "active" ? (
+                          <button type="button" onClick={() => void handleSoftDelete()} disabled={busy} className={iconButtonClass(false, true)} title="Delete memory" aria-label="Delete memory">
+                            <Trash2 size="0.875rem" />
+                          </button>
+                        ) : (
+                          <button type="button" onClick={() => void handleRestore()} disabled={busy} className={iconButtonClass()} title="Restore memory" aria-label="Restore memory">
+                            <RotateCcw size="0.875rem" />
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
 
                 <dl className="rounded-md bg-[var(--secondary)]/40 px-3 py-1 ring-1 ring-[var(--border)]/70">
                   <DetailRow label="Created" value={formatMemoryDate(selected.createdAt)} />
+                  <DetailRow label="Owner" value={selected.owner.label} />
                   <DetailRow label="Range" value={`${formatMemoryDate(selected.firstMessageAt)} - ${formatMemoryDate(selected.lastMessageAt)}`} />
                   <DetailRow label="Provenance" value={selected.sourceChatId && selected.sourceChatId !== selected.chatId ? `Imported from ${selected.sourceChatId}` : selected.source || "Current transcript"} />
                   <DetailRow label="Reason" value={selected.creationReason || (memoryType(selected) === "correction" ? "User correction" : "Automatic recall chunk")} />
@@ -509,17 +601,17 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
                 <div>
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <label htmlFor={editId} className="text-[0.6875rem] font-semibold text-[var(--foreground)]">Memory Text</label>
-                    <button type="button" onClick={() => void handleSave()} disabled={busy || selectedStatus !== "active" || draft.memoryId !== selected.id || draftContent.trim() === selected.content.trim()} className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] transition hover:bg-[var(--accent)] disabled:pointer-events-none disabled:opacity-45">
+                    {!selected.readOnly && <button type="button" onClick={() => void handleSave()} disabled={busy || selectedStatus !== "active" || draft.memoryId !== selected.id || draftContent.trim() === selected.content.trim()} className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] transition hover:bg-[var(--accent)] disabled:pointer-events-none disabled:opacity-45">
                       {updateMemory.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Check size="0.75rem" />}
                       Save
-                    </button>
+                    </button>}
                   </div>
                   <textarea id={editId} value={draftContent} onChange={(event) => {
-                    if (selectedStatus === "active" && selected) setDraft({ memoryId: selected.id, content: event.target.value });
-                  }} disabled={selectedStatus !== "active"} className={MEMORY_CONTENT_CLASS} />
+                    if (!selected.readOnly && selectedStatus === "active" && selected) setDraft({ memoryId: selected.id, content: event.target.value });
+                  }} disabled={selected.readOnly || selectedStatus !== "active"} className={MEMORY_CONTENT_CLASS} />
                 </div>
 
-                <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3">
+                {!selected.readOnly && <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3">
                   <div className="mb-2 flex items-center gap-2 text-[0.6875rem] font-semibold text-amber-700 dark:text-amber-300">
                     <AlertTriangle size="0.875rem" /> Correction
                   </div>
@@ -538,7 +630,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
                       {replacementDraft.trim() ? "Correct" : "Mark wrong"}
                     </button>
                   </div>
-                </div>
+                </div>}
               </div>
             )}
           </section>

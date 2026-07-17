@@ -26,6 +26,7 @@ import { boolish } from "../../../../engine/generation/runtime-records";
 import { backfillConversationSummaries } from "../../../../engine/modes/chat/core/summaries/auto-summary.service";
 import { appendChatSummaryEntryToMetadata } from "../../../../engine/shared/text/chat-summary-entries";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
+import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
@@ -66,6 +67,9 @@ import type {
   ChatMemoryRecallImportResult,
   ExportEnvelope,
 } from "../../../../engine/contracts/types/export";
+import type { CanonicalMemoryRecord } from "../../../../engine/contracts/types/memory";
+import { activeCharacterIds } from "../../../../engine/generation/active-characters";
+import { effectiveCharacterMemoryPersistence } from "../../../../engine/generation/character-memory-scope";
 
 export { chatKeys } from "../query-keys";
 export { useCreateChat, useDeleteChat, useDeleteChatGroup, useUpdateChatMetadata } from "./use-chat-lifecycle";
@@ -336,6 +340,59 @@ export function useChatMemories(chatId: string | null, enabled = true) {
   return useQuery({
     queryKey: chatKeys.memories(chatId ?? ""),
     queryFn: () => chatCommandApi.memoriesList<ChatMemoryChunk[]>(chatId),
+    enabled: !!chatId && enabled,
+    staleTime: 10_000,
+  });
+}
+
+export type InheritedCharacterMemory = {
+  memory: CanonicalMemoryRecord;
+  characterId: string;
+  characterName: string;
+};
+
+export function useInheritedCharacterMemories(chatId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: chatKeys.inheritedMemories(chatId ?? ""),
+    queryFn: async (): Promise<InheritedCharacterMemory[]> => {
+      const chat = await storageApi.get<Record<string, unknown>>("chats", chatId!, {
+        fields: ["id", "characterIds", "metadata"],
+      });
+      if (!chat) return [];
+      const characterIds = activeCharacterIds(chat);
+      if (characterIds.length === 0) return [];
+      const characters = await storageApi.list<{
+        id: string;
+        memoryPersistence?: "character" | "chat";
+        data?: { name?: string };
+      }>("characters", {
+        fields: ["id", "memoryPersistence", "data"],
+        fieldSelections: { data: ["name"] },
+        whereIn: { field: "id", values: characterIds },
+      });
+      const activeIds = new Set(characterIds);
+      const inherited: InheritedCharacterMemory[] = [];
+      for (const character of characters) {
+        if (
+          !activeIds.has(character.id) ||
+          effectiveCharacterMemoryPersistence(character.memoryPersistence) !== "character"
+        ) {
+          continue;
+        }
+        const rows = await canonicalMemoryApi.query({
+          scope: { kind: "character", id: character.id },
+          statuses: ["active", "pinned"],
+        });
+        inherited.push(
+          ...rows.map((memory) => ({
+            memory,
+            characterId: character.id,
+            characterName: character.data?.name?.trim() || "Character",
+          })),
+        );
+      }
+      return inherited;
+    },
     enabled: !!chatId && enabled,
     staleTime: 10_000,
   });
