@@ -10,10 +10,14 @@ import { markPerformanceMilestone } from "../shared/lib/performance-diagnostics"
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      networkMode: "offlineFirst",
       staleTime: 30_000,
       retry: shouldRetryApiQuery,
       retryDelay: apiQueryRetryDelay,
       refetchOnWindowFocus: false,
+    },
+    mutations: {
+      networkMode: "offlineFirst",
     },
   },
 });
