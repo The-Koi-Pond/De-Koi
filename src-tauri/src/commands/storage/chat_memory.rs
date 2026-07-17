@@ -2113,7 +2113,6 @@ pub(crate) async fn import_chat_memories(
     replace: Option<bool>,
 ) -> AppResult<Value> {
     let chat = get_required(state, "chats", chat_id)?;
-    let embedding_context = memory_embedding_context(state, &chat).await?;
     let (incoming, source_chat_id) = memory_recall_import_chunks(&body)?;
     let replace = replace.unwrap_or(false);
     let mut memories = if replace {
@@ -2129,6 +2128,7 @@ pub(crate) async fn import_chat_memories(
     let now = now_iso();
     let mut imported = 0usize;
     let mut skipped = 0usize;
+    let mut lexical_indexed = 0usize;
     for value in incoming {
         let Some((mut memory, keys, content)) =
             normalize_memory_recall_import_chunk(value, chat_id, &source_chat_id, &now)
@@ -2140,19 +2140,14 @@ pub(crate) async fn import_chat_memories(
             skipped += 1;
             continue;
         }
-        let has_embedding = memory
-            .get("embedding")
-            .and_then(Value::as_array)
-            .is_some_and(|items| items.iter().any(Value::is_number));
-        if !has_embedding {
-            insert_memory_embedding_fields(
-                &mut memory,
-                embed_memory_content(embedding_context.as_ref(), &content).await?,
-            );
-        } else {
-            memory.insert("hasEmbedding".to_string(), json!(true));
-            memory.insert("embeddingStatus".to_string(), json!("vectorized"));
-        }
+        memory.remove("embedding");
+        memory.remove("embeddingConnectionId");
+        memory.remove("embeddingModel");
+        insert_memory_embedding_fields(
+            &mut memory,
+            embed_memory_content(None, &content).await?,
+        );
+        lexical_indexed += 1;
         if let Some(stored_keys) = memory_recall_existing_keys(&Value::Object(memory.clone())) {
             seen.extend(stored_keys);
         } else {
@@ -2170,7 +2165,12 @@ pub(crate) async fn import_chat_memories(
     if replace {
         canonical_memory::delete_memory_index_rows_for_chat(state, chat_id)?;
     }
-    Ok(json!({ "imported": imported, "skipped": skipped, "replaced": replace }))
+    Ok(json!({
+        "imported": imported,
+        "skipped": skipped,
+        "replaced": replace,
+        "lexicalIndexed": lexical_indexed
+    }))
 }
 
 #[cfg(test)]
@@ -3499,7 +3499,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn import_chat_memories_errors_when_configured_embedding_target_lacks_model() {
+    async fn import_chat_memories_uses_lexical_vectors_when_configured_embedding_target_lacks_model(
+    ) {
         let state = test_state("memory-import-missing-target-model");
         state
             .storage
@@ -3539,7 +3540,7 @@ mod tests {
             )
             .expect("embedding connection should seed");
 
-        let error = import_chat_memories(
+        let result = import_chat_memories(
             &state,
             "chat-1",
             json!({
@@ -3550,12 +3551,21 @@ mod tests {
                         "id": "source-chat",
                         "name": "Source chat",
                         "mode": "conversation",
-                        "memoryCount": 1
+                        "memoryCount": 2
                     },
                     "chunks": [
                         {
-                            "content": "needs vectorization",
+                            "content": "same portable memory",
+                            "embedding": [99.0, -42.0],
+                            "firstMessageAt": "2026-01-01T00:00:00.000Z",
+                            "lastMessageAt": "2026-01-01T00:00:00.000Z",
+                            "messageCount": 1
+                        },
+                        {
+                            "content": "same portable memory",
                             "embedding": null,
+                            "firstMessageAt": "2026-01-02T00:00:00.000Z",
+                            "lastMessageAt": "2026-01-02T00:00:00.000Z",
                             "messageCount": 1
                         }
                     ]
@@ -3564,21 +3574,30 @@ mod tests {
             None,
         )
         .await
-        .expect_err("configured embedding target without a model should not import");
+        .expect("portable import should not resolve the configured embedding target");
 
-        assert_eq!(error.code, "invalid_input");
-        assert!(error.message.contains("embeddingModel"));
-        assert!(error.message.contains("embedding-connection"));
+        assert_eq!(result["imported"], json!(2));
+        assert_eq!(result["lexicalIndexed"], json!(2));
         let chat = state
             .storage
             .get("chats", "chat-1")
             .expect("chat should read")
             .expect("chat should exist");
-        assert!(chat.get("memories").is_none());
+        let memories = chat["memories"]
+            .as_array()
+            .expect("imported memories should be stored");
+        assert_eq!(memories.len(), 2);
+        assert_eq!(memories[0]["embedding"], memories[1]["embedding"]);
+        assert_eq!(memories[0]["embedding"], json!(lexical_memory_embedding("same portable memory")));
+        for memory in memories {
+            assert_eq!(memory["embeddingSource"], json!("lexical"));
+            assert!(memory.get("embeddingConnectionId").is_none());
+            assert!(memory.get("embeddingModel").is_none());
+        }
     }
 
     #[tokio::test]
-    async fn import_chat_memories_errors_on_chat_embedding_override_before_generation_connection() {
+    async fn import_chat_memories_ignores_invalid_chat_embedding_override() {
         let state = test_state("memory-import-chat-override-missing-model");
         state
             .storage
@@ -3631,7 +3650,7 @@ mod tests {
             )
             .expect("override embedding connection should seed");
 
-        let error = import_chat_memories(
+        let result = import_chat_memories(
             &state,
             "chat-1",
             json!({
@@ -3656,22 +3675,22 @@ mod tests {
             None,
         )
         .await
-        .expect_err("chat embedding override should be validated before generation connection");
+        .expect("portable import should ignore destination embedding overrides");
 
-        assert_eq!(error.code, "invalid_input");
-        assert!(error.message.contains("embeddingModel"));
-        assert!(error.message.contains("override-embedding"));
-        assert!(!error.message.contains("generation-embedding"));
+        assert_eq!(result["imported"], json!(1));
+        assert_eq!(result["lexicalIndexed"], json!(1));
         let chat = state
             .storage
             .get("chats", "chat-1")
             .expect("chat should read")
             .expect("chat should exist");
-        assert!(chat.get("memories").is_none());
+        assert_eq!(chat["memories"][0]["embeddingSource"], json!("lexical"));
+        assert!(chat["memories"][0].get("embeddingConnectionId").is_none());
+        assert!(chat["memories"][0].get("embeddingModel").is_none());
     }
 
     #[tokio::test]
-    async fn import_chat_memories_errors_when_configured_embedding_connection_is_invalid() {
+    async fn import_chat_memories_ignores_missing_configured_embedding_connection() {
         let state = test_state("memory-import-invalid-embedding");
         state
             .storage
@@ -3698,7 +3717,7 @@ mod tests {
             )
             .expect("connection should seed");
 
-        let error = import_chat_memories(
+        let result = import_chat_memories(
             &state,
             "chat-1",
             json!({
@@ -3723,10 +3742,16 @@ mod tests {
             None,
         )
         .await
-        .expect_err("invalid configured embedding connection should not fall back");
+        .expect("portable import should not resolve a missing embedding connection");
 
-        assert_eq!(error.code, "not_found");
-        assert!(error.message.contains("missing-embedding"));
+        assert_eq!(result["imported"], json!(1));
+        assert_eq!(result["lexicalIndexed"], json!(1));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert_eq!(chat["memories"][0]["embeddingSource"], json!("lexical"));
     }
 
     #[tokio::test]
