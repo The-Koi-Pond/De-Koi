@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   embedded: { current: false },
   health: vi.fn(),
   connections: { current: [{ id: "saved", provider: "openai", model: "gpt" }] },
+  connectionsPending: { current: false },
   mutateAsync: vi.fn(),
   updateAsync: vi.fn(),
   markConnection: vi.fn(),
@@ -33,7 +34,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }) }));
 
 vi.mock("../../../catalog/connections", () => ({
-  useConnections: (enabled: boolean) => ({ data: enabled ? mocks.connections.current : [] }),
+  useConnections: (enabled: boolean) => ({
+    data: enabled && !mocks.connectionsPending.current ? mocks.connections.current : undefined,
+    isPending: enabled && mocks.connectionsPending.current,
+  }),
 }));
 vi.mock("../../../catalog/chats", () => ({
   chatKeys: { messages: (chatId: string) => ["chats", chatId, "messages"] },
@@ -127,6 +131,7 @@ describe("SetupReadinessJourney", () => {
     mocks.runtimeUrl.current = "https://runtime-a.test";
     mocks.sameOriginRuntimeUrl.current = "https://de-koi.test";
     mocks.connections.current = [{ id: "saved", provider: "openai", model: "gpt" }];
+    mocks.connectionsPending.current = false;
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -142,7 +147,30 @@ describe("SetupReadinessJourney", () => {
   it("does not offer or create chat before web runtime readiness", async () => {
     mocks.health.mockReturnValue(new Promise(() => undefined));
     await act(async () => root.render(<SetupReadinessJourney />));
-    expect(container.textContent).not.toContain("Continue to chat");
+    expect(container.textContent).toBe("");
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("stays absent while usable connections are still loading", async () => {
+    mocks.embedded.current = true;
+    mocks.connectionsPending.current = true;
+
+    await act(async () => root.render(<SetupReadinessJourney />));
+
+    expect(container.textContent).toBe("");
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("shows setup after the web runtime is confirmed unhealthy", async () => {
+    mocks.health.mockResolvedValue({ status: "unreachable", message: "Server unavailable" });
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Finish setting up De-Koi");
+    expect(container.textContent).toContain("Repair server connection");
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
   });
 
