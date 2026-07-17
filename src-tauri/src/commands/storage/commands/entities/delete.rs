@@ -154,6 +154,9 @@ pub(super) fn apply_delete_cleanup(
             }
         }
     }
+    if entity == "characters" {
+        canonical_memory::soft_delete_memories_for_scope(state, "character", id)?;
+    }
     Ok(())
 }
 
