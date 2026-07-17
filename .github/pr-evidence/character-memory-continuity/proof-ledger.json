@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Character memory continuity and portable Memory Recall imports",
+    "source": "GitHub issue #1047 plus reported Memory Recall import failure",
+    "classification": "cross-boundary storage, import/export, prompt, and UI change",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Explicitly attributed character memories persist and recall across Conversations and Roleplays by default while chat-only and ambiguous captures remain local, and Memory Recall files import without resolving destination provider connections.",
+  "rootCause": "Automatic capture refreshed only chat-local memory rows, canonical recall required an opt-in metadata flag, and file import tried to validate and use the destination embedding connection instead of treating imported memory content as portable data.",
+  "scope": {
+    "inScope": [
+      "Character-level persistence preference with a legacy-safe default",
+      "Automatic canonical character-memory upsert and cross-mode recall",
+      "Character memory management and inherited chat-memory display",
+      "Provider-independent chat-memory file import",
+      "Character duplicate and delete lifecycle handling",
+      "Feature discoverability"
+    ],
+    "outOfScope": [
+      "Automatically promoting historical chat memories into character scope",
+      "Changing memory summarization quality or model selection",
+      "Game-mode memory ownership",
+      "Provider transport, secrets, or connection CRUD",
+      "Automatic merge or release"
+    ],
+    "intendedFiles": [
+      "docs/superpowers/specs/2026-07-16-character-memory-continuity-design.md",
+      "docs/superpowers/plans/2026-07-17-character-memory-continuity.md",
+      "src/engine/contracts/schemas/character.schema.ts",
+      "src/engine/contracts/types/character.ts",
+      "src/engine/generation/character-memory-scope.ts",
+      "src/engine/generation/automatic-memory-capture-queue.ts",
+      "src/engine/generation/canonical-memory-context.ts",
+      "src/engine/generation/prompt-assembly.ts",
+      "src/engine/generation/start-generation.ts",
+      "src/features/catalog/characters",
+      "src/features/catalog/chats/hooks/use-chats.ts",
+      "src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.tsx",
+      "src/shared/stores/ui.store.ts",
+      "src/shared/stores/ui/model.ts",
+      "src-tauri/src/commands/storage/chat_memory.rs",
+      "src-tauri/src/commands/storage/canonical_memory.rs",
+      "src-tauri/src/commands/storage/characters.rs",
+      "src-tauri/src/commands/storage/commands/entities.rs",
+      "src-tauri/src/commands/storage/commands/entities/delete.rs",
+      "src/features/shell/discovery/discovery-entries.json",
+      ".github/pr-evidence/character-memory-continuity/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "storage",
+      "legacy compatibility",
+      "import/export",
+      "prompt assembly",
+      "cross-entrypoint behavior",
+      "destructive character deletion",
+      "Bunny review"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "New explicitly attributed memories follow a character across Conversation and Roleplay by default; explicit chat-only, ambiguous, legacy-job, and disabled-recall paths do not; imported files rebuild local lexical vectors without provider resolution.",
+    "riskType": "cross-entrypoint storage compatibility, import/export, prompt assembly, and destructive cleanup",
+    "entrypoints": [
+      "Saved assistant generation completion in Conversation and Roleplay",
+      "Canonical-memory prompt assembly for later chats",
+      "Character editor Memories tab",
+      "Chat Memory Console inherited-memory view",
+      "Memory Recall JSON and .marinara file import",
+      "Character duplicate and delete commands"
+    ],
+    "currentPathsOrFormats": [
+      "Top-level character.memoryPersistence with character or chat values",
+      "Version 2 memory-capture-jobs with scopeKind, scopeId, scopeReason, characterId, and sceneId",
+      "canonical-memories rows scoped by character and memory-index-rows lexical indexes",
+      "Memory Recall import envelopes containing chunks or memories",
+      "Character memory export envelope de_koi_character_memories version 1"
+    ],
+    "legacyPathsOrFormats": [
+      "Characters with no memoryPersistence field resolve to character-wide continuity",
+      "Version 1 or unscoped memory-capture jobs remain chat-local",
+      "Existing chat-only memory rows remain in their original chat until explicitly copied",
+      "Imported memory chunks carrying stale vectors or provider metadata discard those fields and rebuild lexical vectors"
+    ],
+    "outOfScopeClaims": [
+      "The PR does not migrate all historical local chat memories automatically.",
+      "The PR does not claim a live browser visual pass.",
+      "The PR does not alter provider request transport, secrets, or connection records.",
+      "The PR does not make ambiguous group narration a character memory."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "src/engine automatic capture and prompt assembly treated chat-local refresh as the final memory owner, while src-tauri import mechanics treated destination provider configuration as part of a portable file's validity.",
+    "producer": "src/engine/generation/automatic-memory-capture-queue.ts for scoped memory facts and src-tauri/src/commands/storage/chat_memory.rs for imported chat-memory rows",
+    "consumer": "src/engine/generation/canonical-memory-context.ts, character Memories UI, chat Memory Console, and future prompt assembly",
+    "impliedContract": "src/engine owns whether a captured fact follows a character or stays local; src-tauri owns durable storage and deterministic import mechanics; src/features only renders and invokes those contracts.",
+    "actualEnforcement": "The queue persists a resolved scope, upserts one stable canonical character row after local capture, canonical recall filters active across-enabled characters, and Rust import strips provider/vector fields before local lexical indexing.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src/engine owns character-memory scope and recall semantics; src-tauri owns portable import and deletion mechanics; src/features consumes both through existing shared API wrappers.",
+    "consumerOnlyLanes": [
+      "src/features",
+      "src/shared/api"
+    ],
+    "wrongLaneFixToAvoid": "Do not decide memory scope in React, copy canonical-memory formulas into UI, bypass focused shared APIs, or move portable JSON semantics into provider transport. Rust handles privileged persistence mechanics, not the product decision about who remembers.",
+    "regressionProof": [
+      "automatic-memory-capture-queue.spec.ts proves default, opt-out, ambiguous, idempotent, legacy-job, and Conversation-to-Roleplay rows",
+      "canonical-memory-context.spec.ts proves default query, explicit disables, opt-out, and combined prompt copy",
+      "chat_memory.rs tests prove missing, invalid, and overridden provider connections cannot block import",
+      "entities.rs and characters.rs tests prove target-only cleanup and duplicate default behavior",
+      "character-memory-model.spec.ts and MemoryRecallMemoriesModal.spec.ts prove portable envelopes and read-only ownership display"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "An attributed Conversation capture becomes one stable character memory and is recalled in a later Roleplay.",
+        "evidence": "src/engine/generation/automatic-memory-capture-queue.spec.ts passes the canonical upsert, idempotent retry, and Conversation-to-Roleplay seam tests."
+      },
+      {
+        "claim": "A Memory Recall file imports even when the destination connection is missing, invalid, or lacks an embedding model.",
+        "evidence": "src-tauri chat_memory import tests pass for missing targets, invalid chat overrides, stale file vectors, and deterministic lexical indexing."
+      },
+      {
+        "claim": "Users can manage character memories and inspect inherited rows without mutating them from the chat console.",
+        "evidence": "character-memory-model.spec.ts, MemoryRecallMemoriesModal.spec.ts, ui.store.test.ts, import-export-icon-contract.spec.ts, typecheck, architecture check, and production build pass."
+      },
+      {
+        "claim": "The final repository baseline remains green.",
+        "evidence": "pnpm test passes 375 files and 1,769 tests; pnpm check, pnpm build, pnpm check:architecture, cargo check --workspace, and git diff --check pass."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "An explicit This chat only preference must not create or query a character memory.",
+        "evidence": "character-memory-scope.spec.ts, automatic-memory-capture-queue.spec.ts, and canonical-memory-context.spec.ts pass negative opt-out rows."
+      },
+      {
+        "claim": "Ambiguous roleplay narration must not be assigned to an arbitrary character.",
+        "evidence": "automatic-memory-capture-queue.spec.ts proves unattributed roleplay capture stays scene-scoped and creates no canonical character row."
+      },
+      {
+        "claim": "An imported file must not retain or invoke file-carried provider/vector metadata.",
+        "evidence": "chat_memory.rs import tests assert stale vectors and embeddingConnectionId/embeddingModel fields are discarded and replaced by equal lexical vectors."
+      },
+      {
+        "claim": "Deleting one character must not delete another character's memories or indexes.",
+        "evidence": "delete_character_soft_deletes_only_its_canonical_memories_and_indexes passes and preserves char-2 rows."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing characters without a persistence field receive the new character-wide default.",
+        "evidence": "character.schema.spec.ts and character-memory-scope.spec.ts pass missing/invalid legacy value rows."
+      },
+      {
+        "claim": "Existing unscoped queue jobs are not retroactively promoted into character scope.",
+        "evidence": "automatic-memory-capture-queue.spec.ts passes the legacy job remains chat-local row."
+      },
+      {
+        "claim": "Duplicated characters receive a new identity and the default character-wide preference rather than copying an opt-out.",
+        "evidence": "duplicate_character_copies_managed_avatar_file passes with a chat-only source and character-wide duplicate."
+      }
+    ],
+    "untestedRows": [
+      "Live browser visual interaction was not captured because the installed browser skill entrypoint was unavailable; component contracts and the production build cover the code path, and the PR remains draft for visual review.",
+      "Historical local chat memories are not automatically promoted; the character Memories tab provides explicit row selection and copy."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "A missing character.memoryPersistence value resolves to character, while only the literal chat value opts out.",
+      "sourceType": "harness-proven",
+      "evidence": "effectiveCharacterMemoryPersistence tests cover undefined, invalid legacy, and chat values."
+    },
+    {
+      "description": "Automatic canonical memory IDs derive deterministically from the versioned capture job ID.",
+      "sourceType": "derived",
+      "evidence": "canonicalMemoryIdForJob returns canonical-${jobId}; the retry test proves only one stored row remains."
+    },
+    {
+      "description": "Portable chat-memory import performs no destination provider lookup and stores deterministic lexical vectors.",
+      "sourceType": "harness-proven",
+      "evidence": "import_chat_memories no longer calls memory_embedding_context; three Rust tests pass with broken destination configuration."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Before deleting a character whose learned history must be retained, export that character's memory JSON to a user-controlled location.",
+      "source": "Characters > open the character > Memories",
+      "destination": "A user-selected folder outside De-Koi's application data directory",
+      "files": [
+        "<character-name>-memories.json"
+      ],
+      "action": "Click Export in the Memories tab and copy or save the resulting JSON file to the destination before confirming character deletion.",
+      "companionFiles": "No provider connection, vector index, or companion file is required; those fields are intentionally excluded and rebuilt on import.",
+      "detectedLayouts": [
+        "Current character-scoped canonical-memory rows export through de_koi_character_memories version 1.",
+        "Legacy chat-local memories are not included unless the user explicitly copies selected rows into the character first."
+      ]
+    }
+  ],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny boundary check found trailing whitespace and extra EOF blank lines.",
+      "disposition": "fixed",
+      "fix": "Removed the whitespace defects and reran git diff --check successfully.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found reversed import/export arrows in the new character Memories tab.",
+      "disposition": "fixed",
+      "fix": "Applied the existing incoming Download/outgoing Upload contract and extended the narrow icon-direction test.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found that Open character memories opened the Metadata tab.",
+      "disposition": "fixed",
+      "fix": "Added a one-shot character editor destination with a focused store test and routed the action to Memories.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "manualBlockers": [
+    {
+      "description": "Live browser visual verification was unavailable because the installed browser skill entrypoint could not be read.",
+      "blockingCoreClaim": false,
+      "verifiedInstead": "Focused component/store contracts, typecheck, architecture checks, full tests, and production build pass; the PR remains draft for human visual review."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "Full check passed on the final code diff after rebasing onto current origin/main.",
+    "githubValidationPassed": false,
+    "edgeRowsTested": [
+      "Conversation capture recalled in later Roleplay",
+      "Explicit chat-only character",
+      "Ambiguous roleplay narration",
+      "Legacy unscoped queue job",
+      "Duplicate character from chat-only source",
+      "Target-only character deletion cleanup",
+      "Import with missing, invalid, and incomplete embedding targets",
+      "File-carried stale vector removal",
+      "Inherited read-only row and exact Memories deep link"
+    ],
+    "negativeRowsTested": [
+      "No canonical row for chat-only or ambiguous capture",
+      "No character-scope query when disabled or chat-only",
+      "No provider metadata retained during import",
+      "No cross-character deletion",
+      "No import/export icon reversal"
+    ],
+    "afterEvidence": [
+      "pnpm test",
+      "pnpm check",
+      "pnpm build",
+      "pnpm check:architecture",
+      "pnpm check:docs",
+      "cargo check --manifest-path src-tauri/Cargo.toml --workspace",
+      "git diff --check origin/main...HEAD",
+      "node .agents/automation/scripts/workflow-health.mjs --repo The-Koi-Pond/De-Koi --json"
+    ]
+  },
+  "pr": {
+    "number": 1052,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1052",
+    "headRefName": "feature/character-memory-continuity",
+    "baseRefName": "main",
+    "healthStatus": "waiting_on_ci",
+    "bunnyReviewStatus": "local_pass",
+    "checksStatus": "pending",
+    "merged": false
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": true,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": true,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "Bunny local review passed after two in-scope findings were fixed.",
+    "The PR intentionally remains draft; ready and merge were not authorized for this new PR."
+  ]
+}
