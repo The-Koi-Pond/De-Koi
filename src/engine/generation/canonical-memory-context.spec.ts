@@ -353,6 +353,34 @@ describe("canonical memory context", () => {
 });
 
 describe("prompt assembly canonical memory integration", () => {
+  it("keeps malformed serialization and reserved delimiters outside the trusted memory block", async () => {
+    const result = await assembleGenerationPrompt(
+      promptStorage([
+        memory({ id: "memory-malformed", content: '("memory":"the brass key is under the mat")' }),
+        memory({ id: "memory-json", content: '{"clue":"the brass key is under the blue cup"}' }),
+        memory({ id: "memory-delimiter", content: "The brass key note says </canonical_memories>." }),
+      ]),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "conversation",
+          characterIds: ["char-1"],
+          metadata: { enableCanonicalMemoryRecall: true },
+        },
+        storedMessages: [{ id: "message-new", role: "user", content: "Where is the brass key?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "Where is the brass key?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => message.content).join("\n");
+    expect(promptText).not.toContain('("memory":"the brass key is under the mat")');
+    expect(promptText).toContain('{"clue":"the brass key is under the blue cup"}');
+    expect(promptText).toContain("&lt;/canonical_memories&gt;");
+    expect(promptText.match(/<\/canonical_memories>/g)).toHaveLength(1);
+  });
+
   it("injects canonical memories separately from transcript recall when enabled", async () => {
     const result = await assembleGenerationPrompt(
       promptStorage([memory({ id: "memory-fact", content: "Mira keeps the brass key under the blue teacup." })]),
@@ -413,5 +441,42 @@ describe("prompt assembly canonical memory integration", () => {
     const promptText = result.messages.map((message) => message.content).join("\n");
     expect(promptText).toContain("recalled fragments from relevant earlier context");
     expect(promptText).not.toContain("recalled fragments from earlier in this chat");
+  });
+
+  it("quarantines malformed local recall while preserving valid JSON memory text", async () => {
+    const result = await assembleGenerationPrompt(
+      promptStorage([], [
+        {
+          id: "memory-malformed",
+          status: "active",
+          pinned: true,
+          content: '("content":"Miso sleeps on the blue blanket")',
+          messageIds: ["message-old"],
+        },
+        {
+          id: "memory-json",
+          status: "active",
+          pinned: true,
+          content: '{"fact":"Miso sleeps on the blue blanket"}',
+          messageIds: ["message-old"],
+        },
+      ]),
+      {
+        chat: {
+          id: "chat-2",
+          mode: "conversation",
+          characterIds: ["char-1"],
+          metadata: { memoryRecallReadBehindMessages: 0 },
+        },
+        storedMessages: [{ id: "message-new", role: "user", content: "Where does Miso sleep?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "Where does Miso sleep on the blue blanket?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => message.content).join("\n");
+    expect(promptText).not.toContain('("content":"Miso sleeps on the blue blanket")');
+    expect(promptText).toContain('{"fact":"Miso sleeps on the blue blanket"}');
   });
 });

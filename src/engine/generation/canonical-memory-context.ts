@@ -19,6 +19,7 @@ import {
   type JsonRecord,
 } from "./runtime-records";
 import { effectiveCharacterMemoryPersistence } from "./character-memory-scope";
+import { prepareMemoryPromptContent } from "./memory-prompt-content";
 
 type MemoryIndexSource = "index" | "lexical";
 
@@ -360,10 +361,14 @@ function truncateForTokens(text: string, budgetTokens: number): string {
   return `${text.slice(0, Math.max(0, maxChars - 4)).trimEnd()}...`;
 }
 
-function formatMemoryLine(candidate: CanonicalMemoryCandidate, budgetTokens?: number): string {
+function formatMemoryLine(candidate: CanonicalMemoryCandidate, budgetTokens?: number): string | null {
   const title = candidate.memory.title?.trim();
   const prefix = title ? `${title}: ` : "";
-  const content = budgetTokens ? truncateForTokens(candidate.memory.content.trim(), Math.max(1, budgetTokens - 2)) : candidate.memory.content.trim();
+  const promptContent = prepareMemoryPromptContent(candidate.memory.content);
+  if (!promptContent) return null;
+  const content = budgetTokens
+    ? truncateForTokens(promptContent, Math.max(1, budgetTokens - 2))
+    : promptContent;
   return `- ${prefix}${content}`;
 }
 
@@ -381,6 +386,7 @@ function packCanonicalMemories(candidates: CanonicalMemoryCandidate[], budgetTok
     const remainingTokens = budgetTokens - estimatedTokens - 4;
     if (remainingTokens < 12) break;
     const line = formatMemoryLine(candidate, remainingTokens);
+    if (!line) continue;
     const lineTokens = estimateTextTokens(line) + 4;
     if (estimatedTokens + lineTokens > budgetTokens) break;
     sections[sectionForKind(candidate.memory.kind)].push(line);
