@@ -16,8 +16,11 @@ export interface TranslateTextResponse {
 }
 
 export const translationApi = {
-  translateText: async (input: TranslateTextInput): Promise<TranslateTextResponse> => {
-    const response = await invokeTauri<unknown>("translate_text_command", { input });
+  translateText: async (
+    input: TranslateTextInput,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<TranslateTextResponse> => {
+    const response = await invokeTauri<unknown>("translate_text_command", { input }, options);
     if (!response || typeof response !== "object" || !("translatedText" in response)) {
       throw new Error("Translation response did not include translated text.");
     }

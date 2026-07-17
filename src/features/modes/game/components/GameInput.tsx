@@ -2,7 +2,7 @@
 // Game: Input Bar (send message, roll dice, attach files, emoji)
 // ──────────────────────────────────────────────
 import { useState, useRef, useEffect, useCallback, useMemo, type KeyboardEvent } from "react";
-import { Send, Dices, Paperclip, Smile, Users, MessageCircle, MessageSquare, Languages, Loader2 } from "lucide-react";
+import { Send, Dices, Paperclip, Smile, Users, MessageCircle, MessageSquare, Languages, StopCircle } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
 import { EmojiPicker } from "../../../../shared/components/ui/EmojiPicker";
@@ -10,7 +10,10 @@ import { SpeechToTextButton } from "../../../../shared/components/ui/SpeechToTex
 import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickReplyIcon";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
-import { translateDraftText } from "../../../../shared/lib/draft-translation";
+import {
+  getDraftTranslationActionState,
+  useDraftTranslation,
+} from "../../../../shared/hooks/use-draft-translation";
 import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
 import { notifyDraftPersistenceFailure } from "../../../../shared/lib/draft-persistence-events";
 import { MAX_FILE_SIZES } from "../../../../engine/contracts/constants/defaults";
@@ -128,7 +131,11 @@ export function GameInput({
   const [queuedDice, setQueuedDice] = useState<string | null>(null);
   const [rollingQueuedDice, setRollingQueuedDice] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [isTranslatingDraft, setIsTranslatingDraft] = useState(false);
+  const { isTranslatingDraft, translateDraft, cancelDraftTranslation } = useDraftTranslation();
+  const draftTranslationAction = getDraftTranslationActionState({
+    isTranslating: isTranslatingDraft,
+    canStart: !disabled && Boolean(text.trim()),
+  });
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [addressMode, setAddressMode] = useState<AddressMode>("scene");
   const [addressMenuOpen, setAddressMenuOpen] = useState(false);
@@ -368,21 +375,16 @@ export function GameInput({
 
   const handleTranslateDraft = useCallback(async () => {
     if (disabled || isTranslatingDraft || !text.trim()) return;
-    setIsTranslatingDraft(true);
-    try {
-      const translated = await translateDraftText(text);
-      if (!translated) return;
-      updateText(translated);
-      requestAnimationFrame(() => {
-        if (!inputRef.current) return;
-        inputRef.current.style.height = "auto";
-        inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`;
-        inputRef.current.focus();
-      });
-    } finally {
-      setIsTranslatingDraft(false);
-    }
-  }, [disabled, isTranslatingDraft, text, updateText]);
+    const translated = await translateDraft(text);
+    if (!translated) return;
+    updateText(translated);
+    requestAnimationFrame(() => {
+      if (!inputRef.current) return;
+      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`;
+      inputRef.current.focus();
+    });
+  }, [disabled, isTranslatingDraft, text, translateDraft, updateText]);
 
   const handleSpeechTranscript = useCallback(
     (transcript: string) => {
@@ -698,17 +700,21 @@ export function GameInput({
         {showDraftTranslateButton && (
           <button
             type="button"
-            onClick={() => void handleTranslateDraft()}
-            disabled={disabled || !text.trim() || isTranslatingDraft}
+            onClick={() =>
+              draftTranslationAction.action === "cancel"
+                ? cancelDraftTranslation()
+                : void handleTranslateDraft()
+            }
+            disabled={draftTranslationAction.disabled}
             className={cn(
               CHAT_INPUT_ICON_BUTTON_CLASS,
-              !disabled && text.trim() && !isTranslatingDraft
+              isTranslatingDraft || (!disabled && text.trim())
                 ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
                 : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
             )}
-            title="Translate draft"
+            title={isTranslatingDraft ? "Cancel draft translation" : "Translate draft"}
           >
-            {isTranslatingDraft ? <Loader2 size={18} className="animate-spin" /> : <Languages size={18} />}
+            {isTranslatingDraft ? <StopCircle size={18} /> : <Languages size={18} />}
           </button>
         )}
 

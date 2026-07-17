@@ -474,7 +474,7 @@ export function GameNarration({
   nextActionToken,
   onMaxNavOffsetChange,
 }: GameNarrationProps) {
-  const { translations, translating } = useTranslate();
+  const { cancelTranslation, translations, translating } = useTranslate();
   const { applyToAIOutput } = useApplyRegex(activeCharacterIds);
   const scopedRegexMode = useChatStore((s) => {
     const meta = s.activeChat?.metadata;
@@ -2474,12 +2474,21 @@ export function GameNarration({
               dangerouslySetInnerHTML={{ __html: getGameTranslationHtml(message, translatedText) }}
             />
           ) : (
-            <div className="text-xs text-sky-200/60">Translating...</div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-sky-200/60">Translating...</span>
+              <button
+                type="button"
+                onClick={() => cancelTranslation(message.id, message.chatId)}
+                className="text-[0.6875rem] font-medium text-sky-300 hover:underline"
+              >
+                Cancel
+              </button>
+            </div>
           )}
         </div>
       );
     },
-    [],
+    [cancelTranslation],
   );
 
   const playClickSfx = useCallback(() => {

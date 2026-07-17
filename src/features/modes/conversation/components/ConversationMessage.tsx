@@ -150,7 +150,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     ? "text-[var(--primary)] bg-[var(--primary)]/15 ring-1 ring-[var(--primary)]/30 hover:text-[var(--primary)] hover:bg-[var(--primary)]/20"
     : undefined;
 
-  const { translate, translations, translating } = useTranslate();
+  const { translate, cancelTranslation, translations, translating } = useTranslate();
   const translatedText = translations[message.id];
   const isTranslating = !!translating[message.id];
 
@@ -599,6 +599,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     handleMessageKeyDown,
     handleCopy,
     onTranslate: handleTranslate,
+    onCancelTranslation: () => cancelTranslation(message.id, message.chatId),
     onStartEdit: handleStartEditAction,
     onRegenerate,
     onSetActiveSwipe,
