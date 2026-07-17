@@ -561,7 +561,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
                         type="button"
                         onClick={() => {
                           onClose();
-                          openCharacterDetail(selectedCharacterId);
+                          openCharacterDetail(selectedCharacterId, "memories");
                         }}
                         className="rounded-md border border-[var(--border)] px-2 py-1 text-[0.6875rem] font-medium hover:bg-[var(--accent)]"
                       >

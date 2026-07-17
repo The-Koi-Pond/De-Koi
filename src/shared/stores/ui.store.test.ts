@@ -14,6 +14,7 @@ function resetUiDetails() {
     rightPanelOpen: false,
     rightPanel: "chat",
     characterDetailId: null,
+    characterDetailDestination: null,
     lorebookDetailId: null,
     presetDetailId: null,
     connectionDetailId: null,
@@ -57,6 +58,22 @@ describe("useUIStore mobile detail routes", () => {
       rightPanelOpen: true,
       rightPanel: "bot-browser",
       mobileDetailOriginPanel: null,
+    });
+  });
+
+  it("carries and clears the requested character editor destination", () => {
+    useUIStore.getState().openCharacterDetail("char-1", "memories");
+
+    expect(useUIStore.getState()).toMatchObject({
+      characterDetailId: "char-1",
+      characterDetailDestination: "memories",
+    });
+
+    useUIStore.getState().closeCharacterDetail();
+
+    expect(useUIStore.getState()).toMatchObject({
+      characterDetailId: null,
+      characterDetailDestination: null,
     });
   });
 

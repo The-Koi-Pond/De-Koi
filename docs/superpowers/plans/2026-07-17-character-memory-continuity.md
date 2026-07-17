@@ -505,7 +505,7 @@ pnpm check
 git diff --check origin/main...HEAD
 ```
 
-- [ ] **Step 3: Run Bunny review**
+- [x] **Step 3: Run Bunny review**
 
 Use the Bunny skill on the complete branch. Address blocker findings with red tests and rerun focused/full gates. Record the final READY result.
 

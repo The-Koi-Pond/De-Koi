@@ -411,6 +411,8 @@ export interface UIState {
   chatBackgroundBlur: number;
   /** When set, the main area shows the full-page character editor instead of chat */
   characterDetailId: string | null;
+  /** Optional one-shot destination consumed by the character editor after it opens. */
+  characterDetailDestination: "memories" | null;
   /** When set, the main area shows the full-page lorebook editor instead of chat */
   lorebookDetailId: string | null;
   /** Entry id the lorebook editor should expand once loaded. */
@@ -667,7 +669,8 @@ export interface UIState {
   setTheme: (theme: "dark" | "light") => void;
   setChatBackground: (url: string | null) => void;
   setChatBackgroundBlur: (v: number) => void;
-  openCharacterDetail: (id: string) => void;
+  openCharacterDetail: (id: string, destination?: "memories") => void;
+  clearCharacterDetailDestination: () => void;
   closeCharacterDetail: () => void;
   openLorebookDetail: (id: string) => void;
   openLorebookEntryDetail: (lorebookId: string, entryId: string) => void;

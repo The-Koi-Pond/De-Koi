@@ -47,7 +47,6 @@ function statusVisible(status: MemoryStatus, filter: MemoryFilter): boolean {
   if (filter === "active") return status === "active" || status === "pinned";
   return status === filter;
 }
-
 function sourceLabel(memory: CanonicalMemoryRecord): string {
   const sourceChatId = memory.provenance.sourceChatId?.trim();
   return sourceChatId ? `Chat ${sourceChatId.slice(0, 8)}` : "Character record";
@@ -238,14 +237,14 @@ export function CharacterMemoriesTab({
           onClick={exportMemories}
           className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--accent)]"
         >
-          <Download size="0.9rem" /> Export
+          <Upload size="0.9rem" /> Export
         </button>
         <button
           type="button"
           onClick={() => importInputRef.current?.click()}
           className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--accent)]"
         >
-          <Upload size="0.9rem" /> Import
+          <Download size="0.9rem" /> Import
         </button>
         <input
           ref={importInputRef}
@@ -406,4 +405,3 @@ export function CharacterMemoriesTab({
     </section>
   );
 }
-

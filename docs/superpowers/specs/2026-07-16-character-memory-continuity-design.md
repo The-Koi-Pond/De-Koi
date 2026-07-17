@@ -1,7 +1,7 @@
 # Character Memory Continuity and Portable Import Design
 
-**Project:** De-Koi  
-**Date:** 2026-07-16  
+**Project:** De-Koi
+**Date:** 2026-07-16
 **Status:** Approved
 
 ## Goal

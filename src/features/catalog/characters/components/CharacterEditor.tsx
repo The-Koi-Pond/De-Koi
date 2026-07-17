@@ -47,6 +47,8 @@ interface ParsedCharacter {
 
 export function CharacterEditor() {
   const characterId = useUIStore((s) => s.characterDetailId);
+  const characterDetailDestination = useUIStore((s) => s.characterDetailDestination);
+  const clearCharacterDetailDestination = useUIStore((s) => s.clearCharacterDetailDestination);
   const closeDetail = useUIStore((s) => s.closeCharacterDetail);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
   const { data: rawCharacter, isLoading } = useCharacter(characterId);
@@ -75,6 +77,12 @@ export function CharacterEditor() {
   const [dirty, setDirty] = useState(false);
   const loadedCharacterIdRef = useRef<string | null>(null);
   const cardLengthWarningCharacterIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!characterId || characterDetailDestination !== "memories") return;
+    setActiveTab("memories");
+    clearCharacterDetailDestination();
+  }, [characterDetailDestination, characterId, clearCharacterDetailDestination]);
   const dirtyRef = useRef(false);
   const editRevisionRef = useRef(0);
   const setEditorDirty = useUIStore((s) => s.setEditorDirty);

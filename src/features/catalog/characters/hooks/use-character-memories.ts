@@ -32,7 +32,6 @@ export function useCharacterMemories(characterId: string | null) {
     enabled: !!characterId,
   });
 }
-
 export function useCharacterMemorySourceChats(characterId: string | null) {
   return useQuery({
     queryKey: characterMemoryKeys.chats(characterId ?? ""),
@@ -97,4 +96,3 @@ export function useImportCharacterMemories(characterId: string) {
     onSuccess: invalidate,
   });
 }
-
