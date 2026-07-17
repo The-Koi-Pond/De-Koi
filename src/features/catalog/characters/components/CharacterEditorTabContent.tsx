@@ -1,4 +1,7 @@
-import type { CharacterData } from "../../../../engine/contracts/types/character";
+import type {
+  CharacterData,
+  CharacterMemoryPersistence,
+} from "../../../../engine/contracts/types/character";
 import type { ImageGenerationConnectionOption } from "../../../../shared/types/image-generation";
 import { CharacterAdvancedTab } from "./CharacterAdvancedTab";
 import { CharacterColorsTab } from "./CharacterColorsTab";
@@ -7,6 +10,7 @@ import { CharacterDialogueTab } from "./CharacterDialogueTab";
 import { CharacterGalleryTab } from "./CharacterGalleryTab";
 import { CharacterLorebookTab } from "./CharacterLorebookTab";
 import { CharacterMetadataTab } from "./CharacterMetadataTab";
+import { CharacterMemoriesTab } from "./CharacterMemoriesTab";
 import { CharacterSpritesTab } from "./CharacterSpritesTab";
 import { CharacterStatsTab } from "./CharacterStatsTab";
 import { CharacterTextareaTab } from "./CharacterTextareaTab";
@@ -19,6 +23,8 @@ type CharacterEditorTabContentProps = {
   characterId: string | null;
   formData: CharacterData;
   characterComment: string;
+  memoryPersistence: CharacterMemoryPersistence;
+  onMemoryPersistenceChange: (value: CharacterMemoryPersistence) => void;
   updateField: CharacterUpdateField;
   updateExtension: (key: string, value: unknown) => void;
   newTag: string;
@@ -32,6 +38,8 @@ export function CharacterEditorTabContent({
   characterId,
   formData,
   characterComment,
+  memoryPersistence,
+  onMemoryPersistenceChange,
   updateField,
   updateExtension,
   newTag,
@@ -141,10 +149,17 @@ export function CharacterEditorTabContent({
           />
         )}
         {activeTab === "stats" && <CharacterStatsTab formData={formData} updateExtension={updateExtension} />}
+        {activeTab === "memories" && characterId && (
+          <CharacterMemoriesTab
+            characterId={characterId}
+            characterName={formData.name}
+            memoryPersistence={memoryPersistence}
+            onMemoryPersistenceChange={onMemoryPersistenceChange}
+          />
+        )}
         {activeTab === "lorebook" && <CharacterLorebookTab characterId={characterId} formData={formData} />}
       </div>
     </div>
   );
 }
-
 

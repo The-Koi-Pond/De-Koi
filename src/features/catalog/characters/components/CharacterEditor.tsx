@@ -12,7 +12,10 @@ import { useStartChatFromCharacter } from "../hooks/use-start-chat-from-characte
 import { useConnections } from "../../connections/index";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { getErrorMessage } from "../../../../shared/lib/error-message";
-import type { CharacterData } from "../../../../engine/contracts/types/character";
+import type {
+  CharacterData,
+  CharacterMemoryPersistence,
+} from "../../../../engine/contracts/types/character";
 import {
   isDefaultImageGenerationConnection,
   type ImageGenerationConnectionOption,
@@ -37,6 +40,7 @@ interface ParsedCharacter {
   id: string;
   data: CharacterData;
   comment: string;
+  memoryPersistence?: CharacterMemoryPersistence;
   avatarPath: string | null;
   spriteFolderPath: string | null;
 }
@@ -67,6 +71,7 @@ export function CharacterEditor() {
   const [activeTab, setActiveTab] = useState<CharacterEditorTabId>("metadata");
   const [formData, setFormData] = useState<CharacterData | null>(null);
   const [characterComment, setCharacterComment] = useState("");
+  const [memoryPersistence, setMemoryPersistence] = useState<CharacterMemoryPersistence>("character");
   const [dirty, setDirty] = useState(false);
   const loadedCharacterIdRef = useRef<string | null>(null);
   const cardLengthWarningCharacterIdRef = useRef<string | null>(null);
@@ -154,6 +159,7 @@ export function CharacterEditor() {
 
     setFormData(normalizeCharacterEditorData(char.data));
     setCharacterComment(char.comment ?? "");
+    setMemoryPersistence(char.memoryPersistence === "chat" ? "chat" : "character");
     setAvatarPreview(char.avatarPath);
     setDirtyState(false);
   }, [rawCharacter, setAvatarPreview, setDirtyState]);
@@ -207,6 +213,7 @@ export function CharacterEditor() {
         id: characterId,
         data: formData as unknown as Record<string, unknown>,
         comment: characterComment,
+        memoryPersistence,
       });
       if (editRevisionRef.current === editRevisionAtSaveStart) {
         setDirtyState(false);
@@ -367,6 +374,11 @@ export function CharacterEditor() {
           characterId={characterId}
           formData={formData}
           characterComment={characterComment}
+          memoryPersistence={memoryPersistence}
+          onMemoryPersistenceChange={(value) => {
+            setMemoryPersistence(value);
+            markDirty();
+          }}
           updateField={updateField}
           updateExtension={updateExtension}
           newTag={newTag}

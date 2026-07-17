@@ -17,7 +17,10 @@ import { galleryApi } from "../../../../shared/api/image-generation-api";
 import { runGalleryUploadBatch } from "../../../../shared/lib/gallery-upload";
 import { resolveGalleryFileUrl } from "../../../../shared/api/local-file-api";
 import type { CustomKind, CustomTagPatch } from "../../../../shared/lib/custom-emoji";
-import type { CharacterCardVersion } from "../../../../engine/contracts/types/character";
+import type {
+  CharacterCardVersion,
+  CharacterMemoryPersistence,
+} from "../../../../engine/contracts/types/character";
 import {
   cacheCharacterListRecordFromResult,
   invalidateCharacterCollectionQueries,
@@ -32,6 +35,7 @@ export { cacheCharacterListRecordFromResult, invalidateCharacterCollectionQuerie
 
 export type CharacterSummary = {
   id: string;
+  memoryPersistence?: CharacterMemoryPersistence;
   data?: {
     name?: string;
     description?: string;
@@ -59,6 +63,7 @@ export type CharacterSummary = {
 
 export type CharacterLibrarySummary = {
   id: string;
+  memoryPersistence?: CharacterMemoryPersistence;
   data?: {
     name?: string;
     description?: string;
@@ -82,6 +87,7 @@ export type CharacterLibrarySummary = {
 
 export type ChatSurfaceCharacterSummary = {
   id: string;
+  memoryPersistence?: CharacterMemoryPersistence;
   data?: {
     name?: string;
     description?: string;
@@ -120,6 +126,7 @@ export type ChatSurfaceCharacterSummary = {
 };
 export type CharacterPanelSummary = {
   id: string;
+  memoryPersistence?: CharacterMemoryPersistence;
   data?: {
     name?: string;
     description?: string;
@@ -145,6 +152,7 @@ export type CharacterPanelSummary = {
 
 const CHARACTER_LIST_FIELDS = [
   "id",
+  "memoryPersistence",
   "data",
   "comment",
   "avatarPath",
@@ -459,6 +467,7 @@ export function useUpdateCharacter() {
       avatarFilePath?: string | null;
       avatarFilename?: string | null;
       comment?: string;
+      memoryPersistence?: CharacterMemoryPersistence;
       versionSource?: string;
       versionReason?: string;
       skipVersionSnapshot?: boolean;
