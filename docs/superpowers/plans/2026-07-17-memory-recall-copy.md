@@ -27,21 +27,21 @@
 - Consumes: a finite read-behind message count from existing chat metadata.
 - Produces: `MEMORY_RECALL_TOGGLE_DESCRIPTION`, `MEMORY_RECALL_SECTION_HELP`, `MEMORY_RECALL_CONSOLE_DESCRIPTION`, and `memoryRecallContinuityDetail(enabled, readBehindMessages)`.
 
-- [ ] **Step 1: Write the failing contract test**
+- [x] **Step 1: Write the failing contract test**
 
 Create assertions that the exported descriptions contain `chat-local`, `character-wide`, `speaker-labeled exchanges`, and `rank`, reject the claim that embeddings summarize memory, and produce singular/plural Continuity wording.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `pnpm exec vitest run src/features/modes/shared/chat-ui/lib/memory-recall-copy.spec.ts`
 
 Expected: FAIL because `memory-recall-copy.ts` does not exist.
 
-- [ ] **Step 3: Implement the minimal copy contract**
+- [x] **Step 3: Implement the minimal copy contract**
 
 Export the three static descriptions and a pure Continuity detail function. The enabled detail must include the configured recent-message exclusion and both memory scopes; the disabled detail must state that neither scope is injected.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run: `pnpm exec vitest run src/features/modes/shared/chat-ui/lib/memory-recall-copy.spec.ts`
 
@@ -61,21 +61,21 @@ Expected: PASS.
 - Consumes: the Task 1 copy exports.
 - Produces: consistent Chat Settings, Continuity, Memory Console, and Discover explanations.
 
-- [ ] **Step 1: Write failing surface assertions**
+- [x] **Step 1: Write failing surface assertions**
 
 Update the Continuity expectation to require chat-local and character-wide wording. Add a Discover registry assertion requiring chat-local memory, character-wide memory, speaker-labeled exchange capture, and ranking language.
 
-- [ ] **Step 2: Run surface tests and verify RED**
+- [x] **Step 2: Run surface tests and verify RED**
 
 Run: `pnpm exec vitest run src/features/modes/shared/chat-ui/lib/continuity-overview.spec.ts src/features/shell/discovery/discovery-registry.spec.ts`
 
 Expected: FAIL against the old current-chat-only copy.
 
-- [ ] **Step 3: Wire the shared copy into each surface**
+- [x] **Step 3: Wire the shared copy into each surface**
 
 Replace both duplicated Chat Settings help strings and the compact toggle description with imports from the contract. Render the console description above its toolbar, use the Continuity detail helper, and revise the Discover continuity summary and location text.
 
-- [ ] **Step 4: Run all focused tests and verify GREEN**
+- [x] **Step 4: Run all focused tests and verify GREEN**
 
 Run: `pnpm exec vitest run src/features/modes/shared/chat-ui/lib/memory-recall-copy.spec.ts src/features/modes/shared/chat-ui/lib/continuity-overview.spec.ts src/features/shell/discovery/discovery-registry.spec.ts`
 
@@ -90,25 +90,25 @@ Expected: PASS.
 - Consumes: completed copy correction.
 - Produces: one reviewed, merged PR closing #1053.
 
-- [ ] **Step 1: Run lane checks**
+- [x] **Step 1: Run lane checks**
 
 Run: `pnpm typecheck`, `pnpm check:architecture`, `pnpm check:docs`, and `pnpm check:discovery`.
 
 Expected: all exit 0.
 
-- [ ] **Step 2: Run the full PR gate**
+- [x] **Step 2: Run the full PR gate**
 
 Run: `pnpm check`.
 
 Expected: exit 0.
 
-- [ ] **Step 3: Review the branch boundary**
+- [x] **Step 3: Review the branch boundary**
 
 Run: `git diff --check origin/main...HEAD`, `git diff --stat origin/main...HEAD`, and `git status --short`.
 
 Expected: only the approved copy-contract, surface, test, spec, and plan files appear.
 
-- [ ] **Step 4: Commit, run Bunny, push, and open a draft PR**
+- [x] **Step 4: Commit, run Bunny, push, and open a draft PR**
 
 Commit only the intended files with a task-focused subject, run the Bunny review checklist against `origin/main`, push to `origin`, and create a draft PR with `Closes #1053`.
 
