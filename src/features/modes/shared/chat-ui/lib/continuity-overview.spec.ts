@@ -52,7 +52,8 @@ describe("continuity overview view model", () => {
         label: "Memory",
         status: "active",
         value: "On",
-        detail: "Earlier chat fragments can be recalled after 1 recent message.",
+        detail:
+          "Chat-local transcript fragments and eligible character-wide memories can be recalled after 1 recent message. Automatic capture saves speaker-labeled exchanges; embeddings rank matches when configured.",
         action: "open_memories",
       }),
       expect.objectContaining({

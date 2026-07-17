@@ -4,6 +4,7 @@ import {
   type ChatMetadata,
   type ChatMode,
 } from "../../../../../engine/contracts/types/chat";
+import { memoryRecallContinuityDetail } from "./memory-recall-copy";
 
 export type ContinuityOverviewAction =
   | "open_memories"
@@ -103,9 +104,7 @@ export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput)
       label: "Memory",
       status: memoryEnabled ? "active" : "idle",
       value: memoryEnabled ? "On" : "Off",
-      detail: memoryEnabled
-        ? `Earlier chat fragments can be recalled after ${pluralize(readBehindMessages(input.metadata), "recent message")}.`
-        : "Memory Recall is not injecting earlier chat fragments.",
+      detail: memoryRecallContinuityDetail(memoryEnabled, readBehindMessages(input.metadata)),
       action: "open_memories",
     },
     {

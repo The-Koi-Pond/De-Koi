@@ -115,4 +115,3 @@ Commit only the intended files with a task-focused subject, run the Bunny review
 - [ ] **Step 5: Mark ready, verify CI and Bunny, then merge**
 
 Mark the PR ready because the user explicitly requested merge. Verify all required checks, current Bunny contract state, review threads, and PR health before merging to `main`.
-

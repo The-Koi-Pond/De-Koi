@@ -35,4 +35,3 @@ There are no new data or runtime paths. All copy is static. Existing memory cont
 - The Continuity view-model test proves the shared copy is rendered.
 - The Discover registry test proves its JSON entry carries the same concepts.
 - TypeScript, architecture, docs/discovery, and the full PR gate verify integration.
-

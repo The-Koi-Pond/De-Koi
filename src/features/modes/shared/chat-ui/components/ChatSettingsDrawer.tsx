@@ -90,6 +90,10 @@ import {
 } from "../lib/chat-settings-character-search";
 import { buildContinuityOverviewViewModel } from "../lib/continuity-overview";
 import {
+  MEMORY_RECALL_SECTION_HELP,
+  MEMORY_RECALL_TOGGLE_DESCRIPTION,
+} from "../lib/memory-recall-copy";
+import {
   AgentCategorySection,
   ChatSettingsSection as Section,
   PickerDropdown,
@@ -1939,7 +1943,7 @@ function ChatSettingsDrawerInner({
           <div className="flex-1 min-w-0">
             <span className="text-[0.6875rem] font-medium">Enable Memory Recall</span>
             <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-              Recall earlier chat fragments with provider embeddings when configured, otherwise local lexical matching.
+              {MEMORY_RECALL_TOGGLE_DESCRIPTION}
             </p>
           </div>
           <div
@@ -5180,7 +5184,7 @@ function ChatSettingsDrawerInner({
             <Section
               label="Memory Recall"
               icon={<Brain size="0.875rem" />}
-              help="When enabled, relevant fragments from this chat are recalled with provider embeddings when configured, otherwise local lexical matching, then injected into the prompt as memories."
+              help={MEMORY_RECALL_SECTION_HELP}
             >
               {renderMemoryRecallControls()}
             </Section>
@@ -5490,7 +5494,7 @@ function ChatSettingsDrawerInner({
             <Section
               label="Memory Recall"
               icon={<Brain size="0.875rem" />}
-              help="When enabled, relevant fragments from this chat are recalled with provider embeddings when configured, otherwise local lexical matching, then injected into the prompt as memories."
+              help={MEMORY_RECALL_SECTION_HELP}
             >
               {renderMemoryRecallControls()}
             </Section>
