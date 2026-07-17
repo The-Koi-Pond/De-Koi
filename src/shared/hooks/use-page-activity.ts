@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 function getIsPageActive() {
   if (typeof document === "undefined") return true;
-  return document.visibilityState === "visible" && document.hasFocus();
+  return document.visibilityState === "visible";
 }
 
 export function usePageActivity() {
@@ -13,14 +13,10 @@ export function usePageActivity() {
 
     updatePageActivity();
     document.addEventListener("visibilitychange", updatePageActivity);
-    window.addEventListener("focus", updatePageActivity);
-    window.addEventListener("blur", updatePageActivity);
     window.addEventListener("pageshow", updatePageActivity);
 
     return () => {
       document.removeEventListener("visibilitychange", updatePageActivity);
-      window.removeEventListener("focus", updatePageActivity);
-      window.removeEventListener("blur", updatePageActivity);
       window.removeEventListener("pageshow", updatePageActivity);
     };
   }, []);
