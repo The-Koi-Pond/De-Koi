@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { storageApi } from "../../../../shared/api/storage-api";
+import { characterApi } from "../../../../shared/api/character-api";
 import {
   characterKeys,
   useCharacterLibrarySummaries,
@@ -82,7 +83,7 @@ describe("character library summary query", () => {
     expect(storageApi.list).toHaveBeenCalledWith(
       "characters",
       expect.objectContaining({
-        fields: ["id", "data", "comment", "avatarPath", "avatarFilePath", "avatarFilename", "createdAt", "updatedAt"],
+        fields: ["id", "memoryPersistence", "data", "comment", "avatarPath", "avatarFilePath", "avatarFilename", "createdAt", "updatedAt"],
         fieldSelections: {
           data: expect.arrayContaining([
             "name",
@@ -131,7 +132,7 @@ describe("chat surface character summary query", () => {
     expect(storageApi.list).toHaveBeenCalledWith(
       "characters",
       expect.objectContaining({
-        fields: ["id", "data", "comment", "avatarPath", "avatarFilePath", "avatarFilename", "createdAt", "updatedAt"],
+        fields: ["id", "memoryPersistence", "data", "comment", "avatarPath", "avatarFilePath", "avatarFilename", "createdAt", "updatedAt"],
         whereIn: { field: "id", values: ["character-1"] },
         fieldSelections: {
           data: expect.arrayContaining([
@@ -169,6 +170,27 @@ describe("chat surface character summary query", () => {
 });
 
 describe("character update cache", () => {
+  it("stores memory persistence beside card data", async () => {
+    const mutation = useUpdateCharacter() as unknown as {
+      mutationFn: (variables: {
+        id: string;
+        data: Record<string, unknown>;
+        memoryPersistence: "character" | "chat";
+      }) => Promise<unknown>;
+    };
+
+    await mutation.mutationFn({
+      id: "char-1",
+      data: { name: "Mira" },
+      memoryPersistence: "chat",
+    });
+
+    expect(characterApi.update).toHaveBeenCalledWith("char-1", {
+      data: { name: "Mira" },
+      memoryPersistence: "chat",
+    });
+  });
+
   it("refreshes the panel summary cache without invalidating the character list after save", () => {
     const savedCharacter = {
       id: "char-1",

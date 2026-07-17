@@ -135,6 +135,7 @@ export const useUIStore = create<UIState>()(
       chatBackground: null,
       chatBackgroundBlur: 0,
       characterDetailId: null,
+      characterDetailDestination: null,
       lorebookDetailId: null,
       lorebookEntryDetailId: null,
       presetDetailId: null,
@@ -323,8 +324,17 @@ export const useUIStore = create<UIState>()(
       setChatBackground: (url) => set({ chatBackground: url }),
       setChatBackgroundBlur: (v) =>
         set({ chatBackgroundBlur: Math.max(0, Math.min(24, Math.round(Number.isFinite(v) ? v : 0))) }),
-      openCharacterDetail: (id) => set((s) => openDetailRouteState(s, { characterDetailId: id })),
-      closeCharacterDetail: () => set((s) => closeDetailRouteState(s, { characterDetailId: null })),
+      openCharacterDetail: (id, destination) =>
+        set((s) => ({
+          ...openDetailRouteState(s, { characterDetailId: id }),
+          characterDetailDestination: destination ?? null,
+        })),
+      clearCharacterDetailDestination: () => set({ characterDetailDestination: null }),
+      closeCharacterDetail: () =>
+        set((s) => ({
+          ...closeDetailRouteState(s, { characterDetailId: null }),
+          characterDetailDestination: null,
+        })),
       openLorebookDetail: (id) =>
         set((s) =>
           openDetailRouteState(s, { lorebookDetailId: id, lorebookEntryDetailId: null, characterLibraryOpen: false }),

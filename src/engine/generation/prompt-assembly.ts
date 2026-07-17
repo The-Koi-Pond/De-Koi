@@ -1,4 +1,5 @@
 import { getEffectiveMemoryRecallEnabled, type GenerationContextAttributionItem } from "../contracts/types/chat";
+import type { CharacterMemoryPersistence } from "../contracts/types/character";
 import type { LorebookActivationTrace, LorebookEntryTimingState } from "../contracts/types/lorebook";
 import type { ChatMLMessage, MarkerConfig, WrapFormat } from "../contracts/types/prompt";
 import { BUILT_IN_AGENTS, enabledChatAgentIds } from "../contracts/types/agent";
@@ -105,6 +106,7 @@ export interface GenerationCharacterContext {
   postHistoryInstructions?: string;
   depthPrompt?: GenerationCharacterDepthPrompt;
   memories?: string[];
+  memoryPersistence?: CharacterMemoryPersistence;
   tags: string[];
 }
 
@@ -467,6 +469,7 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
       field(data, "post_history_instructions") || field(data, "postHistoryInstructions") || undefined,
     depthPrompt: characterDepthPrompt(data, extensions),
     memories: sameDayCharacterMemories(extensions),
+    memoryPersistence: record.memoryPersistence === "chat" ? "chat" : "character",
     tags: stringArray(data.tags ?? record.tags),
   };
 }
@@ -4060,7 +4063,6 @@ export async function assembleGenerationPrompt(
           embeddingSource,
           characters.flatMap((character) => character.memories ?? []),
         );
-  const memoryRecallBlock = memoryRecallContext?.block ?? null;
   const canonicalMemoryContext =
     canReuseSourceSensitiveContext && reusableContext
       ? {
@@ -4078,10 +4080,18 @@ export async function assembleGenerationPrompt(
             name: character.name,
             description: character.description,
             tags: character.tags,
+            memoryPersistence: character.memoryPersistence,
           })),
           maxContext,
         });
   const canonicalMemoryBlock = canonicalMemoryContext?.block ?? null;
+  const memoryRecallBlock =
+    memoryRecallContext?.block && canonicalMemoryBlock
+      ? memoryRecallContext.block.replace(
+          "recalled fragments from earlier in this chat",
+          "recalled fragments from relevant earlier context",
+        )
+      : memoryRecallContext?.block ?? null;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));

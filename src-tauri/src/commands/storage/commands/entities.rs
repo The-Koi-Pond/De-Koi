@@ -1,5 +1,5 @@
 use super::{
-    agents, avatars, character_version_media, characters, chats, connection_secrets, contracts,
+    agents, avatars, canonical_memory, character_version_media, characters, chats, connection_secrets, contracts,
     customization, entity_images, game_state_snapshots, integrations, lorebook_images,
     managed_thumbnails, media_uploads, message_swipes, personas, prompts, shared, sprites,
 };
@@ -1413,6 +1413,72 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn delete_character_soft_deletes_only_its_canonical_memories_and_indexes() {
+        let state = test_state("delete-character-canonical-memories");
+        for character_id in ["char-1", "char-2"] {
+            state
+                .storage
+                .create(
+                    "characters",
+                    json!({ "id": character_id, "data": { "name": character_id } }),
+                )
+                .expect("character should seed");
+            let memory_id = format!("memory-{character_id}");
+            let memory = canonical_memory::create_memory(
+                &state,
+                json!({
+                    "id": memory_id,
+                    "kind": "fact",
+                    "status": "active",
+                    "scope": { "kind": "character", "id": character_id },
+                    "content": format!("{character_id} remembers Miso."),
+                    "confidence": 1.0,
+                    "provenance": {
+                        "messageIds": ["message-1"],
+                        "characterId": character_id
+                    },
+                    "tags": []
+                }),
+            )
+            .expect("memory should seed");
+            canonical_memory::upsert_memory_index_row(
+                &state,
+                json!({
+                    "id": format!("index-{character_id}"),
+                    "memoryId": memory_id,
+                    "provider": "lexical",
+                    "model": "de-koi-lexical-v1",
+                    "dimensions": 64,
+                    "contentHash": format!("content-{character_id}"),
+                    "projectionHash": format!("projection-{character_id}"),
+                    "canonicalUpdatedAt": memory["updatedAt"],
+                    "vector": [0.1, 0.2]
+                }),
+            )
+            .expect("index should seed");
+        }
+
+        delete_entity(&state, "characters", "char-1", false).expect("character should delete");
+
+        assert_eq!(
+            canonical_memory::get_memory(&state, "memory-char-1").unwrap()["status"],
+            json!("deleted")
+        );
+        assert_eq!(
+            canonical_memory::get_memory(&state, "memory-char-2").unwrap()["status"],
+            json!("active")
+        );
+        let index_ids = state
+            .storage
+            .list("memory-index-rows")
+            .expect("indexes should list")
+            .into_iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_string))
+            .collect::<Vec<_>>();
+        assert_eq!(index_ids, vec!["index-char-2"]);
     }
 
     #[test]

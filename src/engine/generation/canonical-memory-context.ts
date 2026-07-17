@@ -1,4 +1,8 @@
-import type { GenerationContextAttributionItem } from "../contracts/types/chat";
+import {
+  getEffectiveMemoryRecallEnabled,
+  type GenerationContextAttributionItem,
+} from "../contracts/types/chat";
+import type { CharacterMemoryPersistence } from "../contracts/types/character";
 import type { StorageGateway } from "../capabilities/storage";
 import type {
   CanonicalMemoryQuery,
@@ -14,6 +18,7 @@ import {
   readString,
   type JsonRecord,
 } from "./runtime-records";
+import { effectiveCharacterMemoryPersistence } from "./character-memory-scope";
 
 type MemoryIndexSource = "index" | "lexical";
 
@@ -22,6 +27,7 @@ interface CanonicalMemoryCharacterContext {
   name: string;
   description?: string;
   tags: string[];
+  memoryPersistence?: CharacterMemoryPersistence;
 }
 
 interface CanonicalMemoryCandidate {
@@ -103,7 +109,11 @@ const STOPWORDS = new Set([
 ]);
 
 function canonicalMemoryEnabled(chat: JsonRecord): boolean {
-  return parseRecord(chat.metadata).enableCanonicalMemoryRecall === true;
+  const metadata = parseRecord(chat.metadata);
+  return (
+    getEffectiveMemoryRecallEnabled(readString(chat.mode || chat.chatMode), metadata) &&
+    metadata.enableCanonicalMemoryRecall !== false
+  );
 }
 
 function estimateTextTokens(text: string): number {
@@ -285,7 +295,9 @@ function scopeQueries(input: CanonicalMemoryContextInput): CanonicalMemoryQuery[
   if (chatId) scopes.push({ kind: "chat", id: chatId });
   if (sceneId) scopes.push({ kind: "scene", id: sceneId });
   for (const character of input.characters.slice(0, MAX_SCOPE_CHARACTER_IDS)) {
-    if (character.id) scopes.push({ kind: "character", id: character.id });
+    if (character.id && effectiveCharacterMemoryPersistence(character.memoryPersistence) === "character") {
+      scopes.push({ kind: "character", id: character.id });
+    }
   }
   const seen = new Set<string>();
   return scopes

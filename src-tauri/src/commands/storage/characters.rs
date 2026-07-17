@@ -639,6 +639,10 @@ pub(crate) fn duplicate_character(state: &AppState, character_id: &str) -> AppRe
         .as_object_mut()
         .ok_or_else(|| AppError::invalid_input("Record is not an object"))?;
     object.remove("id");
+    object.insert(
+        "memoryPersistence".to_string(),
+        Value::String("character".to_string()),
+    );
     if let Some(data) = object.get_mut("data").and_then(Value::as_object_mut) {
         if let Some(name) = data.get("name").and_then(Value::as_str).map(str::to_string) {
             data.insert("name".to_string(), Value::String(format!("{name} (Copy)")));
@@ -845,6 +849,7 @@ mod tests {
                 "characters",
                 json!({
                     "id": "char-1",
+                    "memoryPersistence": "chat",
                     "data": {
                         "name": "Rina",
                         "description": "Original description",
@@ -1069,6 +1074,7 @@ mod tests {
 
         assert_ne!(duplicate["id"], "char-1");
         assert_eq!(duplicate["data"]["name"], "Rina (Copy)");
+        assert_eq!(duplicate["memoryPersistence"], "character");
         assert_ne!(duplicate_path, source_path);
         assert_eq!(
             std::fs::read(&duplicate_path).expect("duplicate avatar should exist"),

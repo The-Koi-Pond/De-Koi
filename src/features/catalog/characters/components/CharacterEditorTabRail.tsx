@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
+  Brain,
   Camera,
   Eye,
   FileText,
@@ -28,6 +29,7 @@ const TABS = [
   { id: "gallery", label: "Gallery", icon: Camera },
   { id: "colors", label: "Colors", icon: Palette },
   { id: "stats", label: "Stats", icon: Swords },
+  { id: "memories", label: "Memories", icon: Brain },
   { id: "advanced", label: "Advanced", icon: Settings2 },
   { id: "lorebook", label: "Lorebook", icon: Library },
 ] as const satisfies Array<{ id: string; label: string; icon: LucideIcon }>;

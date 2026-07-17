@@ -1,8 +1,13 @@
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
+import type { CanonicalMemoryInput } from "../contracts/types/memory";
+import {
+  resolveAutomaticMemoryScope,
+  type CharacterMemoryScopeCharacter,
+} from "./character-memory-scope";
 import { nowIso, parseArray, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 
 const MEMORY_CAPTURE_JOBS_COLLECTION: StorageEntity = "memory-capture-jobs";
-const AUTOMATIC_MEMORY_CAPTURE_VERSION = 1;
+const AUTOMATIC_MEMORY_CAPTURE_VERSION = 2;
 const MAX_CAPTURE_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
 
@@ -28,8 +33,11 @@ interface MemoryCaptureJob extends JsonRecord {
   userMessageId?: string | null;
   mode?: string | null;
   scopeType: "chat";
+  scopeKind: "character" | "chat" | "scene";
   scopeId: string;
+  scopeReason: "attributed_character" | "character_chat_only" | "ambiguous_scene" | "ambiguous_chat";
   characterId?: string | null;
+  sceneId?: string | null;
   captureVersion: number;
   attempts: number;
   maxAttempts: number;
@@ -40,6 +48,7 @@ interface MemoryCaptureJob extends JsonRecord {
 
 export interface AutomaticMemoryCaptureScheduleInput {
   chat: JsonRecord;
+  characters: CharacterMemoryScopeCharacter[];
   savedUserMessage?: unknown;
   savedAssistantMessage: unknown;
 }
@@ -101,6 +110,10 @@ function stableHash(value: string): string {
 
 function jobIdFor(chatId: string, sourceMessageIds: string[]): string {
   return `memory-capture-${stableHash(`${AUTOMATIC_MEMORY_CAPTURE_VERSION}\u001f${chatId}\u001f${sourceMessageIds.join("\u001f")}`)}`;
+}
+
+function canonicalMemoryIdForJob(jobId: string): string {
+  return `canonical-${jobId}`;
 }
 
 function sourceSnapshot(value: unknown): SourceMessageSnapshot | null {
@@ -179,6 +192,68 @@ async function validateSourceMessages(storage: StorageGateway, job: JsonRecord):
   return null;
 }
 
+async function upsertCanonicalCharacterMemory(
+  storage: StorageGateway,
+  job: JsonRecord,
+  capture: Omit<AutomaticMemoryCaptureCompletion, "chatId" | "assistantMessageId">,
+  now: string,
+): Promise<void> {
+  if (readString(job.scopeKind).trim() !== "character") return;
+  const characterId = readString(job.characterId).trim();
+  const jobId = readString(job.id).trim();
+  if (!characterId || !jobId) return;
+  if (!storage.createMemory || !storage.updateMemory) {
+    throw new Error("Canonical memory storage is unavailable");
+  }
+
+  const sourceMessages = sourceSnapshotsFromJob(job);
+  const memoryId = canonicalMemoryIdForJob(jobId);
+  const mode = readString(job.mode).trim();
+  const input: CanonicalMemoryInput = {
+    id: memoryId,
+    kind: "episode",
+    status: "active",
+    scope: { kind: "character", id: characterId },
+    content: capture.memory.content,
+    confidence: 1,
+    provenance: {
+      sourceChatId: readString(job.chatId).trim(),
+      messageIds: jobSourceIds(job),
+      sceneId: readString(job.sceneId).trim() || null,
+      characterId,
+      timestamp:
+        sourceMessages.find((message) => message.id === readString(job.assistantMessageId).trim())?.createdAt || null,
+    },
+    tags: ["automatic", mode].filter(Boolean),
+    payload: {
+      automatic: true,
+      captureVersion: AUTOMATIC_MEMORY_CAPTURE_VERSION,
+      captureJobId: jobId,
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+  const existing = await storage.get("canonical-memories", memoryId).catch(() => null);
+  if (existing) {
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...patch } = input;
+    await storage.updateMemory(memoryId, patch);
+  } else {
+    await storage.createMemory(input);
+  }
+
+  if (storage.rebuildMemoryIndex) {
+    try {
+      await storage.rebuildMemoryIndex({ scope: { kind: "character", id: characterId } });
+    } catch (error) {
+      await updateJob(storage, jobId, {
+        canonicalIndexError: errorMessage(error),
+        canonicalIndexFailedAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+}
+
 export async function enqueueAutomaticMemoryCaptureJob(
   storage: StorageGateway,
   input: AutomaticMemoryCaptureScheduleInput,
@@ -192,6 +267,15 @@ export async function enqueueAutomaticMemoryCaptureJob(
   const sourceMessageIds = sourceMessages.map((message) => message.id);
   const chatId = readString(chat.id).trim() || assistant.chatId;
   if (!chatId || sourceMessageIds.length === 0) return null;
+  const mode = readString(chat.mode || chat.chatMode).trim();
+  const sceneId = readString(chat.sceneId || chat.activeSceneId).trim() || null;
+  const resolvedScope = resolveAutomaticMemoryScope({
+    chatId,
+    mode,
+    sceneId,
+    assistantCharacterId: assistant.characterId,
+    activeCharacters: input.characters,
+  });
 
   const id = jobIdFor(chatId, sourceMessageIds);
   const existing = await storage.get<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION, id).catch(() => null);
@@ -204,10 +288,13 @@ export async function enqueueAutomaticMemoryCaptureJob(
     sourceMessages,
     assistantMessageId: assistant.id,
     userMessageId: user?.id ?? null,
-    mode: readString(chat.mode || chat.chatMode).trim() || null,
+    mode: mode || null,
     scopeType: "chat",
-    scopeId: chatId,
-    characterId: assistant.characterId,
+    scopeKind: resolvedScope.scope.kind,
+    scopeId: resolvedScope.scope.id,
+    scopeReason: resolvedScope.reason,
+    characterId: resolvedScope.characterId,
+    sceneId,
     captureVersion: AUTOMATIC_MEMORY_CAPTURE_VERSION,
     attempts: 0,
     maxAttempts: MAX_CAPTURE_ATTEMPTS,
@@ -267,6 +354,9 @@ export async function processAutomaticMemoryCaptureQueue(
       const chatId = readString(job.chatId).trim();
       const refreshResult = await storage.refreshChatMemories(chatId, { sourceMessageIds });
       const capture = memoryCaptureFromRefresh(refreshResult);
+      if (capture) {
+        await upsertCanonicalCharacterMemory(storage, job, capture, now);
+      }
       const assistantMessageId = readString(job.assistantMessageId).trim();
       if (assistantMessageId) {
         await storage.patchChatMessageExtra(assistantMessageId, {

@@ -275,6 +275,39 @@ pub(crate) fn delete_memory(state: &AppState, memory_id: &str) -> AppResult<Valu
     Ok(deleted)
 }
 
+pub(crate) fn soft_delete_memories_for_scope(
+    state: &AppState,
+    scope_kind: &str,
+    scope_id: &str,
+) -> AppResult<usize> {
+    let scope_kind = scope_kind.trim();
+    let scope_id = scope_id.trim();
+    if scope_kind.is_empty() || scope_id.is_empty() {
+        return Ok(0);
+    }
+    let memory_ids = state
+        .storage
+        .list(MEMORY_COLLECTION)?
+        .into_iter()
+        .filter(|memory| {
+            let Some(scope) = memory.get("scope").and_then(Value::as_object) else {
+                return false;
+            };
+            read_string(scope.get("kind")) == scope_kind
+                && read_string(scope.get("id")) == scope_id
+                && read_string(memory.get("status")) != "deleted"
+        })
+        .filter_map(|memory| {
+            let memory_id = read_string(memory.get("id"));
+            (!memory_id.is_empty()).then_some(memory_id)
+        })
+        .collect::<Vec<_>>();
+    for memory_id in &memory_ids {
+        delete_memory(state, memory_id)?;
+    }
+    Ok(memory_ids.len())
+}
+
 pub(crate) fn query_memories(state: &AppState, body: Value) -> AppResult<Value> {
     let body = if body.is_null() { json!({}) } else { body };
     if !body.is_object() {

@@ -2557,12 +2557,18 @@ function shouldRefreshMemoryRecall(chat: JsonRecord): boolean {
 async function enqueueAutomaticMemoryCaptureSafely(
   storage: StorageGateway,
   chat: JsonRecord,
+  characters: GenerationCharacterContext[],
   savedUserMessage: unknown,
   savedAssistantMessage: unknown,
 ): Promise<void> {
   if (!storage.refreshChatMemories || !shouldRefreshMemoryRecall(chat)) return;
   try {
-    await enqueueAndScheduleAutomaticMemoryCapture(storage, { chat, savedUserMessage, savedAssistantMessage });
+    await enqueueAndScheduleAutomaticMemoryCapture(storage, {
+      chat,
+      characters,
+      savedUserMessage,
+      savedAssistantMessage,
+    });
   } catch (error) {
     console.warn("[generation] automatic memory capture enqueue failed", error);
   }
@@ -4913,7 +4919,13 @@ export async function* startGeneration(
       }
     }
     if (savedAssistantGeneration) {
-      await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, savedUserMessage, latestSaved);
+      await enqueueAutomaticMemoryCaptureSafely(
+        deps.storage,
+        chat,
+        assembly.characters,
+        savedUserMessage,
+        latestSaved,
+      );
       scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
     }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
@@ -5111,7 +5123,7 @@ export async function* startGeneration(
     }
   }
   if (savedAssistantGeneration) {
-    await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, savedUserMessage, saved);
+    await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, assembly.characters, savedUserMessage, saved);
     scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
   }
   yield { type: "done" };

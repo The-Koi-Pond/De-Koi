@@ -9,10 +9,15 @@ describe("import and export icon direction", () => {
     const memories = readSource(
       "src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.tsx",
     );
+    const characterMemories = readSource(
+      "src/features/catalog/characters/components/CharacterMemoriesTab.tsx",
+    );
     const presets = readSource("src/features/modes/shared/chat-ui/components/settings/ChatPresetBar.tsx");
 
-    expect(memories).toMatch(/title="Export memories"[\s\S]{0,240}<Upload/);
+    expect(memories).toMatch(/title="Export (?:local )?memories"[\s\S]{0,240}<Upload/);
     expect(memories).toMatch(/title="Import memories"[\s\S]{0,300}<Download/);
+    expect(characterMemories).toMatch(/onClick=\{exportMemories\}[\s\S]{0,300}<Upload/);
+    expect(characterMemories).toMatch(/importInputRef\.current\?\.click\(\)[\s\S]{0,300}<Download/);
     expect(presets).toMatch(/title="Import preset \(\.json\)"[\s\S]{0,240}<Download/);
     expect(presets).toMatch(/title="Export preset \(\.json\)"[\s\S]{0,400}<Upload/);
   });

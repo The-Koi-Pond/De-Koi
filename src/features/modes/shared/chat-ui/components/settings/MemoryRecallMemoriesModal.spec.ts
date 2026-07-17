@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import type { ChatMemoryChunk } from "../../../../../../engine/contracts/types/chat";
-import { filterMemories, memoryScope, memoryStatus, memoryType } from "./MemoryRecallMemoriesModal";
+import type { CanonicalMemoryRecord } from "../../../../../../engine/contracts/types/memory";
+import {
+  displayInheritedMemory,
+  displayLocalMemory,
+  filterMemories,
+  inheritedMemoryScopeNotice,
+  memoryScope,
+  memoryStatus,
+  memoryType,
+} from "./MemoryRecallMemoriesModal";
 
 function memory(overrides: Partial<ChatMemoryChunk>): ChatMemoryChunk {
   return {
@@ -53,5 +62,49 @@ describe("MemoryRecallMemoriesModal helpers", () => {
     expect(filterMemories(memories, { query: "mira:key", status: "wrong", type: "command", scope: "all" }).map((item) => item.id)).toEqual([
       "wrong-command",
     ]);
+  });
+
+  it("labels local and inherited ownership and keeps inherited rows read-only", () => {
+    const local = displayLocalMemory(memory({}), "chat-1");
+    const inherited = displayInheritedMemory(
+      {
+        id: "canonical-1",
+        kind: "fact",
+        status: "active",
+        scope: { kind: "character", id: "char-1" },
+        content: "Mira remembers the harbor.",
+        confidence: 1,
+        provenance: {
+          sourceChatId: "source-chat",
+          messageIds: ["source-message"],
+          characterId: "char-1",
+          timestamp: "2026-01-02T00:00:00.000Z",
+        },
+        tags: [],
+        payload: {},
+        createdAt: "2026-01-02T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      } satisfies CanonicalMemoryRecord,
+      { id: "char-1", name: "Mira" },
+      "chat-1",
+    );
+
+    expect(local.owner).toEqual({ kind: "local", label: "Local to this chat" });
+    expect(local.readOnly).toBe(false);
+    expect(inherited.owner).toEqual({
+      kind: "character",
+      characterId: "char-1",
+      label: "Inherited from Mira",
+    });
+    expect(inherited.readOnly).toBe(true);
+    expect(filterMemories([inherited], { query: "source-chat", status: "active", type: "all", scope: "all" }))
+      .toHaveLength(1);
+  });
+
+  it("explains that inherited memories are read-only and excluded from local export and clear", () => {
+    expect(inheritedMemoryScopeNotice(0)).toBeNull();
+    expect(inheritedMemoryScopeNotice(2)).toBe(
+      "Character memories are read-only here. Open the character to edit them. Export and clear only affect memories local to this chat or scene.",
+    );
   });
 });

@@ -7,6 +7,8 @@ import {
   processAutomaticMemoryCaptureQueue,
   subscribeAutomaticMemoryCaptureCompletions,
 } from "./automatic-memory-capture-queue";
+import type { CharacterMemoryScopeCharacter } from "./character-memory-scope";
+import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 
 function message(id: string, role: string, content: string): JsonRecord {
   return {
@@ -19,8 +21,15 @@ function message(id: string, role: string, content: string): JsonRecord {
   };
 }
 
-function queueStorage(options: { refreshFailures?: number } = {}) {
+function queueStorage(
+  options: {
+    refreshFailures?: number;
+    characters?: CharacterMemoryScopeCharacter[];
+    chat?: JsonRecord;
+  } = {},
+) {
   const jobs = new Map<string, JsonRecord>();
+  const canonicalMemories = new Map<string, JsonRecord>();
   const messages = new Map<string, JsonRecord>([
     ["user-1", message("user-1", "user", "My cat's name is Miso.")],
     ["assistant-1", message("assistant-1", "assistant", "Oh, that's interesting. I don't have pets.")],
@@ -35,6 +44,7 @@ function queueStorage(options: { refreshFailures?: number } = {}) {
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "memory-capture-jobs") return (jobs.get(id) ?? null) as T | null;
+      if (entity === "canonical-memories") return (canonicalMemories.get(id) ?? null) as T | null;
       return null;
     },
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
@@ -122,13 +132,43 @@ function queueStorage(options: { refreshFailures?: number } = {}) {
     async promptFull<T = unknown>(): Promise<T | null> {
       return null;
     },
+    async createMemory(body) {
+      const row = { ...body, id: String(body.id), createdAt: body.createdAt ?? "", updatedAt: body.updatedAt ?? "" };
+      canonicalMemories.set(row.id, row);
+      return row as never;
+    },
+    async updateMemory(memoryId, patch) {
+      const row = { ...(canonicalMemories.get(memoryId) ?? { id: memoryId }), ...patch };
+      canonicalMemories.set(memoryId, row);
+      return row as never;
+    },
+    async rebuildMemoryIndex() {
+      return { rebuilt: 1 };
+    },
+    async queryMemoryIndex(body) {
+      return Array.from(canonicalMemories.values()).filter(
+        (memory) =>
+          !body?.scope ||
+          (memory.scope as { kind?: string; id?: string } | undefined)?.kind === body.scope.kind &&
+            (memory.scope as { kind?: string; id?: string } | undefined)?.id === body.scope.id,
+      ) as never;
+    },
+    async queryMemories(body) {
+      return Array.from(canonicalMemories.values()).filter(
+        (memory) =>
+          !body?.scope ||
+          (memory.scope as { kind?: string; id?: string } | undefined)?.kind === body.scope.kind &&
+            (memory.scope as { kind?: string; id?: string } | undefined)?.id === body.scope.id,
+      ) as never;
+    },
   };
 
   async function enqueue() {
     return enqueueAutomaticMemoryCaptureJob(
       storage,
       {
-        chat: { id: "chat-1", mode: "conversation" },
+        chat: options.chat ?? { id: "chat-1", mode: "conversation" },
+        characters: options.characters ?? [{ id: "char-1" }],
         savedUserMessage: messages.get("user-1"),
         savedAssistantMessage: messages.get("assistant-1"),
       },
@@ -136,7 +176,7 @@ function queueStorage(options: { refreshFailures?: number } = {}) {
     );
   }
 
-  return { storage, jobs, messages, refreshCalls, enqueue };
+  return { storage, jobs, canonicalMemories, messages, refreshCalls, enqueue };
 }
 
 describe("automatic memory capture queue", () => {
@@ -255,5 +295,131 @@ describe("automatic memory capture queue", () => {
     await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:04:00.000Z" });
 
     expect(harness.refreshCalls).toHaveLength(1);
+  });
+
+  it("persists attributed characters in character scope by default", async () => {
+    const harness = queueStorage();
+
+    const job = await harness.enqueue();
+
+    expect(job).toEqual(
+      expect.objectContaining({
+        scopeKind: "character",
+        scopeId: "char-1",
+        scopeReason: "attributed_character",
+        characterId: "char-1",
+      }),
+    );
+  });
+
+  it("keeps explicitly chat-only character memories local", async () => {
+    const harness = queueStorage({ characters: [{ id: "char-1", memoryPersistence: "chat" }] });
+
+    const job = await harness.enqueue();
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+
+    expect(job).toEqual(
+      expect.objectContaining({
+        scopeKind: "chat",
+        scopeId: "chat-1",
+        scopeReason: "character_chat_only",
+      }),
+    );
+    expect(harness.canonicalMemories.size).toBe(0);
+  });
+
+  it("keeps an unattributed roleplay capture in scene scope without creating a character memory", async () => {
+    const harness = queueStorage({
+      chat: { id: "chat-1", mode: "roleplay", sceneId: "scene-1" },
+      characters: [{ id: "other-character" }],
+    });
+
+    const job = await harness.enqueue();
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+
+    expect(job).toEqual(
+      expect.objectContaining({
+        scopeKind: "scene",
+        scopeId: "scene-1",
+        scopeReason: "ambiguous_scene",
+        characterId: null,
+      }),
+    );
+    expect(harness.canonicalMemories.size).toBe(0);
+  });
+
+  it("creates one stable canonical character memory after local capture", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+
+    expect(Array.from(harness.canonicalMemories.values())).toEqual([
+      expect.objectContaining({
+        id: `canonical-${String(job?.id)}`,
+        kind: "episode",
+        status: "active",
+        scope: { kind: "character", id: "char-1" },
+        content: "Celia's cat is named Miso.",
+        confidence: 1,
+        provenance: {
+          sourceChatId: "chat-1",
+          messageIds: ["user-1", "assistant-1"],
+          sceneId: null,
+          characterId: "char-1",
+          timestamp: "2026-01-01T00:01:00.000Z",
+        },
+        tags: ["automatic", "conversation"],
+        payload: {
+          automatic: true,
+          captureVersion: 2,
+          captureJobId: String(job?.id),
+        },
+      }),
+    ]);
+  });
+
+  it("updates the stable canonical ID when a resumed job is processed again", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await harness.storage.update("memory-capture-jobs", String(job?.id), { status: "processing" });
+
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:04:00.000Z" });
+
+    expect(harness.canonicalMemories.size).toBe(1);
+    expect(harness.canonicalMemories.has(`canonical-${String(job?.id)}`)).toBe(true);
+  });
+
+  it("treats legacy jobs without persisted scope as chat-local", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    const jobId = String(job?.id);
+    const legacyJob = { ...harness.jobs.get(jobId) };
+    delete legacyJob.scopeKind;
+    delete legacyJob.scopeReason;
+    legacyJob.scopeType = "chat";
+    legacyJob.scopeId = "chat-1";
+    harness.jobs.set(jobId, legacyJob);
+
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+
+    expect(harness.canonicalMemories.size).toBe(0);
+  });
+
+  it("recalls a Conversation capture for the same character in a later Roleplay", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+
+    const recalled = await buildCanonicalMemoryContext(harness.storage, {
+      chat: { id: "chat-2", mode: "roleplay", metadata: {} },
+      storedMessages: [{ id: "roleplay-user-1", role: "user", content: "What was my cat's name?" }],
+      latestUserInput: "What was my cat's name?",
+      characters: [{ id: "char-1", name: "Mira", tags: [] }],
+      maxContext: 4096,
+    });
+
+    expect(recalled?.block).toContain("Celia's cat is named Miso.");
   });
 });
