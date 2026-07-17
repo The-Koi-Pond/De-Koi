@@ -5,6 +5,7 @@ import type { StorageGateway } from "../../../capabilities/storage";
 import { providerVisibleLlmParameters } from "../../../generation/provider-visible-parameters";
 import {
   maybeRefreshConversationStatusMessages,
+  parseGeneratedStatusMessage,
   readStatusMessageMeta,
   shouldRefreshStatusMessage,
 } from "./status-message.service";
@@ -152,6 +153,24 @@ describe("status-message refresh gating", () => {
         now,
       }),
     ).toBe(false);
+  });
+});
+
+describe("parseGeneratedStatusMessage", () => {
+  it("accepts the documented JSON shape, fenced JSON, and clearly plain text", () => {
+    expect(parseGeneratedStatusMessage('{"message":"busy writing"}')).toBe("busy writing");
+    expect(parseGeneratedStatusMessage('```json\n{"message":"busy writing"}\n```')).toBe("busy writing");
+    expect(parseGeneratedStatusMessage("busy writing")).toBe("busy writing");
+  });
+
+  it.each([
+    ['("message":"busy")', "parenthesized malformed JSON"],
+    ['{"message":"busy"', "unterminated JSON"],
+    ['Here you go: {"message":"busy"}', "leading prose around JSON"],
+    ['{"message":42}', "wrong message field type"],
+    [`{"message":"busy"}${" ".repeat(4_100)}`, "oversized provider output"],
+  ])("rejects %s (%s)", (raw) => {
+    expect(parseGeneratedStatusMessage(raw)).toBe("");
   });
 });
 
@@ -352,6 +371,49 @@ describe("maybeRefreshConversationStatusMessages", () => {
     );
 
     expect((seed.characters.char1.data.extensions as Row).conversationStatusMessage).toBe("hitting the draft");
+  });
+
+  it("preserves the previous valid status when structured output is malformed", async () => {
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["char1"],
+          metadata: { conversationStatusMessagesEnabled: true },
+        },
+      },
+      connections: {
+        conn1: { id: "conn1", model: "test-model" },
+      },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            extensions: {
+              conversationStatus: "online",
+              conversationActivity: "drafting notes",
+              conversationStatusMessage: "still on the first draft",
+            },
+          },
+        },
+      },
+    };
+
+    const result = await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: llmReturning('("message":"hitting the draft")'),
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(result).toEqual({ refreshed: [], skipped: ["char1"] });
+    expect((seed.characters.char1.data.extensions as Row).conversationStatusMessage).toBe(
+      "still on the first draft",
+    );
   });
 
   it("asks for a character-authored custom status in default Conversation style", async () => {
