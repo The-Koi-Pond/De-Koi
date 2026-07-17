@@ -113,7 +113,7 @@
     "id": "connections",
     "title": "Connections",
     "category": "Getting started",
-    "summary": "Configure and organize model providers, API keys, local endpoints, managed Local Model setup, subscription image generation, voice providers, default connections, and per-chat vision connections for image input.",
+    "summary": "Configure and organize model providers, API keys, local endpoints, managed Local Model setup, subscription image generation, voice providers, separate chat, agent, and Illustrator defaults, and per-chat vision connections for image input.",
     "keywords": ["api", "key", "model", "provider", "openrouter", "openai", "claude", "codex", "subscription", "local", "endpoint", "local model", "gguf", "huggingface", "sidecar", "image provider", "vision model", "image input", "folder", "organize"],
     "audience": "Users setting up De-Koi, running a local model, grouping providers, or switching which model powers chats and agents.",
     "where": "Title bar > Connections, including connection folders and the Local Model card; choose a chat-specific Vision / Image Input Connection in Chat Settings.",
