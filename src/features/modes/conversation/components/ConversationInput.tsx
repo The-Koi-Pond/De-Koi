@@ -60,7 +60,10 @@ import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickReplyIcon";
 import { blobToDataUrl, loadUrlBlob } from "../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../shared/lib/chat-attachment-images";
-import { useDraftTranslation } from "../../../../shared/hooks/use-draft-translation";
+import {
+  getDraftTranslationActionState,
+  useDraftTranslation,
+} from "../../../../shared/hooks/use-draft-translation";
 import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
 import {
   CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
@@ -1531,6 +1534,10 @@ export function ConversationInput({
       : (activeChat.metadata as Record<string, unknown>)
     : {};
   const showDraftTranslateButton = chatMetadata.showInputTranslateButton === true;
+  const draftTranslationAction = getDraftTranslationActionState({
+    isTranslating: isTranslatingDraft,
+    canStart: Boolean(activeChatId && hasInput),
+  });
 
   const handleTranslateDraft = useCallback(async () => {
     if (!activeChatId || isTranslatingDraft) return;
@@ -1822,8 +1829,12 @@ export function ConversationInput({
           {showDraftTranslateButton && (
             <button
               type="button"
-              onClick={() => (isTranslatingDraft ? cancelDraftTranslation() : void handleTranslateDraft())}
-              disabled={!isTranslatingDraft && (!activeChatId || !hasInput)}
+              onClick={() =>
+                draftTranslationAction.action === "cancel"
+                  ? cancelDraftTranslation()
+                  : void handleTranslateDraft()
+              }
+              disabled={draftTranslationAction.disabled}
               className={cn(
                 CHAT_INPUT_ICON_BUTTON_CLASS,
                 isTranslatingDraft || hasInput

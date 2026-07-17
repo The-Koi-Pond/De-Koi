@@ -57,7 +57,10 @@ import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { UserQuickReplyIcon } from "../../../../../shared/components/ui/UserQuickReplyIcon";
 import { blobToDataUrl } from "../../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../../shared/lib/chat-attachment-images";
-import { useDraftTranslation } from "../../../../../shared/hooks/use-draft-translation";
+import {
+  getDraftTranslationActionState,
+  useDraftTranslation,
+} from "../../../../../shared/hooks/use-draft-translation";
 import { EmojiPicker } from "../../../../../shared/components/ui/EmojiPicker";
 import { SpeechToTextButton } from "../../../../../shared/components/ui/SpeechToTextButton";
 import { QuickConnectionSwitcher } from "./QuickConnectionSwitcher";
@@ -1294,6 +1297,10 @@ export const ChatInput = memo(function ChatInput({
     }
   }, [activeChat?.metadata]);
   const showDraftTranslateButton = chatMetadata.showInputTranslateButton === true;
+  const draftTranslationAction = getDraftTranslationActionState({
+    isTranslating: isTranslatingDraft,
+    canStart: Boolean(activeChatId && hasInput && !isStreaming),
+  });
 
   const handleTranslateDraft = useCallback(async () => {
     if (!activeChatId || isTranslatingDraft) return;
@@ -1522,8 +1529,12 @@ export const ChatInput = memo(function ChatInput({
         {showDraftTranslateButton && (
           <button
             type="button"
-            onClick={() => (isTranslatingDraft ? cancelDraftTranslation() : void handleTranslateDraft())}
-            disabled={!isTranslatingDraft && (!activeChatId || !hasInput || isStreaming)}
+            onClick={() =>
+              draftTranslationAction.action === "cancel"
+                ? cancelDraftTranslation()
+                : void handleTranslateDraft()
+            }
+            disabled={draftTranslationAction.disabled}
             className={cn(
               CHAT_INPUT_ICON_BUTTON_CLASS,
               isTranslatingDraft || (hasInput && !isStreaming)

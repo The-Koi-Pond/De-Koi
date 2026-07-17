@@ -10,7 +10,10 @@ import { SpeechToTextButton } from "../../../../shared/components/ui/SpeechToTex
 import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickReplyIcon";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
-import { useDraftTranslation } from "../../../../shared/hooks/use-draft-translation";
+import {
+  getDraftTranslationActionState,
+  useDraftTranslation,
+} from "../../../../shared/hooks/use-draft-translation";
 import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
 import { notifyDraftPersistenceFailure } from "../../../../shared/lib/draft-persistence-events";
 import { MAX_FILE_SIZES } from "../../../../engine/contracts/constants/defaults";
@@ -129,6 +132,10 @@ export function GameInput({
   const [rollingQueuedDice, setRollingQueuedDice] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const { isTranslatingDraft, translateDraft, cancelDraftTranslation } = useDraftTranslation();
+  const draftTranslationAction = getDraftTranslationActionState({
+    isTranslating: isTranslatingDraft,
+    canStart: !disabled && Boolean(text.trim()),
+  });
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [addressMode, setAddressMode] = useState<AddressMode>("scene");
   const [addressMenuOpen, setAddressMenuOpen] = useState(false);
@@ -693,8 +700,12 @@ export function GameInput({
         {showDraftTranslateButton && (
           <button
             type="button"
-            onClick={() => (isTranslatingDraft ? cancelDraftTranslation() : void handleTranslateDraft())}
-            disabled={!isTranslatingDraft && (disabled || !text.trim())}
+            onClick={() =>
+              draftTranslationAction.action === "cancel"
+                ? cancelDraftTranslation()
+                : void handleTranslateDraft()
+            }
+            disabled={draftTranslationAction.disabled}
             className={cn(
               CHAT_INPUT_ICON_BUTTON_CLASS,
               isTranslatingDraft || (!disabled && text.trim())
