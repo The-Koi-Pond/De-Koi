@@ -61,6 +61,17 @@ describe("discovery showcase registry", () => {
     expect(entry?.actions).toContainEqual({ type: "replay-onboarding", label: "Show me around" });
   });
 
+  it("describes both Memory Recall scopes and how automatic capture and embeddings behave", () => {
+    const entry = DISCOVERY_ENTRIES.find((item) => item.id === "chat-memory-summaries");
+    const summary = entry?.summary.toLowerCase() ?? "";
+
+    expect(summary).toContain("chat-local");
+    expect(summary).toContain("character-wide");
+    expect(summary).toContain("speaker-labeled exchanges");
+    expect(summary).toContain("rank");
+    expect(summary).not.toMatch(/embeddings? (?:create|summarize|write)/);
+  });
+
   it("uses contextual destinations instead of sending feature actions home", () => {
     const contextualIds = [
       "conversation-mode",

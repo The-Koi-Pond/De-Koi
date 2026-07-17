@@ -34,6 +34,7 @@ import {
   useUpdateChatMemory,
 } from "../../../../../catalog/chats/index";
 import { useUIStore } from "../../../../../../shared/stores/ui.store";
+import { MEMORY_RECALL_CONSOLE_DESCRIPTION } from "../../lib/memory-recall-copy";
 
 export function formatMemoryDate(value: string | null | undefined): string {
   if (!value) return "Unknown";
@@ -412,6 +413,9 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   return (
     <Modal open={open} onClose={onClose} title="Memory Console" width="max-w-6xl">
       <div className="space-y-3">
+        <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
+          {MEMORY_RECALL_CONSOLE_DESCRIPTION}
+        </p>
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-[var(--secondary)]/70 px-3 py-2 ring-1 ring-[var(--border)]">
           <div className="text-[0.6875rem] text-[var(--muted-foreground)]" aria-live="polite">
             <span className="font-semibold text-[var(--foreground)]">{memories.length}</span> memories

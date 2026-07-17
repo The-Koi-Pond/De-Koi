@@ -566,10 +566,10 @@
     "id": "chat-memory-summaries",
     "title": "Chat Continuity Overview",
     "category": "Advanced",
-    "summary": "See what a chat can remember at a glance: Memory Recall, exact automatic memory-save notifications, saved summaries, active world info, and tracker agents, with shortcuts to the existing editors.",
+    "summary": "See what can carry forward: chat-local transcript fragments, inherited character-wide memories, automatic capture of speaker-labeled exchanges, and embeddings that rank matches, alongside summaries, world info, and tracker agents.",
     "keywords": ["continuity", "continuity overview", "memory", "summary", "summaries", "recall", "context", "long chat", "remember", "world info", "lorebooks", "trackers", "what will this chat remember", "memory saved notification"],
     "audience": "Users running long conversations, roleplays, or campaigns who want to know what context can carry forward.",
-    "where": "Open a chat > Chat Settings > Continuity for memory details; control automatic memory-save notifications in Settings > Appearance > Notifications.",
+    "where": "Open a chat > Chat Settings > Continuity for chat-local and inherited character-wide memory details; control automatic memory-save notifications in Settings > Appearance > Notifications.",
     "actions": [{ "type": "open-chat-destination", "destination": "chat-settings-continuity", "label": "Open Chat Continuity" }],
     "coverage": "advanced"
   }
