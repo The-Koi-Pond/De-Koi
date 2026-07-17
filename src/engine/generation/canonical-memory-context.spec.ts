@@ -4,6 +4,7 @@ import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { CanonicalMemoryRecord } from "../contracts/types/memory";
 import { assembleGenerationPrompt } from "./prompt-assembly";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
+import type { JsonRecord } from "./runtime-records";
 
 function asStorageValue<T>(value: unknown): T {
   return value as T;
@@ -106,7 +107,7 @@ function storageWithMemories(args: {
   } as StorageGateway;
 }
 
-function promptStorage(memories: CanonicalMemoryRecord[]): StorageGateway {
+function promptStorage(memories: CanonicalMemoryRecord[], localMemories: JsonRecord[] = []): StorageGateway {
   const base = storageWithMemories({ indexed: memories });
   return {
     ...base,
@@ -119,6 +120,9 @@ function promptStorage(memories: CanonicalMemoryRecord[]): StorageGateway {
         return asStorageValue<T>({ id: "char-1", name: "Mira", description: "Mira core.", tags: [] });
       }
       return null;
+    },
+    async listChatMemories<T = unknown>(): Promise<T[]> {
+      return asStorageValue<T[]>(localMemories);
     },
   } as StorageGateway;
 }
@@ -298,6 +302,54 @@ describe("canonical memory context", () => {
 
     expect(result).toBeNull();
   });
+
+  it("queries character scope by default when ordinary Memory Recall is enabled", async () => {
+    const storage = storageWithMemories({ indexed: [] });
+
+    await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-2", mode: "roleplay", metadata: {} },
+      storedMessages: [],
+      latestUserInput: "Do you remember Miso?",
+      characters: [{ id: "char-1", name: "Mira", tags: [] }],
+      maxContext: 4096,
+    });
+
+    expect(storage.queryMemoryIndex).toHaveBeenCalledWith({ scope: { kind: "character", id: "char-1" } });
+  });
+
+  it("does not query character scope for an explicitly chat-only character", async () => {
+    const storage = storageWithMemories({ indexed: [] });
+
+    await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-2", mode: "conversation", metadata: {} },
+      storedMessages: [],
+      latestUserInput: "Do you remember Miso?",
+      characters: [{ id: "char-1", name: "Mira", tags: [], memoryPersistence: "chat" }],
+      maxContext: 4096,
+    });
+
+    expect(storage.queryMemoryIndex).not.toHaveBeenCalledWith({ scope: { kind: "character", id: "char-1" } });
+  });
+
+  it("honors explicit canonical and master Memory Recall disables", async () => {
+    for (const metadata of [
+      { enableCanonicalMemoryRecall: false },
+      { enableMemoryRecall: false },
+    ]) {
+      const storage = storageWithMemories({ indexed: [] });
+
+      const result = await buildCanonicalMemoryContext(storage, {
+        chat: { id: "chat-2", mode: "conversation", metadata },
+        storedMessages: [],
+        latestUserInput: "Do you remember Miso?",
+        characters: [{ id: "char-1", name: "Mira", tags: [] }],
+        maxContext: 4096,
+      });
+
+      expect(result).toBeNull();
+      expect(storage.queryMemoryIndex).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe("prompt assembly canonical memory integration", () => {
@@ -309,7 +361,7 @@ describe("prompt assembly canonical memory integration", () => {
           id: "chat-1",
           mode: "conversation",
           characterIds: ["char-1"],
-          metadata: { enableCanonicalMemoryRecall: true, enableMemoryRecall: false },
+          metadata: { enableCanonicalMemoryRecall: true },
         },
         storedMessages: [{ id: "message-new", role: "user", content: "Where is the brass key?" }],
         connection: { provider: "openai", model: "qa-model" },
@@ -328,5 +380,38 @@ describe("prompt assembly canonical memory integration", () => {
         sourceCollection: "canonical-memories",
       }),
     );
+  });
+
+  it("describes combined local and character recall as relevant earlier context", async () => {
+    const result = await assembleGenerationPrompt(
+      promptStorage(
+        [memory({ id: "memory-character", scope: { kind: "character", id: "char-1" }, content: "Mira knows Miso." })],
+        [
+          {
+            id: "memory-local",
+            status: "active",
+            pinned: true,
+            content: "Miso sleeps on a blue blanket.",
+            messageIds: ["message-old"],
+          },
+        ],
+      ),
+      {
+        chat: {
+          id: "chat-2",
+          mode: "conversation",
+          characterIds: ["char-1"],
+          metadata: { memoryRecallReadBehindMessages: 0 },
+        },
+        storedMessages: [{ id: "message-new", role: "user", content: "What does Mira know about Miso?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {},
+        latestUserInput: "What does Mira know about Miso?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => message.content).join("\n");
+    expect(promptText).toContain("recalled fragments from relevant earlier context");
+    expect(promptText).not.toContain("recalled fragments from earlier in this chat");
   });
 });

@@ -4063,7 +4063,6 @@ export async function assembleGenerationPrompt(
           embeddingSource,
           characters.flatMap((character) => character.memories ?? []),
         );
-  const memoryRecallBlock = memoryRecallContext?.block ?? null;
   const canonicalMemoryContext =
     canReuseSourceSensitiveContext && reusableContext
       ? {
@@ -4081,10 +4080,18 @@ export async function assembleGenerationPrompt(
             name: character.name,
             description: character.description,
             tags: character.tags,
+            memoryPersistence: character.memoryPersistence,
           })),
           maxContext,
         });
   const canonicalMemoryBlock = canonicalMemoryContext?.block ?? null;
+  const memoryRecallBlock =
+    memoryRecallContext?.block && canonicalMemoryBlock
+      ? memoryRecallContext.block.replace(
+          "recalled fragments from earlier in this chat",
+          "recalled fragments from relevant earlier context",
+        )
+      : memoryRecallContext?.block ?? null;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));

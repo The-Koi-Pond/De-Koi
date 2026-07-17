@@ -8,6 +8,7 @@ import {
   subscribeAutomaticMemoryCaptureCompletions,
 } from "./automatic-memory-capture-queue";
 import type { CharacterMemoryScopeCharacter } from "./character-memory-scope";
+import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 
 function message(id: string, role: string, content: string): JsonRecord {
   return {
@@ -143,6 +144,22 @@ function queueStorage(
     },
     async rebuildMemoryIndex() {
       return { rebuilt: 1 };
+    },
+    async queryMemoryIndex(body) {
+      return Array.from(canonicalMemories.values()).filter(
+        (memory) =>
+          !body?.scope ||
+          (memory.scope as { kind?: string; id?: string } | undefined)?.kind === body.scope.kind &&
+            (memory.scope as { kind?: string; id?: string } | undefined)?.id === body.scope.id,
+      ) as never;
+    },
+    async queryMemories(body) {
+      return Array.from(canonicalMemories.values()).filter(
+        (memory) =>
+          !body?.scope ||
+          (memory.scope as { kind?: string; id?: string } | undefined)?.kind === body.scope.kind &&
+            (memory.scope as { kind?: string; id?: string } | undefined)?.id === body.scope.id,
+      ) as never;
     },
   };
 
@@ -388,5 +405,21 @@ describe("automatic memory capture queue", () => {
     await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
 
     expect(harness.canonicalMemories.size).toBe(0);
+  });
+
+  it("recalls a Conversation capture for the same character in a later Roleplay", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+
+    const recalled = await buildCanonicalMemoryContext(harness.storage, {
+      chat: { id: "chat-2", mode: "roleplay", metadata: {} },
+      storedMessages: [{ id: "roleplay-user-1", role: "user", content: "What was my cat's name?" }],
+      latestUserInput: "What was my cat's name?",
+      characters: [{ id: "char-1", name: "Mira", tags: [] }],
+      maxContext: 4096,
+    });
+
+    expect(recalled?.block).toContain("Celia's cat is named Miso.");
   });
 });
