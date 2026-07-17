@@ -45,6 +45,7 @@ import {
   Pencil,
   Settings2,
   Sparkles,
+  MessageSquare,
   ImageIcon,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
@@ -79,6 +80,8 @@ type ConnectionRowData = {
   imagePath?: string | null;
   imageFilename?: string | null;
   useForRandom?: string | boolean | null;
+  isDefault?: string | boolean | null;
+  default?: string | boolean | null;
   defaultForAgents?: string | boolean | null;
   folderId?: string | null;
 };
@@ -86,6 +89,46 @@ type ConnectionRowData = {
 type ConnectionDropTarget = { folderId: string | null } | null;
 
 const CONNECTION_DRAG_MIME = "application/x-de-koi-connection-id";
+
+export function DefaultChatConnectionCard({ connectionsList }: { connectionsList: ConnectionRowData[] }) {
+  const openConnectionDetail = useUIStore((s) => s.openConnectionDetail);
+  const defaultConnection =
+    connectionsList.find(
+      (conn) =>
+        conn.provider !== "image_generation" && (boolish(conn.isDefault, false) || boolish(conn.default, false)),
+    ) ?? null;
+
+  return (
+    <div className="rounded-xl border border-violet-400/20 bg-gradient-to-br from-violet-400/5 to-indigo-500/5 p-3">
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-400 to-indigo-500 text-white shadow-sm">
+          <MessageSquare size="1rem" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">Default for Chats</div>
+          <div className="truncate text-[0.6875rem] text-[var(--muted-foreground)]">
+            {defaultConnection
+              ? `${defaultConnection.name} • ${defaultConnection.model || "No model set"}`
+              : "No default chat connection set"}
+          </div>
+        </div>
+        {defaultConnection && (
+          <button
+            type="button"
+            onClick={() => openConnectionDetail(defaultConnection.id)}
+            className="rounded-lg p-1.5 text-violet-400 transition-all hover:bg-violet-400/15 active:scale-90"
+            title="Open default chat connection"
+          >
+            <Settings2 size="0.8125rem" />
+          </button>
+        )}
+      </div>
+      <p className="mt-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+        Choose a text connection below, then enable <strong>Use as default chat connection</strong> in its editor.
+      </p>
+    </div>
+  );
+}
 
 export function DefaultAgentConnectionCard({ connectionsList }: { connectionsList: ConnectionRowData[] }) {
   const openConnectionDetail = useUIStore((s) => s.openConnectionDetail);
@@ -407,7 +450,10 @@ export function ConnectionFolderRow({
         </div>
         <ChevronRight
           size="0.75rem"
-          className={cn("shrink-0 text-[var(--muted-foreground)] transition-transform", !folder.collapsed && "rotate-90")}
+          className={cn(
+            "shrink-0 text-[var(--muted-foreground)] transition-transform",
+            !folder.collapsed && "rotate-90",
+          )}
         />
         <div
           className="h-2 w-2 rounded-full flex-shrink-0"
@@ -698,7 +744,11 @@ export function ConnectionsPanel() {
   return (
     <div className="flex flex-col gap-2 p-3">
       {setupIntent && !setupIntent.completed && (
-        <SetupJourneyContextBanner owner="connection" mode={setupIntent.mode} onReturn={() => useUIStore.getState().closeRightPanel()} />
+        <SetupJourneyContextBanner
+          owner="connection"
+          mode={setupIntent.mode}
+          onReturn={() => useUIStore.getState().closeRightPanel()}
+        />
       )}
       <input
         ref={connectionImageInputRef}
@@ -722,6 +772,7 @@ export function ConnectionsPanel() {
       {/* ── Text to Speech ── */}
       <TTSConfigCard />
 
+      <DefaultChatConnectionCard connectionsList={connectionsList} />
       <DefaultAgentConnectionCard connectionsList={connectionsList} />
       <DefaultIllustratorConnectionCard connectionsList={connectionsList} />
 

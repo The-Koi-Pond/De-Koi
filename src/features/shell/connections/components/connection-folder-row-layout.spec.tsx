@@ -3,7 +3,7 @@ import type { ComponentType, ElementType, ReactElement, ReactNode } from "react"
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ConnectionFolderRow, DefaultAgentConnectionCard } from "./ConnectionsPanel";
+import { ConnectionFolderRow, DefaultAgentConnectionCard, DefaultChatConnectionCard } from "./ConnectionsPanel";
 
 vi.mock("framer-motion", () => ({
   Reorder: {
@@ -109,6 +109,40 @@ describe("connection folder row layout", () => {
     root = rendered.root;
     container = rendered.container;
 
-    expect(container.textContent).toContain("Choose a text connection below, then enable Use as default agent connection");
+    expect(container.textContent).toContain(
+      "Choose a text connection below, then enable Use as default agent connection",
+    );
+  });
+
+  it("shows the normal chat default separately from the agent default", () => {
+    const rendered = render(
+      <DefaultChatConnectionCard
+        connectionsList={[
+          {
+            id: "chat-default",
+            name: "Everyday Chat",
+            provider: "openai",
+            model: "model-chat",
+            isDefault: true,
+            defaultForAgents: false,
+          },
+          {
+            id: "agent-default",
+            name: "Agent Worker",
+            provider: "anthropic",
+            model: "model-agent",
+            isDefault: false,
+            defaultForAgents: true,
+          },
+        ]}
+      />,
+    );
+    root = rendered.root;
+    container = rendered.container;
+
+    expect(container.textContent).toContain("Default for Chats");
+    expect(container.textContent).toContain("Everyday Chat");
+    expect(container.textContent).not.toContain("Agent Worker");
+    expect(container.textContent).toContain("Use as default chat connection");
   });
 });

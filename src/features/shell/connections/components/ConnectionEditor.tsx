@@ -199,6 +199,7 @@ export function ConnectionEditor() {
   const [localEnableCaching, setLocalEnableCaching] = useState(false);
   const [localCachingAtDepth, setLocalCachingAtDepth] = useState(DEFAULT_CACHING_AT_DEPTH);
   const [localClaudeFastMode, setLocalClaudeFastMode] = useState(false);
+  const [localIsDefault, setLocalIsDefault] = useState(false);
   const [localDefaultForAgents, setLocalDefaultForAgents] = useState(false);
   const [localEmbeddingModel, setLocalEmbeddingModel] = useState("");
   const [localEmbeddingBaseUrl, setLocalEmbeddingBaseUrl] = useState("");
@@ -306,6 +307,7 @@ export function ConnectionEditor() {
     setLocalEnableCaching(c.enableCaching === "true" || c.enableCaching === true);
     setLocalCachingAtDepth(normalizeCachingAtDepth(c.cachingAtDepth));
     setLocalClaudeFastMode(c.claudeFastMode === "true" || c.claudeFastMode === true);
+    setLocalIsDefault(c.isDefault === "true" || c.isDefault === true || c.default === "true" || c.default === true);
     setLocalDefaultForAgents(c.defaultForAgents === "true" || c.defaultForAgents === true);
     setLocalEmbeddingModel((c.embeddingModel as string) ?? "");
     setLocalEmbeddingBaseUrl((c.embeddingBaseUrl as string) ?? "");
@@ -492,6 +494,7 @@ export function ConnectionEditor() {
       enableCaching: localEnableCaching,
       cachingAtDepth: localCachingAtDepth,
       claudeFastMode: localProvider === "claude_subscription" ? localClaudeFastMode : false,
+      ...(localProvider !== "image_generation" ? { isDefault: localIsDefault } : {}),
       defaultForAgents: localDefaultForAgents,
       embeddingModel: usesLocalAuthProvider ? "" : localEmbeddingModel,
       embeddingBaseUrl: usesLocalAuthProvider ? "" : localEmbeddingBaseUrl,
@@ -559,6 +562,7 @@ export function ConnectionEditor() {
     localEnableCaching,
     localCachingAtDepth,
     localClaudeFastMode,
+    localIsDefault,
     localDefaultForAgents,
     localEmbeddingModel,
     localEmbeddingBaseUrl,
@@ -1839,6 +1843,34 @@ export function ConnectionEditor() {
           )}
 
           {/* ── Default for Agents ── */}
+          {localProvider !== "image_generation" && (
+            <FieldGroup
+              label="Default for Chats"
+              icon={<MessageSquare size="0.875rem" className="text-violet-400" />}
+              help="Used by new chats and normal generation features when no chat or preset has an explicit connection."
+            >
+              <label className="flex cursor-pointer select-none items-center gap-3 px-2 py-1">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    checked={localIsDefault}
+                    onChange={(e) => {
+                      setLocalIsDefault(e.target.checked);
+                      markDirty();
+                    }}
+                    className="peer sr-only"
+                  />
+                  <div className="h-5 w-9 rounded-full bg-[var(--border)] transition-colors peer-checked:bg-violet-400/70" />
+                  <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
+                </div>
+                <span className="text-sm">Use as default chat connection</span>
+              </label>
+              <p className="px-2 text-[0.625rem] text-[var(--muted-foreground)]">
+                This is separate from agent and Illustrator defaults. Only one connection can be the chat default.
+              </p>
+            </FieldGroup>
+          )}
+
           <FieldGroup
             label={isImageGenerationProvider ? "Default for Illustrator" : "Default for Agents"}
             icon={<Bot size="0.875rem" className="text-teal-400" />}
