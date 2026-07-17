@@ -31,12 +31,16 @@ export function hasEmbeddedTauriIpc(): boolean {
   );
 }
 
-export async function invokeTauri<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+export async function invokeTauri<T>(
+  command: string,
+  args?: Record<string, unknown>,
+  options: { signal?: AbortSignal } = {},
+): Promise<T> {
   const runtimeTarget = remoteRuntimeTarget();
   const remoteCommand = isRemoteCommand(command);
   if (runtimeTarget && remoteCommand) {
     return measurePerformanceAsync({ category: "ipc", name: command, details: { runtime: "remote" } }, () =>
-      invokeRemote<T>(command, args),
+      invokeRemote<T>(command, args, options),
     );
   }
   if (!hasEmbeddedTauriIpc()) {

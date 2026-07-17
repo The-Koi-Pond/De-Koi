@@ -146,6 +146,7 @@ export interface ConversationMessageRenderContext {
   handleMessageDoubleClick: (event: MouseEvent) => void;
   handleCopy: () => void;
   onTranslate: (content: string) => void;
+  onCancelTranslation: () => void;
   onStartEdit: () => void;
   onRegenerate?: (messageId: string) => void;
   onSetActiveSwipe?: (messageId: string, index: number) => void;
@@ -572,7 +573,16 @@ export function ConversationMessageTranslation({ context }: { context: Conversat
   return (
     <div className="mt-1.5 border-t border-[var(--border)] pt-1.5">
       {context.isTranslating ? (
-        <span className="text-[0.75rem] italic text-[var(--muted-foreground)]">Translating…</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[0.75rem] italic text-[var(--muted-foreground)]">Translating…</span>
+          <button
+            type="button"
+            onClick={context.onCancelTranslation}
+            className="text-[0.6875rem] font-medium text-[var(--primary)] hover:underline"
+          >
+            Cancel
+          </button>
+        </div>
       ) : (
         <div className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--muted-foreground)]">
           {context.translatedText}

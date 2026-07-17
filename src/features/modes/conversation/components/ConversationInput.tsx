@@ -60,7 +60,7 @@ import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickReplyIcon";
 import { blobToDataUrl, loadUrlBlob } from "../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../shared/lib/chat-attachment-images";
-import { translateDraftText } from "../../../../shared/lib/draft-translation";
+import { useDraftTranslation } from "../../../../shared/hooks/use-draft-translation";
 import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
 import {
   CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
@@ -167,7 +167,7 @@ export function ConversationInput({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pendingAttachmentReadsByChat, setPendingAttachmentReadsByChat] = useState<Record<string, number>>({});
   const pendingAttachmentReadsByChatRef = useRef<Record<string, number>>({});
-  const [isTranslatingDraft, setIsTranslatingDraft] = useState(false);
+  const { isTranslatingDraft, translateDraft, cancelDraftTranslation } = useDraftTranslation();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -1537,21 +1537,16 @@ export function ConversationInput({
     const raw = textareaRef.current?.value ?? "";
     if (!raw.trim()) return;
 
-    setIsTranslatingDraft(true);
-    try {
-      const translated = await translateDraftText(raw);
-      if (!translated || !textareaRef.current) return;
-      const formatted = formatTextQuotes(translated, quoteFormat);
-      textareaRef.current.value = formatted;
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
-      syncInputState(formatted);
-      setInputDraft(activeChatId, formatted);
-      textareaRef.current.focus();
-    } finally {
-      setIsTranslatingDraft(false);
-    }
-  }, [activeChatId, isTranslatingDraft, quoteFormat, setInputDraft, syncInputState]);
+    const translated = await translateDraft(raw);
+    if (!translated || !textareaRef.current) return;
+    const formatted = formatTextQuotes(translated, quoteFormat);
+    textareaRef.current.value = formatted;
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+    syncInputState(formatted);
+    setInputDraft(activeChatId, formatted);
+    textareaRef.current.focus();
+  }, [activeChatId, isTranslatingDraft, quoteFormat, setInputDraft, syncInputState, translateDraft]);
 
   const handleSpeechTranscript = useCallback(
     (transcript: string) => {
@@ -1827,17 +1822,17 @@ export function ConversationInput({
           {showDraftTranslateButton && (
             <button
               type="button"
-              onClick={() => void handleTranslateDraft()}
-              disabled={!activeChatId || !hasInput || isTranslatingDraft}
+              onClick={() => (isTranslatingDraft ? cancelDraftTranslation() : void handleTranslateDraft())}
+              disabled={!isTranslatingDraft && (!activeChatId || !hasInput)}
               className={cn(
                 CHAT_INPUT_ICON_BUTTON_CLASS,
-                hasInput && !isTranslatingDraft
+                isTranslatingDraft || hasInput
                   ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
                   : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
               )}
-              title="Translate draft"
+              title={isTranslatingDraft ? "Cancel draft translation" : "Translate draft"}
             >
-              {isTranslatingDraft ? <Loader2 size="1rem" className="animate-spin" /> : <Languages size="1rem" />}
+              {isTranslatingDraft ? <StopCircle size="1rem" /> : <Languages size="1rem" />}
             </button>
           )}
 

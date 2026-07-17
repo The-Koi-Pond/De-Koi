@@ -928,7 +928,7 @@ export const ChatMessage = memo(function ChatMessage({
   }, [customTextBlipSound, editing, isStreaming, isSystem, isUser, message.content, message.id, textBlipMode]);
 
   // Translation
-  const { translate, translations, translating } = useTranslate();
+  const { translate, cancelTranslation, translations, translating } = useTranslate();
   const translatedText = translations[message.id];
   const isTranslating = !!translating[message.id];
 
@@ -1690,7 +1690,16 @@ export const ChatMessage = memo(function ChatMessage({
       {(translatedText || isTranslating) && (
         <div className="mt-2 border-t border-white/10 pt-2">
           {isTranslating ? (
-            <span className="text-[0.75rem] italic text-white/40">Translating…</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[0.75rem] italic text-white/40">Translating…</span>
+              <button
+                type="button"
+                onClick={() => cancelTranslation(message.id, message.chatId)}
+                className="text-[0.6875rem] font-medium text-sky-300 hover:underline"
+              >
+                Cancel
+              </button>
+            </div>
           ) : (
             <div className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-blue-200/70">
               {translatedText}
@@ -2599,7 +2608,16 @@ export const ChatMessage = memo(function ChatMessage({
                 {(translatedText || isTranslating) && (
                   <div className="mt-2 border-t border-[var(--border)] pt-2">
                     {isTranslating ? (
-                      <span className="text-[0.75rem] italic text-[var(--muted-foreground)]">Translating…</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[0.75rem] italic text-[var(--muted-foreground)]">Translating…</span>
+                        <button
+                          type="button"
+                          onClick={() => cancelTranslation(message.id, message.chatId)}
+                          className="text-[0.6875rem] font-medium text-[var(--primary)] hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     ) : (
                       <div className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--muted-foreground)]">
                         {translatedText}

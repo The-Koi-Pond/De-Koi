@@ -57,7 +57,7 @@ import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { UserQuickReplyIcon } from "../../../../../shared/components/ui/UserQuickReplyIcon";
 import { blobToDataUrl } from "../../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../../shared/lib/chat-attachment-images";
-import { translateDraftText } from "../../../../../shared/lib/draft-translation";
+import { useDraftTranslation } from "../../../../../shared/hooks/use-draft-translation";
 import { EmojiPicker } from "../../../../../shared/components/ui/EmojiPicker";
 import { SpeechToTextButton } from "../../../../../shared/components/ui/SpeechToTextButton";
 import { QuickConnectionSwitcher } from "./QuickConnectionSwitcher";
@@ -163,7 +163,7 @@ export const ChatInput = memo(function ChatInput({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pendingAttachmentReadsByChat, setPendingAttachmentReadsByChat] = useState<Record<string, number>>({});
-  const [isTranslatingDraft, setIsTranslatingDraft] = useState(false);
+  const { isTranslatingDraft, translateDraft, cancelDraftTranslation } = useDraftTranslation();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [charPickerOpen, setCharPickerOpen] = useState(false);
@@ -1300,21 +1300,16 @@ export const ChatInput = memo(function ChatInput({
     const raw = getValue();
     if (!raw.trim()) return;
 
-    setIsTranslatingDraft(true);
-    try {
-      const translated = await translateDraftText(raw);
-      if (!translated || !textareaRef.current) return;
-      const formatted = formatTextQuotes(translated, quoteFormat);
-      textareaRef.current.value = formatted;
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
-      syncInputState(formatted);
-      setInputDraft(activeChatId, formatted);
-      textareaRef.current.focus();
-    } finally {
-      setIsTranslatingDraft(false);
-    }
-  }, [activeChatId, isTranslatingDraft, quoteFormat, setInputDraft, syncInputState]);
+    const translated = await translateDraft(raw);
+    if (!translated || !textareaRef.current) return;
+    const formatted = formatTextQuotes(translated, quoteFormat);
+    textareaRef.current.value = formatted;
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
+    syncInputState(formatted);
+    setInputDraft(activeChatId, formatted);
+    textareaRef.current.focus();
+  }, [activeChatId, isTranslatingDraft, quoteFormat, setInputDraft, syncInputState, translateDraft]);
 
   const handleSpeechTranscript = useCallback(
     (transcript: string) => {
@@ -1527,17 +1522,17 @@ export const ChatInput = memo(function ChatInput({
         {showDraftTranslateButton && (
           <button
             type="button"
-            onClick={() => void handleTranslateDraft()}
-            disabled={!activeChatId || !hasInput || isStreaming || isTranslatingDraft}
+            onClick={() => (isTranslatingDraft ? cancelDraftTranslation() : void handleTranslateDraft())}
+            disabled={!isTranslatingDraft && (!activeChatId || !hasInput || isStreaming)}
             className={cn(
               CHAT_INPUT_ICON_BUTTON_CLASS,
-              hasInput && !isStreaming && !isTranslatingDraft
+              isTranslatingDraft || (hasInput && !isStreaming)
                 ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
                 : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
             )}
-            title="Translate draft"
+            title={isTranslatingDraft ? "Cancel draft translation" : "Translate draft"}
           >
-            {isTranslatingDraft ? <Loader2 size="0.9375rem" className="animate-spin" /> : <Languages size="1rem" />}
+            {isTranslatingDraft ? <StopCircle size="0.9375rem" /> : <Languages size="1rem" />}
           </button>
         )}
 
