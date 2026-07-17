@@ -72,7 +72,7 @@ export function resolveAutomaticMemoryScope(input: {
 
 - `GenerationCharacterContext` gains `memoryPersistence: CharacterMemoryPersistence`.
 
-- [ ] **Step 1: Write failing contract and resolver tests**
+- [x] **Step 1: Write failing contract and resolver tests**
 
 Cover the absent-value default, explicit chat value, schema rejection of unsupported explicit values, attributed active character, chat-only character, missing/inactive identity, ambiguous roleplay scene, and ambiguous conversation chat.
 
@@ -89,7 +89,7 @@ expect(resolveAutomaticMemoryScope({
 });
 ```
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run:
 
@@ -99,18 +99,18 @@ pnpm vitest run src/engine/contracts/schemas/character.schema.spec.ts src/engine
 
 Expected: failure because the type, schema field, helper, and resolver do not exist.
 
-- [ ] **Step 3: Implement the minimal contract and resolver**
+- [x] **Step 3: Implement the minimal contract and resolver**
 
 Add `memoryPersistence` to internal create/update schemas, not `CharacterData`. Load the normalized field from the character row in `loadCharacterContext`. Do not inspect names or infer an owner from character count.
 
-- [ ] **Step 4: Run focused tests and typecheck**
+- [x] **Step 4: Run focused tests and typecheck**
 
 ```powershell
 pnpm vitest run src/engine/contracts/schemas/character.schema.spec.ts src/engine/generation/character-memory-scope.spec.ts
 pnpm typecheck
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/engine/contracts src/engine/generation
@@ -159,7 +159,7 @@ function canonicalMemoryIdForJob(jobId: string): string {
 }
 ```
 
-- [ ] **Step 1: Write failing queue tests**
+- [x] **Step 1: Write failing queue tests**
 
 Add tests proving:
 
@@ -171,17 +171,17 @@ Add tests proving:
 - chat-local jobs never call `createMemory`;
 - legacy jobs without scope remain chat-local.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```powershell
 pnpm vitest run src/engine/generation/automatic-memory-capture-queue.spec.ts
 ```
 
-- [ ] **Step 3: Implement scheduling and canonical upsert**
+- [x] **Step 3: Implement scheduling and canonical upsert**
 
 Resolve scope when the immutable source snapshot is enqueued. Keep `refreshChatMemories(chatId, { sourceMessageIds })` unchanged for the local projection. After refresh returns an exact capture, use the generic storage read plus `createMemory`/`updateMemory` to upsert the stable canonical record. Rebuild only the touched character scope; record index failure without discarding the durable memory.
 
-- [ ] **Step 4: Write and run generation seam tests**
+- [x] **Step 4: Write and run generation seam tests**
 
 Pass `assembly.characters` from both saved-assistant paths into `enqueueAutomaticMemoryCaptureSafely`. Update existing call assertions to include the new character context without weakening exact source-message checks.
 
@@ -189,14 +189,14 @@ Pass `assembly.characters` from both saved-assistant paths into `enqueueAutomati
 pnpm vitest run src/engine/generation/start-generation.memory-recall.e2e.spec.ts src/engine/generation/start-generation.group-typing.spec.ts
 ```
 
-- [ ] **Step 5: Run all focused capture tests and typecheck**
+- [x] **Step 5: Run all focused capture tests and typecheck**
 
 ```powershell
 pnpm vitest run src/engine/generation/automatic-memory-capture-queue.spec.ts src/engine/generation/start-generation.memory-recall.e2e.spec.ts src/engine/generation/start-generation.group-typing.spec.ts
 pnpm typecheck
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src/engine/generation
@@ -216,32 +216,32 @@ git commit -m "Persist automatic character memories"
 - Canonical retrieval is enabled when ordinary Memory Recall is effectively enabled and `enableCanonicalMemoryRecall !== false`.
 - Character scope queries include only effective `character` characters.
 
-- [ ] **Step 1: Add failing retrieval tests**
+- [x] **Step 1: Add failing retrieval tests**
 
 Prove that a missing preference queries character scope, an explicit chat preference does not, explicit canonical disable is honored, the master Memory Recall disable is honored, and inactive/non-present characters are not queried.
 
 Add an E2E storage harness case that captures for `char-1` in a Conversation and then assembles a Roleplay prompt with the same character and the new canonical row.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```powershell
 pnpm vitest run src/engine/generation/canonical-memory-context.spec.ts src/engine/generation/start-generation.memory-recall.e2e.spec.ts
 ```
 
-- [ ] **Step 3: Implement effective retrieval**
+- [x] **Step 3: Implement effective retrieval**
 
 Import `getEffectiveMemoryRecallEnabled` and the character preference helper. Replace the hidden opt-in-only gate with the approved effective rule. Keep current scope dedupe, score, recency, recent-message, supersession, and token limits.
 
 Update prompt copy from “earlier in this chat” to “relevant earlier context” when canonical rows are present.
 
-- [ ] **Step 4: Verify focused and prompt suites**
+- [x] **Step 4: Verify focused and prompt suites**
 
 ```powershell
 pnpm vitest run src/engine/generation/canonical-memory-context.spec.ts src/engine/generation/start-generation.memory-recall.e2e.spec.ts src/engine/generation/prompt-assembly.context-priority.spec.ts
 pnpm typecheck
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/engine/generation
@@ -265,7 +265,7 @@ git commit -m "Recall memories across character chats"
 }
 ```
 
-- [ ] **Step 1: Replace strict-connection import tests with failing portability tests**
+- [x] **Step 1: Replace strict-connection import tests with failing portability tests**
 
 The tests must seed a destination chat that references a missing explicit embedding connection and import:
 
@@ -274,7 +274,7 @@ The tests must seed a destination chat that references a missing explicit embedd
 
 Both must succeed, store `embeddingSource: "lexical"`, clear provider connection/model metadata, and produce the same deterministic local vector. Keep refresh tests that reject broken explicitly configured connections unchanged.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```powershell
 cargo test --manifest-path src-tauri/Cargo.toml import_chat_memories_ -- --nocapture
@@ -282,7 +282,7 @@ cargo test --manifest-path src-tauri/Cargo.toml import_chat_memories_ -- --nocap
 
 Expected: the missing connection aborts before normalization.
 
-- [ ] **Step 3: Implement the narrow import fix**
+- [x] **Step 3: Implement the narrow import fix**
 
 Remove eager `memory_embedding_context(state, &chat)` from import. For each new normalized chunk, discard file-carried embedding/index metadata and call:
 
@@ -295,14 +295,14 @@ insert_memory_embedding_fields(
 
 Increment `lexical_indexed`. Preserve append/replace atomicity and all dedupe behavior.
 
-- [ ] **Step 4: Verify Rust memory tests**
+- [x] **Step 4: Verify Rust memory tests**
 
 ```powershell
 cargo test --manifest-path src-tauri/Cargo.toml chat_memory::tests -- --nocapture
 cargo check --manifest-path src-tauri/Cargo.toml --workspace
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src-tauri/src/commands/storage/chat_memory.rs
@@ -339,21 +339,21 @@ type CharacterMemoryExportV1 = {
 };
 ```
 
-- [ ] **Step 1: Write failing pure model/API tests**
+- [x] **Step 1: Write failing pure model/API tests**
 
 Cover export sanitization, import normalization to the selected stable character scope, stable migration IDs, status labels, and canonical API argument shapes.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```powershell
 pnpm vitest run src/features/catalog/characters/lib/character-memory-model.spec.ts src/shared/api/canonical-memory-api.spec.ts
 ```
 
-- [ ] **Step 3: Implement hooks and model**
+- [x] **Step 3: Implement hooks and model**
 
 Use `canonicalMemoryApi.query/update/delete/create/index.rebuildLexical`. Soft delete uses `status: "deleted"`; restore uses `status: "active"`; pin toggles `pinned`/`active`. Import rewrites scope to the selected character and preserves source provenance. Export excludes index vectors and provider metadata.
 
-- [ ] **Step 4: Implement the Memories tab**
+- [x] **Step 4: Implement the Memories tab**
 
 Add a `Brain` tab with:
 
@@ -366,14 +366,14 @@ Add a `Brain` tab with:
 
 Save `memoryPersistence` beside `data` and `comment` in `CharacterEditor`; do not put it in card data.
 
-- [ ] **Step 5: Verify focused UI/model checks**
+- [x] **Step 5: Verify focused UI/model checks**
 
 ```powershell
 pnpm vitest run src/features/catalog/characters/lib/character-memory-model.spec.ts src/shared/api/canonical-memory-api.spec.ts src/features/catalog/characters/hooks/use-characters.spec.ts
 pnpm typecheck
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src/features/catalog/characters src/shared/api/canonical-memory-api*
@@ -398,28 +398,28 @@ type DisplayMemoryOwner =
   | { kind: "character"; characterId: string; label: `Inherited from ${string}` };
 ```
 
-- [ ] **Step 1: Add failing filter/owner tests**
+- [x] **Step 1: Add failing filter/owner tests**
 
 Prove local and inherited labels, inherited read-only behavior, source search, and exclusion of chat-only/inactive characters.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```powershell
 pnpm vitest run src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.spec.ts
 ```
 
-- [ ] **Step 3: Implement inherited queries and display**
+- [x] **Step 3: Implement inherited queries and display**
 
 Keep local mutation buttons only for local rows. Inherited rows show canonical status/provenance and an “Open character memories” action. Do not copy canonical rows into chat storage.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```powershell
 pnpm vitest run src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.spec.ts
 pnpm typecheck
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/features/modes/shared/chat-ui src/features/catalog/chats
@@ -449,25 +449,25 @@ pub(crate) fn soft_delete_memories_for_scope(
 ) -> AppResult<usize>;
 ```
 
-- [ ] **Step 1: Add failing deletion test**
+- [x] **Step 1: Add failing deletion test**
 
 Seed one character-scoped canonical memory, one other-character memory, and index rows. Delete the character through `delete_entity`. Assert only the deleted character's memory is `deleted` and its index rows are removed.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```powershell
 cargo test --manifest-path src-tauri/Cargo.toml delete_character_ -- --nocapture
 ```
 
-- [ ] **Step 3: Implement cleanup in the existing character-delete owner**
+- [x] **Step 3: Implement cleanup in the existing character-delete owner**
 
 Call the focused canonical-memory cleanup from the existing `characters` deletion path. Do not add a React-side cleanup sequence. Preserve media/gallery/version cleanup.
 
-- [ ] **Step 4: Update discoverability**
+- [x] **Step 4: Update discoverability**
 
 Add the character Memories tab and cross-chat continuity keywords/action to the existing character or Memory Recall discovery entry. Do not create duplicate entries.
 
-- [ ] **Step 5: Run architecture and runtime checks**
+- [x] **Step 5: Run architecture and runtime checks**
 
 ```powershell
 pnpm check:architecture
@@ -476,7 +476,7 @@ cargo check --manifest-path src-tauri/Cargo.toml --workspace
 pnpm typecheck
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src-tauri src/shared/api src/features/shell/discovery
@@ -489,7 +489,7 @@ git commit -m "Clean up deleted character memories"
 - Modify: `docs/superpowers/plans/2026-07-17-character-memory-continuity.md` checkboxes as work completes
 - Modify: PR body only after local proof
 
-- [ ] **Step 1: Run focused regression suites**
+- [x] **Step 1: Run focused regression suites**
 
 ```powershell
 pnpm vitest run src/engine/generation/character-memory-scope.spec.ts src/engine/generation/automatic-memory-capture-queue.spec.ts src/engine/generation/canonical-memory-context.spec.ts src/engine/generation/start-generation.memory-recall.e2e.spec.ts src/features/catalog/characters/lib/character-memory-model.spec.ts src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.spec.ts
@@ -497,7 +497,7 @@ cargo test --manifest-path src-tauri/Cargo.toml chat_memory::tests -- --nocaptur
 cargo test --manifest-path src-tauri/Cargo.toml canonical_memory -- --nocapture
 ```
 
-- [ ] **Step 2: Run full local gates**
+- [x] **Step 2: Run full local gates**
 
 ```powershell
 pnpm test
