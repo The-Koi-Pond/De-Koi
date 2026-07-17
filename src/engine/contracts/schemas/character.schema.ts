@@ -3,6 +3,8 @@
 // ──────────────────────────────────────────────
 import { z } from "zod";
 
+const characterMemoryPersistenceSchema = z.enum(["character", "chat"]);
+
 const depthPromptSchema = z.object({
   prompt: z.string().default(""),
   depth: z.number().int().min(0).default(4),
@@ -111,6 +113,7 @@ export const characterCardV2Schema = z.object({
 export const createCharacterSchema = z
   .object({
     data: characterDataSchema,
+    memoryPersistence: characterMemoryPersistenceSchema.optional(),
   })
   .passthrough();
 
@@ -130,6 +133,7 @@ const updateCharacterDataSchema = characterDataSchema.deepPartial().extend({
 export const updateCharacterSchema = z
   .object({
     data: updateCharacterDataSchema.optional(),
+    memoryPersistence: characterMemoryPersistenceSchema.optional(),
   })
   .passthrough();
 
@@ -160,4 +164,3 @@ export type CreateGroupInput = z.infer<typeof createGroupSchema>;
 export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
 export type CreatePersonaGroupInput = z.infer<typeof createPersonaGroupSchema>;
 export type UpdatePersonaGroupInput = z.infer<typeof updatePersonaGroupSchema>;
-

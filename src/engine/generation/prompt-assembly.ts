@@ -1,4 +1,5 @@
 import { getEffectiveMemoryRecallEnabled, type GenerationContextAttributionItem } from "../contracts/types/chat";
+import type { CharacterMemoryPersistence } from "../contracts/types/character";
 import type { LorebookActivationTrace, LorebookEntryTimingState } from "../contracts/types/lorebook";
 import type { ChatMLMessage, MarkerConfig, WrapFormat } from "../contracts/types/prompt";
 import { BUILT_IN_AGENTS, enabledChatAgentIds } from "../contracts/types/agent";
@@ -105,6 +106,7 @@ export interface GenerationCharacterContext {
   postHistoryInstructions?: string;
   depthPrompt?: GenerationCharacterDepthPrompt;
   memories?: string[];
+  memoryPersistence?: CharacterMemoryPersistence;
   tags: string[];
 }
 
@@ -467,6 +469,7 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
       field(data, "post_history_instructions") || field(data, "postHistoryInstructions") || undefined,
     depthPrompt: characterDepthPrompt(data, extensions),
     memories: sameDayCharacterMemories(extensions),
+    memoryPersistence: record.memoryPersistence === "chat" ? "chat" : "character",
     tags: stringArray(data.tags ?? record.tags),
   };
 }

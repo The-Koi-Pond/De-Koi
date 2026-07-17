@@ -145,6 +145,8 @@ export interface CharacterBookEntry {
   position: "before_char" | "after_char";
 }
 
+export type CharacterMemoryPersistence = "character" | "chat";
+
 /** Our internal Character representation (extends V2 with engine-specific fields). */
 export interface Character {
   id: string;
@@ -156,6 +158,8 @@ export interface Character {
   avatarPath: string | null;
   /** Path to sprite folder */
   spriteFolderPath: string | null;
+  /** Whether new automatic memories follow this character or remain isolated per chat. Missing defaults to character. */
+  memoryPersistence?: CharacterMemoryPersistence;
   createdAt: string;
   updatedAt: string;
 }
