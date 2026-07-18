@@ -276,6 +276,8 @@ const PRIVILEGED_REMOTE_COMMANDS = new Set([
 export const ADMIN_SECRET_STORAGE_KEY = "marinara-admin-secret";
 export const LEGACY_ADMIN_SECRET_STORAGE_KEY = "marinara_admin_secret";
 const REMOTE_RUNTIME_MARKERS = new Set(["de-koi-server", "marinara-server"]);
+/** Finite health and JSON command calls share one end-to-end deadline. Streaming calls remain caller-cancelled. */
+export const REMOTE_FINITE_REQUEST_TIMEOUT_MS = 30_000;
 
 export type RuntimeTarget = {
   baseUrl: string;
@@ -451,6 +453,44 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
+type RemoteFiniteRequestOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+
+function createRemoteRequestDeadline(options: RemoteFiniteRequestOptions = {}) {
+  const controller = new AbortController();
+  const timeoutMs = Math.max(1, options.timeoutMs ?? REMOTE_FINITE_REQUEST_TIMEOUT_MS);
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) {
+    abortFromCaller();
+  } else {
+    options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new DOMException("Remote runtime request timed out.", "TimeoutError"));
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    timeoutMs,
+    didTimeOut: () => timedOut,
+    didCallerAbort: () => options.signal?.aborted === true && !timedOut,
+    dispose: () => {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abortFromCaller);
+    },
+  };
+}
+
+function remoteTimeoutError(timeoutMs: number): ApiError {
+  return new ApiError(`Remote runtime request timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`, 504, {
+    code: "remote_runtime_timeout",
+    timeoutMs,
+  });
+}
+
 function remoteNetworkError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
   const message = error instanceof Error ? error.message : String(error ?? "Unknown network error");
@@ -467,13 +507,14 @@ function remoteNetworkError(error: unknown): ApiError {
 
 export async function checkRemoteRuntimeHealth(
   rawUrl: string,
-  options: { signal?: AbortSignal } = {},
+  options: RemoteFiniteRequestOptions = {},
 ): Promise<RemoteRuntimeHealthCheck> {
   if (!rawUrl.trim()) {
     return unconfiguredRemoteRuntimeHealth();
   }
 
   let target: RuntimeTarget | null;
+  const deadline = createRemoteRequestDeadline(options);
   try {
     target = normalizeRemoteRuntimeUrl(rawUrl);
   } catch {
@@ -490,7 +531,7 @@ export async function checkRemoteRuntimeHealth(
       remoteFetchInit({
         method: "GET",
         headers: remoteHeaders(target, { accept: "application/json" }),
-        signal: options.signal,
+        signal: deadline.signal,
       }),
     );
 
@@ -498,7 +539,12 @@ export async function checkRemoteRuntimeHealth(
       return { status: "unreachable", message: `Remote runtime returned ${response.status}.` };
     }
 
-    const body = (await response.json().catch(() => null)) as RemoteRuntimeHealthPayload | null;
+    let body: RemoteRuntimeHealthPayload | null = null;
+    try {
+      body = (await response.json()) as RemoteRuntimeHealthPayload;
+    } catch (error) {
+      if (deadline.didTimeOut() || deadline.didCallerAbort()) throw error;
+    }
     if (!body || typeof body !== "object" || body.ok !== true || !isSupportedRemoteRuntime(body.runtime)) {
       return { status: "unreachable", message: "Remote runtime did not return a compatible health response." };
     }
@@ -523,7 +569,7 @@ export async function checkRemoteRuntimeHealth(
             options: { fields: ["id"], limit: 1 },
           },
         }),
-        signal: options.signal,
+        signal: deadline.signal,
       }),
     );
 
@@ -548,8 +594,11 @@ export async function checkRemoteRuntimeHealth(
       health: body,
     };
   } catch (error) {
-    if (isAbortError(error)) throw error;
+    if (deadline.didTimeOut()) throw remoteTimeoutError(deadline.timeoutMs);
+    if (deadline.didCallerAbort() || isAbortError(error)) throw error;
     return { status: "unreachable", message: "Remote runtime is unreachable." };
+  } finally {
+    deadline.dispose();
   }
 }
 
@@ -624,28 +673,31 @@ function normalizeRemoteLlmChunk(event: LlmChunk): LlmChunk {
 export async function invokeRemote<T>(
   command: string,
   args?: Record<string, unknown>,
-  options: { signal?: AbortSignal } = {},
+  options: RemoteFiniteRequestOptions = {},
 ): Promise<T> {
   const target = remoteRuntimeTarget();
   if (!target) throw new ApiError("Remote runtime URL is not configured", 400);
   const body = JSON.stringify({ command, args: args ?? null });
-  let response: Response;
+  const deadline = createRemoteRequestDeadline(options);
   try {
-    response = await fetch(
+    const response = await fetch(
       `${target.baseUrl}/api/invoke`,
       remoteFetchInit({
         method: "POST",
         headers: remoteInvokeHeaders(target, command, args),
         body,
-        signal: options.signal,
+        signal: deadline.signal,
       }),
     );
+    if (!response.ok) throw await readRemoteError(response);
+    return (await response.json()) as T;
   } catch (error) {
-    if (isAbortError(error)) throw error;
+    if (deadline.didTimeOut()) throw remoteTimeoutError(deadline.timeoutMs);
+    if (deadline.didCallerAbort() || isAbortError(error)) throw error;
     throw remoteNetworkError(error);
+  } finally {
+    deadline.dispose();
   }
-  if (!response.ok) throw await readRemoteError(response);
-  return (await response.json()) as T;
 }
 
 export async function* streamRemoteJsonEvents(

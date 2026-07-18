@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkRemoteRuntimeHealth } from '../../../../shared/api/remote-runtime';
 import { localSidecarApi } from '../../../../shared/api/local-sidecar-api';
 import { storageApi } from '../../../../shared/api/storage-api';
@@ -89,6 +89,36 @@ describe('createDiagnosticsSnapshot', () => {
       }
       return [];
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('settles the shared diagnostics snapshot when runtime health reaches its deadline', async () => {
+    vi.useFakeTimers();
+    remoteRuntimeMock.health.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          setTimeout(
+            () =>
+              reject(
+                Object.assign(new Error('Remote runtime request timed out after 30 seconds.'), {
+                  status: 504,
+                  details: { code: 'remote_runtime_timeout' },
+                }),
+              ),
+            30_000,
+          );
+        }),
+    );
+
+    const pending = createDiagnosticsSnapshot('http://runtime.test');
+    await vi.advanceTimersByTimeAsync(30_000);
+    const snapshot = await pending;
+
+    expect(snapshot.sections.find((section) => section.id === 'runtime')?.items[0]?.summary).toContain('timed out');
+    expect(snapshot.sections.find((section) => section.id === 'storage')?.status).toBe('ok');
   });
 
   it('keeps unrelated sections when one section rejects', async () => {

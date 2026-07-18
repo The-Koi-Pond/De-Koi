@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "./api-errors";
-import { checkRemoteRuntimeHealth, invokeRemote, readRemoteError, remoteRuntimeTarget } from "./remote-runtime";
+import {
+  checkRemoteRuntimeHealth,
+  invokeRemote,
+  readRemoteError,
+  REMOTE_FINITE_REQUEST_TIMEOUT_MS,
+  remoteRuntimeTarget,
+} from "./remote-runtime";
 import { useUIStore } from "../stores/ui.store";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -31,7 +37,52 @@ function stubFetch(responses: Response[]) {
 
 describe("checkRemoteRuntimeHealth", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("fails a hanging finite health request with a distinguishable default timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        });
+      }),
+    );
+
+    const pending = checkRemoteRuntimeHealth("http://127.0.0.1:3080");
+    const rejection = expect(pending).rejects.toMatchObject({
+      name: "ApiError",
+      status: 504,
+      details: {
+        code: "remote_runtime_timeout",
+        timeoutMs: REMOTE_FINITE_REQUEST_TIMEOUT_MS,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(REMOTE_FINITE_REQUEST_TIMEOUT_MS);
+
+    await rejection;
+  });
+
+  it("preserves explicit caller cancellation instead of relabeling it as a timeout", async () => {
+    vi.useFakeTimers();
+    const caller = new AbortController();
+    const abortError = new DOMException("Cancelled by the caller.", "AbortError");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        });
+      }),
+    );
+
+    const pending = checkRemoteRuntimeHealth("http://127.0.0.1:3080", { signal: caller.signal });
+    caller.abort(abortError);
+
+    await expect(pending).rejects.toBe(abortError);
   });
 
   it("accepts the De-Koi server health marker", async () => {
@@ -156,6 +207,7 @@ describe("remoteRuntimeTarget", () => {
 
 describe("invokeRemote", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     useUIStore.setState({ remoteRuntimeUrl: "" });
   });
@@ -191,5 +243,27 @@ describe("invokeRemote", () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(apiError));
 
     await expect(invokeRemote("connection_models", { id: "conn-1" })).rejects.toBe(apiError);
+  });
+
+  it("applies the finite request deadline to ordinary JSON invokes", async () => {
+    vi.useFakeTimers();
+    useUIStore.setState({ remoteRuntimeUrl: "http://127.0.0.1:8787" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        });
+      }),
+    );
+
+    const pending = invokeRemote("connection_models", { id: "conn-1" });
+    const rejection = expect(pending).rejects.toMatchObject({
+      status: 504,
+      details: { code: "remote_runtime_timeout" },
+    });
+    await vi.advanceTimersByTimeAsync(REMOTE_FINITE_REQUEST_TIMEOUT_MS);
+
+    await rejection;
   });
 });
