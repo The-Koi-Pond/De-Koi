@@ -89,10 +89,7 @@ import {
   type DrawerCharacter,
 } from "../lib/chat-settings-character-search";
 import { buildContinuityOverviewViewModel } from "../lib/continuity-overview";
-import {
-  MEMORY_RECALL_SECTION_HELP,
-  MEMORY_RECALL_TOGGLE_DESCRIPTION,
-} from "../lib/memory-recall-copy";
+import { MEMORY_RECALL_SECTION_HELP, MEMORY_RECALL_TOGGLE_DESCRIPTION } from "../lib/memory-recall-copy";
 import {
   AgentCategorySection,
   ChatSettingsSection as Section,
@@ -1942,9 +1939,7 @@ function ChatSettingsDrawerInner({
         >
           <div className="flex-1 min-w-0">
             <span className="text-[0.6875rem] font-medium">Enable Memory Recall</span>
-            <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-              {MEMORY_RECALL_TOGGLE_DESCRIPTION}
-            </p>
+            <p className="text-[0.625rem] text-[var(--muted-foreground)]">{MEMORY_RECALL_TOGGLE_DESCRIPTION}</p>
           </div>
           <div
             className={cn(
@@ -2084,9 +2079,7 @@ function ChatSettingsDrawerInner({
             }}
             onSaveName={saveName}
             onConnectionChange={setConnection}
-            onVisionConnectionChange={(visionConnectionId) =>
-              updateMeta.mutate({ id: chat.id, visionConnectionId })
-            }
+            onVisionConnectionChange={(visionConnectionId) => updateMeta.mutate({ id: chat.id, visionConnectionId })}
             onPresetChange={setPreset}
             onEditPresetChoices={() => {
               if (chat.promptPresetId) setChoiceModalPresetId(chat.promptPresetId);
@@ -5181,11 +5174,7 @@ function ChatSettingsDrawerInner({
 
           {/* Memory Recall — conversation mode: show here; roleplay: shown after Function Calling */}
           {isConversation && !isLiteBuild && (
-            <Section
-              label="Memory Recall"
-              icon={<Brain size="0.875rem" />}
-              help={MEMORY_RECALL_SECTION_HELP}
-            >
+            <Section label="Memory Recall" icon={<Brain size="0.875rem" />} help={MEMORY_RECALL_SECTION_HELP}>
               {renderMemoryRecallControls()}
             </Section>
           )}
@@ -5491,11 +5480,7 @@ function ChatSettingsDrawerInner({
 
           {/* Memory Recall — roleplay/game modes: show after Function Calling */}
           {!isConversation && !isLiteBuild && (
-            <Section
-              label="Memory Recall"
-              icon={<Brain size="0.875rem" />}
-              help={MEMORY_RECALL_SECTION_HELP}
-            >
+            <Section label="Memory Recall" icon={<Brain size="0.875rem" />} help={MEMORY_RECALL_SECTION_HELP}>
               {renderMemoryRecallControls()}
             </Section>
           )}
@@ -5774,6 +5759,39 @@ function ChatSettingsDrawerInner({
                   />
                   <span className="text-[0.625rem] text-[var(--muted-foreground)]">messages</span>
                 </div>
+              )}
+              {(isConversation || isRoleplayMode) && (
+                <button
+                  onClick={() => {
+                    updateMeta.mutate({ id: chat.id, showInlineReasoning: metadata.showInlineReasoning !== true });
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                    metadata.showInlineReasoning === true
+                      ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                      : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                  )}
+                >
+                  <div>
+                    <span className="text-xs font-medium">Show Model Reasoning</span>
+                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                      Show provider-returned reasoning in a collapsible panel beneath character replies.
+                    </p>
+                  </div>
+                  <div
+                    className={cn(
+                      "h-5 w-9 overflow-hidden rounded-full p-0.5 transition-colors",
+                      metadata.showInlineReasoning === true ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                        metadata.showInlineReasoning === true && "translate-x-3.5",
+                      )}
+                    />
+                  </div>
+                </button>
               )}
               <button
                 onClick={() => {

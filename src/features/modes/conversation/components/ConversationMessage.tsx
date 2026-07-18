@@ -79,7 +79,8 @@ function areConversationMessagePropsEqual(prev: ConversationMessageProps, next: 
     prev.visiblePartCount === next.visiblePartCount &&
     prev.bubbleGroupPosition === next.bubbleGroupPosition &&
     prev.originalContent === next.originalContent &&
-    prev.typingLabel === next.typingLabel
+    prev.typingLabel === next.typingLabel &&
+    prev.showInlineReasoning === next.showInlineReasoning
   );
 }
 
@@ -121,6 +122,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   bubbleGroupPosition = "single",
   originalContent,
   typingLabel,
+  showInlineReasoning = false,
 }: ConversationMessageProps) {
   const [editing, setEditing] = useState(false);
   const cardCssId = editing || suppressCardCss ? undefined : (message.characterId ?? undefined);
@@ -590,6 +592,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     regenerateButtonTitle: resolvedRegenerateButtonTitle,
     regenerateGuidedClass,
     thinking,
+    showInlineReasoning,
     generationReplay,
     memoryCapture,
     activePromptSnapshot,

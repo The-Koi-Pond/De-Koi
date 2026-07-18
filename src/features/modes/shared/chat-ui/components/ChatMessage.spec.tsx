@@ -407,7 +407,7 @@ describe("ChatMessage", () => {
     });
     expect(observers).toHaveLength(1);
     const firstTarget = container!.querySelector<HTMLElement>("[data-cycle-name]")!.parentElement!;
-    expect((observers[0]!.observer.observe as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(firstTarget);
+    expect(observers[0]!.observer.observe as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(firstTarget);
 
     act(() => {
       root!.render(renderMessage(true));
@@ -420,7 +420,7 @@ describe("ChatMessage", () => {
     expect(observers).toHaveLength(2);
     const secondTarget = container!.querySelector<HTMLElement>("[data-cycle-name]")!.parentElement!;
     expect(secondTarget).not.toBe(firstTarget);
-    expect((observers[1]!.observer.observe as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(secondTarget);
+    expect(observers[1]!.observer.observe as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(secondTarget);
 
     act(() => {
       observers[1]!.callback(
@@ -479,7 +479,10 @@ describe("ChatMessage", () => {
     });
     const staleTarget = container!.querySelector<HTMLElement>("[data-cycle-name]")!.parentElement!;
     act(() => {
-      observerCallback!([{ target: staleTarget, isIntersecting: true } as unknown as IntersectionObserverEntry], observer!);
+      observerCallback!(
+        [{ target: staleTarget, isIntersecting: true } as unknown as IntersectionObserverEntry],
+        observer!,
+      );
       vi.advanceTimersByTime(2_000);
     });
     const staleNames = staleTarget.querySelectorAll<HTMLElement>("[data-cycle-name]");
@@ -499,7 +502,10 @@ describe("ChatMessage", () => {
     expect(visibilityRemovesBeforeStaleCallback).toBe(visibilityAddsBeforeStaleCallback);
 
     act(() => {
-      observerCallback!([{ target: staleTarget, isIntersecting: true } as unknown as IntersectionObserverEntry], observer!);
+      observerCallback!(
+        [{ target: staleTarget, isIntersecting: true } as unknown as IntersectionObserverEntry],
+        observer!,
+      );
     });
     const timerCountAfterStaleCallback = vi.getTimerCount();
     const visibilityAddsAfterStaleCallback = addEventListener.mock.calls.filter(
@@ -511,7 +517,10 @@ describe("ChatMessage", () => {
     const staleOpacityAfterCallback = Array.from(staleNames, (name) => name.style.opacity);
 
     act(() => {
-      observerCallback!([{ target: staleTarget, isIntersecting: false } as unknown as IntersectionObserverEntry], observer!);
+      observerCallback!(
+        [{ target: staleTarget, isIntersecting: false } as unknown as IntersectionObserverEntry],
+        observer!,
+      );
     });
 
     expect(timerCountAfterStaleCallback).toBe(0);
@@ -1040,5 +1049,37 @@ describe("ChatMessage", () => {
       });
     }).not.toThrow();
     expect(container!.textContent).not.toContain("remembered");
+  });
+
+  it("shows provider reasoning inline only when enabled and omits empty panels", () => {
+    const reasoningMessage: Message = {
+      ...message,
+      id: "roleplay-reasoning",
+      extra: { ...message.extra, reasoning_content: "Compared the available clues." },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={reasoningMessage} characterMap={characterMap} showInlineReasoning />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container!.textContent).toContain("Model reasoning");
+    expect(container!.textContent).toContain("Compared the available clues.");
+
+    act(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={{ ...reasoningMessage, extra: message.extra }}
+            characterMap={characterMap}
+            showInlineReasoning
+          />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container!.textContent).not.toContain("Model reasoning");
   });
 });

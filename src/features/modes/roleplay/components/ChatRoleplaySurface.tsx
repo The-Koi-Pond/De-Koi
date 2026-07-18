@@ -229,6 +229,7 @@ function StreamingIndicator({
   chatMode,
   groupChatMode,
   expressionAvatarResolver,
+  showInlineReasoning,
 }: {
   activeChatId: string;
   chatCharIds: string[];
@@ -237,6 +238,7 @@ function StreamingIndicator({
   chatMode: string;
   groupChatMode?: string;
   expressionAvatarResolver?: ExpressionAvatarResolver;
+  showInlineReasoning?: boolean;
 }) {
   const streamBuffer = useChatStore((s) => s.streamBuffers.get(activeChatId) ?? s.streamBuffer);
   const thinkingBuffer = useChatStore((s) => s.thinkingBuffers.get(activeChatId) ?? s.thinkingBuffer);
@@ -268,6 +270,7 @@ function StreamingIndicator({
         groupChatMode={groupChatMode}
         chatCharacterIds={chatCharIds}
         expressionAvatarResolver={expressionAvatarResolver}
+        showInlineReasoning={showInlineReasoning}
       />
     </div>
   );
@@ -1292,6 +1295,7 @@ export function ChatRoleplaySurface({
                           multiSelectMode={messageActions.multiSelectMode}
                           isSelected={messageActions.isSelected ?? selectedMessageIds.has(msg.id)}
                           onToggleSelect={messageActions.onToggleSelect}
+                          showInlineReasoning={chatMeta.showInlineReasoning === true}
                         />
                       ) : (
                         <ChatMessage
@@ -1324,6 +1328,7 @@ export function ChatRoleplaySurface({
                           multiSelectMode={messageActions.multiSelectMode}
                           isSelected={messageActions.isSelected ?? selectedMessageIds.has(msg.id)}
                           onToggleSelect={messageActions.onToggleSelect}
+                          showInlineReasoning={chatMeta.showInlineReasoning === true}
                         />
                       )}
                     </div>
@@ -1352,6 +1357,7 @@ export function ChatRoleplaySurface({
                     chatMode={chatMode}
                     groupChatMode={groupChatMode}
                     expressionAvatarResolver={expressionAvatarResolver}
+                    showInlineReasoning={chatMeta.showInlineReasoning === true}
                   />
                 )}
 

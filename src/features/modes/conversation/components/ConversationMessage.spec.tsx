@@ -1078,4 +1078,32 @@ describe("ConversationMessage memo subscriptions", () => {
       promptSnapshot,
     });
   });
+
+  it("shows stored reasoning inline only when the chat preference is enabled", () => {
+    const reasoningMessage: Message = {
+      ...message,
+      id: "conversation-reasoning",
+      extra: { ...message.extra, hiddenFromAI: false, thinking: "Checked the timeline before answering." },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage message={reasoningMessage} characterMap={characterMap} showInlineReasoning={false} />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container!.textContent).not.toContain("Checked the timeline before answering.");
+
+    act(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage message={reasoningMessage} characterMap={characterMap} showInlineReasoning />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container!.textContent).toContain("Model reasoning");
+    expect(container!.textContent).toContain("Checked the timeline before answering.");
+  });
 });
