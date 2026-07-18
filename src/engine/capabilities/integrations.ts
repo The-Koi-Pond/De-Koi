@@ -35,10 +35,16 @@ export interface DiscordGateway {
   }): Promise<T>;
 }
 
+export interface WebResearchGateway {
+  search<T = unknown>(input: { chatId: string; grantId: string; query: string; maxResults?: number }): Promise<T>;
+  readPage<T = unknown>(input: { chatId: string; grantId: string; query: string; url: string }): Promise<T>;
+}
+
 export interface IntegrationGateway {
   music?: MusicGateway;
   spotify: SpotifyGateway;
   customTools: CustomToolsGateway;
   image: ImageGenerationGateway;
   discord?: DiscordGateway;
+  webResearch?: WebResearchGateway;
 }

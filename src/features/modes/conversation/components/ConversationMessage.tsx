@@ -595,6 +595,8 @@ export const ConversationMessage = memo(function ConversationMessage({
     showInlineReasoning,
     generationReplay,
     memoryCapture,
+    characterWebResearchRequest: extra.characterWebResearchRequest ?? null,
+    characterWebResearchSources: extra.characterWebResearchSources ?? null,
     activePromptSnapshot,
     copied,
     handleMessageClick,

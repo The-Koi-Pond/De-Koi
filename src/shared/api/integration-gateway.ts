@@ -5,6 +5,7 @@ import { imageGenerationApi } from "./image-generation-api";
 import { spotifyApi } from "./integration-utility-api";
 import { musicApi } from "./music-api";
 import { invokeTauri } from "./tauri-client";
+import { webResearchApi } from "./web-research-api";
 
 async function discordMirrorModuleEnabled(): Promise<boolean> {
   try {
@@ -17,6 +18,10 @@ async function discordMirrorModuleEnabled(): Promise<boolean> {
 }
 
 export const integrationGateway: IntegrationGateway = {
+  webResearch: {
+    search: (input) => webResearchApi.search(input),
+    readPage: (input) => webResearchApi.readPage(input),
+  },
   music: {
     status: (input) => musicApi.status(input),
     searchCandidates: (input) => musicApi.searchCandidates(input),

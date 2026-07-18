@@ -53,6 +53,7 @@ import type { LLMToolCall } from "../generation-core/llm/base-provider";
 import { createInlineThinkingStreamParser, extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import {
   buildMainToolDefinitions,
+  CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
   executeMainToolCall,
   normalizeToolCall,
   type MainToolDefinitions,
@@ -3191,6 +3192,9 @@ async function saveAssistantMessage(args: {
   contextInjections?: AgentInjectionOverride[] | null;
   existingExtra?: unknown;
   regenerationTarget?: JsonRecord | null;
+  webResearchRequest?: Record<string, unknown> | null;
+  clearWebResearchRequest?: boolean;
+  webResearchSources?: Array<{ title: string; url: string }> | null;
 }): Promise<unknown | null> {
   const regenerateMessageId = readString(args.input.regenerateMessageId).trim();
   const regenerationTargetRole = readString(args.regenerationTarget?.role).trim();
@@ -3204,12 +3208,17 @@ async function saveAssistantMessage(args: {
     promptSnapshot: args.promptSnapshot,
     usage: args.usage,
   });
-  const agentExtra = agentExtraFromResults({
-    results: args.agentResults,
-    contextInjections: args.contextInjections,
-    existingExtra: regenerateMessageId ? args.existingExtra : undefined,
-    mergeContextInjectionUpdates: !!regenerateMessageId,
-  });
+  const agentExtra = {
+    ...agentExtraFromResults({
+      results: args.agentResults,
+      contextInjections: args.contextInjections,
+      existingExtra: regenerateMessageId ? args.existingExtra : undefined,
+      mergeContextInjectionUpdates: !!regenerateMessageId,
+    }),
+    ...(args.webResearchRequest ? { characterWebResearchRequest: args.webResearchRequest } : {}),
+    ...(args.clearWebResearchRequest ? { characterWebResearchRequest: null } : {}),
+    ...(args.webResearchSources?.length ? { characterWebResearchSources: args.webResearchSources } : {}),
+  };
   const generationInfo = {
     connectionId: readString(args.connection.id) || null,
     model: readString(args.connection.model) || null,
@@ -4369,8 +4378,7 @@ export async function* startGeneration(
     deps.storage,
     chat,
     primaryConnection,
-    preparedUserInput.images.length > 0 ||
-      generationMessages.some((message) => parseArray(message.images).length > 0),
+    preparedUserInput.images.length > 0 || generationMessages.some((message) => parseArray(message.images).length > 0),
   );
   for (const warning of [
     ...preparedUserInput.imageWarnings,
@@ -4665,6 +4673,8 @@ export async function* startGeneration(
     let usage: unknown = null;
     let providerMetadata: unknown = null;
     let promptSnapshot: MainGenerationPromptSnapshot | null = null;
+    let webResearchRequest: Record<string, unknown> | null = null;
+    let webResearchSources: Array<{ title: string; url: string }> = [];
     const modelCallStartedAt = generationTimingStartedAt();
     try {
       ({
@@ -4673,6 +4683,8 @@ export async function* startGeneration(
         usage,
         providerMetadata,
         promptSnapshot,
+        webResearchRequest,
+        webResearchSources,
       } = yield* streamMainGenerationLoop({
         deps,
         connection,
@@ -4694,6 +4706,9 @@ export async function* startGeneration(
         partial: mainPartial,
       }));
     } catch (err) {
+      if (mainTools?.characterWebResearchGrant) {
+        await deps.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
+      }
       // On a Stop mid-stream, persist the partial text before the abort
       // propagates so it is not discarded, and emit its message event so the
       // client upserts the saved row before clearing the streaming buffer.
@@ -4717,6 +4732,9 @@ export async function* startGeneration(
         };
       }
       throw err;
+    }
+    if (mainTools?.characterWebResearchGrant) {
+      await deps.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
     }
     const modelCallTiming = generationTimingEvent("model-call", modelCallStartedAt, {
       promptMessageCount: baseMessages.length,
@@ -4789,6 +4807,9 @@ export async function* startGeneration(
           contextInjections: isUserMessageRegeneration ? null : (runtime?.preInjections ?? null),
           existingExtra: await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId),
           regenerationTarget,
+          webResearchRequest,
+          clearWebResearchRequest: mainTools?.characterWebResearchGrant != null,
+          webResearchSources,
         });
     const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
     let latestSaved = saved;
@@ -4919,13 +4940,7 @@ export async function* startGeneration(
       }
     }
     if (savedAssistantGeneration) {
-      await enqueueAutomaticMemoryCaptureSafely(
-        deps.storage,
-        chat,
-        assembly.characters,
-        savedUserMessage,
-        latestSaved,
-      );
+      await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, assembly.characters, savedUserMessage, latestSaved);
       scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
     }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
@@ -4978,6 +4993,8 @@ export async function* startGeneration(
   let usage: unknown = null;
   let providerMetadata: unknown = null;
   let promptSnapshotDirect: MainGenerationPromptSnapshot | null = null;
+  let webResearchRequestDirect: Record<string, unknown> | null = null;
+  let webResearchSourcesDirect: Array<{ title: string; url: string }> = [];
   try {
     ({
       content: streamedContentDirect,
@@ -4985,6 +5002,8 @@ export async function* startGeneration(
       usage,
       providerMetadata,
       promptSnapshot: promptSnapshotDirect,
+      webResearchRequest: webResearchRequestDirect,
+      webResearchSources: webResearchSourcesDirect,
     } = yield* streamMainGenerationLoop({
       deps,
       connection,
@@ -5006,6 +5025,9 @@ export async function* startGeneration(
       partial: directPartial,
     }));
   } catch (err) {
+    if (mainToolsDirect?.characterWebResearchGrant) {
+      await deps.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
+    }
     // On a Stop mid-stream, persist the partial text before the abort
     // propagates so it is not discarded, and emit its message event so the
     // client upserts the saved row before clearing the streaming buffer.
@@ -5026,6 +5048,9 @@ export async function* startGeneration(
       yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(savedPartial) };
     }
     throw err;
+  }
+  if (mainToolsDirect?.characterWebResearchGrant) {
+    await deps.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
   }
   throwIfAborted(signal);
   let content = streamedContentDirect;
@@ -5078,6 +5103,9 @@ export async function* startGeneration(
         promptSnapshot: promptSnapshotDirect,
         existingExtra: await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId),
         regenerationTarget,
+        webResearchRequest: webResearchRequestDirect,
+        clearWebResearchRequest: mainToolsDirect?.characterWebResearchGrant != null,
+        webResearchSources: webResearchSourcesDirect,
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
   if (saved) {
@@ -5288,6 +5316,8 @@ async function* streamMainGenerationLoop(args: {
     usage: unknown;
     providerMetadata: unknown;
     promptSnapshot: MainGenerationPromptSnapshot | null;
+    webResearchRequest: Record<string, unknown> | null;
+    webResearchSources: Array<{ title: string; url: string }>;
   }
 > {
   const {
@@ -5312,6 +5342,8 @@ async function* streamMainGenerationLoop(args: {
   const turnUsages: unknown[] = [];
   const conversation: LlmMessage[] = [...baseMessages];
   let promptSnapshot: MainGenerationPromptSnapshot | null = null;
+  let webResearchRequest: Record<string, unknown> | null = null;
+  const webResearchSources: Array<{ title: string; url: string }> = [];
   let iteration = 0;
   // Text streamed in the current turn but not yet committed to `content`.
   // Lets the abort `finally` recover an in-flight turn (the `content +=
@@ -5428,6 +5460,31 @@ async function* streamMainGenerationLoop(args: {
       inFlightTurn = "";
 
       if (!mainTools || pendingToolCalls.length === 0) break;
+      const webRequestCall = pendingToolCalls.find(
+        (call) => (call.function?.name || call.name) === CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
+      );
+      if (webRequestCall) {
+        try {
+          const raw = webRequestCall.function?.arguments || webRequestCall.arguments || "{}";
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          const query = readString(parsed.query).trim();
+          const reason = readString(parsed.reason).trim();
+          if (query && reason) {
+            webResearchRequest = {
+              query,
+              reason,
+              allowedDomains: Array.isArray(parsed.allowedDomains)
+                ? parsed.allowedDomains.map((value) => readString(value).trim()).filter(Boolean)
+                : [],
+              status: "pending",
+            };
+            if (!content.trim()) content = "I’d like to check the web before I answer.";
+            break;
+          }
+        } catch {
+          // Let the bounded tool executor report malformed arguments to the model.
+        }
+      }
       if (iteration >= MAX_MAIN_TOOL_ITERATIONS) {
         yield {
           type: "phase",
@@ -5458,8 +5515,18 @@ async function* streamMainGenerationLoop(args: {
             input: toolRuntimeInput,
             customTools: mainTools.customTools,
             allowedToolNames: mainTools.allowedToolNames,
+            characterWebResearchGrant: mainTools.characterWebResearchGrant,
+            characterWebResearchGrantState: mainTools.characterWebResearchGrantState,
             call,
           });
+          if (toolName === "search_character_web") {
+            const parsed = JSON.parse(resultText) as { results?: Array<{ title?: unknown; url?: unknown }> };
+            for (const result of parsed.results ?? []) {
+              const url = readString(result.url).trim();
+              if (!url || webResearchSources.some((source) => source.url === url)) continue;
+              webResearchSources.push({ title: readString(result.title).trim() || url, url });
+            }
+          }
         } catch (err) {
           success = false;
           resultText = err instanceof Error ? err.message : String(err);
@@ -5492,7 +5559,15 @@ async function* streamMainGenerationLoop(args: {
     }
   }
 
-  return { content, thinking, usage: mergeTurnUsages(turnUsages), providerMetadata, promptSnapshot };
+  return {
+    content,
+    thinking,
+    usage: mergeTurnUsages(turnUsages),
+    providerMetadata,
+    promptSnapshot,
+    webResearchRequest,
+    webResearchSources,
+  };
 }
 
 /**
