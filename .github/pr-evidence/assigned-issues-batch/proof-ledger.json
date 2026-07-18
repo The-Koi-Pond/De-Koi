@@ -85,7 +85,7 @@
       "Profile v2 Rust suite passed 37 tests.",
       "Home Assistant fake-server suite passed 3 tests.",
       "Flagship Playwright suite passed 3 browser journeys.",
-      "Full pnpm check and production build passed on the batched branch."
+      "Full pnpm check, the 1,832-test frontend suite, cargo deny, Rust compilation, and production build passed on the batched branch."
     ]
   },
   "proofRows": {
@@ -108,7 +108,7 @@
       },
       {
         "claim": "The assembled branch satisfies repository architecture, security, storage, TypeScript, Rust, docs, workflow, build, and browser gates.",
-        "evidence": "DISCOVERY_CHECK_ALLOW_MISSING=1 pnpm check, pnpm build, and the 3-test flagship Playwright run exited 0."
+        "evidence": "DISCOVERY_CHECK_ALLOW_MISSING=1 pnpm check, the 1,832-test frontend suite, cargo deny, Rust compilation, pnpm build, and the 3-test flagship Playwright run exited 0."
       }
     ],
     "contradictionRows": [

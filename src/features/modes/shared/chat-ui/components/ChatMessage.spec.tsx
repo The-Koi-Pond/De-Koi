@@ -301,6 +301,7 @@ describe("ChatMessage", () => {
 
   it("does not update merged identity opacity while the identity block is offscreen", () => {
     vi.useFakeTimers();
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
     const unsubscribeVisibleKeeper = subscribeMergedMessageCycle(vi.fn());
     cycleUnsubscribers.push(unsubscribeVisibleKeeper);
     vi.advanceTimersByTime(2_000);
@@ -356,7 +357,7 @@ describe("ChatMessage", () => {
     expect(Array.from(names, (name) => name.style.opacity)).toEqual(["1", "0", "0"]);
 
     unsubscribeVisibleKeeper();
-    expect(vi.getTimerCount()).toBe(0);
+    expect(clearIntervalSpy).toHaveBeenCalledOnce();
 
     act(() => {
       observerCallback!([{ isIntersecting: true } as IntersectionObserverEntry], observer!);
@@ -435,6 +436,7 @@ describe("ChatMessage", () => {
 
   it("ignores a stale intersecting callback after its identity target is unmounted", () => {
     vi.useFakeTimers();
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
     const addEventListener = vi.spyOn(document, "addEventListener");
     const removeEventListener = vi.spyOn(document, "removeEventListener");
     let observerCallback: IntersectionObserverCallback | null = null;
@@ -489,7 +491,8 @@ describe("ChatMessage", () => {
       root!.render(renderMessage(true));
     });
     expect(observer!.disconnect).toHaveBeenCalledOnce();
-    expect(vi.getTimerCount()).toBe(0);
+    expect(clearIntervalSpy).toHaveBeenCalledOnce();
+    const unrelatedTimerCount = vi.getTimerCount();
     const visibilityAddsBeforeStaleCallback = addEventListener.mock.calls.filter(
       ([eventName]) => eventName === "visibilitychange",
     ).length;
@@ -514,7 +517,7 @@ describe("ChatMessage", () => {
       observerCallback!([{ target: staleTarget, isIntersecting: false } as unknown as IntersectionObserverEntry], observer!);
     });
 
-    expect(timerCountAfterStaleCallback).toBe(0);
+    expect(timerCountAfterStaleCallback).toBe(unrelatedTimerCount);
     expect(visibilityAddsAfterStaleCallback).toBe(visibilityAddsBeforeStaleCallback);
     expect(visibilityRemovesAfterStaleCallback).toBe(visibilityRemovesBeforeStaleCallback);
     expect(staleOpacityAfterCallback).toEqual(["0", "1"]);

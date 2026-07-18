@@ -57,7 +57,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 libc = "0.2"
 log = "0.4"
-pdf-extract = "0.10"
+pdf-extract = "0.12"
 png = "0.18"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
 same-file = "1"
