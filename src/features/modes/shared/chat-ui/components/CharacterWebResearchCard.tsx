@@ -9,6 +9,7 @@ import {
 } from "../../../../../engine/generation/character-web-research";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
+import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { chatKeys } from "../../../../catalog/chats";
 import type { RegenerateOptions } from "../types";
 
@@ -24,6 +25,7 @@ export function CharacterWebResearchCard({
   onRegenerate?: (messageId: string, options?: RegenerateOptions) => void | Promise<void>;
 }) {
   const qc = useQueryClient();
+  const generationBusy = useChatStore((state) => state.isStreaming && state.streamingChatId === chatId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localStatus, setLocalStatus] = useState<CharacterWebResearchRequest["status"] | null>(null);
@@ -85,21 +87,21 @@ export function CharacterWebResearchCard({
       <div className="mt-2 flex gap-2">
         <button
           className="rounded px-2 py-1 text-xs hover:bg-black/10"
-          disabled={busy}
+          disabled={busy || generationBusy}
           onClick={() => void decide("decline")}
         >
           Not now
         </button>
         <button
           className="rounded bg-sky-500 px-2 py-1 text-xs text-white hover:bg-sky-400 disabled:opacity-60"
-          disabled={busy || !onRegenerate}
+          disabled={busy || generationBusy || !onRegenerate}
           onClick={() => void decide("once")}
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Allow once"}
         </button>
         <button
           className="rounded border border-sky-400/50 px-2 py-1 text-xs text-sky-600 hover:bg-sky-500/10 disabled:opacity-60 dark:text-sky-300"
-          disabled={busy || !onRegenerate}
+          disabled={busy || generationBusy || !onRegenerate}
           onClick={() => void decide("always")}
         >
           Always allow
