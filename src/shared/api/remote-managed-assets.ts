@@ -51,7 +51,7 @@ async function readRemoteAssetBlob(response: Response): Promise<Blob> {
   }
 
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const chunks: ArrayBuffer[] = [];
   let receivedBytes = 0;
   try {
     while (true) {
@@ -62,7 +62,17 @@ async function readRemoteAssetBlob(response: Response): Promise<Blob> {
         await reader.cancel().catch(() => {});
         throw remoteAssetSizeError();
       }
-      chunks.push(value);
+      if (
+        value.buffer instanceof ArrayBuffer &&
+        value.byteOffset === 0 &&
+        value.byteLength === value.buffer.byteLength
+      ) {
+        chunks.push(value.buffer);
+      } else if (value.buffer instanceof ArrayBuffer) {
+        chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      } else {
+        chunks.push(Uint8Array.from(value).buffer);
+      }
     }
   } finally {
     reader.releaseLock?.();
