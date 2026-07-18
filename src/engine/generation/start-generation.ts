@@ -11,6 +11,7 @@ import {
   type GenerationPromptSnapshotMessage,
 } from "../contracts/types/chat";
 import type { GameState } from "../contracts/types/game-state";
+import { normalizeGeneratedImageResult } from "../contracts/generated-image";
 import type { EventGateway } from "../capabilities/events";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
@@ -634,21 +635,6 @@ function savedUserPersonaContext(saved: unknown): GenerationPersonaContext | nul
   };
 }
 
-function imageExtension(mimeType: string): string {
-  const subtype = mimeType.split("/")[1]?.split(";")[0]?.toLowerCase() || "png";
-  if (subtype === "jpeg") return "jpg";
-  if (/^[a-z0-9]+$/.test(subtype)) return subtype;
-  return "png";
-}
-
-function generatedImageExtension(ext: unknown, mimeType: string): string {
-  const normalized = readString(ext).trim().toLowerCase().replace(/^\./, "");
-  if (["png", "jpg", "jpeg", "webp", "gif"].includes(normalized)) {
-    return normalized === "jpeg" ? "jpg" : normalized;
-  }
-  return imageExtension(mimeType);
-}
-
 function illustrationSize(value: unknown): { width: number; height: number } {
   const text = readString(value).trim();
   const match = text.match(/^(\d{2,5})\s*x\s*(\d{2,5})$/i);
@@ -1090,21 +1076,13 @@ async function generateIllustrationAttachments(args: {
       if (illustrationImageRequestWireBytes(imageRequest) > 16 * 1024 * 1024) {
         throw new Error("Illustration reference payload is too large for the remote runtime request.");
       }
-      const image = await args.deps.integrations.image.generate<{
-        base64?: string;
-        mimeType?: string;
-        image?: string;
-        ext?: string;
-        provider?: string;
-        model?: string;
-      }>(imageRequest);
+      const image = await args.deps.integrations.image.generate(imageRequest);
       throwIfAborted(args.signal);
-      const mimeType = image.mimeType || "image/png";
-      const base64 = readString(image.base64).trim();
-      const imageUrl = readString(image.image).trim() || (base64 ? `data:${mimeType};base64,${base64}` : "");
+      const normalizedImage = normalizeGeneratedImageResult(image);
+      const imageUrl = normalizedImage.dataUrl;
       if (!imageUrl) throw new Error("Image provider returned no image data.");
 
-      const filename = `illustration_${Date.now()}_${index + 1}.${generatedImageExtension(image.ext, mimeType)}`;
+      const filename = `illustration_${Date.now()}_${index + 1}.${normalizedImage.ext}`;
       const gallery = await args.deps.storage.create<JsonRecord>("gallery", {
         chatId: readString(args.chat.id),
         filePath: filename,
@@ -1243,15 +1221,6 @@ function trackerAvatarPrompt(character: JsonRecord, positivePrompt: string): str
     .join(" ");
 }
 
-function imageDataUrlFromGeneratedImage(image: { base64?: unknown; mimeType?: unknown; image?: unknown }): string {
-  const direct = readString(image.image).trim();
-  if (direct) return direct;
-  const base64 = readString(image.base64).trim();
-  if (!base64) return "";
-  const mimeType = readString(image.mimeType).trim() || "image/png";
-  return `data:${mimeType};base64,${base64}`;
-}
-
 function shouldGenerateTrackerAvatar(character: JsonRecord): boolean {
   if (readString(character.avatarPath).trim()) return false;
   if (!readString(character.name).trim()) return false;
@@ -1271,11 +1240,7 @@ async function generatedTrackerAvatarPath(args: {
   if (!args.deps.visuals?.uploadNpcAvatar) return "";
   const name = readString(args.character.name).trim();
   const prompt = trackerAvatarPrompt(args.character, args.settings.positivePrompt);
-  const image = await args.deps.integrations.image.generate<{
-    base64?: string;
-    mimeType?: string;
-    image?: string;
-  }>({
+  const image = await args.deps.integrations.image.generate({
     connectionId: args.settings.connectionId,
     kind: "avatar",
     reviewId: `tracker-avatar:${args.chatId}:${args.index}:${name}`,
@@ -1286,7 +1251,7 @@ async function generatedTrackerAvatarPath(args: {
     height: 1024,
   });
   throwIfAborted(args.signal);
-  const imageUrl = imageDataUrlFromGeneratedImage(image);
+  const imageUrl = normalizeGeneratedImageResult(image).dataUrl;
   if (!imageUrl) throw new Error("Image provider returned no avatar image data.");
   const upload = await args.deps.visuals.uploadNpcAvatar(args.chatId, name, imageUrl);
   return readString(upload.avatarPath).trim();

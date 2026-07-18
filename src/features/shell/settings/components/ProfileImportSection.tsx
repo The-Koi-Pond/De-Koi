@@ -87,6 +87,7 @@ type ProfileImportResult = {
   sourceFormat?: string;
   converted?: ProfileImportConversion;
   fileFingerprint?: string;
+  destructiveScopes?: string[];
 };
 
 type ProfileImportConversion = {
@@ -237,6 +238,7 @@ function hasProfileImportWarningType(warnings: ProfileImportWarning[] | undefine
 function formatProfileImportSourceFormat(sourceFormat?: string) {
   if (!sourceFormat) return "";
   const labels: Record<string, string> = {
+    "profile-v2": "De-Koi profile package v2",
     "refactor-native": "refactor native",
     "legacy-modern-fileStorage": "legacy fileStorage",
     "legacy-array": "legacy array",
@@ -264,6 +266,9 @@ function profileImportMetadataFromResult(data?: ProfileImportResult) {
     warnings: Array.isArray(data?.warnings) ? data.warnings : [],
     sourceFormat: typeof data?.sourceFormat === "string" ? data.sourceFormat : undefined,
     converted: data?.converted && typeof data.converted === "object" ? data.converted : undefined,
+    destructiveScopes: Array.isArray(data?.destructiveScopes)
+      ? data.destructiveScopes.filter((scope): scope is string => typeof scope === "string")
+      : [],
   };
 }
 
@@ -286,8 +291,9 @@ function profileImportStatsFromUnknown(value: unknown): ProfileImportStats | und
   return Object.keys(stats).length > 0 ? stats : undefined;
 }
 
-function formatProfileImportConfirmationMessage(preview: ProfileImportResult) {
-  const { imported, warnings, sourceFormat, converted } = profileImportMetadataFromResult(preview);
+export function formatProfileImportConfirmationMessage(preview: ProfileImportResult) {
+  const { imported, warnings, sourceFormat, converted, destructiveScopes } =
+    profileImportMetadataFromResult(preview);
   const found = formatProfileImportStats(imported) || "no counted records";
   const source = formatProfileImportSourceFormat(sourceFormat);
   const conversion = converted?.applied
@@ -304,12 +310,22 @@ function formatProfileImportConfirmationMessage(preview: ProfileImportResult) {
       ? `${warningSummary} detected. Missing assets will be skipped.`
       : `${warningSummary} detected. Review warnings before continuing.`
     : "";
+  const scopePreview = destructiveScopes.slice(0, 6).map((scope) => scope.replaceAll("-", " "));
+  const destructiveScope =
+    destructiveScopes.length > 0
+      ? `Will replace: ${scopePreview.join(", ")}${
+          destructiveScopes.length > scopePreview.length
+            ? `, and ${destructiveScopes.length - scopePreview.length} more profile areas`
+            : ""
+        }.`
+      : "";
   return [
     `Found: ${found}.`,
     source ? `Source: ${source}.` : "",
     conversion,
     skipped ? `Skipped during conversion: ${skipped}.` : "",
     warningDetail,
+    destructiveScope,
     "Importing replaces the matching profile data areas from this file. This cannot be undone. Continue?",
   ]
     .filter(Boolean)

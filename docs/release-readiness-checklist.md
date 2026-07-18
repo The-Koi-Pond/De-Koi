@@ -57,10 +57,12 @@ pages, or screenshots for the current desktop/runtime architecture.
 
 ## Verification
 
-- `pnpm check:security-policy` passes. The current `csp: null` value remains a
-  compatibility exception until chat, roleplay, game, themes, fonts, managed
-  assets, and provider connections pass an enforced policy. Asset-protocol
-  scope must not widen beyond the reviewed ceiling.
+- `pnpm check:security-policy` passes and rejects `csp: null`, wildcard sources,
+  missing Tauri IPC/asset sources, and asset-protocol scope beyond the reviewed
+  ceiling.
+- The applicable rows in
+  [`security/csp-compatibility-matrix.md`](security/csp-compatibility-matrix.md)
+  have been exercised in the Tauri renderer for the release candidate.
 - `pnpm check:docs` passes for docs and guidance changes.
 - `pnpm tauri build` or the release workflow succeeds for the release artifact
   being documented.

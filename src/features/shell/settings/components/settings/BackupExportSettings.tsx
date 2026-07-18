@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Save, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Download, Loader2, Save, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "../../../../../shared/api/api-errors";
 import {
@@ -20,6 +20,10 @@ import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { downloadBackupToBrowser } from "../../lib/backup-settings-actions";
+import {
+  buildBrowserStateExportPayload,
+  type BrowserStateExportMode,
+} from "../../lib/browser-state-export";
 
 const PROFILE_EXPORT_SUCCESS_MESSAGES: Record<ProfileExportFormat, string> = {
   native: "Profile JSON exported!",
@@ -108,24 +112,43 @@ export function BackupExportSettings() {
     if (format !== "compatible-png") void handleExportProfile(format);
   };
 
-  const handleExportLocalState = async () => {
+  const handleExportLocalState = async (mode: BrowserStateExportMode) => {
+    if (mode === "recovery") {
+      const confirmed = await showConfirmDialog({
+        title: "Export sensitive recovery state?",
+        message:
+          "This full-fidelity file can include your Remote Runtime username, password, and admin secret. Keep it private and do not share it for troubleshooting.",
+        confirmLabel: "Export Sensitive File",
+        cancelLabel: "Cancel",
+      });
+      if (!confirmed) return;
+    }
+
     setExportingLocalState(true);
     try {
-      const payload = {
-        schema: "de-koi-browser-local-state-v1",
-        exportedAt: new Date().toISOString(),
+      const exportedAt = new Date().toISOString();
+      const payload = buildBrowserStateExportPayload({
+        mode,
+        exportedAt,
         origin: typeof window !== "undefined" ? window.location.origin : null,
         localStorage: readBrowserStorageEntries(window.localStorage),
         sessionStorage: readBrowserStorageEntries(window.sessionStorage),
-      };
+      });
+      const safeExport = mode === "safe";
       const result = await saveTextFileToUserSelectedLocation({
-        filename: `de-koi-browser-local-state-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+        filename: `${safeExport ? "de-koi-browser-support-state" : "de-koi-browser-local-state"}-${exportedAt.replace(/[:.]/g, "-")}.json`,
         content: JSON.stringify(payload, null, 2),
-        title: "Export browser-local state",
+        title: safeExport ? "Export safe browser support state" : "Export sensitive browser recovery state",
         mimeType: "application/json",
         filters: [{ name: "JSON", extensions: ["json"], mimeType: "application/json" }],
       });
-      if (result !== "cancelled") toast.success("Browser-local state exported");
+      if (result !== "cancelled") {
+        toast.success(
+          safeExport
+            ? "Safe browser support state exported"
+            : "Sensitive recovery file exported. Keep it private and do not share it.",
+        );
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't export browser-local state");
     } finally {
@@ -171,10 +194,10 @@ export function BackupExportSettings() {
       <ExportFormatDialog
         open={exportProfileDialogOpen}
         title="Export Profile"
-        description="Native JSON keeps full De-Koi import fidelity. Profile ZIP packages the same data with asset files outside the JSON for large profiles and recovery."
+        description="Native JSON keeps the v1 format for compatibility. Profile ZIP uses the versioned v2 package with chunked records and managed assets for large profiles and recovery."
         nativeDescription="Creates a De-Koi profile JSON for direct re-import when the profile is small enough."
         compatibleDescription="Exports character cards, simple persona JSON, and folderless lorebooks for other roleplay tools."
-        zipDescription="Creates an importable profile ZIP with De-Koi data plus managed assets for large profiles and recovery."
+        zipDescription="Creates a v2 profile package with a manifest, chunked record files, integrity checks, and managed assets."
         showZipOption
         onClose={() => setExportProfileDialogOpen(false)}
         onSelect={handleExportProfileChoice}
@@ -264,7 +287,7 @@ export function BackupExportSettings() {
       )}
 
       <div className="retro-divider" />
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2">
         <button
           type="button"
           onClick={() => setExportProfileDialogOpen(true)}
@@ -274,14 +297,31 @@ export function BackupExportSettings() {
           {exportingProfile ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Upload size="0.8125rem" />}
           Export Profile
         </button>
+        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+          Safe support state removes stored credentials. Sensitive recovery state keeps everything and should never be
+          shared.
+        </p>
         <button
           type="button"
-          onClick={() => void handleExportLocalState()}
+          onClick={() => void handleExportLocalState("safe")}
           disabled={exportingLocalState}
           className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] transition-all hover:bg-[var(--accent)] active:scale-95 disabled:opacity-50"
         >
           {exportingLocalState ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Upload size="0.8125rem" />}
-          Export Browser State
+          Export Safe Support State
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleExportLocalState("recovery")}
+          disabled={exportingLocalState}
+          className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--destructive)]/40 bg-[var(--destructive)]/5 px-3 py-2 text-xs font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/10 active:scale-95 disabled:opacity-50"
+        >
+          {exportingLocalState ? (
+            <Loader2 size="0.8125rem" className="animate-spin" />
+          ) : (
+            <AlertTriangle size="0.8125rem" />
+          )}
+          Export Sensitive Recovery State
         </button>
       </div>
     </section>

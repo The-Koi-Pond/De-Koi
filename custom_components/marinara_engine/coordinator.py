@@ -20,6 +20,26 @@ from .const import DOMAIN, SCAN_INTERVAL
 _LOGGER = logging.getLogger(__name__)
 
 
+class StorageProtocolError(RuntimeError):
+    """Raised when De-Koi returns a successful but invalid storage response."""
+
+
+def _require_storage_list(command: str, value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
+        raise StorageProtocolError(
+            f"{command} protocol error: expected a JSON array of objects"
+        )
+    return value
+
+
+def _require_storage_record(command: str, value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise StorageProtocolError(
+            f"{command} protocol error: expected a JSON object"
+        )
+    return value
+
+
 def _authorization_header(username: str | None, password: str | None) -> str | None:
     user = (username or "").strip()
     if not user:
@@ -86,7 +106,7 @@ class MarinaraCoordinator(DataUpdateCoordinator[dict]):
         rows = await self._invoke(
             "storage_list", {"entity": entity, "options": options or None}
         )
-        return rows if isinstance(rows, list) else []
+        return _require_storage_list("storage_list", rows)
 
     async def _storage_create(
         self, entity: str, value: dict[str, Any]
@@ -94,7 +114,7 @@ class MarinaraCoordinator(DataUpdateCoordinator[dict]):
         created = await self._invoke(
             "storage_create", {"entity": entity, "value": value}
         )
-        return created if isinstance(created, dict) else {}
+        return _require_storage_record("storage_create", created)
 
     async def _storage_update(
         self, entity: str, record_id: str, patch: dict[str, Any]
@@ -103,7 +123,7 @@ class MarinaraCoordinator(DataUpdateCoordinator[dict]):
             "storage_update",
             {"entity": entity, "id": record_id, "patch": patch},
         )
-        return updated if isinstance(updated, dict) else {}
+        return _require_storage_record("storage_update", updated)
 
     async def _async_update_data(self) -> dict:
         try:

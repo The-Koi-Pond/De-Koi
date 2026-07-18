@@ -2,6 +2,7 @@ import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway } from "../capabilities/llm";
 import type { VisualAssetGateway } from "../capabilities/visual-assets";
+import { normalizeGeneratedImageResult } from "../contracts/generated-image";
 import {
   parseCharacterCommands,
   parseDirectMessageCommands,
@@ -714,13 +715,6 @@ function parseSelfieSize(value: unknown): { width: number; height: number } {
   };
 }
 
-function imageExtension(mimeType: string): string {
-  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
-  if (mimeType.includes("webp")) return "webp";
-  if (mimeType.includes("gif")) return "gif";
-  return "png";
-}
-
 function selfieTagsBlock(positive: string): string {
   return positive ? `\n\nAlways include these tags or modifiers: ${positive}` : "";
 }
@@ -870,13 +864,7 @@ async function generateSelfie(args: {
       imagePromptSettings: args.imagePromptSettings,
     });
     const size = parseSelfieSize(metadata.selfieResolution);
-    const image = await args.integrations.image.generate<{
-      base64?: string;
-      mimeType?: string;
-      image?: string;
-      provider?: string;
-      model?: string;
-    }>({
+    const image = await args.integrations.image.generate({
       connectionId: imageConnectionId,
       kind: "selfie",
       reviewId: `selfie:${readString(args.chat.id)}:${characterId ?? "active"}`,
@@ -886,15 +874,15 @@ async function generateSelfie(args: {
       width: size.width,
       height: size.height,
     });
-    const mimeType = image.mimeType || "image/png";
-    const base64 = readString(image.base64).trim();
-    const imageUrl = readString(image.image).trim() || (base64 ? `data:${mimeType};base64,${base64}` : "");
+    const normalizedImage = normalizeGeneratedImageResult(image);
+    const imageUrl = normalizedImage.dataUrl;
     if (!imageUrl) throw new Error("Image provider returned no image data.");
 
+    const filename = `selfie_${characterName.toLowerCase().replace(/\s+/g, "_")}.${normalizedImage.ext}`;
     const gallery = await args.storage.create<JsonRecord>("gallery", {
       chatId: readString(args.chat.id),
-      filePath: `selfie_${characterName.toLowerCase().replace(/\s+/g, "_")}.${imageExtension(mimeType)}`,
-      filename: `selfie_${characterName.toLowerCase().replace(/\s+/g, "_")}.${imageExtension(mimeType)}`,
+      filePath: filename,
+      filename,
       url: imageUrl,
       prompt,
       provider: image.provider ?? "image_generation",
@@ -906,7 +894,7 @@ async function generateSelfie(args: {
     const attachment = {
       type: "image",
       url: storedImageUrl,
-      filename: `selfie_${characterName.toLowerCase().replace(/\s+/g, "_")}.${imageExtension(mimeType)}`,
+      filename,
       prompt,
       galleryId: readString(gallery.id) || null,
     };

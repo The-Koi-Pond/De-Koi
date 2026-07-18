@@ -7,6 +7,7 @@ import type {
   CharacterMusicProfile,
   CharacterPublicProfile,
 } from "../../../../engine/contracts/types/character";
+import { normalizeGeneratedImageResult } from "../../../../engine/contracts/generated-image";
 import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
@@ -196,18 +197,13 @@ export function CharacterMetadataTab({
     setPublicProfileGenerationError("");
 
     try {
-      const result = await imageGenerationApi.generate<{ image?: string; base64?: string; mimeType?: string }>({
+      const result = await imageGenerationApi.generate({
         connectionId: defaultImageConnectionId,
         prompt: buildCharacterPublicProfileBannerPrompt({ data: formData, comment: characterComment }),
         width: imageBackgroundWidth,
         height: imageBackgroundHeight,
       });
-      const generatedImage =
-        typeof result.image === "string" && result.image.trim()
-          ? result.image.trim()
-          : typeof result.base64 === "string" && result.base64.trim()
-            ? `data:${result.mimeType || "image/png"};base64,${result.base64.trim()}`
-            : "";
+      const generatedImage = normalizeGeneratedImageResult(result).dataUrl;
       if (!generatedImage) throw new Error("Image provider returned no banner image.");
       if (isInlineImageDataUrl(generatedImage)) {
         if (!characterId) throw new Error("Save this character before generating a banner image.");

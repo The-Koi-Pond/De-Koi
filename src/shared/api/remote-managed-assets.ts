@@ -34,6 +34,55 @@ let remoteAssetInvalidationVersion = 0;
 let remoteAssetGlobalInvalidationVersion = 0;
 let remoteAssetAccessSequence = 0;
 
+function remoteAssetSizeError(): Error {
+  return new Error("Remote managed asset exceeds the in-memory limit.");
+}
+
+async function readRemoteAssetBlob(response: Response): Promise<Blob> {
+  const declaredBytes = Number(response.headers.get("Content-Length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > REMOTE_ASSET_CACHE_MAX_BYTES) {
+    throw remoteAssetSizeError();
+  }
+
+  if (!response.body) {
+    const blob = await response.blob();
+    if (blob.size > REMOTE_ASSET_CACHE_MAX_BYTES) throw remoteAssetSizeError();
+    return blob;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: ArrayBuffer[] = [];
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > REMOTE_ASSET_CACHE_MAX_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw remoteAssetSizeError();
+      }
+      if (
+        value.buffer instanceof ArrayBuffer &&
+        value.byteOffset === 0 &&
+        value.byteLength === value.buffer.byteLength
+      ) {
+        chunks.push(value.buffer);
+      } else if (value.buffer instanceof ArrayBuffer) {
+        chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      } else {
+        chunks.push(Uint8Array.from(value).buffer);
+      }
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+
+  return new Blob(chunks, {
+    type: response.headers.get("Content-Type") ?? "",
+  });
+}
+
 function nextRemoteAssetAccess(): number {
   remoteAssetAccessSequence += 1;
   if (!Number.isSafeInteger(remoteAssetAccessSequence)) remoteAssetAccessSequence = 1;
@@ -145,20 +194,10 @@ async function fetchRemoteManagedAssetBlobUrl(asset: RemoteManagedAsset): Promis
     if (!response.ok) {
       throw new Error(`Remote managed asset returned ${response.status}`);
     }
-    const blob = await response.blob();
+    const blob = await readRemoteAssetBlob(response);
     const objectUrl = URL.createObjectURL(blob);
     entry.objectUrl = objectUrl;
-    const declaredBytes = Number(response.headers.get("Content-Length"));
-    entry.byteSize = Number.isFinite(declaredBytes) && declaredBytes >= 0 ? declaredBytes : blob.size;
-    if (entry.byteSize > REMOTE_ASSET_CACHE_MAX_BYTES) {
-      revokeRemoteAssetObjectUrl(entry);
-      entry.objectUrl = undefined;
-      entry.byteSize = 0;
-      if (remoteAssetObjectUrls.get(cacheKey) === entry) {
-        remoteAssetObjectUrls.delete(cacheKey);
-      }
-      throw new Error("Remote managed asset exceeds the in-memory limit.");
-    }
+    entry.byteSize = blob.size;
     evictRemoteAssetObjectUrls();
     return objectUrl;
   })();

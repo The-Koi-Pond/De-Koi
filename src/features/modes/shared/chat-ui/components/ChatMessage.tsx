@@ -41,8 +41,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { chatKeys } from "../../../../catalog/chats/index";
+import { useUpdateMessageExtra } from "../../../../catalog/chats/index";
 import { useShallow } from "zustand/react/shallow";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { createMessageMacroResolver } from "../../../../../shared/lib/chat-macros";
@@ -51,7 +50,6 @@ import { useApplyRegex } from "../../../../catalog/regex-scripts/regex-applicati
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { playTextBlip } from "../../../../../shared/lib/text-blip-sound";
 import { useTranslate } from "../../../../../shared/hooks/use-translate";
-import { storageApi } from "../../../../../shared/api/storage-api";
 import { ttsService } from "../../../../../shared/lib/tts-service";
 import { useCachedTTSConfig } from "../../../../../shared/hooks/use-tts";
 import { isStreamingTTSActive, stopStreamingTTS, subscribeStreamingTTSActive } from "../hooks/use-streaming-tts";
@@ -1063,31 +1061,18 @@ export const ChatMessage = memo(function ChatMessage({
   }, [generationReplay]);
 
   // Remove an attachment from this message (keeps it in gallery)
-  const qc = useQueryClient();
+  const updateMessageExtra = useUpdateMessageExtra(message.chatId);
   const handleRemoveAttachment = useCallback(
     async (index: number) => {
       const updated = attachments.filter((_, i) => i !== index);
-      // Optimistic: update the infinite query cache immediately so the image disappears
-      const msgKey = chatKeys.messages(message.chatId);
-      qc.setQueryData<InfiniteData<Message[]>>(msgKey, (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page) =>
-            page.map((m) => {
-              if (m.id !== message.id) return m;
-              const ex = typeof m.extra === "string" ? JSON.parse(m.extra) : (m.extra ?? {});
-              return { ...m, extra: { ...ex, attachments: updated } } as Message;
-            }),
-          ),
-        };
-      });
-      await storageApi.patchChatMessageExtra(message.id, {
-        attachments: updated,
-      });
-      qc.invalidateQueries({ queryKey: msgKey });
+      try {
+        await updateMessageExtra.mutateAsync({ messageId: message.id, extra: { attachments: updated } });
+        return true;
+      } catch {
+        return false;
+      }
     },
-    [attachments, message.chatId, message.id, qc],
+    [attachments, message.id, updateMessageExtra],
   );
 
   const genLabel = useMemo(
@@ -1557,7 +1542,7 @@ export const ChatMessage = memo(function ChatMessage({
   const handleRegenerateAttachment = useCallback(
     async (index: number) => {
       if (!onIllustrateMoment) return;
-      await handleRemoveAttachment(index);
+      if (!(await handleRemoveAttachment(index))) return;
       await onIllustrateMoment(saveMomentSource);
     },
     [handleRemoveAttachment, onIllustrateMoment, saveMomentSource],

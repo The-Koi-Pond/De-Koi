@@ -1,15 +1,15 @@
 # Profile Export Format v2 Contract
 
-Current De-Koi profile exports remain backward-compatible v1 packages with a
-single `marinara-profile.json` payload. The hidden v2 foundation uses a ZIP
-archive with a manifest and chunked record files so large profiles do not depend
-on one monolithic JSON document.
+De-Koi keeps JSON profile export on the backward-compatible v1 contract. The
+Profile ZIP option uses the v2 ZIP archive with a manifest and chunked record
+files so large profiles do not depend on one monolithic JSON document.
 
-The internal streaming codec, artifact exporter, and non-mutating validator are
-implemented. They are not connected to any Tauri command, HTTP route, shared
-TypeScript API, or Settings control, so user-facing export and import remain v1.
-V2 preflight, staged atomic import, transport, and product activation remain
-future work.
+The v2 codec is active in Settings, the Tauri command, and the remote HTTP
+download route. Profile ZIP import auto-detects v2 packages while retaining the
+existing v1 JSON and ZIP import paths. V2 packages are fully validated before
+preflight or mutation, expose record counts and destructive scopes for
+confirmation, stage managed assets, and commit collection replacements with
+asset installation through the existing rollback-aware storage transaction.
 
 ## Archive Layout
 
@@ -86,7 +86,6 @@ and commit rules as zip import.
 
 ## Out Of Scope
 
-The first implementation should not change profile semantics, silently merge
-tables, or raise JSON size limits as the primary solution. The v2 work should
-land as separate implementation issues for export, preflight, import commit, and
-folder selection.
+The implementation does not change profile semantics, silently merge tables, or
+raise JSON size limits as the primary solution. User-selected unpacked folder
+import remains future work; the active transport accepts v2 ZIP packages.

@@ -488,6 +488,7 @@ pub(crate) fn download_backup(state: &AppState, name: Option<&str>) -> AppResult
     }))
 }
 
+#[allow(dead_code)]
 pub(crate) fn download_profile_zip(state: &AppState) -> AppResult<Value> {
     let bytes = download_profile_zip_bytes(state)?;
     Ok(json!({
@@ -497,6 +498,7 @@ pub(crate) fn download_profile_zip(state: &AppState) -> AppResult<Value> {
     }))
 }
 
+#[allow(dead_code)]
 pub(crate) fn download_profile_zip_bytes(state: &AppState) -> AppResult<Vec<u8>> {
     let temp_dir = state
         .data_dir

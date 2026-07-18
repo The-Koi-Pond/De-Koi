@@ -154,11 +154,10 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   frontend:
-    name: Frontend, Architecture, and Organization
+    name: Deterministic Repository Gates
     needs: classify
     if: >
-      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.classify.outputs.frontend == 'true' || needs.classify.outputs.docs == 'true')
+      github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@v6
@@ -189,29 +188,16 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_HEAD_REF: ${{ github.head_ref }}
         run: pnpm check:workflow-names
-      - run: pnpm check:line-endings
-      - if: needs.classify.outputs.frontend == 'true'
-        run: pnpm check:architecture
+      - name: Deterministic repository policy
+        run: pnpm check:deterministic
       - if: needs.classify.outputs.frontend == 'true'
         run: pnpm lint
-      - if: needs.classify.outputs.frontend == 'true'
-        run: pnpm typecheck
       - if: needs.classify.outputs.frontend == 'true'
         run: pnpm test:allow-empty
       - if: needs.classify.outputs.frontend == 'true'
         run: pnpm build
       - if: needs.classify.outputs.frontend == 'true'
         run: pnpm perf:size
-      - if: needs.classify.outputs.docs == 'true'
-        run: pnpm check:docs
-      - name: Discovery metadata gate
-        if: needs.classify.outputs.frontend == 'true' || needs.classify.outputs.docs == 'true'
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            pnpm check:discovery -- --pr-aware
-          else
-            pnpm check:discovery
-          fi
       - name: Unused code report
         if: needs.classify.outputs.frontend == 'true'
         run: pnpm check:unused
@@ -250,9 +236,8 @@ jobs:
       - run: cargo check --manifest-path src-tauri/Cargo.toml --workspace
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings -A dead_code
       - run: cargo nextest run --manifest-path src-tauri/Cargo.toml --workspace
-      - name: Rust dependency policy report
-        run: cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml
-        continue-on-error: true
+      - name: Rust dependency policy
+        run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml check
       - name: Unused Rust dependency report
         run: cargo machete src-tauri
         continue-on-error: true
@@ -297,3 +282,39 @@ jobs:
           name: playwright-report
           path: playwright-report/
           if-no-files-found: ignore
+
+  required:
+    name: Required Validation
+    needs:
+      - classify
+      - frontend
+      - rust
+      - smoke
+    if: always()
+    runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
+    steps:
+      - name: Require every applicable validation lane
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          RUST_REQUIRED: ${{ needs.classify.outputs.rust }}
+          RUST_RESULT: ${{ needs.rust.result }}
+          BROWSER_REQUIRED: ${{ needs.classify.outputs.browser }}
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$IS_DRAFT" = "true" ]; then
+            echo "Draft pull request: merge validation is deferred until ready for review."
+            exit 0
+          fi
+          [ "$CLASSIFY_RESULT" = "success" ]
+          [ "$FRONTEND_RESULT" = "success" ]
+          if [ "$RUST_REQUIRED" = "true" ]; then
+            [ "$RUST_RESULT" = "success" ]
+          fi
+          if [ "$BROWSER_REQUIRED" = "true" ]; then
+            [ "$SMOKE_RESULT" = "success" ]
+          fi

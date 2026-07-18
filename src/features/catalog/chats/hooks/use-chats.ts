@@ -864,15 +864,7 @@ export function useUpdateMessageExtra(chatId: string | null) {
           pages: old.pages.map((page) =>
             page.map((msg) => {
               if (msg.id !== messageId) return msg;
-              let currentExtra: Record<string, unknown> = {};
-              try {
-                currentExtra =
-                  typeof msg.extra === "string"
-                    ? JSON.parse(msg.extra)
-                    : ((msg.extra ?? {}) as unknown as Record<string, unknown>);
-              } catch {
-                currentExtra = {};
-              }
+              const currentExtra = parseRecord(msg.extra);
               return { ...msg, extra: { ...currentExtra, ...extra } as unknown as Message["extra"] };
             }),
           ),
@@ -880,15 +872,18 @@ export function useUpdateMessageExtra(chatId: string | null) {
       });
       return { previous };
     },
-    onError: (_err, _vars, context) => {
+    onError: (error, _vars, context) => {
       if (chatId && context?.previous) {
         qc.setQueryData(chatKeys.messages(chatId), context.previous);
       }
+      toast.error(error instanceof Error ? error.message : "Failed to update message details.");
     },
-    onSettled: () => {
+    onSettled: async () => {
       if (chatId) {
-        qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
-        qc.invalidateQueries({ queryKey: lorebookKeys.active(chatId) });
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) }),
+          qc.invalidateQueries({ queryKey: lorebookKeys.active(chatId) }),
+        ]);
       }
     },
   });

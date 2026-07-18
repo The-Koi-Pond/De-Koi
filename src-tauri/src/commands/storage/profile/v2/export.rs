@@ -25,6 +25,7 @@ pub(super) struct ProfileV2ExportSummary {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(super) struct ProfileV2Artifact {
     path: PathBuf,
     manifest: ProfileV2Manifest,
@@ -32,6 +33,7 @@ pub(super) struct ProfileV2Artifact {
     retained: bool,
 }
 
+#[allow(dead_code)]
 impl ProfileV2Artifact {
     pub(super) fn path(&self) -> &Path {
         &self.path
