@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { storageApi } from "../../../../../shared/api/storage-api";
+import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { CharacterWebResearchCard } from "./CharacterWebResearchCard";
 
 const request = {
@@ -29,6 +30,7 @@ describe("CharacterWebResearchCard", () => {
 
   afterEach(() => {
     act(() => root?.unmount());
+    useChatStore.setState({ isStreaming: false, streamingChatId: null });
     queryClient.clear();
     container.remove();
     vi.restoreAllMocks();
@@ -69,6 +71,27 @@ describe("CharacterWebResearchCard", () => {
     render(vi.fn());
 
     expect(button("Always allow")).toBeTruthy();
+  });
+
+  it("does not accept approval until the request-generating turn is idle", async () => {
+    useChatStore.setState({ isStreaming: true, streamingChatId: "chat-1" });
+    const onRegenerate = vi.fn();
+    render(onRegenerate);
+
+    expect(button("Allow once").disabled).toBe(true);
+    button("Allow once").click();
+    expect(storageApi.patchChatMetadata).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useChatStore.setState({ isStreaming: false, streamingChatId: null });
+    });
+
+    expect(button("Allow once").disabled).toBe(false);
+    await act(async () => {
+      button("Allow once").click();
+    });
+    expect(storageApi.patchChatMetadata).toHaveBeenCalledOnce();
+    expect(onRegenerate).toHaveBeenCalledOnce();
   });
 
   it("keeps the request actionable and shows the retry error when regeneration fails", async () => {
