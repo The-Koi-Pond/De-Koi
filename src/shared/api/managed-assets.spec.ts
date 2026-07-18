@@ -162,8 +162,49 @@ describe("remote managed assets", () => {
     await expect(remoteManagedAssetResolvableUrl("gallery", "oversized.png")).rejects.toThrow(
       "Remote managed asset exceeds the in-memory limit",
     );
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:oversized");
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["missing", new Headers()],
+    ["understated", new Headers({ "Content-Length": "1" })],
+  ])("aborts an oversized authorized stream with a %s length header", async (_label, headers) => {
+    remoteRuntimeMock.target = { baseUrl: "http://127.0.0.1:3080", authorization: "Basic token" };
+    const cancel = vi.fn(async () => undefined);
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => {
+      let consumed = false;
+      return {
+        ok: true,
+        status: 200,
+        headers,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              if (consumed) return { done: true, value: undefined };
+              consumed = true;
+              return { done: false, value: { byteLength: 128 * 1024 * 1024 + 1 } };
+            },
+            cancel,
+          }),
+        },
+      } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const createObjectURL = vi.fn(() => "blob:oversized");
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+
+    await expect(remoteManagedAssetResolvableUrl("gallery", `${_label}.png`)).rejects.toThrow(
+      "Remote managed asset exceeds the in-memory limit",
+    );
+    await expect(remoteManagedAssetResolvableUrl("gallery", `${_label}.png`)).rejects.toThrow(
+      "Remote managed asset exceeds the in-memory limit",
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(createObjectURL).not.toHaveBeenCalled();
   });
 
   it("does not cache a failed authorized asset request", async () => {
