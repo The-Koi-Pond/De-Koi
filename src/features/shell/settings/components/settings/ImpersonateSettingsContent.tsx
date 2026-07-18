@@ -1,8 +1,8 @@
 import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import { DEFAULT_IMPERSONATE_PROMPT } from "../../../../../../engine/contracts/constants/impersonate";
-import { HelpTooltip } from "../../../../../../shared/components/ui/HelpTooltip";
-import { useUIStore } from "../../../../../../shared/stores/ui.store";
+import { DEFAULT_IMPERSONATE_PROMPT } from "../../../../../engine/contracts/constants/impersonate";
+import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
+import { useUIStore } from "../../../../../shared/stores/ui.store";
 
 export function ImpersonateSettingsContent({
   presets,
@@ -156,7 +156,7 @@ export function ImpersonateSettingsContent({
         </div>
 
         <p className="border-t border-[var(--border)]/60 px-2 pt-1.5 text-[0.65rem] leading-snug text-[var(--muted-foreground)]">
-          Enable Quick Send in Settings &gt; Advanced &gt; Quick replies.
+          Enable Quick Send in Settings &gt; General &gt; Chat behavior.
         </p>
       </div>
     </div>
