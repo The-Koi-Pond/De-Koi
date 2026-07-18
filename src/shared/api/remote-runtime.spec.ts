@@ -85,6 +85,17 @@ describe("checkRemoteRuntimeHealth", () => {
     await expect(pending).rejects.toBe(abortError);
   });
 
+  it("does not arm a request deadline before URL validation succeeds", async () => {
+    vi.useFakeTimers();
+
+    await expect(checkRemoteRuntimeHealth("not a runtime URL")).resolves.toEqual({
+      status: "invalid",
+      message: "Remote Runtime URL is invalid.",
+    });
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("accepts the De-Koi server health marker", async () => {
     const fetchMock = stubFetch([
       jsonResponse({ ok: true, runtime: "de-koi-server", writable: true }),

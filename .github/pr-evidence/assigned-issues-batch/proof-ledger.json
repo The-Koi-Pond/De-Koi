@@ -1,0 +1,231 @@
+{
+  "coreClaim": "The assigned feature and reliability batch adds the requested contracts and workflows while failing closed at storage, export, remote-runtime, asset, attachment, and Home Assistant boundaries.",
+  "scope": {
+    "inScope": [
+      "Generated-image result normalization",
+      "Safe and sensitive Browser State exports",
+      "Flagship browser journey gates",
+      "Desktop CSP enforcement",
+      "Profile package v2 import and export",
+      "Remote deadline, attachment rollback, Home Assistant protocol, and managed-asset streaming fixes",
+      "Refactor documentation and main-branch validation contract"
+    ],
+    "outOfScope": [
+      "New application navigation destinations",
+      "Provider implementation changes",
+      "Automatic mutation of live GitHub ruleset state before merge",
+      "Unrelated unused-code cleanup"
+    ],
+    "intendedFiles": [
+      "src/engine/contracts/generated-image.ts",
+      "src/features/shell/settings/lib/browser-state-export.ts",
+      "src-tauri/src/commands/storage/profile/v2/mod.rs",
+      "src/shared/api/remote-runtime.ts",
+      "src/shared/api/remote-managed-assets.ts",
+      "custom_components/marinara_engine/coordinator.py",
+      ".github/workflows/ci-full.yml",
+      ".github/rulesets/protect-main.json"
+    ],
+    "riskFlags": [
+      "storage and import/export",
+      "sensitive browser state",
+      "remote runtime and cross-entrypoint behavior",
+      "desktop security policy",
+      "repository protection"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Current v1 and v2 profile paths remain importable, sensitive state is explicitly separated, finite remote operations terminate, malformed external responses cannot become success, and applicable validation lanes feed one required aggregate check.",
+    "riskType": "storage import export compatibility cross-entrypoint security and repository workflow",
+    "entrypoints": [
+      "Settings profile import and export",
+      "Settings Browser State support and recovery exports",
+      "Embedded and remote image generation callers",
+      "Remote runtime health and invoke",
+      "Remote managed asset resolution",
+      "Conversation and shared message attachment removal",
+      "Home Assistant agent and tool synchronization",
+      "CI Full pull request, schedule, and workflow dispatch"
+    ],
+    "currentPathsOrFormats": [
+      "Profile package v2 ZIP with manifest, JSONL chunks, and managed assets",
+      "Legacy v1 JSON and ZIP profile imports",
+      "Browser State support JSON and full-fidelity recovery JSON",
+      "GeneratedImageResult contract",
+      "Required Validation GitHub check"
+    ],
+    "legacyPathsOrFormats": [
+      "Profile package v1 JSON",
+      "Profile package v1 ZIP",
+      "Existing generated-image string and object response shapes normalized at the contract boundary"
+    ],
+    "outOfScopeClaims": [
+      "No claim that the checked-in ruleset payload changes live GitHub administration state before it is applied after merge.",
+      "No claim that every provider-specific CSP flow received manual device testing.",
+      "No new Discover destination is introduced."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Multiple runtime and persistence consumers accepted divergent or malformed success shapes, while CI and repository protection lacked one enforceable aggregate contract.",
+    "producer": "Engine generated-image normalization, Rust profile v2 reader/commit staging, shared remote adapters, Home Assistant storage helpers, and CI Full jobs",
+    "consumer": "Catalog and generation callers, Settings import/export UI, remote asset/message consumers, Home Assistant sync, and the main-branch ruleset",
+    "impliedContract": "External and persisted data is validated before side effects, failures roll back or abort, bounded operations terminate, and every applicable validation lane is represented by a stable required check.",
+    "actualEnforcement": "Typed normalizers, staged profile commit, explicit redaction/recovery exports, abort deadlines, mutation rollback, response shape guards, byte-counted streaming, and Required Validation enforce the contract at each owner boundary.",
+    "primaryOwnerLane": "src/shared/api",
+    "primaryOwnerDetail": "The widest shared behavioral repairs are runtime adapter contracts; Rust storage, feature UI, integrations, and docs/workflow remain focused owner lanes.",
+    "consumerOnlyLanes": [
+      "src/features",
+      "src/engine",
+      "src-tauri",
+      "docs/workflow"
+    ],
+    "wrongLaneFixToAvoid": "Do not restore caller-specific fallbacks, UI-only success guards, or a ruleset that requires unstable individual matrix job names.",
+    "regressionProof": [
+      "Eight focused Vitest files passed 49 tests.",
+      "Profile v2 Rust suite passed 37 tests.",
+      "Home Assistant fake-server suite passed 3 tests.",
+      "Flagship Playwright suite passed 3 browser journeys.",
+      "Full pnpm check and production build passed on the batched branch."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Generated-image callers accept the canonical typed result and normalized compatible response shapes.",
+        "evidence": "src/engine/contracts/generated-image.spec.ts passed inside the 49-test focused Vitest run."
+      },
+      {
+        "claim": "Profile v2 export can be read, previewed, and atomically committed with managed assets.",
+        "evidence": "cargo test profile::v2 passed 37 tests including preview/commit and exported-archive validation."
+      },
+      {
+        "claim": "Safe Browser State export is separated from confirmed full-fidelity recovery export.",
+        "evidence": "browser-state-export and AdvancedSettings remote-backup suites passed in the focused Vitest run."
+      },
+      {
+        "claim": "Remote requests, asset streams, attachment mutations, and Home Assistant storage responses preserve their failure contracts.",
+        "evidence": "remote-runtime, managed-assets, message-extra, and Home Assistant focused suites passed."
+      },
+      {
+        "claim": "The assembled branch satisfies repository architecture, security, storage, TypeScript, Rust, docs, workflow, build, and browser gates.",
+        "evidence": "DISCOVERY_CHECK_ALLOW_MISSING=1 pnpm check, pnpm build, and the 3-test flagship Playwright run exited 0."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Malformed successful Home Assistant list/create/update responses must not become empty success values or trigger later writes.",
+        "evidence": "The fake-server suite verifies malformed list stops before writes and malformed create/update raises StorageProtocolError."
+      },
+      {
+        "claim": "Missing or understated Content-Length must not bypass the 128 MiB remote managed-asset ceiling.",
+        "evidence": "managed-assets.spec.ts verifies streamed actual-byte enforcement, reader cancellation, no object URL, and no failed cache retention."
+      },
+      {
+        "claim": "A failed optimistic attachment removal must not remain visible or proceed into regeneration.",
+        "evidence": "use-update-message-extra.spec.ts and both message component suites cover rejection rollback and caller handling."
+      },
+      {
+        "claim": "A failed profile v2 staged commit must not partially replace records or managed assets.",
+        "evidence": "profile_v2_failed_commit_preserves_existing_records_and_assets passed in the Rust v2 suite."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Legacy v1 JSON and ZIP profile imports remain routed through their existing import paths.",
+        "evidence": "Profile preflight selects v2 only for a v2 manifest and retains v1 JSON/ZIP fallbacks; full Rust and frontend gates pass."
+      },
+      {
+        "claim": "Unauthenticated remote managed assets retain direct URL behavior.",
+        "evidence": "managed-assets.spec.ts retains the unauthenticated URL construction case while streaming enforcement applies to authorized blob fetches."
+      }
+    ],
+    "untestedRows": [
+      "Manual provider-by-provider desktop CSP compatibility matrix execution remains reviewer follow-up.",
+      "The live Protect main ruleset must be applied and re-read after merge."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Both desktop Tauri configs contain an enforced CSP accepted by the repository security validator.",
+      "sourceType": "harness-proven",
+      "evidence": "check:security-policy reported CSP enforced in 2 desktop configs."
+    },
+    {
+      "description": "The v2 profile reader and atomic commit path passed all 37 focused Rust tests.",
+      "sourceType": "measured",
+      "evidence": "cargo test --manifest-path src-tauri/Cargo.toml profile::v2 --lib exited 0 with 37 passed."
+    },
+    {
+      "description": "The current live Protect main ruleset contains only deletion and non-fast-forward rules before post-merge application.",
+      "sourceType": "measured",
+      "evidence": "GitHub ruleset API response for ruleset 17943981 was read during implementation."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Before a destructive replace-all profile import, export a full profile package to a user-selected folder outside the De-Koi data directory.",
+      "source": "Current De-Koi profile records and managed assets",
+      "destination": "A user-selected backup folder outside the De-Koi application data directory",
+      "files": [
+        "*.zip profile package containing manifest, JSONL chunks, and managed assets"
+      ],
+      "action": "Use Settings profile export and retain the ZIP before confirming replace-all import."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Provider-by-provider manual CSP compatibility pass",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "Two enforced configs, security self-test, production build, and browser journey proof cover the merge contract; the documented matrix remains release follow-up."
+    },
+    {
+      "item": "Apply live Protect main ruleset",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "The workflow and required check must land on main before the checked-in payload can safely require that check; application and API verification are post-merge steps."
+    },
+    {
+      "item": "UI screenshots",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "No visual redesign is claimed; existing controls receive clarified labels and confirmation behavior, with focused component and Playwright proof."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Profile v2 empty, malformed, oversized, hash-mismatch, failure rollback, and atomic replacement rows",
+      "Remote deadline completion, caller abort, and response-body timeout rows",
+      "Authorized remote assets with missing, understated, and oversized declared lengths",
+      "Malformed Home Assistant list, create, and update 2xx responses"
+    ],
+    "negativeRowsTested": [
+      "Safe export excludes secrets while sensitive recovery requires confirmation",
+      "Failed attachment mutation rolls optimistic state back",
+      "Malformed prerequisite list performs no Home Assistant sync writes",
+      "Oversized stream creates no object URL and is not cached"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run across 8 changed suites",
+      "cargo test --manifest-path src-tauri/Cargo.toml profile::v2 --lib",
+      "python -m unittest tests.home_assistant.test_coordinator_protocol -v",
+      "DISCOVERY_CHECK_ALLOW_MISSING=1 pnpm check",
+      "pnpm build",
+      "pnpm exec playwright test tests/e2e/flagship-workflows.spec.ts",
+      "git diff --check origin/main...HEAD"
+    ],
+    "baselineCommand": "DISCOVERY_CHECK_ALLOW_MISSING=1 pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1082",
+    "evidencePublished": true,
+    "checks": "Draft checks are clean; ready-state CI pending.",
+    "automatedReview": "Bunny pending ready-for-review dispatch."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}

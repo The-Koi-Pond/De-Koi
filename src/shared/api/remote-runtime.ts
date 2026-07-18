@@ -514,7 +514,6 @@ export async function checkRemoteRuntimeHealth(
   }
 
   let target: RuntimeTarget | null;
-  const deadline = createRemoteRequestDeadline(options);
   try {
     target = normalizeRemoteRuntimeUrl(rawUrl);
   } catch {
@@ -525,6 +524,7 @@ export async function checkRemoteRuntimeHealth(
     return unconfiguredRemoteRuntimeHealth();
   }
 
+  const deadline = createRemoteRequestDeadline(options);
   try {
     const response = await fetch(
       `${target.baseUrl}/health?probe=1`,
