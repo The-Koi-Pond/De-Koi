@@ -27,6 +27,10 @@ const denyStepEnd = workflow.indexOf("\n      - name:", denyStepStart + 1);
 const denyStep = denyStepStart >= 0 ? workflow.slice(denyStepStart, denyStepEnd >= 0 ? denyStepEnd : undefined) : "";
 requireText(Boolean(denyStep), "CI Full must run cargo deny as Rust dependency policy.");
 requireText(denyStep.includes("run: cargo deny"), "Rust dependency policy must invoke cargo deny.");
+requireText(
+  denyStep.includes("cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml check"),
+  "Rust dependency policy must pass global cargo-deny options before the check subcommand.",
+);
 requireText(!denyStep.includes("continue-on-error"), "Rust dependency policy must remain blocking.");
 
 const ruleTypes = new Set(ruleset.rules.map((rule) => rule.type));
