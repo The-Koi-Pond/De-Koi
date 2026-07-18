@@ -77,4 +77,28 @@ describe("settings information architecture", () => {
     expect(backups).toContain("Create Managed Backup");
     expect(backups).toContain("Export Profile");
   });
+
+  it("routes backup and export discovery to Privacy and Data", () => {
+    const destinations = read("src/features/shell/settings/lib/settings-destinations.ts");
+    expect(destinations).toContain(
+      '{ id: "backups", tab: "privacy", title: "Backups and profile export", keywords: ["backup", "export", "restore"] }',
+    );
+
+    const discovery = JSON.parse(read("src/features/shell/discovery/discovery-entries.json")) as Array<{
+      id?: string;
+      where?: string;
+      keywords?: string[];
+      actions?: Array<{ type?: string; tab?: string; destination?: string }>;
+    }>;
+    const privacyEntry = discovery.find((entry) => entry.id === "privacy-data-controls");
+    expect(privacyEntry?.where).toBe("Settings > Privacy & Data.");
+    expect(privacyEntry?.keywords).toEqual(expect.arrayContaining(["backup", "export"]));
+    expect(privacyEntry?.actions).toContainEqual(
+      expect.objectContaining({
+        type: "open-settings",
+        tab: "privacy",
+        destination: "privacy-data",
+      }),
+    );
+  });
 });

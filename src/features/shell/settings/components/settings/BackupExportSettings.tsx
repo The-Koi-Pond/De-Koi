@@ -143,7 +143,11 @@ export function BackupExportSettings() {
         filters: [{ name: "JSON", extensions: ["json"], mimeType: "application/json" }],
       });
       if (result !== "cancelled") {
-        toast.success(safeExport ? "Safe browser support state exported" : "Sensitive browser recovery state exported");
+        toast.success(
+          safeExport
+            ? "Safe browser support state exported"
+            : "Sensitive recovery file exported. Keep it private and do not share it.",
+        );
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't export browser-local state");

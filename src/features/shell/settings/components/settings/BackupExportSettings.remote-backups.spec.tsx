@@ -9,6 +9,18 @@ import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { BackupExportSettings } from "./BackupExportSettings";
 
+const mocks = vi.hoisted(() => ({
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    success: mocks.toastSuccess,
+    error: mocks.toastError,
+  },
+}));
+
 vi.mock("../../../../../shared/api/profile-api", () => ({
   backupApi: {
     createBackup: vi.fn(),
@@ -161,6 +173,9 @@ describe("BackupExportSettings remote backups", () => {
         filename: expect.stringContaining("de-koi-browser-local-state-"),
         content: expect.stringContaining("private-admin-secret"),
       }),
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "Sensitive recovery file exported. Keep it private and do not share it.",
     );
   });
 });
