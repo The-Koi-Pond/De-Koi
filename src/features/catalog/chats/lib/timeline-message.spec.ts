@@ -8,6 +8,14 @@ describe("timelineMessageProjection", () => {
 
     expect(projection.fieldSelections?.extra).not.toContain("dialogueAttributions");
   });
+
+  it("requests character web research metadata needed after timeline refresh", () => {
+    const projection = timelineMessageProjection();
+
+    expect(projection.fieldSelections?.extra).toEqual(
+      expect.arrayContaining(["characterWebResearchRequest", "characterWebResearchSources"]),
+    );
+  });
 });
 
 describe("sanitizeTimelineMessageRecord", () => {
