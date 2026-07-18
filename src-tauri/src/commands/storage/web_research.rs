@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::net::IpAddr;
 use std::time::Duration;
+use unicode_normalization::UnicodeNormalization;
 
 const SEARCH_MAX_RESULTS: usize = 8;
 const REQUEST_TIMEOUT_SECS: u64 = 12;
@@ -199,22 +200,35 @@ async fn validate_resolved_public_host(url: &reqwest::Url) -> AppResult<()> {
         .host_str()
         .ok_or_else(|| AppError::invalid_input("Web page URL has no host."))?;
     let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|error| AppError::new("character_web_dns_failed", error.to_string()))?;
-    let mut found = false;
+    let addresses = match tokio::net::lookup_host((host, port)).await {
+        Ok(addresses) => addresses.collect::<Vec<_>>(),
+        Err(first_error) => {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::net::lookup_host((host, port))
+                .await
+                .map(|addresses| addresses.collect::<Vec<_>>())
+                .map_err(|retry_error| {
+                    AppError::new(
+                        "character_web_dns_lookup_failed",
+                        format!(
+                            "Could not resolve the approved web page host after retry: {first_error}; {retry_error}"
+                        ),
+                    )
+                })?
+        }
+    };
+    if addresses.is_empty() {
+        return Err(AppError::new(
+            "character_web_dns_no_addresses",
+            "The approved web page host resolved without any addresses.",
+        ));
+    }
     for address in addresses {
-        found = true;
         if !ip_is_public(address.ip()) {
             return Err(AppError::invalid_input(
                 "The web page host resolves to a private network address.",
             ));
         }
-    }
-    if !found {
-        return Err(AppError::invalid_input(
-            "The web page host did not resolve.",
-        ));
     }
     Ok(())
 }
@@ -244,10 +258,12 @@ fn effective_query(query: &str, allowed_domains: &[String]) -> String {
 
 fn normalize_query(query: &str) -> String {
     query
+        .nfkc()
+        .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-        .to_ascii_lowercase()
+        .to_lowercase()
 }
 
 fn has_secret_query(url: &reqwest::Url) -> bool {
@@ -468,6 +484,8 @@ mod tests {
                 .expect("grant should validate");
         assert!(web_page_url_for_grant("http://127.0.0.1/private", &grant).is_err());
         assert!(web_page_url_for_grant("https://example.com/outside", &grant).is_err());
+        assert!(web_page_url_for_grant("https://evilnasa.gov.example/outside", &grant).is_err());
+        assert!(web_page_url_for_grant("https://evilnasa.gov/outside", &grant).is_err());
         assert!(web_page_url_for_grant("https://nasa.gov/page?token=secret", &grant).is_err());
         assert_eq!(
             web_page_url_for_grant("https://science.nasa.gov/eclipse", &grant)
@@ -475,6 +493,34 @@ mod tests {
                 .host_str(),
             Some("science.nasa.gov")
         );
+    }
+
+    #[test]
+    fn domain_scope_requires_exact_host_or_a_dot_delimited_subdomain() {
+        assert!(super::domain_matches("approved", "approved"));
+        assert!(super::domain_matches("docs.approved", "approved"));
+        assert!(!super::domain_matches("evilapproved", "approved"));
+        assert!(!super::domain_matches("approved.example", "approved"));
+    }
+
+    #[test]
+    fn normalizes_unicode_compatibility_and_mixed_whitespace_for_exact_queries() {
+        let mut chat = chat_with_grant();
+        chat["metadata"]["characterWebResearchGrant"]["query"] =
+            json!("Ｆｕｌｌ\u{00a0}Ｗｉｄｔｈ eclipse");
+        let now = Utc.with_ymd_and_hms(2026, 7, 18, 0, 3, 0).unwrap();
+        assert!(
+            validated_character_web_grant(&chat, "grant-1", "full width\t  eclipse", now,).is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn unresolved_hosts_return_a_specific_dns_error_after_retry() {
+        let url = reqwest::Url::parse("https://definitely-not-a-host.invalid/page").unwrap();
+        let error = super::validate_resolved_public_host(&url)
+            .await
+            .expect_err("reserved invalid host must not resolve");
+        assert_eq!(error.code, "character_web_dns_lookup_failed");
     }
 
     #[test]

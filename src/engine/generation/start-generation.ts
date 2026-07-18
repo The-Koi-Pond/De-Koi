@@ -5516,6 +5516,7 @@ async function* streamMainGenerationLoop(args: {
             customTools: mainTools.customTools,
             allowedToolNames: mainTools.allowedToolNames,
             characterWebResearchGrant: mainTools.characterWebResearchGrant,
+            characterWebResearchGrantState: mainTools.characterWebResearchGrantState,
             call,
           });
           if (toolName === "search_character_web") {

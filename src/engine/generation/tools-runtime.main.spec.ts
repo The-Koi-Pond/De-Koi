@@ -165,6 +165,7 @@ describe("main generation tool selection", () => {
 
     expect(result?.toolDefs.map((tool) => tool.name)).toEqual(["request_character_web_research"]);
     expect(result?.characterWebResearchGrant).toBeNull();
+    expect(result?.characterWebResearchGrantState).toBe("expired");
   });
 
   it("turns a request tool call into a structured permission request without using the network", async () => {
@@ -176,6 +177,7 @@ describe("main generation tool selection", () => {
       customTools: definitions!.customTools,
       allowedToolNames: definitions!.allowedToolNames,
       characterWebResearchGrant: definitions!.characterWebResearchGrant,
+      characterWebResearchGrantState: definitions!.characterWebResearchGrantState,
       call: {
         name: CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
         arguments: JSON.stringify({
@@ -236,6 +238,7 @@ describe("main generation tool selection", () => {
       customTools: definitions!.customTools,
       allowedToolNames: definitions!.allowedToolNames,
       characterWebResearchGrant: definitions!.characterWebResearchGrant,
+      characterWebResearchGrantState: definitions!.characterWebResearchGrantState,
       call: {
         name: CHARACTER_WEB_SEARCH_TOOL_NAME,
         arguments: JSON.stringify({ maxResults: 4 }),
@@ -251,5 +254,53 @@ describe("main generation tool selection", () => {
         maxResults: 4,
       },
     ]);
+  });
+
+  it("distinguishes expired consent from a missing runtime integration", async () => {
+    const expiredResult = await executeMainToolCall({
+      deps: { storage: storageWithCustomTools(), integrations },
+      input: runtimeInput({ characterWebAccessEnabled: true }),
+      customTools: new Map(),
+      allowedToolNames: new Set(),
+      characterWebResearchGrant: null,
+      characterWebResearchGrantState: "expired",
+      call: {
+        name: CHARACTER_WEB_SEARCH_TOOL_NAME,
+        arguments: "{}",
+        function: { name: CHARACTER_WEB_SEARCH_TOOL_NAME, arguments: "{}" },
+      },
+    });
+    expect(JSON.parse(expiredResult).error.code).toBe("character_web_grant_expired");
+
+    const metadata = {
+      characterWebAccessEnabled: true,
+      characterWebResearchGrant: {
+        id: "grant-1",
+        query: "current lunar eclipse date",
+        allowedDomains: [],
+        requestMessageId: "message-1",
+        grantedAt: "2099-01-01T00:00:00.000Z",
+        expiresAt: "2099-01-01T00:05:00.000Z",
+      },
+    };
+    const definitions = await buildMainToolDefinitions({
+      chat: chat(metadata),
+      storage: storageWithCustomTools(),
+      integrations,
+    });
+    const integrationResult = await executeMainToolCall({
+      deps: { storage: storageWithCustomTools(), integrations },
+      input: runtimeInput(metadata),
+      customTools: definitions!.customTools,
+      allowedToolNames: definitions!.allowedToolNames,
+      characterWebResearchGrant: definitions!.characterWebResearchGrant,
+      characterWebResearchGrantState: definitions!.characterWebResearchGrantState,
+      call: {
+        name: CHARACTER_WEB_SEARCH_TOOL_NAME,
+        arguments: "{}",
+        function: { name: CHARACTER_WEB_SEARCH_TOOL_NAME, arguments: "{}" },
+      },
+    });
+    expect(JSON.parse(integrationResult).error.code).toBe("character_web_integration_unavailable");
   });
 });

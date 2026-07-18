@@ -916,7 +916,13 @@ function chatToolsEnabledFor(chat: JsonRecord): boolean {
   return boolish(parseRecord(chat.metadata).enableTools, false);
 }
 
-function characterWebResearchGrant(metadata: JsonRecord): CharacterWebResearchGrant | null {
+export type CharacterWebResearchGrantState = "valid" | "expired" | "missing" | "invalid";
+
+function characterWebResearchGrant(metadata: JsonRecord): {
+  grant: CharacterWebResearchGrant | null;
+  state: CharacterWebResearchGrantState;
+} {
+  if (metadata.characterWebResearchGrant == null) return { grant: null, state: "missing" };
   const value = parseRecord(metadata.characterWebResearchGrant);
   const id = readString(value.id).trim();
   const query = readString(value.query).trim();
@@ -924,13 +930,16 @@ function characterWebResearchGrant(metadata: JsonRecord): CharacterWebResearchGr
   const grantedAt = readString(value.grantedAt).trim();
   const expiresAt = readString(value.expiresAt).trim();
   const expiresAtMs = Date.parse(expiresAt);
-  if (!id || !query || !requestMessageId || !grantedAt || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
-    return null;
-  }
+  if (!id || !query || !requestMessageId || !grantedAt || !Number.isFinite(expiresAtMs))
+    return { grant: null, state: "invalid" };
+  if (expiresAtMs <= Date.now()) return { grant: null, state: "expired" };
   const allowedDomains = Array.isArray(value.allowedDomains)
     ? value.allowedDomains.map((domain) => readString(domain).trim()).filter(Boolean)
     : [];
-  return { id, query, requestMessageId, grantedAt, expiresAt, allowedDomains };
+  return {
+    grant: { id, query, requestMessageId, grantedAt, expiresAt, allowedDomains },
+    state: "valid",
+  };
 }
 
 function chatToolSelectionFor(chat: JsonRecord): { mode: "all" | "explicit"; activeIds: Set<string> } {
@@ -975,6 +984,7 @@ export interface MainToolDefinitions {
    */
   allowedToolNames: Set<string>;
   characterWebResearchGrant: CharacterWebResearchGrant | null;
+  characterWebResearchGrantState: CharacterWebResearchGrantState;
 }
 
 /**
@@ -999,7 +1009,10 @@ export async function buildMainToolDefinitions(
 ): Promise<MainToolDefinitions | null> {
   const metadata = parseRecord(args.chat.metadata);
   const webAccessEnabled = metadata.characterWebAccessEnabled === true;
-  const webGrant = webAccessEnabled ? characterWebResearchGrant(metadata) : null;
+  const webGrantResolution = webAccessEnabled
+    ? characterWebResearchGrant(metadata)
+    : { grant: null, state: "missing" as const };
+  const webGrant = webGrantResolution.grant;
   const webToolDefs = webAccessEnabled
     ? webGrant
       ? [CHARACTER_WEB_SEARCH_TOOL, CHARACTER_WEB_READ_TOOL]
@@ -1032,7 +1045,13 @@ export async function buildMainToolDefinitions(
   if (builtIns.length === 0 && customs.length === 0 && webToolDefs.length === 0) return null;
   const toolDefs = [...builtIns, ...customs, ...webToolDefs];
   const allowedToolNames = new Set<string>(toolDefs.map((tool) => tool.name));
-  return { toolDefs, customTools, allowedToolNames, characterWebResearchGrant: webGrant };
+  return {
+    toolDefs,
+    customTools,
+    allowedToolNames,
+    characterWebResearchGrant: webGrant,
+    characterWebResearchGrantState: webGrantResolution.state,
+  };
 }
 
 export interface ExecuteMainToolCallArgs {
@@ -1041,6 +1060,7 @@ export interface ExecuteMainToolCallArgs {
   customTools: Map<string, CustomToolRecord>;
   allowedToolNames: Set<string>;
   characterWebResearchGrant: CharacterWebResearchGrant | null;
+  characterWebResearchGrantState: CharacterWebResearchGrantState;
   call: LLMToolCall;
 }
 
@@ -1061,7 +1081,19 @@ export interface ExecuteMainToolCallArgs {
  */
 export async function executeMainToolCall(args: ExecuteMainToolCallArgs): Promise<string> {
   const name = args.call.function?.name || args.call.name;
+  const isCharacterWebAction = name === CHARACTER_WEB_SEARCH_TOOL_NAME || name === CHARACTER_WEB_READ_TOOL_NAME;
   if (!args.allowedToolNames.has(name)) {
+    if (isCharacterWebAction) {
+      const expired = args.characterWebResearchGrantState === "expired";
+      return stringifyToolResult({
+        error: {
+          code: expired ? "character_web_grant_expired" : "character_web_consent_required",
+          message: expired
+            ? "The one-turn web research grant expired. Ask the user to approve the exact query again."
+            : "This chat has no approved one-turn web research grant. Ask for consent before using web tools.",
+        },
+      });
+    }
     return stringifyToolResult({ error: `Tool not enabled for this chat: ${name}` });
   }
   if (BUILT_IN_TOOL_MAP.has(name)) {
@@ -1080,11 +1112,30 @@ export async function executeMainToolCall(args: ExecuteMainToolCallArgs): Promis
       allowedDomains: stringArrayArg(toolArgs, "allowedDomains"),
     });
   }
-  if (name === CHARACTER_WEB_SEARCH_TOOL_NAME || name === CHARACTER_WEB_READ_TOOL_NAME) {
+  if (isCharacterWebAction) {
     const grant = args.characterWebResearchGrant;
     const webResearch = args.deps.integrations.webResearch;
-    if (!grant || !webResearch) {
-      return stringifyToolResult({ error: "Approved character web research is unavailable for this turn." });
+    if (!grant) {
+      return stringifyToolResult({
+        error: {
+          code:
+            args.characterWebResearchGrantState === "expired"
+              ? "character_web_grant_expired"
+              : "character_web_consent_required",
+          message:
+            args.characterWebResearchGrantState === "expired"
+              ? "The one-turn web research grant expired. Ask the user to approve the exact query again."
+              : "The one-turn web research grant is missing or invalid. Ask the user to approve the exact query.",
+        },
+      });
+    }
+    if (!webResearch) {
+      return stringifyToolResult({
+        error: {
+          code: "character_web_integration_unavailable",
+          message: "This runtime does not provide the character web research integration.",
+        },
+      });
     }
     const chatId = readString(args.input.chat.id).trim();
     if (name === CHARACTER_WEB_SEARCH_TOOL_NAME) {

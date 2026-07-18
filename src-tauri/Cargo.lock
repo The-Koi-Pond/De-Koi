@@ -1411,6 +1411,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tower-http 0.6.11",
+ "unicode-normalization",
  "zip",
 ]
 
