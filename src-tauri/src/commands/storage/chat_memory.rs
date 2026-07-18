@@ -579,6 +579,12 @@ fn chat_memory_is_refresh_owned(memory: &Value) -> bool {
     !memory_message_ids(memory).is_empty() && !has_non_transcript_memory_metadata(memory)
 }
 
+fn chat_memory_is_automatic_exchange_capture(memory: &Value) -> bool {
+    chat_memory_is_refresh_owned(memory)
+        && memory.get("creationReason").and_then(Value::as_str)
+            == Some("Automatic exchange capture")
+}
+
 fn reusable_chat_memory<'a>(
     existing: &'a HashMap<String, Value>,
     message_ids: &[String],
@@ -1240,18 +1246,55 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
     let chat = get_required(state, "chats", chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
     let existing_memories = chat_memory_values_for_mutation(&chat)?;
+    let visible_messages = chats::messages_for_chat(state, chat_id)?
+        .into_iter()
+        .filter(|message| !is_hidden_from_ai(message) && !message_content(message).is_empty())
+        .collect::<Vec<_>>();
     let source_message_id_set = source_message_ids
         .iter()
         .map(|id| id.trim())
         .filter(|id| !id.is_empty())
         .map(ToOwned::to_owned)
         .collect::<HashSet<_>>();
-    let focused_refresh = !source_message_id_set.is_empty();
+    let focused_messages = visible_messages
+        .iter()
+        .filter(|message| {
+            message
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .is_some_and(|id| source_message_id_set.contains(id))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let focused_refresh = focused_messages
+        .last()
+        .is_some_and(|message| message_role(message) == "assistant");
+    let mut focused_capture_message_ids = existing_memories
+        .iter()
+        .filter(|memory| chat_memory_is_automatic_exchange_capture(memory))
+        .flat_map(chat_memory_message_ids)
+        .collect::<HashSet<_>>();
+    if focused_refresh {
+        focused_capture_message_ids.extend(capture_message_ids(&focused_messages));
+    }
     let preserved_memories = existing_memories
         .iter()
         .filter(|memory| {
             if !chat_memory_is_refresh_owned(memory) {
                 return true;
+            }
+            if chat_memory_is_automatic_exchange_capture(memory) {
+                return !focused_refresh
+                    || !chat_memory_message_ids(memory)
+                        .iter()
+                        .any(|id| source_message_id_set.contains(id));
+            }
+            if chat_memory_message_ids(memory)
+                .iter()
+                .any(|id| focused_capture_message_ids.contains(id))
+            {
+                return false;
             }
             focused_refresh
                 && !chat_memory_message_ids(memory)
@@ -1268,10 +1311,6 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
             (!ids.is_empty()).then(|| (memory_chunk_key(&ids), memory.clone()))
         })
         .collect::<HashMap<_, _>>();
-    let visible_messages = chats::messages_for_chat(state, chat_id)?
-        .into_iter()
-        .filter(|message| !is_hidden_from_ai(message) && !message_content(message).is_empty())
-        .collect::<Vec<_>>();
     let persona_name = chat_persona_name(state, &chat)?;
     let character_names = chat_character_names(state, &chat)?;
     let fallback_character_name = if character_names.len() == 1 {
@@ -1285,52 +1324,40 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
     let mut reused = 0usize;
     let mut focused_capture_index = None;
     let mut focused_capture_operation = None;
-    if !source_message_id_set.is_empty() {
-        let focused_messages = visible_messages
-            .iter()
-            .filter(|message| {
-                message
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .is_some_and(|id| source_message_id_set.contains(id))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        if focused_messages
-            .last()
-            .is_some_and(|message| message_role(message) == "assistant")
-        {
-            let focused_message_ids = capture_message_ids(&focused_messages);
-            focused_capture_operation = Some(
-                if existing_by_chunk.contains_key(&memory_chunk_key(&focused_message_ids)) {
-                    "updated"
-                } else {
-                    "created"
-                },
-            );
-            focused_capture_index = Some(chunks.len());
-            let context = RefreshMemoryCaptureContext {
-                existing_by_chunk: &existing_by_chunk,
-                embedding_context: embedding_context.as_ref(),
-                chat_id,
-                persona_name: persona_name.as_deref(),
-                character_names: &character_names,
-                fallback_character_name,
-                now: &now,
-                creation_reason: "Automatic exchange capture",
-            };
-            push_refresh_memory_capture(
-                &mut chunks,
-                &mut pending,
-                &mut reused,
-                &focused_messages,
-                &context,
-            );
-        }
+    if focused_refresh {
+        let focused_message_ids = capture_message_ids(&focused_messages);
+        focused_capture_operation = Some(
+            if existing_by_chunk.contains_key(&memory_chunk_key(&focused_message_ids)) {
+                "updated"
+            } else {
+                "created"
+            },
+        );
+        focused_capture_index = Some(chunks.len());
+        let context = RefreshMemoryCaptureContext {
+            existing_by_chunk: &existing_by_chunk,
+            embedding_context: embedding_context.as_ref(),
+            chat_id,
+            persona_name: persona_name.as_deref(),
+            character_names: &character_names,
+            fallback_character_name,
+            now: &now,
+            creation_reason: "Automatic exchange capture",
+        };
+        push_refresh_memory_capture(
+            &mut chunks,
+            &mut pending,
+            &mut reused,
+            &focused_messages,
+            &context,
+        );
     }
     for chunk in visible_messages.chunks(MEMORY_CHUNK_SIZE) {
-        if chunk.len() < MEMORY_CHUNK_SIZE {
+        if chunk.len() < MEMORY_CHUNK_SIZE
+            || capture_message_ids(chunk)
+                .iter()
+                .any(|id| focused_capture_message_ids.contains(id))
+        {
             continue;
         }
         let context = RefreshMemoryCaptureContext {
@@ -2143,10 +2170,7 @@ pub(crate) async fn import_chat_memories(
         memory.remove("embedding");
         memory.remove("embeddingConnectionId");
         memory.remove("embeddingModel");
-        insert_memory_embedding_fields(
-            &mut memory,
-            embed_memory_content(None, &content).await?,
-        );
+        insert_memory_embedding_fields(&mut memory, embed_memory_content(None, &content).await?);
         lexical_indexed += 1;
         if let Some(stored_keys) = memory_recall_existing_keys(&Value::Object(memory.clone())) {
             seen.extend(stored_keys);
@@ -3588,7 +3612,10 @@ mod tests {
             .expect("imported memories should be stored");
         assert_eq!(memories.len(), 2);
         assert_eq!(memories[0]["embedding"], memories[1]["embedding"]);
-        assert_eq!(memories[0]["embedding"], json!(lexical_memory_embedding("same portable memory")));
+        assert_eq!(
+            memories[0]["embedding"],
+            json!(lexical_memory_embedding("same portable memory"))
+        );
         for memory in memories {
             assert_eq!(memory["embeddingSource"], json!("lexical"));
             assert!(memory.get("embeddingConnectionId").is_none());
@@ -4052,6 +4079,100 @@ mod tests {
         assert_eq!(
             updated["capture"]["memory"]["id"],
             created["capture"]["memory"]["id"]
+        );
+    }
+
+    #[tokio::test]
+    async fn focused_refresh_does_not_rebuild_transcript_chunks_with_overlapping_messages() {
+        let state = test_state("memory-focused-capture-overlap");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "name": "Memory chat" }))
+            .expect("chat should seed");
+        for index in 0..10 {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": format!("message-{index}"),
+                        "chatId": "chat-1",
+                        "role": if index % 2 == 0 { "user" } else { "assistant" },
+                        "content": format!("visible memory {index}"),
+                        "createdAt": format!("2026-06-01T10:{index:02}:00.000Z")
+                    }),
+                )
+                .expect("message should seed");
+        }
+
+        refresh_chat_memories_for_source_messages(
+            &state,
+            "chat-1",
+            vec!["message-4".to_string(), "message-5".to_string()],
+        )
+        .await
+        .expect("first focused refresh should succeed");
+        let result = refresh_chat_memories_for_source_messages(
+            &state,
+            "chat-1",
+            vec!["message-8".to_string(), "message-9".to_string()],
+        )
+        .await
+        .expect("second focused refresh should succeed");
+        let memories = result["chunks"]
+            .as_array()
+            .expect("memories should be an array");
+
+        assert_eq!(memories.len(), 2);
+        assert!(memories
+            .iter()
+            .all(|memory| { memory["creationReason"] == json!("Automatic exchange capture") }));
+        let capture_message_ids = memories
+            .iter()
+            .map(chat_memory_message_ids)
+            .collect::<Vec<_>>();
+        assert!(capture_message_ids.contains(&HashSet::from([
+            "message-8".to_string(),
+            "message-9".to_string(),
+        ])));
+        assert!(capture_message_ids.contains(&HashSet::from([
+            "message-4".to_string(),
+            "message-5".to_string(),
+        ])));
+
+        let rebuilt = refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect("full refresh should preserve focused captures");
+        assert_eq!(rebuilt["chunks"].as_array().map(Vec::len), Some(2));
+        assert!(rebuilt["chunks"]
+            .as_array()
+            .expect("rebuilt memories should be an array")
+            .iter()
+            .all(|memory| memory["creationReason"] == json!("Automatic exchange capture")));
+    }
+
+    #[tokio::test]
+    async fn incomplete_focused_refresh_does_not_suppress_complete_transcript_chunks() {
+        let state = test_state("memory-incomplete-focused-capture");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "name": "Memory chat" }))
+            .expect("chat should seed");
+        seed_five_visible_messages(&state, "chat-1");
+
+        let result = refresh_chat_memories_for_source_messages(
+            &state,
+            "chat-1",
+            vec!["message-4".to_string()],
+        )
+        .await
+        .expect("incomplete focused refresh should succeed");
+
+        assert!(result["capture"].is_null());
+        assert_eq!(result["chunks"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            result["chunks"][0]["creationReason"],
+            json!("Automatic transcript chunk capture")
         );
     }
 
