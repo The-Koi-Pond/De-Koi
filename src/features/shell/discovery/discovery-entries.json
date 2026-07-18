@@ -338,7 +338,7 @@
     "summary": "Optionally show reasoning returned by the model in a separate collapsible panel beneath character replies while keeping final answers primary.",
     "keywords": ["reasoning", "thinking", "thoughts", "model reasoning", "view thoughts", "chat messages"],
     "audience": "Users who want to inspect reasoning data that their selected model and provider make available.",
-    "where": "Open a Conversation or Roleplay chat, then Chat Settings > Advanced.",
+    "where": "Open a Conversation or Roleplay chat, then Chat Settings > Reasoning.",
     "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" }],
     "coverage": "advanced"
   },
@@ -360,8 +360,8 @@
     "summary": "Optional input actions for posting without generation, guiding a reply, impersonating a character, or saving custom slash-command buttons from mode input toolbars.",
     "keywords": ["quick replies", "custom quick replies", "saved actions", "slash command buttons", "post only", "guide", "impersonate", "toolbar", "send"],
     "audience": "Users who want faster alternate send actions during writing.",
-    "where": "Settings > Advanced, then the Conversation, Roleplay, or Game input toolbar.",
-    "actions": [{ "type": "open-settings", "tab": "advanced", "label": "Open Advanced" }],
+    "where": "Settings > General > Chat behavior, then the Conversation, Roleplay, or Game input toolbar.",
+    "actions": [{ "type": "open-settings", "tab": "general", "destination": "chat-behavior", "label": "Open Chat Behavior" }],
     "coverage": "advanced"
   },
   {
@@ -537,7 +537,7 @@
     "keywords": ["backup", "backups", "profile export", "profile import", "restore", "download backup", "managed backup", "migration"],
     "audience": "Users moving devices, testing risky changes, or keeping recovery copies of local data.",
     "where": "Settings > Import for profile import, Settings > Privacy & Data for the privacy overview, and Settings > Advanced for backup and profile export controls.",
-    "actions": [{ "type": "open-settings", "tab": "advanced", "destination": "backups", "label": "Open Backups And Export" }],
+    "actions": [{ "type": "open-settings", "tab": "privacy", "destination": "backups", "label": "Open Backups And Export" }],
     "coverage": "advanced"
   },
   {
@@ -591,7 +591,7 @@
     "summary": "Let a character ask before searching the public web. You see the exact query and any domain limits, and approval lasts for one regenerated turn.",
     "keywords": ["internet", "web", "research", "search", "sources", "character internet access", "permission"],
     "audience": "Conversation and roleplay users who want characters to check current public information.",
-    "where": "Open a Conversation or Roleplay chat > Chat Settings > Advanced > Character Web Research.",
+    "where": "Open a Conversation or Roleplay chat > Chat Settings > Character Web Research.",
     "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" }],
     "coverage": "advanced"
   }

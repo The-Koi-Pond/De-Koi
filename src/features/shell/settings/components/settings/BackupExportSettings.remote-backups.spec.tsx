@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { backupApi } from "../../../../../shared/api/profile-api";
 import { readAdminSecretStorage } from "../../../../../shared/api/remote-runtime";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
-import { AdvancedSettings } from "./SettingsSurfaces";
+import { BackupExportSettings } from "./BackupExportSettings";
 
 vi.mock("../../../../../shared/api/profile-api", () => ({
   backupApi: {
@@ -51,7 +51,7 @@ async function flushAsyncWork() {
   });
 }
 
-describe("AdvancedSettings remote backups", () => {
+describe("BackupExportSettings remote backups", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
   let queryClient: QueryClient | null = null;
@@ -81,7 +81,7 @@ describe("AdvancedSettings remote backups", () => {
       root = createRoot(container!);
       root.render(
         <QueryClientProvider client={queryClient!}>
-          <AdvancedSettings />
+          <BackupExportSettings />
         </QueryClientProvider>,
       );
     });
