@@ -1,14 +1,10 @@
 import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProperties } from "react";
-import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { toast } from "sonner";
-import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { copyToClipboard, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
-import { chatKeys } from "../../../catalog/chats/index";
+import { useUpdateMessageExtra } from "../../../catalog/chats/index";
 import { resolveMessageMacros } from "../../../../shared/lib/chat-macros";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
-import { storageApi } from "../../../../shared/api/storage-api";
 import {
   buildSaveMomentSource,
   hasGenerationReplayDetails,
@@ -299,41 +295,24 @@ export const ConversationMessage = memo(function ConversationMessage({
     return contentParts.slice(0, count).map((part) => resolveMessageMacros(part, macroContext));
   }, [contentParts, macroContext, visiblePartCount]);
 
-  const qc = useQueryClient();
+  const updateMessageExtra = useUpdateMessageExtra(message.chatId);
   const handleRemoveAttachment = useCallback(
     async (index: number) => {
       const updated = attachments.filter((_, i) => i !== index);
-      const msgKey = chatKeys.messages(message.chatId);
-      const previous = qc.getQueryData<InfiniteData<Message[]>>(msgKey);
-      qc.setQueryData<InfiniteData<Message[]>>(msgKey, (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page) =>
-            page.map((m) => {
-              if (m.id !== message.id) return m;
-              const ex = typeof m.extra === "string" ? JSON.parse(m.extra) : (m.extra ?? {});
-              return { ...m, extra: { ...ex, attachments: updated } } as Message;
-            }),
-          ),
-        };
-      });
       try {
-        await storageApi.patchChatMessageExtra(message.id, { attachments: updated });
-      } catch (error) {
-        qc.setQueryData(msgKey, previous);
-        toast.error(error instanceof Error ? error.message : "Failed to remove attachment.");
-      } finally {
-        await qc.invalidateQueries({ queryKey: msgKey });
+        await updateMessageExtra.mutateAsync({ messageId: message.id, extra: { attachments: updated } });
+        return true;
+      } catch {
+        return false;
       }
     },
-    [attachments, message.chatId, message.id, qc],
+    [attachments, message.id, updateMessageExtra],
   );
 
   const handleRegenerateAttachment = useCallback(
     async (index: number) => {
       if (!onIllustrateMoment) return;
-      await handleRemoveAttachment(index);
+      if (!(await handleRemoveAttachment(index))) return;
       await onIllustrateMoment(
         buildSaveMomentSource({
           chatId: message.chatId,
@@ -619,7 +598,9 @@ export const ConversationMessage = memo(function ConversationMessage({
     onShowGenerationReplay: () => setShowGenerationReplay(true),
     onShowThinking: () => setShowThinking(true),
     onImageOpen: openImageLightbox,
-    onRemoveAttachment: handleRemoveAttachment,
+    onRemoveAttachment: async (index) => {
+      await handleRemoveAttachment(index);
+    },
     onRegenerateAttachment: onIllustrateMoment ? handleRegenerateAttachment : undefined,
     onCloseThinking: () => setShowThinking(false),
     onCloseGenerationReplay: () => setShowGenerationReplay(false),
