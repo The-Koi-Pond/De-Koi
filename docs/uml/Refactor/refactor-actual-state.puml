@@ -1,6 +1,6 @@
 @startuml name "De-Koi refactor actual state"
-title "De-Koi refactor - current actual state after boundary cleanup"
-rightfooter Current snapshot of De-Koi refactor-era architecture; conceptual, not a complete import graph
+title "De-Koi refactor - actual state at 2026-07-18"
+rightfooter Snapshot: main 0d2ded1a5 on 2026-07-18; conceptual, not a complete import graph
 
 skinparam linetype ortho
 skinparam packageStyle rectangle
@@ -47,10 +47,10 @@ package "React application and feature layer" {
     }
 
     package "src/features/modes" {
-        component "[file]\nrouter/components/ModeSurface.tsx\n2211 lines\nmode router plus shared conversation orchestration" as ModeSurface <<mixed>>
-        component "[folder]\nconversation\nconversation-owned surface" as ConversationUI <<healthy>>
-        component "[folder]\nroleplay\nscene and encounter surface" as RoleplayUI <<healthy>>
-        component "[file]\ngame/components/GameSurface.tsx\n8707 lines\ngame UI orchestration hotspot" as GameSurface <<pressure>>
+        component "[file]\nrouter/components/ModeSurface.tsx\n121 lines\nchat selection + lazy mode routing" as ModeSurface <<healthy>>
+        component "[folder]\nconversation\nConversationModeRoute + ChatConversationSurface" as ConversationUI <<healthy>>
+        component "[folder]\nroleplay\nRoleplayModeRoute + ChatRoleplaySurface" as RoleplayUI <<mixed>>
+        component "[file]\ngame/components/GameSurface.tsx\n8951 lines\ngame UI orchestration hotspot" as GameSurface <<pressure>>
         component "[folder]\nshared/chat-ui\nshared transcript primitives" as SharedModeUI <<mixed>>
     }
 
@@ -119,10 +119,6 @@ ShellFeatures -[#1565C0]-> SharedApi
 ModeSurface -[#1565C0]-> ConversationUI
 ModeSurface -[#1565C0]-> RoleplayUI
 ModeSurface -[#1565C0]-> GameSurface
-ModeSurface -[#1565C0]-> SharedModeUI
-ModeSurface -[#1565C0]-> RuntimeGeneration
-ModeSurface -[#1565C0]-> WorldState
-ModeSurface -[#1565C0]-> Visuals
 ModeSurface -[#1565C0]-> Catalog
 ModeSurface -[#1565C0]-> SharedFrontend
 
@@ -186,23 +182,22 @@ CI .[#558B2F].> Eslint
 CI .[#558B2F].> RustStructure
 
 ' Remaining pressure is responsibility concentration, not currently failed dependency rules
-ModeSurface -[#C62828,dashed]-> ModeSurface : router also owns chat loading,\ngeneration flow, sprite metadata,\nTTS/translation, agent review,\nworld-state refresh
 GameSurface -[#C62828,dashed]-> GameSurface : UI, state sync, game effects,\nassets, audio, Spotify, sprites,\nNPC avatars, narration progress,\nmetadata persistence
+RoleplayUI -[#F9A825,dashed]-> RoleplayUI : scene, encounter, tracker,\nagent review, visuals, speech
 SharedModeUI -[#C62828,dashed]-> SharedModeUI : some shared mode UI files are large,\nnot boundary violations
 CommandRegistry -[#F9A825,dashed]-> CommandRegistry : centralized command list remains broad
 ImportModules -[#F9A825,dashed]-> ImportModules : import workflows are split,\nbut bulk/marinara modules are still dense
 
 note top of DepCruise
-  Current validation result:
-  pnpm.cmd check passed.
+  Snapshot validation at main 0d2ded1a5 on 2026-07-18:
   dependency-cruiser reported zero dependency violations
-  across 568 modules and 2019 dependencies.
+  across 1492 modules and 4904 dependencies.
 end note
 
 note right of ModeSurface
-  This is no longer mainly a package-boundary problem.
-  The problem is density: one React file still coordinates
-  several feature concerns that could have mode-owned controllers.
+  ModeSurface is now a small selector/router.
+  It resolves the active chat and lazy-loads only the public
+  conversation, roleplay, or game route entrypoint.
 end note
 
 note right of GameSurface
