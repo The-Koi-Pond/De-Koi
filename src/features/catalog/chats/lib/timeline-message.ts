@@ -19,6 +19,8 @@ const CHAT_MESSAGE_TIMELINE_FIELDS = [
 ];
 
 const CHAT_MESSAGE_TIMELINE_EXTRA_FIELDS = [
+  "characterWebResearchRequest",
+  "characterWebResearchSources",
   "displayText",
   "isGenerated",
   "tokenCount",
