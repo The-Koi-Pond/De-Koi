@@ -49,6 +49,7 @@ import {
   shouldRevealLatestTranscriptWindow,
   TRANSCRIPT_RENDER_WINDOW_STEP,
 } from "../../shared/chat-ui/index";
+import type { RegenerateOptions } from "../../shared/chat-ui/types";
 
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -141,7 +142,7 @@ interface ConversationViewProps {
   /** Active characters whose card CSS targets the typing indicator (exclusive mode only). */
   typingStyledCharacterIds?: Set<string>;
   onDelete: (messageId: string) => void;
-  onRegenerate: (messageId: string) => void;
+  onRegenerate: (messageId: string, options?: RegenerateOptions) => void | Promise<void>;
   onEdit: (messageId: string, content: string) => void | Promise<void>;
   onSetActiveSwipe: (messageId: string, index: number) => void;
   onPeekPrompt: (options?: PeekPromptOptions) => void;

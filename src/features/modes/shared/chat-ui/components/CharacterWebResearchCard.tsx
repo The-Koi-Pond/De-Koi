@@ -2,8 +2,15 @@ import { useState } from "react";
 import { Globe2, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { CharacterWebResearchRequest } from "../../../../../engine/contracts/types/chat";
+import {
+  characterWebResearchApprovalPatch,
+  createCharacterWebResearchGrant,
+  type CharacterWebResearchApproval,
+} from "../../../../../engine/generation/character-web-research";
 import { storageApi } from "../../../../../shared/api/storage-api";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { chatKeys } from "../../../../catalog/chats";
+import type { RegenerateOptions } from "../types";
 
 export function CharacterWebResearchCard({
   chatId,
@@ -14,37 +21,38 @@ export function CharacterWebResearchCard({
   chatId: string;
   messageId: string;
   request: CharacterWebResearchRequest;
-  onRegenerate?: (messageId: string) => void;
+  onRegenerate?: (messageId: string, options?: RegenerateOptions) => void | Promise<void>;
 }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   if (request.status && request.status !== "pending") {
     return <p className="mt-2 text-xs text-[var(--muted-foreground)]">Web research {request.status}.</p>;
   }
 
-  const decide = async (approve: boolean) => {
+  const decide = async (approval: CharacterWebResearchApproval | "decline") => {
     if (busy) return;
     setBusy(true);
-    const status = approve ? "approved" : "declined";
+    setError(null);
     try {
-      if (approve) {
-        const now = new Date();
-        await storageApi.patchChatMetadata(chatId, {
-          characterWebResearchGrant: {
-            id: `character-web-${crypto.randomUUID()}`,
-            query: request.query,
-            allowedDomains: request.allowedDomains,
-            requestMessageId: messageId,
-            grantedAt: now.toISOString(),
-            expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
-          },
+      if (approval === "decline") {
+        await storageApi.patchChatMessageExtra(messageId, {
+          characterWebResearchRequest: { ...request, status: "declined" },
         });
+        await qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+        return;
       }
-      await storageApi.patchChatMessageExtra(messageId, {
-        characterWebResearchRequest: { ...request, status },
+
+      const grant = createCharacterWebResearchGrant({
+        query: request.query,
+        allowedDomains: request.allowedDomains,
+        requestMessageId: messageId,
       });
+      await storageApi.patchChatMetadata(chatId, characterWebResearchApprovalPatch(approval, grant));
+      await onRegenerate?.(messageId, { propagateErrors: true, skipTouchConfirm: true });
       await qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
-      if (approve) onRegenerate?.(messageId);
+    } catch (cause) {
+      setError(toUserMessage(cause, "characterWebResearchRetry"));
     } finally {
       setBusy(false);
     }
@@ -63,20 +71,28 @@ export function CharacterWebResearchCard({
           Limited to: {request.allowedDomains.join(", ")}
         </p>
       )}
+      {error && <div className="mt-2 rounded bg-red-500/10 px-2 py-1.5 text-xs text-red-500">{error}</div>}
       <div className="mt-2 flex gap-2">
         <button
           className="rounded px-2 py-1 text-xs hover:bg-black/10"
           disabled={busy}
-          onClick={() => void decide(false)}
+          onClick={() => void decide("decline")}
         >
           Not now
         </button>
         <button
           className="rounded bg-sky-500 px-2 py-1 text-xs text-white hover:bg-sky-400 disabled:opacity-60"
           disabled={busy || !onRegenerate}
-          onClick={() => void decide(true)}
+          onClick={() => void decide("once")}
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Allow once"}
+        </button>
+        <button
+          className="rounded border border-sky-400/50 px-2 py-1 text-xs text-sky-600 hover:bg-sky-500/10 disabled:opacity-60 dark:text-sky-300"
+          disabled={busy || !onRegenerate}
+          onClick={() => void decide("always")}
+        >
+          Always allow
         </button>
       </div>
     </section>

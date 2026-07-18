@@ -5731,6 +5731,7 @@ function ChatSettingsDrawerInner({
                     updateMeta.mutate({
                       id: chat.id,
                       characterWebAccessEnabled: metadata.characterWebAccessEnabled !== true,
+                      characterWebResearchPolicy: "ask",
                       characterWebResearchGrant: null,
                     })
                   }
@@ -5744,7 +5745,9 @@ function ChatSettingsDrawerInner({
                   <div>
                     <span className="text-xs font-medium">Character Web Research</span>
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Let characters ask permission before searching the public web for one turn.
+                      {metadata.characterWebResearchPolicy === "always"
+                        ? "Always allowed for this chat. Turn this off to revoke access."
+                        : "Let characters ask permission before searching the public web for one turn."}
                     </p>
                   </div>
                   <div
@@ -5763,6 +5766,21 @@ function ChatSettingsDrawerInner({
                     />
                   </div>
                 </button>
+                {metadata.characterWebAccessEnabled === true && metadata.characterWebResearchPolicy === "always" && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateMeta.mutate({
+                        id: chat.id,
+                        characterWebResearchPolicy: "ask",
+                        characterWebResearchGrant: null,
+                      })
+                    }
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-left text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
+                  >
+                    Ask before each search
+                  </button>
+                )}
               </div>
             </Section>
           )}

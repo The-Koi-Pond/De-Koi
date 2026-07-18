@@ -985,6 +985,7 @@ export interface MainToolDefinitions {
   allowedToolNames: Set<string>;
   characterWebResearchGrant: CharacterWebResearchGrant | null;
   characterWebResearchGrantState: CharacterWebResearchGrantState;
+  characterWebResearchPolicy: "ask" | "always";
 }
 
 /**
@@ -1009,6 +1010,7 @@ export async function buildMainToolDefinitions(
 ): Promise<MainToolDefinitions | null> {
   const metadata = parseRecord(args.chat.metadata);
   const webAccessEnabled = metadata.characterWebAccessEnabled === true;
+  const webResearchPolicy = metadata.characterWebResearchPolicy === "always" ? "always" : "ask";
   const webGrantResolution = webAccessEnabled
     ? characterWebResearchGrant(metadata)
     : { grant: null, state: "missing" as const };
@@ -1051,6 +1053,7 @@ export async function buildMainToolDefinitions(
     allowedToolNames,
     characterWebResearchGrant: webGrant,
     characterWebResearchGrantState: webGrantResolution.state,
+    characterWebResearchPolicy: webResearchPolicy,
   };
 }
 

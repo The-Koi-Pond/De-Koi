@@ -392,7 +392,7 @@ interface ChatMessageProps {
   };
   isStreaming?: boolean;
   onDelete?: (messageId: string) => void;
-  onRegenerate?: (messageId: string, options?: RegenerateOptions) => void;
+  onRegenerate?: (messageId: string, options?: RegenerateOptions) => void | Promise<void>;
   onEdit?: (messageId: string, content: string) => void | Promise<void>;
   onSetActiveSwipe?: (messageId: string, index: number) => void;
   onToggleConversationStart?: (messageId: string, current: boolean) => void;
@@ -2374,7 +2374,9 @@ export const ChatMessage = memo(function ChatMessage({
             messageId={message.id}
             request={extra.characterWebResearchRequest}
             onRegenerate={
-              onRegenerate ? (id) => onRegenerate(id, { forCharacterId: message.characterId ?? null }) : undefined
+              onRegenerate
+                ? (id, options) => onRegenerate(id, { ...options, forCharacterId: message.characterId ?? null })
+                : undefined
             }
           />
         )}
@@ -2861,7 +2863,9 @@ export const ChatMessage = memo(function ChatMessage({
           messageId={message.id}
           request={extra.characterWebResearchRequest}
           onRegenerate={
-            onRegenerate ? (id) => onRegenerate(id, { forCharacterId: message.characterId ?? null }) : undefined
+            onRegenerate
+              ? (id, options) => onRegenerate(id, { ...options, forCharacterId: message.characterId ?? null })
+              : undefined
           }
         />
       )}
