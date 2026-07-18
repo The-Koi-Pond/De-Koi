@@ -3991,10 +3991,10 @@ export function AdvancedSettings() {
       <ExportFormatDialog
         open={exportProfileDialogOpen}
         title="Export Profile"
-        description="Native JSON keeps full De-Koi import fidelity. Profile ZIP packages the same data with asset files outside the JSON for large profiles and recovery."
+        description="Native JSON keeps the v1 format for compatibility. Profile ZIP uses the versioned v2 package with chunked records and managed assets for large profiles and recovery."
         nativeDescription="Creates a De-Koi profile JSON for direct re-import when the profile is small enough."
         compatibleDescription="Exports character cards, simple persona JSON, and folderless lorebooks for other roleplay tools."
-        zipDescription="Creates an importable profile ZIP with De-Koi data plus managed assets for large profiles and recovery."
+        zipDescription="Creates a v2 profile package with a manifest, chunked record files, integrity checks, and managed assets."
         showZipOption
         onClose={() => setExportProfileDialogOpen(false)}
         onSelect={handleExportProfileChoice}

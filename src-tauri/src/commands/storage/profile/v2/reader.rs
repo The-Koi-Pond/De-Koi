@@ -8,7 +8,7 @@ use crate::storage_commands::{
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs::File;
@@ -38,6 +38,85 @@ struct ProfileV2AssetIndexRow {
     path: String,
     bytes: u64,
     sha256: String,
+}
+
+pub(super) struct ProfileV2Payload {
+    pub validated: ValidatedProfileV2,
+    pub collections: Map<String, Value>,
+    pub assets: Value,
+}
+
+pub(super) fn is_profile_v2_archive(path: &Path) -> bool {
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    let Ok(mut archive) = zip::ZipArchive::new(file) else {
+        return false;
+    };
+    let Ok(bytes) =
+        read_bounded_entry(&mut archive, "manifest.json", MAX_PROFILE_V2_MANIFEST_BYTES)
+    else {
+        return false;
+    };
+    serde_json::from_slice::<Value>(&bytes).is_ok_and(|manifest| {
+        manifest.get("type").and_then(Value::as_str) == Some("marinara_profile")
+            && (manifest.get("version").is_some()
+                || manifest.get("tables").is_some()
+                || manifest.get("compatibility").is_some())
+    })
+}
+
+pub(super) fn read_profile_v2_payload(path: &Path) -> AppResult<ProfileV2Payload> {
+    let validated = validate_profile_v2_archive(path)?;
+    let mut archive = zip::ZipArchive::new(File::open(path)?)
+        .map_err(|error| invalid_archive(format!("Could not read profile v2 ZIP: {error}")))?;
+    let mut collections = Map::new();
+    for table in &validated.manifest.tables {
+        let mut rows = Vec::with_capacity(usize::try_from(table.record_count).unwrap_or(0));
+        for descriptor in &table.files {
+            let entry = archive.by_name(&descriptor.path).map_err(|_| {
+                table_error(
+                    "entry",
+                    &table.name,
+                    &descriptor.path,
+                    "Missing declared table chunk",
+                )
+            })?;
+            let reader = BufReader::new(entry.take(descriptor.bytes.saturating_add(1)));
+            for line in reader.lines() {
+                let value: Value = serde_json::from_str(&line?).map_err(|_| {
+                    table_error(
+                        "jsonl",
+                        &table.name,
+                        &descriptor.path,
+                        "Table chunk contains malformed JSONL",
+                    )
+                })?;
+                rows.push(value);
+            }
+        }
+        collections.insert(table.name.clone(), Value::Array(rows));
+    }
+    let assets = if let Some(descriptor) = validated
+        .manifest
+        .assets
+        .as_ref()
+        .map(|assets| &assets.index)
+    {
+        serde_json::from_slice(&read_bounded_entry(
+            &mut archive,
+            &descriptor.path,
+            MAX_PROFILE_ASSET_BYTES,
+        )?)
+        .map_err(|error| invalid_archive(format!("Invalid asset index: {error}")))?
+    } else {
+        Value::Array(Vec::new())
+    };
+    Ok(ProfileV2Payload {
+        validated,
+        collections,
+        assets,
+    })
 }
 
 pub(super) fn validate_profile_v2_archive(path: &Path) -> AppResult<ValidatedProfileV2> {

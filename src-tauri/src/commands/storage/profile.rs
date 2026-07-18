@@ -3,7 +3,6 @@ mod assets;
 #[path = "profile/legacy.rs"]
 mod legacy;
 #[path = "profile/v2/mod.rs"]
-#[allow(dead_code)]
 mod v2;
 #[path = "profile/zip_import.rs"]
 mod zip_import;
@@ -40,6 +39,7 @@ pub(super) enum ProfileImportMode {
 
 #[derive(Clone, Copy)]
 pub(super) enum ProfileImportSourceFormat {
+    V2,
     RefactorNative,
     LegacyFileStorage,
     LegacyArray,
@@ -48,6 +48,7 @@ pub(super) enum ProfileImportSourceFormat {
 impl ProfileImportSourceFormat {
     fn as_str(self) -> &'static str {
         match self {
+            Self::V2 => "profile-v2",
             Self::RefactorNative => "refactor-native",
             Self::LegacyFileStorage => "legacy-modern-fileStorage",
             Self::LegacyArray => "legacy-array",
@@ -56,6 +57,7 @@ impl ProfileImportSourceFormat {
 
     fn converted_from(self) -> Option<&'static str> {
         match self {
+            Self::V2 => None,
             Self::RefactorNative => None,
             Self::LegacyFileStorage => Some("legacy-modern-fileStorage"),
             Self::LegacyArray => Some("legacy-array"),
@@ -329,6 +331,9 @@ fn import_profile_file_with_preview_fingerprint_inner(
                     .map_err(invalid_profile_json_error)?,
                 progress,
             ),
+            "zip" if v2::is_profile_v2_archive(snapshot_path) => {
+                v2::import_profile_v2_with_progress(state, snapshot_path, progress)
+            }
             "zip" => import_profile_zip_with_progress(state, snapshot_path, progress),
             "db" | "sqlite" | "sqlite3" => Err(legacy_sqlite_profile_unsupported_error()),
             _ => unreachable!("profile_file_extension returned an unsupported extension"),
@@ -344,6 +349,9 @@ pub(crate) fn preview_profile_file(state: &AppState, path: &Path) -> AppResult<V
                 serde_json::from_reader(File::open(snapshot_path)?)
                     .map_err(invalid_profile_json_error)?,
             ),
+            "zip" if v2::is_profile_v2_archive(snapshot_path) => {
+                v2::preview_profile_v2(state, snapshot_path)
+            }
             "zip" => preview_profile_zip(state, snapshot_path),
             "db" | "sqlite" | "sqlite3" => Err(legacy_sqlite_profile_unsupported_error()),
             _ => unreachable!("profile_file_extension returned an unsupported extension"),
@@ -370,7 +378,12 @@ pub(crate) fn import_profile_upload(
             let upload_dir = state.data_dir.join(".profile-upload-imports");
             fs::create_dir_all(&upload_dir)?;
             let path = write_profile_temp_file(&upload_dir, "profile-import", "zip", &bytes)?;
-            let result = import_profile_zip(state, &path);
+            let result = if v2::is_profile_v2_archive(&path) {
+                let mut progress = ProfileImportProgress::disabled();
+                v2::import_profile_v2_with_progress(state, &path, &mut progress)
+            } else {
+                import_profile_zip(state, &path)
+            };
             let _ = fs::remove_file(path);
             result
         }
@@ -396,7 +409,11 @@ pub(crate) fn preview_profile_upload(
             let upload_dir = state.data_dir.join(".profile-upload-imports");
             fs::create_dir_all(&upload_dir)?;
             let path = write_profile_temp_file(&upload_dir, "profile-preview", "zip", &bytes)?;
-            let result = preview_profile_zip(state, &path);
+            let result = if v2::is_profile_v2_archive(&path) {
+                v2::preview_profile_v2(state, &path)
+            } else {
+                preview_profile_zip(state, &path)
+            };
             let _ = fs::remove_file(path);
             result
         }
@@ -592,7 +609,7 @@ pub(crate) fn export_profile(state: &AppState, format: Option<&str>) -> AppResul
     match format {
         Some("native") | None => native_profile_export(state),
         Some("compatible") => super::exports::export_compatible_profile(state),
-        Some("zip") => super::backup::download_profile_zip(state),
+        Some("zip") => v2::export_profile_v2_download(state),
         Some(_) => Err(AppError::invalid_input(
             "Profile export format must be native, compatible, or zip.",
         )),
@@ -618,7 +635,7 @@ pub(crate) fn export_profile_download(
             content_type: "application/zip",
         }),
         Some("zip") => Ok(ProfileExportDownload {
-            bytes: super::backup::download_profile_zip_bytes(state)?,
+            bytes: v2::export_profile_v2_bytes(state)?,
             filename: "de-koi-profile.zip",
             content_type: "application/zip",
         }),
@@ -2946,7 +2963,19 @@ mod tests {
         .expect("profile ZIP export should succeed");
         assert_eq!(zip["filename"], "de-koi-profile.zip");
         assert_eq!(zip["contentType"], "application/zip");
-        assert!(zip["base64"].as_str().unwrap_or_default().len() > 16);
+        let bytes = general_purpose::STANDARD
+            .decode(zip["base64"].as_str().unwrap_or_default())
+            .expect("profile ZIP should contain base64");
+        let mut archive =
+            zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("profile ZIP should open");
+        let manifest: Value = serde_json::from_reader(
+            archive
+                .by_name("manifest.json")
+                .expect("profile v2 ZIP should contain a manifest"),
+        )
+        .expect("profile v2 manifest should parse");
+        assert_eq!(manifest["type"], "marinara_profile");
+        assert_eq!(manifest["version"], 2);
     }
 
     #[test]
