@@ -8,6 +8,7 @@ import {
   type CharacterCardFieldUpdate,
   type EditableCharacterCardField,
 } from "../../../../engine/contracts/types/agent";
+import { normalizeGeneratedImageResult } from "../../../../engine/contracts/generated-image";
 import type { Chat, Message, StreamEvent } from "../../../../engine/contracts/types/chat";
 import type {
   CharacterStat,
@@ -196,25 +197,6 @@ function musicDjSearchQuery(data: Record<string, unknown>, intent: MusicDjIntent
     .map((entry) => entry?.trim())
     .filter((entry): entry is string => !!entry);
   return pieces.length > 0 ? `${pieces.join(" ")} instrumental ambience`.trim() : null;
-}
-
-function imageDataUrlFromGeneratedImage(image: { base64?: unknown; mimeType?: unknown; image?: unknown }): string {
-  const direct = readString(image.image).trim();
-  if (direct) return direct;
-  const base64 = readString(image.base64).trim();
-  if (!base64) return "";
-  const mimeType = readString(image.mimeType).trim() || "image/png";
-  return `data:${mimeType};base64,${base64}`;
-}
-
-function generatedImageExtension(ext: unknown, mimeType: unknown): string {
-  const cleanExt = readString(ext).trim().replace(/^\./, "").toLowerCase();
-  if (/^[a-z0-9]{2,5}$/.test(cleanExt)) return cleanExt;
-  const cleanMime = readString(mimeType).trim().toLowerCase().split(";")[0];
-  if (cleanMime === "image/jpeg" || cleanMime === "image/jpg") return "jpg";
-  if (cleanMime === "image/webp") return "webp";
-  if (cleanMime === "image/gif") return "gif";
-  return "png";
 }
 
 async function dataUrlToFile(dataUrl: string, filename: string, fallbackMimeType = "image/png"): Promise<File> {
@@ -1070,12 +1052,7 @@ export async function generateAndApplyBackgroundRequest(
   const connectionId = await backgroundAgentImageConnectionId(chatId, result, deps);
   if (!connectionId) throw new Error("No image generation connection configured for the Background agent.");
 
-  const image = await deps.image.generate<{
-    base64?: string;
-    mimeType?: string;
-    image?: string;
-    ext?: string;
-  }>({
+  const image = await deps.image.generate({
     connectionId,
     kind: "background",
     reviewId: `background:${chatId}:${backgroundSlug(request.location || request.prompt)}`,
@@ -1085,13 +1062,13 @@ export async function generateAndApplyBackgroundRequest(
     width: 1280,
     height: 720,
   });
-  const imageUrl = imageDataUrlFromGeneratedImage(image);
+  const normalizedImage = normalizeGeneratedImageResult(image);
+  const imageUrl = normalizedImage.dataUrl;
   if (!imageUrl) throw new Error("Image provider returned no background image data.");
   if (await chatHasBackground(deps.storage, chatId)) return null;
 
-  const mimeType = readString(image.mimeType).trim() || "image/png";
-  const filename = `${backgroundSlug(request.location || request.prompt)}.${generatedImageExtension(image.ext, mimeType)}`;
-  const file = await dataUrlToFile(imageUrl, filename, mimeType);
+  const filename = `${backgroundSlug(request.location || request.prompt)}.${normalizedImage.ext}`;
+  const file = await dataUrlToFile(imageUrl, filename, normalizedImage.mimeType);
   const upload = await deps.backgrounds.upload<Record<string, unknown>>(file);
   const chosen = uploadedBackgroundChoice(upload);
   if (!chosen) throw new Error("Generated background upload did not return a filename.");
@@ -2054,15 +2031,15 @@ export function useGenerate() {
     () => ({
       ...integrationGateway,
       image: {
-        generate: async <T = unknown>(input: Record<string, unknown>) => {
+        generate: async (input: Record<string, unknown>) => {
           const kind = readString(input.kind).trim();
           const reviewKind = kind === "selfie" || kind === "illustration" ? kind : null;
           if (!reviewKind || !useUIStore.getState().reviewImagePromptsBeforeSend) {
-            return integrationGateway.image.generate<T>(input);
+            return integrationGateway.image.generate(input);
           }
 
           const prompt = readString(input.prompt).trim();
-          if (!prompt) return integrationGateway.image.generate<T>(input);
+          if (!prompt) return integrationGateway.image.generate(input);
 
           const id = readString(input.reviewId).trim() || `${reviewKind}-${Date.now()}`;
           const overrides = await requestImagePromptReview([
@@ -2085,7 +2062,7 @@ export function useGenerate() {
           }
 
           const override = overrides.find((item) => item.id === id) ?? overrides[0];
-          return integrationGateway.image.generate<T>({
+          return integrationGateway.image.generate({
             ...input,
             prompt: override?.prompt ?? prompt,
             negativePrompt: override?.negativePrompt ?? input.negativePrompt,

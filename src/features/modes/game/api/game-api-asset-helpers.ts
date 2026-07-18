@@ -1,3 +1,4 @@
+import { normalizeGeneratedImageResult } from "../../../../engine/contracts/generated-image";
 import { illustrationSubjectMatches } from "../../../../engine/generation-core/images/illustration-reference-matching";
 import * as g from "./game-api-support";
 
@@ -205,20 +206,8 @@ function assetTagFromPath(path: string): string {
   return path.replace(/\.[^.]+$/, "").replace(/[\\/]/g, ":");
 }
 
-function imageExt(mimeType: string): string {
-  const normalized = mimeType.toLowerCase();
-  if (normalized.includes("png")) return "png";
-  if (normalized.includes("webp")) return "webp";
-  if (normalized.includes("gif")) return "gif";
-  return "jpg";
-}
-
-export function generatedImageExt(ext: unknown, mimeType: string): string {
-  const normalized = g.readTrimmed(ext).toLowerCase().replace(/^\./, "");
-  if (["png", "jpg", "jpeg", "webp", "gif"].includes(normalized)) {
-    return normalized === "jpeg" ? "jpg" : normalized;
-  }
-  return imageExt(mimeType);
+function generatedImageExt(ext: unknown, mimeType: string): string {
+  return normalizeGeneratedImageResult({ ext, mimeType }).ext;
 }
 
 function base64File(base64: string, name: string, type: string): File {
@@ -431,14 +420,6 @@ export async function illustrationReferenceData(args: {
 export function fallbackSceneBackground(meta: Record<string, unknown>): string | null {
   const background = g.readTrimmed(meta.gameSceneBackground);
   return background && !background.startsWith("backgrounds:illustrations:") ? background : null;
-}
-
-export function imageUrlFromGeneration(image: { base64?: string; mimeType?: string; image?: string }): string {
-  const direct = g.readTrimmed(image.image);
-  if (direct) return direct;
-  const base64 = g.readTrimmed(image.base64);
-  const mimeType = g.readTrimmed(image.mimeType) || "image/png";
-  return base64 ? `data:${mimeType};base64,${base64}` : "";
 }
 
 export function generatedUploadBase64(image: { base64?: string }, label: string): string {

@@ -4,6 +4,7 @@ import { galleryApi, imageGenerationApi } from "../../../../shared/api/image-gen
 import { resolveGalleryFileUrl } from "../../../../shared/api/local-file-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { runGalleryUploadBatch } from "../../../../shared/lib/gallery-upload";
+import { normalizeGeneratedImageResult } from "../../../../engine/contracts/generated-image";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import type { ChatImage } from "../../../../shared/types/gallery";
 
@@ -22,22 +23,6 @@ async function normalizeGalleryImage(image: ChatImage): Promise<ChatImage> {
 
 function readTrimmed(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function imageExtension(mimeType: string | null | undefined): string {
-  const normalized = mimeType?.toLowerCase() ?? "";
-  if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
-  if (normalized.includes("webp")) return "webp";
-  if (normalized.includes("gif")) return "gif";
-  return "png";
-}
-
-function generatedImageExtension(ext: unknown, mimeType: string | null | undefined): string {
-  const normalized = readTrimmed(ext).toLowerCase().replace(/^\./, "");
-  if (["png", "jpg", "jpeg", "webp", "gif"].includes(normalized)) {
-    return normalized === "jpeg" ? "jpg" : normalized;
-  }
-  return imageExtension(mimeType);
 }
 
 function imageDimension(value: number | null | undefined, fallback: number): number {
@@ -136,26 +121,17 @@ export function useRegenerateGalleryImage(chat: Chat | null) {
 
       const width = imageDimension(image.width, 1024);
       const height = imageDimension(image.height, 1024);
-      const generated = await imageGenerationApi.generate<{
-        base64?: string;
-        mimeType?: string;
-        image?: string;
-        ext?: string;
-        provider?: string;
-        model?: string;
-      }>({
+      const generated = await imageGenerationApi.generate({
         connectionId,
         prompt,
         width,
         height,
       });
-      const mimeType = generated.mimeType || "image/png";
-      const imageUrl =
-        readTrimmed(generated.image) ||
-        (readTrimmed(generated.base64) ? `data:${mimeType};base64,${readTrimmed(generated.base64)}` : "");
+      const normalizedImage = normalizeGeneratedImageResult(generated);
+      const imageUrl = normalizedImage.dataUrl;
       if (!imageUrl) throw new Error("Image provider returned no image data.");
 
-      const filename = `regenerated_${Date.now()}.${generatedImageExtension(generated.ext, mimeType)}`;
+      const filename = `regenerated_${Date.now()}.${normalizedImage.ext}`;
       return storageApi.create<ChatImage>("gallery", {
         chatId: chat.id,
         filePath: filename,

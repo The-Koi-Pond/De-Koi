@@ -23,7 +23,7 @@ export interface CustomToolsGateway {
 }
 
 export interface ImageGenerationGateway {
-  generate<T = unknown>(input: Record<string, unknown>): Promise<T>;
+  generate(input: Record<string, unknown>): Promise<GeneratedImageResult>;
 }
 
 export interface DiscordGateway {
@@ -48,3 +48,4 @@ export interface IntegrationGateway {
   discord?: DiscordGateway;
   webResearch?: WebResearchGateway;
 }
+import type { GeneratedImageResult } from "../contracts/generated-image";

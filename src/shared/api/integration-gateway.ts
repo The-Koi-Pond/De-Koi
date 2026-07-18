@@ -49,7 +49,7 @@ export const integrationGateway: IntegrationGateway = {
       invokeTauri<T>("custom_tool_execute", { body: input }),
   },
   image: {
-    generate: <T = unknown>(input: Record<string, unknown>) => imageGenerationApi.generate<T>(input),
+    generate: (input) => imageGenerationApi.generate(input),
   },
   discord: {
     mirrorMessage: async <T = unknown>(input: {

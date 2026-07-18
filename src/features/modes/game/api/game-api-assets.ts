@@ -1,3 +1,4 @@
+import { normalizeGeneratedImageResult, type GeneratedImageResult } from "../../../../engine/contracts/generated-image";
 import * as g from "./game-api-support";
 import {
   canGenerateSceneIllustration,
@@ -5,14 +6,12 @@ import {
   gameIllustrationTurnNumber,
   generatedAssetSlug,
   generatedUploadBase64,
-  generatedImageExt,
   illustrationCharacterDescriptions,
   imagePromptInstructions,
   illustrationReferenceData,
   imagePromptSettings,
   imageReviewId,
   imageSize,
-  imageUrlFromGeneration,
   matchingGameNpc,
   negativePromptOverride,
   npcPortraitDetailFromContext,
@@ -189,16 +188,9 @@ export async function generateAssets(
 
   for (const item of preview.items) {
     if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-    let image: { base64: string; mimeType: string; image?: string; ext?: string; provider?: string; model?: string };
+    let image: GeneratedImageResult;
     try {
-      image = await g.imageGenerationApi.generate<{
-        base64: string;
-        mimeType: string;
-        image?: string;
-        ext?: string;
-        provider?: string;
-        model?: string;
-      }>(g.gameImageGenerationRequest(imageConnectionId, item));
+      image = await g.imageGenerationApi.generate(g.gameImageGenerationRequest(imageConnectionId, item));
     } catch (error) {
       if (item.kind === "background") {
         fallbackBackground = fallbackSceneBackground(meta);
@@ -206,6 +198,7 @@ export async function generateAssets(
       }
       throw error;
     }
+    const normalizedImage = normalizeGeneratedImageResult(image);
     if (item.kind === "background") {
       const key = typeof record.backgroundTag === "string" ? record.backgroundTag : "generated-background";
       const tag = await uploadGeneratedAsset(
@@ -213,8 +206,8 @@ export async function generateAssets(
         "generated",
         generatedAssetSlug(key),
         generatedUploadBase64(image, "background upload"),
-        image.mimeType,
-        image.ext,
+        normalizedImage.mimeType,
+        normalizedImage.ext,
       );
       generatedBackground = tag;
       sessionChat = await g.patchChatMetadata(chatId, { gameSceneBackground: tag });
@@ -227,16 +220,15 @@ export async function generateAssets(
         "illustrations",
         generatedAssetSlug(key),
         generatedUploadBase64(image, "illustration upload"),
-        image.mimeType,
-        image.ext,
+        normalizedImage.mimeType,
+        normalizedImage.ext,
       );
       generatedIllustration = {
         tag,
         ...(Number.isInteger(illustration.segment) ? { segment: illustration.segment as number } : {}),
       };
-      const mimeType = image.mimeType || "image/png";
-      const imageUrl = imageUrlFromGeneration(image);
-      const filename = `${generatedAssetSlug(key)}.${generatedImageExt(image.ext, mimeType)}`;
+      const imageUrl = normalizedImage.dataUrl;
+      const filename = `${generatedAssetSlug(key)}.${normalizedImage.ext}`;
       const gallery = await g.storageApi.create<{ id?: string }>("gallery", {
         chatId,
         filePath: filename,
@@ -262,10 +254,9 @@ export async function generateAssets(
       });
     } else if (item.kind === "portrait") {
       const npcName = g.readTrimmed(item.title.replace(/^Portrait:\s*/, "")) || "NPC";
-      const mimeType = image.mimeType || "image/png";
-      const imageUrl = imageUrlFromGeneration(image);
+      const imageUrl = normalizedImage.dataUrl;
       if (!imageUrl) throw new Error("Image provider returned no image data.");
-      const filename = `${generatedAssetSlug(npcName)}.${generatedImageExt(image.ext, mimeType)}`;
+      const filename = `${generatedAssetSlug(npcName)}.${normalizedImage.ext}`;
       const gallery = await g.storageApi.create<{ id?: string; url?: string }>("gallery", {
         chatId,
         filePath: filename,
