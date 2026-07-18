@@ -498,80 +498,79 @@ export function ConversationMessageBodyContent({
   if (context.editing) return <ConversationMessageEditForm context={context} />;
 
   return (
-    <div>
+    <>
       <div
-        className={cn(
-          "mari-message-content text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap",
-          context.isBubbleStyle &&
-            "mari-message-bubble texting-bubble relative min-w-0 max-w-full px-3.5 py-2 shadow-sm",
-          context.isBubbleStyle && (context.isUser ? "texting-bubble-user" : "texting-bubble-other"),
-          context.isBubbleStyle && context.bubbleCornerClass,
-          (context.isStreaming || context.typingLabel) &&
-            !context.hasRenderedContent &&
-            (context.isBubbleStyle ? "py-2.5" : "py-1"),
-        )}
-        style={context.messageTextStyle}
-      >
-        {!context.hasRenderedContent && context.typingLabel ? (
-          <StreamingPendingIndicator label={context.typingLabel} displayName={context.displayName} />
-        ) : context.isStreaming && !context.hasRenderedContent ? (
-          <StreamingPendingIndicator />
-        ) : (
-          <>
-            {context.isStreaming ? (
-              <StreamingReveal>
-                {groupedBubbleContent ? (
-                  groupedBubbleContent
-                ) : context.renderedContentParts ? (
-                  <div className="space-y-1.5">
-                    {context.renderedContentParts.map((part, index) => (
-                      <div key={index} className="animate-[fadeSlideIn_0.4s_ease-out]">
-                        <MessageContent
-                          content={part}
-                          mentionNames={context.mentionNames}
-                          onImageOpen={context.onImageOpen}
-                          quoteFormat={context.quoteFormat}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
+      className={cn(
+        "mari-message-content text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap",
+        context.isBubbleStyle && "mari-message-bubble texting-bubble relative min-w-0 max-w-full px-3.5 py-2 shadow-sm",
+        context.isBubbleStyle && (context.isUser ? "texting-bubble-user" : "texting-bubble-other"),
+        context.isBubbleStyle && context.bubbleCornerClass,
+        (context.isStreaming || context.typingLabel) &&
+          !context.hasRenderedContent &&
+          (context.isBubbleStyle ? "py-2.5" : "py-1"),
+      )}
+      style={context.messageTextStyle}
+    >
+      {!context.hasRenderedContent && context.typingLabel ? (
+        <StreamingPendingIndicator label={context.typingLabel} displayName={context.displayName} />
+      ) : context.isStreaming && !context.hasRenderedContent ? (
+        <StreamingPendingIndicator />
+      ) : (
+        <>
+          {context.isStreaming ? (
+            <StreamingReveal>
+              {groupedBubbleContent ? (
+                groupedBubbleContent
+              ) : context.renderedContentParts ? (
+                <div className="space-y-1.5">
+                  {context.renderedContentParts.map((part, index) => (
+                    <div key={index} className="animate-[fadeSlideIn_0.4s_ease-out]">
+                      <MessageContent
+                        content={part}
+                        mentionNames={context.mentionNames}
+                        onImageOpen={context.onImageOpen}
+                        quoteFormat={context.quoteFormat}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <MessageContent
+                  content={context.renderedContent}
+                  mentionNames={context.mentionNames}
+                  onImageOpen={context.onImageOpen}
+                  quoteFormat={context.quoteFormat}
+                />
+              )}
+            </StreamingReveal>
+          ) : groupedBubbleContent ? (
+            groupedBubbleContent
+          ) : context.renderedContentParts ? (
+            <div className="space-y-1.5">
+              {context.renderedContentParts.map((part, index) => (
+                <div key={index} className="animate-[fadeSlideIn_0.4s_ease-out]">
                   <MessageContent
-                    content={context.renderedContent}
+                    content={part}
                     mentionNames={context.mentionNames}
                     onImageOpen={context.onImageOpen}
                     quoteFormat={context.quoteFormat}
                   />
-                )}
-              </StreamingReveal>
-            ) : groupedBubbleContent ? (
-              groupedBubbleContent
-            ) : context.renderedContentParts ? (
-              <div className="space-y-1.5">
-                {context.renderedContentParts.map((part, index) => (
-                  <div key={index} className="animate-[fadeSlideIn_0.4s_ease-out]">
-                    <MessageContent
-                      content={part}
-                      mentionNames={context.mentionNames}
-                      onImageOpen={context.onImageOpen}
-                      quoteFormat={context.quoteFormat}
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <MessageContent
-                content={context.renderedContent}
-                mentionNames={context.mentionNames}
-                onImageOpen={context.onImageOpen}
-                quoteFormat={context.quoteFormat}
-              />
-            )}
-          </>
-        )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <MessageContent
+              content={context.renderedContent}
+              mentionNames={context.mentionNames}
+              onImageOpen={context.onImageOpen}
+              quoteFormat={context.quoteFormat}
+            />
+          )}
+        </>
+      )}
       </div>
       {context.showInlineReasoning && !context.isUser && <MessageReasoningPanel reasoning={context.thinking} />}
-    </div>
+    </>
   );
 }
 
