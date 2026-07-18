@@ -2,9 +2,9 @@ import { useState } from "react";
 import { AlertTriangle, Check, Loader2, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../../../../shared/lib/utils";
-import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useClearAllData, useExpungeData, type ExpungeScope } from "../../hooks/use-admin-data-reset";
 import { canEraseAllDeKoiData, FULL_DATA_ERASE_PHRASE } from "../../lib/privacy-data-controls";
+import { BackupExportSettings } from "./BackupExportSettings";
 
 const SCOPE_OPTIONS: Array<{ id: ExpungeScope; label: string; description: string }> = [
   { id: "chats", label: "Chats & Messages", description: "Chats, messages, memories, and chat runtime state." },
@@ -18,7 +18,6 @@ const SCOPE_OPTIONS: Array<{ id: ExpungeScope; label: string; description: strin
 ];
 
 export function PrivacyDataSettings() {
-  const setSettingsTab = useUIStore((state) => state.setSettingsTab);
   const clearAllData = useClearAllData();
   const expungeData = useExpungeData();
   const [selectedScopes, setSelectedScopes] = useState<ExpungeScope[]>(["chats"]);
@@ -55,7 +54,10 @@ export function PrivacyDataSettings() {
   };
 
   return (
-    <div id="settings-destination-privacy-data" className="scroll-mt-4 flex flex-col gap-3 rounded-xl transition-shadow duration-700">
+    <div
+      id="settings-destination-privacy-data"
+      className="scroll-mt-4 flex flex-col gap-3 rounded-xl transition-shadow duration-700"
+    >
       <div className="flex items-start gap-2 rounded-xl bg-emerald-500/8 p-3 ring-1 ring-emerald-500/20">
         <ShieldCheck size="1rem" className="mt-0.5 shrink-0 text-emerald-500" />
         <div>
@@ -68,23 +70,7 @@ export function PrivacyDataSettings() {
         </div>
       </div>
 
-      <div className="rounded-xl bg-[var(--secondary)]/40 p-3 ring-1 ring-[var(--border)]">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-semibold">Backups & exports</div>
-            <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-              Download a copy or manage recovery backups before deleting data.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setSettingsTab("advanced")}
-            className="shrink-0 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium ring-1 ring-[var(--border)] hover:bg-[var(--accent)]"
-          >
-            Open backup tools
-          </button>
-        </div>
-      </div>
+      <BackupExportSettings />
 
       <div className="rounded-xl border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 p-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-[var(--destructive)]">

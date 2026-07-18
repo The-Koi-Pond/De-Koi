@@ -3,14 +3,12 @@
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import {
   APP_LANGUAGE_OPTIONS,
-  CONVERSATION_MESSAGE_STYLE_OPTIONS,
   IMAGE_DIMENSION_MAX,
   IMAGE_DIMENSION_MIN,
   TRACKER_DATA_PANEL_SECTIONS,
   TRACKER_PANEL_SIZE_PROFILES,
   getTrackerPanelWidthForProfile,
   useUIStore,
-  type ConversationMessageStyle,
   type GameDialogueDisplayMode,
   type QuoteFormat,
   type RoleplayAvatarStyle,
@@ -44,20 +42,10 @@ import { gameAssetsApi } from "../../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
 import { importApi } from "../../../../../shared/api/import-api";
 import { CHARACTER_IMPORT_SIZE_ERROR, MAX_CHARACTER_IMPORT_UPLOAD_BYTES } from "../../../../../shared/api/file-payload";
-import {
-  backupApi,
-  profileApi,
-  type ManagedBackup,
-  type ProfileExportFormat,
-} from "../../../../../shared/api/profile-api";
-import { ApiError } from "../../../../../shared/api/api-errors";
 import { openUpdateRelease, updatesApi, type UpdateCheckResponse } from "../../../../../shared/api/updates-api";
 import { backgroundsApi, fontsApi } from "../../../../../shared/api/settings-assets-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
-import {
-  saveDownloadPayloadToUserSelectedLocation,
-  saveTextFileToUserSelectedLocation,
-} from "../../../../../shared/api/file-save-api";
+import { saveTextFileToUserSelectedLocation } from "../../../../../shared/api/file-save-api";
 import { chatBackgroundMetadataToUrl, chatBackgroundUrlToMetadata } from "../../../../../shared/lib/backgrounds";
 import {
   backgroundFileUrlFromPath,
@@ -95,11 +83,6 @@ import {
 import { currentRuntimeConsentScope } from "../../../../../shared/api/customization-api";
 import { extensionCompatibilityStatus } from "../../../../../engine/contracts/extension-compatibility";
 import { isInjectableExtensionCss, isInjectableThemeCss } from "../../../../../engine/contracts/customization-content";
-import { downloadBackupToBrowser } from "../../lib/backup-settings-actions";
-import {
-  buildBrowserStateExportPayload,
-  type BrowserStateExportMode,
-} from "../../lib/browser-state-export";
 import {
   initialRemoteRuntimeHealth,
   remoteRuntimeHealthDotTone,
@@ -126,11 +109,9 @@ import {
   Puzzle,
   CloudRain,
   FileCode2,
-  FileText,
   Power,
   PowerOff,
   Paintbrush,
-  AlertTriangle,
   Tag,
   Pencil,
   Code,
@@ -145,22 +126,19 @@ import {
   RefreshCw,
   RotateCcw,
   ScrollText,
-  UserCheck,
-  WandSparkles,
 } from "lucide-react";
 import { useUpdateChatMetadata } from "../../../../catalog/chats";
-import { useExpungeData, type ExpungeScope } from "../../hooks/use-admin-data-reset";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useGameAssetStore } from "../../../../modes/game/index";
 import { chatKeys } from "../../../../catalog/chats";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
-import { ExportFormatDialog, type ExportFormatChoice } from "../../../../../shared/components/ui/ExportFormatDialog";
 import { TrackerPanelIcon } from "../../../../../shared/components/ui/TrackerPanelIcon";
 import { TrackerSizeTierIcon } from "../../../../../shared/components/ui/TrackerSizeTierIcon";
 import { ImageUploadDropzone } from "../../../../../shared/components/ui/ImageUploadDropzone";
 import { ConversationSoundSetting, ToggleSetting } from "./SettingControls";
 import { PromptOverridesEditor } from "./PromptOverridesEditor";
-import { UserQuickRepliesManager } from "./UserQuickRepliesManager";
+import { ChatBehaviorSettings } from "./ChatBehaviorSettings";
+import { ChatPresentationSettings } from "./ChatPresentationSettings";
 import { DraftNumberInput } from "../../../../../shared/components/ui/DraftNumberInput";
 import { TrackerCardColorSettings } from "../../../../runtime/tracker/shell";
 import { inspectCharacterFilesForEmbeddedLorebooks } from "../../../../../shared/lib/character-import";
@@ -175,33 +153,6 @@ type CustomFontFace = {
   style?: string;
   unicodeRange?: string;
 };
-
-const EXPUNGE_SCOPE_OPTIONS: Array<{ id: ExpungeScope; label: string; description: string }> = [
-  {
-    id: "chats",
-    label: "Chats & Messages",
-    description: "Chats, folders, messages, scene/OOC data, and chat runtime state.",
-  },
-  {
-    id: "characters",
-    label: "Characters",
-    description: "Characters and character groups.",
-  },
-  { id: "personas", label: "Personas", description: "Personas and persona groups." },
-  { id: "lorebooks", label: "Lorebooks", description: "Lorebooks and lorebook entries." },
-  { id: "presets", label: "Presets", description: "Prompt presets, groups, sections, and variables." },
-  { id: "connections", label: "Connections", description: "API connections and model endpoints." },
-  {
-    id: "automation",
-    label: "Automation & Themes",
-    description: "Agents, tools, regex scripts, custom themes, and automation state.",
-  },
-  {
-    id: "media",
-    label: "Media & Assets",
-    description: "Backgrounds, avatars, sprites, gallery items, fonts, and knowledge-source files.",
-  },
-];
 
 const ROLEPLAY_AVATAR_STYLE_OPTIONS: Array<{ id: RoleplayAvatarStyle; label: string; desc: string }> = [
   {
@@ -932,6 +883,7 @@ export function GeneralSettings() {
   return (
     <div className="flex flex-col gap-3">
       <div className="text-xs text-[var(--muted-foreground)]">General application settings.</div>
+      <ChatBehaviorSettings />
 
       <label className="flex flex-col gap-1">
         <span className="inline-flex items-center gap-1 text-xs font-medium">
@@ -1620,6 +1572,7 @@ export function AppearanceSettings() {
 
   return (
     <div className="flex flex-col gap-4">
+      <ChatPresentationSettings />
       {/* â”€â”€ Visual Style â”€â”€ */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-1.5">
@@ -3624,46 +3577,16 @@ function ImportButton({
 }
 
 export function AdvancedSettings() {
-  const messageGrouping = useUIStore((s) => s.messageGrouping);
-  const setMessageGrouping = useUIStore((s) => s.setMessageGrouping);
-  const conversationMessageStyle = useUIStore((s) => s.conversationMessageStyle);
-  const setConversationMessageStyle = useUIStore((s) => s.setConversationMessageStyle);
-  const showTimestamps = useUIStore((s) => s.showTimestamps);
-  const setShowTimestamps = useUIStore((s) => s.setShowTimestamps);
-  const showModelName = useUIStore((s) => s.showModelName);
-  const setShowModelName = useUIStore((s) => s.setShowModelName);
-  const showTokenUsage = useUIStore((s) => s.showTokenUsage);
-  const setShowTokenUsage = useUIStore((s) => s.setShowTokenUsage);
-  const showMessageNumbers = useUIStore((s) => s.showMessageNumbers);
-  const setShowMessageNumbers = useUIStore((s) => s.setShowMessageNumbers);
-  const guideGenerations = useUIStore((s) => s.guideGenerations);
-  const setGuideGenerations = useUIStore((s) => s.setGuideGenerations);
-  const showQuickRepliesMenu = useUIStore((s) => s.showQuickRepliesMenu);
-  const setShowQuickRepliesMenu = useUIStore((s) => s.setShowQuickRepliesMenu);
-  const showQuickReplyPostOnly = useUIStore((s) => s.showQuickReplyPostOnly);
-  const setShowQuickReplyPostOnly = useUIStore((s) => s.setShowQuickReplyPostOnly);
-  const showQuickReplyGuide = useUIStore((s) => s.showQuickReplyGuide);
-  const setShowQuickReplyGuide = useUIStore((s) => s.setShowQuickReplyGuide);
-  const showQuickReplyImpersonate = useUIStore((s) => s.showQuickReplyImpersonate);
-  const setShowQuickReplyImpersonate = useUIStore((s) => s.setShowQuickReplyImpersonate);
   const debugMode = useUIStore((s) => s.debugMode);
   const setDebugMode = useUIStore((s) => s.setDebugMode);
   const remoteRuntimeUrl = useUIStore((s) => s.remoteRuntimeUrl);
   const setRemoteRuntimeUrl = useUIStore((s) => s.setRemoteRuntimeUrl);
-  const expungeData = useExpungeData();
-  const [selectedScopes, setSelectedScopes] = useState<ExpungeScope[]>(["chats"]);
-  const [confirmAction, setConfirmAction] = useState<"selected" | null>(null);
-  const [exportingProfile, setExportingProfile] = useState(false);
-  const [exportingLocalState, setExportingLocalState] = useState(false);
-  const [exportProfileDialogOpen, setExportProfileDialogOpen] = useState(false);
-  const [downloadingBackupName, setDownloadingBackupName] = useState<string | null>(null);
   const [refreshingSpa, setRefreshingSpa] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [openingUpdate, setOpeningUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
   const [savedAdminSecret, setSavedAdminSecret] = useState(readAdminSecretStorage);
   const [adminSecret, setAdminSecret] = useState(savedAdminSecret);
-  const [quickRepliesDrawerOpen, setQuickRepliesDrawerOpen] = useState(true);
   const remoteRuntimeSectionRef = useRef<HTMLDivElement>(null);
   const remoteRuntimeHealthAbortRef = useRef<AbortController | null>(null);
   const remoteRuntimeHealthCheckIdRef = useRef(0);
@@ -3740,165 +3663,6 @@ export function AdvancedSettings() {
     return () => observer.disconnect();
   }, [remoteRuntimeUrl, runRemoteRuntimeHealthCheck]);
 
-  const backupsQuery = useQuery<ManagedBackup[]>({
-    queryKey: ["backups"],
-    queryFn: backupApi.listBackups,
-    enabled: !remoteRuntimeUrl.trim() || savedAdminSecret.trim().length > 0,
-  });
-
-  const createBackupMutation = useMutation({
-    mutationFn: backupApi.createBackup,
-    onSuccess: (result) => {
-      toast.success(`Managed backup created: ${result.backupName}`);
-      queryClient.invalidateQueries({ queryKey: ["backups"] });
-    },
-    onError: (err) => {
-      toast.error(toUserMessage(err, "createBackup"));
-    },
-  });
-
-  const deleteBackupMutation = useMutation({
-    mutationFn: backupApi.deleteBackup,
-    onSuccess: () => {
-      toast.success("Managed backup deleted");
-      queryClient.invalidateQueries({ queryKey: ["backups"] });
-    },
-    onError: (err) => {
-      toast.error(toUserMessage(err, "deleteBackup"));
-    },
-  });
-
-  const handleQuickRepliesMenuChange = (enabled: boolean) => {
-    setShowQuickRepliesMenu(enabled);
-    if (enabled) setQuickRepliesDrawerOpen(true);
-  };
-
-  const profileExportSuccessMessages: Record<ProfileExportFormat, string> = {
-    native: "Profile JSON exported!",
-    compatible: "Compatible profile bundle exported!",
-    zip: "Profile ZIP exported!",
-  };
-
-  const profileExportFallbackFormat = (err: unknown) => {
-    if (!(err instanceof ApiError) || !err.details || typeof err.details !== "object") return null;
-    const payload = err.details as { code?: unknown; details?: unknown };
-    if (payload.code !== "PROFILE_EXPORT_JSON_TOO_LARGE") return null;
-    const details =
-      payload.details && typeof payload.details === "object" ? (payload.details as Record<string, unknown>) : {};
-    return details.fallbackFormat === "zip" ? "zip" : null;
-  };
-
-  const handleExportProfile = async (format: ProfileExportFormat) => {
-    setExportingProfile(true);
-    setExportProfileDialogOpen(false);
-    try {
-      const result = await saveDownloadPayloadToUserSelectedLocation(await profileApi.exportProfile(format), {
-        title: "Export profile",
-      });
-      if (result !== "cancelled") toast.success(profileExportSuccessMessages[format]);
-    } catch (err) {
-      if (format === "native" && profileExportFallbackFormat(err) === "zip") {
-        const confirmed = await showConfirmDialog({
-          title: "Export profile as ZIP?",
-          message: "This profile is too large for JSON export. Export it as a profile ZIP instead?",
-          confirmLabel: "Export ZIP",
-          cancelLabel: "Cancel",
-        });
-        if (confirmed) {
-          await handleExportProfile("zip");
-        }
-        return;
-      }
-      toast.error(toUserMessage(err, "exportProfile"));
-    } finally {
-      setExportingProfile(false);
-    }
-  };
-
-  const handleExportProfileChoice = (format: ExportFormatChoice) => {
-    if (format === "compatible-png") return;
-    void handleExportProfile(format);
-  };
-
-  const readBrowserStorageEntries = (storage: Storage) => {
-    const entries: Record<string, string> = {};
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index);
-      if (!key) continue;
-      const value = storage.getItem(key);
-      if (value !== null) entries[key] = value;
-    }
-    return entries;
-  };
-
-  const handleExportLocalState = async (mode: BrowserStateExportMode) => {
-    if (mode === "recovery") {
-      const confirmed = await showConfirmDialog({
-        title: "Export sensitive recovery state?",
-        message:
-          "This full-fidelity file can include your Remote Runtime username, password, and admin secret. Keep it private and do not share it for troubleshooting.",
-        confirmLabel: "Export Sensitive File",
-        cancelLabel: "Cancel",
-      });
-      if (!confirmed) return;
-    }
-
-    setExportingLocalState(true);
-    try {
-      const exportedAt = new Date().toISOString();
-      const payload = buildBrowserStateExportPayload({
-        mode,
-        exportedAt,
-        origin: typeof window !== "undefined" ? window.location.origin : null,
-        localStorage: readBrowserStorageEntries(window.localStorage),
-        sessionStorage: readBrowserStorageEntries(window.sessionStorage),
-      });
-      const safeExport = mode === "safe";
-      const result = await saveTextFileToUserSelectedLocation({
-        filename: `${safeExport ? "de-koi-browser-support-state" : "de-koi-browser-local-state"}-${exportedAt.replace(/[:.]/g, "-")}.json`,
-        content: JSON.stringify(payload, null, 2),
-        title: safeExport ? "Export safe browser support state" : "Export sensitive browser recovery state",
-        mimeType: "application/json",
-        filters: [{ name: "JSON", extensions: ["json"], mimeType: "application/json" }],
-      });
-      if (result !== "cancelled") {
-        toast.success(safeExport ? "Safe browser support state exported" : "Sensitive browser recovery state exported");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't export browser-local state");
-    } finally {
-      setExportingLocalState(false);
-    }
-  };
-
-  const handleDownloadBackup = async (name?: string) => {
-    const key = name ?? "__current__";
-    setDownloadingBackupName(key);
-    try {
-      const result = await downloadBackupToBrowser(name, {
-        downloadBackup: backupApi.downloadBackup,
-        saveDownloadPayload: (payload) =>
-          saveDownloadPayloadToUserSelectedLocation(payload, { title: name ? "Download backup" : "Create backup" }),
-      });
-      if (result) toast.success(result.message);
-    } catch (err) {
-      toast.error(toUserMessage(err, "downloadBackup"));
-    } finally {
-      setDownloadingBackupName(null);
-    }
-  };
-  const handleDeleteBackup = async (name: string) => {
-    const confirmed = await showConfirmDialog({
-      title: "Delete managed backup?",
-      message: `Delete ${name}? This backup cannot be recovered from De-Koi after deletion.`,
-      confirmLabel: "Delete backup",
-      cancelLabel: "Keep backup",
-      tone: "destructive",
-    });
-    if (!confirmed) return;
-    deleteBackupMutation.mutate(name);
-  };
-
   const handleForceRefreshSpa = async () => {
     if (refreshingSpa) {
       return;
@@ -3959,8 +3723,6 @@ export function AdvancedSettings() {
     }
   }, [adminSecret, queryClient]);
 
-  const isClearing = expungeData.isPending;
-  const isAllScopesSelected = selectedScopes.length === EXPUNGE_SCOPE_OPTIONS.length;
   const remoteRuntimeHealthTone = remoteRuntimeHealthDotTone(remoteRuntimeHealth.status);
   const remoteRuntimeHealthDotClass = cn(
     "h-2 w-2 shrink-0 rounded-full",
@@ -3971,34 +3733,8 @@ export function AdvancedSettings() {
     remoteRuntimeHealthTone === "idle" && "bg-[var(--muted-foreground)]/45",
   );
 
-  const toggleScope = (scope: ExpungeScope) => {
-    setSelectedScopes((current) =>
-      current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope],
-    );
-  };
-
-  const runExpunge = () => {
-    expungeData.mutate(selectedScopes, {
-      onSuccess: () => toast.success("Selected data was cleared. Runtime caches were reset immediately."),
-      onError: () =>
-        toast.error("De-Koi couldn't finish clearing data. Some items may remain. Review the selection and try again."),
-      onSettled: () => setConfirmAction(null),
-    });
-  };
-
   return (
     <div className="flex flex-col gap-3">
-      <ExportFormatDialog
-        open={exportProfileDialogOpen}
-        title="Export Profile"
-        description="Native JSON keeps the v1 format for compatibility. Profile ZIP uses the versioned v2 package with chunked records and managed assets for large profiles and recovery."
-        nativeDescription="Creates a De-Koi profile JSON for direct re-import when the profile is small enough."
-        compatibleDescription="Exports character cards, simple persona JSON, and folderless lorebooks for other roleplay tools."
-        zipDescription="Creates a v2 profile package with a manifest, chunked record files, integrity checks, and managed assets."
-        showZipOption
-        onClose={() => setExportProfileDialogOpen(false)}
-        onSelect={handleExportProfileChoice}
-      />
       <div className="text-xs text-[var(--muted-foreground)]">Advanced settings for power users.</div>
 
       <div className="flex flex-col gap-2 rounded-lg bg-[var(--secondary)]/40 p-2.5 ring-1 ring-[var(--border)]">
@@ -4131,248 +3867,6 @@ export function AdvancedSettings() {
       </div>
 
       <PromptOverridesEditor />
-
-      <div className="retro-divider" />
-      <div
-        className={cn(
-          "overflow-hidden rounded-xl border transition-colors",
-          showQuickRepliesMenu
-            ? "border-[var(--primary)]/30 bg-[var(--secondary)]/15"
-            : "border-transparent bg-transparent hover:bg-[var(--secondary)]/30",
-        )}
-      >
-        <div className="flex min-h-9 items-stretch">
-          <div className="flex min-w-0 items-center gap-1.5 py-2 pl-1.5 pr-2">
-            <label className="flex min-w-0 cursor-pointer items-center gap-2.5">
-              <input
-                type="checkbox"
-                checked={showQuickRepliesMenu}
-                onChange={(e) => handleQuickRepliesMenuChange(e.target.checked)}
-                className="h-3.5 w-3.5 shrink-0 rounded border-[var(--border)] accent-[var(--primary)]"
-              />
-              <span className="min-w-0 text-xs">Quick replies</span>
-            </label>
-            <span className="shrink-0" onClick={(e) => e.preventDefault()}>
-              <HelpTooltip text="Adds alternate draft actions beside Send. One action appears directly; multiple actions open from the ellipsis." />
-            </span>
-          </div>
-          <button
-            type="button"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!showQuickRepliesMenu) return;
-              setQuickRepliesDrawerOpen((open) => !open);
-            }}
-            aria-disabled={!showQuickRepliesMenu}
-            aria-controls="quick-replies-actions-drawer"
-            aria-expanded={showQuickRepliesMenu && quickRepliesDrawerOpen}
-            aria-label={
-              !showQuickRepliesMenu
-                ? "Quick replies options disabled"
-                : quickRepliesDrawerOpen
-                  ? "Collapse Quick replies options"
-                  : "Expand Quick replies options"
-            }
-            title={
-              !showQuickRepliesMenu
-                ? "Enable Quick replies to configure options"
-                : quickRepliesDrawerOpen
-                  ? "Collapse options"
-                  : "Expand options"
-            }
-            className={cn(
-              "flex min-w-10 flex-1 items-center justify-end py-2 pl-2 pr-2 text-[var(--muted-foreground)] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]",
-              showQuickRepliesMenu && quickRepliesDrawerOpen ? "rounded-tr-xl" : "rounded-r-xl",
-              showQuickRepliesMenu
-                ? "cursor-pointer hover:bg-[var(--secondary)]/35 hover:text-[var(--foreground)] active:scale-[0.99]"
-                : "cursor-not-allowed opacity-35",
-            )}
-            tabIndex={showQuickRepliesMenu ? 0 : -1}
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg">
-              <ChevronDown
-                size="0.875rem"
-                aria-hidden="true"
-                className={cn(
-                  "transition-transform",
-                  showQuickRepliesMenu && quickRepliesDrawerOpen ? "" : "-rotate-90",
-                )}
-              />
-            </span>
-          </button>
-        </div>
-        {showQuickRepliesMenu && quickRepliesDrawerOpen && (
-          <div
-            id="quick-replies-actions-drawer"
-            className="grid gap-1 border-t border-[var(--border)]/60 bg-[var(--background)]/25 p-1"
-            role="group"
-            aria-label="Quick replies actions to include"
-          >
-            {[
-              {
-                label: "Post only",
-                checked: showQuickReplyPostOnly,
-                onChange: setShowQuickReplyPostOnly,
-                description: "Add persona message without triggering a reply.",
-                icon: FileText,
-              },
-              {
-                label: "Guide reply",
-                checked: showQuickReplyGuide,
-                onChange: setShowQuickReplyGuide,
-                description: "Use draft as /guided direction.",
-                icon: WandSparkles,
-              },
-              {
-                label: "Impersonate",
-                checked: showQuickReplyImpersonate,
-                onChange: setShowQuickReplyImpersonate,
-                description: "Generate a persona-side user reply.",
-                icon: UserCheck,
-              },
-            ].map((option) => {
-              const Icon = option.icon;
-              return (
-                <button
-                  type="button"
-                  key={option.label}
-                  aria-pressed={option.checked}
-                  onClick={() => option.onChange(!option.checked)}
-                  className={cn(
-                    "group flex min-h-10 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] active:scale-[0.99]",
-                    option.checked
-                      ? "bg-[var(--primary)]/8 text-[var(--foreground)] ring-1 ring-[var(--primary)]/30"
-                      : "text-[var(--muted-foreground)] ring-1 ring-transparent hover:bg-[var(--secondary)]/45 hover:text-[var(--foreground)]",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md ring-1 transition-colors",
-                      option.checked
-                        ? "bg-[var(--primary)]/12 text-[var(--primary)] ring-[var(--primary)]/30"
-                        : "bg-[var(--secondary)]/35 text-[var(--muted-foreground)] ring-[var(--border)]/60 group-hover:text-[var(--foreground)]",
-                    )}
-                  >
-                    <Icon size="0.8125rem" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-semibold">{option.label}</span>
-                    <span className="block text-[0.65rem] leading-tight text-[var(--muted-foreground)]">
-                      {option.description}
-                    </span>
-                  </span>
-                  <span
-                    className={cn(
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors",
-                      option.checked
-                        ? "bg-[var(--primary)] text-[var(--primary-foreground)] ring-[var(--primary)]"
-                        : "bg-[var(--background)]/45 text-transparent ring-[var(--border)]/70 group-hover:text-[var(--muted-foreground)]",
-                    )}
-                    aria-hidden="true"
-                  >
-                    <Check size="0.625rem" strokeWidth={3} />
-                  </span>
-                </button>
-              );
-            })}
-            <UserQuickRepliesManager />
-          </div>
-        )}
-      </div>
-      <ToggleSetting
-        label="Group consecutive messages"
-        checked={messageGrouping}
-        onChange={setMessageGrouping}
-        help="Combines multiple messages from the same sender into a visual group, reducing clutter in the chat."
-      />
-      <div className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
-        <div className="flex items-center gap-1.5">
-          <MessageCircle size="0.75rem" className="text-[var(--muted-foreground)]" />
-          <span className="text-xs">Chat Layout</span>
-          <HelpTooltip text="Choose whether Conversation mode renders messages as linear rows or Messenger-style bubbles." />
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {CONVERSATION_MESSAGE_STYLE_OPTIONS.map((option) => {
-            const selected = conversationMessageStyle === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => setConversationMessageStyle(option.id as ConversationMessageStyle)}
-                className={cn(
-                  "flex min-h-14 flex-col items-start justify-center rounded-md border px-2.5 py-2 text-left transition-colors",
-                  selected
-                    ? "border-[var(--primary)] bg-[var(--primary)]/12 text-[var(--foreground)]"
-                    : "border-[var(--border)] bg-[var(--background)]/35 text-[var(--muted-foreground)] hover:border-[var(--primary)]/45 hover:text-[var(--foreground)]",
-                )}
-              >
-                <span className="text-[0.6875rem] font-semibold">{option.label}</span>
-                <span className="text-[0.5625rem] leading-snug">{option.description}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="rounded-lg border border-[var(--border)]/60 bg-[var(--background)]/35 p-2.5 text-[0.6875rem]">
-          {conversationMessageStyle === "bubble" ? (
-            <div className="space-y-1.5">
-              <div className="flex justify-end">
-                <div className="mari-message-bubble texting-bubble texting-bubble-user max-w-[78%] rounded-2xl px-3 py-1.5 text-xs shadow-sm">
-                  Hey, how's it going?
-                </div>
-              </div>
-              <div className="flex items-end justify-start gap-1.5">
-                <div className="h-5 w-5 shrink-0 rounded-full bg-[var(--accent)]" />
-                <div className="mari-message-bubble texting-bubble texting-bubble-other max-w-[78%] rounded-2xl px-3 py-1.5 text-xs shadow-sm">
-                  Pretty good, thanks!
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex gap-2 text-xs">
-              <div className="h-6 w-6 shrink-0 rounded-full bg-[var(--accent)]" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="font-semibold text-[var(--foreground)]">Assistant</span>
-                  <span className="text-[0.5625rem] text-[var(--muted-foreground)]">now</span>
-                </div>
-                <div className="text-[var(--muted-foreground)]">Rows with avatars, names, and inline message text.</div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-      <ToggleSetting
-        label="Show message timestamps"
-        checked={showTimestamps}
-        onChange={setShowTimestamps}
-        help="Displays the date and time each message was sent next to it in the chat."
-      />
-      <ToggleSetting
-        label="Show model name on messages"
-        checked={showModelName}
-        onChange={setShowModelName}
-        help="Displays which AI model generated each response, shown as a small label on assistant messages."
-      />
-      <ToggleSetting
-        label="Show token usage on messages"
-        checked={showTokenUsage}
-        onChange={setShowTokenUsage}
-        help="Displays prompt and completion token counts on each AI message. Useful for monitoring context size and cost."
-      />
-      <ToggleSetting
-        label="Show message numbers"
-        checked={showMessageNumbers}
-        onChange={setShowMessageNumbers}
-        help="Displays message numbers in roleplay and conversation chats."
-      />
-      <ToggleSetting
-        label="Guide swipes/regens with chat input"
-        checked={guideGenerations}
-        onChange={setGuideGenerations}
-        help="Uses the current draft as direction when regenerating a message or manually triggering a character response."
-      />
       <ToggleSetting
         label="Debug mode"
         checked={debugMode}
@@ -4380,233 +3874,6 @@ export function AdvancedSettings() {
         help="Shows the in-app agent debug panel and emits agent runtime diagnostics to the console for troubleshooting."
       />
 
-      {/* Backup */}
-      <div className="retro-divider" />
-      <div
-        id="settings-destination-backups"
-        className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700"
-      >
-        <div className="flex items-center gap-1.5">
-          <Upload size="0.75rem" className="text-[var(--muted-foreground)]" />
-          <span className="text-xs font-medium">Backup & Export</span>
-          <HelpTooltip text="Creates, lists, downloads, and deletes managed full backups. Backups include data collections plus managed asset folders for recovery." />
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <button
-            onClick={() => createBackupMutation.mutate()}
-            disabled={createBackupMutation.isPending}
-            className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
-          >
-            {createBackupMutation.isPending ? (
-              <>
-                <Loader2 size="0.8125rem" className="animate-spin" />
-                Creating...
-              </>
-            ) : (
-              <>
-                <Save size="0.8125rem" />
-                Create Managed Backup
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => void handleDownloadBackup()}
-            disabled={downloadingBackupName === "__current__"}
-            className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium ring-1 ring-[var(--border)] transition-all hover:bg-[var(--secondary)]/80 active:scale-95 disabled:opacity-50"
-          >
-            {downloadingBackupName === "__current__" ? (
-              <Loader2 size="0.8125rem" className="animate-spin" />
-            ) : (
-              <Download size="0.8125rem" />
-            )}
-            Download Backup
-          </button>
-        </div>
-        {backupsQuery.data && backupsQuery.data.length > 0 && (
-          <div className="mt-1 flex flex-col gap-1">
-            <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Existing backups</span>
-            {backupsQuery.data.map((backup) => (
-              <div
-                key={backup.name}
-                className="flex items-center justify-between gap-2 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 ring-1 ring-[var(--border)]"
-              >
-                <div className="min-w-0">
-                  <span className="block truncate text-[0.6875rem] font-medium">{backup.name}</span>
-                  <span className="block text-[0.5625rem] text-[var(--muted-foreground)]">
-                    {new Date(backup.createdAt).toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    aria-label={`Download ${backup.name}`}
-                    onClick={() => void handleDownloadBackup(backup.name)}
-                    disabled={downloadingBackupName === backup.name}
-                    className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--background)] hover:text-[var(--foreground)] disabled:opacity-50"
-                  >
-                    {downloadingBackupName === backup.name ? (
-                      <Loader2 size="0.75rem" className="animate-spin" />
-                    ) : (
-                      <Download size="0.75rem" />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${backup.name}`}
-                    onClick={() => void handleDeleteBackup(backup.name)}
-                    disabled={deleteBackupMutation.isPending}
-                    className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] disabled:opacity-50"
-                  >
-                    <Trash2 size="0.75rem" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* â”€â”€ Profile Export â”€â”€ */}
-      <div className="retro-divider" />
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-1.5">
-          <Upload size="0.75rem" className="text-[var(--muted-foreground)]" />
-          <span className="text-xs font-medium">Profile Export</span>
-          <HelpTooltip text="Exports the current profile, a safe-to-share browser support file, or a sensitive full browser recovery file." />
-        </div>
-        <button
-          onClick={() => setExportProfileDialogOpen(true)}
-          disabled={exportingProfile}
-          className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
-        >
-          {exportingProfile ? (
-            <>
-              <Loader2 size="0.8125rem" className="animate-spin" />
-              Exportingâ€¦
-            </>
-          ) : (
-            <>
-              <Upload size="0.8125rem" />
-              Export Profile
-            </>
-          )}
-        </button>
-        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-          Safe support state removes stored credentials. Sensitive recovery state keeps everything and should never be
-          shared.
-        </p>
-        <button
-          onClick={() => void handleExportLocalState("safe")}
-          disabled={exportingLocalState}
-          className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] transition-all hover:bg-[var(--accent)] active:scale-95 disabled:opacity-50"
-        >
-          {exportingLocalState ? (
-            <Loader2 size="0.8125rem" className="animate-spin" />
-          ) : (
-            <>
-              <Upload size="0.8125rem" />
-              Export Safe Support State
-            </>
-          )}
-        </button>
-        <button
-          onClick={() => void handleExportLocalState("recovery")}
-          disabled={exportingLocalState}
-          className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--destructive)]/40 bg-[var(--destructive)]/5 px-3 py-2 text-xs font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/10 active:scale-95 disabled:opacity-50"
-        >
-          {exportingLocalState ? (
-            <Loader2 size="0.8125rem" className="animate-spin" />
-          ) : (
-            <>
-              <AlertTriangle size="0.8125rem" />
-              Export Sensitive Recovery State
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* â”€â”€ Danger Zone â”€â”€ */}
-      <div className="retro-divider" />
-      <div className="rounded-xl border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 p-3 flex flex-col gap-2">
-        <div className="flex items-center gap-2 text-xs font-semibold text-[var(--destructive)]">
-          <AlertTriangle size="0.875rem" />
-          Danger Zone
-        </div>
-        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-          Permanently clear selected categories of local data. De-Koi resets live caches immediately after a successful
-          expunge so stale data does not linger on screen.
-        </p>
-        <div className="grid gap-2">
-          {EXPUNGE_SCOPE_OPTIONS.map((scope) => {
-            const checked = selectedScopes.includes(scope.id);
-            return (
-              <label
-                key={scope.id}
-                className={cn(
-                  "flex cursor-pointer items-start gap-2 rounded-lg px-2.5 py-2 ring-1 transition-colors",
-                  checked
-                    ? "bg-[var(--destructive)]/10 ring-[var(--destructive)]/25"
-                    : "bg-[var(--background)]/40 ring-[var(--border)] hover:bg-[var(--secondary)]/70",
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={isClearing}
-                  onChange={() => toggleScope(scope.id)}
-                  className="mt-0.5 h-3.5 w-3.5 rounded border-[var(--border)] accent-[var(--destructive)]"
-                />
-                <span className="min-w-0">
-                  <span className="block text-xs font-medium text-[var(--foreground)]">{scope.label}</span>
-                  <span className="block text-[0.625rem] text-[var(--muted-foreground)]">{scope.description}</span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setSelectedScopes(isAllScopesSelected ? [] : EXPUNGE_SCOPE_OPTIONS.map((scope) => scope.id))}
-            disabled={isClearing}
-            className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--secondary)] active:scale-95 disabled:opacity-50"
-          >
-            {isAllScopesSelected ? "Clear Selection" : "Select All"}
-          </button>
-          <button
-            onClick={() => setConfirmAction("selected")}
-            disabled={selectedScopes.length === 0 || isClearing}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--destructive)]/85 px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Trash2 size="0.8125rem" />
-            Clear Selected Data
-          </button>
-        </div>
-        {confirmAction && (
-          <div className="flex flex-col gap-2 rounded-lg bg-[var(--destructive)]/12 p-2.5">
-            <div className="flex items-start gap-2 text-[0.6875rem] font-medium text-[var(--destructive)]">
-              <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0" />
-              {`Delete ${selectedScopes.length} selected data categor${selectedScopes.length === 1 ? "y" : "ies"}? There is no undo.`}
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmAction(null)}
-                disabled={isClearing}
-                className="flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--secondary)] active:scale-95 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={runExpunge}
-                disabled={isClearing}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--destructive)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
-              >
-                {isClearing ? <Loader2 size="0.75rem" className="animate-spin" /> : <Trash2 size="0.75rem" />}
-                Confirm Delete
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

@@ -8,6 +8,9 @@ const destinationOwnerFiles = [
   "src/features/shell/settings/components/settings/UserQuickRepliesManager.tsx",
   "src/features/shell/settings/components/settings/PromptOverridesEditor.tsx",
   "src/features/shell/settings/components/settings/PrivacyDataSettings.tsx",
+  "src/features/shell/settings/components/settings/BackupExportSettings.tsx",
+  "src/features/shell/settings/components/settings/ChatBehaviorSettings.tsx",
+  "src/features/shell/settings/components/settings/ChatPresentationSettings.tsx",
   "src/features/shell/settings/components/ProfileImportSection.tsx",
   "src/features/shell/plugins/components/CoreModulesSettings.tsx",
   "src/features/shell/diagnostics/components/HealthDiagnosticsSettings.tsx",
@@ -23,6 +26,11 @@ describe("settings destinations", () => {
 
   it("matches individual settings by title and keywords", () => {
     expect(searchSettingsDestinations("sound").map(({ id }) => id)).toContain("notification-sounds");
-    expect(searchSettingsDestinations("restore").map(({ id }) => id)).toEqual(expect.arrayContaining(["profile-import", "backups"]));
+    expect(searchSettingsDestinations("restore").map(({ id }) => id)).toEqual(
+      expect.arrayContaining(["profile-import", "backups"]),
+    );
+    expect(searchSettingsDestinations("impersonate").map(({ id }) => id)).toContain("chat-behavior");
+    expect(searchSettingsDestinations("schedule generation").map(({ id }) => id)).toContain("chat-behavior");
+    expect(searchSettingsDestinations("message tokens").map(({ id }) => id)).toContain("chat-presentation");
   });
 });

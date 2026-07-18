@@ -14,17 +14,44 @@ export type SettingsTabId = (typeof SETTINGS_TABS)[number];
 
 export const SETTINGS_DESTINATIONS = [
   { id: "image-settings", tab: "general", title: "Image generation", keywords: ["images", "gallery", "dimensions"] },
+  {
+    id: "chat-behavior",
+    tab: "general",
+    title: "Chat behavior",
+    keywords: ["quick replies", "impersonate", "schedule generation", "guided replies", "regenerate"],
+  },
   { id: "quick-replies", tab: "general", title: "Quick replies", keywords: ["toolbar", "commands", "shortcuts"] },
-  { id: "notification-sounds", tab: "appearance", title: "Notification sounds", keywords: ["audio", "alerts", "sound"] },
+  {
+    id: "chat-presentation",
+    tab: "appearance",
+    title: "Chat presentation",
+    keywords: ["message layout", "grouping", "timestamps", "model name", "tokens", "message numbers"],
+  },
+  {
+    id: "notification-sounds",
+    tab: "appearance",
+    title: "Notification sounds",
+    keywords: ["audio", "alerts", "sound"],
+  },
   { id: "fonts", tab: "appearance", title: "Custom fonts", keywords: ["font", "upload", "remote"] },
   { id: "themes", tab: "themes", title: "Themes", keywords: ["colors", "style", "appearance"] },
   { id: "modules", tab: "plugins", title: "Modules", keywords: ["plugins", "optional", "tools"] },
   { id: "extensions", tab: "extensions", title: "Extensions", keywords: ["css", "customization", "addons"] },
   { id: "profile-import", tab: "import", title: "Import", keywords: ["profile", "SillyTavern", "restore"] },
-  { id: "health-diagnostics", tab: "health", title: "Health diagnostics", keywords: ["support", "provider", "storage"] },
+  {
+    id: "health-diagnostics",
+    tab: "health",
+    title: "Health diagnostics",
+    keywords: ["support", "provider", "storage"],
+  },
   { id: "privacy-data", tab: "privacy", title: "Privacy and data", keywords: ["erase", "export", "retention"] },
-  { id: "prompt-overrides", tab: "advanced", title: "Prompt overrides", keywords: ["templates", "generation", "custom prompt"] },
-  { id: "backups", tab: "advanced", title: "Backups and profile export", keywords: ["backup", "export", "restore"] },
+  {
+    id: "prompt-overrides",
+    tab: "advanced",
+    title: "Prompt overrides",
+    keywords: ["templates", "generation", "custom prompt"],
+  },
+  { id: "backups", tab: "privacy", title: "Backups and profile export", keywords: ["backup", "export", "restore"] },
 ] as const satisfies readonly {
   id: string;
   tab: SettingsTabId;

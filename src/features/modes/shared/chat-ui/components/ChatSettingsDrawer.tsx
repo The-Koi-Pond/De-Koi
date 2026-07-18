@@ -38,7 +38,6 @@ import {
   Activity,
   Puzzle,
   FilePlus2,
-  Drama,
   Music2,
   Code2,
   Paintbrush,
@@ -59,7 +58,6 @@ import { AdvancedParametersSection } from "./settings/AdvancedParametersSection"
 import { ChatBasicSettingsSections } from "./settings/ChatBasicSettingsSections";
 import { ConversationNotesSection } from "./settings/ConversationNotesSection";
 import { ConversationPromptSection } from "./settings/ConversationPromptSection";
-import { ImpersonateSettingsContent } from "./settings/ImpersonateSettingsContent";
 import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal";
 import { ModePromptSettingsSections } from "./settings/ModePromptSettingsSections";
 import { ChatPresetBar } from "./settings/ChatPresetBar";
@@ -89,10 +87,7 @@ import {
   type DrawerCharacter,
 } from "../lib/chat-settings-character-search";
 import { buildContinuityOverviewViewModel } from "../lib/continuity-overview";
-import {
-  MEMORY_RECALL_SECTION_HELP,
-  MEMORY_RECALL_TOGGLE_DESCRIPTION,
-} from "../lib/memory-recall-copy";
+import { MEMORY_RECALL_SECTION_HELP, MEMORY_RECALL_TOGGLE_DESCRIPTION } from "../lib/memory-recall-copy";
 import {
   AgentCategorySection,
   ChatSettingsSection as Section,
@@ -445,8 +440,6 @@ function ChatSettingsDrawerInner({
   const disconnectChat = useDisconnectChat();
   const { retryAgents } = useGenerate();
   const agentProcessing = useAgentStore((s) => s.isProcessing);
-  const scheduleGenerationPreferences = useUIStore((s) => s.scheduleGenerationPreferences);
-  const setScheduleGenerationPreferences = useUIStore((s) => s.setScheduleGenerationPreferences);
   const roleplaySpriteScale = useUIStore((s) => s.roleplaySpriteScale);
 
   const [showCharPicker, setShowCharPicker] = useState(false);
@@ -1942,9 +1935,7 @@ function ChatSettingsDrawerInner({
         >
           <div className="flex-1 min-w-0">
             <span className="text-[0.6875rem] font-medium">Enable Memory Recall</span>
-            <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-              {MEMORY_RECALL_TOGGLE_DESCRIPTION}
-            </p>
+            <p className="text-[0.625rem] text-[var(--muted-foreground)]">{MEMORY_RECALL_TOGGLE_DESCRIPTION}</p>
           </div>
           <div
             className={cn(
@@ -2084,9 +2075,7 @@ function ChatSettingsDrawerInner({
             }}
             onSaveName={saveName}
             onConnectionChange={setConnection}
-            onVisionConnectionChange={(visionConnectionId) =>
-              updateMeta.mutate({ id: chat.id, visionConnectionId })
-            }
+            onVisionConnectionChange={(visionConnectionId) => updateMeta.mutate({ id: chat.id, visionConnectionId })}
             onPresetChange={setPreset}
             onEditPresetChoices={() => {
               if (chat.promptPresetId) setChoiceModalPresetId(chat.promptPresetId);
@@ -3415,46 +3404,6 @@ function ChatSettingsDrawerInner({
                     />
                   )}
                 </div>
-
-                {/* Schedule generation preferences — free-form authorial guidance */}
-                <label className="flex flex-col gap-1.5">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-medium">
-                    <Sparkles size="0.75rem" className="text-[var(--primary)]" />
-                    Schedule generation preferences
-                    <HelpTooltip text="Free-form guidance that steers how character schedules are generated. Both directives ('no characters past midnight') and factual constraints ('I work 9-5') work. This setting is global, it applies to every conversation chat." />
-                  </span>
-                  <textarea
-                    value={scheduleGenerationPreferences}
-                    onChange={(e) => setScheduleGenerationPreferences(e.target.value)}
-                    placeholder="e.g. Make everyone go to sleep before midnight. Give characters free time 10am-noon. I work 9-5 on weekdays."
-                    className="min-h-[5rem] resize-y rounded-lg border border-[var(--border)] bg-[var(--secondary)] p-2.5 text-[0.6875rem] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--primary)]/50 placeholder:text-[var(--muted-foreground)]/40"
-                  />
-                  <p className="text-[0.59375rem] text-[var(--muted-foreground)]/70">
-                    Global setting. Applies to every conversation chat&apos;s next schedule regeneration, manual or
-                    weekly auto.
-                  </p>
-                </label>
-
-                {/* Active schedule-generation preference indicator */}
-                {scheduleGenerationPreferences.trim() && (
-                  <div
-                    className="flex items-start gap-2 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-2.5"
-                    title={scheduleGenerationPreferences.trim()}
-                  >
-                    <Sparkles size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" />
-                    <div className="min-w-0 flex-1">
-                      <span className="block text-[0.6875rem] font-medium leading-snug text-[var(--foreground)]">
-                        Schedule generation preference active
-                      </span>
-                      <p className="mt-0.5 truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
-                        "{scheduleGenerationPreferences.trim()}"
-                      </p>
-                      <p className="mt-1 text-[0.59375rem] text-[var(--muted-foreground)]/70">
-                        Will be applied the next time schedules are regenerated.
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
             </Section>
           )}
@@ -5181,11 +5130,7 @@ function ChatSettingsDrawerInner({
 
           {/* Memory Recall — conversation mode: show here; roleplay: shown after Function Calling */}
           {isConversation && !isLiteBuild && (
-            <Section
-              label="Memory Recall"
-              icon={<Brain size="0.875rem" />}
-              help={MEMORY_RECALL_SECTION_HELP}
-            >
+            <Section label="Memory Recall" icon={<Brain size="0.875rem" />} help={MEMORY_RECALL_SECTION_HELP}>
               {renderMemoryRecallControls()}
             </Section>
           )}
@@ -5491,11 +5436,7 @@ function ChatSettingsDrawerInner({
 
           {/* Memory Recall — roleplay/game modes: show after Function Calling */}
           {!isConversation && !isLiteBuild && (
-            <Section
-              label="Memory Recall"
-              icon={<Brain size="0.875rem" />}
-              help={MEMORY_RECALL_SECTION_HELP}
-            >
+            <Section label="Memory Recall" icon={<Brain size="0.875rem" />} help={MEMORY_RECALL_SECTION_HELP}>
               {renderMemoryRecallControls()}
             </Section>
           )}
@@ -5775,7 +5716,16 @@ function ChatSettingsDrawerInner({
                   <span className="text-[0.625rem] text-[var(--muted-foreground)]">messages</span>
                 </div>
               )}
-              {(isConversation || isRoleplayMode) && (
+            </div>
+          </Section>
+
+          {(isConversation || isRoleplayMode) && (
+            <Section
+              label="Character Web Research"
+              icon={<Globe size="0.875rem" />}
+              help="Let characters ask permission before searching the public web for one generated turn."
+            >
+              <div className="space-y-2">
                 <button
                   onClick={() =>
                     updateMeta.mutate({
@@ -5813,7 +5763,16 @@ function ChatSettingsDrawerInner({
                     />
                   </div>
                 </button>
-              )}
+              </div>
+            </Section>
+          )}
+
+          <Section
+            label="Reasoning"
+            icon={<Brain size="0.875rem" />}
+            help="Control whether provider reasoning is shown and whether stored reasoning returns to future prompts."
+          >
+            <div className="space-y-2">
               {(isConversation || isRoleplayMode) && (
                 <button
                   onClick={() =>
@@ -5835,9 +5794,7 @@ function ChatSettingsDrawerInner({
                   <div
                     className={cn(
                       "h-5 w-9 overflow-hidden rounded-full p-0.5 transition-colors",
-                      metadata.showInlineReasoning === true
-                        ? "bg-[var(--primary)]"
-                        : "bg-[var(--muted-foreground)]/50",
+                      metadata.showInlineReasoning === true ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
                     )}
                   >
                     <div
@@ -5882,18 +5839,6 @@ function ChatSettingsDrawerInner({
                 </div>
               </button>
             </div>
-          </Section>
-
-          {/* Impersonate (global settings applied to /impersonate generations) */}
-          <Section
-            label="Impersonate"
-            icon={<Drama size="0.875rem" />}
-            help="Global settings applied to every /impersonate generation across all chats."
-          >
-            <ImpersonateSettingsContent
-              presets={(presets ?? []) as Array<{ id: string; name: string }>}
-              connections={textConnectionsList}
-            />
           </Section>
         </div>
       </div>
