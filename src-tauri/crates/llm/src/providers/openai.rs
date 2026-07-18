@@ -1290,7 +1290,9 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
             }
         }
     } else if request.connection.provider == "nanogpt" {
-        if let Some(effort) = nanogpt_reasoning_effort(parameters) {
+        if let Some(effort) = nanogpt_reasoning_effort(parameters)
+            .filter(|effort| *effort != "none" || !is_gemini_25_model(&request.connection.model))
+        {
             body["reasoning_effort"] = json!(effort);
         }
         if let Some(reasoning) = nanogpt_reasoning_config(parameters) {
