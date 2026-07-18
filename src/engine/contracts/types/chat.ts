@@ -296,6 +296,8 @@ export interface ChatMetadata {
   lorebookTokenBudget?: number | null;
   /** When true or omitted, stored provider thinking/reasoning is not replayed into future prompts. */
   excludePastReasoning?: boolean;
+  /** Show provider-returned reasoning inline beneath character messages. Default: false. */
+  showInlineReasoning?: boolean;
   /** ID of the chat preset most recently applied to this chat (drives the preset bar dropdown). */
   appliedChatPresetId?: string | null;
   /** Custom prompt prefix used by the /impersonate slash command. */

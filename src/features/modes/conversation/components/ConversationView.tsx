@@ -1581,6 +1581,7 @@ export function ConversationView({
                           regenerationDisplay.showActiveRegeneration ? savedBackingContent : item.originalContent
                         }
                         typingLabel={typingLabelInMessage && msg.id === typingTargetId ? liveTypingLabel : undefined}
+                        showInlineReasoning={chatMeta.showInlineReasoning === true}
                       />
                     </>
                   );

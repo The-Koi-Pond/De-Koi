@@ -332,6 +332,17 @@
     "coverage": "advanced"
   },
   {
+    "id": "inline-model-reasoning",
+    "title": "Inline Model Reasoning",
+    "category": "Advanced",
+    "summary": "Optionally show reasoning returned by the model in a separate collapsible panel beneath character replies while keeping final answers primary.",
+    "keywords": ["reasoning", "thinking", "thoughts", "model reasoning", "view thoughts", "chat messages"],
+    "audience": "Users who want to inspect reasoning data that their selected model and provider make available.",
+    "where": "Open a Conversation or Roleplay chat, then Chat Settings > Advanced.",
+    "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" }],
+    "coverage": "advanced"
+  },
+  {
     "id": "prompt-overrides",
     "title": "Prompt Overrides",
     "category": "Advanced",

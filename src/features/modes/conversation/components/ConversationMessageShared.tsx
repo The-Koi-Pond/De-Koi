@@ -16,6 +16,7 @@ import {
   isImageMessageAttachment,
   MessageAttachmentImagePreview,
   MessageMemoryIndicators,
+  MessageReasoningPanel,
   ResolvedAvatarImage,
   SwipeJumpControl,
 } from "../../shared/chat-ui/index";
@@ -70,6 +71,7 @@ export interface ConversationMessageProps {
   bubbleGroupPosition?: "single" | "first" | "middle" | "last";
   originalContent?: string;
   typingLabel?: string;
+  showInlineReasoning?: boolean;
 }
 
 export interface ConversationAvatarRender {
@@ -138,6 +140,7 @@ export interface ConversationMessageRenderContext {
   regenerateButtonTitle: string;
   regenerateGuidedClass?: string;
   thinking: string | null;
+  showInlineReasoning: boolean;
   generationReplay: MessageExtra["generationReplay"] | null;
   memoryCapture: MessageExtra["memoryCapture"] | null;
   activePromptSnapshot: Message["extra"]["generationPromptSnapshot"] | null;
@@ -495,7 +498,8 @@ export function ConversationMessageBodyContent({
   if (context.editing) return <ConversationMessageEditForm context={context} />;
 
   return (
-    <div
+    <>
+      <div
       className={cn(
         "mari-message-content text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap",
         context.isBubbleStyle && "mari-message-bubble texting-bubble relative min-w-0 max-w-full px-3.5 py-2 shadow-sm",
@@ -564,7 +568,9 @@ export function ConversationMessageBodyContent({
           )}
         </>
       )}
-    </div>
+      </div>
+      {context.showInlineReasoning && !context.isUser && <MessageReasoningPanel reasoning={context.thinking} />}
+    </>
   );
 }
 

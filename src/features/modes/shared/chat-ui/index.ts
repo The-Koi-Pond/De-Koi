@@ -16,6 +16,7 @@ export * from "./components/QuickConnectionSwitcher";
 export * from "./components/QuickPersonaSwitcher";
 export * from "./components/QuickReplyMenu";
 export * from "./components/QuickSwitcherMobile";
+export * from "./components/MessageReasoningPanel";
 export * from "./components/ResolvedAvatarImage";
 export * from "./components/SaveMomentAction";
 export * from "./components/SlashCommandFeedback";

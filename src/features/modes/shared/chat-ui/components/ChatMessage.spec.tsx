@@ -1041,4 +1041,32 @@ describe("ChatMessage", () => {
     }).not.toThrow();
     expect(container!.textContent).not.toContain("remembered");
   });
+
+  it("shows provider reasoning inline only when enabled and omits empty panels", () => {
+    const reasoningMessage: Message = {
+      ...message,
+      id: "roleplay-reasoning",
+      extra: { ...message.extra, reasoning_content: "Compared the available clues." },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={reasoningMessage} characterMap={characterMap} showInlineReasoning />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container!.textContent).toContain("Model reasoning");
+    expect(container!.textContent).toContain("Compared the available clues.");
+
+    act(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage message={{ ...reasoningMessage, extra: message.extra }} characterMap={characterMap} showInlineReasoning />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container!.textContent).not.toContain("Model reasoning");
+  });
 });

@@ -76,6 +76,7 @@ import { IllustrateMomentAction, SaveMomentAction } from "./SaveMomentAction";
 import { buildSaveMomentSource, type SaveMomentDestination, type SaveMomentSource } from "../lib/save-moment";
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import { readStoredThinking } from "../lib/message-thinking";
+import { MessageReasoningPanel } from "./MessageReasoningPanel";
 import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
 import { resolvePromptSnapshotFromExtra } from "../lib/prompt-snapshot";
 import { ResolvedAvatarImage } from "./ResolvedAvatarImage";
@@ -422,6 +423,7 @@ interface ChatMessageProps {
   multiSelectMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (toggle: MessageSelectionToggle) => void;
+  showInlineReasoning?: boolean;
 }
 
 type MergedAvatar = {
@@ -803,6 +805,7 @@ export const ChatMessage = memo(function ChatMessage({
   multiSelectMode,
   isSelected,
   onToggleSelect,
+  showInlineReasoning = false,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -2378,6 +2381,7 @@ export const ChatMessage = memo(function ChatMessage({
         </div>
 
         {/* Thinking modal */}
+        {showInlineReasoning && !isUser && <MessageReasoningPanel reasoning={thinking} />}
         {showThinking && thinking && <ThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
         {generationReplay && (
           <GenerationReplayDetailsModal
@@ -2853,6 +2857,7 @@ export const ChatMessage = memo(function ChatMessage({
       </div>
 
       {/* Thinking modal */}
+      {showInlineReasoning && !isUser && <MessageReasoningPanel reasoning={thinking} />}
       {showThinking && thinking && <ThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
       {generationReplay && (
         <GenerationReplayDetailsModal

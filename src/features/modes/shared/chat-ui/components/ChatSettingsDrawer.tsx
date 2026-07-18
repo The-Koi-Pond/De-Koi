@@ -5775,6 +5775,41 @@ function ChatSettingsDrawerInner({
                   <span className="text-[0.625rem] text-[var(--muted-foreground)]">messages</span>
                 </div>
               )}
+              {(isConversation || isRoleplayMode) && (
+                <button
+                  onClick={() =>
+                    updateMeta.mutate({ id: chat.id, showInlineReasoning: metadata.showInlineReasoning !== true })
+                  }
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                    metadata.showInlineReasoning === true
+                      ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                      : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                  )}
+                >
+                  <div>
+                    <span className="text-xs font-medium">Show Model Reasoning</span>
+                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                      Show provider-returned reasoning in a collapsible panel beneath character replies.
+                    </p>
+                  </div>
+                  <div
+                    className={cn(
+                      "h-5 w-9 overflow-hidden rounded-full p-0.5 transition-colors",
+                      metadata.showInlineReasoning === true
+                        ? "bg-[var(--primary)]"
+                        : "bg-[var(--muted-foreground)]/50",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                        metadata.showInlineReasoning === true && "translate-x-3.5",
+                      )}
+                    />
+                  </div>
+                </button>
+              )}
               <button
                 onClick={() => {
                   const enabled = metadata.excludePastReasoning !== false;
