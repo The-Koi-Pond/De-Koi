@@ -17,6 +17,8 @@ import {
   MessageAttachmentImagePreview,
   MessageMemoryIndicators,
   MessageReasoningPanel,
+  CharacterWebResearchCard,
+  CharacterWebResearchSources,
   ResolvedAvatarImage,
   SwipeJumpControl,
 } from "../../shared/chat-ui/index";
@@ -143,6 +145,8 @@ export interface ConversationMessageRenderContext {
   showInlineReasoning: boolean;
   generationReplay: MessageExtra["generationReplay"] | null;
   memoryCapture: MessageExtra["memoryCapture"] | null;
+  characterWebResearchRequest: MessageExtra["characterWebResearchRequest"] | null;
+  characterWebResearchSources: MessageExtra["characterWebResearchSources"] | null;
   activePromptSnapshot: Message["extra"]["generationPromptSnapshot"] | null;
   copied: boolean;
   handleMessageClick: (event: MouseEvent) => void;
@@ -570,6 +574,15 @@ export function ConversationMessageBodyContent({
       )}
       </div>
       {context.showInlineReasoning && !context.isUser && <MessageReasoningPanel reasoning={context.thinking} />}
+      {!context.isUser && context.characterWebResearchRequest && (
+        <CharacterWebResearchCard
+          chatId={context.message.chatId}
+          messageId={context.message.id}
+          request={context.characterWebResearchRequest}
+          onRegenerate={context.onRegenerate}
+        />
+      )}
+      {!context.isUser && <CharacterWebResearchSources sources={context.characterWebResearchSources} />}
     </>
   );
 }

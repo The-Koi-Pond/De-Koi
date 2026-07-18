@@ -583,5 +583,16 @@
     "where": "Open a chat > Chat Settings > Continuity for chat-local and inherited character-wide memory details; control automatic memory-save notifications in Settings > Appearance > Notifications.",
     "actions": [{ "type": "open-chat-destination", "destination": "chat-settings-continuity", "label": "Open Chat Continuity" }],
     "coverage": "advanced"
+  },
+  {
+    "id": "character-web-research",
+    "title": "Character Web Research",
+    "category": "Chat modes",
+    "summary": "Let a character ask before searching the public web. You see the exact query and any domain limits, and approval lasts for one regenerated turn.",
+    "keywords": ["internet", "web", "research", "search", "sources", "character internet access", "permission"],
+    "audience": "Conversation and roleplay users who want characters to check current public information.",
+    "where": "Open a Conversation or Roleplay chat > Chat Settings > Advanced > Character Web Research.",
+    "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" }],
+    "coverage": "advanced"
   }
 ]

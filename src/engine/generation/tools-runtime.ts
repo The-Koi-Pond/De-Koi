@@ -61,6 +61,60 @@ interface ToolDeps {
 }
 
 export const LOREBOOK_WRITE_TOOL_NAME = "save_lorebook_entry";
+export const CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME = "request_character_web_research";
+export const CHARACTER_WEB_SEARCH_TOOL_NAME = "search_character_web";
+export const CHARACTER_WEB_READ_TOOL_NAME = "read_character_web_page";
+
+export interface CharacterWebResearchGrant {
+  id: string;
+  query: string;
+  allowedDomains: string[];
+  requestMessageId: string;
+  grantedAt: string;
+  expiresAt: string;
+}
+
+const CHARACTER_WEB_RESEARCH_REQUEST_TOOL: LlmToolDefinition = {
+  name: CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
+  description:
+    "Ask the user for permission to research one exact web query. Use this when current or source-backed information is needed. This tool does not access the network.",
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "One precise search query to ask the user to approve." },
+      reason: { type: "string", description: "A short explanation of why web research would improve the reply." },
+      allowedDomains: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional public domains to constrain the approved search.",
+      },
+    },
+    required: ["query", "reason"],
+  },
+};
+
+const CHARACTER_WEB_SEARCH_TOOL: LlmToolDefinition = {
+  name: CHARACTER_WEB_SEARCH_TOOL_NAME,
+  description: "Search the public web using the exact query approved by the user for this turn.",
+  parameters: {
+    type: "object",
+    properties: {
+      maxResults: { type: "number", description: "Number of results to return, from 1 to 8." },
+    },
+  },
+};
+
+const CHARACTER_WEB_READ_TOOL: LlmToolDefinition = {
+  name: CHARACTER_WEB_READ_TOOL_NAME,
+  description: "Read one public result page from the web search approved for this turn.",
+  parameters: {
+    type: "object",
+    properties: {
+      url: { type: "string", description: "A public HTTP(S) result URL from the approved search." },
+    },
+    required: ["url"],
+  },
+};
 
 const chatMetadataQueues = new Map<string, Promise<void>>();
 const MAX_LOREBOOK_ENTRY_CONTENT_BYTES = 64 * 1024;
@@ -862,6 +916,23 @@ function chatToolsEnabledFor(chat: JsonRecord): boolean {
   return boolish(parseRecord(chat.metadata).enableTools, false);
 }
 
+function characterWebResearchGrant(metadata: JsonRecord): CharacterWebResearchGrant | null {
+  const value = parseRecord(metadata.characterWebResearchGrant);
+  const id = readString(value.id).trim();
+  const query = readString(value.query).trim();
+  const requestMessageId = readString(value.requestMessageId).trim();
+  const grantedAt = readString(value.grantedAt).trim();
+  const expiresAt = readString(value.expiresAt).trim();
+  const expiresAtMs = Date.parse(expiresAt);
+  if (!id || !query || !requestMessageId || !grantedAt || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    return null;
+  }
+  const allowedDomains = Array.isArray(value.allowedDomains)
+    ? value.allowedDomains.map((domain) => readString(domain).trim()).filter(Boolean)
+    : [];
+  return { id, query, requestMessageId, grantedAt, expiresAt, allowedDomains };
+}
+
 function chatToolSelectionFor(chat: JsonRecord): { mode: "all" | "explicit"; activeIds: Set<string> } {
   const metadata = parseRecord(chat.metadata);
   const value = metadata.activeToolIds;
@@ -903,6 +974,7 @@ export interface MainToolDefinitions {
    * agent-only, inactive, name-collided custom) cannot reach execution.
    */
   allowedToolNames: Set<string>;
+  characterWebResearchGrant: CharacterWebResearchGrant | null;
 }
 
 /**
@@ -925,9 +997,19 @@ export interface MainToolDefinitions {
 export async function buildMainToolDefinitions(
   args: BuildMainToolDefinitionsArgs,
 ): Promise<MainToolDefinitions | null> {
-  if (!chatToolsEnabledFor(args.chat)) return null;
+  const metadata = parseRecord(args.chat.metadata);
+  const webAccessEnabled = metadata.characterWebAccessEnabled === true;
+  const webGrant = webAccessEnabled ? characterWebResearchGrant(metadata) : null;
+  const webToolDefs = webAccessEnabled
+    ? webGrant
+      ? [CHARACTER_WEB_SEARCH_TOOL, CHARACTER_WEB_READ_TOOL]
+      : [CHARACTER_WEB_RESEARCH_REQUEST_TOOL]
+    : [];
+  const regularToolsEnabled = chatToolsEnabledFor(args.chat);
+  if (!regularToolsEnabled && webToolDefs.length === 0) return null;
   const selection = chatToolSelectionFor(args.chat);
   const filter = (name: string): boolean => {
+    if (!regularToolsEnabled) return false;
     if (AGENT_ONLY_TOOL_NAMES.has(name)) return false;
     if (!args.includeSpotify && SPOTIFY_TOOL_NAMES.has(name)) return false;
     return selection.mode === "all" || selection.activeIds.has(name);
@@ -947,9 +1029,10 @@ export async function buildMainToolDefinitions(
     customTools.set(tool.name, tool);
     customs.push(customToolDefinition(tool));
   }
-  if (builtIns.length === 0 && customs.length === 0) return null;
-  const allowedToolNames = new Set<string>([...builtIns.map((tool) => tool.name), ...customTools.keys()]);
-  return { toolDefs: [...builtIns, ...customs], customTools, allowedToolNames };
+  if (builtIns.length === 0 && customs.length === 0 && webToolDefs.length === 0) return null;
+  const toolDefs = [...builtIns, ...customs, ...webToolDefs];
+  const allowedToolNames = new Set<string>(toolDefs.map((tool) => tool.name));
+  return { toolDefs, customTools, allowedToolNames, characterWebResearchGrant: webGrant };
 }
 
 export interface ExecuteMainToolCallArgs {
@@ -957,6 +1040,7 @@ export interface ExecuteMainToolCallArgs {
   input: ToolRuntimeInput;
   customTools: Map<string, CustomToolRecord>;
   allowedToolNames: Set<string>;
+  characterWebResearchGrant: CharacterWebResearchGrant | null;
   call: LLMToolCall;
 }
 
@@ -983,6 +1067,46 @@ export async function executeMainToolCall(args: ExecuteMainToolCallArgs): Promis
   if (BUILT_IN_TOOL_MAP.has(name)) {
     const syntheticMainAgent: JsonRecord = { id: "main", type: "main", name: "Main Generation" };
     return stringifyToolResult(await executeBuiltInTool(args.deps, args.input, syntheticMainAgent, args.call));
+  }
+  const toolArgs = toolArguments(args.call);
+  if (name === CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME) {
+    const query = stringArg(toolArgs, "query");
+    const reason = stringArg(toolArgs, "reason");
+    if (!query || !reason) return stringifyToolResult({ error: "A precise query and reason are required." });
+    return stringifyToolResult({
+      kind: "character_web_research_request",
+      query,
+      reason,
+      allowedDomains: stringArrayArg(toolArgs, "allowedDomains"),
+    });
+  }
+  if (name === CHARACTER_WEB_SEARCH_TOOL_NAME || name === CHARACTER_WEB_READ_TOOL_NAME) {
+    const grant = args.characterWebResearchGrant;
+    const webResearch = args.deps.integrations.webResearch;
+    if (!grant || !webResearch) {
+      return stringifyToolResult({ error: "Approved character web research is unavailable for this turn." });
+    }
+    const chatId = readString(args.input.chat.id).trim();
+    if (name === CHARACTER_WEB_SEARCH_TOOL_NAME) {
+      return stringifyToolResult(
+        await webResearch.search({
+          chatId,
+          grantId: grant.id,
+          query: grant.query,
+          maxResults: Math.max(1, Math.min(8, Math.trunc(numberArg(toolArgs, "maxResults", 5)))),
+        }),
+      );
+    }
+    const url = stringArg(toolArgs, "url");
+    if (!url) return stringifyToolResult({ error: "A public result URL is required." });
+    return stringifyToolResult(
+      await webResearch.readPage({
+        chatId,
+        grantId: grant.id,
+        query: grant.query,
+        url,
+      }),
+    );
   }
   if (args.customTools.has(name)) {
     return customToolExecutor(args.deps.integrations, args.call, args.customTools.get(name));

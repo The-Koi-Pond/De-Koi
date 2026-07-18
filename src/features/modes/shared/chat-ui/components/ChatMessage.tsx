@@ -77,6 +77,7 @@ import { buildSaveMomentSource, type SaveMomentDestination, type SaveMomentSourc
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import { readStoredThinking } from "../lib/message-thinking";
 import { MessageReasoningPanel } from "./MessageReasoningPanel";
+import { CharacterWebResearchCard, CharacterWebResearchSources } from "./CharacterWebResearchCard";
 import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
 import { resolvePromptSnapshotFromExtra } from "../lib/prompt-snapshot";
 import { ResolvedAvatarImage } from "./ResolvedAvatarImage";
@@ -2382,6 +2383,17 @@ export const ChatMessage = memo(function ChatMessage({
 
         {/* Thinking modal */}
         {showInlineReasoning && !isUser && <MessageReasoningPanel reasoning={thinking} />}
+        {!isUser && extra.characterWebResearchRequest && (
+          <CharacterWebResearchCard
+            chatId={message.chatId}
+            messageId={message.id}
+            request={extra.characterWebResearchRequest}
+            onRegenerate={
+              onRegenerate ? (id) => onRegenerate(id, { forCharacterId: message.characterId ?? null }) : undefined
+            }
+          />
+        )}
+        {!isUser && <CharacterWebResearchSources sources={extra.characterWebResearchSources} />}
         {showThinking && thinking && <ThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
         {generationReplay && (
           <GenerationReplayDetailsModal
@@ -2858,6 +2870,17 @@ export const ChatMessage = memo(function ChatMessage({
 
       {/* Thinking modal */}
       {showInlineReasoning && !isUser && <MessageReasoningPanel reasoning={thinking} />}
+      {!isUser && extra.characterWebResearchRequest && (
+        <CharacterWebResearchCard
+          chatId={message.chatId}
+          messageId={message.id}
+          request={extra.characterWebResearchRequest}
+          onRegenerate={
+            onRegenerate ? (id) => onRegenerate(id, { forCharacterId: message.characterId ?? null }) : undefined
+          }
+        />
+      )}
+      {!isUser && <CharacterWebResearchSources sources={extra.characterWebResearchSources} />}
       {showThinking && thinking && <ThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
       {generationReplay && (
         <GenerationReplayDetailsModal

@@ -5,7 +5,7 @@ use crate::storage_commands::{
     chat_memory, chats, connection_secrets, custom_tools, customization, deki, entity_images,
     exports, fonts, game_assets, generation, http, images, imports, integrations, knowledge, llm,
     lorebook_images, managed_thumbnails, personas, profile, prompts, shared, sidecar, sprites,
-    translation, updates,
+    translation, updates, web_research,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -615,6 +615,10 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             custom_tools::execute_custom_tool(state, optional_value(&args, "body")).await
         }
         "custom_tool_capabilities" => Ok(custom_tools::custom_tool_capabilities()),
+        "character_web_search" => web_research::search(state, optional_value(&args, "body")).await,
+        "character_web_read_page" => {
+            web_research::read_page(state, optional_value(&args, "body")).await
+        }
         "agent_patch_by_type" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 agents::patch_agent_type(

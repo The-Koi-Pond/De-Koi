@@ -93,6 +93,8 @@ pub(crate) mod startup_migrations;
 pub(crate) mod translation;
 #[path = "storage/updates.rs"]
 pub(crate) mod updates;
+#[path = "storage/web_research.rs"]
+pub(crate) mod web_research;
 
 pub(crate) fn write_managed_file_atomically(path: &Path, bytes: &[u8]) -> AppResult<()> {
     let parent = path.parent().ok_or_else(|| {
@@ -167,3 +169,6 @@ pub mod profile_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/updates.rs"]
 pub mod update_commands;
+#[cfg(feature = "desktop")]
+#[path = "storage/commands/web_research.rs"]
+pub mod web_research_commands;
