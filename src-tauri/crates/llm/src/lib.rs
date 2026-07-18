@@ -4262,6 +4262,24 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
+    fn nanogpt_gemini_2_5_openai_body_omits_unsupported_no_reasoning_effort() {
+        let request = request_for(
+            "nanogpt",
+            "gemini-2.5-flash",
+            json!({
+                "reasoningEffort": "none",
+                "responseFormat": "json_object"
+            }),
+        );
+        let mut body = json!({});
+
+        apply_openai_parameters(&mut body, &request);
+
+        assert!(body.get("reasoning_effort").is_none());
+        assert_eq!(body["response_format"], json!({ "type": "json_object" }));
+    }
+
+    #[test]
     fn custom_non_gemini_openai_body_does_not_add_reasoning_effort() {
         let request = request_for(
             "custom",
