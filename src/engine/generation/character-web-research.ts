@@ -45,6 +45,7 @@ export async function activateAlwaysAllowedCharacterWebResearch(args: {
   requestMessageId: string;
   query: string;
   allowedDomains?: string[] | null;
+  releasePrevious?: (() => Promise<void>) | null;
   id?: string;
   now?: Date;
 }): Promise<{
@@ -54,36 +55,49 @@ export async function activateAlwaysAllowedCharacterWebResearch(args: {
   release: () => Promise<void>;
 }> {
   const chatId = readString(args.chat.id).trim();
-  if (!chatId) throw new Error("Character web research requires a chat id.");
-  if (characterWebResearchPolicy(args.chat.metadata) !== "always") {
-    throw new Error("Character web research is not always allowed for this chat.");
+  const requestMessageId = args.requestMessageId.trim();
+  try {
+    if (!chatId) throw new Error("Character web research requires a chat id.");
+    if (characterWebResearchPolicy(args.chat.metadata) !== "always") {
+      throw new Error("Character web research is not always allowed for this chat.");
+    }
+    await args.releasePrevious?.();
+    const grant = createCharacterWebResearchGrant(args);
+    const chat = {
+      ...args.chat,
+      metadata: {
+        ...parseRecord(args.chat.metadata),
+        characterWebResearchGrant: grant,
+      },
+    };
+    const mainTools = await buildMainToolDefinitions({
+      chat,
+      storage: args.storage,
+      integrations: args.integrations,
+    });
+    if (!mainTools?.characterWebResearchGrant) {
+      throw new Error("Character web research grant could not be activated.");
+    }
+    await args.storage.patchChatMetadata(chatId, { characterWebResearchGrant: grant });
+    let released = false;
+    return {
+      grant,
+      chat,
+      mainTools,
+      release: async () => {
+        if (released) return;
+        released = true;
+        await args.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
+      },
+    };
+  } catch (error) {
+    console.warn("[character-web-research] automatic grant activation failed", {
+      chatId,
+      requestMessageId,
+      queryLength: args.query.trim().length,
+      allowedDomainCount: args.allowedDomains?.length ?? 0,
+      error,
+    });
+    throw error;
   }
-  const grant = createCharacterWebResearchGrant(args);
-  await args.storage.patchChatMetadata(chatId, { characterWebResearchGrant: grant });
-  const chat = {
-    ...args.chat,
-    metadata: {
-      ...parseRecord(args.chat.metadata),
-      characterWebResearchGrant: grant,
-    },
-  };
-  const mainTools = await buildMainToolDefinitions({
-    chat,
-    storage: args.storage,
-    integrations: args.integrations,
-  });
-  if (!mainTools?.characterWebResearchGrant) {
-    throw new Error("Character web research grant could not be activated.");
-  }
-  let released = false;
-  return {
-    grant,
-    chat,
-    mainTools,
-    release: async () => {
-      if (released) return;
-      released = true;
-      await args.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
-    },
-  };
 }

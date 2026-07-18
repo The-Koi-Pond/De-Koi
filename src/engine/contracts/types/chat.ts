@@ -209,7 +209,10 @@ export function getEffectiveMemoryRecallEnabled(
 export interface ChatMetadata {
   /** Lets characters ask for turn-scoped permission to research the public web. */
   characterWebAccessEnabled?: boolean;
-  /** Whether character web research asks each time or automatically grants each exact requested query. */
+  /**
+   * Chat-mode consent policy. Missing or `"ask"` requests approval each time;
+   * `"always"` automatically mints and clears a fresh exact-query grant for each requested search.
+   */
   characterWebResearchPolicy?: "ask" | "always";
   /** Exact-query grant consumed by the next regenerated character turn. */
   characterWebResearchGrant?: CharacterWebResearchGrant | null;

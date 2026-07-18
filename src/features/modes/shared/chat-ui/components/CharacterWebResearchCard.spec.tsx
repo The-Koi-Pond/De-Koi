@@ -82,6 +82,35 @@ describe("CharacterWebResearchCard", () => {
     expect(button("Allow once").disabled).toBe(false);
   });
 
+  it("clears a failed retry error after a successful retry", async () => {
+    const onRegenerate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Gemini rejected the request."))
+      .mockResolvedValueOnce(undefined);
+    render(onRegenerate);
+
+    await act(async () => {
+      button("Allow once").click();
+    });
+    expect(container.textContent).toContain("Web research couldn't continue.");
+
+    await act(async () => {
+      button("Allow once").click();
+    });
+    expect(container.textContent).not.toContain("Web research couldn't continue.");
+  });
+
+  it("shows the declined state immediately and removes the approval buttons", async () => {
+    render(vi.fn());
+
+    await act(async () => {
+      button("Not now").click();
+    });
+
+    expect(container.textContent).toContain("Web research declined.");
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
   it("stores the exact visible scope and awaits one regeneration when allowed once", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("00000000-0000-4000-8000-000000000001");
     const onRegenerate = vi.fn().mockResolvedValue(undefined);

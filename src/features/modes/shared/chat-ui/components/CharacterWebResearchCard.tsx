@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Globe2, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { CharacterWebResearchRequest } from "../../../../../engine/contracts/types/chat";
@@ -26,8 +26,16 @@ export function CharacterWebResearchCard({
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (request.status && request.status !== "pending") {
-    return <p className="mt-2 text-xs text-[var(--muted-foreground)]">Web research {request.status}.</p>;
+  const [localStatus, setLocalStatus] = useState<CharacterWebResearchRequest["status"] | null>(null);
+  const resolvedStatus = request.status && request.status !== "pending" ? request.status : localStatus;
+
+  useEffect(() => {
+    setLocalStatus(null);
+    setError(null);
+  }, [messageId, request.query, request.status]);
+
+  if (resolvedStatus && resolvedStatus !== "pending") {
+    return <p className="mt-2 text-xs text-[var(--muted-foreground)]">Web research {resolvedStatus}.</p>;
   }
 
   const decide = async (approval: CharacterWebResearchApproval | "decline") => {
@@ -39,6 +47,7 @@ export function CharacterWebResearchCard({
         await storageApi.patchChatMessageExtra(messageId, {
           characterWebResearchRequest: { ...request, status: "declined" },
         });
+        setLocalStatus("declined");
         await qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
         return;
       }
@@ -50,6 +59,7 @@ export function CharacterWebResearchCard({
       });
       await storageApi.patchChatMetadata(chatId, characterWebResearchApprovalPatch(approval, grant));
       await onRegenerate?.(messageId, { propagateErrors: true, skipTouchConfirm: true });
+      setError(null);
       await qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
     } catch (cause) {
       setError(toUserMessage(cause, "characterWebResearchRetry"));

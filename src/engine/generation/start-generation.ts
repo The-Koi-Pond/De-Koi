@@ -5451,6 +5451,7 @@ async function* streamMainGenerationLoop(args: {
                 requestMessageId: readString(webRequestCall.id).trim() || `character-web-request-${iteration}`,
                 query,
                 allowedDomains,
+                releasePrevious: releaseAutomaticallyActivatedWebGrant,
               });
               mainTools = activated.mainTools;
               releaseAutomaticallyActivatedWebGrant = activated.release;
