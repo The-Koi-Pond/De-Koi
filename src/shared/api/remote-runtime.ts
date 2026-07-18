@@ -273,8 +273,8 @@ const PRIVILEGED_REMOTE_COMMANDS = new Set([
   "local_sidecar_restart",
   "local_sidecar_test_message",
 ]);
-const ADMIN_SECRET_STORAGE_KEY = "marinara-admin-secret";
-const LEGACY_ADMIN_SECRET_STORAGE_KEY = "marinara_admin_secret";
+export const ADMIN_SECRET_STORAGE_KEY = "marinara-admin-secret";
+export const LEGACY_ADMIN_SECRET_STORAGE_KEY = "marinara_admin_secret";
 const REMOTE_RUNTIME_MARKERS = new Set(["de-koi-server", "marinara-server"]);
 
 export type RuntimeTarget = {

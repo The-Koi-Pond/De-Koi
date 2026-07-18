@@ -97,6 +97,10 @@ import { extensionCompatibilityStatus } from "../../../../../engine/contracts/ex
 import { isInjectableExtensionCss, isInjectableThemeCss } from "../../../../../engine/contracts/customization-content";
 import { downloadBackupToBrowser } from "../../lib/backup-settings-actions";
 import {
+  buildBrowserStateExportPayload,
+  type BrowserStateExportMode,
+} from "../../lib/browser-state-export";
+import {
   initialRemoteRuntimeHealth,
   remoteRuntimeHealthDotTone,
   remoteRuntimeHealthErrorView,
@@ -3827,24 +3831,39 @@ export function AdvancedSettings() {
     return entries;
   };
 
-  const handleExportLocalState = async () => {
+  const handleExportLocalState = async (mode: BrowserStateExportMode) => {
+    if (mode === "recovery") {
+      const confirmed = await showConfirmDialog({
+        title: "Export sensitive recovery state?",
+        message:
+          "This full-fidelity file can include your Remote Runtime username, password, and admin secret. Keep it private and do not share it for troubleshooting.",
+        confirmLabel: "Export Sensitive File",
+        cancelLabel: "Cancel",
+      });
+      if (!confirmed) return;
+    }
+
     setExportingLocalState(true);
     try {
-      const payload = {
-        schema: "de-koi-browser-local-state-v1",
-        exportedAt: new Date().toISOString(),
+      const exportedAt = new Date().toISOString();
+      const payload = buildBrowserStateExportPayload({
+        mode,
+        exportedAt,
         origin: typeof window !== "undefined" ? window.location.origin : null,
         localStorage: readBrowserStorageEntries(window.localStorage),
         sessionStorage: readBrowserStorageEntries(window.sessionStorage),
-      };
+      });
+      const safeExport = mode === "safe";
       const result = await saveTextFileToUserSelectedLocation({
-        filename: `de-koi-browser-local-state-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+        filename: `${safeExport ? "de-koi-browser-support-state" : "de-koi-browser-local-state"}-${exportedAt.replace(/[:.]/g, "-")}.json`,
         content: JSON.stringify(payload, null, 2),
-        title: "Export browser-local state",
+        title: safeExport ? "Export safe browser support state" : "Export sensitive browser recovery state",
         mimeType: "application/json",
         filters: [{ name: "JSON", extensions: ["json"], mimeType: "application/json" }],
       });
-      if (result !== "cancelled") toast.success("Browser-local state exported");
+      if (result !== "cancelled") {
+        toast.success(safeExport ? "Safe browser support state exported" : "Sensitive browser recovery state exported");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't export browser-local state");
     } finally {
@@ -4453,7 +4472,7 @@ export function AdvancedSettings() {
         <div className="flex items-center gap-1.5">
           <Upload size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Profile Export</span>
-          <HelpTooltip text="Exports the current profile as native JSON, compatible bundle, or ZIP for large profiles and recovery." />
+          <HelpTooltip text="Exports the current profile, a safe-to-share browser support file, or a sensitive full browser recovery file." />
         </div>
         <button
           onClick={() => setExportProfileDialogOpen(true)}
@@ -4472,8 +4491,12 @@ export function AdvancedSettings() {
             </>
           )}
         </button>
+        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+          Safe support state removes stored credentials. Sensitive recovery state keeps everything and should never be
+          shared.
+        </p>
         <button
-          onClick={() => void handleExportLocalState()}
+          onClick={() => void handleExportLocalState("safe")}
           disabled={exportingLocalState}
           className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] transition-all hover:bg-[var(--accent)] active:scale-95 disabled:opacity-50"
         >
@@ -4482,7 +4505,21 @@ export function AdvancedSettings() {
           ) : (
             <>
               <Upload size="0.8125rem" />
-              Export Browser State
+              Export Safe Support State
+            </>
+          )}
+        </button>
+        <button
+          onClick={() => void handleExportLocalState("recovery")}
+          disabled={exportingLocalState}
+          className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--destructive)]/40 bg-[var(--destructive)]/5 px-3 py-2 text-xs font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/10 active:scale-95 disabled:opacity-50"
+        >
+          {exportingLocalState ? (
+            <Loader2 size="0.8125rem" className="animate-spin" />
+          ) : (
+            <>
+              <AlertTriangle size="0.8125rem" />
+              Export Sensitive Recovery State
             </>
           )}
         </button>
