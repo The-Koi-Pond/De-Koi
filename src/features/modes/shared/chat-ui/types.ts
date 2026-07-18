@@ -59,6 +59,7 @@ export type PeekPromptOptions = {
 export type RegenerateOptions = {
   skipTouchConfirm?: boolean;
   forCharacterId?: string | null;
+  propagateErrors?: boolean;
 };
 
 export type MessageWithSwipes = Message & {

@@ -8,7 +8,13 @@ import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
 import type { ConversationMessageStyle } from "../../../../shared/stores/ui.store";
-import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
+import type {
+  CharacterMap,
+  MessageSelectionToggle,
+  PeekPromptOptions,
+  PersonaInfo,
+  RegenerateOptions,
+} from "../../shared/chat-ui/types";
 import type { SaveMomentSource } from "../../shared/chat-ui/index";
 import {
   GenerationReplayDetailsModal,
@@ -47,7 +53,7 @@ export interface ConversationMessageProps {
   forceCanRegenerate?: boolean;
   regenerateButtonTitle?: string;
   onDelete?: (messageId: string) => void;
-  onRegenerate?: (messageId: string) => void;
+  onRegenerate?: (messageId: string, options?: RegenerateOptions) => void | Promise<void>;
   onEdit?: (messageId: string, content: string) => void | Promise<void>;
   onSetActiveSwipe?: (messageId: string, index: number) => void;
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
@@ -155,7 +161,7 @@ export interface ConversationMessageRenderContext {
   onTranslate: (content: string) => void;
   onCancelTranslation: () => void;
   onStartEdit: () => void;
-  onRegenerate?: (messageId: string) => void;
+  onRegenerate?: (messageId: string, options?: RegenerateOptions) => void | Promise<void>;
   onSetActiveSwipe?: (messageId: string, index: number) => void;
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
@@ -411,7 +417,7 @@ export function MessageSelectCheckbox({ isSelected }: { isSelected?: boolean }) 
       )}
     >
       {isSelected && <span className="text-white text-xs font-bold">✓</span>}
-    </div>
+      </div>
   );
 }
 
@@ -572,7 +578,7 @@ export function ConversationMessageBodyContent({
           )}
         </>
       )}
-      </div>
+    </div>
       {context.showInlineReasoning && !context.isUser && <MessageReasoningPanel reasoning={context.thinking} />}
       {!context.isUser && context.characterWebResearchRequest && (
         <CharacterWebResearchCard

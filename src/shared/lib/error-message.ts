@@ -2,6 +2,7 @@ const USER_ERROR_MESSAGES = {
   applyDekiAction: "Deki-senpai couldn't apply that action. Try again.",
   catalogRefreshAfterDekiAction:
     "The action was applied, but De-Koi couldn't refresh the catalog. Refresh the page before checking the result.",
+  characterWebResearchRetry: "Web research couldn't continue. The approval is still here; try again.",
   checkUpdates: "Couldn't check for updates. Check your connection and try again.",
   coreModuleLoad: "Couldn't load core module settings. Open De-Koi in the desktop app and try again.",
   coreModuleToggle: "Couldn't update that module. Try again.",

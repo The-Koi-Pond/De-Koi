@@ -1221,9 +1221,14 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
         body["response_format"] = json!({ "type": format });
     }
     if request.connection.provider == "custom" && is_gemini_model(&request.connection.model) {
-        let effort = openrouter_reasoning_effort(parameters).or_else(|| {
-            matches!(response_format.as_deref(), Some("json_object")).then_some("none")
-        });
+        let supports_no_reasoning_effort = !is_gemini_25_model(&request.connection.model);
+        let effort = openrouter_reasoning_effort(parameters)
+            .filter(|effort| *effort != "none" || supports_no_reasoning_effort)
+            .or_else(|| {
+                (supports_no_reasoning_effort
+                    && matches!(response_format.as_deref(), Some("json_object")))
+                .then_some("none")
+            });
         if let Some(effort) = effort {
             body["reasoning_effort"] = json!(effort);
         }

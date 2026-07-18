@@ -60,6 +60,7 @@ import {
   type MainToolDefinitions,
   type ToolRuntimeInput,
 } from "./tools-runtime";
+import { activateAlwaysAllowedCharacterWebResearch } from "./character-web-research";
 import {
   llmParameters,
   loadChatMessage,
@@ -5296,7 +5297,7 @@ async function* streamMainGenerationLoop(args: {
     promptPresetId,
     lorebookActivationTrace,
     contextAttribution,
-    mainTools,
+    mainTools: initialMainTools,
     toolRuntimeInput,
     signal,
     partial,
@@ -5309,6 +5310,8 @@ async function* streamMainGenerationLoop(args: {
   let promptSnapshot: MainGenerationPromptSnapshot | null = null;
   let webResearchRequest: Record<string, unknown> | null = null;
   const webResearchSources: Array<{ title: string; url: string }> = [];
+  let mainTools = initialMainTools;
+  let releaseAutomaticallyActivatedWebGrant: (() => Promise<void>) | null = null;
   let iteration = 0;
   // Text streamed in the current turn but not yet committed to `content`.
   // Lets the abort `finally` recover an in-flight turn (the `content +=
@@ -5425,9 +5428,11 @@ async function* streamMainGenerationLoop(args: {
       inFlightTurn = "";
 
       if (!mainTools || pendingToolCalls.length === 0) break;
-      const webRequestCall = pendingToolCalls.find(
-        (call) => (call.function?.name || call.name) === CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
-      );
+      const webRequestCall = mainTools.allowedToolNames.has(CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME)
+        ? pendingToolCalls.find(
+            (call) => (call.function?.name || call.name) === CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
+          )
+        : undefined;
       if (webRequestCall) {
         try {
           const raw = webRequestCall.function?.arguments || webRequestCall.arguments || "{}";
@@ -5435,12 +5440,44 @@ async function* streamMainGenerationLoop(args: {
           const query = readString(parsed.query).trim();
           const reason = readString(parsed.reason).trim();
           if (query && reason) {
+            const allowedDomains = Array.isArray(parsed.allowedDomains)
+              ? parsed.allowedDomains.map((value) => readString(value).trim()).filter(Boolean)
+              : [];
+            if (mainTools.characterWebResearchPolicy === "always") {
+              const activated = await activateAlwaysAllowedCharacterWebResearch({
+                storage: deps.storage,
+                integrations: deps.integrations,
+                chat,
+                requestMessageId: readString(webRequestCall.id).trim() || `character-web-request-${iteration}`,
+                query,
+                allowedDomains,
+                releasePrevious: releaseAutomaticallyActivatedWebGrant,
+              });
+              mainTools = activated.mainTools;
+              releaseAutomaticallyActivatedWebGrant = activated.release;
+              conversation.push({
+                role: "assistant",
+                content: turnContent,
+                contextKind: "history",
+                tool_calls: [webRequestCall],
+              });
+              conversation.push({
+                role: "tool",
+                content: JSON.stringify({
+                  kind: "character_web_research_approved",
+                  query,
+                  message: "This chat already allows character web research. Continue with the approved exact query.",
+                }),
+                contextKind: "history",
+                tool_call_id: webRequestCall.id,
+                name: CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
+              });
+              continue;
+            }
             webResearchRequest = {
               query,
               reason,
-              allowedDomains: Array.isArray(parsed.allowedDomains)
-                ? parsed.allowedDomains.map((value) => readString(value).trim()).filter(Boolean)
-                : [],
+              allowedDomains,
               status: "pending",
             };
             if (!content.trim()) content = "I’d like to check the web before I answer.";
@@ -5511,6 +5548,7 @@ async function* streamMainGenerationLoop(args: {
       }
     }
   } finally {
+    await releaseAutomaticallyActivatedWebGrant?.();
     // Expose the accumulated turn to the caller even when the stream is
     // aborted mid-flight, so a Stop can persist the partial assistant text
     // instead of discarding it. Runs on the normal return path too, but the

@@ -514,8 +514,9 @@ export function useChatTimelineActions({
               }
             : regenerateArgs,
         );
-      } catch {
+      } catch (error) {
         /* Error toast is shown by the generate hook. */
+        if (options?.propagateErrors) throw error;
       }
     },
     [activeChatId, generate, guideGenerations, isStreaming],
