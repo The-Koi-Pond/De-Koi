@@ -1432,6 +1432,10 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
         );
     } else {
         let skip_keys = if request.connection.provider == "nanogpt"
+            && is_gemini_25_model(&request.connection.model)
+        {
+            &["reasoningEffort", "reasoning_effort"][..]
+        } else if request.connection.provider == "nanogpt"
             && is_nanogpt_glm_model(&request.connection.model)
         {
             &["top_k", "topK"][..]
