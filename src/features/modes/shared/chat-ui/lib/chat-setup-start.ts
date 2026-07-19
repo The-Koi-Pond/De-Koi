@@ -4,11 +4,18 @@ export type ChatSetupStartGateResult = ChatSetupStartResult | { ok: false; busy:
 export async function runChatSetupStart(input: {
   persistMetadata: () => Promise<unknown>;
   generateSchedules: (() => Promise<unknown>) | null;
+  refreshStatusMessages?: () => Promise<unknown>;
+  reportStatusRefreshFailure?: (error: unknown) => void;
   finish: () => void;
 }): Promise<ChatSetupStartResult> {
   try {
     await input.persistMetadata();
     await input.generateSchedules?.();
+    try {
+      await input.refreshStatusMessages?.();
+    } catch (error) {
+      input.reportStatusRefreshFailure?.(error);
+    }
     input.finish();
     return { ok: true };
   } catch (error) {

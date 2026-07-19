@@ -31,6 +31,48 @@ describe("runChatSetupStart", () => {
     expect(finish).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes status blurbs after setup data is ready and before finishing", async () => {
+    const events: string[] = [];
+
+    await expect(
+      runChatSetupStart({
+        persistMetadata: vi.fn(async () => {
+          events.push("metadata");
+        }),
+        generateSchedules: vi.fn(async () => {
+          events.push("schedules");
+        }),
+        refreshStatusMessages: vi.fn(async () => {
+          events.push("statuses");
+        }),
+        finish: () => {
+          events.push("finish");
+        },
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(events).toEqual(["metadata", "schedules", "statuses", "finish"]);
+  });
+
+  it("finishes the chat and reports when status blurb refresh fails", async () => {
+    const error = new Error("status provider unavailable");
+    const finish = vi.fn();
+    const reportStatusRefreshFailure = vi.fn();
+
+    await expect(
+      runChatSetupStart({
+        persistMetadata: vi.fn().mockResolvedValue(undefined),
+        generateSchedules: null,
+        refreshStatusMessages: vi.fn().mockRejectedValue(error),
+        reportStatusRefreshFailure,
+        finish,
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(reportStatusRefreshFailure).toHaveBeenCalledWith(error);
+    expect(finish).toHaveBeenCalledOnce();
+  });
+
   it("rejects concurrent activation before a slow setup completes", async () => {
     let releaseMetadata!: () => void;
     const metadataPending = new Promise<void>((resolve) => {
