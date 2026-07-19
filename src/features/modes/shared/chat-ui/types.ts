@@ -57,6 +57,7 @@ export type PeekPromptOptions = {
 };
 
 export type RegenerateOptions = {
+  chatId?: string;
   skipTouchConfirm?: boolean;
   forCharacterId?: string | null;
   propagateErrors?: boolean;

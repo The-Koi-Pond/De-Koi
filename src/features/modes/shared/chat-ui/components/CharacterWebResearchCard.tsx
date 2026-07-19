@@ -60,7 +60,7 @@ export function CharacterWebResearchCard({
         requestMessageId: messageId,
       });
       await storageApi.patchChatMetadata(chatId, characterWebResearchApprovalPatch(approval, grant));
-      await onRegenerate?.(messageId, { propagateErrors: true, skipTouchConfirm: true });
+      await onRegenerate?.(messageId, { chatId, propagateErrors: true, skipTouchConfirm: true });
       setError(null);
       await qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
     } catch (cause) {

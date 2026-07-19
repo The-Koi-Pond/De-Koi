@@ -154,6 +154,7 @@ describe("CharacterWebResearchCard", () => {
     expect(storageApi.patchChatMessageExtra).not.toHaveBeenCalled();
     expect(onRegenerate).toHaveBeenCalledOnce();
     expect(onRegenerate).toHaveBeenCalledWith("message-1", {
+      chatId: "chat-1",
       propagateErrors: true,
       skipTouchConfirm: true,
     });
@@ -178,6 +179,7 @@ describe("CharacterWebResearchCard", () => {
       }),
     );
     expect(onRegenerate).toHaveBeenCalledWith("message-1", {
+      chatId: "chat-1",
       propagateErrors: true,
       skipTouchConfirm: true,
     });

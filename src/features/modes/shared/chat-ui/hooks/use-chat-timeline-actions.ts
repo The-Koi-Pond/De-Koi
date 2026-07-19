@@ -482,7 +482,9 @@ export function useChatTimelineActions({
 
   const handleRegenerate = useCallback(
     async (messageId: string, options?: RegenerateOptions) => {
-      if (!activeChatId || isStreaming) return;
+      const targetChatId = readString(options?.chatId).trim() || activeChatId;
+      const chatState = useChatStore.getState();
+      if (!targetChatId || (chatState.isStreaming && chatState.streamingChatId === targetChatId)) return;
       if (
         !options?.skipTouchConfirm &&
         window.matchMedia("(pointer: coarse)").matches &&
@@ -500,7 +502,7 @@ export function useChatTimelineActions({
         const hasInput = generationGuide.length > 0;
         const forCharacterId = readString(options?.forCharacterId).trim() || null;
         const regenerateArgs = {
-          chatId: activeChatId,
+          chatId: targetChatId,
           connectionId: null,
           regenerateMessageId: messageId,
           forCharacterId,
