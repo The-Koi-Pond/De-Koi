@@ -1,10 +1,14 @@
 import "../../../../styles/globals/06-chat-mode-themes.css";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import { getChatDisplayName, parseChatMetadata } from "../../../../shared/lib/chat-display";
 import { extractCreatorNotesCss } from "../../../../shared/lib/creator-notes-css";
 import { cssTargetsTypingIndicator, filterCssByMode } from "../../../../shared/lib/chat-css";
-import { dispatchMusicPlaybackEvent, MUSIC_AI_PICK_REQUEST_EVENT } from "../../../../shared/lib/music-playback-events";
+import {
+  dispatchMusicPlaybackEvent,
+  handleMusicAiPickRequest,
+  MUSIC_AI_PICK_REQUEST_EVENT,
+} from "../../../../shared/lib/music-playback-events";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
@@ -117,6 +121,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
       }),
     [data.chat?.name, data.chatMeta, data.characterNames, musicCharacterProfiles, data.personaInfo, data.messages],
   );
+  const musicAiPickInFlightRef = useRef(false);
 
   useEffect(() => {
     if (data.chatMode !== "conversation") return;
@@ -130,12 +135,22 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
   useEffect(() => {
     if (data.chatMode !== "conversation") return;
     function onMusicAiPickRequest(event: Event) {
-      event.preventDefault();
-      void timeline.handleRetryAgent("music-dj");
+      const blocked = timeline.isStreaming || timeline.agentProcessing || musicAiPickInFlightRef.current;
+      if (!blocked) musicAiPickInFlightRef.current = true;
+      handleMusicAiPickRequest(event, {
+        blocked,
+        run: async () => {
+          try {
+            return await timeline.handleRetryAgent("music-dj");
+          } finally {
+            musicAiPickInFlightRef.current = false;
+          }
+        },
+      });
     }
     window.addEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onMusicAiPickRequest);
     return () => window.removeEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onMusicAiPickRequest);
-  }, [data.chatMode, timeline.handleRetryAgent]);
+  }, [data.chatMode, timeline.agentProcessing, timeline.handleRetryAgent, timeline.isStreaming]);
   const connectedChatId = (data.chat as unknown as { connectedChatId?: string | null } | null | undefined)
     ?.connectedChatId;
   const activeSceneChatId =

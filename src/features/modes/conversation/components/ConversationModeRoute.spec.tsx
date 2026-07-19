@@ -10,6 +10,7 @@ const {
   enabledChatAgentIdsMock,
   handleRetryAgentMock,
   setActiveChatIdMock,
+  timelineState,
   useChatSurfaceDataMock,
 } = vi.hoisted(() => ({
   deleteChatMock: { mutateAsync: vi.fn() },
@@ -17,6 +18,7 @@ const {
   enabledChatAgentIdsMock: vi.fn(),
   handleRetryAgentMock: vi.fn(),
   setActiveChatIdMock: vi.fn(),
+  timelineState: { agentProcessing: false, isStreaming: false },
   useChatSurfaceDataMock: vi.fn(),
 }));
 
@@ -24,10 +26,13 @@ vi.mock("../../../../engine/contracts/types/agent", () => ({
   enabledChatAgentIds: enabledChatAgentIdsMock,
 }));
 
-vi.mock("../../../../shared/lib/music-playback-events", () => ({
-  MUSIC_AI_PICK_REQUEST_EVENT: "de-koi:music-ai-pick-request",
-  dispatchMusicPlaybackEvent: dispatchMusicPlaybackEventMock,
-}));
+vi.mock("../../../../shared/lib/music-playback-events", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../shared/lib/music-playback-events")>();
+  return {
+    ...actual,
+    dispatchMusicPlaybackEvent: dispatchMusicPlaybackEventMock,
+  };
+});
 
 vi.mock("../../../../shared/stores/chat.store", () => ({
   useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>
@@ -83,8 +88,8 @@ vi.mock("../../shared/chat-ui/index", () => ({
     deleteDialogActiveSwipeIndex: 0,
     deleteDialogSwipeCount: 1,
     peekPromptData: null,
-    agentProcessing: false,
-    isStreaming: false,
+    agentProcessing: timelineState.agentProcessing,
+    isStreaming: timelineState.isStreaming,
     latestAssistantMessageForSwipes: null,
     latestMessageForEdit: null,
     lastAssistantMessageId: null,
@@ -155,6 +160,8 @@ describe("ConversationModeRoute music context", () => {
 
   beforeEach(() => {
     enabledChatAgentIdsMock.mockReturnValue([]);
+    timelineState.agentProcessing = false;
+    timelineState.isStreaming = false;
     useChatSurfaceDataMock.mockReturnValue(makeConversationSurfaceData());
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -187,15 +194,84 @@ describe("ConversationModeRoute music context", () => {
   });
 
   it("routes Fresh Music Player requests through the AI Music Player agent", async () => {
+    handleRetryAgentMock.mockResolvedValue(undefined);
     await act(async () => {
       root = createRoot(container!);
       root.render(<ConversationModeRoute activeChatId="chat-1" />);
     });
 
-    const event = new Event("de-koi:music-ai-pick-request", { cancelable: true });
-    window.dispatchEvent(event);
+    const complete = vi.fn();
+    const event = new CustomEvent("de-koi:music-ai-pick-request", {
+      cancelable: true,
+      detail: { complete },
+    });
+    await act(async () => {
+      window.dispatchEvent(event);
+      await Promise.resolve();
+    });
 
     expect(event.defaultPrevented).toBe(true);
     expect(handleRetryAgentMock).toHaveBeenCalledWith("music-dj");
+    expect(complete).toHaveBeenCalledWith({ status: "completed" });
+  });
+
+  it("rejects Fresh Music Player requests instead of accepting them while another agent is running", async () => {
+    timelineState.agentProcessing = true;
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ConversationModeRoute activeChatId="chat-1" />);
+    });
+
+    const complete = vi.fn();
+    const event = new CustomEvent("de-koi:music-ai-pick-request", {
+      cancelable: true,
+      detail: { complete },
+    });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(handleRetryAgentMock).not.toHaveBeenCalled();
+    expect(complete).toHaveBeenCalledWith({
+      status: "failed",
+      message: "Music Player can't start while another response or agent is still running.",
+    });
+  });
+
+  it("rejects a second Fresh Music Player request while the first one is still starting", async () => {
+    let finishFirstRequest: (() => void) | undefined;
+    handleRetryAgentMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishFirstRequest = resolve;
+      }),
+    );
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ConversationModeRoute activeChatId="chat-1" />);
+    });
+
+    const firstComplete = vi.fn();
+    const secondComplete = vi.fn();
+    const firstEvent = new CustomEvent("de-koi:music-ai-pick-request", {
+      cancelable: true,
+      detail: { complete: firstComplete },
+    });
+    const secondEvent = new CustomEvent("de-koi:music-ai-pick-request", {
+      cancelable: true,
+      detail: { complete: secondComplete },
+    });
+    window.dispatchEvent(firstEvent);
+    window.dispatchEvent(secondEvent);
+
+    expect(handleRetryAgentMock).toHaveBeenCalledTimes(1);
+    expect(secondComplete).toHaveBeenCalledWith({
+      status: "failed",
+      message: "Music Player can't start while another response or agent is still running.",
+    });
+
+    await act(async () => {
+      finishFirstRequest?.();
+      await Promise.resolve();
+    });
+    expect(firstComplete).toHaveBeenCalledWith({ status: "completed" });
   });
 });
