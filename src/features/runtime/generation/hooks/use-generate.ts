@@ -47,9 +47,7 @@ import { useGameStateStore } from "../../world-state/index";
 import { worldStateApi, type WorldStateTarget } from "../../world-state/index";
 import {
   chatKeys,
-  sanitizeTimelineMessage,
   sanitizeTimelineMessageRecord,
-  timelineMessageProjection,
 } from "../../../catalog/chats/index";
 import { characterKeys } from "../../../catalog/characters/index";
 import { personaKeys } from "../../../catalog/personas/index";
@@ -59,11 +57,7 @@ import {
   lorebookKeys,
   lorebookKeeperReviewRequired,
 } from "../../../catalog/lorebooks/index";
-import {
-  applyGenerationReplayToRegenerateInput,
-  type GenerationReplayInput,
-  type GenerationReplay,
-} from "../../../../engine/generation/generation-replay";
+import type { GenerationReplayInput } from "../../../../engine/generation/generation-replay";
 import { findPersonaSnapshotForChat } from "../../../../engine/generation/persona-snapshot";
 import { readNonNegativeInteger } from "../../../../engine/generation/runtime-records";
 import { worldStatePatchFromAgentData } from "../../../../engine/generation/world-state-agent-result";
@@ -556,12 +550,6 @@ export function handleGenerationDiagnosticEvent(data: unknown): void {
     message: `${data.name} completed in ${Math.round(data.durationMs)}ms`,
     details: data,
   });
-}
-
-function readGenerationReplay(value: unknown): GenerationReplay | null {
-  const record = parseMaybeRecord(value);
-  const replay = record.generationReplay;
-  return isRecord(replay) ? (replay as GenerationReplay) : null;
 }
 
 function agentWarningDismissalStorageKey(data: Record<string, unknown>): string | null {
@@ -2075,33 +2063,9 @@ export function useGenerate() {
 
   const generate = useCallback(
     async (args: GenerateArgs): Promise<boolean> => {
-      const adjustedArgs = await (async () => {
-        const regenerateMessageId = readString(args.regenerateMessageId).trim();
-        const chatId = readString(args.chatId).trim();
-        if (!regenerateMessageId || !chatId) return args;
-
-        const cachedMessages = queryClient.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId));
-        const cachedMessage = cachedMessages?.pages
-          .flat()
-          .find((message) => readString(message.id) === regenerateMessageId);
-        const storedMessage =
-          cachedMessage ??
-          (await storageApi
-            .get<Message>("messages", regenerateMessageId, timelineMessageProjection())
-            .then((message) => sanitizeTimelineMessage(message))
-            .catch(() => null));
-        if (!storedMessage || readString(storedMessage.chatId).trim() !== chatId) return args;
-        const replay = readGenerationReplay(storedMessage?.extra);
-        if (!replay) return args;
-
-        const nextArgs = { ...args };
-        applyGenerationReplayToRegenerateInput(nextArgs, replay);
-        return nextArgs;
-      })();
-
       return runGenerationWithUi(
         queryClient,
-        adjustedArgs,
+        args,
         (streamArgs, signal) =>
           startGeneration(
             { storage: storageApi, llm: llmApi, integrations: reviewedIntegrationGateway, visuals: visualAssetsApi },
