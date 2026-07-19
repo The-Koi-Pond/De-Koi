@@ -3049,24 +3049,25 @@ async fn search_deki_web(
         .unwrap_or(DEKI_WEB_SEARCH_MAX_RESULTS)
         .clamp(1, DEKI_WEB_SEARCH_MAX_RESULTS);
     let effective_query = deki_web_effective_query(query, &grant.scope.allowed_domains);
-    let url = deki_web_search_url(&effective_query)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(DEKI_WEB_SEARCH_TIMEOUT_SECS))
-        .user_agent("De-Koi Deki-senpai web research/1.0")
-        .redirect(reqwest::redirect::Policy::limited(4))
-        .build()
-        .map_err(|error| AppError::new("deki_web_search_client_failed", error.to_string()))?;
-    let html = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| AppError::new("deki_web_search_request_failed", error.to_string()))?
-        .error_for_status()
-        .map_err(|error| AppError::new("deki_web_search_status_failed", error.to_string()))?
-        .text()
-        .await
-        .map_err(|error| AppError::new("deki_web_search_body_failed", error.to_string()))?;
-    let results = deki_web_results_or_parse_error(&html, query, max_results)?;
+    let response = super::web_search::search(
+        &effective_query,
+        max_results,
+        "De-Koi Deki-senpai web research/1.0",
+    )
+    .await?;
+    log::debug!(
+        "[deki-web-research] received results from {:?}",
+        response.provider
+    );
+    let results = deki_web_results_for_grant(response.results, grant);
+    if results.is_empty() {
+        return Err(AppError::new(
+            "deki_web_search_no_results",
+            format!(
+                "No web search results inside the approved scope were returned for '{query}'."
+            ),
+        ));
+    }
     Ok(json!({
         "query": query,
         "grantId": grant.id,
@@ -3383,10 +3384,6 @@ fn remove_deki_html_element_blocks(value: &str, tag: &str) -> String {
     }
     output
 }
-fn deki_web_search_url(query: &str) -> AppResult<reqwest::Url> {
-    reqwest::Url::parse_with_params("https://search.brave.com/search", &[("q", query)])
-        .map_err(|error| AppError::new("deki_web_search_invalid_url", error.to_string()))
-}
 fn deki_web_grant_for_query<'a>(
     query: &str,
     grants: &'a [DekiWebResearchGrant],
@@ -3435,183 +3432,21 @@ fn deki_web_effective_query(query: &str, allowed_domains: &[String]) -> String {
     }
 }
 
-fn deki_web_results_or_parse_error(
-    html: &str,
-    query: &str,
-    max_results: usize,
-) -> AppResult<Vec<Value>> {
-    let results = extract_deki_web_results(html, max_results);
-    if results.is_empty() {
-        return Err(AppError::new(
-            "deki_web_search_no_results",
-            format!(
-                "No parseable web search results were returned for '{query}'. The search provider may have returned an interstitial or changed its HTML."
-            ),
-        ));
-    }
-    Ok(results)
-}
-fn extract_deki_web_results(html: &str, max_results: usize) -> Vec<Value> {
-    let mut results = extract_duckduckgo_web_results(html, max_results);
-    if results.len() < max_results {
-        for result in extract_brave_web_results(html, max_results - results.len()) {
-            let url = result
-                .get("url")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            if !results
-                .iter()
-                .any(|existing| existing.get("url").and_then(Value::as_str) == Some(url))
-            {
-                results.push(result);
-            }
-        }
-    }
-    results.truncate(max_results);
+fn deki_web_results_for_grant(
+    results: Vec<super::web_search::WebSearchResult>,
+    grant: &DekiWebResearchGrant,
+) -> Vec<Value> {
     results
-}
-
-fn extract_duckduckgo_web_results(html: &str, max_results: usize) -> Vec<Value> {
-    let mut results = Vec::new();
-    let mut rest = html;
-    while results.len() < max_results {
-        let Some(anchor_start) = rest.find("<a") else {
-            break;
-        };
-        rest = &rest[anchor_start..];
-        let Some(tag_end) = rest.find('>') else {
-            break;
-        };
-        let anchor_tag = &rest[..tag_end];
-        if !anchor_tag.contains("result__a") {
-            rest = &rest[tag_end..];
-            continue;
-        }
-        let Some(anchor_close) = rest[tag_end + 1..].find("</a>") else {
-            break;
-        };
-        let title_html = &rest[tag_end + 1..tag_end + 1 + anchor_close];
-        let href = html_attr_value(anchor_tag, "href")
-            .map(|href| normalize_deki_web_result_url(&href))
-            .unwrap_or_default();
-        let title = strip_deki_html(&decode_deki_html_entities(title_html));
-        let after_anchor = &rest[tag_end + 1 + anchor_close + "</a>".len()..];
-        let snippet = deki_web_snippet_after_anchor(after_anchor);
-        if !title.trim().is_empty() || !href.trim().is_empty() {
-            results.push(json!({
-                "title": title.trim(),
-                "url": href,
-                "snippet": snippet,
-            }));
-        }
-        rest = after_anchor;
-    }
-    results
-}
-
-fn extract_brave_web_results(html: &str, max_results: usize) -> Vec<Value> {
-    let mut results = Vec::new();
-    let mut rest = html;
-    while results.len() < max_results {
-        let Some(snippet_start) = rest.find("<div class=\"snippet") else {
-            break;
-        };
-        rest = &rest[snippet_start..];
-        let next_snippet = rest["<div class=\"snippet".len()..]
-            .find("<div class=\"snippet")
-            .map(|index| index + "<div class=\"snippet".len())
-            .unwrap_or(rest.len());
-        let block = &rest[..next_snippet];
-        if !block.contains("data-type=\"web\"") {
-            rest = &rest[next_snippet..];
-            continue;
-        }
-        let Some(anchor_start) = block.find("<a") else {
-            rest = &rest[next_snippet..];
-            continue;
-        };
-        let anchor = &block[anchor_start..];
-        let Some(tag_end) = anchor.find('>') else {
-            rest = &rest[next_snippet..];
-            continue;
-        };
-        let anchor_tag = &anchor[..tag_end];
-        let href = html_attr_value(anchor_tag, "href")
-            .map(|href| normalize_deki_web_result_url(&href))
-            .unwrap_or_default();
-        let title = html_class_text(block, "search-snippet-title");
-        let snippet = html_class_text(block, "generic-snippet");
-        if !title.trim().is_empty() || !href.trim().is_empty() {
-            results.push(json!({
-                "title": title.trim(),
-                "url": href,
-                "snippet": snippet,
-            }));
-        }
-        rest = &rest[next_snippet..];
-    }
-    results
-}
-
-fn html_class_text(value: &str, class_marker: &str) -> String {
-    let Some(class_index) = value.find(class_marker) else {
-        return String::new();
-    };
-    let value = &value[class_index..];
-    let Some(start) = value.find('>') else {
-        return String::new();
-    };
-    let after_start = &value[start + 1..];
-    let end = after_start.find("</div>").unwrap_or(after_start.len());
-    strip_deki_html(&decode_deki_html_entities(&after_start[..end]))
-        .trim()
-        .to_string()
-}
-fn deki_web_snippet_after_anchor(value: &str) -> String {
-    let Some(snippet_index) = value.find("result__snippet") else {
-        return String::new();
-    };
-    let snippet = &value[snippet_index..];
-    let Some(start) = snippet.find('>') else {
-        return String::new();
-    };
-    let after_start = &snippet[start + 1..];
-    let end = after_start
-        .find("</a>")
-        .or_else(|| after_start.find("</div>"))
-        .unwrap_or(after_start.len());
-    strip_deki_html(&decode_deki_html_entities(&after_start[..end]))
-        .trim()
-        .to_string()
-}
-
-fn html_attr_value(tag: &str, attr: &str) -> Option<String> {
-    let double_quote_pattern = format!("{attr}=\"");
-    if let Some(start) = tag.find(&double_quote_pattern) {
-        let rest = &tag[start + double_quote_pattern.len()..];
-        let end = rest.find('"')?;
-        return Some(decode_deki_html_entities(&rest[..end]));
-    }
-    let single_quote_pattern = format!("{attr}='");
-    let start = tag.find(&single_quote_pattern)? + single_quote_pattern.len();
-    let rest = &tag[start..];
-    let end = rest.find('\'')?;
-    Some(decode_deki_html_entities(&rest[..end]))
-}
-
-fn normalize_deki_web_result_url(href: &str) -> String {
-    let href = href.trim();
-    let parsed = reqwest::Url::parse(href)
-        .or_else(|_| reqwest::Url::parse("https://duckduckgo.com")?.join(href));
-    let Ok(parsed) = parsed else {
-        return href.to_string();
-    };
-    if parsed.domain() == Some("duckduckgo.com") && parsed.path().starts_with("/l/") {
-        if let Some((_, target)) = parsed.query_pairs().find(|(key, _)| key == "uddg") {
-            return target.into_owned();
-        }
-    }
-    parsed.to_string()
+        .into_iter()
+        .filter(|result| deki_web_page_url_for_grant(&result.url, grant).is_ok())
+        .map(|result| {
+            json!({
+                "title": result.title,
+                "url": result.url,
+                "snippet": result.snippet,
+            })
+        })
+        .collect()
 }
 
 fn decode_deki_html_entities(value: &str) -> String {
@@ -5204,86 +5039,6 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
     }
 
     #[test]
-    fn deki_web_search_url_uses_brave_endpoint() {
-        let url =
-            deki_web_search_url("Ghostface Dead by Daylight").expect("search URL should build");
-
-        assert_eq!(url.domain(), Some("search.brave.com"));
-        assert_eq!(url.path(), "/search");
-        assert_eq!(
-            url.query_pairs()
-                .find(|(key, _)| key == "q")
-                .map(|(_, value)| value.into_owned()),
-            Some("Ghostface Dead by Daylight".to_string())
-        );
-    }
-
-    #[test]
-    fn deki_web_result_parser_handles_brave_result_blocks() {
-        let html = r#"
-            <div class="snippet svelte-jmfu5f" data-pos="0" data-type="web" data-keynav="true">
-              <div class="result-content svelte-1rq4ngz">
-                <a href="https://deadbydaylight.fandom.com/wiki/Danny_Johnson_alias_Jed_Olsen" target="_self" class="svelte-14r20fy l1">
-                  <div class="title search-snippet-title line-clamp-1 svelte-14r20fy" title="Danny Johnson - The Ghost Face - Official Dead by Daylight Wiki">Danny Johnson - The Ghost Face - Official Dead by Daylight Wiki</div>
-                </a>
-                <div class="generic-snippet svelte-1cwdgg3">
-                  <div class="content desktop-default-regular t-primary line-clamp-dynamic svelte-1cwdgg3"><span class="t-secondary">5 days ago -</span> His personal Perks, I&amp;#x27;m All Ears, Thrilling Tremors, and Furtive Chase, make his chases unpredictable.</div>
-                </div>
-              </div>
-            </div>
-        "#;
-
-        let results = extract_deki_web_results(html, 4);
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0]["title"],
-            "Danny Johnson - The Ghost Face - Official Dead by Daylight Wiki"
-        );
-        assert_eq!(
-            results[0]["url"],
-            "https://deadbydaylight.fandom.com/wiki/Danny_Johnson_alias_Jed_Olsen"
-        );
-        assert_eq!(
-            results[0]["snippet"],
-            "5 days ago - His personal Perks, I'm All Ears, Thrilling Tremors, and Furtive Chase, make his chases unpredictable."
-        );
-    }
-
-    #[test]
-    fn deki_web_result_parser_rejects_markerless_response_body() {
-        let html = "<html><body>Please wait while we process your request.</body></html>";
-
-        let error = deki_web_results_or_parse_error(html, "Ghostface Dead by Daylight", 4)
-            .expect_err("markerless search pages should not look successful");
-
-        assert_eq!(error.code, "deki_web_search_no_results");
-    }
-
-    #[test]
-    fn deki_web_result_parser_handles_duckduckgo_redirects_and_single_quoted_attrs() {
-        let html = r#"
-            <div class='result'>
-              <a rel='nofollow' class='result__a' href='//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeadbydaylight.fandom.com%2Fwiki%2FDanny_Johnson&amp;rut=abc'>Ghost Face &amp; Danny <b>Johnson</b></a>
-              <span class='result__snippet'>A stealth-focused Killer also known as <b>The Ghost Face</b>.</span>
-            </div>
-        "#;
-
-        let results = extract_deki_web_results(html, 4);
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0]["title"], "Ghost Face & Danny Johnson");
-        assert_eq!(
-            results[0]["url"],
-            "https://deadbydaylight.fandom.com/wiki/Danny_Johnson"
-        );
-        assert_eq!(
-            results[0]["snippet"],
-            "A stealth-focused Killer also known as The Ghost Face."
-        );
-    }
-
-    #[test]
     fn deki_web_page_client_does_not_follow_redirects() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind redirect server");
         let address = listener.local_addr().expect("read listener address");
@@ -5408,6 +5163,41 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
         assert_eq!(allowed.domain(), Some("deadbydaylight.fandom.com"));
         assert_eq!(rejected.code, "deki_web_page_domain_not_allowed");
         assert_eq!(local.code, "deki_web_page_url_not_public");
+    }
+
+    #[test]
+    fn deki_web_search_results_stay_inside_the_approved_domain_scope() {
+        let grant = DekiWebResearchGrant {
+            id: "grant-1".to_string(),
+            action_message_id: "message-1".to_string(),
+            scope: DekiWebResearchScope {
+                scope_type: "query".to_string(),
+                query: "Ghostface Dead by Daylight".to_string(),
+                allowed_domains: vec!["deadbydaylight.fandom.com".to_string()],
+            },
+            granted_at: "2026-07-19T12:00:00Z".to_string(),
+            expires_at: None,
+        };
+        let results = vec![
+            super::super::web_search::WebSearchResult {
+                title: "Ghost Face".to_string(),
+                url: "https://deadbydaylight.fandom.com/wiki/Ghost_Face".to_string(),
+                snippet: "Approved result".to_string(),
+            },
+            super::super::web_search::WebSearchResult {
+                title: "Unapproved mirror".to_string(),
+                url: "https://example.com/ghost-face".to_string(),
+                snippet: "Outside the grant".to_string(),
+            },
+        ];
+
+        let filtered = deki_web_results_for_grant(results, &grant);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(
+            filtered[0]["url"],
+            "https://deadbydaylight.fandom.com/wiki/Ghost_Face"
+        );
     }
 
     #[test]
