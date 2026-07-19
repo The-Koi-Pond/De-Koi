@@ -19,6 +19,13 @@ interface HelpTooltipProps {
   wide?: boolean;
 }
 
+function getAccessibleHelpName(text: string): string {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  const firstSentence = normalized.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? normalized;
+  const summary = firstSentence.length > 120 ? `${firstSentence.slice(0, 117).trimEnd()}...` : firstSentence;
+  return `Help: ${summary}`;
+}
+
 export function HelpTooltip({ text, size = "0.75rem", side = "top", className, wide }: HelpTooltipProps) {
   const [show, setShow] = useState(false);
   const tooltipId = useId();
@@ -86,7 +93,7 @@ export function HelpTooltip({ text, size = "0.75rem", side = "top", className, w
     <span ref={wrapRef} className={cn("relative inline-flex", className)} onMouseLeave={() => setShow(false)}>
       <button
         type="button"
-        aria-label={`Help: ${text}`}
+        aria-label={getAccessibleHelpName(text)}
         aria-expanded={show}
         aria-controls={show ? tooltipId : undefined}
         aria-describedby={show ? tooltipId : undefined}

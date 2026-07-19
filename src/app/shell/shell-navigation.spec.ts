@@ -7,6 +7,7 @@ import {
   SHELL_PANEL_ITEMS,
   TOOLS_NAV_ITEMS,
 } from "../../shared/components/shell-navigation";
+import { TOOLS_PANELS } from "../../shared/components/mobile-shell-actions";
 
 describe("shell navigation registry", () => {
   it("groups every shell destination exactly once with a visible label", () => {
@@ -36,5 +37,12 @@ describe("shell navigation registry", () => {
     expect(SHELL_PANEL_ITEMS.every((item) => Boolean(item.icon))).toBe(true);
     expect(SHELL_PANEL_ITEMS.every((item) => ["primary", "accent"].includes(item.accentRole))).toBe(true);
     expect(SHELL_PANEL_ITEMS.every((item) => !("gradient" in item))).toBe(true);
+  });
+
+  it("keeps the mobile tools projection exactly aligned with the panel registry", () => {
+    expect(TOOLS_PANELS.map((item) => item.panel)).toEqual(
+      SHELL_PANEL_ITEMS.map((item) => item.destination),
+    );
+    expect(TOOLS_PANELS.every((item) => item.label.trim().length > 0 && Boolean(item.icon))).toBe(true);
   });
 });

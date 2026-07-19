@@ -13,7 +13,11 @@ describe("HelpTooltip", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    act(() => root.render(<HelpTooltip text="Controls how quickly replies appear." />));
+    act(() =>
+      root.render(
+        <HelpTooltip text="Controls how quickly replies appear. Native notifications stay private." />,
+      ),
+    );
   });
 
   afterEach(() => {
@@ -27,11 +31,14 @@ describe("HelpTooltip", () => {
 
   it("uses contextual naming and exposes the visible tooltip relationship", () => {
     expect(trigger().getAttribute("aria-label")).toBe("Help: Controls how quickly replies appear.");
+    expect(trigger().getAttribute("aria-label")).not.toContain("Native notifications");
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
 
     act(() => trigger().focus());
 
-    expect(tooltip()?.textContent).toBe("Controls how quickly replies appear.");
+    expect(tooltip()?.textContent).toBe(
+      "Controls how quickly replies appear. Native notifications stay private.",
+    );
     expect(tooltip()?.id).toBeTruthy();
     expect(trigger().getAttribute("aria-describedby")).toBe(tooltip()?.id);
     expect(trigger().getAttribute("aria-controls")).toBe(tooltip()?.id);
