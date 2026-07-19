@@ -49,10 +49,14 @@ describe("character web research approval", () => {
     });
   });
 
-  it("uses the model-authored in-character reason when a research request has no spoken text", () => {
-    expect(
-      characterWebResearchRequestContent("", "Fine. I’ll see what NASA has changed this time."),
-    ).toBe("Fine. I’ll see what NASA has changed this time.");
+  it("keeps quiet consent requests out of the spoken character response", () => {
+    expect(characterWebResearchRequestContent("narration", "reason", "quiet")).toBe("");
+  });
+
+  it("uses the model-authored in-character reason for a visible request with no spoken text", () => {
+    expect(characterWebResearchRequestContent("", "Fine. I’ll see what NASA has changed this time.", "visible")).toBe(
+      "Fine. I’ll see what NASA has changed this time.",
+    );
   });
 
   it("turns an always-approved future request into a fresh exact-query grant and bounded web tools", async () => {

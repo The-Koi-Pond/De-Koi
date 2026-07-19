@@ -114,16 +114,24 @@ export function CharacterWebResearchCard({
 export function CharacterWebResearchSources({ sources }: { sources?: Array<{ title: string; url: string }> | null }) {
   if (!sources?.length) return null;
   return (
-    <section className="mt-2 text-xs text-[var(--muted-foreground)]">
-      <span className="font-medium">Sources:</span>{" "}
-      {sources.map((source, index) => (
-        <span key={source.url}>
-          {index > 0 ? " · " : ""}
-          <a className="underline hover:text-[var(--foreground)]" href={source.url} target="_blank" rel="noreferrer">
+    <details className="group mt-2 text-xs text-[var(--muted-foreground)]">
+      <summary className="flex w-fit cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 font-medium transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]">
+        Sources
+        <span className="rounded-full bg-[var(--secondary)] px-1.5 text-[0.625rem] font-normal">{sources.length}</span>
+      </summary>
+      <div className="mt-1.5 space-y-1 border-l border-[var(--border)] pl-3">
+        {sources.map((source) => (
+          <a
+            className="block w-fit max-w-full truncate underline decoration-[var(--border)] underline-offset-2 transition-colors hover:text-[var(--foreground)]"
+            href={source.url}
+            key={source.url}
+            rel="noreferrer"
+            target="_blank"
+          >
             {source.title || new URL(source.url).hostname}
           </a>
-        </span>
-      ))}
-    </section>
+        ))}
+      </div>
+    </details>
   );
 }

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
-import { CharacterWebResearchCard } from "./CharacterWebResearchCard";
+import { CharacterWebResearchCard, CharacterWebResearchSources } from "./CharacterWebResearchCard";
 
 const request = {
   query: "current lunar eclipse date",
@@ -58,6 +58,20 @@ describe("CharacterWebResearchCard", () => {
     return match;
   }
 
+  function renderSources() {
+    act(() => {
+      root = createRoot(container);
+      root.render(
+        <CharacterWebResearchSources
+          sources={[
+            { title: "NASA eclipse guide", url: "https://science.nasa.gov/eclipses/" },
+            { title: "NASA moon page", url: "https://science.nasa.gov/moon/" },
+          ]}
+        />,
+      );
+    });
+  }
+
   it("does not grant or regenerate before the user approves", () => {
     const onRegenerate = vi.fn();
     render(onRegenerate);
@@ -71,6 +85,21 @@ describe("CharacterWebResearchCard", () => {
     render(vi.fn());
 
     expect(button("Always allow")).toBeTruthy();
+  });
+
+  it("keeps final sources collapsed until the user expands them", () => {
+    renderSources();
+
+    const disclosure = container.querySelector("details");
+    expect(disclosure).toBeTruthy();
+    expect(disclosure?.open).toBe(false);
+    expect(disclosure?.querySelector("summary")?.textContent).toContain("Sources");
+    expect(disclosure?.querySelectorAll("a")).toHaveLength(2);
+
+    act(() => {
+      disclosure?.querySelector("summary")?.click();
+    });
+    expect(disclosure?.open).toBe(true);
   });
 
   it("does not accept approval until the request-generating turn is idle", async () => {

@@ -54,23 +54,26 @@ pub(crate) async fn search(state: &AppState, body: Value) -> AppResult<Value> {
         .unwrap_or(SEARCH_MAX_RESULTS)
         .clamp(1, SEARCH_MAX_RESULTS);
     let effective_query = effective_query(&grant.query, &grant.allowed_domains);
-    let url = reqwest::Url::parse_with_params(
-        "https://search.brave.com/search",
-        &[("q", effective_query.as_str())],
+    let response = super::web_search::search(
+        &effective_query,
+        max_results,
+        "De-Koi character web research/1.0",
     )
-    .map_err(|error| AppError::new("character_web_search_invalid_url", error.to_string()))?;
-    let client = web_client(reqwest::redirect::Policy::limited(4))?;
-    let html = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| AppError::new("character_web_search_request_failed", error.to_string()))?
-        .error_for_status()
-        .map_err(|error| AppError::new("character_web_search_status_failed", error.to_string()))?
-        .text()
-        .await
-        .map_err(|error| AppError::new("character_web_search_body_failed", error.to_string()))?;
-    let results = filter_search_results(extract_search_results(&html, max_results), &grant);
+    .await?;
+    let results = filter_search_results(
+        response
+            .results
+            .into_iter()
+            .map(|result| {
+                json!({
+                    "title": result.title,
+                    "url": result.url,
+                    "snippet": result.snippet,
+                })
+            })
+            .collect(),
+        &grant,
+    );
     if results.is_empty() {
         return Err(AppError::new(
             "character_web_search_no_results",
@@ -322,76 +325,6 @@ fn ip_is_public(ip: IpAddr) -> bool {
     }
 }
 
-fn extract_search_results(html: &str, max_results: usize) -> Vec<Value> {
-    let mut results = Vec::new();
-    let mut rest = html;
-    while results.len() < max_results {
-        let Some(snippet_start) = rest.find("<div class=\"snippet") else {
-            break;
-        };
-        rest = &rest[snippet_start..];
-        let next_snippet = rest["<div class=\"snippet".len()..]
-            .find("<div class=\"snippet")
-            .map(|index| index + "<div class=\"snippet".len())
-            .unwrap_or(rest.len());
-        let block = &rest[..next_snippet];
-        if !block.contains("data-type=\"web\"") {
-            rest = &rest[next_snippet..];
-            continue;
-        }
-        let Some(anchor_start) = block.find("<a") else {
-            rest = &rest[next_snippet..];
-            continue;
-        };
-        let anchor = &block[anchor_start..];
-        let Some(tag_end) = anchor.find('>') else {
-            rest = &rest[next_snippet..];
-            continue;
-        };
-        let href = html_attr_value(&anchor[..tag_end], "href").unwrap_or_default();
-        let title = html_class_text(block, "search-snippet-title");
-        let snippet = html_class_text(block, "generic-snippet");
-        if !href.is_empty() && !results.iter().any(|item: &Value| item["url"] == href) {
-            results.push(json!({ "title": title, "url": href, "snippet": snippet }));
-        }
-        rest = &rest[next_snippet..];
-    }
-    results
-}
-
-fn html_attr_value(tag: &str, attr: &str) -> Option<String> {
-    let double_quote = format!("{attr}=\"");
-    if let Some(start) = tag.find(&double_quote) {
-        let rest = &tag[start + double_quote.len()..];
-        return rest.find('"').map(|end| decode_html_entities(&rest[..end]));
-    }
-    let single_quote = format!("{attr}='");
-    let start = tag.find(&single_quote)? + single_quote.len();
-    let rest = &tag[start..];
-    rest.find('\'')
-        .map(|end| decode_html_entities(&rest[..end]))
-}
-
-fn html_class_text(value: &str, class_marker: &str) -> String {
-    value
-        .find(class_marker)
-        .and_then(|index| value[index..].find('>').map(|start| (index, start)))
-        .map(|(index, start)| &value[index + start + 1..])
-        .map(|after| &after[..after.find("</div>").unwrap_or(after.len())])
-        .map(|text| strip_html(&decode_html_entities(text)))
-        .unwrap_or_default()
-}
-
-fn decode_html_entities(value: &str) -> String {
-    value
-        .replace("&amp;", "&")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&nbsp;", " ")
-}
-
 fn filter_search_results(results: Vec<Value>, grant: &CharacterWebResearchGrant) -> Vec<Value> {
     results
         .into_iter()
@@ -427,10 +360,7 @@ fn strip_html(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        extract_search_results, filter_search_results, validated_character_web_grant,
-        web_page_url_for_grant,
-    };
+    use super::{filter_search_results, validated_character_web_grant, web_page_url_for_grant};
     use chrono::{TimeZone, Utc};
     use serde_json::json;
 
@@ -540,22 +470,5 @@ mod tests {
         );
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["title"], "NASA");
-    }
-
-    #[test]
-    fn parses_only_brave_web_result_blocks_not_asset_links() {
-        let html = r#"
-          <a href="https://cdn.search.brave.com/app.js">asset</a>
-          <div class="snippet card" data-type="web">
-            <a href="https://science.nasa.gov/eclipse">
-              <div class="title search-snippet-title">Eclipse &amp; Moon</div>
-              <div class="generic-snippet">Current eclipse facts.</div>
-            </a>
-          </div>
-        "#;
-        let results = extract_search_results(html, 5);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0]["url"], "https://science.nasa.gov/eclipse");
-        assert_eq!(results[0]["title"], "Eclipse & Moon");
     }
 }

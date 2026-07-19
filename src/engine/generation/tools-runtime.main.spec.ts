@@ -129,6 +129,46 @@ describe("main generation tool selection", () => {
     });
 
     expect(result?.toolDefs.map((tool) => tool.name)).toEqual(["request_character_web_research"]);
+    expect(result?.characterWebResearchPresentation).toBe("quiet");
+  });
+
+  it("retains an explicit visible web research presentation", async () => {
+    const result = await build({
+      enableTools: false,
+      characterWebAccessEnabled: true,
+      characterWebResearchPresentation: "visible",
+    });
+
+    expect(result?.characterWebResearchPresentation).toBe("visible");
+  });
+
+  it("guides quiet characters to choose research organically and silently", async () => {
+    const result = await build({
+      enableTools: false,
+      characterWebAccessEnabled: true,
+    });
+    const description = result?.toolDefs.find(
+      (tool) => tool.name === CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
+    )?.description;
+
+    expect(description).toContain("Do not wait for the user to say");
+    expect(description).toContain("current or likely to have changed");
+    expect(description).toContain("ordinary creative roleplay");
+    expect(description).toContain("Call this tool silently");
+  });
+
+  it("allows visible characters a natural lead-in without canned permission boilerplate", async () => {
+    const result = await build({
+      enableTools: false,
+      characterWebAccessEnabled: true,
+      characterWebResearchPresentation: "visible",
+    });
+    const description = result?.toolDefs.find(
+      (tool) => tool.name === CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
+    )?.description;
+
+    expect(description).toContain("brief natural in-character lead-in");
+    expect(description).toContain("Never use canned permission boilerplate");
   });
 
   it("advertises bounded web tools instead of the request tool for an unexpired exact-query grant", async () => {
@@ -147,6 +187,26 @@ describe("main generation tool selection", () => {
 
     expect(result?.toolDefs.map((tool) => tool.name)).toEqual(["search_character_web", "read_character_web_page"]);
     expect(result?.characterWebResearchGrant?.id).toBe("grant-1");
+  });
+
+  it("keeps quiet failure and non-fabrication guidance after consent is granted", async () => {
+    const result = await build({
+      enableTools: false,
+      characterWebAccessEnabled: true,
+      characterWebResearchGrant: {
+        id: "grant-1",
+        query: "current lunar eclipse date",
+        allowedDomains: ["nasa.gov"],
+        requestMessageId: "message-1",
+        grantedAt: "2099-01-01T00:00:00.000Z",
+        expiresAt: "2099-01-01T00:05:00.000Z",
+      },
+    });
+
+    for (const tool of result?.toolDefs ?? []) {
+      expect(tool.description).toContain("Do not invent");
+      expect(tool.description).toContain("Do not narrate");
+    }
   });
 
   it("falls back to requesting consent when the stored web grant is expired", async () => {

@@ -95,6 +95,8 @@ pub(crate) mod translation;
 pub(crate) mod updates;
 #[path = "storage/web_research.rs"]
 pub(crate) mod web_research;
+#[path = "storage/web_search.rs"]
+pub(crate) mod web_search;
 
 pub(crate) fn write_managed_file_atomically(path: &Path, bytes: &[u8]) -> AppResult<()> {
     let parent = path.parent().ok_or_else(|| {
