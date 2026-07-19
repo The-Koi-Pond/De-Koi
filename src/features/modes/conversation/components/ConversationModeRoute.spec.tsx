@@ -236,4 +236,42 @@ describe("ConversationModeRoute music context", () => {
       message: "Music Player can't start while another response or agent is still running.",
     });
   });
+
+  it("rejects a second Fresh Music Player request while the first one is still starting", async () => {
+    let finishFirstRequest: (() => void) | undefined;
+    handleRetryAgentMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishFirstRequest = resolve;
+      }),
+    );
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ConversationModeRoute activeChatId="chat-1" />);
+    });
+
+    const firstComplete = vi.fn();
+    const secondComplete = vi.fn();
+    const firstEvent = new CustomEvent("de-koi:music-ai-pick-request", {
+      cancelable: true,
+      detail: { complete: firstComplete },
+    });
+    const secondEvent = new CustomEvent("de-koi:music-ai-pick-request", {
+      cancelable: true,
+      detail: { complete: secondComplete },
+    });
+    window.dispatchEvent(firstEvent);
+    window.dispatchEvent(secondEvent);
+
+    expect(handleRetryAgentMock).toHaveBeenCalledTimes(1);
+    expect(secondComplete).toHaveBeenCalledWith({
+      status: "failed",
+      message: "Music Player can't start while another response or agent is still running.",
+    });
+
+    await act(async () => {
+      finishFirstRequest?.();
+      await Promise.resolve();
+    });
+    expect(firstComplete).toHaveBeenCalledWith({ status: "completed" });
+  });
 });

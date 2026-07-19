@@ -1,5 +1,5 @@
 import "../../../../styles/globals/06-chat-mode-themes.css";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import { getChatDisplayName, parseChatMetadata } from "../../../../shared/lib/chat-display";
 import { extractCreatorNotesCss } from "../../../../shared/lib/creator-notes-css";
@@ -121,6 +121,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
       }),
     [data.chat?.name, data.chatMeta, data.characterNames, musicCharacterProfiles, data.personaInfo, data.messages],
   );
+  const musicAiPickInFlightRef = useRef(false);
 
   useEffect(() => {
     if (data.chatMode !== "conversation") return;
@@ -134,9 +135,17 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
   useEffect(() => {
     if (data.chatMode !== "conversation") return;
     function onMusicAiPickRequest(event: Event) {
+      const blocked = timeline.isStreaming || timeline.agentProcessing || musicAiPickInFlightRef.current;
+      if (!blocked) musicAiPickInFlightRef.current = true;
       handleMusicAiPickRequest(event, {
-        blocked: timeline.isStreaming || timeline.agentProcessing,
-        run: () => timeline.handleRetryAgent("music-dj"),
+        blocked,
+        run: async () => {
+          try {
+            return await timeline.handleRetryAgent("music-dj");
+          } finally {
+            musicAiPickInFlightRef.current = false;
+          }
+        },
       });
     }
     window.addEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onMusicAiPickRequest);

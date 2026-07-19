@@ -225,6 +225,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
       }),
     [data.chat?.name, data.chatMeta, data.characterNames, musicCharacterProfiles, data.personaInfo, renderMessages],
   );
+  const musicAiPickInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!shouldDispatchRoleplayMusicContext(data.chatMode, musicDjContext, enabledAgentTypes)) return;
@@ -238,9 +239,17 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   useEffect(() => {
     if (data.chatMode !== "roleplay") return;
     function onMusicAiPickRequest(event: Event) {
+      const blocked = timeline.isStreaming || timeline.agentProcessing || musicAiPickInFlightRef.current;
+      if (!blocked) musicAiPickInFlightRef.current = true;
       handleMusicAiPickRequest(event, {
-        blocked: timeline.isStreaming || timeline.agentProcessing,
-        run: () => timeline.handleRetryAgent("music-dj"),
+        blocked,
+        run: async () => {
+          try {
+            return await timeline.handleRetryAgent("music-dj");
+          } finally {
+            musicAiPickInFlightRef.current = false;
+          }
+        },
       });
     }
     window.addEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onMusicAiPickRequest);

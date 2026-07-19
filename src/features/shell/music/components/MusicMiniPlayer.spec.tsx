@@ -220,6 +220,48 @@ describe("MusicMiniPlayer", () => {
     }
   });
 
+  it("ignores an old AI pick completion after a newer context arrives", async () => {
+    let complete:
+      | ((result: { status: "completed" | "failed"; message?: string }) => void)
+      | undefined;
+    function onAiPick(event: Event) {
+      event.preventDefault();
+      complete = (
+        event as CustomEvent<{
+          complete?: (result: { status: "completed" | "failed"; message?: string }) => void;
+        }>
+      ).detail.complete;
+    }
+    window.addEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onAiPick);
+
+    try {
+      await act(async () => {
+        root = createRoot(container!);
+        root.render(<MusicMiniPlayer variant="toolbar" />);
+      });
+
+      const freshPick = container!.querySelector<HTMLButtonElement>('button[aria-label="Fresh Music Player pick"]');
+      expect(freshPick).not.toBeNull();
+      await act(async () => {
+        freshPick!.click();
+      });
+      expect(container!.textContent).toContain("Music Player is choosing from this scene...");
+
+      await act(async () => {
+        dispatchMusicPlaybackEvent({ type: "context", query: "newer quiet library scene" });
+      });
+      expect(container!.textContent).not.toContain("Music Player is choosing from this scene...");
+
+      await act(async () => {
+        complete?.({ status: "failed", message: "old request failed" });
+      });
+      expect(container!.textContent).not.toContain("old request failed");
+      expect(container!.textContent).not.toContain("Music Player is choosing from this scene...");
+    } finally {
+      window.removeEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onAiPick);
+    }
+  });
+
   it("clears stale context instead of falling back to old fantasy music", async () => {
     await act(async () => {
       root = createRoot(container!);
