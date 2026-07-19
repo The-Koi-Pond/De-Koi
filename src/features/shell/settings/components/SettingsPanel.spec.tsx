@@ -100,6 +100,26 @@ describe("SettingsPanel", () => {
     vi.useRealTimers();
   });
 
+  it("uses semantic caption typography for search result metadata", () => {
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "notification");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const resultCount = Array.from(container.querySelectorAll("p")).find((element) =>
+      element.textContent?.includes("result"),
+    )!;
+    const destination = Array.from(container.querySelectorAll("span")).find(
+      (element) => element.textContent === "appearance",
+    )!;
+
+    expect(resultCount.className).toContain("de-koi-caption");
+    expect(destination.className).toContain("de-koi-caption");
+    expect(resultCount.className).not.toMatch(/text-\[0/);
+    expect(destination.className).not.toMatch(/text-\[0/);
+  });
+
   it("routes the runtime checklist action into Advanced Settings context and restores runtime focus", async () => {
     useSetupJourneyStore.getState().begin("conversation");
     function RuntimeOwnerHarness() {

@@ -31,6 +31,13 @@ describe("PanelNavButtons", () => {
     expect(container.querySelector('button[aria-label="Discover"]')).toBeTruthy();
   });
 
+  it("opts every icon-only destination into the shared coarse-pointer target", () => {
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
+
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.every((button) => button.className.includes("de-koi-icon-target"))).toBe(true);
+  });
+
   it("opens a panel directly from its icon", () => {
     act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Connections"]')!.click());
     expect(useUIStore.getState().rightPanelOpen).toBe(true);

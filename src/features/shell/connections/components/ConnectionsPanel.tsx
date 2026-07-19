@@ -536,6 +536,7 @@ export function ConnectionsPanel() {
   const openModal = useUIStore((s) => s.openModal);
   const linkApiBannerDismissed = useUIStore((s) => s.linkApiBannerDismissed);
   const dismissLinkApiBanner = useUIStore((s) => s.dismissLinkApiBanner);
+  const handleAddConnection = useCallback(() => openModal("create-connection"), [openModal]);
 
   // Folder hooks
   const { data: folders } = useConnectionFolders();
@@ -759,8 +760,8 @@ export function ConnectionsPanel() {
       />
 
       <button
-        onClick={() => openModal("create-connection")}
-        className="flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all active:scale-[0.98] bg-gradient-to-r from-sky-400 to-blue-500 text-white shadow-md shadow-sky-400/15 hover:shadow-lg hover:shadow-sky-400/25"
+        onClick={handleAddConnection}
+        className="flex items-center justify-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-2.5 text-xs font-medium text-[var(--primary-foreground)] shadow-md transition-all hover:opacity-90 active:scale-[0.98]"
       >
         <Plus size="0.8125rem" />
         Add Connection
@@ -795,48 +796,56 @@ export function ConnectionsPanel() {
       )}
 
       {!isLoading && (!connections || (connections as unknown[]).length === 0) && (
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-400/20 to-blue-500/20">
-            <Link size="1.25rem" className="text-sky-400" />
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[var(--border)] px-4 py-7 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--primary)]/12">
+            <Link size="1.25rem" className="text-[var(--primary)]" />
           </div>
-          <p className="text-xs text-[var(--muted-foreground)]">No connections yet</p>
+          <div className="max-w-[24rem] space-y-1">
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">Connect a language model</h3>
+            <p className="de-koi-body leading-relaxed text-[var(--muted-foreground)]">
+              A connection lets De-Koi send chats and roleplay messages to the model you choose.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleAddConnection}
+            className="flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+          >
+            <Plus size="0.8125rem" />
+            Add your first connection
+          </button>
         </div>
       )}
 
       {/* LinkAPI recommendation banner */}
       {!isLoading && (!connections || (connections as unknown[]).length === 0) && !linkApiBannerDismissed && (
-        <div className="rounded-xl border border-sky-400/20 bg-gradient-to-br from-sky-400/5 to-blue-500/5 p-3 flex flex-col gap-2">
-          <p className="text-xs text-[var(--muted-foreground)]">
-            Looking to try new models from a trusted provider? Consider checking out{" "}
+        <aside className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-3">
+          <div>
+            <h3 className="de-koi-caption font-semibold text-[var(--foreground)]">Optional provider suggestion</h3>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
+              If you do not already have a model provider, LinkAPI is one option you can explore.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
             <a
               href="https://linkapi.ai/"
               target="_blank"
               rel="noopener noreferrer"
-              className="font-medium text-sky-400 underline decoration-sky-400/30 hover:text-sky-300 transition-colors"
-            >
-              LinkAPI
-            </a>
-            !
-          </p>
-          <div className="flex gap-2">
-            <a
-              href="https://linkapi.ai/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 rounded-lg bg-sky-400/15 px-3 py-1.5 text-xs font-medium text-sky-400 transition-all hover:bg-sky-400/25"
+              className="flex min-h-9 items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--primary)]/15"
             >
               <ExternalLink size="0.75rem" />
-              Visit LinkAPI
+              Explore LinkAPI
             </a>
             <button
+              type="button"
               onClick={dismissLinkApiBanner}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-all hover:bg-[var(--secondary)]"
+              className="flex min-h-9 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
             >
               <X size="0.75rem" />
-              Dismiss permanently
+              Don't show again
             </button>
           </div>
-        </div>
+        </aside>
       )}
 
       {/* Folders (drag-to-reorder) */}

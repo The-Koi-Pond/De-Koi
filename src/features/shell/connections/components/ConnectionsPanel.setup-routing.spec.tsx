@@ -50,6 +50,38 @@ describe("ConnectionsPanel setup routing", () => {
     host.remove();
   });
 
+  it("teaches the first task and keeps provider guidance optional", () => {
+    useSetupJourneyStore.setState({ intent: null });
+    useUIStore.setState({ modal: null, linkApiBannerDismissed: false });
+    act(() => root.render(<ConnectionsPanel />));
+
+    expect(host.textContent).toContain("Connect a language model");
+    expect(host.textContent).toContain("Optional provider suggestion");
+    expect(host.textContent).toContain("Don't show again");
+    expect(host.textContent).not.toContain("Dismiss permanently");
+    expect(host.querySelectorAll('a[href="https://linkapi.ai/"]')).toHaveLength(1);
+
+    const emptyStateAction = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.trim() === "Add your first connection",
+    )!;
+    act(() => emptyStateAction.click());
+    expect(useUIStore.getState().modal?.type).toBe("create-connection");
+  });
+
+  it("keeps recommendation dismissal durable through the UI store", () => {
+    useSetupJourneyStore.setState({ intent: null });
+    useUIStore.setState({ linkApiBannerDismissed: false });
+    act(() => root.render(<ConnectionsPanel />));
+
+    const dismiss = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.includes("Don't show again"),
+    )!;
+    act(() => dismiss.click());
+
+    expect(useUIStore.getState().linkApiBannerDismissed).toBe(true);
+    expect(host.textContent).not.toContain("Optional provider suggestion");
+  });
+
   it("routes connection setup into the real Connections owner context and restores connection focus", async () => {
     function ConnectionOwnerHarness() {
       const open = useUIStore((state) => state.rightPanelOpen && state.rightPanel === "connections");

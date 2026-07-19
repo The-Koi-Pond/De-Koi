@@ -58,7 +58,11 @@ import { playNotificationPing } from "../../../../shared/lib/notification-sound"
 import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../../../shared/lib/chat-scroll-events";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
-import { TOOLS_PANELS, useTopBarActions } from "../../../../shared/components/mobile-shell-actions";
+import {
+  SHELL_ACCENT_STYLES,
+  TOOLS_PANELS,
+  useTopBarActions,
+} from "../../../../shared/components/mobile-shell-actions";
 import { usePageActivity } from "../../../../shared/hooks/use-page-activity";
 import { useIsMobile } from "../../../../shared/hooks/use-is-mobile";
 import { ActiveWorldInfoButton, ActiveWorldInfoModal } from "../../../runtime/visuals/index";
@@ -1722,7 +1726,7 @@ export function ConversationView({
               Panels
             </p>
             <div className="grid grid-cols-2 gap-2.5 px-4 pb-4 overflow-hidden">
-              {TOOLS_PANELS.map(({ panel, icon: Icon, label, gradient }) => (
+              {TOOLS_PANELS.map(({ panel, icon: Icon, label, accentRole }) => (
                 <button
                   key={panel}
                   type="button"
@@ -1737,8 +1741,8 @@ export function ConversationView({
                 >
                   <div
                     className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
-                      gradient,
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm",
+                      SHELL_ACCENT_STYLES[accentRole].icon,
                     )}
                   >
                     <Icon size="1rem" />
