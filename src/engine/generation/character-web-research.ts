@@ -1,10 +1,14 @@
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { StorageGateway } from "../capabilities/storage";
 import { buildMainToolDefinitions, type CharacterWebResearchGrant, type MainToolDefinitions } from "./tools-runtime";
-import { parseRecord, readString, type JsonRecord } from "./runtime-records";
+import { newId, parseRecord, readString, type JsonRecord } from "./runtime-records";
 
 export type CharacterWebResearchApproval = "once" | "always";
 type CharacterWebResearchPolicy = "ask" | "always";
+
+export function characterWebResearchRequestContent(content: string, reason: string): string {
+  return content.trim() ? content : reason.trim();
+}
 
 function characterWebResearchPolicy(metadata: unknown): CharacterWebResearchPolicy {
   return parseRecord(metadata).characterWebResearchPolicy === "always" ? "always" : "ask";
@@ -19,7 +23,7 @@ export function createCharacterWebResearchGrant(args: {
 }): CharacterWebResearchGrant {
   const now = args.now ?? new Date();
   return {
-    id: readString(args.id).trim() || `character-web-${crypto.randomUUID()}`,
+    id: readString(args.id).trim() || `character-web-${newId("")}`,
     query: args.query.trim(),
     allowedDomains: (args.allowedDomains ?? []).map((domain) => domain.trim()).filter(Boolean),
     requestMessageId: args.requestMessageId.trim(),
