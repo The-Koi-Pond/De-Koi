@@ -4,9 +4,34 @@ import type { MusicDjIntent } from "./music-dj-intent";
 export const MUSIC_PLAYBACK_EVENT = "de-koi:music-playback";
 export const MUSIC_AI_PICK_REQUEST_EVENT = "de-koi:music-ai-pick-request";
 
+type MusicAiPickCompletion = {
+  status: "completed" | "failed";
+  message?: string;
+};
+
 export type MusicAiPickRequestDetail = {
   fresh?: boolean | null;
+  complete?: (result: MusicAiPickCompletion) => void;
 };
+
+export function handleMusicAiPickRequest(
+  event: Event,
+  options: { blocked: boolean; run: () => Promise<unknown> },
+): void {
+  event.preventDefault();
+  const complete = (event as CustomEvent<MusicAiPickRequestDetail>).detail?.complete;
+  if (options.blocked) {
+    complete?.({
+      status: "failed",
+      message: "Music Player can't start while another response or agent is still running.",
+    });
+    return;
+  }
+  void options.run().then(
+    () => complete?.({ status: "completed" }),
+    () => complete?.({ status: "failed", message: "Music Player couldn't choose from this scene." }),
+  );
+}
 
 export type MusicPlaybackContextEventDetail = {
   type: "context";

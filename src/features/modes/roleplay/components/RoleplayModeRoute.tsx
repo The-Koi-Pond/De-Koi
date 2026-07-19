@@ -2,7 +2,11 @@ import "../../../../styles/globals/06-chat-mode-themes.css";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
-import { dispatchMusicPlaybackEvent, MUSIC_AI_PICK_REQUEST_EVENT } from "../../../../shared/lib/music-playback-events";
+import {
+  dispatchMusicPlaybackEvent,
+  handleMusicAiPickRequest,
+  MUSIC_AI_PICK_REQUEST_EVENT,
+} from "../../../../shared/lib/music-playback-events";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useEncounterStore } from "../../../../shared/stores/encounter.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -234,12 +238,14 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   useEffect(() => {
     if (data.chatMode !== "roleplay") return;
     function onMusicAiPickRequest(event: Event) {
-      event.preventDefault();
-      void timeline.handleRetryAgent("music-dj");
+      handleMusicAiPickRequest(event, {
+        blocked: timeline.isStreaming || timeline.agentProcessing,
+        run: () => timeline.handleRetryAgent("music-dj"),
+      });
     }
     window.addEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onMusicAiPickRequest);
     return () => window.removeEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onMusicAiPickRequest);
-  }, [data.chatMode, timeline.handleRetryAgent]);
+  }, [data.chatMode, timeline.agentProcessing, timeline.handleRetryAgent, timeline.isStreaming]);
 
   const hasAnimatedRef = useRef(false);
   useEffect(() => {

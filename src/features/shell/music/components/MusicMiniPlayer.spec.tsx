@@ -187,6 +187,39 @@ describe("MusicMiniPlayer", () => {
       window.removeEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onAiPick);
     }
   });
+
+  it("stops saying the AI is choosing when the request finishes without a playable cue", async () => {
+    function onAiPick(event: Event) {
+      event.preventDefault();
+      const detail = (
+        event as CustomEvent<{
+          complete?: (result: { status: "completed" | "failed"; message?: string }) => void;
+        }>
+      ).detail;
+      detail.complete?.({ status: "completed" });
+    }
+    window.addEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onAiPick);
+
+    try {
+      await act(async () => {
+        root = createRoot(container!);
+        root.render(<MusicMiniPlayer variant="toolbar" />);
+      });
+
+      const freshPick = container!.querySelector<HTMLButtonElement>('button[aria-label="Fresh Music Player pick"]');
+      expect(freshPick).not.toBeNull();
+      await act(async () => {
+        freshPick!.click();
+      });
+      await flushAsyncWork();
+
+      expect(container!.textContent).not.toContain("Music Player is choosing from this scene...");
+      expect(container!.textContent).toContain("Music Player finished without choosing a track.");
+    } finally {
+      window.removeEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onAiPick);
+    }
+  });
+
   it("clears stale context instead of falling back to old fantasy music", async () => {
     await act(async () => {
       root = createRoot(container!);
