@@ -57,6 +57,8 @@ export type PeekPromptOptions = {
 };
 
 export type RegenerateOptions = {
+  /** Message-owned target used when ambient route state may lag behind the rendered timeline. */
+  chatId?: string;
   skipTouchConfirm?: boolean;
   forCharacterId?: string | null;
   propagateErrors?: boolean;
