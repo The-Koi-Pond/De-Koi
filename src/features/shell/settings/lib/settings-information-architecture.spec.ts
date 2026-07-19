@@ -31,6 +31,8 @@ describe("settings information architecture", () => {
     expect(researchSection).toContain("characterWebResearchGrant: null");
     expect(researchSection).toContain("Keep web research in the background");
     expect(researchSection).toContain("characterWebResearchPresentation:");
+    expect(researchSection).toContain('role="switch"');
+    expect(researchSection).toContain("aria-checked={quietCharacterWebResearch}");
     expect(researchSection).toContain("Show only the final answer. Permission prompts still appear when required.");
     expect(researchSection).toContain("Let characters narrate web research while it happens.");
 

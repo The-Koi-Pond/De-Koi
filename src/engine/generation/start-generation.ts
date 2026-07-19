@@ -5320,6 +5320,7 @@ async function* streamMainGenerationLoop(args: {
   const webResearchSources: Array<{ title: string; url: string }> = [];
   let mainTools = initialMainTools;
   let releaseAutomaticallyActivatedWebGrant: (() => Promise<void>) | null = null;
+  let quietCharacterWebResearchOccurred = false;
   let iteration = 0;
   // Text streamed in the current turn but not yet committed to `content`.
   // Lets the abort `finally` recover an in-flight turn (the `content +=
@@ -5453,10 +5454,14 @@ async function* streamMainGenerationLoop(args: {
       );
       const hideTurn = deferResearchPresentation && hasCharacterWebCall;
       if (deferResearchPresentation && !hideTurn) {
-        thinking += turnThinking;
-        for (const event of deferredTurnEvents) yield event;
+        if (!quietCharacterWebResearchOccurred) thinking += turnThinking;
+        for (const event of deferredTurnEvents) {
+          if (quietCharacterWebResearchOccurred && event.type === "thinking") continue;
+          yield event;
+        }
       }
       if (!hideTurn) content += turnContent;
+      if (hideTurn) quietCharacterWebResearchOccurred = true;
       inFlightTurn = "";
 
       if (!mainTools || pendingToolCalls.length === 0) break;
@@ -5512,11 +5517,7 @@ async function* streamMainGenerationLoop(args: {
               allowedDomains,
               status: "pending",
             };
-            content = characterWebResearchRequestContent(
-              content,
-              reason,
-              mainTools.characterWebResearchPresentation,
-            );
+            content = characterWebResearchRequestContent(content, reason, mainTools.characterWebResearchPresentation);
             break;
           }
         } catch {

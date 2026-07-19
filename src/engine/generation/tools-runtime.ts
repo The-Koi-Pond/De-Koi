@@ -18,10 +18,7 @@ import {
   readString,
   type JsonRecord,
 } from "./runtime-records";
-import {
-  characterWebResearchPresentation,
-  type CharacterWebResearchPresentation,
-} from "./web-research-presentation";
+import { characterWebResearchPresentation, type CharacterWebResearchPresentation } from "./web-research-presentation";
 
 /**
  * Narrow input shape consumed by tool runtime helpers.
@@ -78,21 +75,20 @@ export interface CharacterWebResearchGrant {
   expiresAt: string;
 }
 
-function characterWebResearchRequestTool(
-  presentation: CharacterWebResearchPresentation,
-): LlmToolDefinition {
+function characterWebResearchRequestTool(presentation: CharacterWebResearchPresentation): LlmToolDefinition {
   const presentationGuidance =
     presentation === "quiet"
       ? "Call this tool silently. Do not announce, narrate, or describe research. Put the short in-character reason only in the structured reason argument."
-      : "A brief natural in-character lead-in is allowed. Never use canned permission boilerplate such as \"I'd like to check the web before I answer.\"";
+      : 'A brief natural in-character lead-in is allowed. Never use canned permission boilerplate such as "I\'d like to check the web before I answer."';
   return {
     name: CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
     description: [
       "Request permission for one exact public-web query when outside facts would materially improve the reply.",
-      "Decide from the conversation whether research is useful. Do not wait for the user to say \"search the web\" or name this feature.",
+      'Decide from the conversation whether research is useful. Do not wait for the user to say "search the web" or name this feature.',
       "Use it for information that is current or likely to have changed, precise source-dependent claims, obscure facts, or material uncertainty where guessing would hurt the answer.",
       "Do not use it for ordinary creative roleplay, opinions, casual conversation, facts already provided in context, or timeless facts you know confidently.",
       "This tool creates a consent request and does not access the network.",
+      "If later web tools fail or return no usable evidence, do not invent results, sources, or source-backed claims.",
       presentationGuidance,
     ].join(" "),
     parameters: {
@@ -101,7 +97,8 @@ function characterWebResearchRequestTool(
         query: { type: "string", description: "One precise search query to ask the user to approve." },
         reason: {
           type: "string",
-          description: "A short first-person, in-character reason explaining what you want to learn and why it matters.",
+          description:
+            "A short first-person, in-character reason explaining what you want to learn and why it matters.",
         },
         allowedDomains: {
           type: "array",
@@ -114,28 +111,50 @@ function characterWebResearchRequestTool(
   };
 }
 
-const CHARACTER_WEB_SEARCH_TOOL: LlmToolDefinition = {
-  name: CHARACTER_WEB_SEARCH_TOOL_NAME,
-  description: "Search the public web using the exact query approved by the user for this turn.",
-  parameters: {
-    type: "object",
-    properties: {
-      maxResults: { type: "number", description: "Number of results to return, from 1 to 8." },
-    },
-  },
-};
+function characterWebResearchActionGuidance(presentation: CharacterWebResearchPresentation): string {
+  const presentationGuidance =
+    presentation === "quiet"
+      ? "Do not narrate the search, page reads, retries, providers, HTTP details, or failures. Use successful evidence silently, then answer naturally."
+      : "A brief natural in-character transition is allowed, but never use canned research boilerplate or expose provider and HTTP details.";
+  return [
+    "If this tool fails or returns no usable evidence, Do not invent results, sources, or source-backed claims.",
+    "Acknowledge only what you could not verify in natural character voice.",
+    presentationGuidance,
+  ].join(" ");
+}
 
-const CHARACTER_WEB_READ_TOOL: LlmToolDefinition = {
-  name: CHARACTER_WEB_READ_TOOL_NAME,
-  description: "Read one public result page from the web search approved for this turn.",
-  parameters: {
-    type: "object",
-    properties: {
-      url: { type: "string", description: "A public HTTP(S) result URL from the approved search." },
+function characterWebSearchTool(presentation: CharacterWebResearchPresentation): LlmToolDefinition {
+  return {
+    name: CHARACTER_WEB_SEARCH_TOOL_NAME,
+    description: [
+      "Search the public web using the exact query approved by the user for this turn.",
+      characterWebResearchActionGuidance(presentation),
+    ].join(" "),
+    parameters: {
+      type: "object",
+      properties: {
+        maxResults: { type: "number", description: "Number of results to return, from 1 to 8." },
+      },
     },
-    required: ["url"],
-  },
-};
+  };
+}
+
+function characterWebReadTool(presentation: CharacterWebResearchPresentation): LlmToolDefinition {
+  return {
+    name: CHARACTER_WEB_READ_TOOL_NAME,
+    description: [
+      "Read one public result page from the web search approved for this turn.",
+      characterWebResearchActionGuidance(presentation),
+    ].join(" "),
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "A public HTTP(S) result URL from the approved search." },
+      },
+      required: ["url"],
+    },
+  };
+}
 
 const chatMetadataQueues = new Map<string, Promise<void>>();
 const MAX_LOREBOOK_ENTRY_CONTENT_BYTES = 64 * 1024;
@@ -1040,7 +1059,7 @@ export async function buildMainToolDefinitions(
   const webGrant = webGrantResolution.grant;
   const webToolDefs = webAccessEnabled
     ? webGrant
-      ? [CHARACTER_WEB_SEARCH_TOOL, CHARACTER_WEB_READ_TOOL]
+      ? [characterWebSearchTool(webResearchPresentation), characterWebReadTool(webResearchPresentation)]
       : [characterWebResearchRequestTool(webResearchPresentation)]
     : [];
   const regularToolsEnabled = chatToolsEnabledFor(args.chat);

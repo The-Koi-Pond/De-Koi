@@ -57,14 +57,34 @@ pub(crate) async fn search(
                     .get(url)
                     .send()
                     .await
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| request_failure_message(&error))?;
                 let status = response.status().as_u16();
-                let body = response.text().await.map_err(|error| error.to_string())?;
+                let body = response
+                    .text()
+                    .await
+                    .map_err(|error| request_failure_message(&error))?;
                 Ok(ProviderHttpResponse { status, body })
             }
         },
     )
     .await
+}
+
+fn request_failure_message(error: &reqwest::Error) -> String {
+    if error.is_timeout() {
+        "request timed out"
+    } else if error.is_connect() {
+        "connection failed"
+    } else if error.is_body() {
+        "response body failed"
+    } else if error.is_decode() {
+        "response decode failed"
+    } else if error.is_redirect() {
+        "redirect failed"
+    } else {
+        "request failed"
+    }
+    .to_string()
 }
 
 async fn search_with_fetcher<F, Fut>(
@@ -220,11 +240,7 @@ fn extract_bing_results(html: &str, max_results: usize) -> Vec<WebSearchResult> 
         let href = html_attr_value(&anchor[..tag_end], "href").unwrap_or_default();
         let title = anchor[tag_end + 1..]
             .find("</a>")
-            .map(|end| {
-                strip_html(&decode_html_entities(
-                    &anchor[tag_end + 1..tag_end + 1 + end],
-                ))
-            })
+            .map(|end| decode_html_entities(&strip_html(&anchor[tag_end + 1..tag_end + 1 + end])))
             .unwrap_or_default();
         let snippet = block
             .find("<div class=\"b_caption")
@@ -232,7 +248,7 @@ fn extract_bing_results(html: &str, max_results: usize) -> Vec<WebSearchResult> 
             .and_then(|caption| caption.find("<p").map(|index| &caption[index..]))
             .and_then(|paragraph| paragraph.find('>').map(|index| &paragraph[index + 1..]))
             .and_then(|paragraph| paragraph.find("</p>").map(|index| &paragraph[..index]))
-            .map(|value| strip_html(&decode_html_entities(value)))
+            .map(|value| decode_html_entities(&strip_html(value)))
             .unwrap_or_default();
         if !href.is_empty()
             && !results
@@ -314,18 +330,49 @@ fn html_class_text(value: &str, class_marker: &str) -> String {
         .and_then(|index| value[index..].find('>').map(|start| (index, start)))
         .map(|(index, start)| &value[index + start + 1..])
         .map(|after| &after[..after.find("</div>").unwrap_or(after.len())])
-        .map(|text| strip_html(&decode_html_entities(text)))
+        .map(|text| decode_html_entities(&strip_html(text)))
         .unwrap_or_default()
 }
 
 fn decode_html_entities(value: &str) -> String {
-    value
+    let named = value
         .replace("&amp;", "&")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
+        .replace("&apos;", "'")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
-        .replace("&nbsp;", " ")
+        .replace("&nbsp;", " ");
+    decode_numeric_html_entities(&named)
+}
+
+fn decode_numeric_html_entities(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(start) = rest.find("&#") {
+        output.push_str(&rest[..start]);
+        let entity = &rest[start + 2..];
+        let Some(end) = entity.find(';').filter(|end| *end <= 8) else {
+            output.push_str("&#");
+            rest = entity;
+            continue;
+        };
+        let digits = &entity[..end];
+        let codepoint = digits
+            .strip_prefix(['x', 'X'])
+            .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+            .or_else(|| digits.parse::<u32>().ok());
+        if let Some(character) = codepoint.and_then(char::from_u32) {
+            output.push(character);
+        } else {
+            output.push_str("&#");
+            output.push_str(digits);
+            output.push(';');
+        }
+        rest = &entity[end + 1..];
+    }
+    output.push_str(rest);
+    output
 }
 
 fn strip_html(value: &str) -> String {
@@ -348,8 +395,8 @@ fn strip_html(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_bing_results, extract_brave_results, search_with_fetcher, ProviderHttpResponse,
-        WebSearchProvider,
+        extract_bing_results, extract_brave_results, request_failure_message, search_with_fetcher,
+        ProviderHttpResponse, WebSearchProvider,
     };
     use std::collections::{HashMap, VecDeque};
     use std::sync::{Arc, Mutex};
@@ -366,8 +413,8 @@ mod tests {
       <a href="https://cdn.search.brave.com/app.js">asset</a>
       <div class="snippet card" data-type="web">
         <a href="https://science.nasa.gov/eclipse">
-          <div class="title search-snippet-title">Eclipse &amp; Moon</div>
-          <div class="generic-snippet">Current eclipse facts.</div>
+          <div class="title search-snippet-title">Eclipse &amp; Moon: 2 &lt; 3</div>
+          <div class="generic-snippet">I&amp;#x27;m reading current eclipse facts.</div>
         </a>
       </div>
     "#;
@@ -387,9 +434,23 @@ mod tests {
         let results = extract_brave_results(BRAVE_FIXTURE, 4);
 
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].title, "Eclipse & Moon");
+        assert_eq!(results[0].title, "Eclipse & Moon: 2 < 3");
         assert_eq!(results[0].url, "https://science.nasa.gov/eclipse");
-        assert_eq!(results[0].snippet, "Current eclipse facts.");
+        assert_eq!(results[0].snippet, "I'm reading current eclipse facts.");
+    }
+
+    #[tokio::test]
+    async fn transport_error_summary_does_not_echo_the_query_url() {
+        let error = reqwest::Client::new()
+            .get("http://127.0.0.1:1/?q=private-chat-query")
+            .send()
+            .await
+            .expect_err("closed local port should fail");
+
+        let summary = request_failure_message(&error);
+
+        assert!(!summary.contains("private-chat-query"));
+        assert!(!summary.contains("127.0.0.1"));
     }
 
     #[tokio::test]

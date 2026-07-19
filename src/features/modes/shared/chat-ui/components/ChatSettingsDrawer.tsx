@@ -5770,6 +5770,8 @@ function ChatSettingsDrawerInner({
                 {metadata.characterWebAccessEnabled === true && (
                   <button
                     type="button"
+                    role="switch"
+                    aria-checked={quietCharacterWebResearch}
                     onClick={() =>
                       updateMeta.mutate({
                         id: chat.id,

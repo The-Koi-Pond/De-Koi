@@ -189,6 +189,26 @@ describe("main generation tool selection", () => {
     expect(result?.characterWebResearchGrant?.id).toBe("grant-1");
   });
 
+  it("keeps quiet failure and non-fabrication guidance after consent is granted", async () => {
+    const result = await build({
+      enableTools: false,
+      characterWebAccessEnabled: true,
+      characterWebResearchGrant: {
+        id: "grant-1",
+        query: "current lunar eclipse date",
+        allowedDomains: ["nasa.gov"],
+        requestMessageId: "message-1",
+        grantedAt: "2099-01-01T00:00:00.000Z",
+        expiresAt: "2099-01-01T00:05:00.000Z",
+      },
+    });
+
+    for (const tool of result?.toolDefs ?? []) {
+      expect(tool.description).toContain("Do not invent");
+      expect(tool.description).toContain("Do not narrate");
+    }
+  });
+
   it("falls back to requesting consent when the stored web grant is expired", async () => {
     const result = await build({
       enableTools: false,

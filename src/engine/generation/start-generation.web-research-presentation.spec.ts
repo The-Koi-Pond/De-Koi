@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { IntegrationGateway } from "../capabilities/integrations";
-import type { LlmGateway } from "../capabilities/llm";
+import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
 import { startGeneration } from "./start-generation";
@@ -124,7 +124,11 @@ function webResearchStorage(presentation: "quiet" | "visible", policy: "ask" | "
   return { storage, messages };
 }
 
-function scriptedWebResearchLlm(): LlmGateway {
+function scriptedWebResearchLlm(finalText = "Final sourced answer."): {
+  llm: LlmGateway;
+  requests: LlmRequest[];
+} {
+  const requests: LlmRequest[] = [];
   const turns = [
     {
       text: "I should check that. ",
@@ -148,11 +152,12 @@ function scriptedWebResearchLlm(): LlmGateway {
         arguments: JSON.stringify({ maxResults: 4 }),
       },
     },
-    { text: "Final sourced answer." },
+    { text: finalText, thinking: "I am synthesizing the researched sources." },
   ];
-  return {
+  const llm: LlmGateway = {
     complete: vi.fn(async () => ""),
-    async *stream() {
+    async *stream(request) {
+      requests.push(request);
       const turn = turns.shift();
       if (!turn) throw new Error("Unexpected extra model turn");
       if (turn.text) yield { type: "token", text: turn.text };
@@ -171,17 +176,22 @@ function scriptedWebResearchLlm(): LlmGateway {
     },
     listModels: vi.fn(async () => []),
   };
+  return { llm, requests };
 }
 
 async function runWebResearchPresentation(
   presentation: "quiet" | "visible",
   policy: "ask" | "always" = "always",
+  options: { searchFailure?: boolean; finalText?: string } = {},
 ) {
   const { storage, messages } = webResearchStorage(presentation, policy);
   const events: GenerationEvent[] = [];
   const integrations = {
     webResearch: {
       async search() {
+        if (options.searchFailure) {
+          throw new Error("No web search provider returned usable results.");
+        }
         return {
           results: [
             {
@@ -197,9 +207,10 @@ async function runWebResearchPresentation(
       },
     },
   } as unknown as IntegrationGateway;
+  const scripted = scriptedWebResearchLlm(options.finalText);
 
   for await (const event of startGeneration(
-    { storage, llm: scriptedWebResearchLlm(), integrations },
+    { storage, llm: scripted.llm, integrations },
     {
       chatId: "chat-1",
       connectionId: "conn-1",
@@ -210,7 +221,7 @@ async function runWebResearchPresentation(
     events.push(event);
   }
 
-  return { events, messages };
+  return { events, messages, requests: scripted.requests };
 }
 
 describe("startGeneration character web research presentation", () => {
@@ -257,8 +268,31 @@ describe("startGeneration character web research presentation", () => {
       .join("");
 
     expect(tokenText).toBe("I should check that. Let me pull the sources. Final sourced answer.");
-    expect(events.filter((event) => event.type === "thinking")).toHaveLength(2);
+    expect(events.filter((event) => event.type === "thinking")).toHaveLength(3);
     expect(events.filter((event) => event.type === "tool_call" || event.type === "tool_result")).toHaveLength(2);
     expect(messages.find((message) => message.role === "assistant")?.content).toBe(tokenText);
+  });
+
+  it("keeps an exhausted provider neutral, quiet, and source-free", async () => {
+    const finalText = "I couldn't verify that just now.";
+    const { events, messages, requests } = await runWebResearchPresentation("quiet", "always", {
+      searchFailure: true,
+      finalText,
+    });
+    const tokenText = events
+      .filter((event) => event.type === "token")
+      .map((event) => String(event.data))
+      .join("");
+    const finalRequest = requests.at(-1);
+
+    expect(tokenText).toBe(finalText);
+    expect(events.filter((event) => event.type === "thinking")).toEqual([]);
+    expect(messages.find((message) => message.role === "assistant")?.extra).not.toHaveProperty(
+      "characterWebResearchSources",
+    );
+    expect(finalRequest?.messages.map((message) => message.content).join("\n")).toContain(
+      "No web search provider returned usable results.",
+    );
+    expect(finalRequest?.tools?.every((tool) => (tool.description ?? "").includes("Do not invent"))).toBe(true);
   });
 });
