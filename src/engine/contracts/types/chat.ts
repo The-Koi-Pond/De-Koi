@@ -683,6 +683,7 @@ export type GenerationContextAttributionKind =
   | "chat_history"
   | "chat_summary"
   | "memory_recall"
+  | "behavioral_example"
   | "lorebook"
   | "knowledge_retrieval"
   | "knowledge_router"
