@@ -4,6 +4,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { StorageGateway } from "../capabilities/storage";
 import {
   activateAlwaysAllowedCharacterWebResearch,
+  characterWebResearchRequestContent,
   characterWebResearchApprovalPatch,
   createCharacterWebResearchGrant,
 } from "./character-web-research";
@@ -11,6 +12,23 @@ import {
 describe("character web research approval", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("creates an approval grant when randomUUID is unavailable in an insecure browser context", () => {
+    vi.stubGlobal("crypto", {});
+
+    expect(
+      createCharacterWebResearchGrant({
+        now: new Date("2099-07-18T20:00:00.000Z"),
+        requestMessageId: "message-1",
+        query: "current lunar eclipse date",
+      }),
+    ).toMatchObject({
+      id: expect.stringMatching(/^character-web-/),
+      query: "current lunar eclipse date",
+      requestMessageId: "message-1",
+    });
   });
 
   it("stores the durable chat policy only for always approval", () => {
@@ -29,6 +47,12 @@ describe("character web research approval", () => {
       characterWebResearchPolicy: "always",
       characterWebResearchGrant: grant,
     });
+  });
+
+  it("uses the model-authored in-character reason when a research request has no spoken text", () => {
+    expect(
+      characterWebResearchRequestContent("", "Fine. I’ll see what NASA has changed this time."),
+    ).toBe("Fine. I’ll see what NASA has changed this time.");
   });
 
   it("turns an always-approved future request into a fresh exact-query grant and bounded web tools", async () => {

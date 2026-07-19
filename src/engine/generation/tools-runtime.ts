@@ -77,12 +77,16 @@ export interface CharacterWebResearchGrant {
 const CHARACTER_WEB_RESEARCH_REQUEST_TOOL: LlmToolDefinition = {
   name: CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
   description:
-    "Ask the user for permission to research one exact web query. Use this when current or source-backed information is needed. This tool does not access the network.",
+    "Ask the user for permission to research one exact web query. Use this when current or source-backed information is needed. Before calling it, speak naturally in character about what you want to look up. This tool does not access the network.",
   parameters: {
     type: "object",
     properties: {
       query: { type: "string", description: "One precise search query to ask the user to approve." },
-      reason: { type: "string", description: "A short explanation of why web research would improve the reply." },
+      reason: {
+        type: "string",
+        description:
+          "A short first-person, in-character line explaining what you want to look up and why. This is shown as your message if your tool call has no spoken text.",
+      },
       allowedDomains: {
         type: "array",
         items: { type: "string" },

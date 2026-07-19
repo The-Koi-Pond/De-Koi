@@ -60,7 +60,10 @@ import {
   type MainToolDefinitions,
   type ToolRuntimeInput,
 } from "./tools-runtime";
-import { activateAlwaysAllowedCharacterWebResearch } from "./character-web-research";
+import {
+  activateAlwaysAllowedCharacterWebResearch,
+  characterWebResearchRequestContent,
+} from "./character-web-research";
 import {
   llmParameters,
   loadChatMessage,
@@ -5480,7 +5483,7 @@ async function* streamMainGenerationLoop(args: {
               allowedDomains,
               status: "pending",
             };
-            if (!content.trim()) content = "I’d like to check the web before I answer.";
+            content = characterWebResearchRequestContent(content, reason);
             break;
           }
         } catch {
