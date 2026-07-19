@@ -15,6 +15,9 @@ import { rankMusicCandidates } from "../../../../shared/lib/music-candidate-rank
 import {
   consumePendingMusicPlaybackCue,
   getLastMusicPlaybackContext,
+  MUSIC_AI_PICK_CHOOSING_MESSAGE,
+  MUSIC_AI_PICK_FAILED_MESSAGE,
+  MUSIC_AI_PICK_NO_TRACK_MESSAGE,
   MUSIC_PLAYBACK_EVENT,
   requestMusicAiPick,
   type MusicPlaybackEventDetail,
@@ -253,6 +256,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
   const resolvedVariant = variant ?? (mobile ? "floating" : "toolbar");
   const visible = useMusicPlayerVisible(resolvedVariant);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const aiPickRequestIdRef = useRef(0);
   const [query, setQuery] = useState("");
   const [lastDiscoveryQuery, setLastDiscoveryQuery] = useState("");
   const [track, setTrack] = useState<MusicCandidate | null>(null);
@@ -344,8 +348,21 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
   }
 
   async function freshPick() {
-    if (requestMusicAiPick({ fresh: true })) {
-      setMessage("Music Player is choosing from this scene...");
+    const requestId = ++aiPickRequestIdRef.current;
+    setMessage(MUSIC_AI_PICK_CHOOSING_MESSAGE);
+    if (
+      requestMusicAiPick({
+        fresh: true,
+        complete(result) {
+          if (aiPickRequestIdRef.current !== requestId) return;
+          setMessage((current) => {
+            if (current !== MUSIC_AI_PICK_CHOOSING_MESSAGE) return current;
+            if (result.status === "failed") return result.message?.trim() || MUSIC_AI_PICK_FAILED_MESSAGE;
+            return MUSIC_AI_PICK_NO_TRACK_MESSAGE;
+          });
+        },
+      })
+    ) {
       return;
     }
     await pick(true);
@@ -395,6 +412,8 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     if (!visible) return;
 
     function handleMusicPlaybackDetail(detail: MusicPlaybackEventDetail) {
+      aiPickRequestIdRef.current += 1;
+      setMessage((current) => (current === MUSIC_AI_PICK_CHOOSING_MESSAGE ? null : current));
       if (detail.type === "cue") {
         if (typeof detail.volume === "number") setVolume(Math.max(0, Math.min(100, Math.trunc(detail.volume))));
         if (detail.track) {

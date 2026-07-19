@@ -3,10 +3,39 @@ import type { MusicDjIntent } from "./music-dj-intent";
 
 export const MUSIC_PLAYBACK_EVENT = "de-koi:music-playback";
 export const MUSIC_AI_PICK_REQUEST_EVENT = "de-koi:music-ai-pick-request";
+export const MUSIC_AI_PICK_CHOOSING_MESSAGE = "Music Player is choosing from this scene...";
+export const MUSIC_AI_PICK_NO_TRACK_MESSAGE = "Music Player finished without choosing a track.";
+export const MUSIC_AI_PICK_FAILED_MESSAGE = "Music Player couldn't choose from this scene.";
+const MUSIC_AI_PICK_BUSY_MESSAGE = "Music Player can't start while another response or agent is still running.";
+
+type MusicAiPickCompletion = {
+  status: "completed" | "failed";
+  message?: string;
+};
 
 export type MusicAiPickRequestDetail = {
   fresh?: boolean | null;
+  complete?: (result: MusicAiPickCompletion) => void;
 };
+
+export function handleMusicAiPickRequest(
+  event: Event,
+  options: { blocked: boolean; run: () => Promise<unknown> },
+): void {
+  event.preventDefault();
+  const complete = (event as CustomEvent<MusicAiPickRequestDetail>).detail?.complete;
+  if (options.blocked) {
+    complete?.({
+      status: "failed",
+      message: MUSIC_AI_PICK_BUSY_MESSAGE,
+    });
+    return;
+  }
+  void options.run().then(
+    () => complete?.({ status: "completed" }),
+    () => complete?.({ status: "failed", message: MUSIC_AI_PICK_FAILED_MESSAGE }),
+  );
+}
 
 export type MusicPlaybackContextEventDetail = {
   type: "context";
