@@ -29,6 +29,7 @@ import {
   CharacterAvatarImage as CatalogCharacterAvatarImage,
   characterAvatarUrl,
   estimateCharacterCardTokens,
+  invalidateCharacterCollectionQueries,
   useCharacterSummaries,
   useCharacterSummariesByIds,
   type CharacterTokenData,
@@ -42,6 +43,7 @@ import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { boolish } from "../../../../../engine/generation/runtime-records";
 import { generateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
+import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { filterLanguageGenerationConnections } from "../../../../../shared/lib/connection-filters";
@@ -496,6 +498,7 @@ export function ChatSetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardPro
 // ──────────────────────────────────────────────
 
 function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardProps) {
+  const queryClient = useQueryClient();
   const { data: connections } = useConnections();
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 180);
@@ -706,6 +709,19 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
             );
           }
         : null,
+      refreshStatusMessages: async () => {
+        const statusMessages = await maybeRefreshConversationStatusMessages(
+          { storage: storageApi, llm: llmApi },
+          { chatId: chat.id, characterIds: chatCharIds },
+        );
+        if (statusMessages.refreshed.length > 0) {
+          invalidateCharacterCollectionQueries(queryClient);
+        }
+      },
+      reportStatusRefreshFailure: (error) => {
+        const detail = error instanceof Error && error.message.trim() ? ` ${error.message}` : "";
+        toast.error(`Chat started, but character status blurbs could not be created.${detail}`);
+      },
       finish: () => {
         if (shouldGenerateSchedules) {
           setScheduleState("done");
@@ -731,6 +747,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
     autonomousEnabled,
     generateSchedule,
     updateMeta,
+    queryClient,
     customizeParameters,
     generationParameters,
   ]);
