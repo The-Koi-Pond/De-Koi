@@ -7,7 +7,10 @@ import {
   SHELL_PANEL_ITEMS,
   TOOLS_NAV_ITEMS,
 } from "../../shared/components/shell-navigation";
-import { TOOLS_PANELS } from "../../shared/components/mobile-shell-actions";
+import {
+  createMobileToolsPanels,
+  TOOLS_PANELS,
+} from "../../shared/components/mobile-shell-actions";
 
 describe("shell navigation registry", () => {
   it("groups every shell destination exactly once with a visible label", () => {
@@ -44,5 +47,14 @@ describe("shell navigation registry", () => {
       SHELL_PANEL_ITEMS.map((item) => item.destination),
     );
     expect(TOOLS_PANELS.every((item) => item.label.trim().length > 0 && Boolean(item.icon))).toBe(true);
+  });
+
+  it("fails fast when a non-panel destination reaches the mobile tools projection", () => {
+    const discoverItem = SHELL_NAV_ITEMS.find((item) => item.destination === "discover");
+
+    expect(discoverItem).toBeDefined();
+    expect(() => createMobileToolsPanels([discoverItem!])).toThrow(
+      "Invalid mobile tools panel destination: discover",
+    );
   });
 });

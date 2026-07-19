@@ -2,7 +2,11 @@
 // Mobile shell actions shared between app shell and mode surfaces
 // ──────────────────────────────────────────────
 import { createContext, useContext, useState, type ReactNode } from "react";
-import { SHELL_PANEL_ITEMS } from "./shell-navigation";
+import {
+  isShellPanelDestination,
+  SHELL_PANEL_ITEMS,
+  type ShellNavItem,
+} from "./shell-navigation";
 export { SHELL_ACCENT_STYLES } from "./shell-navigation";
 
 interface TopBarActionsContextValue {
@@ -28,6 +32,16 @@ export function useTopBarActions() {
   return useContext(TopBarActionsContext);
 }
 
-export const TOOLS_PANELS = SHELL_PANEL_ITEMS.map(({ destination, ...item }) => ({ ...item, panel: destination }));
+export function createMobileToolsPanels(items: readonly ShellNavItem[]) {
+  return items.map(({ destination, ...item }) => {
+    if (!isShellPanelDestination(destination)) {
+      throw new Error(`Invalid mobile tools panel destination: ${destination}`);
+    }
+
+    return { ...item, panel: destination };
+  });
+}
+
+export const TOOLS_PANELS = createMobileToolsPanels(SHELL_PANEL_ITEMS);
 
 export type MobileToolsPanel = typeof TOOLS_PANELS[number]["panel"];
