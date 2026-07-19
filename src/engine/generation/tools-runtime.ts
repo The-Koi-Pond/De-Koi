@@ -18,6 +18,10 @@ import {
   readString,
   type JsonRecord,
 } from "./runtime-records";
+import {
+  characterWebResearchPresentation,
+  type CharacterWebResearchPresentation,
+} from "./web-research-presentation";
 
 /**
  * Narrow input shape consumed by tool runtime helpers.
@@ -74,28 +78,41 @@ export interface CharacterWebResearchGrant {
   expiresAt: string;
 }
 
-const CHARACTER_WEB_RESEARCH_REQUEST_TOOL: LlmToolDefinition = {
-  name: CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
-  description:
-    "Ask the user for permission to research one exact web query. Use this when current or source-backed information is needed. Before calling it, speak naturally in character about what you want to look up. This tool does not access the network.",
-  parameters: {
-    type: "object",
-    properties: {
-      query: { type: "string", description: "One precise search query to ask the user to approve." },
-      reason: {
-        type: "string",
-        description:
-          "A short first-person, in-character line explaining what you want to look up and why. This is shown as your message if your tool call has no spoken text.",
+function characterWebResearchRequestTool(
+  presentation: CharacterWebResearchPresentation,
+): LlmToolDefinition {
+  const presentationGuidance =
+    presentation === "quiet"
+      ? "Call this tool silently. Do not announce, narrate, or describe research. Put the short in-character reason only in the structured reason argument."
+      : "A brief natural in-character lead-in is allowed. Never use canned permission boilerplate such as \"I'd like to check the web before I answer.\"";
+  return {
+    name: CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
+    description: [
+      "Request permission for one exact public-web query when outside facts would materially improve the reply.",
+      "Decide from the conversation whether research is useful. Do not wait for the user to say \"search the web\" or name this feature.",
+      "Use it for information that is current or likely to have changed, precise source-dependent claims, obscure facts, or material uncertainty where guessing would hurt the answer.",
+      "Do not use it for ordinary creative roleplay, opinions, casual conversation, facts already provided in context, or timeless facts you know confidently.",
+      "This tool creates a consent request and does not access the network.",
+      presentationGuidance,
+    ].join(" "),
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "One precise search query to ask the user to approve." },
+        reason: {
+          type: "string",
+          description: "A short first-person, in-character reason explaining what you want to learn and why it matters.",
+        },
+        allowedDomains: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional public domains to constrain the approved search.",
+        },
       },
-      allowedDomains: {
-        type: "array",
-        items: { type: "string" },
-        description: "Optional public domains to constrain the approved search.",
-      },
+      required: ["query", "reason"],
     },
-    required: ["query", "reason"],
-  },
-};
+  };
+}
 
 const CHARACTER_WEB_SEARCH_TOOL: LlmToolDefinition = {
   name: CHARACTER_WEB_SEARCH_TOOL_NAME,
@@ -990,6 +1007,7 @@ export interface MainToolDefinitions {
   characterWebResearchGrant: CharacterWebResearchGrant | null;
   characterWebResearchGrantState: CharacterWebResearchGrantState;
   characterWebResearchPolicy: "ask" | "always";
+  characterWebResearchPresentation: CharacterWebResearchPresentation;
 }
 
 /**
@@ -1015,6 +1033,7 @@ export async function buildMainToolDefinitions(
   const metadata = parseRecord(args.chat.metadata);
   const webAccessEnabled = metadata.characterWebAccessEnabled === true;
   const webResearchPolicy = metadata.characterWebResearchPolicy === "always" ? "always" : "ask";
+  const webResearchPresentation = characterWebResearchPresentation(metadata);
   const webGrantResolution = webAccessEnabled
     ? characterWebResearchGrant(metadata)
     : { grant: null, state: "missing" as const };
@@ -1022,7 +1041,7 @@ export async function buildMainToolDefinitions(
   const webToolDefs = webAccessEnabled
     ? webGrant
       ? [CHARACTER_WEB_SEARCH_TOOL, CHARACTER_WEB_READ_TOOL]
-      : [CHARACTER_WEB_RESEARCH_REQUEST_TOOL]
+      : [characterWebResearchRequestTool(webResearchPresentation)]
     : [];
   const regularToolsEnabled = chatToolsEnabledFor(args.chat);
   if (!regularToolsEnabled && webToolDefs.length === 0) return null;
@@ -1058,6 +1077,7 @@ export async function buildMainToolDefinitions(
     characterWebResearchGrant: webGrant,
     characterWebResearchGrantState: webGrantResolution.state,
     characterWebResearchPolicy: webResearchPolicy,
+    characterWebResearchPresentation: webResearchPresentation,
   };
 }
 

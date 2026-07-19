@@ -2,11 +2,17 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { StorageGateway } from "../capabilities/storage";
 import { buildMainToolDefinitions, type CharacterWebResearchGrant, type MainToolDefinitions } from "./tools-runtime";
 import { newId, parseRecord, readString, type JsonRecord } from "./runtime-records";
+import type { CharacterWebResearchPresentation } from "./web-research-presentation";
 
 export type CharacterWebResearchApproval = "once" | "always";
 type CharacterWebResearchPolicy = "ask" | "always";
 
-export function characterWebResearchRequestContent(content: string, reason: string): string {
+export function characterWebResearchRequestContent(
+  content: string,
+  reason: string,
+  presentation: CharacterWebResearchPresentation,
+): string {
+  if (presentation === "quiet") return "";
   return content.trim() ? content : reason.trim();
 }
 

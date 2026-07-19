@@ -214,6 +214,8 @@ export interface ChatMetadata {
    * `"always"` automatically mints and clears a fresh exact-query grant for each requested search.
    */
   characterWebResearchPolicy?: "ask" | "always";
+  /** Whether intermediate character web-research narration is hidden or shown. Missing defaults to quiet. */
+  characterWebResearchPresentation?: "quiet" | "visible";
   /** Exact-query grant consumed by the next regenerated character turn. */
   characterWebResearchGrant?: CharacterWebResearchGrant | null;
   /** Optional language-generation connection used for foreground turns that include image attachments. */

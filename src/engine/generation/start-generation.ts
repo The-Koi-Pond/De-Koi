@@ -64,6 +64,7 @@ import {
   activateAlwaysAllowedCharacterWebResearch,
   characterWebResearchRequestContent,
 } from "./character-web-research";
+import { isCharacterWebToolName } from "./web-research-presentation";
 import {
   llmParameters,
   loadChatMessage,
@@ -3010,8 +3011,12 @@ export async function patchMessageExtrasForGeneration(
   }
 }
 
-function assertVisibleGeneratedContent(content: string, attachments?: JsonRecord[]): void {
-  if (content.trim() || (attachments?.length ?? 0) > 0) return;
+function assertVisibleGeneratedContent(
+  content: string,
+  attachments?: JsonRecord[],
+  webResearchRequest?: Record<string, unknown> | null,
+): void {
+  if (content.trim() || (attachments?.length ?? 0) > 0 || webResearchRequest) return;
   throw new Error(
     "Generation produced no visible assistant response. Your message was kept; retry or adjust the provider.",
   );
@@ -3169,7 +3174,7 @@ async function saveAssistantMessage(args: {
   const regenerationTargetRole = readString(args.regenerationTarget?.role).trim();
   const generationReplay = buildGenerationReplay(args.input);
   const content = args.content;
-  assertVisibleGeneratedContent(content, args.attachments);
+  assertVisibleGeneratedContent(content, args.attachments, args.webResearchRequest);
   const thinking = collapseExcessBlankLines(readString(args.thinking).trim());
   const providerMetadata = args.input.impersonate === true ? null : providerMetadataRecord(args.providerMetadata);
   const promptSnapshot = buildSavedGenerationPromptSnapshot({
@@ -5329,18 +5334,40 @@ async function* streamMainGenerationLoop(args: {
       const streamUsages: unknown[] = [];
       let turnProviderMetadata: unknown = null;
       let turnContent = "";
+      let turnThinking = "";
       inFlightTurn = "";
+      const deferResearchPresentation =
+        mainTools?.characterWebResearchPresentation === "quiet" &&
+        [...mainTools.allowedToolNames].some(isCharacterWebToolName);
+      const deferredTurnEvents: GenerationEvent[] = [];
+      const emitTurnToken = function* (text: string): Generator<GenerationEvent> {
+        turnContent += text;
+        const event: GenerationEvent = { type: "token", data: text };
+        if (deferResearchPresentation) {
+          deferredTurnEvents.push(event);
+        } else {
+          inFlightTurn = turnContent;
+          yield event;
+        }
+      };
+      const emitTurnThinking = function* (text: string): Generator<GenerationEvent> {
+        turnThinking += text;
+        const event: GenerationEvent = { type: "thinking", data: text };
+        if (deferResearchPresentation) {
+          deferredTurnEvents.push(event);
+        } else {
+          thinking += text;
+          yield event;
+        }
+      };
       const thinkingParser = createInlineThinkingStreamParser({ customThinkingTags: parameters.customThinkingTags });
       const emitInlineParts = function* (text: string): Generator<GenerationEvent> {
         for (const part of thinkingParser.push(text)) {
           if (!part.text) continue;
           if (part.type === "thinking") {
-            thinking += part.text;
-            yield { type: "thinking", data: part.text };
+            yield* emitTurnThinking(part.text);
           } else {
-            turnContent += part.text;
-            inFlightTurn = turnContent;
-            yield { type: "token", data: part.text };
+            yield* emitTurnToken(part.text);
           }
         }
       };
@@ -5397,10 +5424,7 @@ async function* streamMainGenerationLoop(args: {
           if (text) yield* emitInlineParts(text);
         } else if (chunk.type === "thinking") {
           const text = llmChunkText(chunk);
-          if (text) {
-            thinking += text;
-            yield { type: "thinking", data: text };
-          }
+          if (text) yield* emitTurnThinking(text);
         } else if (chunk.type === "tool_call") {
           const normalized = normalizeToolCall(chunk.data);
           if (normalized) pendingToolCalls.push(normalized);
@@ -5417,17 +5441,22 @@ async function* streamMainGenerationLoop(args: {
       for (const part of thinkingParser.flush()) {
         if (!part.text) continue;
         if (part.type === "thinking") {
-          thinking += part.text;
-          yield { type: "thinking", data: part.text };
+          yield* emitTurnThinking(part.text);
         } else {
-          turnContent += part.text;
-          inFlightTurn = turnContent;
-          yield { type: "token", data: part.text };
+          yield* emitTurnToken(part.text);
         }
       }
 
       throwIfAborted(signal);
-      content += turnContent;
+      const hasCharacterWebCall = pendingToolCalls.some((call) =>
+        isCharacterWebToolName(call.function?.name || call.name || ""),
+      );
+      const hideTurn = deferResearchPresentation && hasCharacterWebCall;
+      if (deferResearchPresentation && !hideTurn) {
+        thinking += turnThinking;
+        for (const event of deferredTurnEvents) yield event;
+      }
+      if (!hideTurn) content += turnContent;
       inFlightTurn = "";
 
       if (!mainTools || pendingToolCalls.length === 0) break;
@@ -5483,7 +5512,11 @@ async function* streamMainGenerationLoop(args: {
               allowedDomains,
               status: "pending",
             };
-            content = characterWebResearchRequestContent(content, reason);
+            content = characterWebResearchRequestContent(
+              content,
+              reason,
+              mainTools.characterWebResearchPresentation,
+            );
             break;
           }
         } catch {
@@ -5511,7 +5544,11 @@ async function* streamMainGenerationLoop(args: {
         throwIfAborted(signal);
         const toolName = call.function?.name || call.name;
         const toolArgs = call.function?.arguments || call.arguments || "{}";
-        yield { type: "tool_call", data: { id: call.id, name: toolName, arguments: toolArgs } };
+        const hideToolActivity =
+          mainTools.characterWebResearchPresentation === "quiet" && isCharacterWebToolName(toolName);
+        if (!hideToolActivity) {
+          yield { type: "tool_call", data: { id: call.id, name: toolName, arguments: toolArgs } };
+        }
         let resultText: string;
         let success = true;
         try {
@@ -5537,10 +5574,12 @@ async function* streamMainGenerationLoop(args: {
           resultText = err instanceof Error ? err.message : String(err);
         }
         throwIfAborted(signal);
-        yield {
-          type: "tool_result",
-          data: { toolCallId: call.id, name: toolName, result: resultText, success },
-        };
+        if (!hideToolActivity) {
+          yield {
+            type: "tool_result",
+            data: { toolCallId: call.id, name: toolName, result: resultText, success },
+          };
+        }
         conversation.push({
           role: "tool",
           content: resultText,
