@@ -57,6 +57,11 @@ import { applyAllSegmentEdits } from "../modes/game/state/segment-edits";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { activeCharacterIds } from "./active-characters";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
+import {
+  buildBehavioralExamplePool,
+  selectBehavioralExamples,
+  type BehavioralExampleSelection,
+} from "./behavioral-example-pool";
 import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPrioritySkipped } from "./context-priority";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
 import {
@@ -104,6 +109,7 @@ export interface GenerationCharacterContext {
   appearance?: string;
   mesExample?: string;
   firstMes?: string;
+  alternateGreetings?: string[];
   postHistoryInstructions?: string;
   depthPrompt?: GenerationCharacterDepthPrompt;
   memories?: string[];
@@ -466,6 +472,7 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
     appearance: field(data, "appearance") || field(extensions, "appearance") || undefined,
     mesExample: field(data, "mes_example") || field(data, "mesExample") || undefined,
     firstMes: field(data, "first_mes") || field(data, "firstMes") || undefined,
+    alternateGreetings: stringArray(data.alternate_greetings ?? data.alternateGreetings),
     postHistoryInstructions:
       field(data, "post_history_instructions") || field(data, "postHistoryInstructions") || undefined,
     depthPrompt: characterDepthPrompt(data, extensions),
@@ -1547,6 +1554,88 @@ function renderDialogueExamples(
     .map((character) => character.mesExample)
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .join("\n\n");
+}
+
+const DEFAULT_BEHAVIORAL_EXAMPLE_SELECTION_THRESHOLD_TOKENS = 320;
+const DEFAULT_BEHAVIORAL_EXAMPLE_TOKEN_BUDGET = 180;
+const DEFAULT_BEHAVIORAL_EXAMPLE_CANDIDATE_CAP = 2;
+
+function behavioralExampleQueryText(input: PromptAssemblyInput): string {
+  const recentScene = input.storedMessages
+    .filter((message) => !hiddenFromAi(message))
+    .slice(-4)
+    .map((message) => readString(message.content).trim())
+    .filter(Boolean);
+  const latest = input.userRegenerationSourceMessage?.content?.trim() || input.latestUserInput.trim();
+  if (latest && recentScene.at(-1) !== latest) recentScene.push(latest);
+  return recentScene.join("\n");
+}
+
+function behavioralExampleVisibleHistory(input: PromptAssemblyInput): string[] {
+  return input.storedMessages
+    .filter((message) => !hiddenFromAi(message))
+    .map((message) => readString(message.content))
+    .filter((content) => content.trim().length > 0);
+}
+
+function behavioralExampleRuntimeCharacters(
+  characters: GenerationCharacterContext[],
+  selection: BehavioralExampleSelection,
+): GenerationCharacterContext[] {
+  if (!selection.activated) return characters;
+  return characters.map((character) => ({
+    ...character,
+    mesExample: selection.renderedByCharacter[character.id] || undefined,
+  }));
+}
+
+function behavioralExampleAttribution(selection: BehavioralExampleSelection): GenerationContextAttributionItem[] {
+  if (!selection.activated) return [];
+  return [...selection.selected, ...selection.skipped].map((entry) => ({
+    kind: "behavioral_example",
+    label: `${entry.candidate.characterName} · ${entry.candidate.sourceField.replaceAll("_", " ")}`,
+    status: entry.reason === "selected" ? "injected" : "skipped",
+    sourceId: entry.candidate.id,
+    sourceCollection: "characters",
+    parentSourceId: entry.candidate.characterId,
+    snippet:
+      entry.candidate.dialogueText.length <= 240
+        ? entry.candidate.dialogueText
+        : `${entry.candidate.dialogueText.slice(0, 239).trimEnd()}…`,
+    metadata: {
+      version: entry.candidate.version,
+      sourceField: entry.candidate.sourceField,
+      sourceIndex: entry.candidate.sourceIndex,
+      contentHash: entry.candidate.contentHash,
+      estimatedTokens: entry.candidate.estimatedTokens,
+      selectionMode: selection.mode,
+      lexicalScore: entry.lexicalScore,
+      semanticScore: entry.semanticScore,
+      score: entry.score,
+      reason: entry.reason,
+    },
+  }));
+}
+
+function applyBehavioralExampleMacros(
+  macros: MacroContext,
+  characters: GenerationCharacterContext[],
+  groupScenarioOverride: GroupScenarioOverride,
+): void {
+  macros.characterProfiles = characters.map((character) => ({
+    name: character.name,
+    description: character.description,
+    personality: character.personality,
+    backstory: character.backstory,
+    appearance: character.appearance,
+    scenario: groupScenarioOverride.enabled ? groupScenarioOverride.text : character.scenario,
+    example: character.mesExample,
+    systemPrompt: character.systemPrompt,
+    postHistoryInstructions: character.postHistoryInstructions,
+  }));
+  if (macros.characterFields && characters[0]) {
+    macros.characterFields.example = characters[0].mesExample;
+  }
 }
 
 function renderPersona(persona: GenerationPersonaContext | null, wrapFormat: WrapFormat): string {
@@ -3944,7 +4033,7 @@ export async function assembleGenerationPrompt(
     normalizeWrapFormat(input.connection.wrapFormat) ??
     "xml";
   const activeGroupScenarioOverride = reusableContext?.groupScenarioOverride ?? groupScenarioOverride(chatMeta);
-  const promptCharacters = reusableContext?.promptCharacters ?? promptCharactersForGeneration(input, characters);
+  let promptCharacters = reusableContext?.promptCharacters ?? promptCharactersForGeneration(input, characters);
   const compactMergedRoleplayCards = shouldCompactMergedRoleplayCharacterCards(input, promptCharacters);
   const individualGroupTarget = scopedIndividualGroupTarget(input, characters);
   const regexTargetCharacterId = promptRegexTargetCharacterId(input, characters);
@@ -4001,6 +4090,48 @@ export async function assembleGenerationPrompt(
     reusableContext?.userRegenerationSourceFingerprint === regenerationSourceFingerprint;
   if (!canReuseSourceSensitiveContext && !embeddingSource) {
     embeddingSource = memoizedEmbeddingSource(input.embeddingSource);
+  }
+  let behavioralExampleAttributionItems = canReuseSourceSensitiveContext
+    ? (reusableContext?.contextAttributionItems.filter((item) => item.kind === "behavioral_example") ?? [])
+    : [];
+  if (!canReuseSourceSensitiveContext) {
+    const authoredPromptCharacters = promptCharactersForGeneration(input, characters);
+    const behavioralExampleSelection =
+      chatMode === "game" || compactMergedRoleplayCards
+        ? null
+        : await selectBehavioralExamples({
+            candidates: buildBehavioralExamplePool(authoredPromptCharacters),
+            queryText: behavioralExampleQueryText(input),
+            visibleHistory: behavioralExampleVisibleHistory(input),
+            selectionThresholdTokens: readNumber(
+              input.request.behavioralExampleSelectionThresholdTokens,
+              DEFAULT_BEHAVIORAL_EXAMPLE_SELECTION_THRESHOLD_TOKENS,
+            ),
+            tokenBudget: readNumber(
+              input.request.behavioralExampleTokenBudget,
+              DEFAULT_BEHAVIORAL_EXAMPLE_TOKEN_BUDGET,
+            ),
+            candidateCap: readNumber(
+              input.request.behavioralExampleCandidateCap,
+              DEFAULT_BEHAVIORAL_EXAMPLE_CANDIDATE_CAP,
+            ),
+            embed: embeddingSource ? (texts) => embeddingSource!.embed(texts) : null,
+            resolveForHistory: (text) => resolvePromptMacros(text, macros, deferCharacterMacros),
+          });
+    promptCharacters = behavioralExampleSelection
+      ? behavioralExampleRuntimeCharacters(authoredPromptCharacters, behavioralExampleSelection)
+      : authoredPromptCharacters;
+    if (behavioralExampleSelection) {
+      behavioralExampleAttributionItems = behavioralExampleAttribution(behavioralExampleSelection);
+      applyBehavioralExampleMacros(macros, promptCharacters, activeGroupScenarioOverride);
+      if (behavioralExampleSelection.activated && selectedPreset) {
+        for (const variableName of selectedPreset.choiceVariableNames) {
+          const originalValue = selectedPreset.variables[variableName];
+          if (originalValue !== undefined) macros.variables[variableName] = originalValue;
+        }
+        resolvePromptChoiceVariableMacros(macros, selectedPreset.choiceVariableNames, deferCharacterMacros);
+      }
+    }
   }
   const greetingPromptVariables =
     canReuseMacroSensitiveContext && reusableContext
@@ -4391,6 +4522,7 @@ export async function assembleGenerationPrompt(
     ...historyAndSummaryAttributionItems,
     ...(memoryRecallContext?.attributionItems ?? []),
     ...(canonicalMemoryContext?.attributionItems ?? []),
+    ...behavioralExampleAttributionItems,
     ...attributionForLorebookEntries(processedLore.includedEntries.map(lorebookActivatedEntryForEvent)),
   ];
 

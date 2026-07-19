@@ -29,6 +29,7 @@ const GROUP_LABELS: Record<GenerationContextAttributionKind, string> = {
   chat_history: "Recent Chat",
   chat_summary: "Chat Summary",
   memory_recall: "Memory",
+  behavioral_example: "Behavioral Examples",
   lorebook: "Lorebook",
   knowledge_retrieval: "Knowledge Retrieval",
   knowledge_router: "Knowledge Router",

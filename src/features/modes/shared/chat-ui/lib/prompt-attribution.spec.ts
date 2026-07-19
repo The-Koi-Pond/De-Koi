@@ -77,6 +77,37 @@ describe("prompt attribution view model", () => {
       },
     ]);
   });
+
+  it("labels selected and skipped authored examples as Behavioral Examples", () => {
+    const attribution: GenerationContextAttribution = {
+      source: "saved_snapshot",
+      items: [
+        {
+          kind: "behavioral_example",
+          label: "Mira · mes example",
+          status: "injected",
+          snippet: "Mira refuses to surrender the key.",
+        },
+        {
+          kind: "behavioral_example",
+          label: "Mira · alternate greeting",
+          status: "skipped",
+          snippet: "Mira comments on the weather.",
+        },
+      ],
+    };
+
+    expect(buildPromptAttributionViewModel(attribution)?.groups).toEqual([
+      {
+        label: "Behavioral Examples",
+        items: [
+          expect.objectContaining({ statusLabel: "Injected" }),
+          expect.objectContaining({ statusLabel: "Skipped" }),
+        ],
+      },
+    ]);
+  });
+
   it("keeps redacted hidden sources out of snippets", () => {
     const attribution: GenerationContextAttribution = {
       source: "best_effort_reconstruction",
