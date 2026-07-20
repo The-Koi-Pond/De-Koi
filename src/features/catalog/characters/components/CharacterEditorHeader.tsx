@@ -31,6 +31,7 @@ export function CharacterEditorHeader({
   imageGenerationAvailable,
   isImportingPersona,
   isStartingChat,
+  refreshingDerivedArtifact,
   saving,
   onAvatarUpload,
   onBack,
@@ -55,6 +56,7 @@ export function CharacterEditorHeader({
   imageGenerationAvailable: boolean;
   isImportingPersona: boolean;
   isStartingChat: boolean;
+  refreshingDerivedArtifact: boolean;
   saving: boolean;
   onAvatarUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onBack: () => void;
@@ -223,6 +225,12 @@ export function CharacterEditorHeader({
           <p className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
             {formData.creator ? `by ${formData.creator}` : "No creator"} · v{formData.character_version || "1.0"} ·{" "}
             <Hash size="0.625rem" className="inline align-[-0.1em]" /> {formatEstimatedTokens(tokenEstimate)}
+            {refreshingDerivedArtifact && (
+              <span role="status" className="ml-2 inline-flex items-center gap-1" aria-live="polite">
+                <Loader2 size="0.625rem" className="animate-spin" />
+                Refreshing behavior
+              </span>
+            )}
           </p>
         </div>
       </div>

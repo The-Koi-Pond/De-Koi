@@ -123,8 +123,9 @@ function claimsEquivalent(left: CharacterBehavioralClaim, right: CharacterBehavi
   const rightStatement = normalize(right.statement);
   if (!leftStatement || !rightStatement) return false;
   if (leftStatement === rightStatement) return true;
+  if (evidenceEquivalent(left.evidence, right.evidence)) return true;
   const statementOverlap = containmentScore(meaningfulWords(leftStatement), meaningfulWords(rightStatement));
-  return statementOverlap >= 0.75 || (statementOverlap >= 0.55 && evidenceEquivalent(left.evidence, right.evidence));
+  return statementOverlap >= 0.75;
 }
 
 function uniqueClaims(claims: CharacterBehavioralClaim[]): CharacterBehavioralClaim[] {

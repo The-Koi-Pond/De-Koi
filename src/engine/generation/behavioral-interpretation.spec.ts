@@ -116,14 +116,14 @@ describe("behavioral interpretation validation", () => {
     const result = validateBehavioralInterpretation(source, {
       claims: [
         {
-          statement: "May avoid direct answers when the missing letter is questioned.",
+          statement: "May use dry humor to deflect personal questions.",
           evidenceClass: "tentative",
-          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
         },
         {
-          statement: "Could become evasive and resist direct answers about the missing letter.",
+          statement: "Mira sidesteps personal inquiries with sarcastic jokes.",
           evidenceClass: "tentative",
-          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
         },
       ],
     });
@@ -228,16 +228,16 @@ describe("behavioral interpretation freshness and packing", () => {
       claims: [
         {
           id: "indirect",
-          statement: "May avoid direct answers when the missing letter is questioned.",
+          statement: "May use dry humor to deflect personal questions.",
           evidenceClass: "tentative",
-          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
           source: "generated",
         },
         {
           id: "evasive",
-          statement: "Could become evasive and resist direct answers about the missing letter.",
+          statement: "Mira sidesteps personal inquiries with sarcastic jokes.",
           evidenceClass: "tentative",
-          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
           source: "generated",
         },
       ],

@@ -358,6 +358,7 @@ export function useCharacterPanelSummaries(enabled = true, search?: string) {
 }
 
 export interface UseCharacterOptions {
+  /** Bypass the five-minute cache when mounting a surface that inspects detached engine-owned artifacts. */
   refreshDerivedOnMount?: boolean;
 }
 

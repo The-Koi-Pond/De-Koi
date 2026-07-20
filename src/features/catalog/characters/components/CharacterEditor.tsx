@@ -53,7 +53,11 @@ export function CharacterEditor() {
   const clearCharacterDetailDestination = useUIStore((s) => s.clearCharacterDetailDestination);
   const closeDetail = useUIStore((s) => s.closeCharacterDetail);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
-  const { data: rawCharacter, isLoading } = useCharacter(characterId, { refreshDerivedOnMount: true });
+  const {
+    data: rawCharacter,
+    isLoading,
+    isFetching: refreshingDerivedArtifact,
+  } = useCharacter(characterId, { refreshDerivedOnMount: true });
   const updateCharacter = useUpdateCharacter();
   const deleteCharacter = useDeleteCharacter();
   const duplicateCharacter = useDuplicateCharacter();
@@ -375,6 +379,7 @@ export function CharacterEditor() {
         imageGenerationAvailable={imageGenerationAvailable}
         isImportingPersona={isImportingPersona}
         isStartingChat={isStartingChat}
+        refreshingDerivedArtifact={refreshingDerivedArtifact && !isLoading}
         saving={saving}
         onAvatarUpload={handleAvatarUpload}
         onBack={handleClose}
