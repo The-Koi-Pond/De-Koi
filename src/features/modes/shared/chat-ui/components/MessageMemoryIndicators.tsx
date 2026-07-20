@@ -16,7 +16,9 @@ interface MessageMemoryIndicatorsProps {
   className?: string;
 }
 
-function recalledMemoryItems(promptSnapshot: GenerationPromptSnapshot | null | undefined): GenerationContextAttributionItem[] {
+function recalledMemoryItems(
+  promptSnapshot: GenerationPromptSnapshot | null | undefined,
+): GenerationContextAttributionItem[] {
   return (
     promptSnapshot?.contextAttribution?.items.filter(
       (item) => item.kind === "memory_recall" && item.status === "injected",
@@ -46,11 +48,17 @@ export function MessageMemoryIndicators({
   const titleId = useId();
   const savedTitleId = useId();
   const savedCapture = memoryCapture?.capture;
-  const remembered =
-    !isUser &&
-    memoryCapture?.status === "completed" &&
-    !!savedCapture?.memory?.id?.trim() &&
-    !!savedCapture.memory.content?.trim();
+  const savedConsequences =
+    memoryCapture?.consequences?.affected.filter(
+      (entry) => !!entry.memory.id.trim() && !!entry.memory.content.trim(),
+    ) ?? [];
+  const savedMemories =
+    savedConsequences.length > 0
+      ? savedConsequences
+      : savedCapture?.memory?.id?.trim() && savedCapture.memory.content?.trim()
+        ? [savedCapture]
+        : [];
+  const remembered = !isUser && memoryCapture?.status === "completed" && savedMemories.length > 0;
   const recalledItems = useMemo(() => recalledMemoryItems(promptSnapshot), [promptSnapshot]);
   const recalledCount = !isUser ? recalledItems.length : 0;
   const visibleSnippets = recalledItems
@@ -150,11 +158,30 @@ export function MessageMemoryIndicators({
               onClick={(event) => event.stopPropagation()}
             >
               <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
-                {savedCapture?.operation === "updated" ? "Updated memory" : "Saved memory"}
+                {savedMemories.length > 1
+                  ? "Saved memories"
+                  : savedMemories[0]?.operation === "updated"
+                    ? "Updated memory"
+                    : "Saved memory"}
               </div>
-              <p className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md bg-[var(--accent)]/35 px-2 py-1.5 leading-relaxed text-[var(--foreground)]/80">
-                {savedCapture?.memory?.content}
-              </p>
+              <div className="max-h-56 space-y-2 overflow-y-auto">
+                {savedMemories.map((entry) => (
+                  <div
+                    key={entry.memory.id}
+                    className="rounded-md bg-[var(--accent)]/35 px-2 py-1.5 leading-relaxed text-[var(--foreground)]/80"
+                  >
+                    {"kind" in entry.memory && "status" in entry.memory && (
+                      <div className="mb-1 text-[0.5625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                        {String(entry.memory.kind)} / {String(entry.memory.status)} / {entry.operation}
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap">{entry.memory.content}</p>
+                    <code className="mt-1 block break-all text-[0.5625rem] text-[var(--muted-foreground)]">
+                      {entry.memory.id}
+                    </code>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </span>

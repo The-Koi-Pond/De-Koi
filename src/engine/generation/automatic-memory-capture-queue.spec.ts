@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { LlmGateway } from "../capabilities/llm";
 import type { RefreshChatMemoriesOptions, StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { JsonRecord } from "./runtime-records";
 import {
@@ -149,16 +150,16 @@ function queueStorage(
       return Array.from(canonicalMemories.values()).filter(
         (memory) =>
           !body?.scope ||
-          (memory.scope as { kind?: string; id?: string } | undefined)?.kind === body.scope.kind &&
-            (memory.scope as { kind?: string; id?: string } | undefined)?.id === body.scope.id,
+          ((memory.scope as { kind?: string; id?: string } | undefined)?.kind === body.scope.kind &&
+            (memory.scope as { kind?: string; id?: string } | undefined)?.id === body.scope.id),
       ) as never;
     },
     async queryMemories(body) {
       return Array.from(canonicalMemories.values()).filter(
         (memory) =>
           !body?.scope ||
-          (memory.scope as { kind?: string; id?: string } | undefined)?.kind === body.scope.kind &&
-            (memory.scope as { kind?: string; id?: string } | undefined)?.id === body.scope.id,
+          ((memory.scope as { kind?: string; id?: string } | undefined)?.kind === body.scope.kind &&
+            (memory.scope as { kind?: string; id?: string } | undefined)?.id === body.scope.id),
       ) as never;
     },
   };
@@ -180,6 +181,61 @@ function queueStorage(
 }
 
 describe("automatic memory capture queue", () => {
+  it("persists a typed consequence from the complete queued exchange and records its exact ID", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    const llm: LlmGateway = {
+      async complete() {
+        return JSON.stringify({
+          memories: [
+            {
+              kind: "fact",
+              content: "The user's cat is named Miso.",
+              confidence: 0.97,
+              evidence: "direct_user_assertion",
+              sourceMessageIds: ["user-1"],
+            },
+          ],
+        });
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
+
+    const consequence = Array.from(harness.canonicalMemories.values()).find((memory) => memory.kind === "fact");
+    expect(consequence).toEqual(
+      expect.objectContaining({
+        status: "active",
+        scope: { kind: "character", id: "char-1" },
+        content: "The user's cat is named Miso.",
+        provenance: expect.objectContaining({ messageIds: ["user-1"] }),
+      }),
+    );
+    expect(harness.jobs.get(String(job?.id))?.affectedCanonicalMemoryIds).toEqual([consequence?.id]);
+    expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).toEqual(
+      expect.objectContaining({
+        consequences: {
+          affected: [
+            {
+              operation: "created",
+              memory: expect.objectContaining({
+                id: consequence?.id,
+                kind: "fact",
+                status: "active",
+              }),
+            },
+          ],
+        },
+      }),
+    );
+  });
+
   it("completes a pending capture job with the queued source exchange", async () => {
     const harness = queueStorage();
     const job = await harness.enqueue();
@@ -248,6 +304,47 @@ describe("automatic memory capture queue", () => {
     expect(harness.refreshCalls).toHaveLength(2);
   });
 
+  it("retries a transient consequence-extraction failure without duplicating canonical consequences", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    let attempts = 0;
+    const llm: LlmGateway = {
+      async complete() {
+        attempts += 1;
+        if (attempts === 1) throw new Error("extractor unavailable");
+        return JSON.stringify({
+          memories: [
+            {
+              kind: "fact",
+              content: "The user's cat is named Miso.",
+              confidence: 0.97,
+              evidence: "direct_user_assertion",
+              sourceMessageIds: ["user-1"],
+            },
+          ],
+        });
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+    const dependencies = { storage: harness.storage, llm };
+
+    await processAutomaticMemoryCaptureQueue(dependencies, { now: "2026-01-01T00:03:00.000Z" });
+    expect(harness.jobs.get(String(job?.id))).toEqual(
+      expect.objectContaining({ status: "retryable", attempts: 1, lastError: "extractor unavailable" }),
+    );
+
+    const retryAt = String(harness.jobs.get(String(job?.id))?.nextAttemptAt);
+    await processAutomaticMemoryCaptureQueue(dependencies, { now: retryAt });
+
+    expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed", attempts: 2 }));
+    expect(Array.from(harness.canonicalMemories.values()).filter((memory) => memory.kind === "fact")).toHaveLength(1);
+  });
+
   it("records terminal failure after max attempts", async () => {
     const harness = queueStorage({ refreshFailures: 3 });
     const job = await harness.enqueue();
@@ -280,6 +377,19 @@ describe("automatic memory capture queue", () => {
     expect(harness.refreshCalls).toHaveLength(0);
     expect(harness.jobs.get(String(job?.id))).toEqual(
       expect.objectContaining({ status: "stale", staleReason: "source_content_changed" }),
+    );
+  });
+
+  it("marks a job stale when source evidence was deleted before processing", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    await harness.storage.deleteChatMessage("user-1");
+
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:04:00.000Z" });
+
+    expect(harness.refreshCalls).toHaveLength(0);
+    expect(harness.jobs.get(String(job?.id))).toEqual(
+      expect.objectContaining({ status: "stale", staleReason: "source_message_deleted" }),
     );
   });
 
@@ -407,10 +517,32 @@ describe("automatic memory capture queue", () => {
     expect(harness.canonicalMemories.size).toBe(0);
   });
 
-  it("recalls a Conversation capture for the same character in a later Roleplay", async () => {
+  it("recalls an extracted Conversation consequence for the same character in a later Roleplay", async () => {
     const harness = queueStorage();
     await harness.enqueue();
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    const llm: LlmGateway = {
+      async complete() {
+        return JSON.stringify({
+          memories: [
+            {
+              kind: "fact",
+              content: "The user's cat is named Miso.",
+              confidence: 0.97,
+              evidence: "direct_user_assertion",
+              sourceMessageIds: ["user-1"],
+            },
+          ],
+        });
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
+    const consequence = Array.from(harness.canonicalMemories.values()).find((memory) => memory.kind === "fact");
 
     const recalled = await buildCanonicalMemoryContext(harness.storage, {
       chat: { id: "chat-2", mode: "roleplay", metadata: {} },
@@ -420,6 +552,9 @@ describe("automatic memory capture queue", () => {
       maxContext: 4096,
     });
 
-    expect(recalled?.block).toContain("Celia's cat is named Miso.");
+    expect(recalled?.block).toContain("The user's cat is named Miso.");
+    expect(recalled?.attributionItems).toContainEqual(
+      expect.objectContaining({ sourceId: consequence?.id, sourceCollection: "canonical-memories" }),
+    );
   });
 });

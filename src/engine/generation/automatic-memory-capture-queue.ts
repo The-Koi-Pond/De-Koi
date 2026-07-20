@@ -1,9 +1,12 @@
+import type { LlmGateway } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
-import type { CanonicalMemoryInput } from "../contracts/types/memory";
+import type { CanonicalMemoryInput, CanonicalMemoryRecord, MemoryScope } from "../contracts/types/memory";
 import {
-  resolveAutomaticMemoryScope,
-  type CharacterMemoryScopeCharacter,
-} from "./character-memory-scope";
+  extractCanonicalMemoryConsequences,
+  persistCanonicalMemoryConsequences,
+  type PersistedCanonicalConsequence,
+} from "./automatic-memory-capture";
+import { resolveAutomaticMemoryScope, type CharacterMemoryScopeCharacter } from "./character-memory-scope";
 import { nowIso, parseArray, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 
 const MEMORY_CAPTURE_JOBS_COLLECTION: StorageEntity = "memory-capture-jobs";
@@ -38,6 +41,8 @@ interface MemoryCaptureJob extends JsonRecord {
   scopeReason: "attributed_character" | "character_chat_only" | "ambiguous_scene" | "ambiguous_chat";
   characterId?: string | null;
   sceneId?: string | null;
+  connectionId?: string | null;
+  model?: string | null;
   captureVersion: number;
   attempts: number;
   maxAttempts: number;
@@ -51,11 +56,18 @@ export interface AutomaticMemoryCaptureScheduleInput {
   characters: CharacterMemoryScopeCharacter[];
   savedUserMessage?: unknown;
   savedAssistantMessage: unknown;
+  connectionId?: string | null;
+  model?: string | null;
 }
 
 export interface AutomaticMemoryCaptureProcessOptions {
   now?: string;
   limit?: number;
+}
+
+export interface AutomaticMemoryCaptureQueueDependencies {
+  storage: StorageGateway;
+  llm: LlmGateway;
 }
 
 export interface AutomaticMemoryCaptureCompletion {
@@ -76,7 +88,9 @@ export function subscribeAutomaticMemoryCaptureCompletions(
   return () => completionListeners.delete(listener);
 }
 
-function memoryCaptureFromRefresh(value: unknown): Omit<AutomaticMemoryCaptureCompletion, "chatId" | "assistantMessageId"> | null {
+function memoryCaptureFromRefresh(
+  value: unknown,
+): Omit<AutomaticMemoryCaptureCompletion, "chatId" | "assistantMessageId"> | null {
   const capture = parseRecord(parseRecord(value).capture);
   const memory = parseRecord(capture.memory);
   const operation = readString(capture.operation).trim();
@@ -254,6 +268,80 @@ async function upsertCanonicalCharacterMemory(
   }
 }
 
+function queueDependencies(input: StorageGateway | AutomaticMemoryCaptureQueueDependencies): {
+  storage: StorageGateway;
+  llm: LlmGateway | null;
+} {
+  if ("storage" in input && "llm" in input) return input;
+  return { storage: input, llm: null };
+}
+
+function jobScope(job: JsonRecord): MemoryScope | null {
+  const kind = readString(job.scopeKind).trim();
+  const id = readString(job.scopeId).trim();
+  if (!["character", "chat", "scene"].includes(kind) || !id) return null;
+  return { kind: kind as MemoryScope["kind"], id };
+}
+
+async function eligibleCanonicalMemories(
+  storage: StorageGateway,
+  scope: MemoryScope,
+): Promise<CanonicalMemoryRecord[]> {
+  if (!storage.queryMemories) return [];
+  const memories = await storage.queryMemories({ scope, statuses: ["active", "pinned"] });
+  return memories
+    .filter((memory) => memory.status === "active" || memory.status === "pinned")
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, 24);
+}
+
+async function extractAndPersistConsequences(args: {
+  storage: StorageGateway;
+  llm: LlmGateway;
+  job: JsonRecord;
+  now: string;
+}): Promise<PersistedCanonicalConsequence[]> {
+  const scope = jobScope(args.job);
+  const jobId = readString(args.job.id).trim();
+  const chatId = readString(args.job.chatId).trim();
+  const sourceMessages = sourceSnapshotsFromJob(args.job);
+  if (!scope || !jobId || !chatId || sourceMessages.length === 0) return [];
+  const eligibleMemories = await eligibleCanonicalMemories(args.storage, scope);
+  const extraction = await extractCanonicalMemoryConsequences({
+    llm: args.llm,
+    request: {
+      version: 1,
+      jobId,
+      chatId,
+      mode: readString(args.job.mode).trim() || "conversation",
+      scope,
+      activeCharacterId: readString(args.job.characterId).trim() || null,
+      sourceMessages,
+      eligibleMemories,
+      connectionId: readString(args.job.connectionId).trim() || null,
+      model: readString(args.job.model).trim() || null,
+    },
+  });
+  const persisted = await persistCanonicalMemoryConsequences({
+    storage: args.storage,
+    candidates: extraction.candidates,
+    eligibleMemories,
+    now: args.now,
+  });
+  if (persisted.affected.length > 0 && args.storage.rebuildMemoryIndex) {
+    try {
+      await args.storage.rebuildMemoryIndex({ scope });
+    } catch (error) {
+      await updateJob(args.storage, jobId, {
+        canonicalIndexError: errorMessage(error),
+        canonicalIndexFailedAt: args.now,
+        updatedAt: args.now,
+      });
+    }
+  }
+  return persisted.affected;
+}
+
 export async function enqueueAutomaticMemoryCaptureJob(
   storage: StorageGateway,
   input: AutomaticMemoryCaptureScheduleInput,
@@ -295,6 +383,8 @@ export async function enqueueAutomaticMemoryCaptureJob(
     scopeReason: resolvedScope.reason,
     characterId: resolvedScope.characterId,
     sceneId,
+    connectionId: input.connectionId ?? null,
+    model: input.model ?? null,
     captureVersion: AUTOMATIC_MEMORY_CAPTURE_VERSION,
     attempts: 0,
     maxAttempts: MAX_CAPTURE_ATTEMPTS,
@@ -311,9 +401,10 @@ export async function enqueueAutomaticMemoryCaptureJob(
 }
 
 export async function processAutomaticMemoryCaptureQueue(
-  storage: StorageGateway,
+  dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
   options: AutomaticMemoryCaptureProcessOptions = {},
 ): Promise<{ processed: number; completed: number; retryable: number; failed: number; stale: number }> {
+  const { storage, llm } = queueDependencies(dependencies);
   if (!storage.refreshChatMemories) return { processed: 0, completed: 0, retryable: 0, failed: 0, stale: 0 };
   const now = options.now ?? nowIso();
   const jobs = await storage.list<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION).catch(() => []);
@@ -357,6 +448,7 @@ export async function processAutomaticMemoryCaptureQueue(
       if (capture) {
         await upsertCanonicalCharacterMemory(storage, job, capture, now);
       }
+      const consequences = llm ? await extractAndPersistConsequences({ storage, llm, job, now }) : [];
       const assistantMessageId = readString(job.assistantMessageId).trim();
       if (assistantMessageId) {
         await storage.patchChatMessageExtra(assistantMessageId, {
@@ -366,6 +458,21 @@ export async function processAutomaticMemoryCaptureQueue(
             sourceMessageIds,
             completedAt: now,
             ...(capture ? { capture } : {}),
+            ...(llm
+              ? {
+                  consequences: {
+                    affected: consequences.map(({ operation, memory }) => ({
+                      operation,
+                      memory: {
+                        id: memory.id,
+                        kind: memory.kind,
+                        status: memory.status,
+                        content: memory.content,
+                      },
+                    })),
+                  },
+                }
+              : {}),
           },
         });
       }
@@ -375,9 +482,18 @@ export async function processAutomaticMemoryCaptureQueue(
         updatedAt: now,
         lastError: null,
         nextAttemptAt: null,
+        affectedCanonicalMemoryIds: consequences.map((entry) => entry.memory.id),
       });
       result.completed += 1;
-      if (capture && assistantMessageId) {
+      const completion = consequences[0];
+      if (completion && assistantMessageId) {
+        publishMemoryCaptureCompletion({
+          chatId,
+          assistantMessageId,
+          operation: completion.operation === "created" ? "created" : "updated",
+          memory: { id: completion.memory.id, content: completion.memory.content },
+        });
+      } else if (capture && assistantMessageId) {
         publishMemoryCaptureCompletion({ chatId, assistantMessageId, ...capture });
       }
     } catch (error) {
@@ -397,26 +513,30 @@ export async function processAutomaticMemoryCaptureQueue(
   return result;
 }
 
-export function scheduleAutomaticMemoryCaptureQueueProcessing(storage: StorageGateway): void {
+export function scheduleAutomaticMemoryCaptureQueueProcessing(
+  dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
+): void {
+  const { storage } = queueDependencies(dependencies);
   if (activeWorkers.has(storage)) {
     pendingWorkerReruns.add(storage);
     return;
   }
   activeWorkers.add(storage);
-  void processAutomaticMemoryCaptureQueue(storage).finally(() => {
+  void processAutomaticMemoryCaptureQueue(dependencies).finally(() => {
     activeWorkers.delete(storage);
     if (pendingWorkerReruns.has(storage)) {
       pendingWorkerReruns.delete(storage);
-      scheduleAutomaticMemoryCaptureQueueProcessing(storage);
+      scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
     }
   });
 }
 
 export async function enqueueAndScheduleAutomaticMemoryCapture(
-  storage: StorageGateway,
+  dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
   input: AutomaticMemoryCaptureScheduleInput,
 ): Promise<JsonRecord | null> {
+  const { storage } = queueDependencies(dependencies);
   const job = await enqueueAutomaticMemoryCaptureJob(storage, input);
-  if (job) scheduleAutomaticMemoryCaptureQueueProcessing(storage);
+  if (job) scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
   return job;
 }

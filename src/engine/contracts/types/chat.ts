@@ -5,6 +5,7 @@
 import type { GenerationGuideSource } from "../../shared/text/generation-guide.js";
 import type { GenerationEvent, LegacyStreamProtocolEvent } from "./generation.js";
 import type { LorebookActivationTrace } from "./lorebook.js";
+import type { MemoryKind, MemoryStatus } from "./memory.js";
 
 /** The primary chat modes the engine supports. */
 export type ChatMode = "conversation" | "roleplay" | "game";
@@ -520,6 +521,17 @@ export interface MessageMemoryCaptureExtra {
   capture?: {
     operation: "created" | "updated";
     memory: { id: string; content: string };
+  };
+  consequences?: {
+    affected: Array<{
+      operation: "created" | "updated" | "superseded";
+      memory: {
+        id: string;
+        kind: MemoryKind;
+        status: MemoryStatus;
+        content: string;
+      };
+    }>;
   };
 }
 /** Additional data attached to a message. */

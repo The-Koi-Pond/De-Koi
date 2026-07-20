@@ -4,6 +4,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { RefreshChatMemoriesOptions, StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
+import type { CanonicalMemoryInput, CanonicalMemoryPatch, CanonicalMemoryRecord } from "../contracts/types/memory";
 import { startGeneration } from "./start-generation";
 
 type StoredMessage = {
@@ -50,6 +51,7 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
   };
   const messages: StoredMessage[] = [];
   const memoryCaptureJobs = new Map<string, Record<string, unknown>>();
+  const canonicalMemories = new Map<string, CanonicalMemoryRecord>();
   let nextMessageId = 1;
   let refreshCount = 0;
   const refreshCalls: Array<{ chatId: string; options?: RefreshChatMemoriesOptions }> = [];
@@ -125,6 +127,7 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
       if (entity === "connections" && id === "conn-1") return records["conn-1"] as T;
       if (entity === "characters" && id === "char-1") return records["char-1"] as T;
       if (entity === "memory-capture-jobs") return (memoryCaptureJobs.get(id) ?? null) as T | null;
+      if (entity === "canonical-memories") return (canonicalMemories.get(id) ?? null) as T | null;
       return null;
     },
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
@@ -233,6 +236,44 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
       }
       return { rebuilt: chat.memories.length } as T;
     },
+    async createMemory(input: CanonicalMemoryInput): Promise<CanonicalMemoryRecord> {
+      const id = String(input.id);
+      const memory = {
+        ...input,
+        id,
+        status: input.status ?? "active",
+        title: input.title ?? null,
+        tags: input.tags ?? [],
+        supersedesMemoryId: input.supersedesMemoryId ?? null,
+        supersededByMemoryId: input.supersededByMemoryId ?? null,
+        payload: input.payload ?? {},
+        createdAt: input.createdAt ?? "2026-01-01T00:00:00.000Z",
+        updatedAt: input.updatedAt ?? "2026-01-01T00:00:00.000Z",
+      } satisfies CanonicalMemoryRecord;
+      canonicalMemories.set(id, memory);
+      return memory;
+    },
+    async updateMemory(id: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord> {
+      const memory = {
+        ...canonicalMemories.get(id)!,
+        ...patch,
+        id,
+        updatedAt: "2026-01-01T00:01:00.000Z",
+      };
+      canonicalMemories.set(id, memory);
+      return memory;
+    },
+    async queryMemories(query): Promise<CanonicalMemoryRecord[]> {
+      return [...canonicalMemories.values()].filter(
+        (memory) =>
+          (!query?.scope ||
+            (memory.scope.kind === query.scope.kind && memory.scope.id === query.scope.id)) &&
+          (!query?.statuses || query.statuses.includes(memory.status)),
+      );
+    },
+    async rebuildMemoryIndex(): Promise<{ rebuilt: number }> {
+      return { rebuilt: canonicalMemories.size };
+    },
     async getWorldState<T = unknown>(): Promise<T | null> {
       return null;
     },
@@ -257,6 +298,7 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
     storage,
     messages,
     memoryCaptureJobs,
+    canonicalMemories,
     refreshCalls,
     seedLegacyImportedChat,
     migrateLegacyImportedChat,
@@ -266,16 +308,18 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
   };
 }
 
-function memoryAwareLlm(calls: LlmRequest[]): LlmGateway {
+function memoryAwareLlm(calls: LlmRequest[], extractedMemories: Record<string, unknown>[] = []): LlmGateway {
   return {
-    complete: vi.fn(async () => ""),
+    complete: vi.fn(async () => JSON.stringify({ memories: extractedMemories })),
     async *stream(request) {
       calls.push(request);
       const promptText = request.messages.map((message) => message.content).join("\n");
       yield {
         type: "token",
         text:
-          promptText.includes("<memories>") && promptText.includes("blue lantern")
+          promptText.includes("The user's cat is named Miso.")
+            ? "You told me your cat is named Miso."
+            : promptText.includes("<memories>") && promptText.includes("blue lantern")
             ? "You hid the key under the blue lantern."
             : promptText.includes("<memories>") && promptText.includes("jasmine tea")
               ? "Mira keeps jasmine tea for the user after patrols."
@@ -359,6 +403,60 @@ describe("startGeneration Memory Recall preflight", () => {
       options: { sourceMessageIds: ["message-1", "message-2"] },
     });
   });
+
+  it.each(["conversation", "roleplay"])(
+    "recalls an extracted consequence on the next %s turn when the first assistant reply did not repeat it",
+    async (mode) => {
+      const calls: LlmRequest[] = [];
+      const harness = memoryRecallStorage({ mode });
+      const deps = {
+        storage: harness.storage,
+        llm: memoryAwareLlm(calls, [
+          {
+            kind: "fact",
+            content: "The user's cat is named Miso.",
+            confidence: 0.98,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["message-1"],
+          },
+        ]),
+        integrations: {} as IntegrationGateway,
+      };
+
+      await collectEvents(
+        startGeneration(deps, {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "My cat is named Miso.",
+        }),
+      );
+      expect(harness.messages.find((message) => message.id === "message-2")?.content).toBe("I do not remember.");
+      await vi.waitFor(() =>
+        expect([...harness.canonicalMemories.values()]).toEqual([
+          expect.objectContaining({
+            kind: "fact",
+            content: "The user's cat is named Miso.",
+            provenance: expect.objectContaining({ messageIds: ["message-1"] }),
+          }),
+        ]),
+      );
+
+      await collectEvents(
+        startGeneration(deps, {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "What is my cat's name?",
+        }),
+      );
+
+      const lastPrompt = calls.at(-1)?.messages.map((message) => message.content).join("\n") ?? "";
+      expect(lastPrompt).toContain("The user's cat is named Miso.");
+      expect(harness.messages.filter((message) => message.role === "assistant").at(-1)?.content).toBe(
+        "You told me your cat is named Miso.",
+      );
+    },
+  );
+
   it("extracts a memory after generation and injects it into the next generation", async () => {
     const calls: LlmRequest[] = [];
     const harness = memoryRecallStorage();
