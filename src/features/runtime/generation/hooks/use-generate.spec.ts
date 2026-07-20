@@ -52,6 +52,31 @@ function backgroundResult(generate: Record<string, unknown>): AgentResult {
 }
 
 describe("generateAndApplyBackgroundRequest", () => {
+  it("quietly skips an optional generated background when no image connection exists", async () => {
+    await expect(
+      generateAndApplyBackgroundRequest(
+        "chat-1",
+        backgroundResult({
+          location: "Moonlit Archive",
+          prompt: "Wide background of a moonlit archive, empty, no characters.",
+        }),
+        {
+          storage: {
+            async get() {
+              return null;
+            },
+            async list() {
+              return [];
+            },
+          } as never,
+          backgrounds: { upload: vi.fn() } as never,
+          image: { generate: vi.fn() } as never,
+          applyChoice: vi.fn(),
+        },
+      ),
+    ).resolves.toBeNull();
+  });
+
   it("executes valid background-agent generate requests and applies the uploaded background", async () => {
     const imageGenerate = vi.fn();
     const image = {

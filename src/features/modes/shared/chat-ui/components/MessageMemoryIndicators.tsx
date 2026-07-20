@@ -180,7 +180,7 @@ export function MessageMemoryIndicators({
   if (!remembered && recalledCount === 0) return null;
 
   return (
-    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
+    <span className={cn("inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5", className)}>
       {remembered && (
         <span className="relative inline-flex">
           <button

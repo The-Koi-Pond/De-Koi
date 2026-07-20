@@ -1036,10 +1036,11 @@ export function shouldReturnManualIllustratorRetryWithoutCommit(args: {
   return args.results.every((result) => result.agentType === "illustrator");
 }
 
-async function generateIllustrationAttachments(args: {
+export async function generateIllustrationAttachments(args: {
   deps: GenerationEngineDeps;
   chat: JsonRecord;
   results: AgentResult[];
+  reportUnavailable: boolean;
   signal?: AbortSignal;
 }): Promise<{ attachments: JsonRecord[]; events: GenerationEvent[] }> {
   const attachments: JsonRecord[] = [];
@@ -1049,7 +1050,9 @@ async function generateIllustrationAttachments(args: {
   if (prompts.length === 0) return { attachments, events };
 
   if (!args.deps.integrations?.image) {
-    events.push({ type: "illustration_error", data: { error: "Image generation is not available." } });
+    if (args.reportUnavailable) {
+      events.push({ type: "illustration_error", data: { error: "Image generation is not available." } });
+    }
     return { attachments, events };
   }
 
@@ -1060,10 +1063,12 @@ async function generateIllustrationAttachments(args: {
     try {
       const settings = await illustrationImageSettings({ storage: args.deps.storage, chat: args.chat, item });
       if (!settings.connectionId) {
-        events.push({
-          type: "illustration_error",
-          data: { error: "No image generation connection configured for the Illustrator agent." },
-        });
+        if (args.reportUnavailable) {
+          events.push({
+            type: "illustration_error",
+            data: { error: "No image generation connection configured for the Illustrator agent." },
+          });
+        }
         continue;
       }
       const referenceData = await illustrationReferenceData({
@@ -4062,6 +4067,7 @@ async function runGenerationAgentsForTarget(args: {
       deps,
       chat: chatForAgents,
       results: finalResults,
+      reportUnavailable: input.options?.illustratorManualRequest === true,
       signal,
     });
     events.push(...illustration.events);
@@ -4999,6 +5005,7 @@ export async function* startGeneration(
           deps,
           chat,
           results: emittedAgentResults,
+          reportUnavailable: false,
           signal,
         });
         throwIfAborted(signal);

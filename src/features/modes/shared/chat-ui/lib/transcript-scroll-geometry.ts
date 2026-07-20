@@ -74,6 +74,7 @@ export type TranscriptFollowBottomInput = {
   isNearBottom: boolean;
   isOptimisticTail: boolean;
   isStreamingWithUserTail: boolean;
+  tailMessageChanged?: boolean;
   userScrolledAway: boolean;
 };
 
@@ -82,11 +83,12 @@ export function shouldFollowTranscriptBottom({
   isNearBottom,
   isOptimisticTail,
   isStreamingWithUserTail,
+  tailMessageChanged = false,
   userScrolledAway,
 }: TranscriptFollowBottomInput): boolean {
   if (hasFreshForcedBottomScroll || isOptimisticTail) return true;
   if (userScrolledAway) return false;
-  return isStreamingWithUserTail || isNearBottom;
+  return tailMessageChanged || isStreamingWithUserTail || isNearBottom;
 }
 
 export type TranscriptWindowRevealInput = {

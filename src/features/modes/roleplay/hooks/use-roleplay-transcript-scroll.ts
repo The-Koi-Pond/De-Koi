@@ -48,6 +48,7 @@ export function useRoleplayTranscriptScroll({
   const userScrolledAtRef = useRef(0);
   const forcedBottomScrollRef = useRef<{ requestedAt: number; behavior: ScrollBehavior } | null>(null);
   const openedAtBottomChatIdRef = useRef<string | null>(null);
+  const followedTailMessageIdRef = useRef<string | undefined>(undefined);
   const streamBuffer = useChatStore((state) => state.streamBuffers.get(activeChatId) ?? state.streamBuffer);
   const thinkingBuffer = useChatStore((state) => state.thinkingBuffers.get(activeChatId) ?? state.thinkingBuffer);
 
@@ -143,6 +144,7 @@ export function useRoleplayTranscriptScroll({
       isNearBottomRef.current = true;
       userScrolledAwayRef.current = false;
       openedAtBottomChatIdRef.current = activeChatId;
+      followedTailMessageIdRef.current = newestMsgId;
     });
   }, [activeChatId, messages?.length, newestMsgId]);
 
@@ -158,8 +160,10 @@ export function useRoleplayTranscriptScroll({
       isNearBottom: isNearBottomRef.current,
       isOptimisticTail: !!isOptimistic,
       isStreamingWithUserTail: isStreaming && newestMsgRole === "user",
+      tailMessageChanged: !!newestMsgId && followedTailMessageIdRef.current !== newestMsgId,
       userScrolledAway: userScrolledAwayRef.current,
     });
+    followedTailMessageIdRef.current = newestMsgId;
     if (shouldFollowBottom) {
       const behavior = forcedBottomScroll?.behavior ?? "auto";
       forcedBottomScrollRef.current = null;

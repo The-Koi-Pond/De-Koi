@@ -1038,7 +1038,7 @@ export async function generateAndApplyBackgroundRequest(
   if (await chatHasBackground(deps.storage, chatId)) return null;
 
   const connectionId = await backgroundAgentImageConnectionId(chatId, result, deps);
-  if (!connectionId) throw new Error("No image generation connection configured for the Background agent.");
+  if (!connectionId) return null;
 
   const image = await deps.image.generate({
     connectionId,

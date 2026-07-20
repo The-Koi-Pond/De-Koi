@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildIllustrationNegativePrompt,
+  generateIllustrationAttachments,
   ILLUSTRATOR_TEXT_NEGATIVE_PROMPT,
   illustratorPromptData,
   resolveIllustrationImageConnectionId,
@@ -146,5 +147,51 @@ describe("resolveIllustrationImageConnectionId", () => {
     });
 
     expect(connectionId).toBe("illustrator-default");
+  });
+});
+
+describe("generateIllustrationAttachments", () => {
+  const illustrationResult: AgentResult = {
+    agentId: "illustrator",
+    agentType: "illustrator",
+    type: "image_prompt",
+    data: { shouldGenerate: true, prompt: "A quiet library at dusk." },
+    tokensUsed: 0,
+    durationMs: 0,
+    success: true,
+    error: null,
+  };
+
+  it("does not toast for an automatic illustration when no image connection exists", async () => {
+    const result = await generateIllustrationAttachments({
+      deps: {
+        storage: testStorage({ connections: [] }),
+        integrations: { image: { generate: async () => ({}) } },
+      } as never,
+      chat: { id: "chat-1", metadata: {} },
+      results: [illustrationResult],
+      reportUnavailable: false,
+    });
+
+    expect(result).toEqual({ attachments: [], events: [] });
+  });
+
+  it("still reports a missing image connection for an explicit illustration request", async () => {
+    const result = await generateIllustrationAttachments({
+      deps: {
+        storage: testStorage({ connections: [] }),
+        integrations: { image: { generate: async () => ({}) } },
+      } as never,
+      chat: { id: "chat-1", metadata: {} },
+      results: [illustrationResult],
+      reportUnavailable: true,
+    });
+
+    expect(result.events).toEqual([
+      {
+        type: "illustration_error",
+        data: { error: "No image generation connection configured for the Illustrator agent." },
+      },
+    ]);
   });
 });
