@@ -87,6 +87,57 @@ function words(value: string): string[] {
   return Array.from(normalize(value).matchAll(/[\p{Letter}\p{Number}]{2,}/gu), (match) => match[0]);
 }
 
+function meaningfulWords(value: string): Set<string> {
+  return new Set(words(value).filter((token) => !STOPWORDS.has(token)));
+}
+
+function containmentScore(left: Set<string>, right: Set<string>): number {
+  const smallerSize = Math.min(left.size, right.size);
+  if (smallerSize === 0) return 0;
+  let overlap = 0;
+  for (const token of left) {
+    if (right.has(token)) overlap += 1;
+  }
+  return overlap / smallerSize;
+}
+
+function evidenceEquivalent(
+  left: BehavioralClaimEvidence[] | null | undefined,
+  right: BehavioralClaimEvidence[] | null | undefined,
+): boolean {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  return left.some((leftEvidence) =>
+    right.some((rightEvidence) => {
+      if (leftEvidence.field !== rightEvidence.field) return false;
+      const leftQuote = normalize(leftEvidence.quote);
+      const rightQuote = normalize(rightEvidence.quote);
+      if (!leftQuote || !rightQuote) return false;
+      if (leftQuote === rightQuote || leftQuote.includes(rightQuote) || rightQuote.includes(leftQuote)) return true;
+      return containmentScore(meaningfulWords(leftQuote), meaningfulWords(rightQuote)) >= 0.8;
+    }),
+  );
+}
+
+function claimsEquivalent(left: CharacterBehavioralClaim, right: CharacterBehavioralClaim): boolean {
+  const leftStatement = normalize(left.statement);
+  const rightStatement = normalize(right.statement);
+  if (!leftStatement || !rightStatement) return false;
+  if (leftStatement === rightStatement) return true;
+  const statementOverlap = containmentScore(meaningfulWords(leftStatement), meaningfulWords(rightStatement));
+  return statementOverlap >= 0.75 || (statementOverlap >= 0.55 && evidenceEquivalent(left.evidence, right.evidence));
+}
+
+function uniqueClaims(claims: CharacterBehavioralClaim[]): CharacterBehavioralClaim[] {
+  return claims.filter(
+    (claim, index) => claims.findIndex((candidate) => claimsEquivalent(candidate, claim)) === index,
+  );
+}
+
+function repeatsAuthoredText(authored: string, claim: CharacterBehavioralClaim): boolean {
+  const statement = normalize(claim.statement);
+  return !statement || authored.includes(statement) || statement.includes(authored);
+}
+
 function stableHash(value: string): string {
   let hash = 2166136261;
   for (const char of value) {
@@ -249,9 +300,11 @@ export function validateBehavioralInterpretation(
     .slice(0, 8)
     .map((claim, index) => parseClaim(sources, claim, index))
     .filter((claim): claim is CharacterBehavioralClaim => claim !== null);
-  const unique = claims.filter(
-    (claim, index) =>
-      claims.findIndex((candidate) => normalize(candidate.statement) === normalize(claim.statement)) === index,
+  const authored = normalize(Object.values(sources).join("\n"));
+  const unique = uniqueClaims(
+    [...claims].sort(
+      (left, right) => Number(repeatsAuthoredText(authored, left)) - Number(repeatsAuthoredText(authored, right)),
+    ),
   );
   if (unique.length === 0) return null;
   return {
@@ -289,19 +342,18 @@ export function packBehavioralInterpretation(
 ): string {
   if (!profile || !isBehavioralInterpretationCurrent(data, profile)) return "";
   const authored = normalize(Object.values(behavioralInterpretationSources(data)).join("\n"));
-  const claims = [...profile.claims]
-    .filter(
-      (claim): claim is CharacterBehavioralClaim =>
-        claim !== null &&
-        typeof claim === "object" &&
-        typeof claim.statement === "string" &&
-        (claim.source === "generated" || claim.source === "user_override"),
-    )
-    .filter((claim) => {
-      const statement = normalize(claim.statement);
-      return statement && !(authored.includes(statement) || statement.includes(authored));
-    })
-    .sort((left, right) => Number(right.source === "user_override") - Number(left.source === "user_override"))
+  const claims = uniqueClaims(
+    [...profile.claims]
+      .filter(
+        (claim): claim is CharacterBehavioralClaim =>
+          claim !== null &&
+          typeof claim === "object" &&
+          typeof claim.statement === "string" &&
+          (claim.source === "generated" || claim.source === "user_override"),
+      )
+      .filter((claim) => !repeatsAuthoredText(authored, claim))
+      .sort((left, right) => Number(right.source === "user_override") - Number(left.source === "user_override")),
+  )
     .slice(0, 3);
   if (claims.length === 0) return "";
   return [

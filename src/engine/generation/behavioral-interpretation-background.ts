@@ -276,7 +276,15 @@ async function runScheduledDerivations(
   scheduled: Set<string>,
 ): Promise<void> {
   for (const characterId of characterIds) {
-    await Promise.allSettled([deriveAndSave(deps, characterId, connectionId)]);
-    scheduled.delete(characterId);
+    try {
+      await deriveAndSave(deps, characterId, connectionId);
+    } catch (error) {
+      console.warn("[generation] behavioral interpretation background item failed", {
+        characterId,
+        error: error instanceof Error ? error.message : "Behavioral interpretation background work failed.",
+      });
+    } finally {
+      scheduled.delete(characterId);
+    }
   }
 }

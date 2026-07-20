@@ -357,14 +357,18 @@ export function useCharacterPanelSummaries(enabled = true, search?: string) {
   });
 }
 
-export function useCharacter(id: string | null) {
+export interface UseCharacterOptions {
+  refreshDerivedOnMount?: boolean;
+}
+
+export function useCharacter(id: string | null, options: UseCharacterOptions = {}) {
   return useQuery({
     queryKey: characterKeys.detail(id ?? ""),
     queryFn: () => getCharacter(id!),
     enabled: !!id,
     staleTime: 5 * 60_000,
-    // Background engine work can update derived character artifacts without passing through this query client.
-    refetchOnMount: "always",
+    // Only inspection surfaces need to bypass the cache after detached engine updates.
+    refetchOnMount: options.refreshDerivedOnMount ? "always" : undefined,
     refetchOnWindowFocus: false,
   });
 }

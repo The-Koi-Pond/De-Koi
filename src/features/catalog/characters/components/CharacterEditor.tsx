@@ -53,7 +53,7 @@ export function CharacterEditor() {
   const clearCharacterDetailDestination = useUIStore((s) => s.clearCharacterDetailDestination);
   const closeDetail = useUIStore((s) => s.closeCharacterDetail);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
-  const { data: rawCharacter, isLoading } = useCharacter(characterId);
+  const { data: rawCharacter, isLoading } = useCharacter(characterId, { refreshDerivedOnMount: true });
   const updateCharacter = useUpdateCharacter();
   const deleteCharacter = useDeleteCharacter();
   const duplicateCharacter = useDuplicateCharacter();

@@ -121,6 +121,31 @@ describe("sparse character behavioral interpretation background", () => {
     await vi.waitFor(() => expect(current().behavioralInterpretation?.status).toBe("ready"));
   });
 
+  it("reports background failures that happen before a profile can be saved", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const storage = {
+      get: vi.fn(async () => {
+        throw new Error("storage unavailable");
+      }),
+    } as unknown as StorageGateway;
+
+    try {
+      scheduleSparseCharacterInterpretations(
+        { storage, llm: llmReturning({ claims: [] }) },
+        { characterIds: ["mira"], connectionId: "connection-1" },
+      );
+
+      await vi.waitFor(() =>
+        expect(warning).toHaveBeenCalledWith("[generation] behavioral interpretation background item failed", {
+          characterId: "mira",
+          error: "storage unavailable",
+        }),
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it("skips rich cards and a failed same-version profile until the card changes or the user requests regeneration", async () => {
     const rich = characterData({
       description: "A veteran courier with a detailed professional code. ".repeat(20),

@@ -5,6 +5,7 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { characterApi } from "../../../../shared/api/character-api";
 import {
   characterKeys,
+  useCharacter,
   useCharacterLibrarySummaries,
   useChatSurfaceCharacterSummariesByIds,
   useSetCharacterVersionPinned,
@@ -70,6 +71,26 @@ beforeEach(() => {
   queryClientMock.invalidateQueries.mockReset();
   queryClientMock.removeQueries.mockReset();
   queryClientMock.setQueryData.mockReset();
+});
+
+describe("character detail query", () => {
+  it("refreshes detached derived artifacts only when the caller opts in", () => {
+    useCharacter("character-1");
+
+    expect(useQuery).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        refetchOnMount: undefined,
+      }),
+    );
+
+    useCharacter("character-1", { refreshDerivedOnMount: true });
+
+    expect(useQuery).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        refetchOnMount: "always",
+      }),
+    );
+  });
 });
 
 describe("character library summary query", () => {

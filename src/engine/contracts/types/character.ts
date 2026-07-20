@@ -199,7 +199,10 @@ export interface Character {
   spriteFolderPath: string | null;
   /** Whether new automatic memories follow this character or remain isolated per chat. Missing defaults to character. */
   memoryPersistence?: CharacterMemoryPersistence;
-  /** Non-exported, inspectable interpretation derived from sparse authored fields. */
+  /**
+   * Non-exported, inspectable interpretation derived from sparse authored fields.
+   * Missing is the supported legacy/authored-only state; engine consumers must treat it as no derived guidance.
+   */
   behavioralInterpretation?: CharacterBehavioralInterpretation;
   createdAt: string;
   updatedAt: string;

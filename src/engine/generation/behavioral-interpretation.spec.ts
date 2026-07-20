@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CharacterData } from "../contracts/types/character";
+import type { CharacterBehavioralInterpretation, CharacterData } from "../contracts/types/character";
 import {
   BEHAVIORAL_INTERPRETATION_VERSION,
   assessCharacterRichness,
@@ -112,6 +112,25 @@ describe("behavioral interpretation validation", () => {
     );
   });
 
+  it("collapses reworded claims that rely on the same evidence", () => {
+    const result = validateBehavioralInterpretation(source, {
+      claims: [
+        {
+          statement: "May avoid direct answers when the missing letter is questioned.",
+          evidenceClass: "tentative",
+          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+        },
+        {
+          statement: "Could become evasive and resist direct answers about the missing letter.",
+          evidenceClass: "tentative",
+          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+        },
+      ],
+    });
+
+    expect(result?.claims).toHaveLength(1);
+  });
+
   it.each([
     {
       name: "evidence-free",
@@ -194,6 +213,60 @@ describe("behavioral interpretation freshness and packing", () => {
     expect(isBehavioralInterpretationCurrent(source, { ...profile, version: 999 })).toBe(false);
     expect(isBehavioralInterpretationCurrent(source, { ...profile, status: "stale" })).toBe(false);
     expect(isBehavioralInterpretationCurrent(source, { ...profile, enabled: false })).toBe(false);
+  });
+
+  it("treats a missing derived profile as the supported authored-only state", () => {
+    expect(isBehavioralInterpretationCurrent(source, undefined)).toBe(false);
+    expect(isBehavioralInterpretationCurrent(source, null)).toBe(false);
+    expect(packBehavioralInterpretation(source, undefined)).toBe("");
+    expect(packBehavioralInterpretation(source, null)).toBe("");
+  });
+
+  it("does not pack reworded generated claims backed by the same evidence twice", () => {
+    const packed = packBehavioralInterpretation(source, {
+      ...profile,
+      claims: [
+        {
+          id: "indirect",
+          statement: "May avoid direct answers when the missing letter is questioned.",
+          evidenceClass: "tentative",
+          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+          source: "generated",
+        },
+        {
+          id: "evasive",
+          statement: "Could become evasive and resist direct answers about the missing letter.",
+          evidenceClass: "tentative",
+          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+          source: "generated",
+        },
+      ],
+    });
+
+    expect(packed.split("\n").filter((line) => line.startsWith("- "))).toHaveLength(1);
+  });
+
+  it("does not crash when legacy stored claims have malformed evidence", () => {
+    const malformed = {
+      ...profile,
+      claims: [
+        {
+          id: "legacy",
+          statement: "May avoid direct answers when the missing letter is questioned.",
+          evidenceClass: "tentative",
+          source: "generated",
+        },
+        {
+          id: "current",
+          statement: "Could become evasive and resist direct answers about the missing letter.",
+          evidenceClass: "tentative",
+          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+          source: "generated",
+        },
+      ],
+    } as unknown as CharacterBehavioralInterpretation;
+
+    expect(() => packBehavioralInterpretation(source, malformed)).not.toThrow();
   });
 
   it("packs bounded non-duplicative claims with authored precedence and overrides first", () => {
