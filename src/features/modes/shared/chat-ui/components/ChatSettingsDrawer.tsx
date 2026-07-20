@@ -5700,7 +5700,7 @@ function ChatSettingsDrawerInner({
             chat={chat}
             metadata={metadata}
             updateMeta={updateMeta}
-            isConversation={isConversation}
+            mode={chat.mode}
             connectionId={chat.connectionId ?? null}
             connections={connections ?? []}
             promptPresetParameters={advancedPromptPresetFull?.preset?.parameters ?? null}

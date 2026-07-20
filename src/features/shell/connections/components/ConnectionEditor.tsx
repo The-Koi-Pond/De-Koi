@@ -1720,9 +1720,9 @@ export function ConnectionEditor() {
           {/* ── Default Chat Parameters ── */}
           {localProvider !== "image_generation" && (
             <FieldGroup
-              label="Default Chat Parameters"
+              label="Generation Profile"
               icon={<Zap size="0.875rem" className="text-purple-400" />}
-              help="Default generation settings for chats that use this connection. Individual chats can still override these in Chat Settings."
+              help="Recommended adapts automatically to the chat mode and model. Custom keeps explicit defaults for chats that use this connection."
             >
               <label className="flex cursor-pointer items-center gap-3 rounded-xl p-2 transition-colors hover:bg-[var(--secondary)]/50">
                 <div className="relative">
@@ -1738,7 +1738,7 @@ export function ConnectionEditor() {
                   <div className="h-5 w-9 rounded-full bg-[var(--border)] transition-colors peer-checked:bg-purple-400/70" />
                   <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
                 </div>
-                <span className="text-sm">Use custom defaults for this connection</span>
+                <span className="text-sm">Custom defaults</span>
               </label>
 
               {localDefaultParametersEnabled ? (
@@ -1754,7 +1754,7 @@ export function ConnectionEditor() {
                 </div>
               ) : (
                 <p className="rounded-xl bg-[var(--secondary)]/40 px-3 py-2 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
-                  This connection is using the mode defaults from conversation, roleplay, and game setup.
+                  Recommended is automatic. De-Koi chooses stable settings for the chat mode and model.
                 </p>
               )}
             </FieldGroup>

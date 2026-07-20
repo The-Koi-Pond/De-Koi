@@ -231,6 +231,8 @@ export interface ChatMetadata {
   summaryPromptTemplates?: ChatSummaryPromptTemplate[];
   /** Selected manual summary prompt template ID. Null/omitted uses the built-in default. */
   activeSummaryPromptTemplateId?: string | null;
+  /** Whether parameter controls follow the recommendation or explicit chat values. */
+  generationProfileMode?: "recommended" | "custom";
   /** Custom tags for organisation */
   tags: string[];
   /** When true, this chat is pinned to the top of the sidebar for its mode. */
@@ -297,6 +299,8 @@ export interface ChatMetadata {
   automaticRoleplayQualityCorrection?: boolean;
   /** Optional token budget for canonical memory prompt context. Missing uses a bounded context-share default. */
   canonicalMemoryRecallTokenBudget?: number | null;
+  /** Optional token budget for ordinary recalled-memory prompt context. Missing uses a bounded context-share default. */
+  memoryRecallTokenBudget?: number | null;
   /** How many newest visible messages Memory Recall should ignore when selecting recalled chunks. Default: 1. */
   memoryRecallReadBehindMessages?: number;
   /** Discord webhook URL to mirror messages to a Discord channel. */
@@ -736,6 +740,13 @@ export interface GenerationPromptSnapshot {
   messages: GenerationPromptSnapshotMessage[];
   previewMessages?: GenerationPromptSnapshotMessage[];
   parameters: Record<string, unknown>;
+  generationProfile?: {
+    profileId: string;
+    profileVersion: number;
+    source: "recommended" | "provider-neutral-fallback";
+    rationale: string;
+    effectiveValues: Record<string, unknown>;
+  } | null;
   tools?: unknown[] | null;
   generationInfo?: GenerationPromptSnapshotInfo | null;
   promptPresetId?: string | null;

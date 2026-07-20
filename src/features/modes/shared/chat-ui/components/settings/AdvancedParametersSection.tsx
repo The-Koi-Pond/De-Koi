@@ -6,6 +6,7 @@ import {
   GenerationParametersFields,
   getEditableGenerationParameters,
   getEditableGenerationParameterOverrides,
+  parseEditableGenerationParameters,
   parseGenerationParameterRecord,
   ROLEPLAY_PARAMETER_DEFAULTS,
   serviceTierOptionsForProvider,
@@ -18,6 +19,7 @@ import {
   type ConnectionSummary,
 } from "../../../../../catalog/connections/index";
 import { useUpdateChatMetadata } from "../../../../../catalog/chats/index";
+import { resolveRecommendedGenerationProfile } from "../../../../../../engine/generation/recommended-generation-profile";
 import { ChatSettingsSectionHeader } from "./ChatSettingsSections";
 
 const EDITABLE_GENERATION_PARAMETER_KEY_SET = new Set<string>(EDITABLE_GENERATION_PARAMETER_KEYS);
@@ -44,7 +46,7 @@ export function AdvancedParametersSection({
   chat,
   metadata,
   updateMeta,
-  isConversation,
+  mode,
   connectionId,
   connections,
   promptPresetParameters,
@@ -53,21 +55,46 @@ export function AdvancedParametersSection({
   chat: Chat;
   metadata: Record<string, unknown>;
   updateMeta: ReturnType<typeof useUpdateChatMetadata>;
-  isConversation: boolean;
+  mode: Chat["mode"];
   connectionId: string | null;
   connections: ConnectionSummary[];
   promptPresetParameters?: unknown;
   inheritedGenerationParametersPending?: boolean;
 }) {
-  const modeDefaults = isConversation ? CHAT_PARAMETER_DEFAULTS : ROLEPLAY_PARAMETER_DEFAULTS;
+  const modeDefaults = mode === "conversation" ? CHAT_PARAMETER_DEFAULTS : ROLEPLAY_PARAMETER_DEFAULTS;
   // Use connection-saved defaults if available, otherwise fall back to mode defaults
   const conn = connectionId ? (connections.find((c) => c.id === connectionId) ?? null) : null;
+  const recommendedProfile = resolveRecommendedGenerationProfile({
+    mode,
+    provider: conn?.provider,
+    model: conn?.model,
+    capabilities: conn?.capabilities,
+    maxContext: conn?.maxContext,
+    baseUrl: conn?.baseUrl,
+    metadataStale:
+      conn?.capabilitiesStale === true ||
+      conn?.providerMetadata?.stale === true ||
+      conn?.providerMetadata?.modelMetadataStale === true,
+  });
+  const recommendedEditorFallback: EditableGenerationParameters = {
+    ...modeDefaults,
+    reasoningEffort: null,
+    verbosity: null,
+  };
+  const recommendedDefaults = getEditableGenerationParameters(recommendedEditorFallback, recommendedProfile.parameters);
   const storedConnection = storedConnectionForDefaults(connectionId, connections);
-  const connectionDefaults = getEditableGenerationParameters(modeDefaults, conn?.defaultParameters);
-  const defaults = getEditableGenerationParameters(connectionDefaults, isConversation ? null : promptPresetParameters);
+  const connectionDefaults = getEditableGenerationParameters(recommendedDefaults, conn?.defaultParameters);
+  const defaults = getEditableGenerationParameters(connectionDefaults, promptPresetParameters);
   const saveDefaults = useSaveConnectionDefaults();
   const [expanded, setExpanded] = useState(false);
   const params = generationParameterRecord(metadata.chatParameters);
+  const hasInheritedCustomParameters =
+    parseEditableGenerationParameters(conn?.defaultParameters) !== null ||
+    parseEditableGenerationParameters(promptPresetParameters) !== null;
+  const isCustom =
+    hasInheritedCustomParameters ||
+    metadata.generationProfileMode === "custom" ||
+    parseEditableGenerationParameters(params) !== null;
   const retainedNonEditableParams = retainNonEditableGenerationParameters(params);
   const effectiveParams = getEditableGenerationParameters(defaults, params);
   const currentEditableOverrides = getEditableGenerationParameterOverrides(defaults, effectiveParams);
@@ -79,6 +106,7 @@ export function AdvancedParametersSection({
     const nextParams = { ...retainedNonEditableParams, ...editableOverrides };
     updateMeta.mutate({
       id: chat.id,
+      generationProfileMode: "custom",
       chatParameters: Object.keys(nextParams).length > 0 ? nextParams : null,
     });
   };
@@ -100,6 +128,53 @@ export function AdvancedParametersSection({
             </div>
           ) : (
             <>
+              <div className="grid grid-cols-2 gap-2" role="group" aria-label="Generation profile">
+                <button
+                  type="button"
+                  aria-pressed={!isCustom}
+                  onClick={() => {
+                    updateMeta.mutate({
+                      id: chat.id,
+                      generationProfileMode: "recommended",
+                      chatParameters:
+                        Object.keys(retainedNonEditableParams).length > 0 ? retainedNonEditableParams : null,
+                    });
+                  }}
+                  className={
+                    !isCustom
+                      ? "rounded-lg bg-[var(--primary)]/10 px-3 py-2 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
+                      : "rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--muted-foreground)]"
+                  }
+                >
+                  Recommended
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={isCustom}
+                  onClick={() => {
+                    updateMeta.mutate({
+                      id: chat.id,
+                      generationProfileMode: "custom",
+                      chatParameters: { ...retainedNonEditableParams, ...effectiveParams },
+                    });
+                  }}
+                  className={
+                    isCustom
+                      ? "rounded-lg bg-[var(--primary)]/10 px-3 py-2 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
+                      : "rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--muted-foreground)]"
+                  }
+                >
+                  Custom
+                </button>
+              </div>
+              <p className="rounded-lg bg-[var(--secondary)] px-3 py-2 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+                <span className="font-semibold text-[var(--foreground)]">{recommendedProfile.profileId}</span>
+                {" — "}
+                {recommendedProfile.rationale}
+                {hasInheritedCustomParameters
+                  ? " Custom values are inherited from the connection or prompt preset; remove them there to use the recommendation unchanged."
+                  : ""}
+              </p>
               <GenerationParametersFields
                 value={effectiveParams}
                 onChange={setParameters}
@@ -125,13 +200,14 @@ export function AdvancedParametersSection({
                 onClick={() => {
                   updateMeta.mutate({
                     id: chat.id,
+                    generationProfileMode: "recommended",
                     chatParameters:
                       Object.keys(retainedNonEditableParams).length > 0 ? retainedNonEditableParams : null,
                   });
                 }}
                 className="w-full rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
               >
-                Reset to Inherited Defaults
+                Use Recommended
               </button>
             </>
           )}

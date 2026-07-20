@@ -1,7 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { providerVisibleLlmParameters } from "./provider-visible-parameters";
+import { resolveRecommendedGenerationProfile } from "./recommended-generation-profile";
 
 describe("providerVisibleLlmParameters", () => {
+  it("applies provider capability filtering after resolving a recommendation", () => {
+    const recommendation = resolveRecommendedGenerationProfile({
+      mode: "conversation",
+      provider: "anthropic",
+      model: "claude-fable-5",
+      capabilities: { reasoning: true },
+      maxContext: 128_000,
+    });
+
+    const visible = providerVisibleLlmParameters(
+      { provider: "anthropic", model: "claude-fable-5" },
+      recommendation.parameters,
+    );
+
+    expect(recommendation.parameters).toMatchObject({
+      temperature: 0.7,
+      topP: 0.95,
+      reasoningEffort: "low",
+    });
+    expect(visible).not.toHaveProperty("temperature");
+    expect(visible).not.toHaveProperty("top_p");
+    expect(visible).toMatchObject({
+      thinking: { type: "adaptive", display: "summarized" },
+      output_config: { effort: "low" },
+    });
+  });
+
   it("mirrors Fable adaptive Anthropic payload shaping within the provider token ceiling", () => {
     const visible = providerVisibleLlmParameters(
       {
