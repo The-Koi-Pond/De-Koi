@@ -16,7 +16,9 @@ interface MessageMemoryIndicatorsProps {
   className?: string;
 }
 
-function recalledMemoryItems(promptSnapshot: GenerationPromptSnapshot | null | undefined): GenerationContextAttributionItem[] {
+function recalledMemoryItems(
+  promptSnapshot: GenerationPromptSnapshot | null | undefined,
+): GenerationContextAttributionItem[] {
   return (
     promptSnapshot?.contextAttribution?.items.filter(
       (item) => item.kind === "memory_recall" && item.status === "injected",
@@ -26,6 +28,39 @@ function recalledMemoryItems(promptSnapshot: GenerationPromptSnapshot | null | u
 
 function memoryLabel(count: number): string {
   return count === 1 ? "1 memory recalled" : `${count} memories recalled`;
+}
+
+const SAVED_MEMORY_OPERATIONS = new Set(["created", "updated", "superseded"]);
+const SAVED_MEMORY_KINDS = new Set([
+  "fact",
+  "scene_event",
+  "relationship_state",
+  "preference",
+  "promise",
+  "plot_state",
+  "contradiction",
+]);
+const SAVED_MEMORY_STATUSES = new Set(["active", "superseded", "stale"]);
+
+function completeSavedMemory(
+  entry: unknown,
+): entry is NonNullable<NonNullable<MessageMemoryCapture>["consequences"]>["affected"][number] {
+  if (!entry || typeof entry !== "object") return false;
+  const value = entry as Record<string, unknown>;
+  const operation = String(value.operation);
+  if (!SAVED_MEMORY_OPERATIONS.has(operation)) return false;
+  if (!value.memory || typeof value.memory !== "object") return false;
+  const memory = value.memory as Record<string, unknown>;
+  const status = String(memory.status);
+  if ((operation === "superseded") !== (status === "superseded")) return false;
+  return (
+    typeof memory.id === "string" &&
+    memory.id.trim().length > 0 &&
+    SAVED_MEMORY_KINDS.has(String(memory.kind)) &&
+    SAVED_MEMORY_STATUSES.has(status) &&
+    typeof memory.content === "string" &&
+    memory.content.trim().length > 0
+  );
 }
 
 export function MessageMemoryIndicators({
@@ -46,11 +81,34 @@ export function MessageMemoryIndicators({
   const titleId = useId();
   const savedTitleId = useId();
   const savedCapture = memoryCapture?.capture;
+  const consequenceEntries = memoryCapture?.consequences?.affected ?? [];
+  const savedConsequences = consequenceEntries.filter(completeSavedMemory);
+  const completeCapture =
+    savedCapture?.memory &&
+    typeof savedCapture.memory.id === "string" &&
+    savedCapture.memory.id.trim().length > 0 &&
+    typeof savedCapture.memory.content === "string" &&
+    savedCapture.memory.content.trim().length > 0
+      ? savedCapture
+      : null;
+  const savedMemories =
+    savedConsequences.length > 0
+      ? savedConsequences
+      : completeCapture
+        ? [completeCapture]
+        : [];
+  const captureHasProblems =
+    memoryCapture?.consequences?.status === "skipped" ||
+    savedConsequences.length < consequenceEntries.length ||
+    (!!savedCapture && !completeCapture) ||
+    (savedMemories.length === 0 && !completeCapture);
+  const partialCapture = memoryCapture?.status === "completed" && savedMemories.length > 0 && captureHasProblems;
+  const unavailableCapture =
+    memoryCapture?.status === "completed" && savedMemories.length === 0 && captureHasProblems;
   const remembered =
     !isUser &&
     memoryCapture?.status === "completed" &&
-    !!savedCapture?.memory?.id?.trim() &&
-    !!savedCapture.memory.content?.trim();
+    (savedMemories.length > 0 || partialCapture || unavailableCapture);
   const recalledItems = useMemo(() => recalledMemoryItems(promptSnapshot), [promptSnapshot]);
   const recalledCount = !isUser ? recalledItems.length : 0;
   const visibleSnippets = recalledItems
@@ -139,7 +197,7 @@ export function MessageMemoryIndicators({
             }}
             className="inline-flex shrink-0 items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-300/80 outline-none transition-colors duration-150 hover:bg-emerald-400/15 focus-visible:ring-1 focus-visible:ring-emerald-300/45"
           >
-            ✦ remembered
+            {partialCapture ? "⚠ partial memory" : unavailableCapture ? "⚠ memory unavailable" : "✦ remembered"}
           </button>
           {savedOpen && (
             <div
@@ -150,11 +208,44 @@ export function MessageMemoryIndicators({
               onClick={(event) => event.stopPropagation()}
             >
               <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
-                {savedCapture?.operation === "updated" ? "Updated memory" : "Saved memory"}
+                {partialCapture
+                  ? "Partial memory capture"
+                  : unavailableCapture
+                    ? "Memory unavailable"
+                    : savedMemories.length > 1
+                      ? "Saved memories"
+                      : savedMemories[0]?.operation === "updated"
+                        ? "Updated memory"
+                        : "Saved memory"}
               </div>
-              <p className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md bg-[var(--accent)]/35 px-2 py-1.5 leading-relaxed text-[var(--foreground)]/80">
-                {savedCapture?.memory?.content}
-              </p>
+              {partialCapture && (
+                <p className="mb-2 rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-200/90">
+                  Some memory details could not be saved or verified.
+                </p>
+              )}
+              {unavailableCapture && (
+                <p className="mb-2 rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-200/90">
+                  No memory details could be saved or verified.
+                </p>
+              )}
+              <div className="max-h-56 space-y-2 overflow-y-auto">
+                {savedMemories.map((entry) => (
+                  <div
+                    key={entry.memory.id}
+                    className="rounded-md bg-[var(--accent)]/35 px-2 py-1.5 leading-relaxed text-[var(--foreground)]/80"
+                  >
+                    {"kind" in entry.memory && "status" in entry.memory && (
+                      <div className="mb-1 text-[0.5625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                        {String(entry.memory.kind)} / {String(entry.memory.status)} / {entry.operation}
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap">{entry.memory.content}</p>
+                    <code className="mt-1 block break-all text-[0.5625rem] text-[var(--muted-foreground)]">
+                      {entry.memory.id}
+                    </code>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </span>

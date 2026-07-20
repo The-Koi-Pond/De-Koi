@@ -1234,7 +1234,8 @@ fn push_refresh_memory_capture(
     pending.push((captures.len(), content, memory));
     captures.push(Value::Null);
 }
-pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
+#[cfg(test)]
+async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
     refresh_chat_memories_for_source_messages(state, chat_id, Vec::new()).await
 }
 

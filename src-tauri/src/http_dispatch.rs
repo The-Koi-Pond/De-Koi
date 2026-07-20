@@ -903,7 +903,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             .await
         }
         "chat_memories_refresh" => {
-            chat_memory::refresh_chat_memories(state, required_string(&args, "chatId")?).await
+            chat_memory::refresh_chat_memories_for_source_messages(
+                state,
+                required_string(&args, "chatId")?,
+                optional_string_vec(&args, "sourceMessageIds")?,
+            )
+            .await
         }
         "chat_memories_migrate" => {
             chat_memory::migrate_chat_memories(state, required_string(&args, "chatId")?).await
@@ -2072,6 +2077,52 @@ mod tests {
 
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("limit"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_chat_memories_refresh_preserves_focused_source_ids() {
+        let state = test_state("chat-memories-refresh-source-ids");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "name": "Memory chat" }))
+            .expect("chat should be created");
+        for (id, role, content) in [
+            ("user-1", "user", "My cat is named Miso."),
+            ("assistant-1", "assistant", "I'll remember that."),
+        ] {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": id,
+                        "chatId": "chat-1",
+                        "role": role,
+                        "content": content,
+                        "createdAt": "2026-07-19T10:00:00.000Z"
+                    }),
+                )
+                .expect("message should be created");
+        }
+
+        let result = dispatch(
+            &state,
+            InvokeRequest {
+                command: "chat_memories_refresh".to_string(),
+                args: Some(json!({
+                    "chatId": "chat-1",
+                    "sourceMessageIds": ["user-1", "assistant-1"]
+                })),
+            },
+        )
+        .await
+        .expect("remote focused refresh should succeed");
+
+        assert_eq!(result["capture"]["operation"], json!("created"));
+        assert!(result["capture"]["memory"]["content"]
+            .as_str()
+            .expect("focused capture content should exist")
+            .contains("My cat is named Miso."));
     }
 
     #[tokio::test]

@@ -2526,19 +2526,22 @@ function shouldRefreshMemoryRecall(chat: JsonRecord): boolean {
 }
 
 async function enqueueAutomaticMemoryCaptureSafely(
-  storage: StorageGateway,
+  deps: Pick<GenerationEngineDeps, "storage" | "llm">,
   chat: JsonRecord,
   characters: GenerationCharacterContext[],
   savedUserMessage: unknown,
   savedAssistantMessage: unknown,
+  connection: JsonRecord,
 ): Promise<void> {
-  if (!storage.refreshChatMemories || !shouldRefreshMemoryRecall(chat)) return;
+  if (!deps.storage.refreshChatMemories || !shouldRefreshMemoryRecall(chat)) return;
   try {
-    await enqueueAndScheduleAutomaticMemoryCapture(storage, {
+    await enqueueAndScheduleAutomaticMemoryCapture(deps, {
       chat,
       characters,
       savedUserMessage,
       savedAssistantMessage,
+      connectionId: readString(connection.id).trim() || null,
+      model: readString(connection.model).trim() || null,
     });
   } catch (error) {
     console.warn("[generation] automatic memory capture enqueue failed", error);
@@ -4259,7 +4262,7 @@ export async function* startGeneration(
   const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
   cancelConversationSummaryBackgroundForForeground(deps.storage, chat);
-  scheduleAutomaticMemoryCaptureQueueProcessing(deps.storage);
+  scheduleAutomaticMemoryCaptureQueueProcessing(deps);
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
@@ -4914,7 +4917,14 @@ export async function* startGeneration(
       }
     }
     if (savedAssistantGeneration) {
-      await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, assembly.characters, savedUserMessage, latestSaved);
+      await enqueueAutomaticMemoryCaptureSafely(
+        deps,
+        chat,
+        assembly.characters,
+        savedUserMessage,
+        latestSaved,
+        connection,
+      );
       scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
     }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
@@ -5125,7 +5135,7 @@ export async function* startGeneration(
     }
   }
   if (savedAssistantGeneration) {
-    await enqueueAutomaticMemoryCaptureSafely(deps.storage, chat, assembly.characters, savedUserMessage, saved);
+    await enqueueAutomaticMemoryCaptureSafely(deps, chat, assembly.characters, savedUserMessage, saved, connection);
     scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
   }
   yield { type: "done" };
