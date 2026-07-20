@@ -28,6 +28,8 @@ vi.mock("../../../../shared/hooks/use-draft-translation", () => ({
 }));
 
 import { GameInput } from "./GameInput";
+import { confirmDiscardPendingAppWork, hasPendingAppCloseWork } from "../../../../shared/lib/app-close-guard";
+import { gameInputDrafts } from "../lib/game-input-drafts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -44,7 +46,7 @@ function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
 }
 
 describe("GameInput chat-scoped drafts", () => {
-  let root: Root;
+  let root: Root | null;
   let container: HTMLDivElement;
 
   beforeEach(() => {
@@ -54,12 +56,12 @@ describe("GameInput chat-scoped drafts", () => {
   });
 
   afterEach(() => {
-    act(() => root.unmount());
+    if (root) act(() => root?.unmount());
     container.remove();
   });
 
   const renderInput = (draftKey: string, onSend: () => boolean | Promise<boolean> = () => true) => {
-    root.render(
+    root!.render(
       <GameInput
         draftKey={draftKey}
         onSend={onSend}
@@ -124,5 +126,22 @@ describe("GameInput chat-scoped drafts", () => {
     await act(async () => sendA.resolve(false));
     act(() => renderInput(`a-${suffix}`));
     expect(textarea().value).toBe("retry A");
+  });
+
+  it("keeps cached attachments protected after unmount without blocking chat navigation", async () => {
+    const draftKey = `close-${crypto.randomUUID()}`;
+    act(() => renderInput(draftKey));
+    gameInputDrafts.addAttachment(draftKey, {
+      type: "image/png",
+      data: "data:image/png;base64,pending",
+      name: "pending.png",
+    });
+
+    act(() => root?.unmount());
+    root = null;
+
+    expect(hasPendingAppCloseWork()).toBe(true);
+    await expect(confirmDiscardPendingAppWork({ purpose: "navigation" })).resolves.toBe(true);
+    gameInputDrafts.removeAttachment(draftKey, 0);
   });
 });

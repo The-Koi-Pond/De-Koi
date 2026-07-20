@@ -211,6 +211,14 @@ export function createGameInputDraftStore(options: DraftStoreOptions = {}) {
     state.attachments = state.attachments.filter((item) => !submittedAttachments.has(item));
   };
 
+  const completeTextSubmission = (submission: GameInputDraftSubmission, sent: boolean): void => {
+    if (!sent) return;
+    const state = getState(submission.draftKey);
+    if (state.text !== submission.text) return;
+    state.text = "";
+    persistText(submission.draftKey, "");
+  };
+
   const hasUnsavedMemoryWork = (): boolean =>
     [...states.values()].some((state) => state.attachments.length > 0 || state.pendingAttachmentReads > 0);
 
@@ -224,6 +232,7 @@ export function createGameInputDraftStore(options: DraftStoreOptions = {}) {
     beginAttachmentRead,
     captureSubmission,
     completeSubmission,
+    completeTextSubmission,
     hasUnsavedMemoryWork,
   };
 }

@@ -21,7 +21,6 @@ import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickRe
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { getDraftTranslationActionState, useDraftTranslation } from "../../../../shared/hooks/use-draft-translation";
-import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
 import { MAX_FILE_SIZES } from "../../../../engine/contracts/constants/defaults";
 import type { DiceRollResult } from "../../../../engine/contracts/types/game";
 import type { PromptAttachment } from "../../../../shared/api/message-attachment-api";
@@ -34,6 +33,7 @@ import {
   QuickReplyMenu,
   type QuickReplyAction,
 } from "../../shared/chat-ui";
+import { ensureGameInputDraftCloseGuard } from "../lib/game-input-draft-close-guard";
 import { gameInputDrafts, type GameInputAddressMode, type GameInputAttachment } from "../lib/game-input-drafts";
 import { buildGameUserQuickReplyMenuEntries } from "../lib/game-user-quick-replies";
 
@@ -67,6 +67,8 @@ interface GameInputProps {
 }
 
 const QUICK_DICE = ["d20", "d6", "2d6", "d10", "d100", "d4", "d8", "d12"];
+
+ensureGameInputDraftCloseGuard();
 
 function formatDiceResultTag(result: DiceRollResult): string {
   const rollDetail =
@@ -132,14 +134,6 @@ export function GameInput({
   const showDraftTranslateButton = chatMetadata.showInputTranslateButton === true;
 
   useEffect(() => {
-    return registerAppCloseGuard({
-      label: "Game turn attachments",
-      hasPendingWork: () => gameInputDrafts.hasUnsavedMemoryWork(),
-      message: "Unsent game attachments are still in memory. Close anyway and lose those attachments?",
-    });
-  }, []);
-
-  useEffect(() => {
     const draft = gameInputDrafts.read(draftKey);
     setText(draft.text);
     setQueuedDice(draft.queuedDice);
@@ -203,14 +197,14 @@ export function GameInput({
   }, []);
 
   const executeGameQuickReplyCommand = useCallback(
-    async (commandLine: string, fallbackError: string) => {
+    async (commandLine: string, fallbackError: string, consumesDraft: boolean) => {
       void fallbackError;
       if (disabled || rollingQueuedDice) return;
       const submission = gameInputDrafts.captureSubmission(draftKey);
       const sent = await onSend(commandLine, undefined, { commitPendingMove: false });
       if (!sent) return;
 
-      gameInputDrafts.completeSubmission(submission, true);
+      if (consumesDraft) gameInputDrafts.completeTextSubmission(submission, true);
       refreshVisibleDraft(submission.draftKey);
       if (currentDraftKeyRef.current === submission.draftKey) {
         if (inputRef.current) inputRef.current.style.height = "auto";

@@ -36,7 +36,24 @@ describe("buildGameUserQuickReplyMenuEntries", () => {
 
     await entries[0]?.onSelect();
 
-    expect(executeGameTurn).toHaveBeenCalledWith("/guided scout the east door", "Scout failed");
+    expect(executeGameTurn).toHaveBeenCalledWith("/guided scout the east door", "Scout failed", true);
+  });
+
+  it("reports when a saved action does not consume the current draft", async () => {
+    const executeGameTurn = vi.fn().mockResolvedValue(undefined);
+    const entries = buildGameUserQuickReplyMenuEntries({
+      actions: [action({ includeDraft: false, commandTemplate: "/guided scout" })],
+      activeChatId: "game-chat",
+      draft: "keep this draft",
+      quoteFormat: "straight",
+      isStreaming: false,
+      hasPendingGameTurnState: false,
+      executeGameTurn,
+    });
+
+    await entries[0]?.onSelect();
+
+    expect(executeGameTurn).toHaveBeenCalledWith("/guided scout", "Scout failed", false);
   });
 
   it("disables custom Game actions while queued Game turn state is pending", () => {

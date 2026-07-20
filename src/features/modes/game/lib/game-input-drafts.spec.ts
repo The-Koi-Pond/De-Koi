@@ -132,4 +132,21 @@ describe("game input draft store", () => {
       attachments: [attachment("new.png")],
     });
   });
+
+  it("clears only consumed text after a quick reply succeeds", () => {
+    const drafts = createGameInputDraftStore({ storage: new MemoryStorage() });
+    drafts.setText("chat-a", "include this");
+    drafts.setQueuedDice("chat-a", "d20");
+    drafts.addAttachment("chat-a", attachment("keep.png"));
+    const submission = drafts.captureSubmission("chat-a");
+
+    drafts.completeTextSubmission(submission, true);
+
+    expect(drafts.read("chat-a")).toEqual({
+      text: "",
+      queuedDice: "d20",
+      addressMode: "scene",
+      attachments: [attachment("keep.png")],
+    });
+  });
 });
