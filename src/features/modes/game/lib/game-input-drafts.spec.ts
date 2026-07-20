@@ -149,4 +149,34 @@ describe("game input draft store", () => {
       attachments: [attachment("keep.png")],
     });
   });
+
+  it("preserves same-value text rewritten while a quick reply is pending", () => {
+    const drafts = createGameInputDraftStore({ storage: new MemoryStorage() });
+    drafts.setText("chat-a", "same text");
+    const submission = drafts.captureSubmission("chat-a");
+
+    drafts.setText("chat-a", "temporary edit");
+    drafts.setText("chat-a", "same text");
+    drafts.completeTextSubmission(submission, true);
+
+    expect(drafts.read("chat-a").text).toBe("same text");
+  });
+
+  it("preserves same-value text and dice rewritten while a turn is pending", () => {
+    const drafts = createGameInputDraftStore({ storage: new MemoryStorage() });
+    drafts.setText("chat-a", "same text");
+    drafts.setQueuedDice("chat-a", "d20");
+    const submission = drafts.captureSubmission("chat-a");
+
+    drafts.setText("chat-a", "temporary edit");
+    drafts.setText("chat-a", "same text");
+    drafts.setQueuedDice("chat-a", "d6");
+    drafts.setQueuedDice("chat-a", "d20");
+    drafts.completeSubmission(submission, true);
+
+    expect(drafts.read("chat-a")).toMatchObject({
+      text: "same text",
+      queuedDice: "d20",
+    });
+  });
 });

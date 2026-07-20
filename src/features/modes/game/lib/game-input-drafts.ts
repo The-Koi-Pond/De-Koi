@@ -17,6 +17,8 @@ export interface GameInputDraftSnapshot {
 
 export interface GameInputDraftSubmission extends GameInputDraftSnapshot {
   readonly draftKey: string | null | undefined;
+  readonly textRevision: number;
+  readonly queuedDiceRevision: number;
 }
 
 export interface GameInputDraftStorage {
@@ -27,6 +29,8 @@ export interface GameInputDraftStorage {
 
 interface GameInputDraftState extends GameInputDraftSnapshot {
   pendingAttachmentReads: number;
+  textRevision: number;
+  queuedDiceRevision: number;
 }
 
 interface PersistedGameInputScalars {
@@ -83,6 +87,8 @@ export function createGameInputDraftStore(options: DraftStoreOptions = {}) {
       addressMode: "scene",
       attachments: [],
       pendingAttachmentReads: 0,
+      textRevision: 0,
+      queuedDiceRevision: 0,
     };
     if (!storage || !canPersist(draftKey)) return fallback;
 
@@ -147,12 +153,14 @@ export function createGameInputDraftStore(options: DraftStoreOptions = {}) {
 
   const setText = (draftKey: string | null | undefined, text: string): void => {
     const state = getState(draftKey);
+    state.textRevision += 1;
     state.text = text;
     persistText(draftKey, text);
   };
 
   const setQueuedDice = (draftKey: string | null | undefined, queuedDice: string | null): void => {
     const state = getState(draftKey);
+    state.queuedDiceRevision += 1;
     state.queuedDice = queuedDice;
     persistScalars(draftKey, state);
   };
@@ -189,20 +197,30 @@ export function createGameInputDraftStore(options: DraftStoreOptions = {}) {
     };
   };
 
-  const captureSubmission = (draftKey: string | null | undefined): GameInputDraftSubmission => ({
-    draftKey,
-    ...read(draftKey),
-  });
+  const captureSubmission = (draftKey: string | null | undefined): GameInputDraftSubmission => {
+    const state = getState(draftKey);
+    return {
+      draftKey,
+      text: state.text,
+      queuedDice: state.queuedDice,
+      addressMode: state.addressMode,
+      attachments: [...state.attachments],
+      textRevision: state.textRevision,
+      queuedDiceRevision: state.queuedDiceRevision,
+    };
+  };
 
   const completeSubmission = (submission: GameInputDraftSubmission, sent: boolean): void => {
     if (!sent) return;
     const state = getState(submission.draftKey);
 
-    if (state.text === submission.text) {
+    if (state.textRevision === submission.textRevision) {
+      state.textRevision += 1;
       state.text = "";
       persistText(submission.draftKey, "");
     }
-    if (state.queuedDice === submission.queuedDice) {
+    if (state.queuedDiceRevision === submission.queuedDiceRevision) {
+      state.queuedDiceRevision += 1;
       state.queuedDice = null;
       persistScalars(submission.draftKey, state);
     }
@@ -214,7 +232,8 @@ export function createGameInputDraftStore(options: DraftStoreOptions = {}) {
   const completeTextSubmission = (submission: GameInputDraftSubmission, sent: boolean): void => {
     if (!sent) return;
     const state = getState(submission.draftKey);
-    if (state.text !== submission.text) return;
+    if (state.textRevision !== submission.textRevision) return;
+    state.textRevision += 1;
     state.text = "";
     persistText(submission.draftKey, "");
   };
