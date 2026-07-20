@@ -444,6 +444,45 @@ describe("automatic canonical-memory consequence extraction", () => {
     expect(result.candidates[2]?.provenance.messageIds).toEqual(["user-1", "assistant-1"]);
   });
 
+  it("rejects relationship state supported by only one overlapping evidence token", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: llmReturning(
+        JSON.stringify({
+          memories: [
+            {
+              kind: "relationship_state",
+              content: "The user and Mira are allies forever.",
+              confidence: 0.92,
+              evidence: "explicit_exchange",
+              sourceMessageIds: ["assistant-1"],
+            },
+          ],
+        }),
+      ),
+      request: {
+        version: 1,
+        jobId: "job-weak-relationship",
+        chatId: "chat-1",
+        mode: "roleplay",
+        scope: { kind: "character", id: "char-1" },
+        activeCharacterId: "char-1",
+        sourceMessages: [
+          {
+            id: "assistant-1",
+            chatId: "chat-1",
+            role: "assistant",
+            content: "We are allies now.",
+            characterId: "char-1",
+            createdAt: "2026-07-19T10:00:01.000Z",
+          },
+        ],
+        eligibleMemories: [],
+      },
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("keeps low-confidence supported evidence stale and rejects unsupported inference or invented supersession IDs", async () => {
     const llm = llmReturning(
       JSON.stringify({
@@ -488,7 +527,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             id: "user-1",
             chatId: "chat-1",
             role: "user",
-            content: "I am not sure whether I trust you yet.",
+            content: "Mira, I am not sure whether I trust you yet.",
             characterId: null,
             createdAt: "2026-07-19T10:00:00.000Z",
           },

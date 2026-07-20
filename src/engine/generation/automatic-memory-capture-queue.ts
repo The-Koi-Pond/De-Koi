@@ -2,6 +2,7 @@ import type { LlmGateway } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { CanonicalMemoryInput, CanonicalMemoryRecord, MemoryScope } from "../contracts/types/memory";
 import {
+  canonicalMemoryEligibleForConsequences,
   extractCanonicalMemoryConsequences,
   persistCanonicalMemoryConsequences,
   type PersistedCanonicalConsequence,
@@ -290,7 +291,7 @@ async function eligibleCanonicalMemories(
   if (!storage.queryMemories) return [];
   const memories = await storage.queryMemories({ scope, statuses: ["active", "pinned"] });
   return memories
-    .filter((memory) => memory.status === "active" || memory.status === "pinned")
+    .filter(canonicalMemoryEligibleForConsequences)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .slice(0, 24);
 }
@@ -449,6 +450,8 @@ export async function processAutomaticMemoryCaptureQueue(
         await upsertCanonicalCharacterMemory(storage, job, capture, now);
       }
       const consequences = llm ? await extractAndPersistConsequences({ storage, llm, job, now }) : [];
+      const consequenceStatus = llm ? "completed" : "skipped";
+      const consequenceSkipReason = llm ? null : "llm_gateway_unavailable";
       const assistantMessageId = readString(job.assistantMessageId).trim();
       if (assistantMessageId) {
         await storage.patchChatMessageExtra(assistantMessageId, {
@@ -458,21 +461,19 @@ export async function processAutomaticMemoryCaptureQueue(
             sourceMessageIds,
             completedAt: now,
             ...(capture ? { capture } : {}),
-            ...(llm
-              ? {
-                  consequences: {
-                    affected: consequences.map(({ operation, memory }) => ({
-                      operation,
-                      memory: {
-                        id: memory.id,
-                        kind: memory.kind,
-                        status: memory.status,
-                        content: memory.content,
-                      },
-                    })),
-                  },
-                }
-              : {}),
+            consequences: {
+              status: consequenceStatus,
+              ...(consequenceSkipReason ? { skipReason: consequenceSkipReason } : {}),
+              affected: consequences.map(({ operation, memory }) => ({
+                operation,
+                memory: {
+                  id: memory.id,
+                  kind: memory.kind,
+                  status: memory.status,
+                  content: memory.content,
+                },
+              })),
+            },
           },
         });
       }
@@ -482,6 +483,8 @@ export async function processAutomaticMemoryCaptureQueue(
         updatedAt: now,
         lastError: null,
         nextAttemptAt: null,
+        consequenceStatus,
+        consequenceSkipReason,
         affectedCanonicalMemoryIds: consequences.map((entry) => entry.memory.id),
       });
       result.completed += 1;

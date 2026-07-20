@@ -221,6 +221,7 @@ describe("automatic memory capture queue", () => {
     expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).toEqual(
       expect.objectContaining({
         consequences: {
+          status: "completed",
           affected: [
             {
               operation: "created",
@@ -265,8 +266,60 @@ describe("automatic memory capture queue", () => {
           operation: "created",
           memory: { id: "memory-1", content: "Celia's cat is named Miso." },
         },
+        consequences: {
+          status: "skipped",
+          skipReason: "llm_gateway_unavailable",
+          affected: [],
+        },
       },
     });
+    expect(harness.jobs.get(String(job?.id))).toEqual(
+      expect.objectContaining({ consequenceStatus: "skipped", consequenceSkipReason: "llm_gateway_unavailable" }),
+    );
+  });
+
+  it("does not expose malformed active memories to extraction or report consequences for them", async () => {
+    const harness = queueStorage();
+    harness.canonicalMemories.set("malformed-memory", {
+      id: "malformed-memory",
+      kind: "fact",
+      status: "active",
+      scope: { kind: "character", id: "char-1" },
+      content: "",
+    });
+    const job = await harness.enqueue();
+    const prompts: string[] = [];
+    const llm: LlmGateway = {
+      async complete(request) {
+        prompts.push(request.messages.map((entry) => entry.content).join("\n"));
+        return JSON.stringify({
+          memories: [
+            {
+              kind: "fact",
+              content: "The user's cat is named Miso.",
+              confidence: 0.97,
+              evidence: "direct_user_assertion",
+              sourceMessageIds: ["user-1"],
+              supersedesMemoryId: "malformed-memory",
+            },
+          ],
+        });
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
+
+    expect(prompts.join("\n")).not.toContain("malformed-memory");
+    expect(harness.jobs.get(String(job?.id))?.affectedCanonicalMemoryIds).toEqual([]);
+    expect(
+      Array.from(harness.canonicalMemories.values()).filter((memory) => memory.id !== "malformed-memory"),
+    ).toEqual([expect.objectContaining({ id: `canonical-${String(job?.id)}` })]);
   });
 
   it("publishes the exact saved memory after durable capture completes", async () => {

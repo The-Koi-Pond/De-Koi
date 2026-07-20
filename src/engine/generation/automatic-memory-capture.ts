@@ -59,6 +59,19 @@ const CONSEQUENCE_KINDS = new Set<MemoryKind>([
   "plot_state",
   "contradiction",
 ]);
+const CANONICAL_MEMORY_KINDS = new Set<MemoryKind>([
+  "episode",
+  "fact",
+  "scene_event",
+  "relationship_state",
+  "preference",
+  "promise",
+  "plot_state",
+  "contradiction",
+  "lore",
+  "summary",
+]);
+const MEMORY_SCOPE_KINDS = new Set(["user", "character", "chat", "scene", "world", "agent"]);
 const ACTIVE_CONFIDENCE_THRESHOLD = 0.7;
 const MAX_CAPTURED_MEMORIES = 12;
 const MAX_CONSEQUENCE_CONTENT_LENGTH = 500;
@@ -96,6 +109,29 @@ const EVIDENCE_STOP_WORDS = new Set([
   "your",
 ]);
 
+export function canonicalMemoryEligibleForConsequences(value: unknown): value is CanonicalMemoryRecord {
+  if (!isRecord(value)) return false;
+  const scope = parseRecord(value.scope);
+  const provenance = parseRecord(value.provenance);
+  return (
+    !!readString(value.id).trim() &&
+    CANONICAL_MEMORY_KINDS.has(readString(value.kind).trim() as MemoryKind) &&
+    (value.status === "active" || value.status === "pinned") &&
+    MEMORY_SCOPE_KINDS.has(readString(scope.kind).trim()) &&
+    !!readString(scope.id).trim() &&
+    !!readString(value.content).trim() &&
+    typeof value.confidence === "number" &&
+    Number.isFinite(value.confidence) &&
+    value.confidence >= 0 &&
+    value.confidence <= 1 &&
+    Array.isArray(provenance.messageIds) &&
+    Array.isArray(value.tags) &&
+    isRecord(value.payload) &&
+    !!readString(value.createdAt).trim() &&
+    !!readString(value.updatedAt).trim()
+  );
+}
+
 function stableHash(value: string): string {
   let hash = 2166136261;
   for (const char of value) {
@@ -131,7 +167,10 @@ export async function persistCanonicalMemoryConsequences(input: {
     throw new Error("Canonical memory storage is unavailable");
   }
   const eligibleById = new Map(
-    input.eligibleMemories.filter((memory) => memory.status === "active").map((memory) => [memory.id, memory]),
+    input.eligibleMemories
+      .filter(canonicalMemoryEligibleForConsequences)
+      .filter((memory) => memory.status === "active")
+      .map((memory) => [memory.id, memory]),
   );
   const affected: PersistedCanonicalConsequence[] = [];
   const seenSemanticIdentities = new Set<string>();
@@ -143,7 +182,7 @@ export async function persistCanonicalMemoryConsequences(input: {
     const memoryId = `canonical-consequence-${stableHash(semanticIdentity)}`;
     const existing =
       (await input.storage.get<CanonicalMemoryRecord>("canonical-memories", memoryId).catch(() => null)) ??
-      input.eligibleMemories.find(
+      input.eligibleMemories.filter(canonicalMemoryEligibleForConsequences).find(
         (memory) => readString(parseRecord(memory.payload).semanticIdentity).trim() === semanticIdentity,
       ) ??
       null;
@@ -211,9 +250,10 @@ function readStringArray(value: unknown): string[] {
 }
 
 function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequest): string {
+  const eligibleMemories = request.eligibleMemories.filter(canonicalMemoryEligibleForConsequences);
   const eligible =
-    request.eligibleMemories.length > 0
-      ? request.eligibleMemories
+    eligibleMemories.length > 0
+      ? eligibleMemories
           .map((memory) => `${memory.id} | ${memory.kind} | ${memory.status} | ${memory.content}`)
           .join("\n")
       : "(none)";
@@ -263,14 +303,13 @@ function evidenceTokens(value: string): Set<string> {
 }
 
 function contentSupportedByEvidence(
-  kind: MemoryKind,
   content: string,
   messages: CanonicalConsequenceSourceMessage[],
 ): boolean {
   const contentTokens = evidenceTokens(content);
   const sourceTokens = evidenceTokens(messages.map((message) => message.content).join(" "));
   const overlap = [...contentTokens].filter((token) => sourceTokens.has(token)).length;
-  return overlap >= (kind === "relationship_state" ? 1 : 2);
+  return overlap >= 2;
 }
 
 function evidenceSupportsKind(
@@ -321,7 +360,10 @@ export async function extractCanonicalMemoryConsequences(input: {
     : [];
   const sourceById = new Map(request.sourceMessages.map((message) => [message.id, message]));
   const eligibleIds = new Set(
-    request.eligibleMemories.filter((memory) => memory.status === "active").map((memory) => memory.id),
+    request.eligibleMemories
+      .filter(canonicalMemoryEligibleForConsequences)
+      .filter((memory) => memory.status === "active")
+      .map((memory) => memory.id),
   );
   const candidates: CanonicalMemoryInput[] = [];
   let skippedCount = 0;
@@ -350,7 +392,7 @@ export async function extractCanonicalMemoryConsequences(input: {
       evidenceIds.length === 0 ||
       evidenceMessages.length !== evidenceIds.length ||
       !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
-      !contentSupportedByEvidence(kind, content, evidenceMessages) ||
+      !contentSupportedByEvidence(content, evidenceMessages) ||
       (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
     ) {
       skippedCount += 1;

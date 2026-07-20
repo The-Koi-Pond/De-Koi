@@ -30,6 +30,17 @@ function memoryLabel(count: number): string {
   return count === 1 ? "1 memory recalled" : `${count} memories recalled`;
 }
 
+function completeSavedMemory(
+  entry: NonNullable<NonNullable<MessageMemoryCapture>["consequences"]>["affected"][number],
+): boolean {
+  return (
+    typeof entry?.memory?.id === "string" &&
+    entry.memory.id.trim().length > 0 &&
+    typeof entry.memory.content === "string" &&
+    entry.memory.content.trim().length > 0
+  );
+}
+
 export function MessageMemoryIndicators({
   isUser,
   memoryCapture,
@@ -48,17 +59,29 @@ export function MessageMemoryIndicators({
   const titleId = useId();
   const savedTitleId = useId();
   const savedCapture = memoryCapture?.capture;
-  const savedConsequences =
-    memoryCapture?.consequences?.affected.filter(
-      (entry) => !!entry.memory.id.trim() && !!entry.memory.content.trim(),
-    ) ?? [];
+  const consequenceEntries = memoryCapture?.consequences?.affected ?? [];
+  const savedConsequences = consequenceEntries.filter(completeSavedMemory);
+  const completeCapture =
+    savedCapture?.memory &&
+    typeof savedCapture.memory.id === "string" &&
+    savedCapture.memory.id.trim().length > 0 &&
+    typeof savedCapture.memory.content === "string" &&
+    savedCapture.memory.content.trim().length > 0
+      ? savedCapture
+      : null;
   const savedMemories =
     savedConsequences.length > 0
       ? savedConsequences
-      : savedCapture?.memory?.id?.trim() && savedCapture.memory.content?.trim()
-        ? [savedCapture]
+      : completeCapture
+        ? [completeCapture]
         : [];
-  const remembered = !isUser && memoryCapture?.status === "completed" && savedMemories.length > 0;
+  const partialCapture =
+    memoryCapture?.status === "completed" &&
+    (memoryCapture.consequences?.status === "skipped" ||
+      savedConsequences.length < consequenceEntries.length ||
+      (savedMemories.length === 0 && !completeCapture));
+  const remembered =
+    !isUser && memoryCapture?.status === "completed" && (savedMemories.length > 0 || partialCapture);
   const recalledItems = useMemo(() => recalledMemoryItems(promptSnapshot), [promptSnapshot]);
   const recalledCount = !isUser ? recalledItems.length : 0;
   const visibleSnippets = recalledItems
@@ -147,7 +170,7 @@ export function MessageMemoryIndicators({
             }}
             className="inline-flex shrink-0 items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-300/80 outline-none transition-colors duration-150 hover:bg-emerald-400/15 focus-visible:ring-1 focus-visible:ring-emerald-300/45"
           >
-            ✦ remembered
+            {partialCapture ? "⚠ partial memory" : "✦ remembered"}
           </button>
           {savedOpen && (
             <div
@@ -158,12 +181,19 @@ export function MessageMemoryIndicators({
               onClick={(event) => event.stopPropagation()}
             >
               <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
-                {savedMemories.length > 1
-                  ? "Saved memories"
-                  : savedMemories[0]?.operation === "updated"
-                    ? "Updated memory"
-                    : "Saved memory"}
+                {partialCapture
+                  ? "Partial memory capture"
+                  : savedMemories.length > 1
+                    ? "Saved memories"
+                    : savedMemories[0]?.operation === "updated"
+                      ? "Updated memory"
+                      : "Saved memory"}
               </div>
+              {partialCapture && (
+                <p className="mb-2 rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-200/90">
+                  Some memory details could not be saved or verified.
+                </p>
+              )}
               <div className="max-h-56 space-y-2 overflow-y-auto">
                 {savedMemories.map((entry) => (
                   <div

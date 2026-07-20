@@ -523,6 +523,8 @@ export interface MessageMemoryCaptureExtra {
     memory: { id: string; content: string };
   };
   consequences?: {
+    status?: "completed" | "skipped";
+    skipReason?: "llm_gateway_unavailable";
     affected: Array<{
       operation: "created" | "updated" | "superseded";
       memory: {
