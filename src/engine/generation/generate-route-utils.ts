@@ -2,7 +2,11 @@ import { generationParametersSchema } from "../contracts/schemas/prompt.schema";
 import type { GenerationParameters } from "../contracts/types/prompt";
 import { normalizeCustomThinkingTags } from "../generation-core/llm/inline-thinking";
 import { getAttachmentFilename, type PromptAttachment } from "../shared/attachments/image-attachments";
-import { parseRecord, readNonNegativeInteger, readString } from "./runtime-records";
+import {
+  resolveRecommendedGenerationProfile,
+  type RecommendedGenerationProfile,
+} from "./recommended-generation-profile";
+import { parseRecord, readNonNegativeInteger, readNumber, readString } from "./runtime-records";
 
 export type StoredGenerationParameters = Partial<GenerationParameters>;
 export type { PromptAttachment };
@@ -374,6 +378,38 @@ export function mergeStoredGenerationParameters(...sources: Array<unknown>): Sto
   return Object.keys(merged).length > 0 ? merged : null;
 }
 
+export function recommendedGenerationProfileForRequest(
+  connection: Record<string, unknown> | null | undefined,
+  input: Record<string, unknown> | null | undefined,
+  chat?: Record<string, unknown> | null,
+): RecommendedGenerationProfile {
+  const providerMetadata = parseRecord(connection?.providerMetadata);
+  const requestedProfileMode = readString(input?.generationProfileMode);
+  const chatMode = readString(chat?.mode);
+  const legacyChatMode = readString(chat?.chatMode);
+  const mode =
+    requestedProfileMode === "structured" || requestedProfileMode === "agent"
+      ? requestedProfileMode
+      : ["conversation", "roleplay", "visual_novel", "game"].includes(chatMode)
+        ? chatMode
+        : ["conversation", "roleplay", "visual_novel", "game"].includes(legacyChatMode)
+          ? legacyChatMode
+          : "conversation";
+  return resolveRecommendedGenerationProfile({
+    mode,
+    provider: readString(connection?.provider),
+    model: readString(connection?.model),
+    capabilities: parseRecord(connection?.capabilities),
+    maxContext: readNumber(connection?.maxContext, 0),
+    baseUrl: readString(connection?.baseUrl),
+    executionTarget: readString(input?.executionTarget) === "remote" ? "remote" : "embedded",
+    metadataStale:
+      providerMetadata.stale === true ||
+      providerMetadata.modelMetadataStale === true ||
+      connection?.capabilitiesStale === true,
+  });
+}
+
 export function generationParameterSources(
   connection: Record<string, unknown> | null | undefined,
   input: Record<string, unknown> | null | undefined,
@@ -384,10 +420,11 @@ export function generationParameterSources(
   const mode = readString(chat?.mode || chat?.chatMode);
   const setupConfig = parseRecord(meta.gameSetupConfig);
   return [
+    recommendedGenerationProfileForRequest(connection, input, chat).parameters,
+    connection?.defaultParameters,
     promptPresetParameters,
     mode === "game" ? setupConfig.generationParameters : null,
     mode === "game" ? meta.gameGenerationParameters : null,
-    connection?.defaultParameters,
     meta.chatParameters,
     input?.parameters,
   ];

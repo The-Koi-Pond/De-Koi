@@ -1248,7 +1248,7 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     if (usesDefaultAgentConnection && connectionId !== LOCAL_SIDECAR_CONNECTION_ID) {
       recordDefaultAgentConnectionWarning(defaultConnectionWarnings, name, connection, model);
     }
-    const parameters = llmParameters(connection, {}, input.chat);
+    const parameters = llmParameters(connection, { generationProfileMode: "agent" }, input.chat);
     customTools ??= await loadCustomTools(deps.storage);
     resolved.push({
       id: readString(agent.id) || readString(agent.type) || "agent",

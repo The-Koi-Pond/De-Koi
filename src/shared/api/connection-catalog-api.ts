@@ -10,6 +10,10 @@ export type AvailableConnectionSummary = {
   synthetic?: boolean;
   model?: string | null;
   baseUrl?: string | null;
+  maxContext?: number | null;
+  capabilities?: Record<string, unknown> | null;
+  providerMetadata?: Record<string, unknown> | null;
+  capabilitiesStale?: boolean | null;
   folderId?: string | null;
   imagePath?: string | null;
   imageFilePath?: string | null;
@@ -32,6 +36,10 @@ const CONNECTION_SUMMARY_OPTIONS = {
     "provider",
     "model",
     "baseUrl",
+    "maxContext",
+    "capabilities",
+    "providerMetadata",
+    "capabilitiesStale",
     "folderId",
     "imagePath",
     "imageFilePath",
@@ -73,6 +81,7 @@ function localSidecarConnection(status: LocalSidecarStatusResponse): AvailableCo
     synthetic: true,
     model: status.config.model,
     baseUrl: status.baseUrl ?? "",
+    maxContext: status.config.contextSize,
     useForRandom: false,
     isDefault: false,
     defaultForAgents: false,

@@ -28,6 +28,7 @@ function readySidecarStatus() {
       enabled: true,
       executablePath: null,
       model: "local-model.gguf",
+      contextSize: 8_192,
     },
     runtime: { installed: true },
   } as unknown as Awaited<ReturnType<typeof localSidecarApi.status>>;
@@ -53,6 +54,7 @@ describe("connectionCatalogApi", () => {
         name: "Local Model",
         provider: "custom",
         synthetic: true,
+        maxContext: 8_192,
       }),
       storedConnection,
     ]);

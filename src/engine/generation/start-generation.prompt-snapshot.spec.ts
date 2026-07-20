@@ -62,4 +62,29 @@ describe("buildSavedGenerationPromptSnapshot", () => {
       ],
     });
   });
+
+  it("preserves the selected profile and provider-visible effective values", () => {
+    const snapshot = buildSavedGenerationPromptSnapshot({
+      connection,
+      promptSnapshot: {
+        messages: [{ role: "user", content: "Hello" }],
+        parameters: { temperature: 0.7, max_tokens: 2048 },
+        generationProfile: {
+          profileId: "conversation-balanced",
+          profileVersion: 1,
+          source: "recommended",
+          rationale: "Uses balanced sampling.",
+          effectiveValues: { temperature: 0.7, max_tokens: 2048 },
+        },
+      },
+    });
+
+    expect(snapshot?.generationProfile).toEqual({
+      profileId: "conversation-balanced",
+      profileVersion: 1,
+      source: "recommended",
+      rationale: "Uses balanced sampling.",
+      effectiveValues: { temperature: 0.7, max_tokens: 2048 },
+    });
+  });
 });

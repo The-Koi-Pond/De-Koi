@@ -73,8 +73,10 @@ import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
 import {
   generationParameterSources,
   mergeStoredGenerationParameters,
+  recommendedGenerationProfileForRequest,
   type StoredGenerationParameters,
 } from "./generate-route-utils";
+import { applyRecommendedPromptBudgetGuidance } from "./recommended-generation-profile";
 import { effectiveMaxContext } from "./context-window";
 import { buildGenerationPromptPresetCandidates } from "./prompt-preset-selection";
 import { buildSummaryContextProjection, type SummaryContextProjection } from "./summary-context";
@@ -2380,10 +2382,13 @@ function truncateRecalledMemory(content: string, tokenBudget: number): string {
   return `${content.slice(0, headChars).trimEnd()}${RECALL_TRUNCATION_MARKER}${content.slice(-tailChars).trimStart()}`;
 }
 
-function packRecalledMemories(recalled: Array<{ content: string }>, maxContext?: number) {
-  const targetBudget = maxContext
-    ? Math.floor(maxContext * MEMORY_RECALL_CONTEXT_SHARE)
-    : DEFAULT_MEMORY_RECALL_BUDGET_TOKENS;
+function packRecalledMemories(recalled: Array<{ content: string }>, maxContext?: number, requestedBudget?: number) {
+  const targetBudget =
+    requestedBudget && requestedBudget > 0
+      ? Math.floor(requestedBudget)
+      : maxContext
+        ? Math.floor(maxContext * MEMORY_RECALL_CONTEXT_SHARE)
+        : DEFAULT_MEMORY_RECALL_BUDGET_TOKENS;
   const budgetTokens = Math.max(
     MIN_MEMORY_RECALL_BUDGET_TOKENS,
     Math.min(MAX_MEMORY_RECALL_BUDGET_TOKENS, targetBudget),
@@ -2549,6 +2554,7 @@ async function buildMemoryRecallBlock(
   storedMessages: JsonRecord[],
   latestUserInput: string,
   maxContext?: number,
+  requestedBudget?: number,
   embeddingSource?: { embed(texts: string[]): Promise<number[][] | null> } | null,
   characterMemoryLines: string[] = [],
 ): Promise<MemoryRecallPromptContext | null> {
@@ -2602,7 +2608,7 @@ async function buildMemoryRecallBlock(
 
   const prioritizedRecall = prioritizeMemoryRecallAgainstCharacterMemories(recalled, characterMemoryLines);
   const skippedAttributionItems = attributionForSkippedMemoryRecall(prioritizedRecall.skipped, memories.length);
-  const packed = packRecalledMemories(prioritizedRecall.retained, maxContext);
+  const packed = packRecalledMemories(prioritizedRecall.retained, maxContext, requestedBudget);
   if (packed.lines.length === 0) {
     return skippedAttributionItems.length > 0 ? { block: null, attributionItems: skippedAttributionItems } : null;
   }
@@ -4058,6 +4064,11 @@ export async function assembleGenerationPrompt(
   const reusableContext = input.reusableContext;
   const chatMeta = reusableContext?.chatMeta ?? parseRecord(input.chat.metadata);
   const chatMode = reusableContext?.chatMode ?? readString(input.chat.mode || input.chat.chatMode, "conversation");
+  const recommendedProfile = recommendedGenerationProfileForRequest(input.connection, input.request, input.chat);
+  input = {
+    ...input,
+    request: applyRecommendedPromptBudgetGuidance(input.request, chatMeta, recommendedProfile.promptBudgetGuidance),
+  };
   if (reusableContext) {
     input = { ...input, storedMessages: reusableContext.storedMessages };
   } else if (chatMode === "game") {
@@ -4250,6 +4261,7 @@ export async function assembleGenerationPrompt(
           input.storedMessages,
           input.latestUserInput,
           maxContext || undefined,
+          readNumber(input.request.memoryRecallTokenBudget, 0) || undefined,
           embeddingSource,
           characters.flatMap((character) => character.memories ?? []),
         );

@@ -95,7 +95,10 @@ export async function loadChatMessage(storage: ChatTranscriptPort, messageId: st
 
 export function llmParameters(
   connection: JsonRecord,
-  input: { parameters?: Record<string, unknown> | null },
+  input: {
+    parameters?: Record<string, unknown> | null;
+    generationProfileMode?: "structured" | "agent";
+  },
   chat?: JsonRecord | null,
   promptPresetParameters?: unknown,
 ): Record<string, unknown> {

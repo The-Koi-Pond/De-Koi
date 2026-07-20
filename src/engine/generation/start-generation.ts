@@ -85,6 +85,7 @@ import {
   resolveRegenerationGameStateAnchor,
   resolveRegenerationGameStateFallbackMessageIds,
   resolveVisibleGameStateAnchor,
+  recommendedGenerationProfileForRequest,
   shouldPreferLatestVisibleGameState,
   type PromptAttachment,
   type SimplePromptMessage,
@@ -260,6 +261,7 @@ type MainGenerationPromptSnapshot = Pick<
   | "messages"
   | "previewMessages"
   | "parameters"
+  | "generationProfile"
   | "tools"
   | "promptPresetId"
   | "lorebookActivationTrace"
@@ -2683,6 +2685,9 @@ export function buildSavedGenerationPromptSnapshot(args: {
       ? { previewMessages: args.promptSnapshot.previewMessages.map(clonePromptMessage) }
       : {}),
     parameters: isRecord(parameters) ? parameters : {},
+    ...(args.promptSnapshot.generationProfile
+      ? { generationProfile: cloneSerializableValue(args.promptSnapshot.generationProfile) }
+      : {}),
     ...(tools?.length ? { tools } : {}),
     promptPresetId: args.promptSnapshot.promptPresetId ?? null,
     ...(args.promptSnapshot.lorebookActivationTrace
@@ -5508,6 +5513,7 @@ async function* streamMainGenerationLoop(args: {
   const turnUsages: unknown[] = [];
   const conversation: LlmMessage[] = [...baseMessages];
   let promptSnapshot: MainGenerationPromptSnapshot | null = null;
+  const recommendedProfile = recommendedGenerationProfileForRequest(connection, input, chat);
   let webResearchRequest: Record<string, unknown> | null = null;
   const webResearchSources: Array<{ title: string; url: string }> = [];
   let mainTools = initialMainTools;
@@ -5588,6 +5594,13 @@ async function* streamMainGenerationLoop(args: {
           ? { previewMessages: requestPreviewMessages.map(providerRequestMessage).map(clonePromptMessage) }
           : {}),
         parameters: cloneSerializableValue(visibleRequestParameters),
+        generationProfile: {
+          profileId: recommendedProfile.profileId,
+          profileVersion: recommendedProfile.profileVersion,
+          source: recommendedProfile.source,
+          rationale: recommendedProfile.rationale,
+          effectiveValues: cloneSerializableValue(visibleRequestParameters),
+        },
         promptPresetId: promptPresetId ?? null,
         ...(lorebookActivationTrace ? { lorebookActivationTrace } : {}),
         ...(contextAttribution ? { contextAttribution } : {}),
