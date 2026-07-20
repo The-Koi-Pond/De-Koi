@@ -13,9 +13,13 @@ vi.mock("../api/window-controls-api", () => windowControls);
 
 import {
   confirmDiscardPendingAppWork,
+  hasPendingAppCloseWork,
   registerAppCloseGuard,
+  registerBrowserBeforeUnloadGuard,
+  registerEditorDirtyAppCloseGuard,
   requestGuardedAppClose,
 } from "./app-close-guard";
+import { useUIStore } from "../stores/ui.store";
 
 const cleanups: Array<() => void> = [];
 
@@ -23,6 +27,32 @@ describe("app close guard", () => {
   afterEach(() => {
     while (cleanups.length > 0) cleanups.pop()?.();
     vi.clearAllMocks();
+    useUIStore.setState({ editorDirty: false });
+  });
+
+  it("tracks the central editor dirty state as pending app-close work", () => {
+    cleanups.push(registerEditorDirtyAppCloseGuard(() => useUIStore.getState().editorDirty));
+
+    expect(hasPendingAppCloseWork()).toBe(false);
+
+    useUIStore.setState({ editorDirty: true });
+
+    expect(hasPendingAppCloseWork()).toBe(true);
+  });
+
+  it("marks browser unload as cancelable while app-close work is pending", () => {
+    cleanups.push(
+      registerAppCloseGuard({
+        label: "Draft",
+        hasPendingWork: () => true,
+      }),
+    );
+    cleanups.push(registerBrowserBeforeUnloadGuard(window));
+    const event = new Event("beforeunload", { cancelable: true });
+
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("flushes pending guards before prompting", async () => {

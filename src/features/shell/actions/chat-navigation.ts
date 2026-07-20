@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useExitGameSetupFromShell } from "../../modes/game/startup";
 import { useChatStore } from "../../../shared/stores/chat.store";
 import { useUIStore } from "../../../shared/stores/ui.store";
+import { showConfirmDialog } from "../../../shared/lib/app-dialogs";
 
 export function useNavigateToChatFromShell() {
   const setActiveChatId = useChatStore((state) => state.setActiveChatId);
@@ -13,7 +14,19 @@ export function useNavigateToChatFromShell() {
   const exitGameSetup = useExitGameSetupFromShell();
 
   return useCallback(
-    (chatId: string) => {
+    async (chatId: string) => {
+      if (useChatStore.getState().activeChatId === chatId) return;
+      if (
+        useUIStore.getState().editorDirty &&
+        !(await showConfirmDialog({
+          title: "Unsaved Changes",
+          message: "You have unsaved changes. Discard and continue?",
+          confirmLabel: "Discard",
+          tone: "destructive",
+        }))
+      ) {
+        return;
+      }
       closeAllDetails();
       setPendingNewChatMode(null);
       setShouldOpenSettings(false);

@@ -119,6 +119,13 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
+export function getSubmittedInputFailureAction(error: unknown, userMessageAccepted: boolean) {
+  return {
+    restore: !userMessageAccepted,
+    report: !isAbortError(error),
+  };
+}
+
 function isSupportedChatAttachment(file: File): boolean {
   if (file.type.startsWith("image/")) return true;
   if (file.type.startsWith("text/")) return true;
@@ -739,8 +746,9 @@ export const ChatInput = memo(function ChatInput({
       });
       if (generated === false && !userMessageAccepted) restoreSubmittedInput();
     } catch (error) {
-      if (isAbortError(error)) return;
-      if (!userMessageAccepted) restoreSubmittedInput();
+      const action = getSubmittedInputFailureAction(error, userMessageAccepted);
+      if (action.restore) restoreSubmittedInput();
+      if (!action.report) return;
       console.error("Send failed:", error);
     } finally {
       if (pendingAttachments.length) invalidateGalleryImagesForChat(qc, submittingChatId);

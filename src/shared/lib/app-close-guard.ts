@@ -41,6 +41,24 @@ export function registerAppCloseGuard(guard: AppCloseGuard) {
   };
 }
 
+export function registerEditorDirtyAppCloseGuard(isEditorDirty: () => boolean) {
+  return registerAppCloseGuard({
+    label: "Editor changes",
+    hasPendingWork: isEditorDirty,
+    message: "An editor has unsaved changes. Continue anyway and discard them?",
+  });
+}
+
+export function registerBrowserBeforeUnloadGuard(target: Window = window) {
+  const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+    if (!hasPendingAppCloseWork()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  };
+  target.addEventListener("beforeunload", handleBeforeUnload);
+  return () => target.removeEventListener("beforeunload", handleBeforeUnload);
+}
+
 export async function confirmDiscardPendingAppWork(options?: {
   title?: string;
   confirmLabel?: string;

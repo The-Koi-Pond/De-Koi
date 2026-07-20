@@ -8,12 +8,18 @@ import { useUIStore } from "../../../shared/stores/ui.store";
 import { useNavigateToChatFromShell } from "./chat-navigation";
 
 const exitGameSetup = vi.fn();
+const dialogs = vi.hoisted(() => ({
+  showConfirmDialog: vi.fn(),
+}));
 
 vi.mock("../../modes/game/startup", () => ({
   useExitGameSetupFromShell: () => exitGameSetup,
 }));
+vi.mock("../../../shared/lib/app-dialogs", () => dialogs);
 
-function NavigateProbe({ onReady }: { onReady: (navigate: (chatId: string) => void) => void }) {
+type NavigateToChat = (chatId: string) => void | Promise<void>;
+
+function NavigateProbe({ onReady }: { onReady: (navigate: NavigateToChat) => void }) {
   const navigate = useNavigateToChatFromShell();
 
   useEffect(() => {
@@ -31,6 +37,8 @@ describe("useNavigateToChatFromShell", () => {
     window.localStorage.clear();
     useChatStore.getState().reset();
     exitGameSetup.mockClear();
+    dialogs.showConfirmDialog.mockReset();
+    dialogs.showConfirmDialog.mockResolvedValue(true);
     useUIStore.setState({
       characterDetailId: "character-1",
       botBrowserOpen: true,
@@ -55,7 +63,7 @@ describe("useNavigateToChatFromShell", () => {
   });
 
   it("closes shell surfaces, exits game setup, and activates the selected chat", async () => {
-    let navigate: ((chatId: string) => void) | null = null;
+    let navigate: NavigateToChat | null = null;
 
     act(() => {
       const chat = useChatStore.getState();
@@ -71,8 +79,8 @@ describe("useNavigateToChatFromShell", () => {
       root.render(<NavigateProbe onReady={(value) => (navigate = value)} />);
     });
 
-    act(() => {
-      navigate?.("target-chat");
+    await act(async () => {
+      await navigate?.("target-chat");
     });
 
     expect(useChatStore.getState()).toMatchObject({
@@ -84,10 +92,60 @@ describe("useNavigateToChatFromShell", () => {
     });
     expect(useChatStore.getState().chatNotifications.has("target-chat")).toBe(false);
     expect(exitGameSetup).toHaveBeenCalledTimes(1);
+    expect(dialogs.showConfirmDialog).toHaveBeenCalledWith({
+      title: "Unsaved Changes",
+      message: "You have unsaved changes. Discard and continue?",
+      confirmLabel: "Discard",
+      tone: "destructive",
+    });
     expect(useUIStore.getState()).toMatchObject({
       characterDetailId: null,
       botBrowserOpen: false,
       editorDirty: false,
+    });
+  });
+
+  it("does nothing when the selected chat is already active", async () => {
+    let navigate: NavigateToChat | null = null;
+    useChatStore.getState().setActiveChatId("target-chat");
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<NavigateProbe onReady={(value) => (navigate = value)} />);
+    });
+
+    await act(async () => {
+      await navigate?.("target-chat");
+    });
+
+    expect(dialogs.showConfirmDialog).not.toHaveBeenCalled();
+    expect(exitGameSetup).not.toHaveBeenCalled();
+    expect(useUIStore.getState()).toMatchObject({
+      characterDetailId: "character-1",
+      botBrowserOpen: true,
+      editorDirty: true,
+    });
+  });
+
+  it("keeps the editor and current chat when discarding is canceled", async () => {
+    let navigate: NavigateToChat | null = null;
+    dialogs.showConfirmDialog.mockResolvedValue(false);
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<NavigateProbe onReady={(value) => (navigate = value)} />);
+    });
+
+    await act(async () => {
+      await navigate?.("target-chat");
+    });
+
+    expect(useChatStore.getState().activeChatId).toBeNull();
+    expect(exitGameSetup).not.toHaveBeenCalled();
+    expect(useUIStore.getState()).toMatchObject({
+      characterDetailId: "character-1",
+      botBrowserOpen: true,
+      editorDirty: true,
     });
   });
 });

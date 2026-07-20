@@ -36,7 +36,12 @@ import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { HELP_REQUEST_EVENT } from "../../shared/lib/help-events";
 import { markPerformanceMilestoneOnce } from "../../shared/lib/performance-diagnostics";
 import { onDesktopWindowCloseRequested } from "../../shared/api/window-controls-api";
-import { hasPendingAppCloseWork, requestGuardedAppClose } from "../../shared/lib/app-close-guard";
+import {
+  hasPendingAppCloseWork,
+  registerBrowserBeforeUnloadGuard,
+  registerEditorDirtyAppCloseGuard,
+  requestGuardedAppClose,
+} from "../../shared/lib/app-close-guard";
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
 import {
   getAutomaticMemoryCaptureToast,
@@ -272,6 +277,8 @@ export function AppShell() {
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     let cancelled = false;
+    const unregisterEditorGuard = registerEditorDirtyAppCloseGuard(() => useUIStore.getState().editorDirty);
+    const unregisterBeforeUnloadGuard = registerBrowserBeforeUnloadGuard();
     void onDesktopWindowCloseRequested(() => {
       void requestGuardedAppClose();
     }, hasPendingAppCloseWork).then((unlisten) => {
@@ -284,6 +291,8 @@ export function AppShell() {
     return () => {
       cancelled = true;
       cleanup?.();
+      unregisterBeforeUnloadGuard();
+      unregisterEditorGuard();
     };
   }, []);
 
