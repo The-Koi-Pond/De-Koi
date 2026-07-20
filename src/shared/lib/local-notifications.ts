@@ -2,8 +2,15 @@ type TauriNotificationApi = typeof import("@tauri-apps/plugin-notification");
 
 export type LocalNotificationPermission = NotificationPermission | "unsupported";
 
-export type ConversationLocalNotificationOptions = {
+export const LOCAL_NOTIFICATION_ACTIVATION_EVENT = "de-koi:local-notification-activation";
+
+export type LocalNotificationActivationDetail = {
+  chatId: string;
+};
+
+export type LocalChatNotificationOptions = {
   enabled: boolean;
+  chatId: string;
   characterName?: string | null;
   tag?: string;
 };
@@ -59,7 +66,7 @@ function isAppFocusedForNotifications(): boolean {
   return document.visibilityState === "visible" && document.hasFocus();
 }
 
-function shouldShowConversationLocalNotification({
+function shouldShowLocalChatNotification({
   enabled,
   permission,
   appFocused,
@@ -71,14 +78,15 @@ function shouldShowConversationLocalNotification({
   return enabled && permission === "granted" && !appFocused;
 }
 
-export async function showConversationLocalNotification({
+export async function showLocalChatNotification({
   enabled,
+  chatId,
   characterName,
   tag,
-}: ConversationLocalNotificationOptions): Promise<boolean> {
+}: LocalChatNotificationOptions): Promise<boolean> {
   const permission = await getLocalNotificationPermission();
   if (
-    !shouldShowConversationLocalNotification({
+    !shouldShowLocalChatNotification({
       enabled,
       permission,
       appFocused: isAppFocusedForNotifications(),
@@ -113,6 +121,11 @@ export async function showConversationLocalNotification({
   notification.onclick = () => {
     window.focus();
     notification.close();
+    window.dispatchEvent(
+      new CustomEvent<LocalNotificationActivationDetail>(LOCAL_NOTIFICATION_ACTIVATION_EVENT, {
+        detail: { chatId },
+      }),
+    );
   };
 
   return true;

@@ -23,7 +23,7 @@ import { storageApi } from "../../../../../shared/api/storage-api";
 import { integrationGateway } from "../../../../../shared/api/integration-gateway";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
-import { showConversationLocalNotification } from "../../../../../shared/lib/local-notifications";
+import { showLocalChatNotification } from "../../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../../shared/lib/notification-sound";
 import { chatKeys, useChatSummaries } from "../../../../catalog/chats/index";
 import { invalidateCharacterCollectionQueries } from "../../../../catalog/characters/index";
@@ -175,8 +175,9 @@ export function useBackgroundAutonomousPolling() {
                 // Add floating avatar notification bubble
                 useChatStore.getState().addNotification(chat.id, charName, charAvatar, charAvatarCrop);
 
-                void showConversationLocalNotification({
+                void showLocalChatNotification({
                   enabled: useUIStore.getState().conversationBrowserNotifications,
+                  chatId: chat.id,
                   characterName: charName,
                   tag: `marinara-conversation-${chat.id}`,
                 });

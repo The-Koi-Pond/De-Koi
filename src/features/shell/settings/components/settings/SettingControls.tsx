@@ -71,7 +71,7 @@ export function ConversationSoundSetting() {
       ? "This browser or app shell does not expose native notifications."
       : localNotificationPermission === "denied"
         ? "Notifications are blocked in the browser or operating system. Re-enable them in site or system settings to use this."
-        : "Show a generic native notification when a Conversation-mode character replies while De-Koi is not focused. Message contents are never shown.";
+        : "Show a generic native notification when a Conversation or Roleplay character replies while De-Koi is not focused. Message contents are never shown.";
 
   const previewNotificationSound = (sound: CustomNotificationSound | null = customNotificationSound) => {
     playNotificationPing(notificationSound, sound);
@@ -146,7 +146,10 @@ export function ConversationSoundSetting() {
   };
 
   return (
-    <div id="settings-destination-notification-sounds" className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700">
+    <div
+      id="settings-destination-notification-sounds"
+      className="scroll-mt-4 flex flex-col gap-2 rounded-xl transition-shadow duration-700"
+    >
       <div className="flex items-center gap-1.5">
         <Bell size="0.75rem" className="text-[var(--muted-foreground)]" />
         <span className="text-xs font-medium">Notifications</span>

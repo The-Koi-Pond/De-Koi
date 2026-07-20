@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChatStore } from "../../../shared/stores/chat.store";
 import { useUIStore } from "../../../shared/stores/ui.store";
-import { useNavigateToChatFromShell } from "./chat-navigation";
+import {
+  LOCAL_NOTIFICATION_ACTIVATION_EVENT,
+  type LocalNotificationActivationDetail,
+} from "../../../shared/lib/local-notifications";
+import { useLocalNotificationNavigation, useNavigateToChatFromShell } from "./chat-navigation";
 
 const exitGameSetup = vi.fn();
 const dialogs = vi.hoisted(() => ({
@@ -26,6 +30,11 @@ function NavigateProbe({ onReady }: { onReady: (navigate: NavigateToChat) => voi
     onReady(navigate);
   }, [navigate, onReady]);
 
+  return null;
+}
+
+function LocalNotificationNavigationProbe() {
+  useLocalNotificationNavigation();
   return null;
 }
 
@@ -147,5 +156,32 @@ describe("useNavigateToChatFromShell", () => {
       botBrowserOpen: true,
       editorDirty: true,
     });
+  });
+
+  it("routes notification activation through the dirty-editor navigation guard", async () => {
+    dialogs.showConfirmDialog.mockResolvedValue(false);
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<LocalNotificationNavigationProbe />);
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent<LocalNotificationActivationDetail>(LOCAL_NOTIFICATION_ACTIVATION_EVENT, {
+          detail: { chatId: "notified-chat" },
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(dialogs.showConfirmDialog).toHaveBeenCalledWith({
+      title: "Unsaved Changes",
+      message: "You have unsaved changes. Discard and continue?",
+      confirmLabel: "Discard",
+      tone: "destructive",
+    });
+    expect(useChatStore.getState().activeChatId).toBeNull();
+    expect(exitGameSetup).not.toHaveBeenCalled();
   });
 });

@@ -566,7 +566,7 @@ export interface UIState {
   textBlipMode: TextBlipMode;
   /** Optional locally persisted custom blip sound, stored as a small data URL. */
   customTextBlipSound: CustomTextBlipSound | null;
-  /** When true, show native local notifications for new Conversation messages while De-Koi is unfocused. */
+  /** When true, show native local notifications for new Conversation and Roleplay messages while De-Koi is unfocused. */
   conversationBrowserNotifications: boolean;
   /** Show an in-app notification containing the exact automatic memory capture. */
   automaticMemoryCaptureNotifications: boolean;

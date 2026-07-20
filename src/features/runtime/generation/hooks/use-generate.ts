@@ -34,7 +34,7 @@ import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { urlBinaryApi } from "../../../../shared/api/url-binary-api";
 import { requestImagePromptReview } from "../../../../shared/components/ui/ImagePromptReviewHost";
 import { recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
-import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
+import { showLocalChatNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
 import type { MusicDjIntent } from "../../../../shared/lib/music-dj-intent";
@@ -45,10 +45,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import type { AvatarCropValue } from "../../../../shared/lib/utils";
 import { useGameStateStore } from "../../world-state/index";
 import { worldStateApi, type WorldStateTarget } from "../../world-state/index";
-import {
-  chatKeys,
-  sanitizeTimelineMessageRecord,
-} from "../../../catalog/chats/index";
+import { chatKeys, sanitizeTimelineMessageRecord } from "../../../catalog/chats/index";
 import { characterKeys } from "../../../catalog/characters/index";
 import { personaKeys } from "../../../catalog/personas/index";
 import {
@@ -474,7 +471,7 @@ async function characterNotificationInfo(characterId: string | null): Promise<{
   }
 }
 
-async function notifyOffChatAssistantMessage(
+export async function notifyOffChatAssistantMessage(
   queryClient: QueryClient,
   chatId: string,
   rawMessage: unknown,
@@ -511,14 +508,15 @@ async function notifyOffChatAssistantMessage(
     if (uiState.convoNotificationSound) {
       playNotificationPing(uiState.notificationSound, uiState.customNotificationSound);
     }
-    void showConversationLocalNotification({
-      enabled: uiState.conversationBrowserNotifications,
-      characterName,
-      tag: `marinara-conversation-${chatId}`,
-    });
   } else if (uiState.rpNotificationSound) {
     playNotificationPing(uiState.notificationSound, uiState.customNotificationSound);
   }
+  void showLocalChatNotification({
+    enabled: uiState.conversationBrowserNotifications,
+    chatId,
+    characterName,
+    tag: `marinara-${chat.mode}-${chatId}`,
+  });
 }
 
 function parseMaybeRecord(value: unknown): Record<string, unknown> {

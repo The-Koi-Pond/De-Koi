@@ -54,7 +54,7 @@ import type { RegenerateOptions } from "../../shared/chat-ui/types";
 
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
+import { showLocalChatNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../../../shared/lib/chat-scroll-events";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
@@ -1187,8 +1187,9 @@ export function ConversationView({
       if (uiState.convoNotificationSound) {
         playNotificationPing(uiState.notificationSound, uiState.customNotificationSound);
       }
-      void showConversationLocalNotification({
+      void showLocalChatNotification({
         enabled: uiState.conversationBrowserNotifications,
+        chatId,
         characterName: getAssistantNotificationName(newAssistantMessage, characterMap, activeCharacterNames),
         tag: `marinara-conversation-${chatId}`,
       });
