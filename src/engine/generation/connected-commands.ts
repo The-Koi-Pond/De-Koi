@@ -278,8 +278,9 @@ async function parseConnectedCommands(
   parseEvents: ConnectedCommandEvent[];
   strippedHiddenContent: boolean;
 }> {
+  const allowAngleMemoryCommands = readString(chat.mode || chat.chatMode) === "conversation";
   if (!roleplayDirectMessageCommandsEnabled(chat)) {
-    const parsed = parseCharacterCommands(content);
+    const parsed = parseCharacterCommands(content, { allowAngleMemoryCommands });
     return {
       ...parsed,
       parseEvents: [],
@@ -293,7 +294,7 @@ async function parseConnectedCommands(
     directMessages.commands,
     directMessages.invalidCommandRaws,
   );
-  const parsed = parseCharacterCommands(isolated.content);
+  const parsed = parseCharacterCommands(isolated.content, { allowAngleMemoryCommands });
   const resolvedDirectMessages = await resolveRoleplayDirectMessageCommands(
     storage,
     parsed.cleanContent,

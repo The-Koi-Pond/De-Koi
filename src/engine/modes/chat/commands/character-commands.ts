@@ -10,6 +10,7 @@
 // - [cross_post: target="group"] or [cross_post: target="CharName"]
 // - [selfie], [selfie: context="description of the selfie"], [selfie: "description"], or [selfie: description]
 // - [memory: target="CharName", summary="description of the memory"]
+// - <memory: target="CharName", summary="description of the memory"> (Conversation-only compatibility form)
 // - [scene: scenario="...", background="...", plan="..."] (initiate a mini-roleplay scene)
 // - [spotify: title="Song title", artist="Artist"] (play a song on the user's active Spotify player)
 // - <influence>text</influence> (OOC influence for connected roleplay, one-shot)
@@ -321,6 +322,7 @@ const SCHEDULE_UPDATE_RE = new RegExp(`\\[schedule_update:\\s*(${QUOTED_PARAM_BL
 const CROSS_POST_RE = /\[cross_post:\s*target="([^"]+)"\]/gi;
 const SELFIE_RE = /\[selfie(?::\s*(?:context="([^"]*)"|"([^"]*)"|([^\]\r\n"]+)))?\]/gi;
 const MEMORY_RE = /\[memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)"\]/gi;
+const ANGLE_MEMORY_RE = /<memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)">/gi;
 const BARE_MEMORY_RE = new RegExp(`\\[memory:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SCENE_RE = new RegExp(`\\[scene:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SPOTIFY_RE = new RegExp(`\\[spotify:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
@@ -827,7 +829,10 @@ function applyCommonCharacterFields(
  * Parse all character commands from a message and return the cleaned message
  * with commands stripped out.
  */
-export function parseCharacterCommands(content: string): {
+export function parseCharacterCommands(
+  content: string,
+  options: { allowAngleMemoryCommands?: boolean } = {},
+): {
   cleanContent: string;
   commands: CharacterCommand[];
 } {
@@ -869,6 +874,12 @@ export function parseCharacterCommands(content: string): {
   // Parse memory commands
   for (const match of content.matchAll(MEMORY_RE)) {
     commands.push({ type: "memory", target: match[1]!, summary: match[2]! });
+  }
+
+  if (options.allowAngleMemoryCommands) {
+    for (const match of content.matchAll(ANGLE_MEMORY_RE)) {
+      commands.push({ type: "memory", target: match[1]!, summary: match[2]! });
+    }
   }
 
   for (const match of content.matchAll(BARE_MEMORY_RE)) {
@@ -1033,7 +1044,8 @@ export function parseCharacterCommands(content: string): {
   if (commands.length === 0) return { cleanContent: content, commands };
 
   // Strip all commands from the visible content
-  const cleanContent = content
+  const contentWithoutAngleMemory = options.allowAngleMemoryCommands ? content.replace(ANGLE_MEMORY_RE, "") : content;
+  const cleanContent = contentWithoutAngleMemory
     .replace(SCHEDULE_UPDATE_RE, "")
     .replace(CROSS_POST_RE, "")
     .replace(SELFIE_RE, "")
