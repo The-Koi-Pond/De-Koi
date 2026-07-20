@@ -51,6 +51,19 @@ describe("Modal", () => {
     expect(document.activeElement).toBe(closeButton);
   });
 
+  it("uses semantic modal chrome and the shared close-target contract", () => {
+    renderModal(true);
+
+    const panel = container.querySelector<HTMLElement>(".mari-modal-panel")!;
+    const closeButton = container.querySelector<HTMLButtonElement>('button[aria-label="Close Test modal"]')!;
+
+    expect(panel.className).not.toContain("os-window");
+    expect(container.querySelector(".pastel-gradient")).toBeNull();
+    expect(panel.className).toContain("border-[var(--border)]");
+    expect(panel.className).toContain("bg-[var(--card)]");
+    expect(closeButton.className).toContain("de-koi-icon-target");
+  });
+
   it("wraps forward and reverse Tab navigation within the modal", () => {
     renderModal(true);
 

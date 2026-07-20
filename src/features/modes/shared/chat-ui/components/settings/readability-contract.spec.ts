@@ -3,14 +3,30 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
-const subCaptionSize = /text-\[(?:0\.5|0\.55|0\.5625|0\.6|0\.625|0\.6875)rem\]/;
+const arbitraryRemSize = /text-\[(0(?:\.\d+)?)rem\]/g;
+
+function findSubCaptionSizes(source: string): string[] {
+  return Array.from(source.matchAll(arbitraryRemSize))
+    .filter((match) => Number(match[1]) < 0.75)
+    .map((match) => match[0]);
+}
 
 describe("representative dense UI readability", () => {
+  it("catches arbitrary sub-caption values instead of enumerating known literals", () => {
+    expect(findSubCaptionSizes('className="text-[0.65rem] text-[0.7rem] text-[0.749rem] text-[0.75rem]"')).toEqual([
+      "text-[0.65rem]",
+      "text-[0.7rem]",
+      "text-[0.749rem]",
+    ]);
+  });
+
   it.each([
     "src/features/modes/shared/chat-ui/components/settings/ModePromptSettingsSections.tsx",
     "src/features/shell/settings/components/SettingsPanel.tsx",
+    "src/app/shell/MobileTabBar.tsx",
+    "src/shared/components/ui/HelpTooltip.tsx",
   ])("keeps persistent copy at or above the 12px caption floor in %s", (path) => {
-    expect(readSource(path)).not.toMatch(subCaptionSize);
+    expect(findSubCaptionSizes(readSource(path))).toEqual([]);
   });
 
   it("raises the schedule editor's persistent prompts, labels, and explanatory copy", () => {

@@ -7,24 +7,11 @@ import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { preloadRightPanelPanel } from "./right-panel-loaders";
 import {
   LIBRARY_NAV_ITEMS,
+  SHELL_ACCENT_STYLES,
   TOOLS_NAV_ITEMS,
   isShellPanelDestination,
   type ShellPanelDestination,
-} from "./shell-navigation";
-import { BookOpen, Bot, FileText, Images, Link, Search, Settings, Sparkles, User, Users } from "lucide-react";
-
-const NAV_ICONS = {
-  browser: Bot,
-  characters: Users,
-  personas: User,
-  lorebooks: BookOpen,
-  presets: FileText,
-  gallery: Images,
-  connections: Link,
-  agents: Sparkles,
-  settings: Settings,
-  discover: Search,
-} as const;
+} from "../../shared/components/shell-navigation";
 
 export function MobileTabBar({
   dekiOpen: _dekiOpen,
@@ -124,7 +111,8 @@ export function MobileTabBar({
               </h2>
               <div className="grid grid-cols-2 gap-2.5 px-4 pb-2 overflow-hidden">
                 {items.map((item) => {
-                  const Icon = NAV_ICONS[item.icon as keyof typeof NAV_ICONS];
+                  const Icon = item.icon;
+                  const accent = SHELL_ACCENT_STYLES[item.accentRole];
                   const isActive =
                     isShellPanelDestination(item.destination) && rightPanelOpen && rightPanel === item.destination;
                   return (
@@ -155,8 +143,8 @@ export function MobileTabBar({
                     >
                       <div
                         className={cn(
-                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
-                          item.gradient,
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm",
+                          accent.icon,
                         )}
                       >
                         <Icon size="1rem" />
@@ -232,7 +220,7 @@ function TabButton({
       aria-label={label}
       aria-pressed={active}
       className={cn(
-        "flex h-14 flex-col items-center justify-center gap-0.5 px-3 text-[0.6rem] font-semibold tracking-wide transition-all active:scale-90",
+        "de-koi-body flex h-14 flex-col items-center justify-center gap-0.5 px-3 font-semibold tracking-wide transition-all active:scale-90",
         active ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]",
       )}
     >
