@@ -102,6 +102,7 @@ import {
   enqueueAndScheduleAutomaticMemoryCapture,
   scheduleAutomaticMemoryCaptureQueueProcessing,
 } from "./automatic-memory-capture-queue";
+import { scheduleSparseCharacterInterpretations } from "./behavioral-interpretation-background";
 import {
   applyCachedContextInjectionsToRegenerateInput,
   applyGenerationReplayToRegenerateInput,
@@ -5054,6 +5055,15 @@ export async function* startGeneration(
         connection,
       );
       scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
+      if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
+        scheduleSparseCharacterInterpretations(
+          { storage: deps.storage, llm: deps.llm },
+          {
+            characterIds: assembly.characters.map((character) => character.id),
+            connectionId: readString(connection.id) || input.connectionId || null,
+          },
+        );
+      }
     }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
     return;
@@ -5300,6 +5310,15 @@ export async function* startGeneration(
   if (savedAssistantGeneration) {
     await enqueueAutomaticMemoryCaptureSafely(deps, chat, assembly.characters, savedUserMessage, saved, connection);
     scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
+    if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
+      scheduleSparseCharacterInterpretations(
+        { storage: deps.storage, llm: deps.llm },
+        {
+          characterIds: assembly.characters.map((character) => character.id),
+          connectionId: readString(connection.id) || input.connectionId || null,
+        },
+      );
+    }
   }
   yield { type: "done" };
 }

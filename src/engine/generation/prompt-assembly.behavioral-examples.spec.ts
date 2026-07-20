@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
+import type { CharacterData } from "../contracts/types/character";
+import { behavioralInterpretationSourceHash } from "./behavioral-interpretation";
 import { assembleGenerationPrompt } from "./prompt-assembly";
 
 function asStorageValue<T>(value: unknown): T {
   return value as T;
 }
 
-function promptStorage(character: Record<string, unknown>): StorageGateway {
+function promptStorage(character: Record<string, unknown>, includeCharacter = false): StorageGateway {
   const preset = {
     id: "preset-1",
     name: "Behavioral examples",
@@ -14,6 +16,21 @@ function promptStorage(character: Record<string, unknown>): StorageGateway {
     parameters: { strictRoleFormatting: true },
   };
   const sections = [
+    ...(includeCharacter
+      ? [
+          {
+            id: "character",
+            presetId: preset.id,
+            identifier: "character",
+            name: "Character",
+            content: "",
+            role: "system",
+            enabled: true,
+            sortOrder: 0,
+            markerConfig: { type: "character" },
+          },
+        ]
+      : []),
     {
       id: "dialogue",
       presetId: preset.id,
@@ -186,6 +203,99 @@ describe("prompt assembly behavioral examples", () => {
         expect.objectContaining({ status: "injected", parentSourceId: "mira" }),
         expect.objectContaining({ status: "skipped", parentSourceId: "mira" }),
       ]),
+    );
+  });
+
+  it("packs only a current enabled non-duplicative sparse-card interpretation after authored fields", async () => {
+    const data = {
+      name: "Mira",
+      description: "A guarded courier who avoids direct answers about the missing letter.",
+      personality: "Uses dry jokes to deflect personal questions.",
+      scenario: "",
+      first_mes: "",
+      mes_example: "",
+      creator_notes: "",
+      system_prompt: "",
+      post_history_instructions: "",
+      tags: [],
+      creator: "",
+      character_version: "",
+      alternate_greetings: [],
+      extensions: {
+        talkativeness: 0.5,
+        fav: false,
+        world: "",
+        depth_prompt: { prompt: "", depth: 4, role: "system" },
+        backstory: "",
+        appearance: "",
+      },
+      character_book: null,
+    } satisfies CharacterData;
+    const character = {
+      id: "mira",
+      data,
+      behavioralInterpretation: {
+        version: 1,
+        sourceHash: behavioralInterpretationSourceHash(data),
+        status: "ready",
+        enabled: true,
+        claims: [
+          {
+            id: "claim-1",
+            statement: "May become evasive and resist direct answers when the missing letter comes up.",
+            evidenceClass: "tentative",
+            evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+            source: "generated",
+          },
+        ],
+      },
+    };
+
+    const result = await assembleGenerationPrompt(promptStorage(character, true), {
+      chat: { id: "chat-1", mode: "roleplay", characterIds: ["mira"] },
+      storedMessages: [{ role: "user", content: "What happened to the letter?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: { promptPresetId: "preset-1" },
+      latestUserInput: "What happened to the letter?",
+    });
+
+    const promptText = result.messages.map((message) => message.content).join("\n");
+    expect(promptText).toContain("A guarded courier");
+    expect(promptText).toContain("Derived behavioral interpretation");
+    expect(promptText).toContain("Tentative: May become evasive");
+
+    const staleResult = await assembleGenerationPrompt(
+      promptStorage(
+        {
+          ...character,
+          behavioralInterpretation: { ...character.behavioralInterpretation, sourceHash: "stale" },
+        },
+        true,
+      ),
+      {
+        chat: { id: "chat-1", mode: "roleplay", characterIds: ["mira"] },
+        storedMessages: [{ role: "user", content: "What happened to the letter?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "What happened to the letter?",
+      },
+    );
+    expect(staleResult.messages.map((message) => message.content).join("\n")).not.toContain(
+      "Derived behavioral interpretation",
+    );
+
+    const conversationResult = await assembleGenerationPrompt(
+      promptStorage(character, true),
+      {
+        chat: { id: "chat-1", mode: "conversation", characterIds: ["mira"] },
+        storedMessages: [{ role: "user", content: "What happened to the letter?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "What happened to the letter?",
+      },
+    );
+    expect(conversationResult.messages.map((message) => message.content).join("\n")).not.toContain(
+      "Derived behavioral interpretation",
     );
   });
 });

@@ -1513,6 +1513,33 @@ mod tests {
             Some("Mira_Koi.dekoi.json")
         );
     }
+
+    #[test]
+    fn compatible_character_export_excludes_internal_behavioral_interpretation() {
+        let authored_data = json!({
+            "name": "Mira",
+            "description": "A guarded courier.",
+            "extensions": { "backstory": "" }
+        });
+        let character = json!({
+            "id": "character-1",
+            "data": authored_data.clone(),
+            "behavioralInterpretation": {
+                "version": 1,
+                "sourceHash": "derived-only",
+                "status": "ready",
+                "enabled": true,
+                "claims": []
+            }
+        });
+
+        let exported = compatible_character_export(&character);
+
+        assert_eq!(exported.get("data"), Some(&authored_data));
+        assert!(exported.get("behavioralInterpretation").is_none());
+        assert!(!exported.to_string().contains("derived-only"));
+    }
+
     #[test]
     fn sprite_archive_exports_every_requested_sprite_as_single_zip() {
         let state = test_state("sprite-archive-selected");

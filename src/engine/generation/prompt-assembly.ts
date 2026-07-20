@@ -1,5 +1,9 @@
 import { getEffectiveMemoryRecallEnabled, type GenerationContextAttributionItem } from "../contracts/types/chat";
-import type { CharacterMemoryPersistence } from "../contracts/types/character";
+import type {
+  CharacterBehavioralInterpretation,
+  CharacterData,
+  CharacterMemoryPersistence,
+} from "../contracts/types/character";
 import type { LorebookActivationTrace, LorebookEntryTimingState } from "../contracts/types/lorebook";
 import type { ChatMLMessage, MarkerConfig, WrapFormat } from "../contracts/types/prompt";
 import { BUILT_IN_AGENTS, enabledChatAgentIds } from "../contracts/types/agent";
@@ -62,6 +66,7 @@ import {
   selectBehavioralExamples,
   type BehavioralExampleSelection,
 } from "./behavioral-example-pool";
+import { packBehavioralInterpretation } from "./behavioral-interpretation";
 import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPrioritySkipped } from "./context-priority";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
 import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
@@ -113,6 +118,7 @@ export interface GenerationCharacterContext {
   alternateGreetings?: string[];
   postHistoryInstructions?: string;
   depthPrompt?: GenerationCharacterDepthPrompt;
+  behavioralInterpretation?: string;
   memories?: string[];
   memoryPersistence?: CharacterMemoryPersistence;
   tags: string[];
@@ -451,6 +457,10 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
   const data = dataRecord(record);
   const extensions = parseRecord(data.extensions);
   const name = field(data, "name") || field(record, "name") || "Character";
+  const behavioralInterpretation = packBehavioralInterpretation(
+    data as unknown as CharacterData,
+    record.behavioralInterpretation as CharacterBehavioralInterpretation | undefined,
+  );
   return {
     id: field(record, "id") || field(data, "id") || name,
     name,
@@ -478,6 +488,7 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
     postHistoryInstructions:
       field(data, "post_history_instructions") || field(data, "postHistoryInstructions") || undefined,
     depthPrompt: characterDepthPrompt(data, extensions),
+    behavioralInterpretation: behavioralInterpretation || undefined,
     memories: sameDayCharacterMemories(extensions),
     memoryPersistence: record.memoryPersistence === "chat" ? "chat" : "character",
     tags: stringArray(data.tags ?? record.tags),
@@ -1525,6 +1536,7 @@ function renderCharacters(
             CHARACTER_FIELD_LABELS[fieldName] ?? fieldName,
             characterMarkerFieldValue(character, fieldName, macros, groupScenarioOverride),
           ]),
+          ["Behavioral Interpretation", character.behavioralInterpretation ?? ""],
           ...(fields.includes("memories")
             ? []
             : ([["Memories", character.memories?.join("\n") ?? ""]] as Array<[string, string]>)),
@@ -4052,7 +4064,11 @@ export async function assembleGenerationPrompt(
     input = { ...input, storedMessages: applyAllSegmentEdits(input.storedMessages, chatMeta) };
   }
 
-  const characters = reusableContext?.characters ?? (await loadCharacters(storage, input.chat));
+  const loadedCharacters = reusableContext?.characters ?? (await loadCharacters(storage, input.chat));
+  const characters =
+    chatMode === "roleplay"
+      ? loadedCharacters
+      : loadedCharacters.map((character) => ({ ...character, behavioralInterpretation: undefined }));
   const persona = reusableContext?.persona ?? (await loadPersona(storage, input.chat));
   const selectedPreset =
     reusableContext?.selectedPreset ??

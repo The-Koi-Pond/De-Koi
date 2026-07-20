@@ -18,6 +18,7 @@ import { runGalleryUploadBatch } from "../../../../shared/lib/gallery-upload";
 import { resolveGalleryFileUrl } from "../../../../shared/api/local-file-api";
 import type { CustomKind, CustomTagPatch } from "../../../../shared/lib/custom-emoji";
 import type {
+  CharacterBehavioralInterpretation,
   CharacterCardVersion,
   CharacterMemoryPersistence,
 } from "../../../../engine/contracts/types/character";
@@ -362,6 +363,8 @@ export function useCharacter(id: string | null) {
     queryFn: () => getCharacter(id!),
     enabled: !!id,
     staleTime: 5 * 60_000,
+    // Background engine work can update derived character artifacts without passing through this query client.
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
 }
@@ -468,6 +471,7 @@ export function useUpdateCharacter() {
       avatarFilename?: string | null;
       comment?: string;
       memoryPersistence?: CharacterMemoryPersistence;
+      behavioralInterpretation?: CharacterBehavioralInterpretation;
       versionSource?: string;
       versionReason?: string;
       skipVersionSnapshot?: boolean;

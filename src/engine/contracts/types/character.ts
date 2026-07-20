@@ -147,6 +147,45 @@ export interface CharacterBookEntry {
 
 export type CharacterMemoryPersistence = "character" | "chat";
 
+export type BehavioralEvidenceClass = "explicit" | "strongly_implied" | "tentative";
+export type BehavioralEvidenceField =
+  | "description"
+  | "personality"
+  | "scenario"
+  | "backstory"
+  | "first_mes"
+  | "mes_example"
+  | "system_prompt"
+  | "post_history_instructions"
+  | "character_book"
+  | "user_override";
+
+export interface BehavioralClaimEvidence {
+  field: BehavioralEvidenceField;
+  quote: string;
+}
+
+export interface CharacterBehavioralClaim {
+  id: string;
+  statement: string;
+  evidenceClass: BehavioralEvidenceClass;
+  evidence: BehavioralClaimEvidence[];
+  source: "generated" | "user_override";
+}
+
+/** Internal derived artifact. It is deliberately stored beside `data`, so card exports never include it. */
+export interface CharacterBehavioralInterpretation {
+  version: number;
+  sourceHash: string;
+  status: "ready" | "pending" | "stale" | "failed";
+  enabled: boolean;
+  claims: CharacterBehavioralClaim[];
+  regenerationRequested?: boolean;
+  generatedAt?: string;
+  generatorConnectionId?: string;
+  lastError?: string;
+}
+
 /** Our internal Character representation (extends V2 with engine-specific fields). */
 export interface Character {
   id: string;
@@ -160,6 +199,8 @@ export interface Character {
   spriteFolderPath: string | null;
   /** Whether new automatic memories follow this character or remain isolated per chat. Missing defaults to character. */
   memoryPersistence?: CharacterMemoryPersistence;
+  /** Non-exported, inspectable interpretation derived from sparse authored fields. */
+  behavioralInterpretation?: CharacterBehavioralInterpretation;
   createdAt: string;
   updatedAt: string;
 }

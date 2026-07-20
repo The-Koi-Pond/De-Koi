@@ -1,9 +1,11 @@
 import type {
+  CharacterBehavioralInterpretation,
   CharacterData,
   CharacterMemoryPersistence,
 } from "../../../../engine/contracts/types/character";
 import type { ImageGenerationConnectionOption } from "../../../../shared/types/image-generation";
 import { CharacterAdvancedTab } from "./CharacterAdvancedTab";
+import { CharacterBehaviorTab } from "./CharacterBehaviorTab";
 import { CharacterColorsTab } from "./CharacterColorsTab";
 import { CharacterDescriptionTab } from "./CharacterDescriptionTab";
 import { CharacterDialogueTab } from "./CharacterDialogueTab";
@@ -24,6 +26,8 @@ type CharacterEditorTabContentProps = {
   formData: CharacterData;
   characterComment: string;
   memoryPersistence: CharacterMemoryPersistence;
+  behavioralInterpretation?: CharacterBehavioralInterpretation;
+  onBehavioralInterpretationChange: (value: CharacterBehavioralInterpretation) => void;
   onMemoryPersistenceChange: (value: CharacterMemoryPersistence) => void;
   updateField: CharacterUpdateField;
   updateExtension: (key: string, value: unknown) => void;
@@ -39,6 +43,8 @@ export function CharacterEditorTabContent({
   formData,
   characterComment,
   memoryPersistence,
+  behavioralInterpretation,
+  onBehavioralInterpretationChange,
   onMemoryPersistenceChange,
   updateField,
   updateExtension,
@@ -157,9 +163,15 @@ export function CharacterEditorTabContent({
             onMemoryPersistenceChange={onMemoryPersistenceChange}
           />
         )}
+        {activeTab === "behavior" && (
+          <CharacterBehaviorTab
+            data={formData}
+            profile={behavioralInterpretation}
+            onChange={onBehavioralInterpretationChange}
+          />
+        )}
         {activeTab === "lorebook" && <CharacterLorebookTab characterId={characterId} formData={formData} />}
       </div>
     </div>
   );
 }
-
