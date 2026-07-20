@@ -56,7 +56,6 @@ import { blobToDataUrl } from "../../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../../shared/lib/chat-attachment-images";
 import {
   ephemeralAttachmentDrafts,
-  type AttachmentDraftMode,
   type EphemeralAttachmentDraft,
 } from "../../../../../shared/lib/ephemeral-attachment-drafts";
 import { getDraftTranslationActionState, useDraftTranslation } from "../../../../../shared/hooks/use-draft-translation";
@@ -69,6 +68,7 @@ import { SlashCommandFeedback } from "./SlashCommandFeedback";
 import { QuickReplyMenu, type QuickReplyAction } from "./QuickReplyMenu";
 import { buildUserQuickReplyMenuEntries } from "../lib/custom-quick-replies";
 import { MISSING_MODEL_RECOVERY_MESSAGE } from "../lib/missing-model-recovery";
+import { createSubmittedInputRecoveryHarness } from "./submitted-input-recovery";
 import {
   CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
   CHAT_INPUT_ICON_BUTTON_CLASS,
@@ -114,68 +114,6 @@ function inferAttachmentType(file: File): string {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
-}
-
-export function getSubmittedInputFailureAction(error: unknown, userMessageAccepted: boolean) {
-  return {
-    restore: !userMessageAccepted,
-    report: !isAbortError(error),
-  };
-}
-
-export function mergeSubmittedInputForRestore(
-  submitted: { text: string; attachments: readonly ChatInputAttachment[] },
-  current: { text: string; attachments: readonly ChatInputAttachment[] },
-) {
-  const text = submitted.text && current.text ? `${submitted.text}\n\n${current.text}` : submitted.text || current.text;
-  const attachments = [...submitted.attachments];
-  for (const attachment of current.attachments) {
-    const duplicate = attachments.some(
-      (candidate) =>
-        candidate.type === attachment.type && candidate.data === attachment.data && candidate.name === attachment.name,
-    );
-    if (!duplicate) attachments.push(attachment);
-  }
-  return { text, attachments };
-}
-
-export type SubmittedInputRecoverySource = "send" | "typed-slash" | "quick-slash" | "post-only";
-
-export function resolveSubmittedInputFailure({
-  source,
-  error,
-  userMessageAccepted,
-  savedDataMayRemain = false,
-  submitted,
-  current,
-}: {
-  source: SubmittedInputRecoverySource;
-  error?: unknown;
-  userMessageAccepted: boolean;
-  savedDataMayRemain?: boolean;
-  submitted: { text: string; attachments: readonly ChatInputAttachment[] };
-  current: { text: string; attachments: readonly ChatInputAttachment[] };
-}) {
-  const restore = !userMessageAccepted && !savedDataMayRemain;
-  return {
-    source,
-    restore,
-    report: savedDataMayRemain || (error !== undefined && !isAbortError(error)),
-    restored: restore ? mergeSubmittedInputForRestore(submitted, current) : null,
-  };
-}
-
-export function restoreInactiveSubmittedAttachmentDraft(
-  mode: AttachmentDraftMode,
-  chatId: string,
-  submittedAttachments: readonly ChatInputAttachment[],
-) {
-  const restored = mergeSubmittedInputForRestore(
-    { text: "", attachments: submittedAttachments },
-    { text: "", attachments: ephemeralAttachmentDrafts.read(mode, chatId) },
-  ).attachments;
-  ephemeralAttachmentDrafts.replace(mode, chatId, restored);
-  return restored;
 }
 
 function isSupportedChatAttachment(file: File): boolean {
@@ -578,55 +516,44 @@ export const ChatInput = memo(function ChatInput({
     qc,
   ]);
 
-  const recoverSubmittedInput = useCallback(
-    (
-      source: SubmittedInputRecoverySource,
-      error: unknown | undefined,
-      submitted: SubmittedInputSnapshot,
-      options: { userMessageAccepted?: boolean; savedDataMayRemain?: boolean } = {},
-    ) => {
-      const activeChatIdAfterFailure = useChatStore.getState().activeChatId;
-      const restoresVisibleDraft = activeChatIdAfterFailure === submitted.chatId && textareaRef.current !== null;
-      const currentText = restoresVisibleDraft
-        ? (textareaRef.current?.value ?? "")
-        : (useChatStore.getState().inputDrafts.get(submitted.chatId) ?? "");
-      const currentAttachments = restoresVisibleDraft
-        ? attachmentsRef.current
-        : ephemeralAttachmentDrafts.read(mode, submitted.chatId);
-      const resolution = resolveSubmittedInputFailure({
-        source,
-        error,
-        userMessageAccepted: options.userMessageAccepted ?? false,
-        savedDataMayRemain: options.savedDataMayRemain,
-        submitted: { text: submitted.text, attachments: submitted.attachments },
-        current: { text: currentText, attachments: currentAttachments },
-      });
-      if (!resolution.restored) return resolution;
-
-      if (restoresVisibleDraft && textareaRef.current) {
-        textareaRef.current.value = resolution.restored.text;
-        textareaRef.current.style.height = currentText.length === 0 ? submitted.height : "auto";
-        if (currentText.length > 0) {
-          textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
-        }
-        syncInputState(resolution.restored.text);
-        if (currentText.length === 0) setCompletions([...submitted.completions]);
-        replaceAttachments(resolution.restored.attachments, submitted.chatId);
-      } else {
-        ephemeralAttachmentDrafts.replace(mode, submitted.chatId, resolution.restored.attachments);
-      }
-
-      if (restoresVisibleDraft && draftTimerRef.current) {
-        clearTimeout(draftTimerRef.current);
-        draftTimerRef.current = null;
-      }
-      if (resolution.restored.text) {
-        setInputDraft(submitted.chatId, resolution.restored.text);
-      } else {
-        clearInputDraft(submitted.chatId);
-      }
-      return resolution;
-    },
+  const submittedInputRecovery = useMemo(
+    () =>
+      createSubmittedInputRecoveryHarness<SubmittedInputSnapshot>({
+        readCurrent: (chatId) => {
+          const visible = useChatStore.getState().activeChatId === chatId && textareaRef.current !== null;
+          return {
+            visible,
+            draft: {
+              text: visible
+                ? (textareaRef.current?.value ?? "")
+                : (useChatStore.getState().inputDrafts.get(chatId) ?? ""),
+              attachments: visible ? attachmentsRef.current : ephemeralAttachmentDrafts.read(mode, chatId),
+            },
+          };
+        },
+        restoreVisible: (chatId, restored, submitted, current) => {
+          if (!textareaRef.current) return;
+          textareaRef.current.value = restored.text;
+          textareaRef.current.style.height = current.text.length === 0 ? submitted.height : "auto";
+          if (current.text.length > 0) {
+            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
+          }
+          syncInputState(restored.text);
+          if (current.text.length === 0) setCompletions([...submitted.completions]);
+          replaceAttachments([...restored.attachments], chatId);
+          if (draftTimerRef.current) {
+            clearTimeout(draftTimerRef.current);
+            draftTimerRef.current = null;
+          }
+        },
+        restoreInactive: (chatId, restored) => {
+          ephemeralAttachmentDrafts.replace(mode, chatId, restored.attachments);
+        },
+        persistText: (chatId, text) => {
+          if (text) setInputDraft(chatId, text);
+          else clearInputDraft(chatId);
+        },
+      }),
     [clearInputDraft, mode, replaceAttachments, setInputDraft, syncInputState],
   );
 
@@ -681,23 +608,6 @@ export const ChatInput = memo(function ChatInput({
     if (match) {
       const baseCtx = buildContext();
       if (!baseCtx) return;
-      const generationStatus: { succeeded?: boolean; userMessageAccepted: boolean } = { userMessageAccepted: false };
-      const ctx: SlashCommandContext = {
-        ...baseCtx,
-        generate: async (params) => {
-          const callerAccepted = params.onUserMessageAccepted;
-          const succeeded = await baseCtx.generate({
-            ...params,
-            onUserMessageAccepted: () => {
-              generationStatus.userMessageAccepted = true;
-              callerAccepted?.();
-            },
-          });
-          if (succeeded !== undefined) generationStatus.succeeded = succeeded;
-          return succeeded;
-        },
-      };
-
       const submittedDraft = textareaRef.current?.value ?? "";
       const submitted: SubmittedInputSnapshot = {
         chatId: activeChatId,
@@ -705,6 +615,23 @@ export const ChatInput = memo(function ChatInput({
         height: textareaRef.current?.style.height ?? "auto",
         attachments,
         completions,
+      };
+      const submissionRecovery = submittedInputRecovery.generation(submitted);
+      const generationStatus: { succeeded?: boolean } = {};
+      const ctx: SlashCommandContext = {
+        ...baseCtx,
+        generate: async (params) => {
+          const callerAccepted = params.onUserMessageAccepted;
+          const succeeded = await baseCtx.generate({
+            ...params,
+            onUserMessageAccepted: () => {
+              submissionRecovery.markUserMessageAccepted();
+              callerAccepted?.();
+            },
+          });
+          if (succeeded !== undefined) generationStatus.succeeded = succeeded;
+          return succeeded;
+        },
       };
       if (textareaRef.current) {
         textareaRef.current.value = "";
@@ -720,13 +647,9 @@ export const ChatInput = memo(function ChatInput({
         if (result.feedback) {
           setFeedback(result.feedback);
         }
-        if (generationStatus.succeeded === false && !generationStatus.userMessageAccepted) {
-          recoverSubmittedInput("typed-slash", undefined, submitted);
-        }
+        if (generationStatus.succeeded === false) submissionRecovery.unsuccessful();
       } catch (error) {
-        const recovery = recoverSubmittedInput("typed-slash", error, submitted, {
-          userMessageAccepted: generationStatus.userMessageAccepted,
-        });
+        const recovery = submissionRecovery.failure(error);
         if (!recovery.report) return;
         const msg = error instanceof Error ? error.message : "Command failed";
         toast.error(msg);
@@ -789,6 +712,7 @@ export const ChatInput = memo(function ChatInput({
 
     // Manual mode: only create the user message, no auto-generation
     if (groupResponseOrder === "manual") {
+      const submissionRecovery = submittedInputRecovery.postOnly(submitted);
       let createdMessageId: string | null = null;
       let preparedManagedAttachments: PreparedManagedImageAttachments | null = null;
       try {
@@ -811,12 +735,11 @@ export const ChatInput = memo(function ChatInput({
         }
         requestChatScrollToBottom({ chatId: submittingChatId, behavior: "auto" });
       } catch (error) {
-        let rollbackFailed = false;
         if (preparedManagedAttachments?.createdGalleryIds.length) {
           try {
             await deletePreparedManagedImageAttachments(preparedManagedAttachments);
           } catch {
-            rollbackFailed = true;
+            submissionRecovery.markRollbackFailed();
           }
           invalidateGalleryImagesForManagedAttachments(qc, activeChatId, preparedManagedAttachments.attachments);
         }
@@ -824,18 +747,22 @@ export const ChatInput = memo(function ChatInput({
           try {
             await deleteMessage.mutateAsync(createdMessageId);
           } catch {
-            rollbackFailed = true;
+            submissionRecovery.markRollbackFailed();
           }
         }
-        const recovery = recoverSubmittedInput("send", error, submitted, { savedDataMayRemain: rollbackFailed });
+        const recovery = submissionRecovery.failure(error);
         if (!recovery.report) return;
         const msg = error instanceof Error ? error.message : "Failed to send message";
-        toast.error(rollbackFailed ? `${msg}; partial saved data may need to be removed before retrying.` : msg);
+        toast.error(
+          submissionRecovery.savedDataMayRemain
+            ? `${msg}; partial saved data may need to be removed before retrying.`
+            : msg,
+        );
       }
       return;
     }
 
-    let userMessageAccepted = false;
+    const submissionRecovery = submittedInputRecovery.generation(submitted);
     try {
       const generated = await generate({
         chatId: submittingChatId,
@@ -843,12 +770,12 @@ export const ChatInput = memo(function ChatInput({
         userMessage: message,
         ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
         onUserMessageAccepted: () => {
-          userMessageAccepted = true;
+          submissionRecovery.markUserMessageAccepted();
         },
       });
-      if (generated === false && !userMessageAccepted) recoverSubmittedInput("send", undefined, submitted);
+      if (generated === false) submissionRecovery.unsuccessful();
     } catch (error) {
-      const recovery = recoverSubmittedInput("send", error, submitted, { userMessageAccepted });
+      const recovery = submissionRecovery.failure(error);
       if (!recovery.report) return;
       console.error("Send failed:", error);
     } finally {
@@ -874,7 +801,7 @@ export const ChatInput = memo(function ChatInput({
     completions,
     onPeekPrompt,
     quoteFormat,
-    recoverSubmittedInput,
+    submittedInputRecovery,
   ]);
 
   const runQuickSlashCommand = useCallback(
@@ -884,7 +811,15 @@ export const ChatInput = memo(function ChatInput({
       const match = matchSlashCommand(commandLine);
       const baseCtx = buildContext();
       if (!match || !baseCtx) return;
-      const generationStatus: { succeeded?: boolean; userMessageAccepted: boolean } = { userMessageAccepted: false };
+      const submitted: SubmittedInputSnapshot = {
+        chatId: submittingChatId,
+        text: textareaRef.current?.value ?? "",
+        height: textareaRef.current?.style.height ?? "auto",
+        attachments: attachmentsRef.current,
+        completions,
+      };
+      const submissionRecovery = submittedInputRecovery.generation(submitted);
+      const generationStatus: { succeeded?: boolean } = {};
       const ctx: SlashCommandContext = {
         ...baseCtx,
         generate: async (params) => {
@@ -892,21 +827,13 @@ export const ChatInput = memo(function ChatInput({
           const succeeded = await baseCtx.generate({
             ...params,
             onUserMessageAccepted: () => {
-              generationStatus.userMessageAccepted = true;
+              submissionRecovery.markUserMessageAccepted();
               callerAccepted?.();
             },
           });
           if (succeeded !== undefined) generationStatus.succeeded = succeeded;
           return succeeded;
         },
-      };
-
-      const submitted: SubmittedInputSnapshot = {
-        chatId: submittingChatId,
-        text: textareaRef.current?.value ?? "",
-        height: textareaRef.current?.style.height ?? "auto",
-        attachments: attachmentsRef.current,
-        completions,
       };
       if (draftTimerRef.current) {
         clearTimeout(draftTimerRef.current);
@@ -926,13 +853,9 @@ export const ChatInput = memo(function ChatInput({
         if (result.feedback) {
           setFeedback(result.feedback);
         }
-        if (generationStatus.succeeded === false && !generationStatus.userMessageAccepted) {
-          recoverSubmittedInput("quick-slash", undefined, submitted);
-        }
+        if (generationStatus.succeeded === false) submissionRecovery.unsuccessful();
       } catch (error) {
-        const recovery = recoverSubmittedInput("quick-slash", error, submitted, {
-          userMessageAccepted: generationStatus.userMessageAccepted,
-        });
+        const recovery = submissionRecovery.failure(error);
         if (!recovery.report) return;
         const msg = error instanceof Error ? error.message : fallbackError;
         toast.error(msg);
@@ -943,7 +866,7 @@ export const ChatInput = memo(function ChatInput({
       buildContext,
       clearInputDraft,
       completions,
-      recoverSubmittedInput,
+      submittedInputRecovery,
       replaceAttachments,
       syncInputState,
     ],
@@ -1022,6 +945,7 @@ export const ChatInput = memo(function ChatInput({
     replaceAttachments([]);
     clearInputDraft(submittingChatId);
 
+    const submissionRecovery = submittedInputRecovery.postOnly(submitted);
     let createdMessageId: string | null = null;
     let preparedManagedAttachments: PreparedManagedImageAttachments | null = null;
     try {
@@ -1043,12 +967,11 @@ export const ChatInput = memo(function ChatInput({
         invalidateGalleryImagesForManagedAttachments(qc, submittingChatId, managedAttachments);
       }
     } catch (error) {
-      let rollbackFailed = false;
       if (preparedManagedAttachments?.createdGalleryIds.length) {
         try {
           await deletePreparedManagedImageAttachments(preparedManagedAttachments);
         } catch {
-          rollbackFailed = true;
+          submissionRecovery.markRollbackFailed();
         }
         invalidateGalleryImagesForManagedAttachments(qc, submittingChatId, preparedManagedAttachments.attachments);
       }
@@ -1056,15 +979,17 @@ export const ChatInput = memo(function ChatInput({
         try {
           await deleteMessage.mutateAsync(createdMessageId);
         } catch {
-          rollbackFailed = true;
+          submissionRecovery.markRollbackFailed();
         }
       }
-      const recovery = recoverSubmittedInput("post-only", error, submitted, {
-        savedDataMayRemain: rollbackFailed,
-      });
+      const recovery = submissionRecovery.failure(error);
       if (!recovery.report) return;
       const msg = error instanceof Error ? error.message : "Failed to post message";
-      toast.error(rollbackFailed ? `${msg}; partial saved data may need to be removed before retrying.` : msg);
+      toast.error(
+        submissionRecovery.savedDataMayRemain
+          ? `${msg}; partial saved data may need to be removed before retrying.`
+          : msg,
+      );
     }
   }, [
     activeChatId,
@@ -1081,7 +1006,7 @@ export const ChatInput = memo(function ChatInput({
     deleteMessage,
     updateMessageExtra,
     quoteFormat,
-    recoverSubmittedInput,
+    submittedInputRecovery,
   ]);
 
   const handleGuidedGenerationButton = useCallback(async () => {
