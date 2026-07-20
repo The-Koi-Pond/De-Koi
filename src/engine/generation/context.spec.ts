@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ChatMessageListOptions, ChatTranscriptPort } from "../capabilities/storage";
 import { llmParameters, loadChatMessages } from "./context";
+import { recommendedGenerationProfileForRequest } from "./generate-route-utils";
 
 describe("generation context message loading", () => {
   it("requests attachment metadata needed to deliver stored images", async () => {
@@ -85,5 +86,15 @@ describe("recommended generation parameter precedence", () => {
       reasoningEffort: "low",
       verbosity: "low",
     });
+  });
+
+  it("ignores malformed explicit profile modes instead of crossing chat-mode lanes", () => {
+    expect(
+      recommendedGenerationProfileForRequest(
+        connection,
+        { generationProfileMode: "roleplay" },
+        { mode: "game", metadata: {} },
+      ).profileId,
+    ).toBe("game-grounded");
   });
 });

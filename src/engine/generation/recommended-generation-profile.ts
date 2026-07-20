@@ -45,8 +45,14 @@ export interface RecommendedGenerationProfileInput {
 
 type PromptBudgetRequest = Record<string, unknown>;
 
-function finiteNumber(value: unknown): boolean {
-  return typeof value === "number" && Number.isFinite(value);
+function normalizedPromptBudget(
+  key: keyof RecommendedPromptBudgetGuidance,
+  value: unknown,
+): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const normalized = Math.floor(value);
+  if (key === "lorebookTokenBudget") return normalized >= 0 ? normalized : undefined;
+  return normalized > 0 ? normalized : undefined;
 }
 
 /**
@@ -60,10 +66,24 @@ export function applyRecommendedPromptBudgetGuidance(
 ): PromptBudgetRequest {
   const next = { ...request };
   const maybeSet = (key: keyof RecommendedPromptBudgetGuidance, chatScoped = false) => {
-    const value = guidance[key];
-    if (!finiteNumber(value) || finiteNumber(request[key])) return;
-    if (chatScoped && finiteNumber(chatMetadata[key])) return;
-    next[key] = value;
+    const requestValue = normalizedPromptBudget(key, request[key]);
+    if (requestValue !== undefined) {
+      next[key] = requestValue;
+      return;
+    }
+
+    const chatValue = chatScoped ? normalizedPromptBudget(key, chatMetadata[key]) : undefined;
+    if (chatValue !== undefined) {
+      next[key] = chatValue;
+      return;
+    }
+
+    const recommendedValue = normalizedPromptBudget(key, guidance[key]);
+    if (recommendedValue !== undefined) {
+      next[key] = recommendedValue;
+    } else {
+      delete next[key];
+    }
   };
 
   maybeSet("memoryRecallTokenBudget", true);

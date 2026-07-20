@@ -132,14 +132,19 @@ describe("AdvancedParametersSection", () => {
 
   it("does not label inherited preset values as Recommended", () => {
     const inherited = renderAdvancedParameters("stored-connection", {}, { temperature: 0.2 });
-    const recommendedButton = Array.from(inherited.container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Recommended",
+    const clearOverridesButton = Array.from(inherited.container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Clear Chat Overrides",
     );
     const customButton = Array.from(inherited.container.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Custom",
     );
 
-    expect(recommendedButton?.getAttribute("aria-pressed")).toBe("false");
+    expect(clearOverridesButton?.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      Array.from(inherited.container.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === "Recommended",
+      ),
+    ).toBeUndefined();
     expect(customButton?.getAttribute("aria-pressed")).toBe("true");
     expect(inherited.container.textContent).toContain("Custom values are inherited");
     act(() => inherited.root.unmount());

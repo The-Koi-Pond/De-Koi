@@ -163,8 +163,35 @@ describe("resolveRecommendedGenerationProfile", () => {
 
     expect(request).toEqual({
       memoryRecallTokenBudget: 700,
+      lorebookTokenBudget: 2048,
       behavioralExampleTokenBudget: 60,
       behavioralExampleCandidateCap: 1,
     });
+  });
+
+  it("resolves prompt-budget ownership as request, then chat, then recommendation", () => {
+    expect(
+      applyRecommendedPromptBudgetGuidance(
+        { memoryRecallTokenBudget: 700 },
+        { memoryRecallTokenBudget: 500 },
+        { memoryRecallTokenBudget: 384 },
+      ),
+    ).toMatchObject({ memoryRecallTokenBudget: 700 });
+
+    expect(
+      applyRecommendedPromptBudgetGuidance(
+        {},
+        { memoryRecallTokenBudget: 500 },
+        { memoryRecallTokenBudget: 384 },
+      ),
+    ).toMatchObject({ memoryRecallTokenBudget: 500 });
+
+    expect(
+      applyRecommendedPromptBudgetGuidance(
+        { memoryRecallTokenBudget: -1 },
+        { memoryRecallTokenBudget: -2 },
+        { memoryRecallTokenBudget: 384 },
+      ),
+    ).toMatchObject({ memoryRecallTokenBudget: 384 });
   });
 });

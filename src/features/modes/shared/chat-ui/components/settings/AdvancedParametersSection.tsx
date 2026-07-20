@@ -95,6 +95,7 @@ export function AdvancedParametersSection({
     hasInheritedCustomParameters ||
     metadata.generationProfileMode === "custom" ||
     parseEditableGenerationParameters(params) !== null;
+  const recommendedActionLabel = hasInheritedCustomParameters ? "Clear Chat Overrides" : "Recommended";
   const retainedNonEditableParams = retainNonEditableGenerationParameters(params);
   const effectiveParams = getEditableGenerationParameters(defaults, params);
   const currentEditableOverrides = getEditableGenerationParameterOverrides(defaults, effectiveParams);
@@ -146,7 +147,7 @@ export function AdvancedParametersSection({
                       : "rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--muted-foreground)]"
                   }
                 >
-                  Recommended
+                  {recommendedActionLabel}
                 </button>
                 <button
                   type="button"
@@ -207,7 +208,7 @@ export function AdvancedParametersSection({
                 }}
                 className="w-full rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
               >
-                Use Recommended
+                {hasInheritedCustomParameters ? "Clear Chat Overrides" : "Use Recommended"}
               </button>
             </>
           )}

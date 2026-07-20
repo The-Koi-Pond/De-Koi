@@ -384,8 +384,19 @@ export function recommendedGenerationProfileForRequest(
   chat?: Record<string, unknown> | null,
 ): RecommendedGenerationProfile {
   const providerMetadata = parseRecord(connection?.providerMetadata);
+  const requestedProfileMode = readString(input?.generationProfileMode);
+  const chatMode = readString(chat?.mode);
+  const legacyChatMode = readString(chat?.chatMode);
+  const mode =
+    requestedProfileMode === "structured" || requestedProfileMode === "agent"
+      ? requestedProfileMode
+      : ["conversation", "roleplay", "visual_novel", "game"].includes(chatMode)
+        ? chatMode
+        : ["conversation", "roleplay", "visual_novel", "game"].includes(legacyChatMode)
+          ? legacyChatMode
+          : "conversation";
   return resolveRecommendedGenerationProfile({
-    mode: readString(input?.generationProfileMode || chat?.mode || chat?.chatMode, "conversation"),
+    mode,
     provider: readString(connection?.provider),
     model: readString(connection?.model),
     capabilities: parseRecord(connection?.capabilities),
