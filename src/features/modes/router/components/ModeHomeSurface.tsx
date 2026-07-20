@@ -11,6 +11,7 @@ import { hasEmbeddedTauriRuntime } from "../../../../shared/api/remote-runtime";
 import { HomeCreditsModal } from "./HomeCreditsModal";
 import { RecentChats } from "./RecentChats";
 import { getHomeSuggestions, type HomeSuggestionDestination } from "../lib/home-suggestions";
+import { useLibraryPresence } from "../../../catalog/library-presence";
 
 type QuickStartMode = "conversation" | "roleplay" | "game";
 
@@ -63,13 +64,11 @@ function HomeSplashLetters({ text }: { text: string }) {
 export function ModeHomeSurface({
   onOpenNoModelShowcase,
   onOpenDiscover,
-  libraryIsEmpty = false,
   hasActivity = false,
   readinessSurface = null,
 }: {
   onOpenNoModelShowcase?: () => void;
   onOpenDiscover?: () => void;
-  libraryIsEmpty?: boolean;
   hasActivity?: boolean;
   readinessSurface?: ReactNode;
 }) {
@@ -78,6 +77,7 @@ export function ModeHomeSurface({
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [homeSplashText] = useState(() => pickHomeSplashText());
+  const libraryPresence = useLibraryPresence();
   const languageConnections = useMemo(
     () =>
       filterLanguageGenerationConnections((connections ?? []) as Array<{ id: string; provider?: string }>).filter(
@@ -89,7 +89,7 @@ export function ModeHomeSurface({
   const homeSuggestions = getHomeSuggestions({
     needsServerSetup: !hasEmbeddedTauriRuntime() && !remoteRuntimeUrl.trim(),
     hasLanguageModel: hasLanguageConnections,
-    libraryIsEmpty,
+    libraryIsEmpty: libraryPresence.isEmpty === true,
     hasActivity,
   });
 

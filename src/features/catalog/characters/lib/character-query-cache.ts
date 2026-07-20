@@ -41,6 +41,7 @@ function removeCharacterListRecord(current: unknown[] | undefined, id: string): 
 }
 
 export function invalidateCharacterCollectionQueries(queryClient: Pick<QueryClient, "invalidateQueries">): void {
+  queryClient.invalidateQueries({ queryKey: characterKeys.presence() });
   queryClient.invalidateQueries({ queryKey: characterKeys.list() });
   queryClient.invalidateQueries({ queryKey: characterKeys.summaries() });
   queryClient.invalidateQueries({ queryKey: characterKeys.librarySummaries() });
@@ -91,6 +92,7 @@ export function removeCachedCharacterRecord(
   queryClient: Pick<QueryClient, "setQueryData" | "removeQueries" | "invalidateQueries">,
   id: string,
 ) {
+  queryClient.invalidateQueries({ queryKey: characterKeys.presence() });
   removeCharacterCollectionRecord(queryClient, characterKeys.list(), id);
   removeCharacterCollectionRecord(queryClient, characterKeys.summaries(), id);
   removeCharacterCollectionRecord(queryClient, characterKeys.librarySummaries(), id);
@@ -106,6 +108,7 @@ export function refreshCharacterCollectionAfterMutation(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData" | "invalidateQueries">,
   result: unknown,
 ): void {
+  queryClient.invalidateQueries({ queryKey: characterKeys.presence() });
   const updated = cacheCharacterListRecordFromResult(queryClient, { character: result });
   if (!updated) invalidateCharacterCollectionQueries(queryClient);
   else {

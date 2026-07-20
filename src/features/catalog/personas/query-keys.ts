@@ -1,6 +1,7 @@
 export const personaKeys = {
   list: ["personas"] as const,
   summaries: ["personas", "summaries"] as const,
+  presence: ["personas", "presence"] as const,
   summaryDetail: (id: string) => ["personas", "summaries", id] as const,
   detail: (id: string) => [...personaKeys.list, "detail", id] as const,
   gallery: (id: string) => [...personaKeys.list, "gallery", id] as const,

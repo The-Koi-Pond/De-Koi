@@ -7,6 +7,7 @@ export const characterKeys = {
   librarySummarySearch: (query: string) => [...characterKeys.librarySummaries(), "search", query] as const,
   panelSummaries: () => [...characterKeys.all, "panel-summaries"] as const,
   panelSummarySearch: (query: string) => [...characterKeys.panelSummaries(), "search", query] as const,
+  presence: () => [...characterKeys.all, "presence"] as const,
   summaryDetail: (id: string) => [...characterKeys.summaries(), id] as const,
   summaryByIds: (ids: string[]) => [...characterKeys.summaries(), "byIds", ...ids] as const,
   chatSurfaceSummaryByIds: (ids: string[]) =>

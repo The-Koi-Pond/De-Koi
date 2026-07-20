@@ -136,6 +136,7 @@ export function useActivePersonaSummary(enabled = true) {
 }
 
 export function invalidatePersonaCollectionQueries(queryClient: Pick<QueryClient, "invalidateQueries">): void {
+  queryClient.invalidateQueries({ queryKey: personaKeys.presence, exact: true });
   queryClient.invalidateQueries({ queryKey: personaKeys.list, exact: true });
   queryClient.invalidateQueries({ queryKey: personaKeys.summaries, exact: true });
   queryClient.invalidateQueries({ queryKey: personaKeys.activeSummary, exact: true });

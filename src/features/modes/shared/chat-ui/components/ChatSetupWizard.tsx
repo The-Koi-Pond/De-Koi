@@ -66,6 +66,7 @@ import {
   type EditableGenerationParameters,
 } from "../../../../../shared/components/ui/GenerationParametersEditor";
 import { createChatSetupStartGate } from "../lib/chat-setup-start";
+import { CharacterPickerEmptyState } from "./CharacterPickerEmptyState";
 
 const ASSISTANT_MARK_URL = "/koi-mark.svg";
 
@@ -220,28 +221,6 @@ function characterMatchesSearch(
   if (terms.length === 0) return true;
   const values = characterSearchValues(character).map((value) => value.toLowerCase());
   return terms.every((term) => values.some((value) => value.includes(term)));
-}
-
-function characterPickerEmptyText({
-  hasError,
-  isPending,
-  hasCharacters,
-  hasUnselectedCharacters,
-  noCharactersText,
-  allAddedText,
-}: {
-  hasError: boolean;
-  isPending: boolean;
-  hasCharacters: boolean;
-  hasUnselectedCharacters: boolean;
-  noCharactersText: string;
-  allAddedText: string;
-}): string {
-  if (hasError) return "Characters could not be loaded.";
-  if (isPending) return "Loading characters...";
-  if (!hasCharacters) return noCharactersText;
-  if (!hasUnselectedCharacters) return allAddedText;
-  return "No matches.";
 }
 
 function deriveCharacterPickerEmptyState({
@@ -946,16 +925,19 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                     );
                   })}
                   {available.length === 0 && (
-                    <p className="px-3 py-3 text-center text-[0.6875rem] text-[var(--muted-foreground)]">
-                      {characterPickerEmptyText({
-                        hasError: characterEmptyState.hasError,
-                        isPending: characterEmptyState.isPending,
-                        hasCharacters: characterEmptyState.characters.length > 0,
-                        hasUnselectedCharacters: characterEmptyState.hasUnselectedCharacters,
-                        noCharactersText: "No characters yet. Create or import one before starting a conversation.",
-                        allAddedText: "All characters added.",
-                      })}
-                    </p>
+                    <CharacterPickerEmptyState
+                      hasError={characterEmptyState.hasError}
+                      isPending={characterEmptyState.isPending}
+                      hasSearch={hasCharacterSearch}
+                      hasCharacters={characterEmptyState.characters.length > 0}
+                      hasUnselectedCharacters={characterEmptyState.hasUnselectedCharacters}
+                      noCharactersText="No characters yet. Create or import one before starting a conversation."
+                      allAddedText="All characters added."
+                      onOpenCharacters={() => {
+                        openRightPanel("characters");
+                        onFinish();
+                      }}
+                    />
                   )}
                 </div>
               </div>
@@ -1583,16 +1565,19 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
               );
             })}
             {available.length === 0 && (
-              <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                {characterPickerEmptyText({
-                  hasError: characterEmptyState.hasError,
-                  isPending: characterEmptyState.isPending,
-                  hasCharacters: characterEmptyState.characters.length > 0,
-                  hasUnselectedCharacters: characterEmptyState.hasUnselectedCharacters,
-                  noCharactersText: "No characters yet. Create or import one before adding them to this roleplay.",
-                  allAddedText: "All characters already added.",
-                })}
-              </p>
+              <CharacterPickerEmptyState
+                hasError={characterEmptyState.hasError}
+                isPending={characterEmptyState.isPending}
+                hasSearch={hasCharacterSearch}
+                hasCharacters={characterEmptyState.characters.length > 0}
+                hasUnselectedCharacters={characterEmptyState.hasUnselectedCharacters}
+                noCharactersText="No characters yet. Create or import one before adding them to this roleplay."
+                allAddedText="All characters already added."
+                onOpenCharacters={() => {
+                  openRightPanel("characters");
+                  onFinish();
+                }}
+              />
             )}
           </div>
         </div>
@@ -1871,16 +1856,19 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                         if (chatCharIds.includes(c.id)) return false;
                         return characterMatchesSearch(c, charSearch);
                       }).length === 0 && (
-                        <p className="px-3 py-3 text-center text-[0.6875rem] text-[var(--muted-foreground)]">
-                          {characterPickerEmptyText({
-                            hasError: characterEmptyState.hasError,
-                            isPending: characterEmptyState.isPending,
-                            hasCharacters: characterEmptyState.characters.length > 0,
-                            hasUnselectedCharacters: characterEmptyState.hasUnselectedCharacters,
-                            noCharactersText: "No characters yet. Create or import one before applying setup.",
-                            allAddedText: "All characters added.",
-                          })}
-                        </p>
+                        <CharacterPickerEmptyState
+                          hasError={characterEmptyState.hasError}
+                          isPending={characterEmptyState.isPending}
+                          hasSearch={hasCharacterSearch}
+                          hasCharacters={characterEmptyState.characters.length > 0}
+                          hasUnselectedCharacters={characterEmptyState.hasUnselectedCharacters}
+                          noCharactersText="No characters yet. Create or import one before applying setup."
+                          allAddedText="All characters added."
+                          onOpenCharacters={() => {
+                            openRightPanel("characters");
+                            onFinish();
+                          }}
+                        />
                       )}
                     </div>
                   </div>
