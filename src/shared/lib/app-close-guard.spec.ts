@@ -58,14 +58,20 @@ describe("app close guard", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it("tracks cached roleplay attachments even when their composer is unmounted", () => {
+  it("tracks cached roleplay attachments for close without blocking safe navigation", async () => {
     cleanups.push(registerEphemeralAttachmentDraftAppCloseGuard("roleplay"));
+    dialogs.showConfirmDialog.mockResolvedValue(false);
 
     ephemeralAttachmentDrafts.replace("roleplay", "roleplay-a", [
       { type: "image/png", data: "data:image/png;base64,a", name: "a.png" },
     ]);
 
     expect(hasPendingAppCloseWork()).toBe(true);
+    await expect(confirmDiscardPendingAppWork({ purpose: "navigation" })).resolves.toBe(true);
+    expect(dialogs.showConfirmDialog).not.toHaveBeenCalled();
+
+    await expect(confirmDiscardPendingAppWork({ purpose: "app-close" })).resolves.toBe(false);
+    expect(dialogs.showConfirmDialog).toHaveBeenCalledTimes(1);
 
     ephemeralAttachmentDrafts.clear("roleplay", "roleplay-a");
     expect(hasPendingAppCloseWork()).toBe(false);
@@ -97,7 +103,7 @@ describe("app close guard", () => {
       }),
     );
 
-    await expect(confirmDiscardPendingAppWork({ title: "Switch chats?" })).resolves.toBe(false);
+    await expect(confirmDiscardPendingAppWork({ purpose: "navigation", title: "Switch chats?" })).resolves.toBe(false);
     expect(dialogs.showConfirmDialog).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Switch chats?",
@@ -107,8 +113,8 @@ describe("app close guard", () => {
   });
 
   it.each([
-    ["chat switch", { title: "Switch chats?", confirmLabel: "Switch anyway" }],
-    ["mode switch", { title: "Switch chat modes?", confirmLabel: "Switch anyway" }],
+    ["chat switch", { purpose: "navigation" as const, title: "Switch chats?", confirmLabel: "Switch anyway" }],
+    ["mode switch", { purpose: "navigation" as const, title: "Switch chat modes?", confirmLabel: "Switch anyway" }],
   ])("blocks %s when pending work remains and the user cancels", async (_transition, options) => {
     dialogs.showConfirmDialog.mockResolvedValue(false);
     cleanups.push(

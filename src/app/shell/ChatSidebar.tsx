@@ -857,7 +857,11 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
           }
           if (
             chat.id !== activeChatId &&
-            !(await confirmDiscardPendingAppWork({ title: "Switch chats?", confirmLabel: "Switch anyway" }))
+            !(await confirmDiscardPendingAppWork({
+              purpose: "navigation",
+              title: "Switch chats?",
+              confirmLabel: "Switch anyway",
+            }))
           ) {
             return;
           }
@@ -1136,7 +1140,11 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
               onClick={async () => {
                 if (tab === activeTab) return;
                 if (
-                  !(await confirmDiscardPendingAppWork({ title: "Switch chat modes?", confirmLabel: "Switch anyway" }))
+                  !(await confirmDiscardPendingAppWork({
+                    purpose: "navigation",
+                    title: "Switch chat modes?",
+                    confirmLabel: "Switch anyway",
+                  }))
                 ) {
                   return;
                 }
