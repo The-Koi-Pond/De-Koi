@@ -47,13 +47,41 @@ function readStringArray(value: unknown): string[] | null {
 }
 
 function normalizeExpungeSuccess(value: unknown, requestedScopes: readonly string[]): ExpungeSuccessReceipt {
-  const record = isRecord(value) ? value : {};
+  if (!isRecord(value) || value.success !== true) {
+    throw new Error("Invalid data erasure response");
+  }
+
+  const clearedCollections = Object.hasOwn(value, "clearedCollections")
+    ? readStringArray(value.clearedCollections)
+    : [];
+  if (!clearedCollections) throw new Error("Invalid data erasure response");
+
+  const hasModernReceiptFields = ["requestedScopes", "completedScopes", "remainingScopes"].some((field) =>
+    Object.hasOwn(value, field),
+  );
+  if (!hasModernReceiptFields) {
+    return {
+      success: true,
+      requestedScopes: [...requestedScopes],
+      completedScopes: [...requestedScopes],
+      remainingScopes: [],
+      clearedCollections,
+    };
+  }
+
+  const receiptRequestedScopes = readStringArray(value.requestedScopes);
+  const completedScopes = readStringArray(value.completedScopes);
+  const remainingScopes = readStringArray(value.remainingScopes);
+  if (!receiptRequestedScopes || !completedScopes || !remainingScopes || !Object.hasOwn(value, "clearedCollections")) {
+    throw new Error("Invalid data erasure response");
+  }
+
   return {
     success: true,
-    requestedScopes: readStringArray(record.requestedScopes) ?? [...requestedScopes],
-    completedScopes: readStringArray(record.completedScopes) ?? [...requestedScopes],
-    remainingScopes: readStringArray(record.remainingScopes) ?? [],
-    clearedCollections: readStringArray(record.clearedCollections) ?? [],
+    requestedScopes: receiptRequestedScopes,
+    completedScopes,
+    remainingScopes,
+    clearedCollections,
   };
 }
 

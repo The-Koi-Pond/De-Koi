@@ -27,6 +27,18 @@ describe("adminApi.expunge", () => {
     });
   });
 
+  it("preserves valid optional cleared collections from a legacy success", async () => {
+    mocks.invokeTauri.mockResolvedValue({ success: true, clearedCollections: ["chats", "messages"] });
+
+    await expect(adminApi.expunge(["chats"])).resolves.toEqual({
+      success: true,
+      requestedScopes: ["chats"],
+      completedScopes: ["chats"],
+      remainingScopes: [],
+      clearedCollections: ["chats", "messages"],
+    });
+  });
+
   it("preserves a modern success receipt", async () => {
     const receipt = {
       success: true,
@@ -38,6 +50,68 @@ describe("adminApi.expunge", () => {
     mocks.invokeTauri.mockResolvedValue(receipt);
 
     await expect(adminApi.expunge(["chats", "media"])).resolves.toEqual(receipt);
+  });
+
+  it.each([
+    ["null", null],
+    ["an empty object", {}],
+    ["a resolved failure", { success: false }],
+    ["a legacy receipt with a non-string collection", { success: true, clearedCollections: [42] }],
+    ["an incomplete modern receipt", { success: true, requestedScopes: ["chats"] }],
+    [
+      "a modern receipt with a non-string requested scope",
+      {
+        success: true,
+        requestedScopes: [42],
+        completedScopes: ["chats"],
+        remainingScopes: [],
+        clearedCollections: ["chats"],
+      },
+    ],
+    [
+      "a modern receipt with invalid completed scopes",
+      {
+        success: true,
+        requestedScopes: ["chats"],
+        completedScopes: "chats",
+        remainingScopes: [],
+        clearedCollections: ["chats"],
+      },
+    ],
+    [
+      "a modern receipt with a non-string remaining scope",
+      {
+        success: true,
+        requestedScopes: ["chats"],
+        completedScopes: [],
+        remainingScopes: [null],
+        clearedCollections: [],
+      },
+    ],
+    [
+      "a modern receipt with a non-string collection",
+      {
+        success: true,
+        requestedScopes: ["chats"],
+        completedScopes: ["chats"],
+        remainingScopes: [],
+        clearedCollections: [42],
+      },
+    ],
+  ])("rejects %s conservatively instead of claiming success", async (_label, resolvedValue) => {
+    mocks.invokeTauri.mockResolvedValue(resolvedValue);
+
+    await expect(adminApi.expunge(["chats", "media"])).rejects.toMatchObject({
+      name: "ExpungeError",
+      receipt: {
+        success: false,
+        requestedScopes: ["chats", "media"],
+        completedScopes: [],
+        remainingScopes: ["chats", "media"],
+        failedScope: null,
+        clearedCollections: [],
+      },
+    });
   });
 
   it("preserves a structured partial receipt from a nested AppError payload", async () => {

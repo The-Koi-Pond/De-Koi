@@ -142,6 +142,8 @@ describe("PrivacyDataSettings selected erasure receipts", () => {
     act(() => findButton(container, "Clear selected data").click());
     act(() => findButton(container, "Confirm delete").click());
 
+    expect(container.textContent).toContain("Selected data erasure could not start.");
+    expect(container.textContent).not.toContain("Selected data erasure partially completed.");
     expect(container.textContent).toContain("Completed: None.");
     expect(container.textContent).toContain("Still to erase: Chats & Messages, Connections.");
     expect(findButton(container, "Retry remaining data")).toBeTruthy();

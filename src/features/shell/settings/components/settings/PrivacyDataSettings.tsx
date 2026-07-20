@@ -206,7 +206,9 @@ export function PrivacyDataSettings() {
             <p className="text-[0.6875rem] font-semibold">
               {expungeResult.success
                 ? "Selected data erasure completed."
-                : "Selected data erasure partially completed."}
+                : expungeResult.completedScopes.length > 0 || expungeResult.clearedCollections.length > 0
+                  ? "Selected data erasure partially completed."
+                  : "Selected data erasure could not start."}
             </p>
             <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
               {expungeResult.success ? "Erased" : "Completed"}: {expungeScopeLabels(expungeResult.completedScopes)}.

@@ -7,10 +7,12 @@ import { adminApi, ExpungeError, type ExpungeFailureReceipt } from "../../../../
 import { useExpungeData } from "./use-admin-data-reset";
 
 const mocks = vi.hoisted(() => ({
+  resetClientDataState: vi.fn(),
   resetClientSessionState: vi.fn(),
 }));
 
 vi.mock("../../actions", () => ({
+  resetClientDataState: mocks.resetClientDataState,
   resetClientSessionState: mocks.resetClientSessionState,
 }));
 
@@ -31,6 +33,7 @@ describe("useExpungeData", () => {
   let mutation: ExpungeMutation | null;
 
   beforeEach(async () => {
+    mocks.resetClientDataState.mockReset();
     mocks.resetClientSessionState.mockReset();
     queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
     mutation = null;
@@ -69,7 +72,8 @@ describe("useExpungeData", () => {
       await mutation!.mutateAsync(["chats", "media"]).catch(() => undefined);
     });
 
-    expect(mocks.resetClientSessionState).toHaveBeenCalledWith(queryClient);
+    expect(mocks.resetClientDataState).toHaveBeenCalledWith(queryClient);
+    expect(mocks.resetClientSessionState).not.toHaveBeenCalled();
   });
 
   it("resets client state after a successful erasure", async () => {
@@ -85,7 +89,8 @@ describe("useExpungeData", () => {
       await mutation!.mutateAsync(["chats"]);
     });
 
-    expect(mocks.resetClientSessionState).toHaveBeenCalledWith(queryClient);
+    expect(mocks.resetClientDataState).toHaveBeenCalledWith(queryClient);
+    expect(mocks.resetClientSessionState).not.toHaveBeenCalled();
   });
 
   it("does not reset client state for a conservative zero-mutation failure", async () => {
@@ -104,6 +109,7 @@ describe("useExpungeData", () => {
       await mutation!.mutateAsync(["chats"]).catch(() => undefined);
     });
 
+    expect(mocks.resetClientDataState).not.toHaveBeenCalled();
     expect(mocks.resetClientSessionState).not.toHaveBeenCalled();
   });
 });
