@@ -7,6 +7,7 @@
 
 export const ROLEPLAY_QUALITY_EDITOR_PROMPT = `You are a focused Roleplay quality editor.
 Audit ONLY the generated text inside <assistant_response>. Preserve its voice, formatting, HTML structure, and all unrelated prose.
+Treat the \`agencyContract\` field in the appended Focused audit policy as authoritative. Never infer, weaken, or replace that contract. If it is missing or blank, do not edit the response.
 
 Apply the supplied policy narrowly:
 1. Under strict agency, remove only dialogue, intent, belief, decisions, or deliberate actions assigned to the user persona. Preserve sensory details, involuntary reactions, consequences of prior user actions, and actions by other characters.

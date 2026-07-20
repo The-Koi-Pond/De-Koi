@@ -1638,12 +1638,21 @@ function resultEventData(result: AgentResult): AgentResult {
   return result;
 }
 
-function failedFocusedRoleplayQualityAudit(error: string): AgentResult {
+function failedFocusedRoleplayQualityAudit(
+  code: "missing_agency_contract" | "missing_editor_model",
+  error: string,
+  agentId = "editor",
+): AgentResult {
   return {
-    agentId: "editor",
+    agentId,
     agentType: "editor",
     type: "text_rewrite",
-    data: null,
+    data: {
+      code,
+      agentId,
+      agentType: "editor",
+      failure: error,
+    },
     tokensUsed: 0,
     durationMs: 0,
     success: false,
@@ -1656,6 +1665,14 @@ export async function runFocusedRoleplayQualityAudit(
   input: GenerationAgentRuntimeInput,
   audit: FocusedRoleplayQualityAuditInput,
 ): Promise<AgentResult> {
+  const agencyContract = audit.agencyContract.trim();
+  if (!agencyContract) {
+    return failedFocusedRoleplayQualityAudit(
+      "missing_agency_contract",
+      "The focused Roleplay quality audit requires an authoritative agency contract.",
+    );
+  }
+
   const auditInput: GenerationAgentRuntimeInput = {
     ...input,
     agentTypes: new Set(["editor"]),
@@ -1664,13 +1681,17 @@ export async function runFocusedRoleplayQualityAudit(
   const { agents } = await resolveAgents(deps, auditInput);
   const editor = agents.find((agent) => agent.type === "editor");
   if (!editor?.model) {
-    return failedFocusedRoleplayQualityAudit("No runnable model is available for the focused Roleplay quality audit.");
+    return failedFocusedRoleplayQualityAudit(
+      "missing_editor_model",
+      "No runnable model is available for the focused Roleplay quality audit.",
+      editor?.id,
+    );
   }
 
   const context = await buildAgentContext(deps, auditInput, [editor]);
   context.mainResponse = audit.mainResponse;
   const policyJson = JSON.stringify({
-    agencyContract: audit.agencyContract,
+    agencyContract,
     signals: audit.signals.slice(0, 6).map((signal) => ({
       kind: signal.kind,
       severity: signal.severity,

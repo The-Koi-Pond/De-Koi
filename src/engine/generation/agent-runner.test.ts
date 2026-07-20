@@ -259,6 +259,9 @@ describe("generation agent runner", () => {
     expect(requests).toHaveLength(1);
     const prompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
     expect(prompt).toContain("focused Roleplay quality editor");
+    expect(prompt).toContain(
+      "Treat the `agencyContract` field in the appended Focused audit policy as authoritative",
+    );
     expect(prompt).toContain("strict agency:");
     expect(prompt).toContain("agency_candidate");
     expect(prompt).toContain("<assistant_response>");
@@ -297,6 +300,62 @@ describe("generation agent runner", () => {
         success: false,
         type: "text_rewrite",
         error: expect.stringContaining("model"),
+        data: {
+          code: "missing_editor_model",
+          agentId: "editor",
+          agentType: "editor",
+          failure: "No runnable model is available for the focused Roleplay quality audit.",
+        },
+      }),
+    );
+    expect(requests).toEqual([]);
+  });
+
+  it("rejects a focused audit when the authoritative agency contract is missing", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+
+    const result = await runFocusedRoleplayQualityAudit(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "editor",
+              type: "editor",
+              name: "Consistency Editor",
+              enabled: false,
+              phase: "post_processing",
+              connectionId: connection.id,
+              model: "qa-model",
+            },
+          ],
+          [connection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      runtimeInput(connection),
+      {
+        mainResponse: "You agree to the bargain.",
+        agencyContract: "  ",
+        signals: [
+          {
+            kind: "agency_candidate",
+            severity: "high",
+            evidence: ["You agree to the bargain."],
+            guidance: "Audit the assigned decision.",
+          },
+        ],
+      },
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: false,
+        data: expect.objectContaining({
+          code: "missing_agency_contract",
+          agentType: "editor",
+        }),
       }),
     );
     expect(requests).toEqual([]);
