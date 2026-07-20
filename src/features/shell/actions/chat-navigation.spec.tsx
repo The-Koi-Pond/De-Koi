@@ -9,6 +9,7 @@ import {
   LOCAL_NOTIFICATION_ACTIVATION_EVENT,
   type LocalNotificationActivationDetail,
 } from "../../../shared/lib/local-notifications";
+import { registerAppCloseGuard, registerEditorDirtyAppCloseGuard } from "../../../shared/lib/app-close-guard";
 import { useLocalNotificationNavigation, useNavigateToChatFromShell } from "./chat-navigation";
 
 const exitGameSetup = vi.fn();
@@ -41,6 +42,7 @@ function LocalNotificationNavigationProbe() {
 describe("useNavigateToChatFromShell", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
+  const guardCleanups: Array<() => void> = [];
 
   beforeEach(() => {
     window.localStorage.clear();
@@ -53,6 +55,7 @@ describe("useNavigateToChatFromShell", () => {
       botBrowserOpen: true,
       editorDirty: true,
     });
+    guardCleanups.push(registerEditorDirtyAppCloseGuard(() => useUIStore.getState().editorDirty));
 
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -67,6 +70,7 @@ describe("useNavigateToChatFromShell", () => {
     root = null;
     container?.remove();
     container = null;
+    while (guardCleanups.length > 0) guardCleanups.pop()?.();
     useChatStore.getState().reset();
     useUIStore.getState().closeAllDetails();
   });
@@ -102,9 +106,10 @@ describe("useNavigateToChatFromShell", () => {
     expect(useChatStore.getState().chatNotifications.has("target-chat")).toBe(false);
     expect(exitGameSetup).toHaveBeenCalledTimes(1);
     expect(dialogs.showConfirmDialog).toHaveBeenCalledWith({
-      title: "Unsaved Changes",
-      message: "You have unsaved changes. Discard and continue?",
-      confirmLabel: "Discard",
+      title: "Switch chats?",
+      message: "An editor has unsaved changes. Continue anyway and discard them?",
+      confirmLabel: "Switch anyway",
+      cancelLabel: "Keep working",
       tone: "destructive",
     });
     expect(useUIStore.getState()).toMatchObject({
@@ -158,8 +163,50 @@ describe("useNavigateToChatFromShell", () => {
     });
   });
 
-  it("routes notification activation through the dirty-editor navigation guard", async () => {
+  it("keeps the current chat when a non-editor pending-work guard is canceled", async () => {
+    let navigate: NavigateToChat | null = null;
+    useUIStore.setState({ editorDirty: false });
     dialogs.showConfirmDialog.mockResolvedValue(false);
+    guardCleanups.push(
+      registerAppCloseGuard({
+        label: "Conversation upload",
+        hasPendingWork: () => true,
+        message: "A conversation attachment is still being prepared.",
+        purposes: ["navigation"],
+      }),
+    );
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<NavigateProbe onReady={(value) => (navigate = value)} />);
+    });
+
+    await act(async () => {
+      await navigate?.("target-chat");
+    });
+
+    expect(dialogs.showConfirmDialog).toHaveBeenCalledWith({
+      title: "Switch chats?",
+      message: "A conversation attachment is still being prepared.",
+      confirmLabel: "Switch anyway",
+      cancelLabel: "Keep working",
+      tone: "destructive",
+    });
+    expect(useChatStore.getState().activeChatId).toBeNull();
+    expect(exitGameSetup).not.toHaveBeenCalled();
+  });
+
+  it("routes notification activation through the central non-editor pending-work guard", async () => {
+    useUIStore.setState({ editorDirty: false });
+    dialogs.showConfirmDialog.mockResolvedValue(false);
+    guardCleanups.push(
+      registerAppCloseGuard({
+        label: "Conversation upload",
+        hasPendingWork: () => true,
+        message: "A conversation attachment is still being prepared.",
+        purposes: ["navigation"],
+      }),
+    );
 
     await act(async () => {
       root = createRoot(container!);
@@ -176,9 +223,10 @@ describe("useNavigateToChatFromShell", () => {
     });
 
     expect(dialogs.showConfirmDialog).toHaveBeenCalledWith({
-      title: "Unsaved Changes",
-      message: "You have unsaved changes. Discard and continue?",
-      confirmLabel: "Discard",
+      title: "Switch chats?",
+      message: "A conversation attachment is still being prepared.",
+      confirmLabel: "Switch anyway",
+      cancelLabel: "Keep working",
       tone: "destructive",
     });
     expect(useChatStore.getState().activeChatId).toBeNull();

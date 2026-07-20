@@ -2,7 +2,7 @@ import { useCallback, useEffect } from "react";
 import { useExitGameSetupFromShell } from "../../modes/game/startup";
 import { useChatStore } from "../../../shared/stores/chat.store";
 import { useUIStore } from "../../../shared/stores/ui.store";
-import { showConfirmDialog } from "../../../shared/lib/app-dialogs";
+import { confirmDiscardPendingAppWork } from "../../../shared/lib/app-close-guard";
 import {
   LOCAL_NOTIFICATION_ACTIVATION_EVENT,
   type LocalNotificationActivationDetail,
@@ -21,12 +21,10 @@ export function useNavigateToChatFromShell() {
     async (chatId: string) => {
       if (useChatStore.getState().activeChatId === chatId) return;
       if (
-        useUIStore.getState().editorDirty &&
-        !(await showConfirmDialog({
-          title: "Unsaved Changes",
-          message: "You have unsaved changes. Discard and continue?",
-          confirmLabel: "Discard",
-          tone: "destructive",
+        !(await confirmDiscardPendingAppWork({
+          purpose: "navigation",
+          title: "Switch chats?",
+          confirmLabel: "Switch anyway",
         }))
       ) {
         return;
