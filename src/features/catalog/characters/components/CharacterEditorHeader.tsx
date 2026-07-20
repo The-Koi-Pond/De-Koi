@@ -228,7 +228,7 @@ export function CharacterEditorHeader({
             {refreshingDerivedArtifact && (
               <span role="status" className="ml-2 inline-flex items-center gap-1" aria-live="polite">
                 <Loader2 size="0.625rem" className="animate-spin" />
-                Refreshing behavior
+                Refreshing behavior profile
               </span>
             )}
           </p>

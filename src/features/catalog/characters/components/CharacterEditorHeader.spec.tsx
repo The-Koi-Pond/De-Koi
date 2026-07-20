@@ -82,7 +82,9 @@ describe("CharacterEditorHeader", () => {
       );
     });
 
-    expect(container!.querySelector('[role="status"]')?.textContent).toContain("Refreshing behavior");
+    expect(container!.querySelector('[role="status"][aria-live="polite"]')?.textContent).toBe(
+      "Refreshing behavior profile",
+    );
     expect(container!.querySelector<HTMLInputElement>('input[value="Mira"]')).not.toBeNull();
   });
 });

@@ -131,6 +131,25 @@ describe("behavioral interpretation validation", () => {
     expect(result?.claims).toHaveLength(1);
   });
 
+  it("keeps distinct behavioral claims that share the same evidence", () => {
+    const result = validateBehavioralInterpretation(source, {
+      claims: [
+        {
+          statement: "Uses dry jokes in a restrained style.",
+          evidenceClass: "explicit",
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
+        },
+        {
+          statement: "Deflects personal questions instead of answering them.",
+          evidenceClass: "explicit",
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
+        },
+      ],
+    });
+
+    expect(result?.claims).toHaveLength(2);
+  });
+
   it.each([
     {
       name: "evidence-free",
@@ -244,6 +263,30 @@ describe("behavioral interpretation freshness and packing", () => {
     });
 
     expect(packed.split("\n").filter((line) => line.startsWith("- "))).toHaveLength(1);
+  });
+
+  it("packs distinct behavioral claims even when they cite the same evidence", () => {
+    const packed = packBehavioralInterpretation(source, {
+      ...profile,
+      claims: [
+        {
+          id: "style",
+          statement: "Uses dry jokes in a restrained style.",
+          evidenceClass: "explicit",
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
+          source: "generated",
+        },
+        {
+          id: "boundary",
+          statement: "Deflects personal questions instead of answering them.",
+          evidenceClass: "explicit",
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
+          source: "generated",
+        },
+      ],
+    });
+
+    expect(packed.split("\n").filter((line) => line.startsWith("- "))).toHaveLength(2);
   });
 
   it("does not crash when legacy stored claims have malformed evidence", () => {

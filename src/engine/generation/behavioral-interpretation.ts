@@ -60,6 +60,46 @@ const STOPWORDS = new Set([
   "when",
   "with",
 ]);
+const SEMANTIC_TOKEN_ALIASES: Record<string, string> = {
+  answer: "answer",
+  answered: "answer",
+  answering: "answer",
+  answers: "answer",
+  avoid: "deflect",
+  avoids: "deflect",
+  blunt: "direct",
+  bluntly: "direct",
+  deflect: "deflect",
+  deflection: "deflect",
+  deflects: "deflect",
+  dodge: "deflect",
+  dodges: "deflect",
+  dry: "humor",
+  evade: "deflect",
+  evasive: "deflect",
+  humor: "humor",
+  humour: "humor",
+  inquiries: "question",
+  inquiry: "question",
+  intimate: "personal",
+  joke: "humor",
+  jokes: "humor",
+  plain: "direct",
+  plainly: "direct",
+  private: "personal",
+  question: "question",
+  questions: "question",
+  redirect: "deflect",
+  redirects: "deflect",
+  sarcastic: "humor",
+  sarcasm: "humor",
+  sidestep: "deflect",
+  sidesteps: "deflect",
+  use: "use",
+  uses: "use",
+  wit: "humor",
+  witty: "humor",
+};
 const USER_CONTROL_PATTERN =
   /\b(?:make|force|require|have)\s+(?:the\s+)?user\b|\b(?:the\s+)?user\s+(?:must|will|says?|decides?|believes?|agrees?|confesses?)\b|\byou\s+(?:must|will|say|decide|agree|confess)\b/iu;
 const BIOGRAPHY_PATTERN =
@@ -89,6 +129,14 @@ function words(value: string): string[] {
 
 function meaningfulWords(value: string): Set<string> {
   return new Set(words(value).filter((token) => !STOPWORDS.has(token)));
+}
+
+function semanticWords(value: string): Set<string> {
+  return new Set(
+    words(value)
+      .filter((token) => !STOPWORDS.has(token))
+      .map((token) => SEMANTIC_TOKEN_ALIASES[token] ?? token),
+  );
 }
 
 function containmentScore(left: Set<string>, right: Set<string>): number {
@@ -123,9 +171,11 @@ function claimsEquivalent(left: CharacterBehavioralClaim, right: CharacterBehavi
   const rightStatement = normalize(right.statement);
   if (!leftStatement || !rightStatement) return false;
   if (leftStatement === rightStatement) return true;
-  if (evidenceEquivalent(left.evidence, right.evidence)) return true;
-  const statementOverlap = containmentScore(meaningfulWords(leftStatement), meaningfulWords(rightStatement));
-  return statementOverlap >= 0.75;
+  const surfaceOverlap = containmentScore(meaningfulWords(leftStatement), meaningfulWords(rightStatement));
+  if (surfaceOverlap >= 0.8) return true;
+  const semanticOverlap = containmentScore(semanticWords(leftStatement), semanticWords(rightStatement));
+  // Shared evidence can strengthen statement similarity, but never establishes equivalence by itself.
+  return semanticOverlap >= 0.72 || (semanticOverlap >= 0.55 && evidenceEquivalent(left.evidence, right.evidence));
 }
 
 function uniqueClaims(claims: CharacterBehavioralClaim[]): CharacterBehavioralClaim[] {
