@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Palette,
   Settings2,
+  Sparkles,
   Swords,
   User,
 } from "lucide-react";
@@ -30,6 +31,7 @@ const TABS = [
   { id: "colors", label: "Colors", icon: Palette },
   { id: "stats", label: "Stats", icon: Swords },
   { id: "memories", label: "Memories", icon: Brain },
+  { id: "behavior", label: "Behavior", icon: Sparkles },
   { id: "advanced", label: "Advanced", icon: Settings2 },
   { id: "lorebook", label: "Lorebook", icon: Library },
 ] as const satisfies Array<{ id: string; label: string; icon: LucideIcon }>;

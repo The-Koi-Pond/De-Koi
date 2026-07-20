@@ -13,6 +13,7 @@ import { useConnections } from "../../connections/index";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { getErrorMessage } from "../../../../shared/lib/error-message";
 import type {
+  CharacterBehavioralInterpretation,
   CharacterData,
   CharacterMemoryPersistence,
 } from "../../../../engine/contracts/types/character";
@@ -41,6 +42,7 @@ interface ParsedCharacter {
   data: CharacterData;
   comment: string;
   memoryPersistence?: CharacterMemoryPersistence;
+  behavioralInterpretation?: CharacterBehavioralInterpretation;
   avatarPath: string | null;
   spriteFolderPath: string | null;
 }
@@ -51,7 +53,11 @@ export function CharacterEditor() {
   const clearCharacterDetailDestination = useUIStore((s) => s.clearCharacterDetailDestination);
   const closeDetail = useUIStore((s) => s.closeCharacterDetail);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
-  const { data: rawCharacter, isLoading } = useCharacter(characterId);
+  const {
+    data: rawCharacter,
+    isLoading,
+    isFetching: refreshingDerivedArtifact,
+  } = useCharacter(characterId, { refreshDerivedOnMount: true });
   const updateCharacter = useUpdateCharacter();
   const deleteCharacter = useDeleteCharacter();
   const duplicateCharacter = useDuplicateCharacter();
@@ -74,6 +80,8 @@ export function CharacterEditor() {
   const [formData, setFormData] = useState<CharacterData | null>(null);
   const [characterComment, setCharacterComment] = useState("");
   const [memoryPersistence, setMemoryPersistence] = useState<CharacterMemoryPersistence>("character");
+  const [behavioralInterpretation, setBehavioralInterpretation] = useState<CharacterBehavioralInterpretation>();
+  const behavioralInterpretationRevisionRef = useRef(0);
   const [dirty, setDirty] = useState(false);
   const loadedCharacterIdRef = useRef<string | null>(null);
   const cardLengthWarningCharacterIdRef = useRef<string | null>(null);
@@ -168,6 +176,7 @@ export function CharacterEditor() {
     setFormData(normalizeCharacterEditorData(char.data));
     setCharacterComment(char.comment ?? "");
     setMemoryPersistence(char.memoryPersistence === "chat" ? "chat" : "character");
+    setBehavioralInterpretation(char.behavioralInterpretation);
     setAvatarPreview(char.avatarPath);
     setDirtyState(false);
   }, [rawCharacter, setAvatarPreview, setDirtyState]);
@@ -222,6 +231,7 @@ export function CharacterEditor() {
         data: formData as unknown as Record<string, unknown>,
         comment: characterComment,
         memoryPersistence,
+        behavioralInterpretation,
       });
       if (editRevisionRef.current === editRevisionAtSaveStart) {
         setDirtyState(false);
@@ -235,6 +245,34 @@ export function CharacterEditor() {
       setSaving(false);
     }
   };
+
+  const handleBehavioralInterpretationChange = useCallback(
+    (value: CharacterBehavioralInterpretation) => {
+      if (!characterId) return;
+      if (dirtyRef.current) {
+        setBehavioralInterpretation(value);
+        markDirty();
+        return;
+      }
+      const previous = behavioralInterpretation;
+      const revision = behavioralInterpretationRevisionRef.current + 1;
+      behavioralInterpretationRevisionRef.current = revision;
+      setBehavioralInterpretation(value);
+      void updateCharacter
+        .mutateAsync({
+          id: characterId,
+          behavioralInterpretation: value,
+          skipVersionSnapshot: true,
+        })
+        .catch((error) => {
+          if (behavioralInterpretationRevisionRef.current === revision) {
+            setBehavioralInterpretation(previous);
+          }
+          toast.error(getErrorMessage(error, "Failed to update the behavioral interpretation."));
+        });
+    },
+    [behavioralInterpretation, characterId, markDirty, updateCharacter],
+  );
 
   const handleDelete = async () => {
     if (!characterId) return;
@@ -341,6 +379,7 @@ export function CharacterEditor() {
         imageGenerationAvailable={imageGenerationAvailable}
         isImportingPersona={isImportingPersona}
         isStartingChat={isStartingChat}
+        refreshingDerivedArtifact={refreshingDerivedArtifact && !isLoading}
         saving={saving}
         onAvatarUpload={handleAvatarUpload}
         onBack={handleClose}
@@ -383,6 +422,8 @@ export function CharacterEditor() {
           formData={formData}
           characterComment={characterComment}
           memoryPersistence={memoryPersistence}
+          behavioralInterpretation={behavioralInterpretation}
+          onBehavioralInterpretationChange={handleBehavioralInterpretationChange}
           onMemoryPersistenceChange={(value) => {
             setMemoryPersistence(value);
             markDirty();

@@ -47,10 +47,10 @@
     "id": "characters",
     "title": "Characters",
     "category": "Library",
-    "summary": "Create, import, organize into groups, edit character cards, manage version history and character-level memories, choose cross-chat continuity, generate concrete card fields, tune Public Profile details, and save Music Taste for visible Listening To flavor, play cues, and shuffled profile music.",
-    "keywords": ["card", "character", "bot", "import", "avatar", "sprite", "persona", "library", "groups", "drag and drop", "version history", "saved version", "pin version", "retention", "50 versions", "restore character", "public profile", "field generation", "concrete details", "memory", "character memory", "cross chat memory", "remember across chats", "conversation roleplay continuity", "memory import", "memory export", "music taste", "listening to", "profile music", "shuffle music"],
+    "summary": "Create, import, organize into groups, edit character cards, manage version history and character-level memories, choose cross-chat continuity, inspect automatic evidence-backed behavior for sparse cards, generate concrete card fields, tune Public Profile details, and save Music Taste for visible Listening To flavor, play cues, and shuffled profile music.",
+    "keywords": ["card", "character", "bot", "import", "avatar", "sprite", "persona", "library", "groups", "drag and drop", "version history", "saved version", "pin version", "retention", "50 versions", "restore character", "public profile", "field generation", "concrete details", "behavior", "behavior interpretation", "sparse card", "automatic character behavior", "memory", "character memory", "cross chat memory", "remember across chats", "conversation roleplay continuity", "memory import", "memory export", "music taste", "listening to", "profile music", "shuffle music"],
     "audience": "Users building or collecting characters to chat or roleplay with.",
-    "where": "Title bar > Characters; open a character, then use Memories for cross-chat continuity or version history for saved card versions.",
+    "where": "Title bar > Characters; open a character, then use Behavior for automatic sparse-card interpretation, Memories for cross-chat continuity, or version history for saved card versions.",
     "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
     "coverage": "core"
   },
