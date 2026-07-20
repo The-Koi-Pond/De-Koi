@@ -30,6 +30,10 @@ import {
 } from "../lib/character-editor-model";
 import { estimateCharacterCardTokens } from "../lib/character-token-count";
 import { getCardLengthToastActions } from "../../lib/card-token-recommendation";
+import {
+  buildEnhancedOpeningSavePatch,
+  type SaveEnhancedOpeningAlternateInput,
+} from "../lib/enhanced-opening-generation";
 
 import { CharacterEditorDialogs } from "./CharacterEditorDialogs";
 import { CharacterEditorHeader } from "./CharacterEditorHeader";
@@ -246,6 +250,28 @@ export function CharacterEditor() {
     }
   };
 
+  const handleSaveEnhancedOpeningAlternate = useCallback(
+    async (input: SaveEnhancedOpeningAlternateInput) => {
+      if (!characterId || !formData) throw new Error("The character is no longer open.");
+      const save = buildEnhancedOpeningSavePatch({
+        data: formData,
+        comment: characterComment,
+        candidate: input.candidate,
+        expectedSourceFingerprint: input.sourceFingerprint,
+        agencyGuidance: input.agencyGuidance,
+        targetLength: input.targetLength,
+      });
+      await updateCharacter.mutateAsync({
+        id: characterId,
+        ...save.patch,
+        versionSource: "manual",
+        versionReason: "Generated improved alternate opening",
+      });
+      setFormData((current) => (current ? { ...current, alternate_greetings: save.nextGreetings } : current));
+    },
+    [characterComment, characterId, formData, updateCharacter],
+  );
+
   const handleBehavioralInterpretationChange = useCallback(
     (value: CharacterBehavioralInterpretation) => {
       if (!characterId) return;
@@ -428,6 +454,7 @@ export function CharacterEditor() {
             setMemoryPersistence(value);
             markDirty();
           }}
+          onSaveEnhancedOpeningAlternate={handleSaveEnhancedOpeningAlternate}
           updateField={updateField}
           updateExtension={updateExtension}
           newTag={newTag}

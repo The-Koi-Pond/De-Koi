@@ -36,6 +36,7 @@ export interface RoleplayResponseQualityInput {
   personaName?: string | null;
   characterNames?: string[];
   agencyContract?: string | null;
+  includeQuotedAgencyAssertions?: boolean;
 }
 
 export interface RoleplayResponseQualityResult {
@@ -201,9 +202,11 @@ function escapedPattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function maskNonAssertedSecondPersonClauses(content: string): string {
-  return content
-    .replace(/(["“])[^"”]{0,1000}(["”])/g, (value) => " ".repeat(value.length))
+function maskNonAssertedSecondPersonClauses(content: string, includeQuotedAgencyAssertions = false): string {
+  const withoutIgnoredDialogue = includeQuotedAgencyAssertions
+    ? content
+    : content.replace(/(["“])[^"”]{0,1000}(["”])/g, (value) => " ".repeat(value.length));
+  return withoutIgnoredDialogue
     .replace(
       /(?:^|[.!?]\s+|\n+)[^.!?\n]{0,300}\?/g,
       (value) => " ".repeat(value.length),
@@ -214,8 +217,11 @@ function maskNonAssertedSecondPersonClauses(content: string): string {
     );
 }
 
-function deliberateSecondPersonMatch(content: string): RegExpExecArray | null {
-  const assertedContent = maskNonAssertedSecondPersonClauses(content);
+function deliberateSecondPersonMatch(
+  content: string,
+  includeQuotedAgencyAssertions = false,
+): RegExpExecArray | null {
+  const assertedContent = maskNonAssertedSecondPersonClauses(content, includeQuotedAgencyAssertions);
   SECOND_PERSON_DELIBERATE_PATTERN.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = SECOND_PERSON_DELIBERATE_PATTERN.exec(assertedContent)) !== null) {
@@ -241,7 +247,10 @@ export function analyzeRoleplayResponse(input: RoleplayResponseQualityInput): Ro
   const content = input.content.trim();
   if (!content || !strictAgencyContract(input.agencyContract)) return { signals: [] };
   const personaName = input.personaName?.trim() ?? "";
-  if (!personaAgencyMatch(content, personaName) && !deliberateSecondPersonMatch(content)) {
+  if (
+    !personaAgencyMatch(content, personaName) &&
+    !deliberateSecondPersonMatch(content, input.includeQuotedAgencyAssertions)
+  ) {
     return { signals: [] };
   }
   return {

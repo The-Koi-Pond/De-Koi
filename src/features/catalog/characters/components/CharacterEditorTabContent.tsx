@@ -17,6 +17,7 @@ import { CharacterSpritesTab } from "./CharacterSpritesTab";
 import { CharacterStatsTab } from "./CharacterStatsTab";
 import { CharacterTextareaTab } from "./CharacterTextareaTab";
 import type { CharacterEditorTabId } from "./CharacterEditorTabRail";
+import type { SaveEnhancedOpeningAlternateInput } from "../lib/enhanced-opening-generation";
 
 type CharacterUpdateField = <K extends keyof CharacterData>(key: K, value: CharacterData[K]) => void;
 
@@ -29,6 +30,7 @@ type CharacterEditorTabContentProps = {
   behavioralInterpretation?: CharacterBehavioralInterpretation;
   onBehavioralInterpretationChange: (value: CharacterBehavioralInterpretation) => void;
   onMemoryPersistenceChange: (value: CharacterMemoryPersistence) => void;
+  onSaveEnhancedOpeningAlternate: (input: SaveEnhancedOpeningAlternateInput) => Promise<void>;
   updateField: CharacterUpdateField;
   updateExtension: (key: string, value: unknown) => void;
   newTag: string;
@@ -46,6 +48,7 @@ export function CharacterEditorTabContent({
   behavioralInterpretation,
   onBehavioralInterpretationChange,
   onMemoryPersistenceChange,
+  onSaveEnhancedOpeningAlternate,
   updateField,
   updateExtension,
   newTag,
@@ -125,7 +128,12 @@ export function CharacterEditorTabContent({
           />
         )}
         {activeTab === "dialogue" && (
-          <CharacterDialogueTab formData={formData} characterComment={characterComment} updateField={updateField} />
+          <CharacterDialogueTab
+            formData={formData}
+            characterComment={characterComment}
+            updateField={updateField}
+            onSaveEnhancedOpeningAlternate={onSaveEnhancedOpeningAlternate}
+          />
         )}
         {activeTab === "advanced" && (
           <CharacterAdvancedTab

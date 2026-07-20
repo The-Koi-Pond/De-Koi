@@ -6,15 +6,19 @@ import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTexta
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
 import { CharacterFieldGenerationButton } from "./CharacterFieldGenerationButton";
+import { EnhancedOpeningGenerator } from "./EnhancedOpeningGenerator";
+import type { SaveEnhancedOpeningAlternateInput } from "../lib/enhanced-opening-generation";
 
 export function CharacterDialogueTab({
   formData,
   characterComment,
   updateField,
+  onSaveEnhancedOpeningAlternate,
 }: {
   formData: CharacterData;
   characterComment: string;
   updateField: <K extends keyof CharacterData>(key: K, value: CharacterData[K]) => void;
+  onSaveEnhancedOpeningAlternate: (input: SaveEnhancedOpeningAlternateInput) => Promise<void>;
 }) {
   const [expandedField, setExpandedField] = useState<"first_mes" | "mes_example" | number | null>(null);
 
@@ -74,6 +78,12 @@ export function CharacterDialogueTab({
           placeholder="What does the character say when they first meet someone? Use *asterisks* for actions…"
         />
       </label>
+
+      <EnhancedOpeningGenerator
+        data={formData}
+        comment={characterComment}
+        onSaveAlternate={onSaveEnhancedOpeningAlternate}
+      />
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
