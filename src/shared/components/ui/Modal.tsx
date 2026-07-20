@@ -153,18 +153,16 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
         }}
       />
 
-      {/* Panel - OS Window style */}
+      {/* Panel */}
       <div
         ref={panelRef}
-        className={`mari-modal-panel os-window relative flex w-full max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden ${width} max-h-[calc(100dvh-1.5rem)] sm:max-h-[min(90dvh,52rem)] shadow-2xl shadow-black/50`}
+        className={`mari-modal-panel relative flex w-full max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)] ${width} max-h-[calc(100dvh-1.5rem)] shadow-2xl shadow-black/50 sm:max-h-[min(90dvh,52rem)]`}
         style={{
           opacity: isEntering ? 1 : 0,
           transform: isEntering ? "scale(1) translateY(0)" : "scale(0.97) translateY(6px)",
           transition: "opacity 150ms ease-out, transform 150ms ease-out",
         }}
       >
-        {/* Pastel gradient title bar */}
-        <div aria-hidden="true" className="pastel-gradient h-[0.1875rem]" />
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between border-b border-[var(--border)]/30 px-5 py-3.5">
           <h2 id={titleId} className="text-sm font-semibold text-[var(--foreground)]">
@@ -175,7 +173,7 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
             type="button"
             onClick={onClose}
             aria-label={`Close ${title}`}
-            className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
+            className="de-koi-icon-target rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
           >
             <X size="1rem" aria-hidden="true" />
           </button>

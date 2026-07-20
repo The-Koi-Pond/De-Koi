@@ -32,7 +32,11 @@ import {
   Globe,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
-import { TOOLS_PANELS, useTopBarActions } from "../../../../shared/components/mobile-shell-actions";
+import {
+  SHELL_ACCENT_STYLES,
+  TOOLS_PANELS,
+  useTopBarActions,
+} from "../../../../shared/components/mobile-shell-actions";
 import { getConnectedChatDisplayName } from "../../../../shared/lib/chat-display";
 import { resolveManagedLocalAssetUrl } from "../../../../shared/api/local-file-api";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -1450,7 +1454,7 @@ export function ChatRoleplaySurface({
                 Panels
               </p>
               <div className="grid grid-cols-2 gap-2.5 px-4 pb-4 overflow-hidden">
-                {TOOLS_PANELS.map(({ panel, icon: Icon, label, gradient }) => (
+                {TOOLS_PANELS.map(({ panel, icon: Icon, label, accentRole }) => (
                   <button
                     key={panel}
                     type="button"
@@ -1464,8 +1468,8 @@ export function ChatRoleplaySurface({
                   >
                     <div
                       className={cn(
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
-                        gradient,
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm",
+                        SHELL_ACCENT_STYLES[accentRole].icon,
                       )}
                     >
                       <Icon size="1rem" />

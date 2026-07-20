@@ -168,7 +168,7 @@ export function SettingsPanel() {
         </label>
         {query.trim() && (
           <div className="absolute inset-x-3 top-[3.6rem] z-20 max-h-64 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--popover)] p-1.5 shadow-xl" aria-live="polite">
-            <p className="px-2 py-1 text-[0.65rem] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+            <p className="de-koi-caption px-2 py-1 font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
               {searchResults.length} result{searchResults.length === 1 ? "" : "s"}
             </p>
             {searchResults.map((destination) => (
@@ -183,7 +183,7 @@ export function SettingsPanel() {
                 className="flex min-h-11 w-full items-center justify-between rounded-lg px-2.5 py-2 text-left hover:bg-[var(--secondary)]"
               >
                 <span className="text-xs font-semibold text-[var(--foreground)]">{destination.title}</span>
-                <span className="text-[0.65rem] capitalize text-[var(--muted-foreground)]">{destination.tab}</span>
+                <span className="de-koi-caption capitalize text-[var(--muted-foreground)]">{destination.tab}</span>
               </button>
             ))}
           </div>

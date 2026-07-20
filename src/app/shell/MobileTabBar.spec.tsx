@@ -98,4 +98,17 @@ describe("MobileTabBar left sidebar controls", () => {
     ]);
     expect(menuItems.every((item) => item.className.includes("min-h-11"))).toBe(true);
   });
+
+  it("uses the 14px semantic body role for persistent mobile navigation", () => {
+    const rendered = renderMobileTabBar();
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+
+    const tabButtons = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>('nav[aria-label="Main navigation"] button'),
+    );
+    expect(tabButtons).toHaveLength(3);
+    expect(tabButtons.every((button) => button.className.includes("de-koi-body"))).toBe(true);
+    expect(tabButtons.every((button) => !/text-\[0/.test(button.className))).toBe(true);
+  });
 });
