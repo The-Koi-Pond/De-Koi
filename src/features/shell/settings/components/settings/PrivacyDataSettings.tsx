@@ -64,10 +64,15 @@ export function PrivacyDataSettings() {
       onError: (error) => {
         const receipt = getExpungeFailureReceipt(error);
         const mutated = !!receipt && (receipt.completedScopes.length > 0 || receipt.clearedCollections.length > 0);
-        if (receipt && mutated) {
+        const hasStructuredFailure = !!receipt && receipt.failedScope !== null;
+        if (receipt && (mutated || hasStructuredFailure)) {
           setExpungeResult(receipt);
           setSelectedScopes(supportedExpungeScopes(receipt.remainingScopes));
-          toast.error("De-Koi erased some selected data, but could not finish. Review the exact result and retry.");
+          toast.error(
+            mutated
+              ? "De-Koi erased some selected data, but could not finish. Review the exact result and retry."
+              : "De-Koi couldn't erase the selected data. Review the exact result and retry.",
+          );
           return;
         }
         setExpungeResult(null);

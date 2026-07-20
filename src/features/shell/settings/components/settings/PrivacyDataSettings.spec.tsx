@@ -120,6 +120,37 @@ describe("PrivacyDataSettings selected erasure receipts", () => {
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Selected De-Koi data was permanently erased.");
   });
 
+  it("shows and retries an exact modern first-scope failure even before any mutation", async () => {
+    const receipt: ExpungeFailureReceipt = {
+      success: false,
+      requestedScopes: ["chats", "connections"],
+      completedScopes: [],
+      remainingScopes: ["chats", "connections"],
+      failedScope: "chats",
+      clearedCollections: [],
+      cause: { code: "io_error", message: "chat storage failed" },
+    };
+    mocks.expungeMutate.mockImplementationOnce(
+      (_scopes: string[], options: { onError: (cause: unknown) => void; onSettled: () => void }) => {
+        options.onError(new ExpungeError("First scope failed", 500, receipt));
+        options.onSettled();
+      },
+    );
+
+    await act(async () => root.render(<PrivacyDataSettings />));
+    act(() => findScopeCheckbox(container, "Connections").click());
+    act(() => findButton(container, "Clear selected data").click());
+    act(() => findButton(container, "Confirm delete").click());
+
+    expect(container.textContent).toContain("Completed: None.");
+    expect(container.textContent).toContain("Still to erase: Chats & Messages, Connections.");
+    expect(findButton(container, "Retry remaining data")).toBeTruthy();
+
+    act(() => findButton(container, "Retry remaining data").click());
+
+    expect(mocks.expungeMutate).toHaveBeenNthCalledWith(2, receipt.remainingScopes, expect.any(Object));
+  });
+
   it("keeps a zero-mutation failure generic and preserves the selection", async () => {
     const receipt: ExpungeFailureReceipt = {
       success: false,
