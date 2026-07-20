@@ -1410,7 +1410,6 @@ export function ChatRoleplaySurface({
                 )}
                 {!isConcludedScene && (
                   <ChatInput
-                    key={activeChatId}
                     mode={isRoleplay ? "roleplay" : "conversation"}
                     characterNames={activeCharacterNames}
                     groupResponseOrder={

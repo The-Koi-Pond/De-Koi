@@ -1,5 +1,6 @@
 import { closeDesktopWindow } from "../api/window-controls-api";
 import { showConfirmDialog } from "./app-dialogs";
+import { ephemeralAttachmentDrafts, type AttachmentDraftMode } from "./ephemeral-attachment-drafts";
 
 export type AppCloseGuard = {
   label: string;
@@ -46,6 +47,15 @@ export function registerEditorDirtyAppCloseGuard(isEditorDirty: () => boolean) {
     label: "Editor changes",
     hasPendingWork: isEditorDirty,
     message: "An editor has unsaved changes. Continue anyway and discard them?",
+  });
+}
+
+export function registerEphemeralAttachmentDraftAppCloseGuard(mode: AttachmentDraftMode) {
+  const modeLabel = mode === "roleplay" ? "Roleplay" : mode === "conversation" ? "Conversation" : "Game";
+  return registerAppCloseGuard({
+    label: `${modeLabel} attachments`,
+    hasPendingWork: () => ephemeralAttachmentDrafts.hasPendingWork(mode),
+    message: `Unsent ${modeLabel.toLowerCase()} attachments are still in memory. Close anyway and lose them?`,
   });
 }
 

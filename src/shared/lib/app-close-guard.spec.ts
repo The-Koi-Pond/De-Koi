@@ -17,8 +17,10 @@ import {
   registerAppCloseGuard,
   registerBrowserBeforeUnloadGuard,
   registerEditorDirtyAppCloseGuard,
+  registerEphemeralAttachmentDraftAppCloseGuard,
   requestGuardedAppClose,
 } from "./app-close-guard";
+import { ephemeralAttachmentDrafts } from "./ephemeral-attachment-drafts";
 import { useUIStore } from "../stores/ui.store";
 
 const cleanups: Array<() => void> = [];
@@ -28,6 +30,7 @@ describe("app close guard", () => {
     while (cleanups.length > 0) cleanups.pop()?.();
     vi.clearAllMocks();
     useUIStore.setState({ editorDirty: false });
+    ephemeralAttachmentDrafts.clear("roleplay", "roleplay-a");
   });
 
   it("tracks the central editor dirty state as pending app-close work", () => {
@@ -53,6 +56,19 @@ describe("app close guard", () => {
     window.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("tracks cached roleplay attachments even when their composer is unmounted", () => {
+    cleanups.push(registerEphemeralAttachmentDraftAppCloseGuard("roleplay"));
+
+    ephemeralAttachmentDrafts.replace("roleplay", "roleplay-a", [
+      { type: "image/png", data: "data:image/png;base64,a", name: "a.png" },
+    ]);
+
+    expect(hasPendingAppCloseWork()).toBe(true);
+
+    ephemeralAttachmentDrafts.clear("roleplay", "roleplay-a");
+    expect(hasPendingAppCloseWork()).toBe(false);
   });
 
   it("flushes pending guards before prompting", async () => {

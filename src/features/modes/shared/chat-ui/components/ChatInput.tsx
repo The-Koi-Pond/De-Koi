@@ -48,19 +48,18 @@ import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { isSendShortcut } from "../../../../../shared/lib/send-shortcuts";
 import { applyTextareaQuoteFormat } from "../../../../../shared/lib/textarea-quotes";
 import { requestChatScrollToBottom } from "../../../../../shared/lib/chat-scroll-events";
-import {
-  DISCOVERY_APP_EVENT,
-  type DiscoveryAppEventDetail,
-} from "../../../../../shared/lib/discovery-navigation";
+import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../../../../shared/lib/discovery-navigation";
 import { cn, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { UserQuickReplyIcon } from "../../../../../shared/components/ui/UserQuickReplyIcon";
 import { blobToDataUrl } from "../../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../../shared/lib/chat-attachment-images";
 import {
-  getDraftTranslationActionState,
-  useDraftTranslation,
-} from "../../../../../shared/hooks/use-draft-translation";
+  ephemeralAttachmentDrafts,
+  type AttachmentDraftMode,
+  type EphemeralAttachmentDraft,
+} from "../../../../../shared/lib/ephemeral-attachment-drafts";
+import { getDraftTranslationActionState, useDraftTranslation } from "../../../../../shared/hooks/use-draft-translation";
 import { EmojiPicker } from "../../../../../shared/components/ui/EmojiPicker";
 import { SpeechToTextButton } from "../../../../../shared/components/ui/SpeechToTextButton";
 import { QuickConnectionSwitcher } from "./QuickConnectionSwitcher";
@@ -79,11 +78,7 @@ import {
 } from "./input-button-styles";
 import type { PeekPromptOptions } from "../types";
 
-export interface ChatInputAttachment {
-  type: string; // MIME type
-  data: string; // base64 data URL
-  name: string;
-}
+export type ChatInputAttachment = EphemeralAttachmentDraft;
 
 type Attachment = ChatInputAttachment;
 
@@ -132,21 +127,29 @@ export function mergeSubmittedInputForRestore(
   submitted: { text: string; attachments: readonly ChatInputAttachment[] },
   current: { text: string; attachments: readonly ChatInputAttachment[] },
 ) {
-  const text =
-    submitted.text && current.text
-      ? `${submitted.text}\n\n${current.text}`
-      : submitted.text || current.text;
+  const text = submitted.text && current.text ? `${submitted.text}\n\n${current.text}` : submitted.text || current.text;
   const attachments = [...submitted.attachments];
   for (const attachment of current.attachments) {
     const duplicate = attachments.some(
       (candidate) =>
-        candidate.type === attachment.type &&
-        candidate.data === attachment.data &&
-        candidate.name === attachment.name,
+        candidate.type === attachment.type && candidate.data === attachment.data && candidate.name === attachment.name,
     );
     if (!duplicate) attachments.push(attachment);
   }
   return { text, attachments };
+}
+
+export function restoreInactiveSubmittedAttachmentDraft(
+  mode: AttachmentDraftMode,
+  chatId: string,
+  submittedAttachments: readonly ChatInputAttachment[],
+) {
+  const restored = mergeSubmittedInputForRestore(
+    { text: "", attachments: submittedAttachments },
+    { text: "", attachments: ephemeralAttachmentDrafts.read(mode, chatId) },
+  ).attachments;
+  ephemeralAttachmentDrafts.replace(mode, chatId, restored);
+  return restored;
 }
 
 function isSupportedChatAttachment(file: File): boolean {
@@ -195,7 +198,7 @@ export const ChatInput = memo(function ChatInput({
   const [selectedCompletion, setSelectedCompletion] = useState(0);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [pendingAttachmentReadsByChat, setPendingAttachmentReadsByChat] = useState<Record<string, number>>({});
+  const [, setAttachmentDraftRevision] = useState(0);
   const { isTranslatingDraft, translateDraft, cancelDraftTranslation } = useDraftTranslation();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -209,7 +212,6 @@ export const ChatInput = memo(function ChatInput({
 
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attachmentsRef = useRef<Attachment[]>([]);
-  const pendingAttachmentDraftsRef = useRef<Map<string, Attachment[]>>(new Map());
   const activeChatId = useChatStore((s) => s.activeChatId);
   const streamingChatId = useChatStore((s) => s.streamingChatId);
   const isStreamingGlobal = useChatStore((s) => s.isStreaming);
@@ -246,47 +248,53 @@ export const ChatInput = memo(function ChatInput({
     [setCurrentInput],
   );
 
-  const replaceAttachments = useCallback((next: Attachment[]) => {
-    attachmentsRef.current = next;
-    setAttachments(next);
-  }, []);
-
-  const updateAttachments = useCallback((updater: (current: Attachment[]) => Attachment[]) => {
-    setAttachments((current) => {
-      const next = updater(current);
+  const replaceAttachments = useCallback(
+    (next: Attachment[], chatId = useChatStore.getState().activeChatId) => {
+      if (chatId) ephemeralAttachmentDrafts.replace(mode, chatId, next);
       attachmentsRef.current = next;
-      return next;
-    });
-  }, []);
+      setAttachments(next);
+    },
+    [mode],
+  );
 
-  const adjustPendingAttachmentReads = useCallback((chatId: string, delta: number) => {
-    setPendingAttachmentReadsByChat((current) => {
-      const nextCount = Math.max(0, (current[chatId] ?? 0) + delta);
-      const next = { ...current };
-      if (nextCount === 0) {
-        delete next[chatId];
-      } else {
-        next[chatId] = nextCount;
-      }
-      return next;
-    });
-  }, []);
+  const updateAttachments = useCallback(
+    (updater: (current: Attachment[]) => Attachment[]) => {
+      const next = updater(attachmentsRef.current);
+      const chatId = useChatStore.getState().activeChatId;
+      if (chatId) ephemeralAttachmentDrafts.replace(mode, chatId, next);
+      attachmentsRef.current = next;
+      setAttachments(next);
+    },
+    [mode],
+  );
+
+  const adjustPendingAttachmentReads = useCallback(
+    (chatId: string, delta: number) => {
+      ephemeralAttachmentDrafts.adjustPendingReads(mode, chatId, delta);
+    },
+    [mode],
+  );
 
   const appendAttachmentForChat = useCallback(
     (chatId: string, attachment: Attachment) => {
-      if (useChatStore.getState().activeChatId === chatId) {
-        updateAttachments((prev) => [...prev, attachment]);
-        return;
-      }
-      const pendingAttachments = pendingAttachmentDraftsRef.current.get(chatId) ?? [];
-      pendingAttachmentDraftsRef.current.set(chatId, [...pendingAttachments, attachment]);
+      ephemeralAttachmentDrafts.append(mode, chatId, attachment);
     },
-    [updateAttachments],
+    [mode],
   );
 
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
+
+  useEffect(() => {
+    return ephemeralAttachmentDrafts.subscribe((changedMode, changedChatId) => {
+      if (changedMode !== mode || useChatStore.getState().activeChatId !== changedChatId) return;
+      const next = ephemeralAttachmentDrafts.read(mode, changedChatId);
+      attachmentsRef.current = next;
+      setAttachments(next);
+      setAttachmentDraftRevision((revision) => revision + 1);
+    });
+  }, [mode]);
 
   // Restore draft when mounting or switching chats
   const prevChatIdRef = useRef<string | null>(null);
@@ -301,11 +309,7 @@ export const ChatInput = memo(function ChatInput({
           clearInputDraft(prevChatIdRef.current);
         }
         const prevAttachments = attachmentsRef.current;
-        if (prevAttachments.length > 0) {
-          pendingAttachmentDraftsRef.current.set(prevChatIdRef.current, prevAttachments);
-        } else {
-          pendingAttachmentDraftsRef.current.delete(prevChatIdRef.current);
-        }
+        ephemeralAttachmentDrafts.replace(mode, prevChatIdRef.current, prevAttachments);
       }
       prevChatIdRef.current = activeChatId;
     }
@@ -317,24 +321,23 @@ export const ChatInput = memo(function ChatInput({
       // Resize textarea to fit content
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
-      const restoredAttachments = pendingAttachmentDraftsRef.current.get(activeChatId) ?? [];
-      replaceAttachments(restoredAttachments);
-      pendingAttachmentDraftsRef.current.delete(activeChatId);
+      const restoredAttachments = ephemeralAttachmentDrafts.read(mode, activeChatId);
+      replaceAttachments(restoredAttachments, activeChatId);
     } else if (!activeChatId) {
       replaceAttachments([]);
     }
-  }, [activeChatId, setInputDraft, clearInputDraft, syncInputState, replaceAttachments]);
+  }, [activeChatId, mode, setInputDraft, clearInputDraft, syncInputState, replaceAttachments]);
 
   // Save draft when component unmounts (e.g. navigating to editor)
   useEffect(() => {
     const textarea = textareaRef.current;
-    const chatId = useChatStore.getState().activeChatId;
     return () => {
       // Cancel pending debounce timers
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       // Cancel pending resize rAF
       if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current);
       // Flush draft synchronously
+      const chatId = prevChatIdRef.current ?? useChatStore.getState().activeChatId;
       if (chatId && textarea) {
         const text = textarea.value;
         if (text.trim()) {
@@ -342,9 +345,10 @@ export const ChatInput = memo(function ChatInput({
         } else {
           useChatStore.getState().clearInputDraft(chatId);
         }
+        ephemeralAttachmentDrafts.replace(mode, chatId, attachmentsRef.current);
       }
     };
-  }, []);
+  }, [mode]);
 
   // Flush immediately when the page is being closed or discarded.
   useEffect(() => {
@@ -398,7 +402,7 @@ export const ChatInput = memo(function ChatInput({
 
   const canRetry = !isStreaming && lastMessageRole === "user";
   const canContinue = !isStreaming && mode === "roleplay" && lastMessageRole === "assistant";
-  const pendingAttachmentReads = activeChatId ? (pendingAttachmentReadsByChat[activeChatId] ?? 0) : 0;
+  const pendingAttachmentReads = activeChatId ? ephemeralAttachmentDrafts.pendingReads(mode, activeChatId) : 0;
   const isReadingAttachments = pendingAttachmentReads > 0;
   const hasPendingAttachments = isReadingAttachments || attachments.length > 0;
   const requiresManualGuideTarget = groupResponseOrder === "manual" && characterNames.length > 1;
@@ -513,7 +517,6 @@ export const ChatInput = memo(function ChatInput({
   // Get the current textarea value (always from the DOM directly)
   const getValue = () => textareaRef.current?.value ?? "";
 
-
   const buildContext = useCallback((): SlashCommandContext | null => {
     if (!activeChatId) return null;
     return {
@@ -623,10 +626,18 @@ export const ChatInput = memo(function ChatInput({
           setCompletions(submittedCompletions);
         }
         if (submittedAttachments.length > 0) {
+          const currentAttachments =
+            activeChatIdAfterFailure === activeChatId
+              ? attachmentsRef.current
+              : ephemeralAttachmentDrafts.read(mode, activeChatId);
+          const restoredAttachments = mergeSubmittedInputForRestore(
+            { text: "", attachments: submittedAttachments },
+            { text: "", attachments: currentAttachments },
+          ).attachments;
           if (activeChatIdAfterFailure === activeChatId) {
-            updateAttachments((current) => (current.length === 0 ? submittedAttachments : current));
+            replaceAttachments(restoredAttachments, activeChatId);
           } else {
-            pendingAttachmentDraftsRef.current.set(activeChatId, submittedAttachments);
+            restoreInactiveSubmittedAttachmentDraft(mode, activeChatId, submittedAttachments);
           }
         }
         if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== activeChatId)) {
@@ -682,11 +693,11 @@ export const ChatInput = memo(function ChatInput({
       const activeChatIdAfterFailure = useChatStore.getState().activeChatId;
       const restoresVisibleDraft = activeChatIdAfterFailure === submittingChatId && textareaRef.current !== null;
       const currentText = restoresVisibleDraft
-        ? textareaRef.current?.value ?? ""
-        : useChatStore.getState().inputDrafts.get(submittingChatId) ?? "";
+        ? (textareaRef.current?.value ?? "")
+        : (useChatStore.getState().inputDrafts.get(submittingChatId) ?? "");
       const currentAttachments = restoresVisibleDraft
         ? attachmentsRef.current
-        : pendingAttachmentDraftsRef.current.get(submittingChatId) ?? [];
+        : ephemeralAttachmentDrafts.read(mode, submittingChatId);
       const restored = mergeSubmittedInputForRestore(
         { text: submittedDraft, attachments: submittedAttachments },
         { text: currentText, attachments: currentAttachments },
@@ -702,7 +713,7 @@ export const ChatInput = memo(function ChatInput({
         if (currentText.length === 0) setCompletions(submittedCompletions);
         replaceAttachments(restored.attachments);
       } else if (restored.attachments.length > 0) {
-        pendingAttachmentDraftsRef.current.set(submittingChatId, restored.attachments);
+        restoreInactiveSubmittedAttachmentDraft(mode, submittingChatId, submittedAttachments);
       }
 
       if (restoresVisibleDraft && draftTimerRef.current) {
@@ -809,7 +820,6 @@ export const ChatInput = memo(function ChatInput({
     updateMessageExtra,
     syncInputState,
     replaceAttachments,
-    updateAttachments,
     setInputDraft,
     completions,
     onPeekPrompt,
@@ -997,10 +1007,18 @@ export const ChatInput = memo(function ChatInput({
         setCompletions(submittedCompletions);
       }
       if (submittedAttachments.length > 0) {
+        const currentAttachments =
+          activeChatIdAfterFailure === submittingChatId
+            ? attachmentsRef.current
+            : ephemeralAttachmentDrafts.read(mode, submittingChatId);
+        const restoredAttachments = mergeSubmittedInputForRestore(
+          { text: "", attachments: submittedAttachments },
+          { text: "", attachments: currentAttachments },
+        ).attachments;
         if (activeChatIdAfterFailure === submittingChatId) {
-          updateAttachments((current) => (current.length === 0 ? submittedAttachments : current));
+          replaceAttachments(restoredAttachments, submittingChatId);
         } else {
-          pendingAttachmentDraftsRef.current.set(submittingChatId, submittedAttachments);
+          restoreInactiveSubmittedAttachmentDraft(mode, submittingChatId, submittedAttachments);
         }
       }
       if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== submittingChatId)) {
@@ -1021,7 +1039,6 @@ export const ChatInput = memo(function ChatInput({
     clearInputDraft,
     setInputDraft,
     replaceAttachments,
-    updateAttachments,
     createMessage,
     deleteMessage,
     updateMessageExtra,
@@ -1577,9 +1594,7 @@ export const ChatInput = memo(function ChatInput({
           <button
             type="button"
             onClick={() =>
-              draftTranslationAction.action === "cancel"
-                ? cancelDraftTranslation()
-                : void handleTranslateDraft()
+              draftTranslationAction.action === "cancel" ? cancelDraftTranslation() : void handleTranslateDraft()
             }
             disabled={draftTranslationAction.disabled}
             className={cn(
@@ -1608,7 +1623,6 @@ export const ChatInput = memo(function ChatInput({
         )}
 
         {/* Send / Stop button */}
-
 
         <button
           onClick={isStreaming ? () => useChatStore.getState().stopGeneration() : handleSend}

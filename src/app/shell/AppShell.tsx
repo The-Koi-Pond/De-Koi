@@ -40,6 +40,7 @@ import {
   hasPendingAppCloseWork,
   registerBrowserBeforeUnloadGuard,
   registerEditorDirtyAppCloseGuard,
+  registerEphemeralAttachmentDraftAppCloseGuard,
   requestGuardedAppClose,
 } from "../../shared/lib/app-close-guard";
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
@@ -278,6 +279,7 @@ export function AppShell() {
     let cleanup: (() => void) | undefined;
     let cancelled = false;
     const unregisterEditorGuard = registerEditorDirtyAppCloseGuard(() => useUIStore.getState().editorDirty);
+    const unregisterRoleplayAttachmentGuard = registerEphemeralAttachmentDraftAppCloseGuard("roleplay");
     const unregisterBeforeUnloadGuard = registerBrowserBeforeUnloadGuard();
     void onDesktopWindowCloseRequested(() => {
       void requestGuardedAppClose();
@@ -292,6 +294,7 @@ export function AppShell() {
       cancelled = true;
       cleanup?.();
       unregisterBeforeUnloadGuard();
+      unregisterRoleplayAttachmentGuard();
       unregisterEditorGuard();
     };
   }, []);
