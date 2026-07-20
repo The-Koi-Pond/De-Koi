@@ -577,7 +577,7 @@
     "id": "chat-memory-summaries",
     "title": "Chat Continuity Overview",
     "category": "Advanced",
-    "summary": "See what can carry forward: chat-local transcript fragments, inherited character-wide memories, typed consequences from saved exchanges, automatic capture status and partial-capture warnings, and embeddings that rank matches, alongside summaries, world info, and tracker agents.",
+    "summary": "See what can carry forward: chat-local transcript fragments, inherited character-wide memories, speaker-labeled exchanges and typed consequences from saved exchanges, automatic capture status and partial-capture warnings, and embeddings that rank matches, alongside summaries, world info, and tracker agents.",
     "keywords": ["continuity", "continuity overview", "memory", "summary", "summaries", "recall", "context", "long chat", "remember", "typed memory consequence", "partial memory capture", "remembered message", "world info", "lorebooks", "trackers", "what will this chat remember", "memory saved notification"],
     "audience": "Users running long conversations, roleplays, or campaigns who want to know what context can carry forward.",
     "where": "Open a chat > Chat Settings > Continuity for chat-local and inherited character-wide memory details; open a remembered message chip for exact saved consequences or a partial-capture warning; control automatic memory-save notifications in Settings > Appearance > Notifications.",

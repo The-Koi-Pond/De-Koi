@@ -278,14 +278,28 @@ describe("automatic memory capture queue", () => {
     );
   });
 
-  it("does not expose malformed active memories to extraction or report consequences for them", async () => {
+  it.each([
+    ["blank content", { content: "" }],
+    ["unknown kind", { kind: "legacy" }],
+    ["unknown status", { status: "corrupt" }],
+    ["blank provenance message ID", { provenance: { messageIds: [""] } }],
+    ["non-string tag", { tags: ["trusted", 7] }],
+    ["non-record payload", { payload: [] }],
+  ])("does not expose an active memory with %s to extraction or report it", async (_label, malformedPatch) => {
     const harness = queueStorage();
     harness.canonicalMemories.set("malformed-memory", {
       id: "malformed-memory",
       kind: "fact",
       status: "active",
       scope: { kind: "character", id: "char-1" },
-      content: "",
+      content: "The user's cat used to be called Luna.",
+      confidence: 0.9,
+      provenance: { messageIds: ["user-old"] },
+      tags: ["pet"],
+      payload: {},
+      createdAt: "2025-12-01T00:00:00.000Z",
+      updatedAt: "2025-12-01T00:00:00.000Z",
+      ...malformedPatch,
     });
     const job = await harness.enqueue();
     const prompts: string[] = [];

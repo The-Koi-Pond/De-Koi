@@ -125,7 +125,11 @@ export function canonicalMemoryEligibleForConsequences(value: unknown): value is
     value.confidence >= 0 &&
     value.confidence <= 1 &&
     Array.isArray(provenance.messageIds) &&
+    provenance.messageIds.every(
+      (messageId) => typeof messageId === "string" && messageId.trim().length > 0,
+    ) &&
     Array.isArray(value.tags) &&
+    value.tags.every((tag) => typeof tag === "string" && tag.trim().length > 0) &&
     isRecord(value.payload) &&
     !!readString(value.createdAt).trim() &&
     !!readString(value.updatedAt).trim()

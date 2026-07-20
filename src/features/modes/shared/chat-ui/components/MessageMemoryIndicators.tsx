@@ -30,14 +30,36 @@ function memoryLabel(count: number): string {
   return count === 1 ? "1 memory recalled" : `${count} memories recalled`;
 }
 
+const SAVED_MEMORY_OPERATIONS = new Set(["created", "updated", "superseded"]);
+const SAVED_MEMORY_KINDS = new Set([
+  "fact",
+  "scene_event",
+  "relationship_state",
+  "preference",
+  "promise",
+  "plot_state",
+  "contradiction",
+]);
+const SAVED_MEMORY_STATUSES = new Set(["active", "superseded", "stale"]);
+
 function completeSavedMemory(
-  entry: NonNullable<NonNullable<MessageMemoryCapture>["consequences"]>["affected"][number],
-): boolean {
+  entry: unknown,
+): entry is NonNullable<NonNullable<MessageMemoryCapture>["consequences"]>["affected"][number] {
+  if (!entry || typeof entry !== "object") return false;
+  const value = entry as Record<string, unknown>;
+  const operation = String(value.operation);
+  if (!SAVED_MEMORY_OPERATIONS.has(operation)) return false;
+  if (!value.memory || typeof value.memory !== "object") return false;
+  const memory = value.memory as Record<string, unknown>;
+  const status = String(memory.status);
+  if ((operation === "superseded") !== (status === "superseded")) return false;
   return (
-    typeof entry?.memory?.id === "string" &&
-    entry.memory.id.trim().length > 0 &&
-    typeof entry.memory.content === "string" &&
-    entry.memory.content.trim().length > 0
+    typeof memory.id === "string" &&
+    memory.id.trim().length > 0 &&
+    SAVED_MEMORY_KINDS.has(String(memory.kind)) &&
+    SAVED_MEMORY_STATUSES.has(status) &&
+    typeof memory.content === "string" &&
+    memory.content.trim().length > 0
   );
 }
 
@@ -75,13 +97,18 @@ export function MessageMemoryIndicators({
       : completeCapture
         ? [completeCapture]
         : [];
-  const partialCapture =
-    memoryCapture?.status === "completed" &&
-    (memoryCapture.consequences?.status === "skipped" ||
-      savedConsequences.length < consequenceEntries.length ||
-      (savedMemories.length === 0 && !completeCapture));
+  const captureHasProblems =
+    memoryCapture?.consequences?.status === "skipped" ||
+    savedConsequences.length < consequenceEntries.length ||
+    (!!savedCapture && !completeCapture) ||
+    (savedMemories.length === 0 && !completeCapture);
+  const partialCapture = memoryCapture?.status === "completed" && savedMemories.length > 0 && captureHasProblems;
+  const unavailableCapture =
+    memoryCapture?.status === "completed" && savedMemories.length === 0 && captureHasProblems;
   const remembered =
-    !isUser && memoryCapture?.status === "completed" && (savedMemories.length > 0 || partialCapture);
+    !isUser &&
+    memoryCapture?.status === "completed" &&
+    (savedMemories.length > 0 || partialCapture || unavailableCapture);
   const recalledItems = useMemo(() => recalledMemoryItems(promptSnapshot), [promptSnapshot]);
   const recalledCount = !isUser ? recalledItems.length : 0;
   const visibleSnippets = recalledItems
@@ -170,7 +197,7 @@ export function MessageMemoryIndicators({
             }}
             className="inline-flex shrink-0 items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-300/80 outline-none transition-colors duration-150 hover:bg-emerald-400/15 focus-visible:ring-1 focus-visible:ring-emerald-300/45"
           >
-            {partialCapture ? "⚠ partial memory" : "✦ remembered"}
+            {partialCapture ? "⚠ partial memory" : unavailableCapture ? "⚠ memory unavailable" : "✦ remembered"}
           </button>
           {savedOpen && (
             <div
@@ -183,15 +210,22 @@ export function MessageMemoryIndicators({
               <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
                 {partialCapture
                   ? "Partial memory capture"
-                  : savedMemories.length > 1
-                    ? "Saved memories"
-                    : savedMemories[0]?.operation === "updated"
-                      ? "Updated memory"
-                      : "Saved memory"}
+                  : unavailableCapture
+                    ? "Memory unavailable"
+                    : savedMemories.length > 1
+                      ? "Saved memories"
+                      : savedMemories[0]?.operation === "updated"
+                        ? "Updated memory"
+                        : "Saved memory"}
               </div>
               {partialCapture && (
                 <p className="mb-2 rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-200/90">
                   Some memory details could not be saved or verified.
+                </p>
+              )}
+              {unavailableCapture && (
+                <p className="mb-2 rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-200/90">
+                  No memory details could be saved or verified.
                 </p>
               )}
               <div className="max-h-56 space-y-2 overflow-y-auto">
