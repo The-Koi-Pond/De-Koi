@@ -343,6 +343,20 @@
     "coverage": "advanced"
   },
   {
+    "id": "recommended-generation-profiles",
+    "title": "Recommended Generation Profiles",
+    "category": "Advanced",
+    "summary": "Let De-Koi choose stable generation and prompt-budget settings for each chat mode and model, or switch to explicit Custom values.",
+    "keywords": ["recommended generation", "generation profile", "advanced parameters", "temperature", "max tokens", "reasoning effort", "custom parameters", "model defaults"],
+    "audience": "Users who want reliable model settings automatically, with optional per-chat or per-connection tuning.",
+    "where": "Chat Settings > Advanced Parameters, or Connections > Generation Profile.",
+    "actions": [
+      { "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" },
+      { "type": "open-panel", "panel": "connections", "label": "Open Connections" }
+    ],
+    "coverage": "advanced"
+  },
+  {
     "id": "prompt-overrides",
     "title": "Prompt Overrides",
     "category": "Advanced",
