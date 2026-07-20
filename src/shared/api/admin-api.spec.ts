@@ -18,7 +18,7 @@ describe("adminApi.expunge", () => {
   it("normalizes a legacy success as every requested scope completed", async () => {
     mocks.invokeTauri.mockResolvedValue({ success: true });
 
-    await expect(adminApi.expunge(["chats", "media"])).resolves.toEqual({
+    await expect(adminApi.expunge(["chats", "media", "chats"])).resolves.toEqual({
       success: true,
       requestedScopes: ["chats", "media"],
       completedScopes: ["chats", "media"],
@@ -50,6 +50,81 @@ describe("adminApi.expunge", () => {
     mocks.invokeTauri.mockResolvedValue(receipt);
 
     await expect(adminApi.expunge(["chats", "media"])).resolves.toEqual(receipt);
+  });
+
+  it("accepts a modern receipt for the first-seen deduplicated request", async () => {
+    const receipt = {
+      success: true,
+      requestedScopes: ["chats", "media"],
+      completedScopes: ["chats", "media"],
+      remainingScopes: [],
+      clearedCollections: ["chats", "gallery"],
+    } as const;
+    mocks.invokeTauri.mockResolvedValue(receipt);
+
+    await expect(adminApi.expunge(["chats", "media", "chats"])).resolves.toEqual(receipt);
+    expect(mocks.invokeTauri).toHaveBeenCalledWith("admin_expunge_command", { scopes: ["chats", "media"] });
+  });
+
+  it.each([
+    [
+      "claims success with work remaining",
+      ["chats"],
+      {
+        success: true,
+        requestedScopes: ["chats"],
+        completedScopes: [],
+        remainingScopes: ["chats"],
+        clearedCollections: [],
+      },
+    ],
+    [
+      "reports a different requested scope",
+      ["chats"],
+      {
+        success: true,
+        requestedScopes: ["media"],
+        completedScopes: ["media"],
+        remainingScopes: [],
+        clearedCollections: [],
+      },
+    ],
+    [
+      "reorders completed scopes",
+      ["chats", "media"],
+      {
+        success: true,
+        requestedScopes: ["chats", "media"],
+        completedScopes: ["media", "chats"],
+        remainingScopes: [],
+        clearedCollections: [],
+      },
+    ],
+    [
+      "omits a completed scope",
+      ["chats", "media"],
+      {
+        success: true,
+        requestedScopes: ["chats", "media"],
+        completedScopes: ["chats"],
+        remainingScopes: [],
+        clearedCollections: [],
+      },
+    ],
+  ])("rejects a modern receipt that %s", async (_label, requestedScopes, resolvedValue) => {
+    mocks.invokeTauri.mockResolvedValue(resolvedValue);
+
+    await expect(adminApi.expunge(requestedScopes)).rejects.toMatchObject({
+      name: "ExpungeError",
+      receipt: {
+        success: false,
+        requestedScopes,
+        completedScopes: [],
+        remainingScopes: requestedScopes,
+        failedScope: null,
+        clearedCollections: [],
+      },
+    });
   });
 
   it.each([

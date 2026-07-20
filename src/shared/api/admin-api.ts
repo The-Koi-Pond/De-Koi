@@ -46,6 +46,14 @@ function readStringArray(value: unknown): string[] | null {
   return value as string[];
 }
 
+function dedupeScopes(scopes: readonly string[]): string[] {
+  return [...new Set(scopes)];
+}
+
+function scopesEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((scope, index) => scope === right[index]);
+}
+
 function normalizeExpungeSuccess(value: unknown, requestedScopes: readonly string[]): ExpungeSuccessReceipt {
   if (!isRecord(value) || value.success !== true) {
     throw new Error("Invalid data erasure response");
@@ -74,6 +82,13 @@ function normalizeExpungeSuccess(value: unknown, requestedScopes: readonly strin
   const remainingScopes = readStringArray(value.remainingScopes);
   if (!receiptRequestedScopes || !completedScopes || !remainingScopes || !Object.hasOwn(value, "clearedCollections")) {
     throw new Error("Invalid data erasure response");
+  }
+  if (
+    !scopesEqual(receiptRequestedScopes, requestedScopes) ||
+    !scopesEqual(completedScopes, requestedScopes) ||
+    remainingScopes.length > 0
+  ) {
+    throw new Error("Contradictory data erasure success response");
   }
 
   return {
@@ -157,10 +172,14 @@ function normalizeExpungeError(error: unknown, requestedScopes: readonly string[
 
 export const adminApi = {
   expunge: async (scopes: readonly string[]) => {
+    const requestedScopes = dedupeScopes(scopes);
     try {
-      return normalizeExpungeSuccess(await invokeTauri<unknown>("admin_expunge_command", { scopes }), scopes);
+      return normalizeExpungeSuccess(
+        await invokeTauri<unknown>("admin_expunge_command", { scopes: requestedScopes }),
+        requestedScopes,
+      );
     } catch (error) {
-      throw normalizeExpungeError(error, scopes);
+      throw normalizeExpungeError(error, requestedScopes);
     }
   },
   clearAll: () => invokeTauri<{ success: boolean }>("admin_clear_all_command", { confirm: true }),
