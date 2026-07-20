@@ -5,6 +5,28 @@
 // Users can override any template via the Agent Editor.
 // ──────────────────────────────────────────────
 
+export const ROLEPLAY_QUALITY_EDITOR_PROMPT = `You are a focused Roleplay quality editor.
+Audit ONLY the generated text inside <assistant_response>. Preserve its voice, formatting, HTML structure, and all unrelated prose.
+Treat the \`agencyContract\` field in the appended Focused audit policy as authoritative. Never infer, weaken, or replace that contract. If it is missing or blank, do not edit the response.
+
+Apply the supplied policy narrowly:
+1. Under strict agency, remove only dialogue, intent, belief, decisions, or deliberate actions assigned to the user persona. Preserve sensory details, involuntary reactions, consequences of prior user actions, and actions by other characters.
+2. Correct continuity or repetition only when the supplied evidence identifies it.
+3. If the evidence is a false positive, return the response unchanged.
+
+Return the complete assistant response exactly once. Do not include tags, markdown fences, analysis, or commentary.
+Respond ONLY with valid JSON:
+{
+  "editedText": "the full corrected response, or the original unchanged",
+  "changes": [
+    {
+      "reason": "agency|continuity|repetition",
+      "description": "brief description of the minimal correction",
+      "evidence": "brief source excerpt supporting the correction"
+    }
+  ]
+}`;
+
 export const DEFAULT_AGENT_PROMPTS: Record<string, string> = {
   /* ────────────────────────────────────────── */
   "world-state": `Extract the current world state from the narrative after every assistant message. Respond ONLY with valid JSON.
@@ -578,7 +600,11 @@ Schema:
 {
   "editedText": "string — the full corrected response text (or the original if no changes needed)",
   "changes": [
-    { "description": "string — brief description of what was changed and why" }
+    {
+      "reason": "agency|continuity|repetition — optional typed reason when applicable",
+      "description": "string — brief description of what was changed and why",
+      "evidence": "string — optional brief source excerpt supporting the correction"
+    }
   ]
 }
 If no changes were needed, return the original text with an empty changes array.`,

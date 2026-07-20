@@ -9,6 +9,7 @@ import {
   type GenerationContextAttribution,
   type GenerationPromptSnapshot,
   type GenerationPromptSnapshotMessage,
+  type RoleplayQualityCorrectionExtra,
 } from "../contracts/types/chat";
 import type { GameState } from "../contracts/types/game-state";
 import { normalizeGeneratedImageResult } from "../contracts/generated-image";
@@ -41,7 +42,11 @@ import {
   assertRequestedCharacterIsActive,
 } from "./active-characters";
 import { persistSecretPlotAgentMemory, type SecretPlotRerollMode } from "./agent-memory-runtime";
-import { createGenerationAgentRuntime } from "./agent-runner";
+import {
+  createGenerationAgentRuntime,
+  runFocusedRoleplayQualityAudit,
+  type GenerationAgentRuntimeInput,
+} from "./agent-runner";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import { generationContextAttribution } from "./context-attribution";
 import {
@@ -110,6 +115,8 @@ import type { GenerationCharacterContext, GenerationPersonaContext } from "./pro
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { buildGenerationTurnUsage } from "./usage-ledger";
 import { applyRuntimeRegexScripts } from "./regex-runtime";
+import { validateRoleplayQualityAudit } from "./roleplay-quality-audit";
+import { analyzeRoleplayResponse } from "./roleplay-quality-signals";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationSubjectMatches } from "../generation-core/images/illustration-reference-matching";
 import {
@@ -3056,6 +3063,105 @@ function finalAssistantContent(input: StartGenerationInput, content: string): st
   return trimIncompleteModelEnding(content);
 }
 
+const ROLEPLAY_QUALITY_AUDIT_TIMEOUT_MS = 8_000;
+
+interface AutomaticRoleplayQualityCorrectionResult {
+  content: string;
+  correction: RoleplayQualityCorrectionExtra | null;
+}
+
+function automaticRoleplayQualityCorrectionEnabled(chat: JsonRecord, input: StartGenerationInput): boolean {
+  const mode = readString(chat.mode || chat.chatMode).trim();
+  if (mode !== "roleplay" && mode !== "visual_novel") return false;
+  if (input.impersonate === true) return false;
+  return parseRecord(chat.metadata).automaticRoleplayQualityCorrection !== false;
+}
+
+function createRoleplayQualityAuditDeadline(parentSignal?: AbortSignal): {
+  signal: AbortSignal;
+  dispose(): void;
+} {
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort(parentSignal?.reason);
+  if (parentSignal?.aborted) {
+    abortFromParent();
+  } else {
+    parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  }
+  const timeout = setTimeout(
+    () => controller.abort(new DOMException("Roleplay quality audit timed out.", "TimeoutError")),
+    ROLEPLAY_QUALITY_AUDIT_TIMEOUT_MS,
+  );
+  return {
+    signal: controller.signal,
+    dispose() {
+      clearTimeout(timeout);
+      parentSignal?.removeEventListener("abort", abortFromParent);
+    },
+  };
+}
+
+async function applyAutomaticRoleplayQualityCorrection(args: {
+  deps: GenerationEngineDeps;
+  chat: JsonRecord;
+  input: StartGenerationInput;
+  runtimeInput: GenerationAgentRuntimeInput;
+  agencyContract: string | null;
+  content: string;
+  signal?: AbortSignal;
+}): Promise<AutomaticRoleplayQualityCorrectionResult> {
+  if (!automaticRoleplayQualityCorrectionEnabled(args.chat, args.input)) {
+    return { content: args.content, correction: null };
+  }
+  const analysis = analyzeRoleplayResponse({
+    content: args.content,
+    personaName: args.runtimeInput.persona?.name ?? null,
+    characterNames: args.runtimeInput.characters.map((character) => character.name),
+    agencyContract: args.agencyContract,
+  });
+  const highSeveritySignals = analysis.signals.filter((signal) => signal.severity === "high");
+  if (highSeveritySignals.length === 0) return { content: args.content, correction: null };
+
+  const deadline = createRoleplayQualityAuditDeadline(args.signal);
+  try {
+    const result = await runFocusedRoleplayQualityAudit(
+      {
+        storage: args.deps.storage,
+        llm: args.deps.llm,
+        integrations: args.deps.integrations,
+        visuals: args.deps.visuals,
+      },
+      { ...args.runtimeInput, signal: deadline.signal },
+      {
+        mainResponse: args.content,
+        agencyContract: args.agencyContract ?? "",
+        signals: highSeveritySignals,
+      },
+    );
+    throwIfAborted(args.signal);
+    const repair = validateRoleplayQualityAudit(args.content, result, {
+      allowedReasons: ["agency"],
+    });
+    if (!repair.changed || repair.evidence.length === 0) {
+      return { content: args.content, correction: null };
+    }
+    return {
+      content: repair.content,
+      correction: {
+        source: "focused_editor_audit",
+        reasons: repair.reasons,
+        evidence: repair.evidence,
+        durationMs: repair.durationMs,
+      },
+    };
+  } catch {
+    throwIfAborted(args.signal);
+    return { content: args.content, correction: null };
+  } finally {
+    deadline.dispose();
+  }
+}
+
 function normalizeCyoaChoices(value: unknown): CyoaChoice[] {
   const data = parseRecord(value);
   const rawChoices = Array.isArray(data.choices) ? data.choices : Array.isArray(value) ? value : [];
@@ -3172,6 +3278,7 @@ async function saveAssistantMessage(args: {
   webResearchRequest?: Record<string, unknown> | null;
   clearWebResearchRequest?: boolean;
   webResearchSources?: Array<{ title: string; url: string }> | null;
+  roleplayQualityCorrection?: RoleplayQualityCorrectionExtra | null;
 }): Promise<unknown | null> {
   const regenerateMessageId = readString(args.input.regenerateMessageId).trim();
   const regenerationTargetRole = readString(args.regenerationTarget?.role).trim();
@@ -3195,6 +3302,9 @@ async function saveAssistantMessage(args: {
     ...(args.webResearchRequest ? { characterWebResearchRequest: args.webResearchRequest } : {}),
     ...(args.clearWebResearchRequest ? { characterWebResearchRequest: null } : {}),
     ...(args.webResearchSources?.length ? { characterWebResearchSources: args.webResearchSources } : {}),
+    ...(args.roleplayQualityCorrection !== undefined
+      ? { roleplayQualityCorrection: args.roleplayQualityCorrection }
+      : {}),
   };
   const generationInfo = {
     connectionId: readString(args.connection.id) || null,
@@ -4530,27 +4640,28 @@ export async function* startGeneration(
   if (!directMessages) {
     const agentsEnabled = input.impersonateBlockAgents !== true && !isUserMessageRegeneration;
     yield { type: "phase", data: agentsEnabled ? "Running pre-generation agents..." : "Calling model..." };
+    const generationAgentInput: GenerationAgentRuntimeInput = {
+      chat: chatForGeneration,
+      connection,
+      storedMessages: generationMessages,
+      cadenceMessages: storedMessages,
+      characters: assembly.characters,
+      persona: assembly.persona,
+      activatedLorebookEntries: assembly.activatedLorebookEntries,
+      chatSummary: assembly.chatSummary,
+      embeddingSource: turnEmbeddingSource,
+      debugMode: input.debugMode === true,
+      debugSink: input.debugSink,
+      hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
+      signal,
+      forCharacterId: readString(input.forCharacterId).trim() || null,
+      regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
+      agentInjectionOverrides,
+    };
     const runtime = agentsEnabled
       ? await createGenerationAgentRuntime(
           { storage: deps.storage, llm: deps.llm, integrations: deps.integrations, visuals: deps.visuals },
-          {
-            chat: chatForGeneration,
-            connection,
-            storedMessages: generationMessages,
-            cadenceMessages: storedMessages,
-            characters: assembly.characters,
-            persona: assembly.persona,
-            activatedLorebookEntries: assembly.activatedLorebookEntries,
-            chatSummary: assembly.chatSummary,
-            embeddingSource: turnEmbeddingSource,
-            debugMode: input.debugMode === true,
-            debugSink: input.debugSink,
-            hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
-            signal,
-            forCharacterId: readString(input.forCharacterId).trim() || null,
-            regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
-            agentInjectionOverrides,
-          },
+          generationAgentInput,
           (result) => agentEvents.push(result),
         )
       : null;
@@ -4758,10 +4869,26 @@ export async function* startGeneration(
         );
     throwIfAborted(signal);
     for (const event of connected.events) yield event;
-    const displayContent = finalAssistantContent(input, connected.displayContent);
+    let displayContent = finalAssistantContent(input, connected.displayContent);
+    const roleplayQuality = isUserMessageRegeneration || connected.suppressAssistantMessage
+      ? { content: displayContent, correction: null }
+      : await applyAutomaticRoleplayQualityCorrection({
+          deps,
+          chat: chatForGeneration,
+          input,
+          runtimeInput: generationAgentInput,
+          agencyContract: assembly.roleplayAgencyContract,
+          content: displayContent,
+          signal,
+        });
+    throwIfAborted(signal);
+    if (roleplayQuality.content !== displayContent) {
+      displayContent = roleplayQuality.content;
+    }
     if (displayContent !== connected.displayContent) {
       yield { type: "content_replace", data: displayContent };
     }
+    content = displayContent;
     const saved = connected.suppressAssistantMessage
       ? null
       : await saveAssistantMessage({
@@ -4787,6 +4914,7 @@ export async function* startGeneration(
           webResearchRequest,
           clearWebResearchRequest: mainTools?.characterWebResearchGrant != null,
           webResearchSources,
+          roleplayQualityCorrection: roleplayQuality.correction,
         });
     const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
     let latestSaved = saved;
@@ -4819,7 +4947,7 @@ export async function* startGeneration(
     if (!isUserMessageRegeneration) {
       const parallelResults = await parallelAgents;
       throwIfAborted(signal);
-      const postResults = runtime && savedAssistantGeneration ? await runtime.runPost(content) : [];
+      const postResults = runtime && savedAssistantGeneration ? await runtime.runPost(displayContent) : [];
       throwIfAborted(signal);
       let emittedAgentResults = uniqueAgentResults([...parallelResults, ...postResults, ...agentEvents]);
       emittedAgentResults = await generateTrackerAvatarsForResults({
@@ -5063,10 +5191,44 @@ export async function* startGeneration(
       );
   throwIfAborted(signal);
   for (const event of connected.events) yield event;
-  const displayContentDirect = finalAssistantContent(input, connected.displayContent);
+  let displayContentDirect = finalAssistantContent(input, connected.displayContent);
+  const directAgentInput: GenerationAgentRuntimeInput = {
+    chat: chatForGeneration,
+    connection,
+    storedMessages: generationMessages,
+    cadenceMessages: storedMessages,
+    characters: assembly.characters,
+    persona: assembly.persona,
+    activatedLorebookEntries: assembly.activatedLorebookEntries,
+    chatSummary: assembly.chatSummary,
+    embeddingSource: turnEmbeddingSource,
+    debugMode: input.debugMode === true,
+    debugSink: input.debugSink,
+    hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
+    signal,
+    forCharacterId: readString(input.forCharacterId).trim() || null,
+    regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
+    agentInjectionOverrides,
+  };
+  const roleplayQualityDirect = isUserMessageRegeneration || connected.suppressAssistantMessage
+    ? { content: displayContentDirect, correction: null }
+    : await applyAutomaticRoleplayQualityCorrection({
+        deps,
+        chat: chatForGeneration,
+        input,
+        runtimeInput: directAgentInput,
+        agencyContract: assembly.roleplayAgencyContract,
+        content: displayContentDirect,
+        signal,
+      });
+  throwIfAborted(signal);
+  if (roleplayQualityDirect.content !== displayContentDirect) {
+    displayContentDirect = roleplayQualityDirect.content;
+  }
   if (displayContentDirect !== connected.displayContent) {
     yield { type: "content_replace", data: displayContentDirect };
   }
+  content = displayContentDirect;
   const saved = connected.suppressAssistantMessage
     ? null
     : await saveAssistantMessage({
@@ -5090,6 +5252,7 @@ export async function* startGeneration(
         webResearchRequest: webResearchRequestDirect,
         clearWebResearchRequest: mainToolsDirect?.characterWebResearchGrant != null,
         webResearchSources: webResearchSourcesDirect,
+        roleplayQualityCorrection: roleplayQualityDirect.correction,
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
   if (saved) {

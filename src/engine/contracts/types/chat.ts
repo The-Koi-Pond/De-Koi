@@ -293,6 +293,8 @@ export interface ChatMetadata {
   enableMemoryRecall?: boolean;
   /** Whether canonical durable memories are retrieved into generation prompts. Default: false. */
   enableCanonicalMemoryRecall?: boolean;
+  /** Whether high-confidence Roleplay agency violations receive a focused automatic repair. Default: true. */
+  automaticRoleplayQualityCorrection?: boolean;
   /** Optional token budget for canonical memory prompt context. Missing uses a bounded context-share default. */
   canonicalMemoryRecallTokenBudget?: number | null;
   /** How many newest visible messages Memory Recall should ignore when selecting recalled chunks. Default: 1. */
@@ -536,6 +538,14 @@ export interface MessageMemoryCaptureExtra {
     }>;
   };
 }
+
+export interface RoleplayQualityCorrectionExtra {
+  source: "focused_editor_audit";
+  reasons: Array<"agency" | "continuity" | "repetition">;
+  evidence: string[];
+  durationMs: number;
+}
+
 /** Additional data attached to a message. */
 export interface MessageExtra {
   /** A character's pending or resolved request to research an exact web query. */
@@ -561,6 +571,8 @@ export interface MessageExtra {
   /** User-provided or generated attachments rendered with the message. */
   attachments?: MessageAttachment[] | null;
   memoryCapture?: MessageMemoryCaptureExtra | null;
+  /** Source-backed automatic repair applied to this exact generated swipe. */
+  roleplayQualityCorrection?: RoleplayQualityCorrectionExtra | null;
   /** Per-swipe sprite expressions from the Expression Engine agent */
   spriteExpressions?: Record<string, string> | null;
   /** Per-swipe CYOA choices from the CYOA Choices agent */

@@ -6,6 +6,7 @@ import type { VisualAssetGateway } from "../capabilities/visual-assets";
 import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../contracts/types/sidecar";
 import {
   createGenerationAgentRuntime,
+  runFocusedRoleplayQualityAudit,
   type AgentConnectionWarning,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
@@ -185,6 +186,181 @@ function activeAgentRuntimeInput(
 }
 
 describe("generation agent runner", () => {
+  it("runs a disabled built-in editor through the focused core Roleplay audit contract", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            editedText: 'Mira closes the ledger. "Decide when you are ready."',
+            changes: [
+              {
+                reason: "agency",
+                description: "Removed dialogue assigned to the persona.",
+                evidence: '"I accept," Celia says.',
+              },
+            ],
+          }),
+        };
+      },
+    };
+    const input = runtimeInput(connection);
+    input.persona = { name: "Celia", description: "", tags: [] };
+    input.storedMessages = [
+      { role: "user", content: "I study the contract." },
+      { role: "assistant", content: "Mira pushes the ledger closer." },
+    ];
+
+    const result = await runFocusedRoleplayQualityAudit(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "editor",
+              type: "editor",
+              name: "Consistency Editor",
+              enabled: false,
+              phase: "post_processing",
+              connectionId: connection.id,
+              model: "qa-model",
+              promptTemplate: "A user-customized manual editor prompt that must not control the core audit.",
+            },
+          ],
+          [connection],
+        ),
+        llm,
+        integrations: noopIntegrations,
+      },
+      input,
+      {
+        mainResponse: '"I accept," Celia says, taking the contract.',
+        agencyContract: "strict agency: never write the user's dialogue or deliberate actions.",
+        signals: [
+          {
+            kind: "agency_candidate",
+            severity: "high",
+            evidence: ['"I accept," Celia says, taking the contract.'],
+            guidance: "Audit the assigned dialogue.",
+          },
+        ],
+      },
+    );
+
+    expect(result).toEqual(expect.objectContaining({ success: true, type: "text_rewrite" }));
+    expect(requests).toHaveLength(1);
+    const prompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(prompt).toContain("focused Roleplay quality editor");
+    expect(prompt).toContain(
+      "Treat the `agencyContract` field in the appended Focused audit policy as authoritative",
+    );
+    expect(prompt).toContain("strict agency:");
+    expect(prompt).toContain("agency_candidate");
+    expect(prompt).toContain("<assistant_response>");
+    expect(prompt).toContain('"I accept," Celia says, taking the contract.');
+    expect(prompt).not.toContain("user-customized manual editor prompt");
+    expect(requests[0]?.parameters?.maxTokens).toBeLessThanOrEqual(1200);
+  });
+
+  it("returns a normal failed result when the focused audit has no runnable model", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "No model", provider: "openai", model: "" };
+
+    const result = await runFocusedRoleplayQualityAudit(
+      {
+        storage: testStorage([], [connection]),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      runtimeInput(connection),
+      {
+        mainResponse: "You agree to the bargain.",
+        agencyContract: "strict agency: preserve the user's choices.",
+        signals: [
+          {
+            kind: "agency_candidate",
+            severity: "high",
+            evidence: ["You agree to the bargain."],
+            guidance: "Audit the assigned decision.",
+          },
+        ],
+      },
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: false,
+        type: "text_rewrite",
+        error: expect.stringContaining("model"),
+        data: {
+          code: "missing_editor_model",
+          agentId: "editor",
+          agentType: "editor",
+          failure: "No runnable model is available for the focused Roleplay quality audit.",
+        },
+      }),
+    );
+    expect(requests).toEqual([]);
+  });
+
+  it("rejects a focused audit when the authoritative agency contract is missing", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+
+    const result = await runFocusedRoleplayQualityAudit(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "editor",
+              type: "editor",
+              name: "Consistency Editor",
+              enabled: false,
+              phase: "post_processing",
+              connectionId: connection.id,
+              model: "qa-model",
+            },
+          ],
+          [connection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      runtimeInput(connection),
+      {
+        mainResponse: "You agree to the bargain.",
+        agencyContract: "  ",
+        signals: [
+          {
+            kind: "agency_candidate",
+            severity: "high",
+            evidence: ["You agree to the bargain."],
+            guidance: "Audit the assigned decision.",
+          },
+        ],
+      },
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: false,
+        data: expect.objectContaining({
+          code: "missing_agency_contract",
+          agentType: "editor",
+        }),
+      }),
+    );
+    expect(requests).toEqual([]);
+  });
+
   it("models default connection warning details as required", () => {
     acceptAgentConnectionWarning({
       code: "default_agent_connection_active",

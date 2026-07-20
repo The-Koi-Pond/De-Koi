@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { IntegrationGateway } from "../capabilities/integrations";
-import type { LlmGateway } from "../capabilities/llm";
+import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
 import { startGeneration } from "./start-generation";
@@ -18,7 +18,10 @@ type StoredMessage = {
   swipes: Array<{ content: string; characterId?: string | null; extra?: Record<string, unknown> }>;
 };
 
-function roleplayAttributionStorage(connectionOverrides: Record<string, unknown> = {}) {
+function roleplayAttributionStorage(
+  connectionOverrides: Record<string, unknown> = {},
+  chatOverrides: Record<string, unknown> = {},
+) {
   const records: Record<string, Record<string, unknown>> = {
     "chat-1": {
       id: "chat-1",
@@ -26,6 +29,7 @@ function roleplayAttributionStorage(connectionOverrides: Record<string, unknown>
       connectionId: "conn-1",
       characterIds: ["char-a"],
       metadata: {},
+      ...chatOverrides,
     },
     "conn-1": { id: "conn-1", provider: "test-provider", model: "test-model", ...connectionOverrides },
     "char-a": {
@@ -147,11 +151,16 @@ function roleplayAttributionStorage(connectionOverrides: Record<string, unknown>
   return { storage, messages, calls };
 }
 
-function roleplayLlm(response: string, completeResponse = ""): LlmGateway {
+function roleplayLlm(response: string | string[], completeResponse = ""): LlmGateway & { requests: LlmRequest[] } {
+  const responses = Array.isArray(response) ? response : [response];
+  const requests: LlmRequest[] = [];
+  let responseIndex = 0;
   return {
+    requests,
     complete: vi.fn(async () => completeResponse),
-    async *stream() {
-      yield { type: "token", text: response };
+    async *stream(request) {
+      requests.push(request);
+      yield { type: "token", text: responses[responseIndex++] ?? "" };
     },
     listModels: vi.fn(async () => []),
   };
@@ -214,5 +223,210 @@ describe("startGeneration roleplay text persistence", () => {
     const assistant = messages.find((item) => item.role === "assistant");
     expect(assistant?.content).toBe(content);
     expect(assistant?.swipes[0]?.content).toBe(content);
+  });
+
+  it("reconciles a strict-agency repair before saving and records source-backed swipe metadata", async () => {
+    const { storage, messages } = roleplayAttributionStorage(
+      {},
+      {
+        promptVariables: {
+          agencyStrictness: "strict agency: never write the user's dialogue or deliberate actions.",
+        },
+      },
+    );
+    const original = 'Mira opens the ledger. You accept the bargain. "Good," she says. This tail is unfinished';
+    const corrected = 'Mira opens the ledger. "The bargain is yours to accept," she says.';
+    const llm = roleplayLlm([
+      original,
+      JSON.stringify({
+        editedText: corrected,
+        changes: [
+          {
+            reason: "agency",
+            description: "Removed a decision assigned to the user.",
+            evidence: "You accept the bargain.",
+          },
+        ],
+      }),
+    ]);
+
+    const events = await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "I study the bargain.",
+          trimIncompleteModelOutput: true,
+        },
+      ),
+    );
+
+    const assistant = messages.find((item) => item.role === "assistant");
+    expect(llm.requests).toHaveLength(2);
+    expect(assistant?.content).toBe(corrected);
+    expect(assistant?.swipes[0]?.content).toBe(corrected);
+    expect(assistant?.extra.roleplayQualityCorrection).toEqual({
+      source: "focused_editor_audit",
+      reasons: ["agency"],
+      evidence: ["You accept the bargain."],
+      durationMs: expect.any(Number),
+    });
+    expect(assistant?.swipes[0]?.extra?.roleplayQualityCorrection).toEqual(
+      assistant?.extra.roleplayQualityCorrection,
+    );
+    expect(events.filter((event) => event.type === "content_replace")).toEqual([
+      { type: "content_replace", data: corrected },
+    ]);
+  });
+
+  it("applies the same strict-agency repair to the direct-messages generation branch", async () => {
+    const { storage, messages } = roleplayAttributionStorage(
+      {},
+      {
+        promptVariables: { agencyStrictness: "strict agency: preserve user choices." },
+      },
+    );
+    const original = "You sign the contract.";
+    const corrected = "Mira leaves the contract open for your signature.";
+    const llm = roleplayLlm([
+      original,
+      JSON.stringify({
+        editedText: corrected,
+        changes: [
+          {
+            reason: "agency",
+            description: "Removed a deliberate action assigned to the user.",
+            evidence: original,
+          },
+        ],
+      }),
+    ]);
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          messages: [{ role: "user", content: "I inspect the signature line." }],
+        },
+      ),
+    );
+
+    expect(llm.requests).toHaveLength(2);
+    expect(messages.find((item) => item.role === "assistant")?.content).toBe(corrected);
+  });
+
+  it.each([
+    ["a clean strict-agency turn", 'Mira opens the ledger. "The choice is yours."', "strict agency: preserve user choices."],
+    ["an organic-agency candidate", "You accept the bargain.", "organic agency: infer minor actions when useful."],
+  ])("adds no audit call for %s", async (_label, response, agencyStrictness) => {
+    const { storage, messages } = roleplayAttributionStorage({}, { promptVariables: { agencyStrictness } });
+    const llm = roleplayLlm(response);
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        { chatId: "chat-1", connectionId: "conn-1", userMessage: "Continue." },
+      ),
+    );
+
+    expect(llm.requests).toHaveLength(1);
+    expect(messages.find((item) => item.role === "assistant")?.content).toBe(response);
+  });
+
+  it("preserves the original when the focused audit is malformed", async () => {
+    const { storage, messages } = roleplayAttributionStorage(
+      {},
+      {
+        promptVariables: { agencyStrictness: "strict agency: preserve user choices." },
+      },
+    );
+    const original = "You accept the bargain.";
+    const llm = roleplayLlm([original, "not valid editor JSON"]);
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        { chatId: "chat-1", connectionId: "conn-1", userMessage: "I consider it." },
+      ),
+    );
+
+    const assistant = messages.find((item) => item.role === "assistant");
+    expect(llm.requests.length).toBeGreaterThanOrEqual(2);
+    expect(assistant?.content).toBe(original);
+    expect(assistant?.extra.roleplayQualityCorrection).toBeNull();
+  });
+
+  it("preserves the original when the focused audit times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const { storage, messages } = roleplayAttributionStorage(
+        {},
+        {
+          promptVariables: { agencyStrictness: "strict agency: preserve user choices." },
+        },
+      );
+      const original = "You accept the bargain.";
+      const requests: LlmRequest[] = [];
+      const llm: LlmGateway = {
+        complete: vi.fn(async () => ""),
+        listModels: vi.fn(async () => []),
+        async *stream(request, signal) {
+          requests.push(request);
+          if (requests.length === 1) {
+            yield { type: "token", text: original };
+            return;
+          }
+          await new Promise<void>((_resolve, reject) => {
+            const abort = () => reject(new DOMException("Timed out.", "AbortError"));
+            if (signal?.aborted) abort();
+            else signal?.addEventListener("abort", abort, { once: true });
+          });
+        },
+      };
+
+      const generation = collectEvents(
+        startGeneration(
+          { storage, llm, integrations: {} as IntegrationGateway },
+          { chatId: "chat-1", connectionId: "conn-1", userMessage: "I consider it." },
+        ),
+      );
+      for (let index = 0; index < 20 && requests.length < 2; index += 1) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(requests).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(8_000);
+      await generation;
+
+      const assistant = messages.find((item) => item.role === "assistant");
+      expect(assistant?.content).toBe(original);
+      expect(assistant?.extra.roleplayQualityCorrection).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("honors the per-chat automatic correction off switch", async () => {
+    const { storage, messages } = roleplayAttributionStorage(
+      {},
+      {
+        metadata: { automaticRoleplayQualityCorrection: false },
+        promptVariables: { agencyStrictness: "strict agency: preserve user choices." },
+      },
+    );
+    const original = "You accept the bargain.";
+    const llm = roleplayLlm(original);
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        { chatId: "chat-1", connectionId: "conn-1", userMessage: "I consider it." },
+      ),
+    );
+
+    expect(llm.requests).toHaveLength(1);
+    expect(messages.find((item) => item.role === "assistant")?.content).toBe(original);
   });
 });

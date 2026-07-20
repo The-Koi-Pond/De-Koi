@@ -4,6 +4,17 @@ import { describe, expect, it } from "vitest";
 const read = (path: string) => readFileSync(path, "utf8");
 
 describe("settings information architecture", () => {
+  it("keeps automatic Roleplay correction visible and default-on in per-chat settings", () => {
+    const drawer = read("src/features/modes/shared/chat-ui/components/ChatSettingsDrawer.tsx");
+
+    expect(drawer).toContain('label="Roleplay Quality"');
+    expect(drawer).toContain("metadata.automaticRoleplayQualityCorrection !== false");
+    expect(drawer).toContain("automaticRoleplayQualityCorrection: !automaticRoleplayQualityCorrection");
+    expect(drawer).toContain('role="switch"');
+    expect(drawer).toContain("aria-checked={automaticRoleplayQualityCorrection}");
+    expect(drawer).toContain("Clean replies stay fast and use no extra model call.");
+  });
+
   it("keeps per-chat context, research, and reasoning in separate sections", () => {
     const drawer = read("src/features/modes/shared/chat-ui/components/ChatSettingsDrawer.tsx");
 
