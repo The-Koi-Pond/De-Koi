@@ -4,8 +4,22 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { DISCOVERY_APP_EVENT } from "../../../../shared/lib/discovery-navigation";
 import { getDiscoveryActionLabel, resolveDiscoveryAction, runDiscoveryAction } from "./discovery-actions";
 
+const mocks = vi.hoisted(() => ({
+  openBugReport: vi.fn(),
+  toastError: vi.fn(),
+}));
+
+vi.mock("../../../../shared/lib/support-report", () => ({
+  openBugReport: mocks.openBugReport,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError },
+}));
+
 describe("settings discovery actions", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     useChatStore.getState().reset();
     useUIStore.setState({ rightPanelOpen: false, settingsTab: "general", pendingSettingsDestination: null });
   });
@@ -84,5 +98,18 @@ describe("settings discovery actions", () => {
         destination: "future-destination" as never,
       }),
     ).toBe("Open Chat destination");
+  });
+
+  it("identifies Discover reports and explains popup recovery when the form cannot open", async () => {
+    mocks.openBugReport.mockRejectedValueOnce(new Error("popup blocked"));
+
+    expect(runDiscoveryAction({ type: "report-bug" })).toEqual({ status: "handled" });
+    await Promise.resolve();
+
+    expect(mocks.openBugReport).toHaveBeenCalledWith({
+      source: "discover",
+      reportText: "Bug report started from Discover. Add what happened below.",
+    });
+    expect(mocks.toastError).toHaveBeenCalledWith("Couldn't open the bug report. Allow pop-ups and try again.");
   });
 });

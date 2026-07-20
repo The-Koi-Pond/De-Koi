@@ -20,10 +20,7 @@ import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { downloadBackupToBrowser } from "../../lib/backup-settings-actions";
-import {
-  buildBrowserStateExportPayload,
-  type BrowserStateExportMode,
-} from "../../lib/browser-state-export";
+import { buildBrowserStateExportPayload, type BrowserStateExportMode } from "../../lib/browser-state-export";
 
 const PROFILE_EXPORT_SUCCESS_MESSAGES: Record<ProfileExportFormat, string> = {
   native: "Profile JSON exported!",
@@ -53,16 +50,19 @@ function readBrowserStorageEntries(storage: Storage) {
 
 export function BackupExportSettings() {
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
+  const setSettingsTab = useUIStore((state) => state.setSettingsTab);
+  const setPendingSettingsDestination = useUIStore((state) => state.setPendingSettingsDestination);
   const [exportingProfile, setExportingProfile] = useState(false);
   const [exportingLocalState, setExportingLocalState] = useState(false);
   const [exportProfileDialogOpen, setExportProfileDialogOpen] = useState(false);
   const [downloadingBackupName, setDownloadingBackupName] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const remoteAdminRequired = remoteRuntimeUrl.trim().length > 0 && readAdminSecretStorage().trim().length === 0;
 
   const backupsQuery = useQuery<ManagedBackup[]>({
     queryKey: ["backups"],
     queryFn: backupApi.listBackups,
-    enabled: !remoteRuntimeUrl.trim() || readAdminSecretStorage().trim().length > 0,
+    enabled: !remoteAdminRequired,
   });
 
   const createBackupMutation = useMutation({
@@ -186,6 +186,11 @@ export function BackupExportSettings() {
     if (confirmed) deleteBackupMutation.mutate(name);
   };
 
+  const openAdminAccess = () => {
+    setSettingsTab("advanced");
+    setPendingSettingsDestination("admin-access");
+  };
+
   return (
     <section
       id="settings-destination-backups"
@@ -218,7 +223,7 @@ export function BackupExportSettings() {
         <button
           type="button"
           onClick={() => createBackupMutation.mutate()}
-          disabled={createBackupMutation.isPending}
+          disabled={remoteAdminRequired || createBackupMutation.isPending}
           className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
         >
           {createBackupMutation.isPending ? (
@@ -231,7 +236,7 @@ export function BackupExportSettings() {
         <button
           type="button"
           onClick={() => void handleDownloadBackup()}
-          disabled={downloadingBackupName === "__current__"}
+          disabled={remoteAdminRequired || downloadingBackupName === "__current__"}
           className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium ring-1 ring-[var(--border)] transition-all hover:bg-[var(--secondary)]/80 active:scale-95 disabled:opacity-50"
         >
           {downloadingBackupName === "__current__" ? (
@@ -243,7 +248,66 @@ export function BackupExportSettings() {
         </button>
       </div>
 
-      {backupsQuery.data && backupsQuery.data.length > 0 && (
+      {remoteAdminRequired && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-lg bg-amber-500/10 px-3 py-2 ring-1 ring-amber-500/25 max-sm:items-start max-sm:flex-col"
+        >
+          <div className="flex items-start gap-2 text-[0.6875rem] text-[var(--foreground)]">
+            <AlertTriangle size="0.8125rem" className="mt-0.5 shrink-0 text-amber-500" />
+            <span>Admin Access is required to manage backups on this remote runtime.</span>
+          </div>
+          <button
+            type="button"
+            onClick={openAdminAccess}
+            className="shrink-0 rounded-md bg-[var(--background)] px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
+          >
+            Open Admin Access
+          </button>
+        </div>
+      )}
+
+      {!remoteAdminRequired && backupsQuery.isPending && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-lg bg-[var(--secondary)] px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]"
+        >
+          <Loader2 size="0.8125rem" className="animate-spin" />
+          <span>Loading existing backups...</span>
+        </div>
+      )}
+
+      {!remoteAdminRequired && backupsQuery.isError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-lg bg-rose-500/10 px-3 py-2 ring-1 ring-rose-500/25 max-sm:items-start max-sm:flex-col"
+        >
+          <div className="flex items-start gap-2 text-[0.6875rem] text-[var(--foreground)]">
+            <AlertTriangle size="0.8125rem" className="mt-0.5 shrink-0 text-rose-500" />
+            <span>
+              Couldn't load managed backups.{" "}
+              {remoteRuntimeUrl.trim() ? "Check the remote runtime and Admin Access" : "Check app storage"}, then try
+              again.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void backupsQuery.refetch()}
+            disabled={backupsQuery.isFetching}
+            className="shrink-0 rounded-md bg-[var(--background)] px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!remoteAdminRequired && backupsQuery.isSuccess && backupsQuery.data.length === 0 && (
+        <div className="rounded-lg bg-[var(--secondary)] px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+          No managed backups yet.
+        </div>
+      )}
+
+      {!remoteAdminRequired && backupsQuery.isSuccess && backupsQuery.data.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Existing backups</span>
           {backupsQuery.data.map((backup) => (

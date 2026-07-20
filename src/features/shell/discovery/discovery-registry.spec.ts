@@ -10,14 +10,14 @@ describe("discovery showcase registry", () => {
       index === 0
         ? {
             ...baseEntry,
-            actions: [
-              { type: "open-settings", tab: "mystery", destination: "missing-control" },
-            ],
+            actions: [{ type: "open-settings", tab: "mystery", destination: "missing-control" }],
           }
         : entry,
     );
 
-    expect(validateDiscoveryEntries(entries)).toContain(`${baseEntry.id}.actions[0].tab must target a known settings tab.`);
+    expect(validateDiscoveryEntries(entries)).toContain(
+      `${baseEntry.id}.actions[0].tab must target a known settings tab.`,
+    );
     expect(validateDiscoveryEntries(entries)).toContain(
       `${baseEntry.id}.actions[0].destination must target a known settings destination.`,
     );
@@ -61,6 +61,15 @@ describe("discovery showcase registry", () => {
     expect(entry?.actions).toContainEqual({ type: "replay-onboarding", label: "Show me around" });
   });
 
+  it("describes the Game tutorial as an on-demand guide", () => {
+    const entry = DISCOVERY_ENTRIES.find((item) => item.id === "game-tutorial");
+
+    expect(entry?.summary.toLowerCase()).toContain("on-demand");
+    expect(entry?.where).toContain("Discover");
+    expect(entry?.where).toContain("Game controls");
+    expect(entry?.where.toLowerCase()).not.toContain("auto-open");
+  });
+
   it("describes both Memory Recall scopes and how automatic capture and embeddings behave", () => {
     const entry = DISCOVERY_ENTRIES.find((item) => item.id === "chat-memory-summaries");
     const summary = entry?.summary.toLowerCase() ?? "";
@@ -102,7 +111,10 @@ describe("discovery showcase registry", () => {
     for (const id of contextualIds) {
       const entry = DISCOVERY_ENTRIES.find((item) => item.id === id);
       expect(entry, id).toBeDefined();
-      expect(entry?.actions.some((action) => action.type === "go-home"), id).toBe(false);
+      expect(
+        entry?.actions.some((action) => action.type === "go-home"),
+        id,
+      ).toBe(false);
     }
   });
 

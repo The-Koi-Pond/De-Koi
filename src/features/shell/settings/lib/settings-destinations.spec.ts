@@ -33,4 +33,13 @@ describe("settings destinations", () => {
     expect(searchSettingsDestinations("schedule generation").map(({ id }) => id)).toContain("chat-behavior");
     expect(searchSettingsDestinations("message tokens").map(({ id }) => id)).toContain("chat-presentation");
   });
+
+  it("gives remote backup recovery a stable Admin Access destination", () => {
+    expect(searchSettingsDestinations("remote privileged")).toContainEqual(
+      expect.objectContaining({ id: "admin-access", tab: "advanced" }),
+    );
+
+    const source = destinationOwnerFiles.map((file) => readFileSync(file, "utf8")).join("\n");
+    expect(source).toContain('id="settings-destination-admin-access"');
+  });
 });
