@@ -163,6 +163,7 @@ describe("ChatMessage", () => {
     const children = Array.from(meta.children);
 
     expect(name.textContent).toBe("Chai");
+    expect(meta.classList.contains("flex-wrap")).toBe(true);
     expect(children.indexOf(name)).toBeLessThan(children.indexOf(timestamp));
   });
 

@@ -1950,7 +1950,7 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           >
             {/* Block metadata */}
-            <div className="mari-message-meta flex items-baseline gap-2 px-1">
+            <div className="mari-message-meta flex min-w-0 flex-wrap items-baseline gap-2 px-1">
               {hiddenFromAIHeader}
               {!isGrouped &&
                 renderCharacterName(
@@ -2526,7 +2526,7 @@ export const ChatMessage = memo(function ChatMessage({
           )}
         >
           {/* Block metadata */}
-          <div className="mari-message-meta flex items-center gap-2 px-3">
+          <div className="mari-message-meta flex min-w-0 flex-wrap items-center gap-2 px-3">
             {hiddenFromAIHeader}
             {!isGrouped &&
               !isUser &&

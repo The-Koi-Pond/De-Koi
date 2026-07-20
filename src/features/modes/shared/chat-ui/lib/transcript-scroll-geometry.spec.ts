@@ -85,6 +85,29 @@ describe("transcript scroll geometry", () => {
       }),
     ).toBe(true);
   });
+
+  it("follows a newly appended assistant tail when the user stayed engaged", () => {
+    expect(
+      shouldFollowTranscriptBottom({
+        hasFreshForcedBottomScroll: false,
+        isNearBottom: false,
+        isOptimisticTail: false,
+        isStreamingWithUserTail: false,
+        tailMessageChanged: true,
+        userScrolledAway: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldFollowTranscriptBottom({
+        hasFreshForcedBottomScroll: false,
+        isNearBottom: false,
+        isOptimisticTail: false,
+        isStreamingWithUserTail: false,
+        tailMessageChanged: true,
+        userScrolledAway: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("transcript scroll state", () => {

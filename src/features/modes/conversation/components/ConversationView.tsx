@@ -46,6 +46,7 @@ import {
   scheduleTranscriptBottomLock,
   scheduleTranscriptScrollWrite,
   scrollTranscriptToBottom,
+  shouldFollowTranscriptBottom,
   shouldRevealLatestTranscriptWindow,
   TRANSCRIPT_RENDER_WINDOW_STEP,
 } from "../../shared/chat-ui/index";
@@ -583,6 +584,7 @@ export function ConversationView({
   const userScrolledAtRef = useRef(0);
   const forcedBottomScrollRef = useRef<{ requestedAt: number; behavior: ScrollBehavior } | null>(null);
   const openedAtBottomChatIdRef = useRef<string | null>(null);
+  const followedTailMessageIdRef = useRef<string | undefined>(undefined);
   const previousTailRef = useRef<{ messageId: string | undefined; isStreaming: boolean }>({
     messageId: undefined,
     isStreaming: false,
@@ -786,6 +788,7 @@ export function ConversationView({
       isNearBottomRef.current = true;
       userScrolledAwayRef.current = false;
       openedAtBottomChatIdRef.current = chatId;
+      followedTailMessageIdRef.current = newestMsgId;
     });
   }, [chatId, messages?.length, newestMsgId]);
 
@@ -805,7 +808,18 @@ export function ConversationView({
       isNearBottomRef.current = true;
       return scheduleScrollToMessagesBottom(behavior);
     }
-    if (isNearBottomRef.current && !userScrolledAwayRef.current) {
+    const tailMessageChanged = !!newestMsgId && followedTailMessageIdRef.current !== newestMsgId;
+    followedTailMessageIdRef.current = newestMsgId;
+    if (
+      shouldFollowTranscriptBottom({
+        hasFreshForcedBottomScroll: false,
+        isNearBottom: isNearBottomRef.current,
+        isOptimisticTail: false,
+        isStreamingWithUserTail: false,
+        tailMessageChanged,
+        userScrolledAway: userScrolledAwayRef.current,
+      })
+    ) {
       return scheduleScrollToMessagesBottom("auto");
     }
   }, [

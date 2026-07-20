@@ -781,7 +781,12 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
   const showName = !context.isGrouped && !(context.isBubbleStyle && context.isUser && !context.hiddenFromAIHeader);
   if (!showName && context.hideTimestamp && !context.hiddenFromAIHeader) return null;
   return (
-    <div className={cn("mari-message-meta flex items-baseline gap-2 mb-0.5", context.isBubbleStyle && "px-2")}>
+    <div
+      className={cn(
+        "mari-message-meta flex min-w-0 flex-wrap items-baseline gap-2 mb-0.5",
+        context.isBubbleStyle && "px-2",
+      )}
+    >
       {context.hiddenFromAIHeader}
       {showName &&
         (context.canOpenCharacterProfile && context.onOpenCharacterProfile && context.message.characterId ? (
