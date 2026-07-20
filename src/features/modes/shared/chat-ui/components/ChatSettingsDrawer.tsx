@@ -615,6 +615,7 @@ function ChatSettingsDrawerInner({
   const toolsEnabled = isEnabledFlag(metadata.enableTools, false);
   const toolSelectionMode = chatToolSelectionMode(metadata, toolsEnabled);
   const manualTrackersEnabled = isEnabledFlag(metadata.manualTrackers, false);
+  const automaticRoleplayQualityCorrection = metadata.automaticRoleplayQualityCorrection !== false;
   const spriteGenerationEnabled = isEnabledFlag(metadata.enableSpriteGeneration, false);
   const autonomousMessagesEnabled = isEnabledFlag(metadata.autonomousMessages, false);
   const characterExchangesEnabled = isEnabledFlag(metadata.characterExchanges, false);
@@ -2103,6 +2104,55 @@ function ChatSettingsDrawerInner({
             onScenePromptExpandedChange={setScenePromptExpanded}
             onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
           />
+
+          {isRoleplayMode && (
+            <Section
+              label="Roleplay Quality"
+              icon={<Sparkles size="0.875rem" />}
+              help="Quiet protection against likely strict-agency violations in generated replies."
+            >
+              <button
+                type="button"
+                role="switch"
+                aria-checked={automaticRoleplayQualityCorrection}
+                onClick={() =>
+                  updateMeta.mutate({
+                    id: chat.id,
+                    automaticRoleplayQualityCorrection: !automaticRoleplayQualityCorrection,
+                  })
+                }
+                className={cn(
+                  "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                  automaticRoleplayQualityCorrection
+                    ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                    : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-medium">Automatic high-confidence correction</span>
+                  <p className="mt-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+                    Clean replies stay fast and use no extra model call. Under a strict agency preset, De-Koi checks only
+                    likely violations and keeps the original reply if that check fails.
+                  </p>
+                </div>
+                <div
+                  className={cn(
+                    "ml-3 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                    automaticRoleplayQualityCorrection
+                      ? "bg-[var(--primary)]"
+                      : "bg-[var(--muted-foreground)]/50",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                      automaticRoleplayQualityCorrection && "translate-x-3.5",
+                    )}
+                  />
+                </div>
+              </button>
+            </Section>
+          )}
 
           {/* Party (game mode) */}
           {isGame && (

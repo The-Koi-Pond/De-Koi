@@ -9,7 +9,10 @@ import {
   type AgentContext,
   type AgentResult,
 } from "../contracts/types/agent";
-import { getDefaultAgentPrompt } from "../contracts/constants/agent-prompts";
+import {
+  getDefaultAgentPrompt,
+  ROLEPLAY_QUALITY_EDITOR_PROMPT,
+} from "../contracts/constants/agent-prompts";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
@@ -30,7 +33,7 @@ import {
   type AgentInjection,
   type ResolvedAgent,
 } from "../agents-runtime/pipeline/agent-pipeline";
-import type { AgentToolContext } from "../agents-runtime/executor/agent-executor";
+import { executeAgent, type AgentToolContext } from "../agents-runtime/executor/agent-executor";
 import type { LorebookEntry } from "../contracts/types/lorebook";
 import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../contracts/types/sidecar";
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
@@ -80,6 +83,7 @@ import {
   stringifyToolResult,
   type CustomToolRecord,
 } from "./tools-runtime";
+import type { RoleplayQualitySignal } from "./roleplay-quality-signals";
 
 export interface GenerationAgentRuntimeInput {
   chat: JsonRecord;
@@ -139,11 +143,17 @@ interface DefaultAgentConnectionWarning extends AgentConnectionWarningBase {
 
 export type AgentConnectionWarning = DefaultAgentConnectionWarning;
 
-interface AgentDeps {
+export interface AgentDeps {
   storage: StorageGateway;
   llm: LlmGateway;
   integrations: IntegrationGateway;
   visuals?: VisualAssetGateway;
+}
+
+export interface FocusedRoleplayQualityAuditInput {
+  mainResponse: string;
+  agencyContract: string;
+  signals: RoleplayQualitySignal[];
 }
 
 interface ResolvedAgentsResult {
@@ -1626,6 +1636,61 @@ function cachedInjectionResult(injection: AgentInjection): AgentResult {
 
 function resultEventData(result: AgentResult): AgentResult {
   return result;
+}
+
+function failedFocusedRoleplayQualityAudit(error: string): AgentResult {
+  return {
+    agentId: "editor",
+    agentType: "editor",
+    type: "text_rewrite",
+    data: null,
+    tokensUsed: 0,
+    durationMs: 0,
+    success: false,
+    error,
+  };
+}
+
+export async function runFocusedRoleplayQualityAudit(
+  deps: AgentDeps,
+  input: GenerationAgentRuntimeInput,
+  audit: FocusedRoleplayQualityAuditInput,
+): Promise<AgentResult> {
+  const auditInput: GenerationAgentRuntimeInput = {
+    ...input,
+    agentTypes: new Set(["editor"]),
+    bypassCustomAgentActivation: true,
+  };
+  const { agents } = await resolveAgents(deps, auditInput);
+  const editor = agents.find((agent) => agent.type === "editor");
+  if (!editor?.model) {
+    return failedFocusedRoleplayQualityAudit("No runnable model is available for the focused Roleplay quality audit.");
+  }
+
+  const context = await buildAgentContext(deps, auditInput, [editor]);
+  context.mainResponse = audit.mainResponse;
+  const policyJson = JSON.stringify({
+    agencyContract: audit.agencyContract,
+    signals: audit.signals.slice(0, 6).map((signal) => ({
+      kind: signal.kind,
+      severity: signal.severity,
+      evidence: signal.evidence.slice(0, 3),
+    })),
+  }).replace(/</g, "\\u003c");
+  const coreEditor: ResolvedAgent = {
+    ...editor,
+    phase: "post_processing",
+    promptTemplate: `${ROLEPLAY_QUALITY_EDITOR_PROMPT}\n\nFocused audit policy:\n${policyJson}`,
+    settings: {
+      ...editor.settings,
+      resultType: "text_rewrite",
+      contextSize: 6,
+      maxTokens: 1200,
+      temperature: 0,
+    },
+  };
+
+  return executeAgent(coreEditor, context, coreEditor.provider, coreEditor.model);
 }
 
 export async function createGenerationAgentRuntime(

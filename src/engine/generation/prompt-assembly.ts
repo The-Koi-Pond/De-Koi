@@ -64,6 +64,7 @@ import {
 } from "./behavioral-example-pool";
 import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPrioritySkipped } from "./context-priority";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
+import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
 import {
   generationParameterSources,
   mergeStoredGenerationParameters,
@@ -174,6 +175,7 @@ export interface PromptAssemblyResult {
   contextAttributionItems: GenerationContextAttributionItem[];
   chatSummary: string | null;
   chatSummaryFingerprint: string | null;
+  roleplayAgencyContract: string | null;
   reusableContext: PromptAssemblyReusableContext;
 }
 
@@ -2799,6 +2801,46 @@ function buildConversationFreshnessBlock(input: PromptAssemblyInput, wrapFormat:
   };
 }
 
+function buildRoleplayQualityContext(
+  input: PromptAssemblyInput,
+  wrapFormat: WrapFormat,
+): { message: ChatMLMessage; attribution: GenerationContextAttributionItem } | null {
+  const mode = modeOf(input.chat);
+  if (mode !== "roleplay" && mode !== "visual_novel") return null;
+  const result = analyzeRoleplayHistory({
+    messages: input.storedMessages,
+    latestUserInput: input.latestUserInput,
+  });
+  if (!result.guidance) return null;
+  return {
+    message: {
+      role: "system",
+      contextKind: "agent",
+      displayName: "Roleplay quality",
+      content: wrapContent(
+        [
+          "Use this compact local quality note only to vary the next reply. Do not mention it, and let explicit user steering win.",
+          result.guidance,
+        ].join("\n"),
+        "roleplay_quality",
+        wrapFormat,
+      ),
+    },
+    attribution: {
+      kind: "agent_injection",
+      label: "Roleplay quality",
+      status: "injected",
+      sourceId: "core-roleplay-quality",
+      sourceCollection: "generation_policy",
+      snippet: result.guidance,
+      metadata: {
+        source: "local_roleplay_quality",
+        signals: result.signals.map((entry) => entry.kind),
+      },
+    },
+  };
+}
+
 function buildConversationScheduleBlock(
   chat: JsonRecord,
   characters: GenerationCharacterContext[],
@@ -4450,10 +4492,12 @@ export async function assembleGenerationPrompt(
     });
   }
 
+  const roleplayQualityContext = buildRoleplayQualityContext(input, wrapFormat);
   insertBeforeLastUser(messages, [
     ...(await buildConversationContextBlocks(storage, input, characters, wrapFormat)),
     ...buildConnectedConversationBlocks(input.chat),
     ...buildRoleplayDirectMessageCommandReminder(input.chat),
+    ...(roleplayQualityContext ? [roleplayQualityContext.message] : []),
   ]);
 
   const authorNotesEntry = authorNotesDepthEntry(input.chat);
@@ -4524,7 +4568,16 @@ export async function assembleGenerationPrompt(
     ...(canonicalMemoryContext?.attributionItems ?? []),
     ...behavioralExampleAttributionItems,
     ...attributionForLorebookEntries(processedLore.includedEntries.map(lorebookActivatedEntryForEvent)),
+    ...(roleplayQualityContext ? [roleplayQualityContext.attribution] : []),
   ];
+  const roleplayAgencyContract =
+    chatMode === "roleplay" || chatMode === "visual_novel"
+      ? readString(
+          selectedPreset?.variables.agencyStrictness ??
+            chatPromptVariables(input.chat).agencyStrictness ??
+            parseRecord(chatMeta.presetChoices).agencyStrictness,
+        ).trim() || null
+      : null;
 
   const nextReusableContext: PromptAssemblyReusableContext = {
     chatMeta,
@@ -4573,6 +4626,7 @@ export async function assembleGenerationPrompt(
     contextAttributionItems,
     chatSummary: summary,
     chatSummaryFingerprint: summaryFingerprint,
+    roleplayAgencyContract,
     reusableContext: nextReusableContext,
   };
 }

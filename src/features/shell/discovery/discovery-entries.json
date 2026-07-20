@@ -25,10 +25,10 @@
     "id": "roleplay-mode",
     "title": "Roleplay Mode",
     "category": "Chat modes",
-    "summary": "Long-form story writing with configurable narration style, cancellable message and draft translation, character narration, scene lifecycle controls, sprites, backgrounds, lorebooks, trackers, and optional agents.",
-    "keywords": ["rp", "story", "writing", "narration", "narrator style", "narrator personality", "scene", "scene lifecycle", "reopen scene", "concluded scene", "sprites", "background", "adventure"],
+    "summary": "Long-form story writing with configurable narration style, local repetition guidance, conservative strict-agency correction, cancellable message and draft translation, character narration, scene lifecycle controls, sprites, backgrounds, lorebooks, trackers, and optional agents.",
+    "keywords": ["rp", "story", "writing", "narration", "narrator style", "narrator personality", "agency", "strict agency", "roleplay quality", "repetition", "anti repetition", "scene", "scene lifecycle", "reopen scene", "concluded scene", "sprites", "background", "adventure"],
     "audience": "Users who want immersive scenes and creative writing rather than quick texting.",
-    "where": "Home > Roleplay, then the setup wizard and chat settings drawer.",
+    "where": "Home > Roleplay, then the setup wizard and Chat Settings > Roleplay Quality.",
     "actions": [{ "type": "open-mode-setup", "mode": "roleplay", "label": "Set up Roleplay" }],
     "coverage": "core"
   },
