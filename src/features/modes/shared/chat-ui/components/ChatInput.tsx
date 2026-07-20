@@ -78,7 +78,7 @@ import {
 } from "./input-button-styles";
 import type { PeekPromptOptions } from "../types";
 
-export type ChatInputAttachment = EphemeralAttachmentDraft;
+type ChatInputAttachment = EphemeralAttachmentDraft;
 
 type Attachment = ChatInputAttachment;
 
