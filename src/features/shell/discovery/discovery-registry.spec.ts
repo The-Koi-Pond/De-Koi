@@ -72,6 +72,15 @@ describe("discovery showcase registry", () => {
     expect(summary).not.toMatch(/embeddings? (?:create|summarize|write)/);
   });
 
+  it("makes non-destructive opening alternatives discoverable from the character authoring flow", () => {
+    const entry = DISCOVERY_ENTRIES.find((item) => item.id === "enhanced-opening-alternatives");
+
+    expect(entry?.summary.toLowerCase()).toContain("original");
+    expect(entry?.summary.toLowerCase()).toContain("alternate");
+    expect(entry?.where).toContain("Dialogue");
+    expect(entry?.actions).toContainEqual({ type: "open-panel", panel: "characters", label: "Open Characters" });
+  });
+
   it("uses contextual destinations instead of sending feature actions home", () => {
     const contextualIds = [
       "conversation-mode",

@@ -55,6 +55,17 @@
     "coverage": "core"
   },
   {
+    "id": "enhanced-opening-alternatives",
+    "title": "Improved Opening Alternatives",
+    "category": "Library",
+    "summary": "Generate one reviewable opening alternative that preserves the original first message, user agency, card premise, formatting, and macros until you explicitly save it as an alternate greeting.",
+    "keywords": ["character", "opening", "first message", "greeting", "alternate greeting", "roleplay", "agency", "premise", "macro", "rewrite", "improve"],
+    "audience": "Character authors who want a stronger actionable Roleplay opening without replacing their authored greeting.",
+    "where": "Character editor > Dialogue > Generate improved alternate.",
+    "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
+    "coverage": "advanced"
+  },
+  {
     "id": "conversation-avatar",
     "title": "Conversation Avatar",
     "category": "Library",
