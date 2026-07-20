@@ -131,6 +131,25 @@ describe("behavioral interpretation validation", () => {
     expect(result?.claims).toHaveLength(1);
   });
 
+  it("collapses broader paraphrases that rely on the same evidence", () => {
+    const result = validateBehavioralInterpretation(source, {
+      claims: [
+        {
+          statement: "May use dry humor to deflect personal questions.",
+          evidenceClass: "tentative",
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
+        },
+        {
+          statement: "She jokes and changes the subject when conversation turns to her personal life.",
+          evidenceClass: "tentative",
+          evidence: [{ field: "personality", quote: "uses dry jokes to deflect personal questions" }],
+        },
+      ],
+    });
+
+    expect(result?.claims).toHaveLength(1);
+  });
+
   it("keeps distinct behavioral claims that share the same evidence", () => {
     const result = validateBehavioralInterpretation(source, {
       claims: [

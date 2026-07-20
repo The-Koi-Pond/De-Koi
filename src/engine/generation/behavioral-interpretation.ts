@@ -142,11 +142,15 @@ function semanticWords(value: string): Set<string> {
 function containmentScore(left: Set<string>, right: Set<string>): number {
   const smallerSize = Math.min(left.size, right.size);
   if (smallerSize === 0) return 0;
-  let overlap = 0;
+  return overlapCount(left, right) / smallerSize;
+}
+
+function overlapCount(left: Set<string>, right: Set<string>): number {
+  let count = 0;
   for (const token of left) {
-    if (right.has(token)) overlap += 1;
+    if (right.has(token)) count += 1;
   }
-  return overlap / smallerSize;
+  return count;
 }
 
 function evidenceEquivalent(
@@ -173,9 +177,15 @@ function claimsEquivalent(left: CharacterBehavioralClaim, right: CharacterBehavi
   if (leftStatement === rightStatement) return true;
   const surfaceOverlap = containmentScore(meaningfulWords(leftStatement), meaningfulWords(rightStatement));
   if (surfaceOverlap >= 0.8) return true;
-  const semanticOverlap = containmentScore(semanticWords(leftStatement), semanticWords(rightStatement));
+  const leftSemanticWords = semanticWords(leftStatement);
+  const rightSemanticWords = semanticWords(rightStatement);
+  const semanticOverlap = containmentScore(leftSemanticWords, rightSemanticWords);
+  const sharedSemanticWords = overlapCount(leftSemanticWords, rightSemanticWords);
   // Shared evidence can strengthen statement similarity, but never establishes equivalence by itself.
-  return semanticOverlap >= 0.72 || (semanticOverlap >= 0.55 && evidenceEquivalent(left.evidence, right.evidence));
+  return (
+    semanticOverlap >= 0.72 ||
+    (sharedSemanticWords >= 2 && semanticOverlap >= 0.4 && evidenceEquivalent(left.evidence, right.evidence))
+  );
 }
 
 function uniqueClaims(claims: CharacterBehavioralClaim[]): CharacterBehavioralClaim[] {
