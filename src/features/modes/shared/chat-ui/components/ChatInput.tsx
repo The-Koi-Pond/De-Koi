@@ -79,11 +79,13 @@ import {
 } from "./input-button-styles";
 import type { PeekPromptOptions } from "../types";
 
-interface Attachment {
+export interface ChatInputAttachment {
   type: string; // MIME type
   data: string; // base64 data URL
   name: string;
 }
+
+type Attachment = ChatInputAttachment;
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
@@ -124,6 +126,27 @@ export function getSubmittedInputFailureAction(error: unknown, userMessageAccept
     restore: !userMessageAccepted,
     report: !isAbortError(error),
   };
+}
+
+export function mergeSubmittedInputForRestore(
+  submitted: { text: string; attachments: readonly ChatInputAttachment[] },
+  current: { text: string; attachments: readonly ChatInputAttachment[] },
+) {
+  const text =
+    submitted.text && current.text
+      ? `${submitted.text}\n\n${current.text}`
+      : submitted.text || current.text;
+  const attachments = [...submitted.attachments];
+  for (const attachment of current.attachments) {
+    const duplicate = attachments.some(
+      (candidate) =>
+        candidate.type === attachment.type &&
+        candidate.data === attachment.data &&
+        candidate.name === attachment.name,
+    );
+    if (!duplicate) attachments.push(attachment);
+  }
+  return { text, attachments };
 }
 
 function isSupportedChatAttachment(file: File): boolean {
@@ -657,23 +680,39 @@ export const ChatInput = memo(function ChatInput({
     }));
     const restoreSubmittedInput = () => {
       const activeChatIdAfterFailure = useChatStore.getState().activeChatId;
-      const currentValue = textareaRef.current?.value ?? "";
-      const canRestoreVisibleDraft = activeChatIdAfterFailure === submittingChatId && currentValue.length === 0;
-      if (canRestoreVisibleDraft && textareaRef.current) {
-        textareaRef.current.value = submittedDraft;
-        textareaRef.current.style.height = submittedHeight;
-        syncInputState(submittedDraft);
-        setCompletions(submittedCompletions);
-      }
-      if (submittedAttachments.length > 0) {
-        if (activeChatIdAfterFailure === submittingChatId) {
-          updateAttachments((current) => (current.length === 0 ? submittedAttachments : current));
-        } else {
-          pendingAttachmentDraftsRef.current.set(submittingChatId, submittedAttachments);
+      const restoresVisibleDraft = activeChatIdAfterFailure === submittingChatId && textareaRef.current !== null;
+      const currentText = restoresVisibleDraft
+        ? textareaRef.current?.value ?? ""
+        : useChatStore.getState().inputDrafts.get(submittingChatId) ?? "";
+      const currentAttachments = restoresVisibleDraft
+        ? attachmentsRef.current
+        : pendingAttachmentDraftsRef.current.get(submittingChatId) ?? [];
+      const restored = mergeSubmittedInputForRestore(
+        { text: submittedDraft, attachments: submittedAttachments },
+        { text: currentText, attachments: currentAttachments },
+      );
+
+      if (restoresVisibleDraft && textareaRef.current) {
+        textareaRef.current.value = restored.text;
+        textareaRef.current.style.height = currentText.length === 0 ? submittedHeight : "auto";
+        if (currentText.length > 0) {
+          textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
         }
+        syncInputState(restored.text);
+        if (currentText.length === 0) setCompletions(submittedCompletions);
+        replaceAttachments(restored.attachments);
+      } else if (restored.attachments.length > 0) {
+        pendingAttachmentDraftsRef.current.set(submittingChatId, restored.attachments);
       }
-      if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== submittingChatId)) {
-        setInputDraft(submittingChatId, submittedDraft);
+
+      if (restoresVisibleDraft && draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
+      }
+      if (restored.text) {
+        setInputDraft(submittingChatId, restored.text);
+      } else {
+        clearInputDraft(submittingChatId);
       }
     };
 
