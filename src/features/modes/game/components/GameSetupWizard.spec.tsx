@@ -2,6 +2,8 @@ import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 const setupFixtures = vi.hoisted(() => ({
   connections: [
     { id: "gm-connection", name: "GM Connection", provider: "openai", model: "test-model" },
@@ -140,6 +142,17 @@ describe("GameSetupWizard selection semantics", () => {
     expect(container.textContent).toContain(
       "Select an image generation connection on the You & Model step or turn Image Generation off.",
     );
+  });
+
+  it("keeps image-generation connections out of language-model selectors", () => {
+    act(() => buttonByText(container, "Next").click());
+    act(() => buttonByText(container, "Next").click());
+
+    const languageModelSelects = Array.from(container.querySelectorAll<HTMLSelectElement>("select")).slice(0, 2);
+    expect(languageModelSelects).toHaveLength(2);
+    for (const select of languageModelSelects) {
+      expect(Array.from(select.options, (option) => option.value)).not.toContain("image-connection");
+    }
   });
 
   it("submits the enabled dependent configuration once every requirement is satisfied", () => {

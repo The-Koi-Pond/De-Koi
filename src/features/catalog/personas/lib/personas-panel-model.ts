@@ -1,3 +1,5 @@
+import { normalizePersonaTags } from "./persona-tags";
+
 export type PersonaPanelRow = {
   id: string;
   name: string;
@@ -13,7 +15,7 @@ export type PersonaPanelRow = {
   avatarCrop?: unknown;
   isActive: string | boolean;
   createdAt?: string;
-  tags?: string[];
+  tags?: unknown;
 };
 
 export type PersonaGroupRow = { id: string; name: string; description: string; personaIds: string[] };
@@ -38,7 +40,7 @@ function estimatePersonaTokens(persona: PersonaPanelRow): number {
 }
 
 export function parsePersonaTags(persona: PersonaPanelRow): string[] {
-  return Array.isArray(persona.tags) ? persona.tags : [];
+  return normalizePersonaTags(persona.tags);
 }
 
 export function getPersonaTags(personas: PersonaPanelRow[]): string[] {

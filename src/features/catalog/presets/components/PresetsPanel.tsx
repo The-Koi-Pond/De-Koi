@@ -159,37 +159,51 @@ export function PresetsPanel() {
     return presetFolderList.filter((folder) => (presetsByFolder.get(folder.id)?.length ?? 0) > 0);
   }, [presetFiltersActive, presetFolderList, presetsByFolder]);
 
-  const selectPreset = (presetId: string) => {
+  const selectPreset = async (presetId: string) => {
     if (!activeChat) return;
     if (activeChat.mode === "conversation") {
       toast.error("Prompt presets are not available in conversation mode.");
       return;
     }
     const newId = activePresetId === presetId ? null : presetId;
-    // Clear stale preset choices from the previous preset before switching
-    updateMetadata.mutate({ id: activeChat.id, presetChoices: {} });
-    updateChat.mutate(
-      { id: activeChat.id, promptPresetId: newId },
-      {
-        onSuccess: async () => {
-          if (!newId) {
-            setChoiceModalPresetId(null);
-            return;
-          }
+    const previousId = activePresetId;
+    let presetUpdated = false;
 
-          try {
-            const choiceBlocks = await storageApi.list("prompt-variables", { filters: { presetId: newId } });
-            if (choiceBlocks.length > 0) {
-              setChoiceModalPresetId(newId);
-            } else {
-              setChoiceModalPresetId(null);
-            }
-          } catch {
-            setChoiceModalPresetId(null);
-          }
-        },
-      },
-    );
+    try {
+      await updateChat.mutateAsync({ id: activeChat.id, promptPresetId: newId });
+      presetUpdated = true;
+      await updateMetadata.mutateAsync({ id: activeChat.id, presetChoices: {} });
+    } catch (error) {
+      if (presetUpdated) {
+        try {
+          await updateChat.mutateAsync({ id: activeChat.id, promptPresetId: previousId });
+        } catch (rollbackError) {
+          toast.error("Preset switch needs attention", {
+            description:
+              rollbackError instanceof Error
+                ? `Choices were preserved, but the previous preset could not be restored: ${rollbackError.message}`
+                : "Choices were preserved, but the previous preset could not be restored.",
+          });
+          return;
+        }
+      }
+      toast.error("Failed to change prompt preset", {
+        description: error instanceof Error ? error.message : "The current preset and choices were kept.",
+      });
+      return;
+    }
+
+    if (!newId) {
+      setChoiceModalPresetId(null);
+      return;
+    }
+
+    try {
+      const choiceBlocks = await storageApi.list("prompt-variables", { filters: { presetId: newId } });
+      setChoiceModalPresetId(choiceBlocks.length > 0 ? newId : null);
+    } catch {
+      setChoiceModalPresetId(null);
+    }
   };
 
   const getSectionCount = (preset: PresetRow) => (Array.isArray(preset.sectionOrder) ? preset.sectionOrder.length : 0);
@@ -452,7 +466,7 @@ export function PresetsPanel() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  selectPreset(preset.id);
+                  void selectPreset(preset.id);
                 }}
                 className={cn(
                   "rounded-lg p-1.5 transition-all active:scale-90",

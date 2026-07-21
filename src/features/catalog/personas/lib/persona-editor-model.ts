@@ -1,5 +1,6 @@
 import { parseAvatarCropJson, type AvatarCrop, type LegacyAvatarCrop } from "../../../../shared/lib/utils";
 import { formatTextQuotes, type QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
+import { normalizePersonaTags } from "./persona-tags";
 
 export interface AltDescriptionEntry {
   id: string;
@@ -70,7 +71,7 @@ export interface PersonaRow {
   boxColor?: string;
   personaStats?: PersonaStatsData | Record<string, unknown> | string;
   altDescriptions?: AltDescriptionEntry[];
-  tags?: string[];
+  tags?: unknown;
 }
 
 export const DEFAULT_RPG_STATS: PersonaRPGStats = {
@@ -186,7 +187,7 @@ export function buildPersonaFormData(persona: PersonaRow): PersonaFormData {
     boxColor: persona.boxColor ?? "",
     personaStats: parsePersonaStatsValue(persona.personaStats),
     altDescriptions: Array.isArray(persona.altDescriptions) ? persona.altDescriptions : [],
-    tags: Array.isArray(persona.tags) ? persona.tags : [],
+    tags: normalizePersonaTags(persona.tags),
     avatarCrop: parseAvatarCropValue(persona.avatarCrop),
   };
 }

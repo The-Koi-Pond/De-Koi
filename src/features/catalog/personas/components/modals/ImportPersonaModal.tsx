@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { invalidatePersonaCollectionQueries } from "../../hooks/use-personas";
 import { importApi } from "../../../../../shared/api/import-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
+import { normalizePersonaTags } from "../../lib/persona-tags";
 
 interface Props {
   open: boolean;
@@ -109,7 +110,7 @@ export function ImportPersonaModal({ open, onClose }: Props) {
           trackerCardColors: jsonStringField(json.trackerCardColors),
           personaStats: jsonObjectStringField(json.personaStats, ""),
           altDescriptions: jsonStringField(json.altDescriptions, "[]"),
-          tags: jsonStringField(json.tags, "[]"),
+          tags: normalizePersonaTags(json.tags),
           avatarCrop: jsonStringField(json.avatarCrop, ""),
           createdAt: file.lastModified,
           updatedAt: file.lastModified,
