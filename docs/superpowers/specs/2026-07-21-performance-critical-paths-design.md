@@ -59,7 +59,7 @@ The existing durable collection journal remains the acknowledgment boundary. Gen
 
 ### Diagnostics
 
-Diagnostics stay opt-in and silent by default. Stable stage names cover prompt preparation, first token, post-save tail work, Deki summary/history hydration, and background maintenance. Details exclude content, IDs, request bodies, secrets, and full paths.
+Diagnostics stay opt-in and silent by default. Stable stage names cover prompt preparation, first token, post-save tail work, Deki summary/history hydration, and background maintenance. The React-free engine reports timing through an optional callback/event contract supplied by its runtime adapter; it never imports the concrete frontend diagnostics helper. Details exclude content, IDs, request bodies, secrets, and full paths.
 
 ## Error Handling And Compatibility
 
@@ -81,4 +81,3 @@ Every behavior follows red-green-refactor at the highest stable public seam. Foc
 - provider-specific tokenizer bundles;
 - a new performance dashboard or persisted private trace payloads;
 - percentage performance claims without live before-and-after measurements.
-

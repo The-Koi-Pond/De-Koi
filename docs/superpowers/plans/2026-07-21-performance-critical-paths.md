@@ -25,16 +25,18 @@
 - Modify: `src/shared/lib/performance-diagnostics.ts`
 - Modify: `src/shared/lib/performance-diagnostics.spec.ts`
 - Modify: `src/engine/generation/start-generation.ts`
+- Modify: `src/features/runtime/generation/hooks/use-generate.ts`
 - Modify: `src/shared/api/deki-api.ts`
 - Modify: `docs/performance-diagnostics.md`
 
 **Interfaces:**
-- Produces stable span names `generation.prompt_assembly`, `generation.first_token`, `generation.post_save`, `deki.session_summaries`, `deki.active_history`, and `generation.background_maintenance` through the existing `measurePerformanceAsync` or a synchronous start/finish helper.
+- Produces stable span names `generation.prompt_assembly`, `generation.first_token`, `generation.post_save`, `deki.session_summaries`, `deki.active_history`, and `generation.background_maintenance` through the existing diagnostics helper.
+- Produces an optional engine timing callback/event DTO containing only `name`, `elapsedMs`, `status`, and bounded numeric/count metadata; the feature runtime adapter maps it to the concrete diagnostics helper.
 
 - [ ] Add failing diagnostics tests proving disabled-mode silence and detail redaction for the new stages.
 - [ ] Run `pnpm vitest run src/shared/lib/performance-diagnostics.spec.ts` and confirm the new assertions fail for missing stage support.
-- [ ] Add the smallest timing API needed by async and streaming owners; keep detail filtering centralized.
-- [ ] Instrument prompt assembly, first stream token, post-save tail work, Deki summary/history loads, and background maintenance without logging private payloads.
+- [ ] Add the smallest timing API needed by async and streaming owners; keep detail filtering centralized and keep `src/engine` free of concrete `src/shared` imports.
+- [ ] Instrument prompt assembly, first stream token, post-save tail work, Deki summary/history loads, and background maintenance through an engine callback/event plus adapter-owned logging, without private payloads.
 - [ ] Update the diagnostics documentation and run the focused diagnostics, generation, and Deki suites.
 
 ### Task 2: Low-risk Rust runtime wins (#1135, #1141, #1144)
@@ -144,4 +146,3 @@
 - Remote-capable changes include the explicit HTTP pipeline.
 - Risky storage, backup, prompt, provider, and Deki paths have positive and negative proof requirements.
 - No placeholder or broad migration task remains.
-
