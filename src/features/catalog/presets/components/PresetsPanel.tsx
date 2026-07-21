@@ -9,7 +9,7 @@ import {
   useCustomToolCapabilities,
   useCustomTools,
   useDeleteCustomTool,
-  useUpdateCustomTool,
+  useSetCustomToolEnabled,
   type CustomToolCapabilities,
   type CustomToolRow,
 } from "../../agents/index";
@@ -87,7 +87,7 @@ export function PresetsPanel() {
   const deletePreset = useDeletePreset();
   const duplicatePreset = useDuplicatePreset();
   const setDefaultPreset = useSetDefaultPreset();
-  const updateCustomTool = useUpdateCustomTool();
+  const setCustomToolEnabled = useSetCustomToolEnabled();
   const deleteCustomTool = useDeleteCustomTool();
   const {
     data: presetFolders,
@@ -794,7 +794,7 @@ export function PresetsPanel() {
         customToolRows={customToolRows}
         customToolCapabilities={customToolCapabilities}
         openToolDetail={openToolDetail}
-        updateCustomTool={updateCustomTool}
+        setCustomToolEnabled={setCustomToolEnabled}
         deleteCustomTool={deleteCustomTool}
       />
 
@@ -816,13 +816,13 @@ function FunctionsSection({
   customToolRows,
   customToolCapabilities,
   openToolDetail,
-  updateCustomTool,
+  setCustomToolEnabled,
   deleteCustomTool,
 }: {
   customToolRows: CustomToolRow[];
   customToolCapabilities?: CustomToolCapabilities;
   openToolDetail: (id: string) => void;
-  updateCustomTool: ReturnType<typeof useUpdateCustomTool>;
+  setCustomToolEnabled: ReturnType<typeof useSetCustomToolEnabled>;
   deleteCustomTool: ReturnType<typeof useDeleteCustomTool>;
 }) {
   return (
@@ -847,7 +847,9 @@ function FunctionsSection({
         <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No functions yet.</p>
       ) : (
         customToolRows.map((tool) => {
-          const enabled = boolish(tool.enabled, false);
+          const pendingEnabled = setCustomToolEnabled.pendingEnabledById.get(tool.id);
+          const enabled = pendingEnabled ?? boolish(tool.enabled, false);
+          const togglePending = setCustomToolEnabled.pendingEnabledById.has(tool.id);
           const scriptUnavailable =
             tool.executionType === "script" && customToolCapabilities?.scriptExecutionEnabled === false;
           const parameterCount = getFunctionParameterCount(tool.parametersSchema);
@@ -881,11 +883,13 @@ function FunctionsSection({
                 </div>
               </button>
               <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
-                title={enabled ? "Disable function" : "Enable function"}
+                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)] disabled:cursor-wait disabled:opacity-60"
+                title={togglePending ? "Saving function state…" : enabled ? "Disable function" : "Enable function"}
+                disabled={togglePending}
+                aria-busy={togglePending}
                 onClick={(event) => {
                   event.stopPropagation();
-                  updateCustomTool.mutate({ id: tool.id, enabled: !enabled });
+                  setCustomToolEnabled.setEnabled({ id: tool.id, enabled: !enabled });
                 }}
               >
                 {enabled ? <ToggleRight size="0.875rem" className="text-purple-400" /> : <ToggleLeft size="0.875rem" />}

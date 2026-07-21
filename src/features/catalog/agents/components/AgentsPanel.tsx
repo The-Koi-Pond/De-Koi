@@ -388,6 +388,7 @@ export function AgentsPanel() {
             ) : (
               agents.map((agent) => {
                 const config = agentConfigByType.get(agent.id);
+                const pendingEnabled = setAgentEnabled.pendingEnabledById.get(agent.id);
                 return renderAgentCard({
                   id: config?.id ?? agent.id,
                   type: agent.id,
@@ -397,8 +398,9 @@ export function AgentsPanel() {
                   custom: false,
                   imagePath: config?.imagePath ?? null,
                   imageFilename: config?.imageFilename ?? null,
-                  enabled: agentEnabledFlag(config?.enabled, agent.enabledByDefault),
-                  onToggle: (enabled) => setAgentEnabled.mutate({ agentType: agent.id, enabled }),
+                  enabled: pendingEnabled ?? agentEnabledFlag(config?.enabled, agent.enabledByDefault),
+                  togglePending: setAgentEnabled.pendingEnabledById.has(agent.id),
+                  onToggle: (enabled) => setAgentEnabled.setEnabled({ id: agent.id, enabled }),
                   onImagePick: () => handlePickAgentImage({ id: config?.id, agentType: agent.id }),
                   openAgentDetail,
                 });
@@ -417,7 +419,8 @@ export function AgentsPanel() {
             <CatalogListState state="empty" label="custom agents" />
           ) : (
             visibleCustomAgents.map((agent) => {
-              const enabled = agentEnabledFlag(agent.enabled, true);
+              const pendingEnabled = setAgentEnabled.pendingEnabledById.get(agent.type);
+              const enabled = pendingEnabled ?? agentEnabledFlag(agent.enabled, true);
               return renderAgentCard({
                 id: agent.id,
                 type: agent.type,
@@ -428,7 +431,8 @@ export function AgentsPanel() {
                 imagePath: agent.imagePath,
                 imageFilename: agent.imageFilename,
                 enabled,
-                onToggle: (nextEnabled) => setAgentEnabled.mutate({ agentType: agent.type, enabled: nextEnabled }),
+                togglePending: setAgentEnabled.pendingEnabledById.has(agent.type),
+                onToggle: (nextEnabled) => setAgentEnabled.setEnabled({ id: agent.type, enabled: nextEnabled }),
                 onImagePick: () => handlePickAgentImage({ id: agent.id }),
                 openAgentDetail,
               });
@@ -517,6 +521,7 @@ type AgentPanelRow = {
   imagePath?: string | null;
   imageFilename?: string | null;
   enabled: boolean;
+  togglePending: boolean;
   onToggle: (enabled: boolean) => void;
   onImagePick: () => void;
 };
@@ -531,6 +536,7 @@ function renderAgentCard({
   imagePath,
   imageFilename,
   enabled,
+  togglePending,
   onToggle,
   onImagePick,
   openAgentDetail,
@@ -559,8 +565,10 @@ function renderAgentCard({
       </button>
       <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100">
         <button
-          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
-          title={enabled ? "Disable agent" : "Enable agent"}
+          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)] disabled:cursor-wait disabled:opacity-60"
+          title={togglePending ? "Saving agent state…" : enabled ? "Disable agent" : "Enable agent"}
+          disabled={togglePending}
+          aria-busy={togglePending}
           onClick={(event) => {
             event.stopPropagation();
             onToggle(!enabled);

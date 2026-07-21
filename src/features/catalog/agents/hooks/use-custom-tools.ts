@@ -8,6 +8,7 @@ import {
 } from "../../../../engine/contracts/schemas/custom-tool.schema";
 import { customToolApi } from "../../../../shared/api/custom-tool-api";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { useEnabledToggleMutation } from "../../lib/use-enabled-toggle-mutation";
 
 export interface CustomToolRow {
   id: string;
@@ -84,6 +85,15 @@ export function useUpdateCustomTool() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: toolKeys.all });
     },
+  });
+}
+
+export function useSetCustomToolEnabled() {
+  return useEnabledToggleMutation({
+    mutationKey: [...toolKeys.all, "enabled"],
+    queryKey: toolKeys.all,
+    update: (id, enabled) => storageApi.update("custom-tools", id, updateCustomToolSchema.parse({ enabled })),
+    errorMessage: "Couldn't update that custom tool. Its previous state was restored.",
   });
 }
 
