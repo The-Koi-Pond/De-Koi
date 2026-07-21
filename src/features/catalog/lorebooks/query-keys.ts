@@ -1,6 +1,7 @@
 export const lorebookKeys = {
   all: ["lorebooks"] as const,
   list: () => [...lorebookKeys.all, "list"] as const,
+  presence: () => [...lorebookKeys.all, "presence"] as const,
   byCategory: (cat: string) => [...lorebookKeys.all, "category", cat] as const,
   detail: (id: string) => [...lorebookKeys.all, "detail", id] as const,
   entries: (lorebookId: string) => [...lorebookKeys.all, "entries", lorebookId] as const,

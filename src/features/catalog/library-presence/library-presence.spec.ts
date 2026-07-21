@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { storageApi } from "../../../shared/api/storage-api";
+import { characterKeys } from "../characters/query-keys";
+import { lorebookKeys } from "../lorebooks/query-keys";
+import { personaKeys } from "../personas/query-keys";
 import { presetKeys } from "../presets/query-keys";
 import {
   deriveLibraryPresence,
@@ -23,7 +26,12 @@ describe("library presence", () => {
       expect(storageApi.list).toHaveBeenCalledWith(entity, { fields: ["id"], limit: 1 });
     }
     expect(new Set(queries.map((query) => JSON.stringify(query.queryKey))).size).toBe(4);
-    expect(queries.find((query) => query.queryKey[0] === "presets")?.queryKey).toEqual(presetKeys.presence());
+    expect(queries.map((query) => query.queryKey)).toEqual([
+      characterKeys.presence(),
+      personaKeys.presence,
+      lorebookKeys.presence(),
+      presetKeys.presence(),
+    ]);
     expect(presetKeys.presence().slice(0, presetKeys.all.length)).toEqual(presetKeys.all);
   });
 

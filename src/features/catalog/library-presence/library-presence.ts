@@ -1,12 +1,15 @@
 import { useQueries } from "@tanstack/react-query";
 import type { StorageEntity } from "../../../engine/capabilities/storage";
 import { storageApi } from "../../../shared/api/storage-api";
+import { characterKeys } from "../characters/query-keys";
+import { lorebookKeys } from "../lorebooks/query-keys";
+import { personaKeys } from "../personas/query-keys";
 import { presetKeys } from "../presets/query-keys";
 
 const LIBRARY_COLLECTIONS = [
-  { entity: "characters", queryKey: ["characters", "presence"] },
-  { entity: "personas", queryKey: ["personas", "presence"] },
-  { entity: "lorebooks", queryKey: ["lorebooks", "presence"] },
+  { entity: "characters", queryKey: characterKeys.presence() },
+  { entity: "personas", queryKey: personaKeys.presence },
+  { entity: "lorebooks", queryKey: lorebookKeys.presence() },
   { entity: "prompts", queryKey: presetKeys.presence() },
 ] as const satisfies ReadonlyArray<{ entity: StorageEntity; queryKey: readonly string[] }>;
 
