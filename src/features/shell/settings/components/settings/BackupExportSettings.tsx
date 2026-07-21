@@ -48,6 +48,10 @@ function readBrowserStorageEntries(storage: Storage) {
   return entries;
 }
 
+function remoteAdminAccessRequiredNow() {
+  return useUIStore.getState().remoteRuntimeUrl.trim().length > 0 && readAdminSecretStorage().trim().length === 0;
+}
+
 export function BackupExportSettings() {
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
   const setSettingsTab = useUIStore((state) => state.setSettingsTab);
@@ -57,7 +61,13 @@ export function BackupExportSettings() {
   const [exportProfileDialogOpen, setExportProfileDialogOpen] = useState(false);
   const [downloadingBackupName, setDownloadingBackupName] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const remoteAdminRequired = remoteRuntimeUrl.trim().length > 0 && readAdminSecretStorage().trim().length === 0;
+  const remoteAdminRequired = remoteAdminAccessRequiredNow();
+
+  const allowPrivilegedBackupOperation = () => {
+    if (!remoteAdminAccessRequiredNow()) return true;
+    toast.error("Admin Access is required to manage backups on this remote runtime.");
+    return false;
+  };
 
   const backupsQuery = useQuery<ManagedBackup[]>({
     queryKey: ["backups"],
@@ -157,6 +167,7 @@ export function BackupExportSettings() {
   };
 
   const handleDownloadBackup = async (name?: string) => {
+    if (!allowPrivilegedBackupOperation()) return;
     const key = name ?? "__current__";
     setDownloadingBackupName(key);
     try {
@@ -176,6 +187,7 @@ export function BackupExportSettings() {
   };
 
   const handleDeleteBackup = async (name: string) => {
+    if (!allowPrivilegedBackupOperation()) return;
     const confirmed = await showConfirmDialog({
       title: "Delete managed backup?",
       message: `Delete ${name}? This backup cannot be recovered from De-Koi after deletion.`,
@@ -183,7 +195,11 @@ export function BackupExportSettings() {
       cancelLabel: "Keep backup",
       tone: "destructive",
     });
-    if (confirmed) deleteBackupMutation.mutate(name);
+    if (confirmed && allowPrivilegedBackupOperation()) deleteBackupMutation.mutate(name);
+  };
+
+  const handleCreateBackup = () => {
+    if (allowPrivilegedBackupOperation()) createBackupMutation.mutate();
   };
 
   const openAdminAccess = () => {
@@ -222,7 +238,7 @@ export function BackupExportSettings() {
       <div className="grid gap-2 sm:grid-cols-2">
         <button
           type="button"
-          onClick={() => createBackupMutation.mutate()}
+          onClick={handleCreateBackup}
           disabled={remoteAdminRequired || createBackupMutation.isPending}
           className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
         >

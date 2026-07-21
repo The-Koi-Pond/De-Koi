@@ -1,12 +1,13 @@
 import { useQueries } from "@tanstack/react-query";
 import type { StorageEntity } from "../../../engine/capabilities/storage";
 import { storageApi } from "../../../shared/api/storage-api";
+import { presetKeys } from "../presets/query-keys";
 
 const LIBRARY_COLLECTIONS = [
   { entity: "characters", queryKey: ["characters", "presence"] },
   { entity: "personas", queryKey: ["personas", "presence"] },
   { entity: "lorebooks", queryKey: ["lorebooks", "presence"] },
-  { entity: "prompts", queryKey: ["presets", "presence"] },
+  { entity: "prompts", queryKey: presetKeys.presence() },
 ] as const satisfies ReadonlyArray<{ entity: StorageEntity; queryKey: readonly string[] }>;
 
 export interface LibraryPresenceQueryResult {

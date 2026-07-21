@@ -148,6 +148,41 @@ describe("BackupExportSettings remote backups", () => {
     });
   });
 
+  it("rechecks Admin Access at operation time before create, download, or delete calls", async () => {
+    vi.mocked(readAdminSecretStorage).mockReturnValue("admin-secret");
+    vi.mocked(backupApi.listBackups).mockResolvedValue([
+      { name: "backup-1.zip", createdAt: "2026-07-20T12:00:00.000Z" },
+    ]);
+    vi.mocked(showConfirmDialog).mockResolvedValue(true);
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <BackupExportSettings />
+        </QueryClientProvider>,
+      );
+    });
+    await flushAsyncWork();
+
+    vi.mocked(readAdminSecretStorage).mockReturnValue("");
+    const buttons = Array.from(container!.querySelectorAll("button"));
+    const createButton = buttons.find((button) => button.textContent?.includes("Create Managed Backup"));
+    const downloadButton = buttons.find((button) => button.textContent?.includes("Download Backup"));
+    const deleteButton = buttons.find((button) => button.getAttribute("aria-label") === "Delete backup-1.zip");
+
+    await act(async () => {
+      createButton!.click();
+      downloadButton!.click();
+      deleteButton!.click();
+      await Promise.resolve();
+    });
+
+    expect(backupApi.createBackup).not.toHaveBeenCalled();
+    expect(backupApi.downloadBackup).not.toHaveBeenCalled();
+    expect(backupApi.deleteBackup).not.toHaveBeenCalled();
+  });
+
   it("shows that existing backups are loading", async () => {
     vi.mocked(readAdminSecretStorage).mockReturnValue("admin-secret");
     vi.mocked(backupApi.listBackups).mockImplementationOnce(() => new Promise(() => {}));

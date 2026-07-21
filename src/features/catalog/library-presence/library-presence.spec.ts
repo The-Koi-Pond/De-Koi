@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { storageApi } from "../../../shared/api/storage-api";
+import { presetKeys } from "../presets/query-keys";
 import {
   deriveLibraryPresence,
   libraryPresenceQueryOptions,
@@ -22,6 +23,8 @@ describe("library presence", () => {
       expect(storageApi.list).toHaveBeenCalledWith(entity, { fields: ["id"], limit: 1 });
     }
     expect(new Set(queries.map((query) => JSON.stringify(query.queryKey))).size).toBe(4);
+    expect(queries.find((query) => query.queryKey[0] === "presets")?.queryKey).toEqual(presetKeys.presence());
+    expect(presetKeys.presence().slice(0, presetKeys.all.length)).toEqual(presetKeys.all);
   });
 
   it("reports empty only after every collection is known empty", () => {
