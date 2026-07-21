@@ -5,7 +5,7 @@
     "title": "Repair persona tag import, Game model filtering, and preset switching",
     "source": "GitHub issues #1131, #1132, and #1133",
     "classification": "catalog import safety, Game setup validation, and chat preset state consistency",
-    "status": "ready_for_pr"
+    "status": "ci_passed_bunny_retry"
   },
   "coreClaim": "Malformed persona tag values cannot crash the Personas panel, Game setup cannot submit an image-generation connection as a language model, and failed preset switches preserve the prior preset choices.",
   "scope": {
@@ -108,8 +108,8 @@
   "checks": {
     "baselineCommand": "pnpm test && pnpm check",
     "baselineStatus": "passed",
-    "ciStatus": "pending",
-    "bunnyReviewStatus": "pending",
+    "ciStatus": "passed",
+    "bunnyReviewStatus": "retrying after superseded draft-run cancellations polluted the first receipt",
     "prHealthStatus": "pending"
   },
   "finalGate": {
