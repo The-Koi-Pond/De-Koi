@@ -4412,12 +4412,16 @@ export async function* startGeneration(
     status: GenerationPerformanceTiming["status"],
     metadata?: GenerationPerformanceTiming["metadata"],
   ): void => {
-    deps.onPerformanceTiming?.({
-      name,
-      elapsedMs: Math.max(0, Date.now() - startedAt),
-      status,
-      ...(metadata ? { metadata } : {}),
-    });
+    try {
+      deps.onPerformanceTiming?.({
+        name,
+        elapsedMs: Math.max(0, Date.now() - startedAt),
+        status,
+        ...(metadata ? { metadata } : {}),
+      });
+    } catch {
+      // Optional diagnostics must not change generation control flow.
+    }
   };
   const generationTimingEvent = (
     name: string,

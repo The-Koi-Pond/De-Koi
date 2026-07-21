@@ -459,6 +459,74 @@ describe("generation performance timing callbacks", () => {
 
     expect(timings).toContainEqual(expect.objectContaining({ name: "generation.first_token", status: "error" }));
   });
+
+  it("does not let a throwing timing sink fail a successful generation", async () => {
+    const timingError = new Error("timing sink failed");
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      onCreate: (_chatId, value) => ({ id: "message-assistant", ...value }),
+    });
+
+    await expect(
+      drain(
+        startGeneration(
+          {
+            storage,
+            llm: llmThatStreams(() => {}),
+            integrations: noopIntegrations,
+            onPerformanceTiming: () => {
+              throw timingError;
+            },
+          },
+          {
+            chatId: "chat-1",
+            connectionId: "conn-1",
+            messages: [{ role: "user", content: "Reply." }],
+          },
+        ),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not let a throwing timing sink replace a stream failure", async () => {
+    const timingError = new Error("timing sink failed");
+    const streamError = new Error("provider stream failed");
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      onCreate: (_chatId, value) => ({ id: "message-assistant", ...value }),
+    });
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream() {
+        throw streamError;
+      },
+    };
+
+    await expect(
+      drain(
+        startGeneration(
+          {
+            storage,
+            llm,
+            integrations: noopIntegrations,
+            onPerformanceTiming: (timing) => {
+              if (timing.name === "generation.first_token" && timing.status === "error") throw timingError;
+            },
+          },
+          {
+            chatId: "chat-1",
+            connectionId: "conn-1",
+            messages: [{ role: "user", content: "Reply." }],
+          },
+        ),
+      ),
+    ).rejects.toBe(streamError);
+  });
 });
 
 describe("user-message regeneration review guards", () => {
