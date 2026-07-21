@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Repair persona tag import, Game model filtering, and preset switching",
+    "source": "GitHub issues #1131, #1132, and #1133",
+    "classification": "catalog import safety, Game setup validation, and chat preset state consistency",
+    "status": "ready_for_pr"
+  },
+  "coreClaim": "Malformed persona tag values cannot crash the Personas panel, Game setup cannot submit an image-generation connection as a language model, and failed preset switches preserve the prior preset choices.",
+  "scope": {
+    "inScope": [
+      "Persona JSON tag normalization and defensive catalog reads",
+      "Game setup GM and scene-effects connection eligibility",
+      "Sequenced preset assignment with compensation when choice clearing fails",
+      "Focused regression tests for all three bugs"
+    ],
+    "outOfScope": [
+      "Storage schema or migration changes",
+      "Provider transport changes",
+      "Prompt assembly behavior",
+      "Visual redesign or new navigation"
+    ],
+    "riskFlags": [
+      "imported user data",
+      "async storage mutation ordering",
+      "cross-feature connection selection"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The three reproduced failures are rejected or recovered at their current feature owners without changing storage formats or runtime adapters.",
+    "riskType": "import compatibility and user-state consistency",
+    "entrypoints": [
+      "Import Persona JSON",
+      "Game setup You & Model step",
+      "Presets panel assignment action"
+    ],
+    "currentPathsOrFormats": [
+      "Persona JSON tags arrays",
+      "Connections with provider=image_generation",
+      "Chat promptPresetId plus metadata.presetChoices"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing persona rows whose tags arrays contain non-string values"
+    ],
+    "outOfScopeClaims": [
+      "No claim that every malformed persona field is repaired.",
+      "No claim that storage writes across separate commands are globally atomic.",
+      "No new discoverable product workflow is introduced."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Valid persona text tags survive normalization and remain sortable.",
+        "evidence": "personas-panel-model.spec.ts and persona-editor-model.spec.ts pass with valid text tags surrounding malformed values."
+      },
+      {
+        "claim": "Language-model selectors retain text connections while the dedicated image selector retains image connections.",
+        "evidence": "GameSetupWizard.spec.tsx passes the filtering and dependent image configuration cases."
+      },
+      {
+        "claim": "Successful preset assignment clears prior choices and retains existing choice-modal lookup behavior.",
+        "evidence": "PresetsPanel uses the existing prompt-variable lookup only after both writes succeed."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Non-string persona tags must not reach localeCompare or toLowerCase consumers.",
+        "evidence": "The focused panel and editor model tests pass [\"valid\", 42, null, \"also-valid\"] through the shared normalizer."
+      },
+      {
+        "claim": "An image-generation connection must not appear as a GM or scene-effects language option.",
+        "evidence": "The focused Game component test asserts both language selectors exclude image-connection."
+      },
+      {
+        "claim": "A failed preset assignment must not clear existing choices, and a failed choice clear must restore the prior preset.",
+        "evidence": "Two PresetsPanel component tests cover assignment rejection and metadata rejection compensation."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing well-formed persona tags, text connections, and successful preset changes retain their prior behavior.",
+        "evidence": "The focused suites pass all nine existing and new tests, and the complete frontend suite passes 2,175 tests."
+      }
+    ],
+    "untestedRows": [
+      "No manual desktop/Tauri click-through was run because the claims are deterministic component and model behavior without visual layout changes."
+    ]
+  },
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Manual desktop interaction pass",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "Focused component/model tests exercise the exact non-visual contracts."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm test && pnpm check",
+    "baselineEvidence": "430 test files and 2,175 tests passed; deterministic frontend/docs/workflow checks, cargo check, and the existing non-blocking knip report completed with exit code 0."
+  },
+  "checks": {
+    "baselineCommand": "pnpm test && pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}

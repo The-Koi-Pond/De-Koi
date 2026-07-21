@@ -44,6 +44,7 @@ import { usePersonaSummaries } from "../../../catalog/personas/index";
 import { useLorebooks } from "../../../catalog/lorebooks/index";
 import { useGameAssetStore } from "../stores/game-asset.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 
 interface GameSetupWizardProps {
   error?: string | null;
@@ -409,7 +410,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
     isError: isPartyCharactersError,
   } = useCharacterSummaries(step === 1, debouncedPartySearch);
   const { data: lorebooksList } = useLorebooks();
-  const connections = useMemo(
+  const allConnections = useMemo(
     () =>
       (connectionsList as Array<{
         id: string;
@@ -420,6 +421,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
       }>) ?? [],
     [connectionsList],
   );
+  const connections = useMemo(() => filterLanguageGenerationConnections(allConnections), [allConnections]);
   const selectedGmConnection = useMemo(
     () => connections.find((connection) => connection.id === gmConnectionId) ?? null,
     [connections, gmConnectionId],
@@ -428,7 +430,10 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
     () => getEditableGenerationParameters(ROLEPLAY_PARAMETER_DEFAULTS, selectedGmConnection?.defaultParameters),
     [selectedGmConnection?.defaultParameters],
   );
-  const imageConnections = useMemo(() => connections.filter((c) => c.provider === "image_generation"), [connections]);
+  const imageConnections = useMemo(
+    () => allConnections.filter((connection) => connection.provider === "image_generation"),
+    [allConnections],
+  );
   const personas = useMemo(
     () =>
       (personasList as Array<{
@@ -599,7 +604,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
   const hasUsableImageConnection =
     !!imageConnectionId && imageConnections.some((connection) => connection.id === imageConnectionId);
   const setupBlockingReasons = [
-    !gmConnectionId ? 'Select a GM model on the "You & Model" step.' : null,
+    !selectedGmConnection ? 'Select a GM model on the "You & Model" step.' : null,
     gmMode === "character" && !gmCharacterId
       ? "Select a GM character on the Party & GM step or choose Standalone GM."
       : null,
