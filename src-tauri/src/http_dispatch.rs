@@ -151,69 +151,120 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             &shared::ParsedPath::new("/profile/import"),
             optional_value(&args, "envelope"),
         ),
-        "backup_create" => backup::create_backup(state),
+        "backup_create" => {
+            dispatch_blocking_http_storage(state, &args, |state, _args| {
+                backup::create_backup(state)
+            })
+            .await
+        }
         "backup_list" => backup::list_backups(state),
         "backup_delete" => backup::delete_backup(state, required_string(&args, "name")?),
         "backup_download" => {
-            backup::download_backup(state, optional_string(&args, "name").as_deref())
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                let name = optional_string(args, "name");
+                backup::download_backup(state, name.as_deref())
+            })
+            .await
         }
-        "prompt_export" => exports::export_prompt(state, required_string(&args, "presetId")?),
-        "prompts_export_bulk" => exports::export_records(
-            state,
-            "marinara_presets",
-            "prompts",
-            json!({ "ids": required_string_vec(&args, "ids")? }),
-        ),
-        "character_export" => exports::export_record(
-            state,
-            "marinara_character",
-            "characters",
-            required_string(&args, "id")?,
-            optional_string(&args, "format").as_deref(),
-        ),
+        "prompt_export" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_prompt(state, required_string(args, "presetId")?)
+            })
+            .await
+        }
+        "prompts_export_bulk" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_records(
+                    state,
+                    "marinara_presets",
+                    "prompts",
+                    json!({ "ids": required_string_vec(args, "ids")? }),
+                )
+            })
+            .await
+        }
+        "character_export" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                let format = optional_string(args, "format");
+                exports::export_record(
+                    state,
+                    "marinara_character",
+                    "characters",
+                    required_string(args, "id")?,
+                    format.as_deref(),
+                )
+            })
+            .await
+        }
         "character_export_png" => {
-            exports::export_character_png(state, required_string(&args, "id")?)
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_character_png(state, required_string(args, "id")?)
+            })
+            .await
         }
         "character_embedded_lorebook_import" => {
             exports::import_character_embedded_lorebook(state, required_string(&args, "id")?)
         }
-        "characters_export_bulk" => exports::export_records(
-            state,
-            "marinara_characters",
-            "characters",
-            json!({
-                "ids": required_string_vec(&args, "ids")?,
-                "format": optional_value(&args, "format"),
-            }),
-        ),
-        "persona_export" => exports::export_record(
-            state,
-            "marinara_persona",
-            "personas",
-            required_string(&args, "id")?,
-            optional_string(&args, "format").as_deref(),
-        ),
-        "personas_export_bulk" => exports::export_records(
-            state,
-            "marinara_personas",
-            "personas",
-            json!({
-                "ids": required_string_vec(&args, "ids")?,
-                "format": optional_value(&args, "format"),
-            }),
-        ),
-        "lorebook_export" => exports::export_lorebook(
-            state,
-            required_string(&args, "id")?,
-            optional_string(&args, "format").as_deref(),
-        ),
-        "lorebooks_export_bulk" => exports::export_lorebooks(
-            state,
-            json!({
-                "ids": required_string_vec(&args, "ids")?,
-                "format": optional_value(&args, "format"),
-            }),
-        ),
+        "characters_export_bulk" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_records(
+                    state,
+                    "marinara_characters",
+                    "characters",
+                    json!({
+                        "ids": required_string_vec(args, "ids")?,
+                        "format": optional_value(args, "format"),
+                    }),
+                )
+            })
+            .await
+        }
+        "persona_export" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                let format = optional_string(args, "format");
+                exports::export_record(
+                    state,
+                    "marinara_persona",
+                    "personas",
+                    required_string(args, "id")?,
+                    format.as_deref(),
+                )
+            })
+            .await
+        }
+        "personas_export_bulk" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_records(
+                    state,
+                    "marinara_personas",
+                    "personas",
+                    json!({
+                        "ids": required_string_vec(args, "ids")?,
+                        "format": optional_value(args, "format"),
+                    }),
+                )
+            })
+            .await
+        }
+        "lorebook_export" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                let format = optional_string(args, "format");
+                exports::export_lorebook(state, required_string(args, "id")?, format.as_deref())
+            })
+            .await
+        }
+        "lorebooks_export_bulk" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_lorebooks(
+                    state,
+                    json!({
+                        "ids": required_string_vec(args, "ids")?,
+                        "format": optional_value(args, "format"),
+                    }),
+                )
+            })
+            .await
+        }
         "lorebook_vectorize" => {
             prompts::vectorize_lorebook(
                 state,
@@ -1648,7 +1699,8 @@ mod tests {
     use std::collections::BTreeSet;
     use std::io::Cursor;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     // Commands that stay out of /api/invoke because they require the client shell,
     // local filesystem paths, Tauri IPC channels, or user-machine devices.
@@ -1706,6 +1758,17 @@ mod tests {
         "chat_note_delete",
         "chat_notes_clear",
         "chat_notes_list",
+        "backup_create",
+        "backup_download",
+        "prompt_export",
+        "prompts_export_bulk",
+        "character_export",
+        "character_export_png",
+        "characters_export_bulk",
+        "persona_export",
+        "personas_export_bulk",
+        "lorebook_export",
+        "lorebooks_export_bulk",
         "connection_folder_reorder",
         "connection_move",
         "connection_save_default_parameters",
@@ -2325,6 +2388,63 @@ mod tests {
         .expect("owned request map should cross the blocking boundary");
 
         assert_eq!(result, json!({ "large": [1, 2, 3] }));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocking_storage_dispatch_leaves_tokio_available() {
+        let state = test_state("blocking-dispatch-tokio-progress");
+        let (started_tx, started_rx) = mpsc::channel();
+        let (progress_tx, progress_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let watchdog = std::thread::spawn(move || {
+            started_rx
+                .recv()
+                .expect("dispatch operation should begin its blocking work");
+            let progressed = progress_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+            release_tx
+                .send(())
+                .expect("dispatch operation should still be waiting for release");
+            progressed
+        });
+
+        let work_state = state.clone();
+        let work = tokio::spawn(async move {
+            dispatch_blocking_http_storage(&work_state, Map::new(), move |_state, _args| {
+                started_tx
+                    .send(())
+                    .expect("watchdog should observe the blocking operation");
+                entered_tx
+                    .send(())
+                    .expect("Tokio test should observe the blocking operation");
+                release_rx
+                    .recv()
+                    .expect("watchdog should release the blocking operation");
+                Ok(json!({ "dispatch": "complete" }))
+            })
+            .await
+        });
+
+        entered_rx
+            .await
+            .expect("dispatch operation should enter its blocking body");
+        let unrelated = tokio::spawn(async move {
+            let _ = progress_tx.send(());
+        });
+        unrelated
+            .await
+            .expect("unrelated Tokio work should complete");
+
+        assert!(
+            watchdog.join().expect("watchdog should not panic"),
+            "unrelated Tokio work should progress before the dispatch operation is released"
+        );
+        assert_eq!(
+            work.await
+                .expect("dispatch task should not panic")
+                .expect("dispatch task should succeed"),
+            json!({ "dispatch": "complete" })
+        );
     }
 
     #[tokio::test]

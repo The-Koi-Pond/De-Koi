@@ -20,6 +20,14 @@ const LOCAL_BINARY_ASSET_DIRS: &[&str] = &[
     "sprites",
 ];
 
+async fn run_blocking_export(
+    operation: impl FnOnce() -> Result<Value, AppError> + Send + 'static,
+) -> Result<Value, AppError> {
+    tauri::async_runtime::spawn_blocking(operation)
+        .await
+        .map_err(|error| AppError::new("task_join_error", error.to_string()))?
+}
+
 #[tauri::command]
 pub async fn load_url_binary(
     state: State<'_, AppState>,
@@ -199,11 +207,12 @@ fn hex_value(byte: u8) -> Option<u8> {
 }
 
 #[tauri::command]
-pub fn profile_export(
+pub async fn profile_export(
     state: State<'_, AppState>,
     format: Option<String>,
 ) -> Result<Value, AppError> {
-    profile::export_profile(&state, format.as_deref())
+    let state = state.inner().clone();
+    run_blocking_export(move || profile::export_profile(&state, format.as_deref())).await
 }
 
 #[tauri::command]
@@ -296,36 +305,52 @@ pub fn profile_import_upload(
 }
 
 #[tauri::command]
-pub fn prompt_export(state: State<'_, AppState>, preset_id: String) -> Result<Value, AppError> {
-    exports::export_prompt(&state, &preset_id)
+pub async fn prompt_export(
+    state: State<'_, AppState>,
+    preset_id: String,
+) -> Result<Value, AppError> {
+    let state = state.inner().clone();
+    run_blocking_export(move || exports::export_prompt(&state, &preset_id)).await
 }
 
 #[tauri::command]
-pub fn prompts_export_bulk(
+pub async fn prompts_export_bulk(
     state: State<'_, AppState>,
     ids: Vec<String>,
 ) -> Result<Value, AppError> {
-    exports::export_records(&state, "marinara_presets", "prompts", json!({ "ids": ids }))
+    let state = state.inner().clone();
+    run_blocking_export(move || {
+        exports::export_records(&state, "marinara_presets", "prompts", json!({ "ids": ids }))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn character_export(
+pub async fn character_export(
     state: State<'_, AppState>,
     id: String,
     format: Option<String>,
 ) -> Result<Value, AppError> {
-    exports::export_record(
-        &state,
-        "marinara_character",
-        "characters",
-        &id,
-        format.as_deref(),
-    )
+    let state = state.inner().clone();
+    run_blocking_export(move || {
+        exports::export_record(
+            &state,
+            "marinara_character",
+            "characters",
+            &id,
+            format.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn character_export_png(state: State<'_, AppState>, id: String) -> Result<Value, AppError> {
-    exports::export_character_png(&state, &id)
+pub async fn character_export_png(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Value, AppError> {
+    let state = state.inner().clone();
+    run_blocking_export(move || exports::export_character_png(&state, &id)).await
 }
 
 #[tauri::command]
@@ -337,64 +362,81 @@ pub fn character_embedded_lorebook_import(
 }
 
 #[tauri::command]
-pub fn characters_export_bulk(
+pub async fn characters_export_bulk(
     state: State<'_, AppState>,
     ids: Vec<String>,
     format: Option<String>,
 ) -> Result<Value, AppError> {
-    exports::export_records(
-        &state,
-        "marinara_characters",
-        "characters",
-        json!({ "ids": ids, "format": format }),
-    )
+    let state = state.inner().clone();
+    run_blocking_export(move || {
+        exports::export_records(
+            &state,
+            "marinara_characters",
+            "characters",
+            json!({ "ids": ids, "format": format }),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn persona_export(
+pub async fn persona_export(
     state: State<'_, AppState>,
     id: String,
     format: Option<String>,
 ) -> Result<Value, AppError> {
-    exports::export_record(
-        &state,
-        "marinara_persona",
-        "personas",
-        &id,
-        format.as_deref(),
-    )
+    let state = state.inner().clone();
+    run_blocking_export(move || {
+        exports::export_record(
+            &state,
+            "marinara_persona",
+            "personas",
+            &id,
+            format.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn personas_export_bulk(
+pub async fn personas_export_bulk(
     state: State<'_, AppState>,
     ids: Vec<String>,
     format: Option<String>,
 ) -> Result<Value, AppError> {
-    exports::export_records(
-        &state,
-        "marinara_personas",
-        "personas",
-        json!({ "ids": ids, "format": format }),
-    )
+    let state = state.inner().clone();
+    run_blocking_export(move || {
+        exports::export_records(
+            &state,
+            "marinara_personas",
+            "personas",
+            json!({ "ids": ids, "format": format }),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn lorebook_export(
+pub async fn lorebook_export(
     state: State<'_, AppState>,
     id: String,
     format: Option<String>,
 ) -> Result<Value, AppError> {
-    exports::export_lorebook(&state, &id, format.as_deref())
+    let state = state.inner().clone();
+    run_blocking_export(move || exports::export_lorebook(&state, &id, format.as_deref())).await
 }
 
 #[tauri::command]
-pub fn lorebooks_export_bulk(
+pub async fn lorebooks_export_bulk(
     state: State<'_, AppState>,
     ids: Vec<String>,
     format: Option<String>,
 ) -> Result<Value, AppError> {
-    exports::export_lorebooks(&state, json!({ "ids": ids, "format": format }))
+    let state = state.inner().clone();
+    run_blocking_export(move || {
+        exports::export_lorebooks(&state, json!({ "ids": ids, "format": format }))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -410,7 +452,8 @@ pub async fn lorebook_vectorize(
 mod tests {
     use super::*;
     use crate::storage_commands::media_uploads::file_path_asset_url;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     struct TempRoot(PathBuf);
 
@@ -426,6 +469,58 @@ mod tests {
             .expect("system clock should be after epoch")
             .as_nanos();
         TempRoot(std::env::temp_dir().join(format!("marinara-profile-command-{test_name}-{nonce}")))
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn export_blocking_work_leaves_tokio_available() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (progress_tx, progress_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let watchdog = std::thread::spawn(move || {
+            started_rx
+                .recv()
+                .expect("export operation should begin its blocking work");
+            let progressed = progress_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+            release_tx
+                .send(())
+                .expect("export operation should still be waiting for release");
+            progressed
+        });
+
+        let work = tokio::spawn(run_blocking_export(move || {
+            started_tx
+                .send(())
+                .expect("watchdog should observe the blocking operation");
+            entered_tx
+                .send(())
+                .expect("Tokio test should observe the blocking operation");
+            release_rx
+                .recv()
+                .expect("watchdog should release the blocking operation");
+            Ok(json!({ "export": "complete" }))
+        }));
+
+        entered_rx
+            .await
+            .expect("export operation should enter its blocking body");
+        let unrelated = tokio::spawn(async move {
+            let _ = progress_tx.send(());
+        });
+        unrelated
+            .await
+            .expect("unrelated Tokio work should complete");
+
+        assert!(
+            watchdog.join().expect("watchdog should not panic"),
+            "unrelated Tokio work should progress before the export operation is released"
+        );
+        assert_eq!(
+            work.await
+                .expect("export task should not panic")
+                .expect("export task should succeed"),
+            json!({ "export": "complete" })
+        );
     }
 
     #[cfg(unix)]
