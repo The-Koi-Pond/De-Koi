@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { ChevronDown, Download, GripVertical, Pencil, Plus, Regex, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  Download,
+  GripVertical,
+  Pencil,
+  Plus,
+  Regex,
+  ToggleLeft,
+  ToggleRight,
+  Trash2,
+} from "lucide-react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
@@ -15,7 +25,7 @@ import {
   useDeleteRegexScript,
   useRegexScripts,
   useReorderRegexScripts,
-  useUpdateRegexScript,
+  useSetRegexScriptEnabled,
   type RegexScriptRow,
 } from "../hooks/use-regex-scripts";
 import { CatalogListRow, CatalogListState } from "../../components/CatalogListPrimitives";
@@ -35,7 +45,7 @@ export function RegexScriptsSection({
 }: RegexScriptsSectionProps) {
   const { data: regexScripts } = useRegexScripts();
   const createRegexScript = useCreateRegexScript();
-  const updateRegex = useUpdateRegexScript();
+  const setRegexEnabled = useSetRegexScriptEnabled();
   const deleteRegex = useDeleteRegexScript();
   const reorderRegexScripts = useReorderRegexScripts();
   const openRegexDetail = useUIStore((s) => s.openRegexDetail);
@@ -128,7 +138,10 @@ export function RegexScriptsSection({
         sortedRegexScripts.map((script) => {
           const placements = Array.isArray(script.placement) ? script.placement : [];
           const targetCharacterIds = regexScriptTargetCharacterIds(script);
-          const enabled = script.enabled === true || script.enabled === "true" || script.enabled === "1";
+          const pendingEnabled = setRegexEnabled.pendingEnabledById.get(script.id);
+          const enabled =
+            pendingEnabled ?? (script.enabled === true || script.enabled === "true" || script.enabled === "1");
+          const togglePending = setRegexEnabled.pendingEnabledById.has(script.id);
           return (
             <CatalogListRow
               key={script.id}
@@ -195,11 +208,13 @@ export function RegexScriptsSection({
                 </div>
               </button>
               <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
-                title={enabled ? "Disable script" : "Enable script"}
+                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)] disabled:cursor-wait disabled:opacity-60"
+                title={togglePending ? "Saving script state…" : enabled ? "Disable script" : "Enable script"}
+                disabled={togglePending}
+                aria-busy={togglePending}
                 onClick={(event) => {
                   event.stopPropagation();
-                  updateRegex.mutate({ id: script.id, enabled: !enabled });
+                  setRegexEnabled.setEnabled({ id: script.id, enabled: !enabled });
                 }}
               >
                 {enabled ? <ToggleRight size="0.875rem" className="text-amber-400" /> : <ToggleLeft size="0.875rem" />}

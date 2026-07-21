@@ -9,6 +9,7 @@ import {
 } from "../../../../engine/contracts/schemas/regex.schema";
 import { regexScriptApi } from "../../../../shared/api/regex-script-api";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { useEnabledToggleMutation } from "../../lib/use-enabled-toggle-mutation";
 import { filterRegexScriptsByCharacterIds } from "../lib/regex-script-filter";
 
 const regexKeys = {
@@ -68,6 +69,16 @@ export function useUpdateRegexScript() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: regexKeys.all });
     },
+  });
+}
+
+export function useSetRegexScriptEnabled() {
+  return useEnabledToggleMutation({
+    mutationKey: [...regexKeys.all, "enabled"],
+    queryKey: regexKeys.all,
+    update: (id, enabled) =>
+      storageApi.update<RegexScriptRow>("regex-scripts", id, updateRegexScriptSchema.parse({ enabled })),
+    errorMessage: "Couldn't update that regex script. Its previous state was restored.",
   });
 }
 

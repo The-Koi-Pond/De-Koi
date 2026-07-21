@@ -6,6 +6,7 @@ import { createAgentConfigSchema, updateAgentConfigSchema } from "../../../../en
 import { BUILT_IN_AGENTS, type AgentResultType } from "../../../../engine/contracts/types/agent";
 import { agentApi } from "../../../../shared/api/agent-api";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { useEnabledToggleMutation } from "../../lib/use-enabled-toggle-mutation";
 
 export const agentKeys = {
   all: ["agents"] as const,
@@ -254,13 +255,11 @@ export function useUploadAgentImage() {
 }
 
 export function useSetAgentEnabledByType() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ agentType, enabled }: { agentType: string; enabled: boolean }) =>
-      agentApi.patchByType(agentType, { enabled }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: agentKeys.all });
-    },
+  return useEnabledToggleMutation({
+    mutationKey: [...agentKeys.all, "enabled"],
+    queryKey: agentKeys.all,
+    update: (agentType, enabled) => agentApi.patchByType(agentType, { enabled }),
+    errorMessage: "Couldn't update that agent. Its previous state was restored.",
   });
 }
 
