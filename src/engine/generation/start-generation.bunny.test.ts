@@ -352,6 +352,115 @@ function promptAssemblyRegexStorage(args: { characters: JsonRecord[]; regexScrip
   };
 }
 
+describe("generation performance timing callbacks", () => {
+  it("reports successful prompt, stream, post-save, and maintenance stages", async () => {
+    const timings: Array<Record<string, unknown>> = [];
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      onCreate: (_chatId, value) => ({ id: "message-assistant", ...value }),
+    });
+
+    await drain(
+      startGeneration(
+        {
+          storage,
+          llm: llmThatStreams(() => {}),
+          integrations: noopIntegrations,
+          onPerformanceTiming: (timing) => timings.push(timing),
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          messages: [{ role: "user", content: "Reply." }],
+        },
+      ),
+    );
+
+    expect(timings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "generation.prompt_assembly", status: "ok" }),
+        expect.objectContaining({ name: "generation.first_token", status: "ok" }),
+        expect.objectContaining({ name: "generation.post_save", status: "ok" }),
+        expect.objectContaining({ name: "generation.background_maintenance", status: "ok" }),
+      ]),
+    );
+  });
+
+  it("reports prompt assembly errors before preserving the thrown error", async () => {
+    const timings: Array<Record<string, unknown>> = [];
+    const promptError = new Error("prompt storage failed");
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      onCreate: (_chatId, value) => ({ id: "message-assistant", ...value }),
+    });
+    const list = storage.list.bind(storage);
+    storage.list = async (entity, options) => {
+      if (entity === "lorebooks") throw promptError;
+      return list(entity, options);
+    };
+
+    await expect(
+      drain(
+        startGeneration(
+          {
+            storage,
+            llm: llmThatStreams(() => {}),
+            integrations: noopIntegrations,
+            onPerformanceTiming: (timing) => timings.push(timing),
+          },
+          {
+            chatId: "chat-1",
+            connectionId: "conn-1",
+            messages: [{ role: "user", content: "Reply." }],
+          },
+        ),
+      ),
+    ).rejects.toBe(promptError);
+
+    expect(timings).toContainEqual(expect.objectContaining({ name: "generation.prompt_assembly", status: "error" }));
+  });
+
+  it("reports a first-token error before preserving a stream failure", async () => {
+    const timings: Array<Record<string, unknown>> = [];
+    const streamError = new Error("provider stream failed");
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      onCreate: (_chatId, value) => ({ id: "message-assistant", ...value }),
+    });
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream() {
+        throw streamError;
+      },
+    };
+
+    await expect(
+      drain(
+        startGeneration(
+          {
+            storage,
+            llm,
+            integrations: noopIntegrations,
+            onPerformanceTiming: (timing) => timings.push(timing),
+          },
+          {
+            chatId: "chat-1",
+            connectionId: "conn-1",
+            messages: [{ role: "user", content: "Reply." }],
+          },
+        ),
+      ),
+    ).rejects.toBe(streamError);
+
+    expect(timings).toContainEqual(expect.objectContaining({ name: "generation.first_token", status: "error" }));
+  });
+});
+
 describe("user-message regeneration review guards", () => {
   it("keeps stored text attachments when literal user text mentions attached_file tags", () => {
     const source = buildUserMessageRegenerationSourceMessage({

@@ -39,10 +39,7 @@ import {
 } from "../../engine/contracts/schemas/prompt.schema";
 import type { StorageEntity } from "../../engine/capabilities/storage";
 import { ApiError } from "./api-errors";
-import {
-  planDekiHistoryPersistence,
-  type DekiHistoryPersistenceSnapshot,
-} from "./deki-history-persistence";
+import { planDekiHistoryPersistence, type DekiHistoryPersistenceSnapshot } from "./deki-history-persistence";
 import { remoteRuntimeTarget } from "./remote-runtime";
 import { storageApi } from "./storage-api";
 import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
@@ -658,21 +655,26 @@ async function readDurableSessionsState(): Promise<DekiSessionsState | null> {
   if (records.length === 0) return null;
 
   const settings = await readSettingsValue();
+  const summarySessionIds = records.map((record) => readTrimmedString(record.id)).filter((id): id is string => !!id);
+  const requestedActiveId = typeof settings.activeSessionId === "string" ? settings.activeSessionId : null;
+  const activeSessionId = summarySessionIds.includes(requestedActiveId ?? "")
+    ? requestedActiveId!
+    : (summarySessionIds[0] ?? null);
   const sessions: DekiSession[] = [];
   const seen = new Set<string>();
   for (const record of records) {
     const sessionId = readTrimmedString(record.id);
     if (!sessionId || seen.has(sessionId)) continue;
-    const records = await measureDekiStage(
-      "deki.active_history",
-      () =>
-        storageApi.list<DekiMessageRecord>("deki-messages", {
-          filters: { sessionId },
-          orderBy: "sortOrder",
-        }),
-      (messages) => ({ messageCount: messages.length }),
-    );
-    const messages = records
+    const readMessages = () =>
+      storageApi.list<DekiMessageRecord>("deki-messages", {
+        filters: { sessionId },
+        orderBy: "sortOrder",
+      });
+    const messageRecords =
+      sessionId === activeSessionId
+        ? await measureDekiStage("deki.active_history", readMessages, (messages) => ({ messageCount: messages.length }))
+        : await readMessages();
+    const messages = messageRecords
       .map((message) => normalizeDekiMessage(message))
       .filter((message): message is DekiMessage => !!message);
     const session = normalizeDekiSessionRecord({ ...record, id: sessionId }, messages);
@@ -683,11 +685,10 @@ async function readDurableSessionsState(): Promise<DekiSessionsState | null> {
   }
   if (sessions.length === 0) return null;
 
-  const requestedActiveId = typeof settings.activeSessionId === "string" ? settings.activeSessionId : null;
-  const activeSessionId = sessions.some((session) => session.id === requestedActiveId)
-    ? requestedActiveId!
+  const resolvedActiveSessionId = sessions.some((session) => session.id === activeSessionId)
+    ? activeSessionId!
     : sessions[0]!.id;
-  return { activeSessionId, sessions };
+  return { activeSessionId: resolvedActiveSessionId, sessions };
 }
 
 async function saveDurableSessionsState(state: DekiSessionsState): Promise<DekiSessionsState> {
