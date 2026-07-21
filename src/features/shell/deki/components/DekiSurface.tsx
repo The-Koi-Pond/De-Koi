@@ -520,8 +520,20 @@ export function DekiSurface({
   const convoGradient = useUIStore((s) => s.convoGradient);
   const theme = useUIStore((s) => s.theme);
   const openRightPanel = useUIStore((s) => s.openRightPanel);
+  const currentSessionRunKey = dekiSessionRunKey(sessionId);
+  const [historyLoadState, setHistoryLoadState] = useState(() => ({
+    sessionKey: currentSessionRunKey,
+    generation: 0,
+    completed: false,
+  }));
+  if (historyLoadState.sessionKey !== currentSessionRunKey) {
+    setHistoryLoadState({
+      sessionKey: currentSessionRunKey,
+      generation: historyLoadState.generation + 1,
+      completed: false,
+    });
+  }
   const [messages, setMessages] = useState<DekiMessage[]>([]);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [compaction, setCompaction] = useState<DekiCompactionState>(EMPTY_DEKI_COMPACTION);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ClientDekiAttachment[]>([]);
@@ -548,7 +560,8 @@ export function DekiSurface({
   sessionIdRef.current = sessionId;
   const connectionSelectionTouchedRef = useRef(false);
   const personaSelectionTouchedRef = useRef(false);
-  const currentSessionRunKey = dekiSessionRunKey(sessionId);
+  const historyLoaded = historyLoadState.completed && historyLoadState.sessionKey === currentSessionRunKey;
+  const historyLoadGeneration = historyLoadState.generation;
   const sending = sendingSessionKeys.has(currentSessionRunKey);
   const markSessionSending = (targetSessionId: string | null | undefined, active: boolean) => {
     const key = dekiSessionRunKey(targetSessionId);
@@ -627,6 +640,7 @@ export function DekiSurface({
   }, [historyLoaded, messages, welcomeMessage]);
   const conversationMessages = useMemo(() => visibleMessages.map(toConversationMessage), [visibleMessages]);
   const dekiSceneMood = getDekiSceneMood({ historyLoaded, sending });
+  const dekiHeroState = !historyLoaded ? "loading" : messages.length > 0 ? "compact" : "welcome";
 
   useEffect(() => {
     mountedRef.current = true;
@@ -641,7 +655,8 @@ export function DekiSurface({
 
   useEffect(() => {
     let active = true;
-    setHistoryLoaded(false);
+    setMessages([]);
+    setCompaction(EMPTY_DEKI_COMPACTION);
     setChatAccessGrants([]);
     void dekiApi.history
       .get(sessionId)
@@ -658,12 +673,16 @@ export function DekiSurface({
         setSendError(toUserMessage(error, "dekiHistoryLoad"));
       })
       .finally(() => {
-        if (active) setHistoryLoaded(true);
+        if (!active) return;
+        setHistoryLoadState((current) => {
+          if (current.sessionKey !== currentSessionRunKey || current.generation !== historyLoadGeneration) return current;
+          return { ...current, completed: true };
+        });
       });
     return () => {
       active = false;
     };
-  }, [sessionId]);
+  }, [sessionId, currentSessionRunKey, historyLoadGeneration]);
 
   useEffect(() => {
     let active = true;
@@ -1210,7 +1229,10 @@ export function DekiSurface({
       aria-busy={!historyLoaded || sending}
     >
       <div className="mari-messages-scroll flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="deki-hero mx-auto flex w-full max-w-3xl justify-center px-4 pb-2 pt-5 sm:pt-7">
+        <div
+          className="deki-hero mx-auto flex w-full max-w-3xl justify-center px-4 pb-2 pt-5 sm:pt-7"
+          data-state={dekiHeroState}
+        >
           <DekiPondScene mood={dekiSceneMood} />
         </div>
 
