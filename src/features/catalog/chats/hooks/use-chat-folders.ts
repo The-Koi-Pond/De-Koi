@@ -5,7 +5,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { chatFolderApi } from "../../../../shared/api/chat-folder-api";
 import type { ChatFolder, ChatMode } from "../../../../engine/contracts/types/chat";
+import { optimisticallyUpdateFolder, rollbackOptimisticFolderUpdate } from "../../lib/optimistic-folder-update";
 import { chatKeys } from "../query-keys";
+import { toast } from "sonner";
 
 const folderKeys = {
   all: ["chat-folders"] as const,
@@ -31,7 +33,10 @@ export function useCreateFolder() {
 
 export function useUpdateFolder() {
   const qc = useQueryClient();
+  const queryKey = folderKeys.list();
+  const mutationKey = [...queryKey, "update"] as const;
   return useMutation({
+    mutationKey,
     mutationFn: ({
       id,
       ...data
@@ -42,7 +47,14 @@ export function useUpdateFolder() {
       sortOrder?: number;
       collapsed?: boolean;
     }) => storageApi.update<ChatFolder>("chat-folders", id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: folderKeys.list() }),
+    onMutate: (variables) => optimisticallyUpdateFolder<ChatFolder>(qc, queryKey, variables),
+    onError: (_error, _variables, context) => {
+      rollbackOptimisticFolderUpdate<ChatFolder>(qc, queryKey, context);
+      toast.error("Couldn't update that folder. Your previous folder state was restored.");
+    },
+    onSettled: () => {
+      if (qc.isMutating({ mutationKey }) <= 1) return qc.invalidateQueries({ queryKey });
+    },
   });
 }
 
