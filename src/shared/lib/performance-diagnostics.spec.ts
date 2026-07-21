@@ -5,6 +5,7 @@ import {
   markPerformanceMilestone,
   markPerformanceMilestoneOnce,
   measurePerformanceAsync,
+  reportPerformanceStageTiming,
 } from "./performance-diagnostics";
 
 describe("performance diagnostics", () => {
@@ -26,6 +27,47 @@ describe("performance diagnostics", () => {
 
     expect(info).not.toHaveBeenCalled();
     expect(mark).not.toHaveBeenCalled();
+  });
+
+  it("keeps opt-in stage timings silent by default", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    reportPerformanceStageTiming({
+      name: "generation.prompt_assembly",
+      elapsedMs: 12,
+      status: "ok",
+      metadata: { messageCount: 3 },
+    });
+
+    expect(info).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("redacts non-count stage details before logging", () => {
+    window.localStorage.setItem("deKoiPerformanceDiagnostics", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    reportPerformanceStageTiming({
+      name: "generation.prompt_assembly",
+      elapsedMs: 12.345,
+      status: "ok",
+      metadata: {
+        messageCount: 3,
+        prompt: 99,
+        request: 55,
+        secret: 10,
+        promptMessageCount: Number.POSITIVE_INFINITY,
+      } as never,
+    });
+
+    expect(info).toHaveBeenCalledWith("[de-koi:perf] span", {
+      category: "generation",
+      name: "generation.prompt_assembly",
+      status: "ok",
+      elapsedMs: 12.35,
+      messageCount: 3,
+    });
   });
 
   it("emits opt-in milestones and successful async spans without argument payloads", async () => {

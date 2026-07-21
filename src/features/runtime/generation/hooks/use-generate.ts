@@ -34,6 +34,7 @@ import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { urlBinaryApi } from "../../../../shared/api/url-binary-api";
 import { requestImagePromptReview } from "../../../../shared/components/ui/ImagePromptReviewHost";
 import { recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
+import { reportPerformanceStageTiming } from "../../../../shared/lib/performance-diagnostics";
 import { showLocalChatNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
@@ -2066,7 +2067,13 @@ export function useGenerate() {
         args,
         (streamArgs, signal) =>
           startGeneration(
-            { storage: storageApi, llm: llmApi, integrations: reviewedIntegrationGateway, visuals: visualAssetsApi },
+            {
+              storage: storageApi,
+              llm: llmApi,
+              integrations: reviewedIntegrationGateway,
+              visuals: visualAssetsApi,
+              onPerformanceTiming: reportPerformanceStageTiming,
+            },
             {
               ...streamArgs,
               userStatus: useUIStore.getState().userStatus,

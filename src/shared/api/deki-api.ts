@@ -46,6 +46,7 @@ import {
 import { remoteRuntimeTarget } from "./remote-runtime";
 import { storageApi } from "./storage-api";
 import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
+import { reportPerformanceStageTiming, type PerformanceDiagnosticsStageTiming } from "../lib/performance-diagnostics";
 
 const DEKI_SETTINGS_ID = "deki";
 const LEGACY_DEKI_SETTINGS_ID = "professor-mari";
@@ -87,6 +88,22 @@ type DekiActionCurrentRecordResult = {
   id: string;
   record: Record<string, unknown> | null;
 };
+
+async function measureDekiStage<T>(
+  name: Extract<PerformanceDiagnosticsStageTiming["name"], `deki.${string}`>,
+  operation: () => Promise<T>,
+  metadata: (result: T) => PerformanceDiagnosticsStageTiming["metadata"],
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const result = await operation();
+    reportPerformanceStageTiming({ name, elapsedMs: Date.now() - startedAt, status: "ok", metadata: metadata(result) });
+    return result;
+  } catch (error) {
+    reportPerformanceStageTiming({ name, elapsedMs: Date.now() - startedAt, status: "error" });
+    throw error;
+  }
+}
 
 type DekiHistorySnapshot = {
   session: DekiSession;
@@ -629,10 +646,15 @@ async function writeStorageRecord(
 }
 
 async function readDurableSessionsState(): Promise<DekiSessionsState | null> {
-  const records = await storageApi.list<DekiSessionRecord>("deki-sessions", {
-    orderBy: "updatedAt",
-    descending: true,
-  });
+  const records = await measureDekiStage(
+    "deki.session_summaries",
+    () =>
+      storageApi.list<DekiSessionRecord>("deki-sessions", {
+        orderBy: "updatedAt",
+        descending: true,
+      }),
+    (sessions) => ({ sessionCount: sessions.length }),
+  );
   if (records.length === 0) return null;
 
   const settings = await readSettingsValue();
@@ -641,12 +663,16 @@ async function readDurableSessionsState(): Promise<DekiSessionsState | null> {
   for (const record of records) {
     const sessionId = readTrimmedString(record.id);
     if (!sessionId || seen.has(sessionId)) continue;
-    const messages = (
-      await storageApi.list<DekiMessageRecord>("deki-messages", {
-        filters: { sessionId },
-        orderBy: "sortOrder",
-      })
-    )
+    const records = await measureDekiStage(
+      "deki.active_history",
+      () =>
+        storageApi.list<DekiMessageRecord>("deki-messages", {
+          filters: { sessionId },
+          orderBy: "sortOrder",
+        }),
+      (messages) => ({ messageCount: messages.length }),
+    );
+    const messages = records
       .map((message) => normalizeDekiMessage(message))
       .filter((message): message is DekiMessage => !!message);
     const session = normalizeDekiSessionRecord({ ...record, id: sessionId }, messages);

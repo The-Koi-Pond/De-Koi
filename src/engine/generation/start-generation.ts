@@ -168,6 +168,21 @@ import {
 
 export type { StartGenerationInput } from "./start-generation-input";
 
+export type GenerationPerformanceTiming = {
+  name:
+    | "generation.prompt_assembly"
+    | "generation.first_token"
+    | "generation.post_save"
+    | "generation.background_maintenance";
+  elapsedMs: number;
+  status: "ok" | "error";
+  metadata?: {
+    messageCount?: number;
+    promptMessageCount?: number;
+    scheduledTaskCount?: number;
+  };
+};
+
 export interface GenerationEngineDeps {
   storage: StorageGateway;
   llm: LlmGateway;
@@ -175,6 +190,7 @@ export interface GenerationEngineDeps {
   visuals?: VisualAssetGateway;
   events?: EventGateway;
   onTrackerSnapshotSaved?: TrackerSnapshotSavedHook;
+  onPerformanceTiming?: (timing: GenerationPerformanceTiming) => void;
 }
 
 export interface RetryAgentsInput extends JsonRecord {
@@ -4390,6 +4406,18 @@ export async function* startGeneration(
   assertChatCanGenerate(chat, input);
 
   const generationTimingStartedAt = () => Date.now();
+  const reportPerformanceTiming = (
+    name: GenerationPerformanceTiming["name"],
+    startedAt: number,
+    metadata?: GenerationPerformanceTiming["metadata"],
+  ): void => {
+    deps.onPerformanceTiming?.({
+      name,
+      elapsedMs: Math.max(0, Date.now() - startedAt),
+      status: "ok",
+      ...(metadata ? { metadata } : {}),
+    });
+  };
   const generationTimingEvent = (
     name: string,
     startedAt: number,
@@ -4647,6 +4675,10 @@ export async function* startGeneration(
     promptMessageCount: assembly.messages.length,
   });
   if (assemblePromptTiming) yield assemblePromptTiming;
+  reportPerformanceTiming("generation.prompt_assembly", assemblePromptStartedAt, {
+    messageCount: generationMessages.length,
+    promptMessageCount: assembly.messages.length,
+  });
   mirrorSavedUserMessageToDiscord({ deps, chat, input, prepared: preparedUserInput, persona: assembly.persona });
 
   if (!directMessages) {
@@ -4776,6 +4808,12 @@ export async function* startGeneration(
     let webResearchRequest: Record<string, unknown> | null = null;
     let webResearchSources: Array<{ title: string; url: string }> = [];
     const modelCallStartedAt = generationTimingStartedAt();
+    let reportedFirstToken = false;
+    const reportFirstToken = () => {
+      if (reportedFirstToken) return;
+      reportedFirstToken = true;
+      reportPerformanceTiming("generation.first_token", modelCallStartedAt);
+    };
     try {
       ({
         content: streamedContent,
@@ -4804,6 +4842,7 @@ export async function* startGeneration(
         toolRuntimeInput,
         signal,
         partial: mainPartial,
+        onFirstToken: reportFirstToken,
       }));
     } catch (err) {
       if (mainTools?.characterWebResearchGrant) {
@@ -4929,6 +4968,7 @@ export async function* startGeneration(
           roleplayQualityCorrection: roleplayQuality.correction,
         });
     const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
+    const postSaveStartedAt = saved ? generationTimingStartedAt() : null;
     let latestSaved = saved;
     if (saved) {
       await persistLorebookTimingStatesSafely(
@@ -5058,6 +5098,8 @@ export async function* startGeneration(
       }
     }
     if (savedAssistantGeneration) {
+      const backgroundMaintenanceStartedAt = generationTimingStartedAt();
+      let scheduledTaskCount = 0;
       await enqueueAutomaticMemoryCaptureSafely(
         deps,
         chat,
@@ -5067,6 +5109,7 @@ export async function* startGeneration(
         connection,
       );
       scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
+      scheduledTaskCount += 2;
       if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
         scheduleSparseCharacterInterpretations(
           { storage: deps.storage, llm: deps.llm },
@@ -5075,7 +5118,14 @@ export async function* startGeneration(
             connectionId: readString(connection.id) || input.connectionId || null,
           },
         );
+        scheduledTaskCount += 1;
       }
+      reportPerformanceTiming("generation.background_maintenance", backgroundMaintenanceStartedAt, {
+        scheduledTaskCount,
+      });
+    }
+    if (postSaveStartedAt) {
+      reportPerformanceTiming("generation.post_save", postSaveStartedAt);
     }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
     return;
@@ -5129,6 +5179,13 @@ export async function* startGeneration(
   let promptSnapshotDirect: MainGenerationPromptSnapshot | null = null;
   let webResearchRequestDirect: Record<string, unknown> | null = null;
   let webResearchSourcesDirect: Array<{ title: string; url: string }> = [];
+  const directModelCallStartedAt = generationTimingStartedAt();
+  let reportedDirectFirstToken = false;
+  const reportDirectFirstToken = () => {
+    if (reportedDirectFirstToken) return;
+    reportedDirectFirstToken = true;
+    reportPerformanceTiming("generation.first_token", directModelCallStartedAt);
+  };
   try {
     ({
       content: streamedContentDirect,
@@ -5157,6 +5214,7 @@ export async function* startGeneration(
       toolRuntimeInput: toolRuntimeInputDirect,
       signal,
       partial: directPartial,
+      onFirstToken: reportDirectFirstToken,
     }));
   } catch (err) {
     if (mainToolsDirect?.characterWebResearchGrant) {
@@ -5277,6 +5335,7 @@ export async function* startGeneration(
         roleplayQualityCorrection: roleplayQualityDirect.correction,
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
+  const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
   if (saved) {
     await persistLorebookTimingStatesSafely(
       deps.storage,
@@ -5320,8 +5379,11 @@ export async function* startGeneration(
     }
   }
   if (savedAssistantGeneration) {
+    const backgroundMaintenanceStartedAt = generationTimingStartedAt();
+    let scheduledTaskCount = 0;
     await enqueueAutomaticMemoryCaptureSafely(deps, chat, assembly.characters, savedUserMessage, saved, connection);
     scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
+    scheduledTaskCount += 2;
     if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
       scheduleSparseCharacterInterpretations(
         { storage: deps.storage, llm: deps.llm },
@@ -5330,7 +5392,14 @@ export async function* startGeneration(
           connectionId: readString(connection.id) || input.connectionId || null,
         },
       );
+      scheduledTaskCount += 1;
     }
+    reportPerformanceTiming("generation.background_maintenance", backgroundMaintenanceStartedAt, {
+      scheduledTaskCount,
+    });
+  }
+  if (directPostSaveStartedAt) {
+    reportPerformanceTiming("generation.post_save", directPostSaveStartedAt);
   }
   yield { type: "done" };
 }
@@ -5486,6 +5555,7 @@ async function* streamMainGenerationLoop(args: {
   toolRuntimeInput: ToolRuntimeInput;
   signal: AbortSignal | undefined;
   partial?: StreamPartialSink | null;
+  onFirstToken?: () => void;
 }): AsyncGenerator<
   GenerationEvent,
   {
@@ -5513,6 +5583,7 @@ async function* streamMainGenerationLoop(args: {
     toolRuntimeInput,
     signal,
     partial,
+    onFirstToken,
   } = args;
   let content = "";
   let thinking = "";
@@ -5633,6 +5704,7 @@ async function* streamMainGenerationLoop(args: {
           providerMetadata = mergeProviderMetadata(providerMetadata, chunkProviderMetadata);
         }
         if (chunk.type === "token") {
+          onFirstToken?.();
           const text = llmChunkText(chunk);
           if (text) yield* emitInlineParts(text);
         } else if (chunk.type === "thinking") {
