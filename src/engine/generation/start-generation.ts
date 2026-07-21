@@ -4176,7 +4176,6 @@ function scheduleLorebookKeeperBackfillAfterSavedAssistant(
   input: StartGenerationInput,
   chat: JsonRecord,
   connection: JsonRecord,
-  signal?: AbortSignal,
 ): boolean {
   return scheduleLorebookKeeperBackfill({
     storage: deps.storage,
@@ -4190,7 +4189,10 @@ function scheduleLorebookKeeperBackfillAfterSavedAssistant(
           agentTypes: [LOREBOOK_KEEPER_AGENT_TYPE],
           options: { lorebookKeeperBackfill: true },
         },
-        { chat, connection, signal },
+        // Once visible completion is emitted, this repair work intentionally detaches from the
+        // foreground request signal. Explicit cancellation before done still stops generation;
+        // cancellation after done must not discard persisted-message maintenance.
+        { chat, connection },
       );
     },
   });
@@ -5124,9 +5126,12 @@ export async function* startGeneration(
         await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
         throwIfAborted(signal);
       }
-      if (savedAssistantGeneration)
-        scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection, signal);
+      if (postSaveStartedAt) {
+        reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
+      }
+      yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
       if (savedAssistantGeneration) {
+        scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
         const backgroundMaintenanceStartedAt = generationTimingStartedAt();
         let scheduledTaskCount = 0;
         try {
@@ -5158,10 +5163,6 @@ export async function* startGeneration(
           throw error;
         }
       }
-      if (postSaveStartedAt) {
-        reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
-      }
-      yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
       return;
     } catch (error) {
       if (postSaveStartedAt) {
@@ -5406,9 +5407,12 @@ export async function* startGeneration(
       await evictStalePromptSnapshotsSafely(deps.storage, chatId);
     }
     throwIfAborted(signal);
-    if (savedAssistantGeneration)
-      scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection, signal);
+    if (directPostSaveStartedAt) {
+      reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "ok");
+    }
+    yield { type: "done" };
     if (savedAssistantGeneration) {
+      scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
       const backgroundMaintenanceStartedAt = generationTimingStartedAt();
       let scheduledTaskCount = 0;
       try {
@@ -5433,10 +5437,6 @@ export async function* startGeneration(
         throw error;
       }
     }
-    if (directPostSaveStartedAt) {
-      reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "ok");
-    }
-    yield { type: "done" };
   } catch (error) {
     if (directPostSaveStartedAt) {
       reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "error");

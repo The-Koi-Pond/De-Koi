@@ -12,24 +12,27 @@ function deferred<T>() {
 }
 
 describe("scheduleLorebookKeeperBackfill", () => {
-  it("deduplicates a running chat and starts the next same-chat job only after completion", async () => {
+  it("serializes a same-chat follow-up and coalesces further requests to the latest run", async () => {
     const storage = {} as StorageGateway;
     const first = deferred<void>();
     const firstRun = vi.fn(() => first.promise);
-    const secondRun = vi.fn(async () => undefined);
+    const supersededRun = vi.fn(async () => undefined);
+    const latestRun = vi.fn(async () => undefined);
     const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
 
     try {
       expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: firstRun })).toBe(true);
-      expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: secondRun })).toBe(false);
+      expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: supersededRun })).toBe(true);
+      expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: latestRun })).toBe(true);
       await vi.waitFor(() => expect(firstRun).toHaveBeenCalledOnce());
-      expect(secondRun).not.toHaveBeenCalled();
+      expect(supersededRun).not.toHaveBeenCalled();
+      expect(latestRun).not.toHaveBeenCalled();
 
       first.resolve();
       await vi.waitFor(() => expect(debug).toHaveBeenCalledWith("[generation] lorebook keeper backfill completed", { chatId: "chat-1" }));
-
-      expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: secondRun })).toBe(true);
-      await vi.waitFor(() => expect(secondRun).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(latestRun).toHaveBeenCalledOnce());
+      expect(supersededRun).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(debug).toHaveBeenCalledTimes(2));
     } finally {
       debug.mockRestore();
     }

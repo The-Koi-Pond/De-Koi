@@ -126,12 +126,16 @@ function lorebookKeeperBackgroundStorage() {
   };
 }
 
-async function collectEvents(generator: AsyncGenerator<GenerationEvent>, events: GenerationEvent[]): Promise<void> {
-  for await (const event of generator) events.push(event);
+async function advanceToDone(generator: AsyncGenerator<GenerationEvent>): Promise<void> {
+  while (true) {
+    const next = await generator.next();
+    if (next.done) throw new Error("Generation finished before emitting done.");
+    if (next.value.type === "done") return;
+  }
 }
 
 describe("startGeneration Lorebook Keeper backfill", () => {
-  it("emits done before a deferred Lorebook Keeper backfill completes", async () => {
+  it("starts the normal-path Keeper backfill only after the consumer resumes past done", async () => {
     const { storage, releaseBackfill, backfillStarted } = lorebookKeeperBackgroundStorage();
     const llm: LlmGateway = {
       complete: vi.fn(async () => ""),
@@ -140,21 +144,54 @@ describe("startGeneration Lorebook Keeper backfill", () => {
       },
       listModels: vi.fn(async () => []),
     };
-    const events: GenerationEvent[] = [];
-    const run = collectEvents(
-      startGeneration(
-        { storage, llm, integrations: {} as IntegrationGateway },
-        { chatId: "chat-1", connectionId: "conn-1", userMessage: "Keep the lantern lit.", impersonateBlockAgents: true },
-      ),
-      events,
+    const generation = startGeneration(
+      { storage, llm, integrations: {} as IntegrationGateway },
+      { chatId: "chat-1", connectionId: "conn-1", userMessage: "Keep the lantern lit.", impersonateBlockAgents: true },
     );
 
     try {
+      await advanceToDone(generation);
+      expect(backfillStarted()).toBe(false);
+      const completion = generation.next();
       await vi.waitFor(() => expect(backfillStarted()).toBe(true));
-      expect(events.some((event) => event.type === "done")).toBe(true);
+      releaseBackfill();
+      await completion;
     } finally {
       releaseBackfill();
-      await run;
+    }
+  });
+
+  it("starts the direct-message Keeper backfill only after done and detaches foreground cancellation", async () => {
+    const { storage, releaseBackfill, backfillStarted } = lorebookKeeperBackgroundStorage();
+    const controller = new AbortController();
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream() {
+        yield { type: "token", text: "The lantern stays lit." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+    const generation = startGeneration(
+      { storage, llm, integrations: {} as IntegrationGateway },
+      {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        messages: [{ role: "user", content: "Keep the lantern lit." }],
+        impersonateBlockAgents: true,
+      },
+      controller.signal,
+    );
+
+    try {
+      await advanceToDone(generation);
+      expect(backfillStarted()).toBe(false);
+      controller.abort();
+      const completion = generation.next();
+      await vi.waitFor(() => expect(backfillStarted()).toBe(true));
+      releaseBackfill();
+      await completion;
+    } finally {
+      releaseBackfill();
     }
   });
 });
