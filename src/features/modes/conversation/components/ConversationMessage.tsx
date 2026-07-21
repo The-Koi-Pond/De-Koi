@@ -130,10 +130,12 @@ export const ConversationMessage = memo(function ConversationMessage({
   const [showThinking, setShowThinking] = useState(false);
   const [showGenerationReplay, setShowGenerationReplay] = useState(false);
   const [manuallyExpandedHidden, setManuallyExpandedHidden] = useState(false);
+  const [branchPending, setBranchPending] = useState(false);
   const [imageLightbox, setImageLightbox] = useState<{ url: string; prompt?: string | null } | null>(null);
   const openImageLightbox = useCallback((url: string, prompt?: string | null) => setImageLightbox({ url, prompt }), []);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const lastMessageTapAtRef = useRef(0);
+  const branchPendingRef = useRef(false);
 
   const guideGenerations = useUIStore((s) => s.guideGenerations);
   const chatFontSize = useUIStore((s) => s.chatFontSize);
@@ -504,6 +506,23 @@ export const ConversationMessage = memo(function ConversationMessage({
     else startEditing();
   }, [onEditClick, startEditing]);
 
+  const handleBranch = useCallback(
+    (messageId: string) => {
+      if (!onBranch || branchPendingRef.current) return;
+      branchPendingRef.current = true;
+      setBranchPending(true);
+      void (async () => {
+        try {
+          await onBranch(messageId);
+        } finally {
+          branchPendingRef.current = false;
+          setBranchPending(false);
+        }
+      })();
+    },
+    [onBranch],
+  );
+
   const context: ConversationMessageRenderContext = {
     message,
     cardCssId,
@@ -589,7 +608,8 @@ export const ConversationMessage = memo(function ConversationMessage({
     onSetActiveSwipe,
     onPeekPrompt,
     onToggleHiddenFromAI,
-    onBranch,
+    onBranch: onBranch ? handleBranch : undefined,
+    branchPending,
     onOpenCharacterProfile,
     canOpenCharacterProfile: !!onOpenCharacterProfile && !isUser && !!message.characterId && !!charInfo,
     onSaveMomentSummary,
