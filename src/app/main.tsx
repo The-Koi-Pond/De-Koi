@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MotionConfig } from "framer-motion";
 import { App } from "./App";
 import { GlobalErrorBoundary, installGlobalErrorDiagnostics, reportReactRootError } from "./GlobalErrorBoundary";
 import "../styles/globals.css";
@@ -31,10 +32,12 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement, {
   onRecoverableError: (error, errorInfo) => reportReactRootError("recoverable", error, errorInfo),
 }).render(
   <React.StrictMode>
-    <GlobalErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    </GlobalErrorBoundary>
+    <MotionConfig reducedMotion="user">
+      <GlobalErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      </GlobalErrorBoundary>
+    </MotionConfig>
   </React.StrictMode>,
 );
