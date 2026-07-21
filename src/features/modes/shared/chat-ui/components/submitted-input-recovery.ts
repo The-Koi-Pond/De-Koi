@@ -52,16 +52,16 @@ export function createSubmittedInputRecoveryHarness<TSnapshot extends SubmittedI
 ) {
   const recover = ({
     error,
-    userMessageAccepted,
+    submittedMessageMayRemain,
     savedDataMayRemain,
     submitted,
   }: {
     error?: unknown;
-    userMessageAccepted: boolean;
+    submittedMessageMayRemain: boolean;
     savedDataMayRemain: boolean;
     submitted: TSnapshot;
   }) => {
-    const restore = !userMessageAccepted && !savedDataMayRemain;
+    const restore = !submittedMessageMayRemain;
     const report = savedDataMayRemain || (error !== undefined && !isAbortError(error));
     if (!restore) return { restore, report };
 
@@ -81,24 +81,34 @@ export function createSubmittedInputRecoveryHarness<TSnapshot extends SubmittedI
           userMessageAccepted = true;
         },
         unsuccessful() {
-          return recover({ userMessageAccepted, savedDataMayRemain: false, submitted });
+          return recover({ submittedMessageMayRemain: userMessageAccepted, savedDataMayRemain: false, submitted });
         },
         failure(error: unknown) {
-          return recover({ error, userMessageAccepted, savedDataMayRemain: false, submitted });
+          return recover({
+            error,
+            submittedMessageMayRemain: userMessageAccepted,
+            savedDataMayRemain: false,
+            submitted,
+          });
         },
       };
     },
     postOnly(submitted: TSnapshot) {
-      let rollbackFailed = false;
+      let savedDataMayRemain = false;
+      let submittedMessageMayRemain = false;
       return {
-        markRollbackFailed() {
-          rollbackFailed = true;
+        markAuxiliaryDataRollbackFailed() {
+          savedDataMayRemain = true;
+        },
+        markSubmittedMessageRollbackFailed() {
+          savedDataMayRemain = true;
+          submittedMessageMayRemain = true;
         },
         get savedDataMayRemain() {
-          return rollbackFailed;
+          return savedDataMayRemain;
         },
         failure(error: unknown) {
-          return recover({ error, userMessageAccepted: false, savedDataMayRemain: rollbackFailed, submitted });
+          return recover({ error, submittedMessageMayRemain, savedDataMayRemain, submitted });
         },
       };
     },

@@ -58,6 +58,7 @@ describe("GameInput chat-scoped drafts", () => {
   afterEach(() => {
     if (root) act(() => root?.unmount());
     container.remove();
+    vi.unstubAllGlobals();
   });
 
   const renderInput = (draftKey: string, onSend: () => boolean | Promise<boolean> = () => true) => {
@@ -126,6 +127,58 @@ describe("GameInput chat-scoped drafts", () => {
     await act(async () => sendA.resolve(false));
     act(() => renderInput(`a-${suffix}`));
     expect(textarea().value).toBe("retry A");
+  });
+
+  it("routes a late file read to its origin chat after the visible chat changes", () => {
+    const suffix = crypto.randomUUID();
+    const draftA = `upload-a-${suffix}`;
+    const draftB = `upload-b-${suffix}`;
+    const readers: Array<{
+      result: string | null;
+      onload: (() => void) | null;
+      onerror: (() => void) | null;
+      onabort: (() => void) | null;
+    }> = [];
+    vi.stubGlobal(
+      "FileReader",
+      class {
+        result: string | null = null;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        onabort: (() => void) | null = null;
+
+        constructor() {
+          readers.push(this);
+        }
+
+        readAsDataURL() {}
+      },
+    );
+
+    act(() => renderInput(draftA));
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [new File(["late"], "late.png", { type: "image/png" })],
+    });
+    act(() => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(readers).toHaveLength(1);
+
+    act(() => renderInput(draftB));
+    readers[0]!.result = "data:image/png;base64,bGF0ZQ==";
+    act(() => readers[0]!.onload?.());
+
+    expect(gameInputDrafts.read(draftA).attachments).toEqual([
+      {
+        type: "image/png",
+        data: "data:image/png;base64,bGF0ZQ==",
+        name: "late.png",
+      },
+    ]);
+    expect(gameInputDrafts.read(draftB).attachments).toEqual([]);
+    expect(container.textContent).not.toContain("late.png");
+
+    gameInputDrafts.removeAttachment(draftA, 0);
   });
 
   it("keeps cached attachments protected after unmount without blocking chat navigation", async () => {

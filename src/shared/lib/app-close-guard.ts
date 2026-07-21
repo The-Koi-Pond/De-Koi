@@ -60,6 +60,7 @@ export function registerEphemeralAttachmentDraftAppCloseGuard(mode: AttachmentDr
     label: `${modeLabel} attachments`,
     hasPendingWork: () => ephemeralAttachmentDrafts.hasPendingWork(mode),
     message: `Unsent ${modeLabel.toLowerCase()} attachments are still in memory. Close anyway and lose them?`,
+    // This owner is keyed by mode + chat and survives chat/mode navigation. Only process exit loses its drafts.
     purposes: ["app-close"],
   });
 }

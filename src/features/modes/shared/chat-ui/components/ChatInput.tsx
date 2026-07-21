@@ -739,7 +739,7 @@ export const ChatInput = memo(function ChatInput({
           try {
             await deletePreparedManagedImageAttachments(preparedManagedAttachments);
           } catch {
-            submissionRecovery.markRollbackFailed();
+            submissionRecovery.markAuxiliaryDataRollbackFailed();
           }
           invalidateGalleryImagesForManagedAttachments(qc, activeChatId, preparedManagedAttachments.attachments);
         }
@@ -747,7 +747,7 @@ export const ChatInput = memo(function ChatInput({
           try {
             await deleteMessage.mutateAsync(createdMessageId);
           } catch {
-            submissionRecovery.markRollbackFailed();
+            submissionRecovery.markSubmittedMessageRollbackFailed();
           }
         }
         const recovery = submissionRecovery.failure(error);
@@ -971,7 +971,7 @@ export const ChatInput = memo(function ChatInput({
         try {
           await deletePreparedManagedImageAttachments(preparedManagedAttachments);
         } catch {
-          submissionRecovery.markRollbackFailed();
+          submissionRecovery.markAuxiliaryDataRollbackFailed();
         }
         invalidateGalleryImagesForManagedAttachments(qc, submittingChatId, preparedManagedAttachments.attachments);
       }
@@ -979,7 +979,7 @@ export const ChatInput = memo(function ChatInput({
         try {
           await deleteMessage.mutateAsync(createdMessageId);
         } catch {
-          submissionRecovery.markRollbackFailed();
+          submissionRecovery.markSubmittedMessageRollbackFailed();
         }
       }
       const recovery = submissionRecovery.failure(error);

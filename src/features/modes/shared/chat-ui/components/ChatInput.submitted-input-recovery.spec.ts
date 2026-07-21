@@ -127,19 +127,38 @@ describe("submitted chat input recovery", () => {
     });
   });
 
-  it("does not restore Post-only state when rollback failed and saved data may remain", () => {
+  it("does not restore Post-only state when the submitted message rollback failed", () => {
     const { state, recover } = createOwners();
     const submission = recover.postOnly({
       chatId: "origin-chat",
       text: "Posted draft",
       attachments: [submittedAttachment],
     });
-    submission.markRollbackFailed();
+    submission.markSubmittedMessageRollbackFailed();
 
     const result = submission.failure(new Error("Attachment failed"));
 
     expect(result).toEqual({ restore: false, report: true });
     expect(state.visible.text).toBe("Newer visible draft");
     expect(state.persistedText).toBe("");
+  });
+
+  it("restores Post-only state while reporting auxiliary saved data that failed cleanup", () => {
+    const { state, recover } = createOwners();
+    const submission = recover.postOnly({
+      chatId: "origin-chat",
+      text: "Posted draft",
+      attachments: [submittedAttachment],
+    });
+    submission.markAuxiliaryDataRollbackFailed();
+
+    const result = submission.failure(new Error("Attachment cleanup failed"));
+
+    expect(result).toEqual({ restore: true, report: true });
+    expect(state.visible).toEqual({
+      text: "Posted draft\n\nNewer visible draft",
+      attachments: [submittedAttachment, newerAttachment],
+    });
+    expect(state.persistedText).toBe("Posted draft\n\nNewer visible draft");
   });
 });
