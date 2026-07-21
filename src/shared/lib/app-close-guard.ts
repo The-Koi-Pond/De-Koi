@@ -1,19 +1,24 @@
 import { closeDesktopWindow } from "../api/window-controls-api";
 import { showConfirmDialog } from "./app-dialogs";
+import { ephemeralAttachmentDrafts, type AttachmentDraftMode } from "./ephemeral-attachment-drafts";
+
+export type PendingWorkPurpose = "app-close" | "navigation";
 
 export type AppCloseGuard = {
   label: string;
   hasPendingWork: () => boolean;
   flush?: () => void | Promise<void>;
   message?: string;
+  purposes?: readonly PendingWorkPurpose[];
 };
 
 let nextGuardId = 1;
 let closeInProgress = false;
 const closeGuards = new Map<number, AppCloseGuard>();
 
-function pendingGuards() {
+function pendingGuards(purpose?: PendingWorkPurpose) {
   return [...closeGuards.values()].filter((guard) => {
+    if (purpose && guard.purposes && !guard.purposes.includes(purpose)) return false;
     try {
       return guard.hasPendingWork();
     } catch {
@@ -23,7 +28,7 @@ function pendingGuards() {
 }
 
 export function hasPendingAppCloseWork() {
-  return pendingGuards().length > 0;
+  return pendingGuards("app-close").length > 0;
 }
 
 function formatGuardList(guards: readonly AppCloseGuard[]) {
@@ -41,15 +46,45 @@ export function registerAppCloseGuard(guard: AppCloseGuard) {
   };
 }
 
+export function registerEditorDirtyAppCloseGuard(isEditorDirty: () => boolean) {
+  return registerAppCloseGuard({
+    label: "Editor changes",
+    hasPendingWork: isEditorDirty,
+    message: "An editor has unsaved changes. Continue anyway and discard them?",
+  });
+}
+
+export function registerEphemeralAttachmentDraftAppCloseGuard(mode: AttachmentDraftMode) {
+  const modeLabel = mode === "roleplay" ? "Roleplay" : mode === "conversation" ? "Conversation" : "Game";
+  return registerAppCloseGuard({
+    label: `${modeLabel} attachments`,
+    hasPendingWork: () => ephemeralAttachmentDrafts.hasPendingWork(mode),
+    message: `Unsent ${modeLabel.toLowerCase()} attachments are still in memory. Close anyway and lose them?`,
+    // This owner is keyed by mode + chat and survives chat/mode navigation. Only process exit loses its drafts.
+    purposes: ["app-close"],
+  });
+}
+
+export function registerBrowserBeforeUnloadGuard(target: Window = window) {
+  const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+    if (!hasPendingAppCloseWork()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  };
+  target.addEventListener("beforeunload", handleBeforeUnload);
+  return () => target.removeEventListener("beforeunload", handleBeforeUnload);
+}
+
 export async function confirmDiscardPendingAppWork(options?: {
+  purpose?: PendingWorkPurpose;
   title?: string;
   confirmLabel?: string;
   cancelLabel?: string;
 }) {
-  for (const guard of pendingGuards()) {
+  for (const guard of pendingGuards(options?.purpose)) {
     if (guard.flush) await guard.flush();
   }
-  const remaining = pendingGuards();
+  const remaining = pendingGuards(options?.purpose);
   if (remaining.length === 0) return true;
   return showConfirmDialog({
     title: options?.title ?? "Leave this work?",
@@ -67,6 +102,7 @@ export async function requestGuardedAppClose() {
   closeInProgress = true;
   try {
     const confirmed = await confirmDiscardPendingAppWork({
+      purpose: "app-close",
       title: "Close De-Koi?",
       confirmLabel: "Close anyway",
     });

@@ -2,6 +2,11 @@ import { useState } from "react";
 import { AlertTriangle, Check, Loader2, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../../../../shared/lib/utils";
+import {
+  getExpungeFailureReceipt,
+  type ExpungeFailureReceipt,
+  type ExpungeSuccessReceipt,
+} from "../../../../../shared/api/admin-api";
 import { useClearAllData, useExpungeData, type ExpungeScope } from "../../hooks/use-admin-data-reset";
 import { canEraseAllDeKoiData, FULL_DATA_ERASE_PHRASE } from "../../lib/privacy-data-controls";
 import { BackupExportSettings } from "./BackupExportSettings";
@@ -17,6 +22,19 @@ const SCOPE_OPTIONS: Array<{ id: ExpungeScope; label: string; description: strin
   { id: "media", label: "Media & Assets", description: "Gallery items, backgrounds, fonts, and knowledge files." },
 ];
 
+type ExpungeResult = ExpungeSuccessReceipt | ExpungeFailureReceipt;
+
+function expungeScopeLabels(scopes: readonly string[]): string {
+  const labels = scopes
+    .map((scope) => SCOPE_OPTIONS.find((option) => option.id === scope)?.label)
+    .filter((label): label is string => !!label);
+  return labels.length > 0 ? labels.join(", ") : "None";
+}
+
+function supportedExpungeScopes(scopes: readonly string[]): ExpungeScope[] {
+  return scopes.filter((scope): scope is ExpungeScope => SCOPE_OPTIONS.some((option) => option.id === scope));
+}
+
 export function PrivacyDataSettings() {
   const clearAllData = useClearAllData();
   const expungeData = useExpungeData();
@@ -24,22 +42,47 @@ export function PrivacyDataSettings() {
   const [confirmSelected, setConfirmSelected] = useState(false);
   const [showFullWipe, setShowFullWipe] = useState(false);
   const [confirmationPhrase, setConfirmationPhrase] = useState("");
+  const [expungeResult, setExpungeResult] = useState<ExpungeResult | null>(null);
   const isClearing = clearAllData.isPending || expungeData.isPending;
   const allSelected = selectedScopes.length === SCOPE_OPTIONS.length;
 
   const toggleScope = (scope: ExpungeScope) => {
+    setExpungeResult(null);
     setSelectedScopes((current) =>
       current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope],
     );
   };
 
-  const clearSelected = () => {
-    expungeData.mutate(selectedScopes, {
-      onSuccess: () => toast.success("Selected De-Koi data was permanently erased."),
-      onError: () => toast.error("De-Koi couldn't finish erasing the selected data. Some items may remain."),
+  const eraseScopes = (scopes: ExpungeScope[]) => {
+    if (scopes.length === 0) return;
+    expungeData.mutate(scopes, {
+      onSuccess: (receipt) => {
+        setExpungeResult(receipt);
+        setSelectedScopes([]);
+        toast.success("Selected De-Koi data was permanently erased.");
+      },
+      onError: (error) => {
+        const receipt = getExpungeFailureReceipt(error);
+        const mutated = !!receipt && (receipt.completedScopes.length > 0 || receipt.clearedCollections.length > 0);
+        const hasStructuredFailure = !!receipt && receipt.failedScope !== null;
+        if (receipt && (mutated || hasStructuredFailure)) {
+          setExpungeResult(receipt);
+          setSelectedScopes(supportedExpungeScopes(receipt.remainingScopes));
+          toast.error(
+            mutated
+              ? "De-Koi erased some selected data, but could not finish. Review the exact result and retry."
+              : "De-Koi couldn't erase the selected data. Review the exact result and retry.",
+          );
+          return;
+        }
+        setExpungeResult(null);
+        toast.error("De-Koi couldn't finish erasing the selected data. Some items may remain.");
+      },
       onSettled: () => setConfirmSelected(false),
     });
   };
+
+  const clearSelected = () => eraseScopes(selectedScopes);
 
   const eraseEverything = () => {
     if (!canEraseAllDeKoiData(confirmationPhrase)) return;
@@ -109,7 +152,10 @@ export function PrivacyDataSettings() {
           <button
             type="button"
             disabled={isClearing}
-            onClick={() => setSelectedScopes(allSelected ? [] : SCOPE_OPTIONS.map((scope) => scope.id))}
+            onClick={() => {
+              setExpungeResult(null);
+              setSelectedScopes(allSelected ? [] : SCOPE_OPTIONS.map((scope) => scope.id));
+            }}
             className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium"
           >
             {allSelected ? "Clear selection" : "Select all"}
@@ -147,6 +193,51 @@ export function PrivacyDataSettings() {
                 delete
               </button>
             </div>
+          </div>
+        )}
+        {expungeResult && (
+          <div
+            role={expungeResult.success ? "status" : "alert"}
+            className={cn(
+              "mt-3 rounded-lg p-2.5 ring-1",
+              expungeResult.success ? "bg-emerald-500/10 ring-emerald-500/25" : "bg-amber-500/10 ring-amber-500/25",
+            )}
+          >
+            <p className="text-[0.6875rem] font-semibold">
+              {expungeResult.success
+                ? "Selected data erasure completed."
+                : expungeResult.completedScopes.length > 0 || expungeResult.clearedCollections.length > 0
+                  ? "Selected data erasure partially completed."
+                  : "Selected data erasure could not start."}
+            </p>
+            <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+              Requested: {expungeScopeLabels(expungeResult.requestedScopes)}.
+            </p>
+            <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+              {expungeResult.success ? "Erased" : "Completed"}: {expungeScopeLabels(expungeResult.completedScopes)}.
+            </p>
+            {!expungeResult.success && (
+              <>
+                <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                  Still to erase: {expungeScopeLabels(expungeResult.remainingScopes)}.
+                </p>
+                {expungeResult.clearedCollections.length > 0 && (
+                  <p className="mt-1 text-[0.5625rem] text-[var(--muted-foreground)]">
+                    Collections cleared before the failure: {expungeResult.clearedCollections.join(", ")}.
+                  </p>
+                )}
+                {expungeResult.remainingScopes.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={isClearing}
+                    onClick={() => eraseScopes(supportedExpungeScopes(expungeResult.remainingScopes))}
+                    className="mt-2 rounded-lg border border-amber-500/35 px-3 py-1.5 text-[0.6875rem] font-semibold disabled:opacity-50"
+                  >
+                    Retry remaining data
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

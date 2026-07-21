@@ -13,9 +13,15 @@ vi.mock("../api/window-controls-api", () => windowControls);
 
 import {
   confirmDiscardPendingAppWork,
+  hasPendingAppCloseWork,
   registerAppCloseGuard,
+  registerBrowserBeforeUnloadGuard,
+  registerEditorDirtyAppCloseGuard,
+  registerEphemeralAttachmentDraftAppCloseGuard,
   requestGuardedAppClose,
 } from "./app-close-guard";
+import { ephemeralAttachmentDrafts } from "./ephemeral-attachment-drafts";
+import { useUIStore } from "../stores/ui.store";
 
 const cleanups: Array<() => void> = [];
 
@@ -23,6 +29,52 @@ describe("app close guard", () => {
   afterEach(() => {
     while (cleanups.length > 0) cleanups.pop()?.();
     vi.clearAllMocks();
+    useUIStore.setState({ editorDirty: false });
+    ephemeralAttachmentDrafts.clear("roleplay", "roleplay-a");
+  });
+
+  it("tracks the central editor dirty state as pending app-close work", () => {
+    cleanups.push(registerEditorDirtyAppCloseGuard(() => useUIStore.getState().editorDirty));
+
+    expect(hasPendingAppCloseWork()).toBe(false);
+
+    useUIStore.setState({ editorDirty: true });
+
+    expect(hasPendingAppCloseWork()).toBe(true);
+  });
+
+  it("marks browser unload as cancelable while app-close work is pending", () => {
+    cleanups.push(
+      registerAppCloseGuard({
+        label: "Draft",
+        hasPendingWork: () => true,
+      }),
+    );
+    cleanups.push(registerBrowserBeforeUnloadGuard(window));
+    const event = new Event("beforeunload", { cancelable: true });
+
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("tracks cached roleplay attachments for close without blocking safe navigation", async () => {
+    cleanups.push(registerEphemeralAttachmentDraftAppCloseGuard("roleplay"));
+    dialogs.showConfirmDialog.mockResolvedValue(false);
+
+    ephemeralAttachmentDrafts.replace("roleplay", "roleplay-a", [
+      { type: "image/png", data: "data:image/png;base64,a", name: "a.png" },
+    ]);
+
+    expect(hasPendingAppCloseWork()).toBe(true);
+    await expect(confirmDiscardPendingAppWork({ purpose: "navigation" })).resolves.toBe(true);
+    expect(dialogs.showConfirmDialog).not.toHaveBeenCalled();
+
+    await expect(confirmDiscardPendingAppWork({ purpose: "app-close" })).resolves.toBe(false);
+    expect(dialogs.showConfirmDialog).toHaveBeenCalledTimes(1);
+
+    ephemeralAttachmentDrafts.clear("roleplay", "roleplay-a");
+    expect(hasPendingAppCloseWork()).toBe(false);
   });
 
   it("flushes pending guards before prompting", async () => {
@@ -51,7 +103,7 @@ describe("app close guard", () => {
       }),
     );
 
-    await expect(confirmDiscardPendingAppWork({ title: "Switch chats?" })).resolves.toBe(false);
+    await expect(confirmDiscardPendingAppWork({ purpose: "navigation", title: "Switch chats?" })).resolves.toBe(false);
     expect(dialogs.showConfirmDialog).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Switch chats?",
@@ -61,8 +113,8 @@ describe("app close guard", () => {
   });
 
   it.each([
-    ["chat switch", { title: "Switch chats?", confirmLabel: "Switch anyway" }],
-    ["mode switch", { title: "Switch chat modes?", confirmLabel: "Switch anyway" }],
+    ["chat switch", { purpose: "navigation" as const, title: "Switch chats?", confirmLabel: "Switch anyway" }],
+    ["mode switch", { purpose: "navigation" as const, title: "Switch chat modes?", confirmLabel: "Switch anyway" }],
   ])("blocks %s when pending work remains and the user cancels", async (_transition, options) => {
     dialogs.showConfirmDialog.mockResolvedValue(false);
     cleanups.push(

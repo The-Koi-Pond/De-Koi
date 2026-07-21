@@ -2,7 +2,7 @@ import { APP_VERSION } from "../../engine/contracts/constants/defaults";
 import { SUPPORT_LINKS } from "../config/support-links";
 import { openExternalUrl } from "../api/external-link-api";
 
-export type SupportReportSource = "crash-screen" | "health-diagnostics" | "help-hub" | "query-error";
+export type SupportReportSource = "crash-screen" | "health-diagnostics" | "help-hub" | "query-error" | "discover";
 
 export type SupportPlatformInfo = {
   os: string;
@@ -97,7 +97,9 @@ export function buildBugReportUrl({
       "",
       "```text",
       inlineReport,
-      reportText.length > maxInlineReportLength ? "[Report truncated by De-Koi because automatic copy was unavailable.]" : "",
+      reportText.length > maxInlineReportLength
+        ? "[Report truncated by De-Koi because automatic copy was unavailable.]"
+        : "",
       "```",
     );
   }

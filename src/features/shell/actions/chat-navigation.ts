@@ -1,7 +1,12 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useExitGameSetupFromShell } from "../../modes/game/startup";
 import { useChatStore } from "../../../shared/stores/chat.store";
 import { useUIStore } from "../../../shared/stores/ui.store";
+import { confirmDiscardPendingAppWork } from "../../../shared/lib/app-close-guard";
+import {
+  LOCAL_NOTIFICATION_ACTIVATION_EVENT,
+  type LocalNotificationActivationDetail,
+} from "../../../shared/lib/local-notifications";
 
 export function useNavigateToChatFromShell() {
   const setActiveChatId = useChatStore((state) => state.setActiveChatId);
@@ -13,7 +18,17 @@ export function useNavigateToChatFromShell() {
   const exitGameSetup = useExitGameSetupFromShell();
 
   return useCallback(
-    (chatId: string) => {
+    async (chatId: string) => {
+      if (useChatStore.getState().activeChatId === chatId) return;
+      if (
+        !(await confirmDiscardPendingAppWork({
+          purpose: "navigation",
+          title: "Switch chats?",
+          confirmLabel: "Switch anyway",
+        }))
+      ) {
+        return;
+      }
       closeAllDetails();
       setPendingNewChatMode(null);
       setShouldOpenSettings(false);
@@ -32,4 +47,18 @@ export function useNavigateToChatFromShell() {
       setShouldOpenWizardInShortcutMode,
     ],
   );
+}
+
+export function useLocalNotificationNavigation() {
+  const navigateToChat = useNavigateToChatFromShell();
+
+  useEffect(() => {
+    const handleActivation = (event: Event) => {
+      const chatId = (event as CustomEvent<LocalNotificationActivationDetail>).detail?.chatId?.trim();
+      if (chatId) void navigateToChat(chatId);
+    };
+
+    window.addEventListener(LOCAL_NOTIFICATION_ACTIVATION_EVENT, handleActivation);
+    return () => window.removeEventListener(LOCAL_NOTIFICATION_ACTIVATION_EVENT, handleActivation);
+  }, [navigateToChat]);
 }

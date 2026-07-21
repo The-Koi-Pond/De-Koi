@@ -2,7 +2,17 @@
 // Game: Input Bar (send message, roll dice, attach files, emoji)
 // ──────────────────────────────────────────────
 import { useState, useRef, useEffect, useCallback, useMemo, type KeyboardEvent } from "react";
-import { Send, Dices, Paperclip, Smile, Users, MessageCircle, MessageSquare, Languages, StopCircle } from "lucide-react";
+import {
+  Send,
+  Dices,
+  Paperclip,
+  Smile,
+  Users,
+  MessageCircle,
+  MessageSquare,
+  Languages,
+  StopCircle,
+} from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
 import { EmojiPicker } from "../../../../shared/components/ui/EmojiPicker";
@@ -10,12 +20,7 @@ import { SpeechToTextButton } from "../../../../shared/components/ui/SpeechToTex
 import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickReplyIcon";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
-import {
-  getDraftTranslationActionState,
-  useDraftTranslation,
-} from "../../../../shared/hooks/use-draft-translation";
-import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
-import { notifyDraftPersistenceFailure } from "../../../../shared/lib/draft-persistence-events";
+import { getDraftTranslationActionState, useDraftTranslation } from "../../../../shared/hooks/use-draft-translation";
 import { MAX_FILE_SIZES } from "../../../../engine/contracts/constants/defaults";
 import type { DiceRollResult } from "../../../../engine/contracts/types/game";
 import type { PromptAttachment } from "../../../../shared/api/message-attachment-api";
@@ -28,15 +33,9 @@ import {
   QuickReplyMenu,
   type QuickReplyAction,
 } from "../../shared/chat-ui";
+import { ensureGameInputDraftCloseGuard } from "../lib/game-input-draft-close-guard";
+import { gameInputDrafts, type GameInputAddressMode, type GameInputAttachment } from "../lib/game-input-drafts";
 import { buildGameUserQuickReplyMenuEntries } from "../lib/game-user-quick-replies";
-
-interface Attachment {
-  type: string;
-  data: string;
-  name: string;
-}
-
-type AddressMode = "scene" | "party" | "gm";
 
 interface GameInputProps {
   onSend: (
@@ -69,34 +68,7 @@ interface GameInputProps {
 
 const QUICK_DICE = ["d20", "d6", "2d6", "d10", "d100", "d4", "d8", "d12"];
 
-function readGameInputDraft(storageKey: string | null): string {
-  if (!storageKey) return "";
-  try {
-    const stored = localStorage.getItem(storageKey);
-    if (stored !== null) return stored;
-  } catch (error) {
-    notifyDraftPersistenceFailure("game input draft", "load", error);
-  }
-  return "";
-}
-
-function writeGameInputDraft(storageKey: string | null, value: string): void {
-  if (!storageKey) return;
-  try {
-    localStorage.setItem(storageKey, value);
-  } catch (error) {
-    notifyDraftPersistenceFailure("game input draft", "save", error);
-  }
-}
-
-function clearGameInputDraft(storageKey: string | null): void {
-  if (!storageKey) return;
-  try {
-    localStorage.removeItem(storageKey);
-  } catch (error) {
-    notifyDraftPersistenceFailure("game input draft", "clear", error);
-  }
-}
+ensureGameInputDraftCloseGuard();
 
 function formatDiceResultTag(result: DiceRollResult): string {
   const rollDetail =
@@ -124,20 +96,21 @@ export function GameInput({
   const quoteFormat = useUIStore((s) => s.quoteFormat);
   const showQuickRepliesMenu = useUIStore((s) => s.showQuickRepliesMenu);
   const userQuickReplyActions = useUIStore((s) => s.userQuickReplyActions);
-  const storageKey = draftKey ? `game-input-draft:${draftKey}` : null;
-  const [text, setText] = useState(() => readGameInputDraft(storageKey));
+  const initialDraftRef = useRef(gameInputDrafts.read(draftKey));
+  const [text, setText] = useState(initialDraftRef.current.text);
   const [showDice, setShowDice] = useState(false);
   const [customDice, setCustomDice] = useState("");
-  const [queuedDice, setQueuedDice] = useState<string | null>(null);
-  const [rollingQueuedDice, setRollingQueuedDice] = useState(false);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [queuedDice, setQueuedDice] = useState<string | null>(initialDraftRef.current.queuedDice);
+  const [rollingDraftKeys, setRollingDraftKeys] = useState<Set<string | null | undefined>>(() => new Set());
+  const rollingQueuedDice = rollingDraftKeys.has(draftKey);
+  const [attachments, setAttachments] = useState<GameInputAttachment[]>(initialDraftRef.current.attachments);
   const { isTranslatingDraft, translateDraft, cancelDraftTranslation } = useDraftTranslation();
   const draftTranslationAction = getDraftTranslationActionState({
     isTranslating: isTranslatingDraft,
     canStart: !disabled && Boolean(text.trim()),
   });
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const [addressMode, setAddressMode] = useState<AddressMode>("scene");
+  const [addressMode, setAddressMode] = useState<GameInputAddressMode>(initialDraftRef.current.addressMode);
   const [addressMenuOpen, setAddressMenuOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -145,7 +118,8 @@ export function GameInput({
   const inputBarRef = useRef<HTMLDivElement>(null);
   const addressButtonRef = useRef<HTMLButtonElement>(null);
   const addressMenuRef = useRef<HTMLDivElement>(null);
-  const attachmentsRef = useRef<Attachment[]>([]);
+  const currentDraftKeyRef = useRef(draftKey);
+  currentDraftKeyRef.current = draftKey;
   const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChat = useChatStore((s) => s.activeChat);
   const chatMetadata = useMemo(() => {
@@ -160,31 +134,25 @@ export function GameInput({
   const showDraftTranslateButton = chatMetadata.showInputTranslateButton === true;
 
   useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
-
-  useEffect(() => {
-    return registerAppCloseGuard({
-      label: "Game turn attachments",
-      hasPendingWork: () => attachmentsRef.current.length > 0,
-      message: "Unsent game attachments have not been saved. Close anyway and lose those attachments?",
-    });
-  }, []);
-
-  useEffect(() => {
-    const draft = readGameInputDraft(storageKey);
-    setText(draft);
+    const draft = gameInputDrafts.read(draftKey);
+    setText(draft.text);
+    setQueuedDice(draft.queuedDice);
+    setAddressMode(draft.addressMode);
+    setAttachments(draft.attachments);
+    setShowDice(false);
+    setAddressMenuOpen(false);
     requestAnimationFrame(() => {
       if (!inputRef.current) return;
       inputRef.current.style.height = "auto";
       inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`;
     });
-  }, [storageKey]);
+  }, [draftKey]);
 
   useEffect(() => {
     if (addressMode !== "party" || hasPartyMembers) return;
+    gameInputDrafts.setAddressMode(draftKey, "scene");
     setAddressMode("scene");
-  }, [addressMode, hasPartyMembers]);
+  }, [addressMode, draftKey, hasPartyMembers]);
 
   // Honors focus requests even if the input was disabled at the time the
   // token bumped (e.g. Interrupt clicked while `isStreaming` is still true) —
@@ -213,30 +181,37 @@ export function GameInput({
   /** Update text state and persist draft */
   const updateText = useCallback(
     (value: string) => {
+      gameInputDrafts.setText(draftKey, value);
       setText(value);
-      writeGameInputDraft(storageKey, value);
     },
-    [storageKey],
+    [draftKey],
   );
 
-  /** Clear the persisted draft */
-  const clearDraft = useCallback(() => {
-    clearGameInputDraft(storageKey);
-  }, [storageKey]);
+  const refreshVisibleDraft = useCallback((originDraftKey: string | null | undefined) => {
+    if (currentDraftKeyRef.current !== originDraftKey) return;
+    const current = gameInputDrafts.read(originDraftKey);
+    setText(current.text);
+    setQueuedDice(current.queuedDice);
+    setAddressMode(current.addressMode);
+    setAttachments(current.attachments);
+  }, []);
 
   const executeGameQuickReplyCommand = useCallback(
-    async (commandLine: string, fallbackError: string) => {
+    async (commandLine: string, fallbackError: string, consumesDraft: boolean) => {
       void fallbackError;
       if (disabled || rollingQueuedDice) return;
+      const submission = gameInputDrafts.captureSubmission(draftKey);
       const sent = await onSend(commandLine, undefined, { commitPendingMove: false });
       if (!sent) return;
 
-      setText("");
-      clearDraft();
-      if (inputRef.current) inputRef.current.style.height = "auto";
-      inputRef.current?.focus();
+      if (consumesDraft) gameInputDrafts.completeTextSubmission(submission, true);
+      refreshVisibleDraft(submission.draftKey);
+      if (currentDraftKeyRef.current === submission.draftKey) {
+        if (inputRef.current) inputRef.current.style.height = "auto";
+        inputRef.current?.focus();
+      }
     },
-    [clearDraft, disabled, onSend, rollingQueuedDice],
+    [disabled, draftKey, onSend, refreshVisibleDraft, rollingQueuedDice],
   );
 
   const quickReplyActions = useMemo<QuickReplyAction[]>(() => {
@@ -275,16 +250,23 @@ export function GameInput({
     text,
     userQuickReplyActions,
   ]);
-  const handleAddressModeSelect = useCallback((nextMode: Exclude<AddressMode, "scene">) => {
-    setAddressMode((current) => (current === nextMode ? "scene" : nextMode));
-    setAddressMenuOpen(false);
-    inputRef.current?.focus();
-  }, []);
+  const handleAddressModeSelect = useCallback(
+    (nextMode: Exclude<GameInputAddressMode, "scene">) => {
+      const selectedMode = addressMode === nextMode ? "scene" : nextMode;
+      gameInputDrafts.setAddressMode(draftKey, selectedMode);
+      setAddressMode(selectedMode);
+      setAddressMenuOpen(false);
+      inputRef.current?.focus();
+    },
+    [addressMode, draftKey],
+  );
 
   const handleSend = async () => {
-    const trimmed = text.trim();
-    const commitPendingMove = !!pendingMoveLabel && addressMode === "scene";
-    const hasTurnContent = trimmed.length > 0 || attachments.length > 0 || commitPendingMove || !!queuedDice;
+    const submission = gameInputDrafts.captureSubmission(draftKey);
+    const trimmed = submission.text.trim();
+    const commitPendingMove = !!pendingMoveLabel && submission.addressMode === "scene";
+    const hasTurnContent =
+      trimmed.length > 0 || submission.attachments.length > 0 || commitPendingMove || !!submission.queuedDice;
     if (!hasTurnContent || disabled || rollingQueuedDice) return;
 
     let body = trimmed;
@@ -293,40 +275,42 @@ export function GameInput({
     }
 
     const pendingAttachments =
-      attachments.length > 0
-        ? attachments.map((a) => ({ type: a.type, data: a.data, filename: a.name, name: a.name }))
+      submission.attachments.length > 0
+        ? submission.attachments.map((a) => ({ type: a.type, data: a.data, filename: a.name, name: a.name }))
         : undefined;
 
-    let clearQueuedDiceOnSend = false;
-    if (queuedDice) {
-      setRollingQueuedDice(true);
+    if (submission.queuedDice) {
+      setRollingDraftKeys((keys) => new Set(keys).add(submission.draftKey));
       let diceResult: DiceRollResult | null = null;
       try {
-        diceResult = await onRollDice(queuedDice);
+        diceResult = await onRollDice(submission.queuedDice);
       } finally {
-        setRollingQueuedDice(false);
+        setRollingDraftKeys((keys) => {
+          const next = new Set(keys);
+          next.delete(submission.draftKey);
+          return next;
+        });
       }
       if (!diceResult) return;
       const diceTag = formatDiceResultTag(diceResult);
       body = body ? `${body}\n${diceTag}` : diceTag;
-      clearQueuedDiceOnSend = true;
     }
 
-    if (addressMode === "party") {
+    if (submission.addressMode === "party") {
       body = body ? `[To the party] ${body}` : "[To the party]";
-    } else if (addressMode === "gm") {
+    } else if (submission.addressMode === "gm") {
       body = body ? `[To the GM] ${body}` : "[To the GM]";
     }
 
     const sent = await onSend(body, pendingAttachments, { commitPendingMove });
+    gameInputDrafts.completeSubmission(submission, sent);
     if (!sent) return;
 
-    setText("");
-    clearDraft();
-    setAttachments([]);
-    if (clearQueuedDiceOnSend) setQueuedDice(null);
-    if (inputRef.current) inputRef.current.style.height = "auto";
-    inputRef.current?.focus();
+    refreshVisibleDraft(submission.draftKey);
+    if (currentDraftKeyRef.current === submission.draftKey) {
+      if (inputRef.current) inputRef.current.style.height = "auto";
+      inputRef.current?.focus();
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -337,24 +321,41 @@ export function GameInput({
   };
 
   const handleDiceRoll = (notation: string) => {
+    gameInputDrafts.setQueuedDice(draftKey, notation);
     setQueuedDice(notation);
     setShowDice(false);
   };
 
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files?.length) return;
-    for (const file of Array.from(files)) {
-      // Skip oversized files before reading them into a data URL.
-      if (file.size > MAX_FILE_SIZES.IMAGE_UPLOAD) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        setAttachments((prev) => [...prev, { type: file.type, data: reader.result as string, name: file.name }]);
-      };
-      reader.readAsDataURL(file);
-    }
-    e.target.value = "";
-  }, []);
+  const handleFileUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files?.length) return;
+      const originDraftKey = currentDraftKeyRef.current;
+      for (const file of Array.from(files)) {
+        // Skip oversized files before reading them into a data URL.
+        if (file.size > MAX_FILE_SIZES.IMAGE_UPLOAD) continue;
+        const pendingRead = gameInputDrafts.beginAttachmentRead(originDraftKey);
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result !== "string") {
+            pendingRead.cancel();
+            return;
+          }
+          pendingRead.complete({ type: file.type, data: reader.result, name: file.name });
+          refreshVisibleDraft(originDraftKey);
+        };
+        reader.onerror = () => pendingRead.cancel();
+        reader.onabort = () => pendingRead.cancel();
+        try {
+          reader.readAsDataURL(file);
+        } catch {
+          pendingRead.cancel();
+        }
+      }
+      e.target.value = "";
+    },
+    [refreshVisibleDraft],
+  );
 
   const handleEmojiSelect = useCallback(
     (emoji: string) => {
@@ -375,16 +376,21 @@ export function GameInput({
 
   const handleTranslateDraft = useCallback(async () => {
     if (disabled || isTranslatingDraft || !text.trim()) return;
+    const originDraftKey = draftKey;
+    const originalText = text;
     const translated = await translateDraft(text);
     if (!translated) return;
-    updateText(translated);
+    if (gameInputDrafts.read(originDraftKey).text !== originalText) return;
+    gameInputDrafts.setText(originDraftKey, translated);
+    refreshVisibleDraft(originDraftKey);
+    if (currentDraftKeyRef.current !== originDraftKey) return;
     requestAnimationFrame(() => {
       if (!inputRef.current) return;
       inputRef.current.style.height = "auto";
       inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`;
       inputRef.current.focus();
     });
-  }, [disabled, isTranslatingDraft, text, translateDraft, updateText]);
+  }, [disabled, draftKey, isTranslatingDraft, refreshVisibleDraft, text, translateDraft]);
 
   const handleSpeechTranscript = useCallback(
     (transcript: string) => {
@@ -492,7 +498,10 @@ export function GameInput({
               )}
               <span className="max-w-[80px] truncate">{att.name}</span>
               <button
-                onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                onClick={() => {
+                  gameInputDrafts.removeAttachment(draftKey, i);
+                  refreshVisibleDraft(draftKey);
+                }}
                 className="text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
               >
                 ✕
@@ -637,7 +646,10 @@ export function GameInput({
             🎲 {queuedDice}
             <button
               type="button"
-              onClick={() => setQueuedDice(null)}
+              onClick={() => {
+                gameInputDrafts.setQueuedDice(draftKey, null);
+                setQueuedDice(null);
+              }}
               className="ml-1 text-[var(--muted-foreground)]/60 transition-colors hover:text-[var(--foreground)]"
               title="Clear queued roll"
             >
@@ -701,9 +713,7 @@ export function GameInput({
           <button
             type="button"
             onClick={() =>
-              draftTranslationAction.action === "cancel"
-                ? cancelDraftTranslation()
-                : void handleTranslateDraft()
+              draftTranslationAction.action === "cancel" ? cancelDraftTranslation() : void handleTranslateDraft()
             }
             disabled={draftTranslationAction.disabled}
             className={cn(

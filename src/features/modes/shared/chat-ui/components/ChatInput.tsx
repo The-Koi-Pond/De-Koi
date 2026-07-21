@@ -48,19 +48,17 @@ import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { isSendShortcut } from "../../../../../shared/lib/send-shortcuts";
 import { applyTextareaQuoteFormat } from "../../../../../shared/lib/textarea-quotes";
 import { requestChatScrollToBottom } from "../../../../../shared/lib/chat-scroll-events";
-import {
-  DISCOVERY_APP_EVENT,
-  type DiscoveryAppEventDetail,
-} from "../../../../../shared/lib/discovery-navigation";
+import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../../../../shared/lib/discovery-navigation";
 import { cn, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { UserQuickReplyIcon } from "../../../../../shared/components/ui/UserQuickReplyIcon";
 import { blobToDataUrl } from "../../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../../shared/lib/chat-attachment-images";
 import {
-  getDraftTranslationActionState,
-  useDraftTranslation,
-} from "../../../../../shared/hooks/use-draft-translation";
+  ephemeralAttachmentDrafts,
+  type EphemeralAttachmentDraft,
+} from "../../../../../shared/lib/ephemeral-attachment-drafts";
+import { getDraftTranslationActionState, useDraftTranslation } from "../../../../../shared/hooks/use-draft-translation";
 import { EmojiPicker } from "../../../../../shared/components/ui/EmojiPicker";
 import { SpeechToTextButton } from "../../../../../shared/components/ui/SpeechToTextButton";
 import { QuickConnectionSwitcher } from "./QuickConnectionSwitcher";
@@ -70,6 +68,7 @@ import { SlashCommandFeedback } from "./SlashCommandFeedback";
 import { QuickReplyMenu, type QuickReplyAction } from "./QuickReplyMenu";
 import { buildUserQuickReplyMenuEntries } from "../lib/custom-quick-replies";
 import { MISSING_MODEL_RECOVERY_MESSAGE } from "../lib/missing-model-recovery";
+import { createSubmittedInputRecoveryHarness } from "./submitted-input-recovery";
 import {
   CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
   CHAT_INPUT_ICON_BUTTON_CLASS,
@@ -79,11 +78,9 @@ import {
 } from "./input-button-styles";
 import type { PeekPromptOptions } from "../types";
 
-interface Attachment {
-  type: string; // MIME type
-  data: string; // base64 data URL
-  name: string;
-}
+type ChatInputAttachment = EphemeralAttachmentDraft;
+
+type Attachment = ChatInputAttachment;
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
@@ -152,6 +149,14 @@ interface ChatInputProps {
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
 }
 
+type SubmittedInputSnapshot = {
+  chatId: string;
+  text: string;
+  height: string;
+  attachments: readonly ChatInputAttachment[];
+  completions: readonly SlashCommand[];
+};
+
 export const ChatInput = memo(function ChatInput({
   mode = "conversation",
   characterNames = [],
@@ -165,7 +170,7 @@ export const ChatInput = memo(function ChatInput({
   const [selectedCompletion, setSelectedCompletion] = useState(0);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [pendingAttachmentReadsByChat, setPendingAttachmentReadsByChat] = useState<Record<string, number>>({});
+  const [, setAttachmentDraftRevision] = useState(0);
   const { isTranslatingDraft, translateDraft, cancelDraftTranslation } = useDraftTranslation();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -179,7 +184,6 @@ export const ChatInput = memo(function ChatInput({
 
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attachmentsRef = useRef<Attachment[]>([]);
-  const pendingAttachmentDraftsRef = useRef<Map<string, Attachment[]>>(new Map());
   const activeChatId = useChatStore((s) => s.activeChatId);
   const streamingChatId = useChatStore((s) => s.streamingChatId);
   const isStreamingGlobal = useChatStore((s) => s.isStreaming);
@@ -216,47 +220,53 @@ export const ChatInput = memo(function ChatInput({
     [setCurrentInput],
   );
 
-  const replaceAttachments = useCallback((next: Attachment[]) => {
-    attachmentsRef.current = next;
-    setAttachments(next);
-  }, []);
-
-  const updateAttachments = useCallback((updater: (current: Attachment[]) => Attachment[]) => {
-    setAttachments((current) => {
-      const next = updater(current);
+  const replaceAttachments = useCallback(
+    (next: Attachment[], chatId = useChatStore.getState().activeChatId) => {
+      if (chatId) ephemeralAttachmentDrafts.replace(mode, chatId, next);
       attachmentsRef.current = next;
-      return next;
-    });
-  }, []);
+      setAttachments(next);
+    },
+    [mode],
+  );
 
-  const adjustPendingAttachmentReads = useCallback((chatId: string, delta: number) => {
-    setPendingAttachmentReadsByChat((current) => {
-      const nextCount = Math.max(0, (current[chatId] ?? 0) + delta);
-      const next = { ...current };
-      if (nextCount === 0) {
-        delete next[chatId];
-      } else {
-        next[chatId] = nextCount;
-      }
-      return next;
-    });
-  }, []);
+  const updateAttachments = useCallback(
+    (updater: (current: Attachment[]) => Attachment[]) => {
+      const next = updater(attachmentsRef.current);
+      const chatId = useChatStore.getState().activeChatId;
+      if (chatId) ephemeralAttachmentDrafts.replace(mode, chatId, next);
+      attachmentsRef.current = next;
+      setAttachments(next);
+    },
+    [mode],
+  );
+
+  const adjustPendingAttachmentReads = useCallback(
+    (chatId: string, delta: number) => {
+      ephemeralAttachmentDrafts.adjustPendingReads(mode, chatId, delta);
+    },
+    [mode],
+  );
 
   const appendAttachmentForChat = useCallback(
     (chatId: string, attachment: Attachment) => {
-      if (useChatStore.getState().activeChatId === chatId) {
-        updateAttachments((prev) => [...prev, attachment]);
-        return;
-      }
-      const pendingAttachments = pendingAttachmentDraftsRef.current.get(chatId) ?? [];
-      pendingAttachmentDraftsRef.current.set(chatId, [...pendingAttachments, attachment]);
+      ephemeralAttachmentDrafts.append(mode, chatId, attachment);
     },
-    [updateAttachments],
+    [mode],
   );
 
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
+
+  useEffect(() => {
+    return ephemeralAttachmentDrafts.subscribe((changedMode, changedChatId) => {
+      if (changedMode !== mode || useChatStore.getState().activeChatId !== changedChatId) return;
+      const next = ephemeralAttachmentDrafts.read(mode, changedChatId);
+      attachmentsRef.current = next;
+      setAttachments(next);
+      setAttachmentDraftRevision((revision) => revision + 1);
+    });
+  }, [mode]);
 
   // Restore draft when mounting or switching chats
   const prevChatIdRef = useRef<string | null>(null);
@@ -271,11 +281,7 @@ export const ChatInput = memo(function ChatInput({
           clearInputDraft(prevChatIdRef.current);
         }
         const prevAttachments = attachmentsRef.current;
-        if (prevAttachments.length > 0) {
-          pendingAttachmentDraftsRef.current.set(prevChatIdRef.current, prevAttachments);
-        } else {
-          pendingAttachmentDraftsRef.current.delete(prevChatIdRef.current);
-        }
+        ephemeralAttachmentDrafts.replace(mode, prevChatIdRef.current, prevAttachments);
       }
       prevChatIdRef.current = activeChatId;
     }
@@ -287,24 +293,23 @@ export const ChatInput = memo(function ChatInput({
       // Resize textarea to fit content
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
-      const restoredAttachments = pendingAttachmentDraftsRef.current.get(activeChatId) ?? [];
-      replaceAttachments(restoredAttachments);
-      pendingAttachmentDraftsRef.current.delete(activeChatId);
+      const restoredAttachments = ephemeralAttachmentDrafts.read(mode, activeChatId);
+      replaceAttachments(restoredAttachments, activeChatId);
     } else if (!activeChatId) {
       replaceAttachments([]);
     }
-  }, [activeChatId, setInputDraft, clearInputDraft, syncInputState, replaceAttachments]);
+  }, [activeChatId, mode, setInputDraft, clearInputDraft, syncInputState, replaceAttachments]);
 
   // Save draft when component unmounts (e.g. navigating to editor)
   useEffect(() => {
     const textarea = textareaRef.current;
-    const chatId = useChatStore.getState().activeChatId;
     return () => {
       // Cancel pending debounce timers
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       // Cancel pending resize rAF
       if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current);
       // Flush draft synchronously
+      const chatId = prevChatIdRef.current ?? useChatStore.getState().activeChatId;
       if (chatId && textarea) {
         const text = textarea.value;
         if (text.trim()) {
@@ -312,9 +317,10 @@ export const ChatInput = memo(function ChatInput({
         } else {
           useChatStore.getState().clearInputDraft(chatId);
         }
+        ephemeralAttachmentDrafts.replace(mode, chatId, attachmentsRef.current);
       }
     };
-  }, []);
+  }, [mode]);
 
   // Flush immediately when the page is being closed or discarded.
   useEffect(() => {
@@ -368,7 +374,7 @@ export const ChatInput = memo(function ChatInput({
 
   const canRetry = !isStreaming && lastMessageRole === "user";
   const canContinue = !isStreaming && mode === "roleplay" && lastMessageRole === "assistant";
-  const pendingAttachmentReads = activeChatId ? (pendingAttachmentReadsByChat[activeChatId] ?? 0) : 0;
+  const pendingAttachmentReads = activeChatId ? ephemeralAttachmentDrafts.pendingReads(mode, activeChatId) : 0;
   const isReadingAttachments = pendingAttachmentReads > 0;
   const hasPendingAttachments = isReadingAttachments || attachments.length > 0;
   const requiresManualGuideTarget = groupResponseOrder === "manual" && characterNames.length > 1;
@@ -483,7 +489,6 @@ export const ChatInput = memo(function ChatInput({
   // Get the current textarea value (always from the DOM directly)
   const getValue = () => textareaRef.current?.value ?? "";
 
-
   const buildContext = useCallback((): SlashCommandContext | null => {
     if (!activeChatId) return null;
     return {
@@ -510,6 +515,47 @@ export const ChatInput = memo(function ChatInput({
     onExpressionChange,
     qc,
   ]);
+
+  const submittedInputRecovery = useMemo(
+    () =>
+      createSubmittedInputRecoveryHarness<SubmittedInputSnapshot>({
+        readCurrent: (chatId) => {
+          const visible = useChatStore.getState().activeChatId === chatId && textareaRef.current !== null;
+          return {
+            visible,
+            draft: {
+              text: visible
+                ? (textareaRef.current?.value ?? "")
+                : (useChatStore.getState().inputDrafts.get(chatId) ?? ""),
+              attachments: visible ? attachmentsRef.current : ephemeralAttachmentDrafts.read(mode, chatId),
+            },
+          };
+        },
+        restoreVisible: (chatId, restored, submitted, current) => {
+          if (!textareaRef.current) return;
+          textareaRef.current.value = restored.text;
+          textareaRef.current.style.height = current.text.length === 0 ? submitted.height : "auto";
+          if (current.text.length > 0) {
+            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
+          }
+          syncInputState(restored.text);
+          if (current.text.length === 0) setCompletions([...submitted.completions]);
+          replaceAttachments([...restored.attachments], chatId);
+          if (draftTimerRef.current) {
+            clearTimeout(draftTimerRef.current);
+            draftTimerRef.current = null;
+          }
+        },
+        restoreInactive: (chatId, restored) => {
+          ephemeralAttachmentDrafts.replace(mode, chatId, restored.attachments);
+        },
+        persistText: (chatId, text) => {
+          if (text) setInputDraft(chatId, text);
+          else clearInputDraft(chatId);
+        },
+      }),
+    [clearInputDraft, mode, replaceAttachments, setInputDraft, syncInputState],
+  );
 
   const handleSend = useCallback(async () => {
     const raw = getValue();
@@ -560,13 +606,33 @@ export const ChatInput = memo(function ChatInput({
     // Check for slash command
     const match = matchSlashCommand(normalized);
     if (match) {
-      const ctx = buildContext();
-      if (!ctx) return;
-
+      const baseCtx = buildContext();
+      if (!baseCtx) return;
       const submittedDraft = textareaRef.current?.value ?? "";
-      const submittedHeight = textareaRef.current?.style.height ?? "auto";
-      const submittedAttachments = attachments;
-      const submittedCompletions = completions;
+      const submitted: SubmittedInputSnapshot = {
+        chatId: activeChatId,
+        text: submittedDraft,
+        height: textareaRef.current?.style.height ?? "auto",
+        attachments,
+        completions,
+      };
+      const submissionRecovery = submittedInputRecovery.generation(submitted);
+      const generationStatus: { succeeded?: boolean } = {};
+      const ctx: SlashCommandContext = {
+        ...baseCtx,
+        generate: async (params) => {
+          const callerAccepted = params.onUserMessageAccepted;
+          const succeeded = await baseCtx.generate({
+            ...params,
+            onUserMessageAccepted: () => {
+              submissionRecovery.markUserMessageAccepted();
+              callerAccepted?.();
+            },
+          });
+          if (succeeded !== undefined) generationStatus.succeeded = succeeded;
+          return succeeded;
+        },
+      };
       if (textareaRef.current) {
         textareaRef.current.value = "";
         textareaRef.current.style.height = "auto";
@@ -581,27 +647,10 @@ export const ChatInput = memo(function ChatInput({
         if (result.feedback) {
           setFeedback(result.feedback);
         }
+        if (generationStatus.succeeded === false) submissionRecovery.unsuccessful();
       } catch (error) {
-        if (isAbortError(error)) return;
-        const activeChatIdAfterFailure = useChatStore.getState().activeChatId;
-        const currentValue = textareaRef.current?.value ?? "";
-        const canRestoreVisibleDraft = activeChatIdAfterFailure === activeChatId && currentValue.length === 0;
-        if (canRestoreVisibleDraft && textareaRef.current) {
-          textareaRef.current.value = submittedDraft;
-          textareaRef.current.style.height = submittedHeight;
-          syncInputState(submittedDraft);
-          setCompletions(submittedCompletions);
-        }
-        if (submittedAttachments.length > 0) {
-          if (activeChatIdAfterFailure === activeChatId) {
-            updateAttachments((current) => (current.length === 0 ? submittedAttachments : current));
-          } else {
-            pendingAttachmentDraftsRef.current.set(activeChatId, submittedAttachments);
-          }
-        }
-        if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== activeChatId)) {
-          setInputDraft(activeChatId, submittedDraft);
-        }
+        const recovery = submissionRecovery.failure(error);
+        if (!recovery.report) return;
         const msg = error instanceof Error ? error.message : "Command failed";
         toast.error(msg);
       }
@@ -638,37 +687,19 @@ export const ChatInput = memo(function ChatInput({
     message = resolveInputMacros(message);
 
     const submittingChatId = activeChatId;
-    const submittedDraft = raw;
-    const submittedHeight = textareaRef.current?.style.height ?? "auto";
-    const submittedAttachments = attachments;
-    const submittedCompletions = completions;
-    const pendingAttachments = submittedAttachments.map((a) => ({
+    const submitted: SubmittedInputSnapshot = {
+      chatId: submittingChatId,
+      text: raw,
+      height: textareaRef.current?.style.height ?? "auto",
+      attachments,
+      completions,
+    };
+    const pendingAttachments = submitted.attachments.map((a) => ({
       type: a.type,
       data: a.data,
       filename: a.name,
       name: a.name,
     }));
-    const restoreSubmittedInput = () => {
-      const activeChatIdAfterFailure = useChatStore.getState().activeChatId;
-      const currentValue = textareaRef.current?.value ?? "";
-      const canRestoreVisibleDraft = activeChatIdAfterFailure === submittingChatId && currentValue.length === 0;
-      if (canRestoreVisibleDraft && textareaRef.current) {
-        textareaRef.current.value = submittedDraft;
-        textareaRef.current.style.height = submittedHeight;
-        syncInputState(submittedDraft);
-        setCompletions(submittedCompletions);
-      }
-      if (submittedAttachments.length > 0) {
-        if (activeChatIdAfterFailure === submittingChatId) {
-          updateAttachments((current) => (current.length === 0 ? submittedAttachments : current));
-        } else {
-          pendingAttachmentDraftsRef.current.set(submittingChatId, submittedAttachments);
-        }
-      }
-      if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== submittingChatId)) {
-        setInputDraft(submittingChatId, submittedDraft);
-      }
-    };
 
     if (textareaRef.current) {
       textareaRef.current.value = "";
@@ -681,6 +712,7 @@ export const ChatInput = memo(function ChatInput({
 
     // Manual mode: only create the user message, no auto-generation
     if (groupResponseOrder === "manual") {
+      const submissionRecovery = submittedInputRecovery.postOnly(submitted);
       let createdMessageId: string | null = null;
       let preparedManagedAttachments: PreparedManagedImageAttachments | null = null;
       try {
@@ -703,12 +735,11 @@ export const ChatInput = memo(function ChatInput({
         }
         requestChatScrollToBottom({ chatId: submittingChatId, behavior: "auto" });
       } catch (error) {
-        let rollbackFailed = false;
         if (preparedManagedAttachments?.createdGalleryIds.length) {
           try {
             await deletePreparedManagedImageAttachments(preparedManagedAttachments);
           } catch {
-            rollbackFailed = true;
+            submissionRecovery.markAuxiliaryDataRollbackFailed();
           }
           invalidateGalleryImagesForManagedAttachments(qc, activeChatId, preparedManagedAttachments.attachments);
         }
@@ -716,17 +747,22 @@ export const ChatInput = memo(function ChatInput({
           try {
             await deleteMessage.mutateAsync(createdMessageId);
           } catch {
-            rollbackFailed = true;
+            submissionRecovery.markSubmittedMessageRollbackFailed();
           }
         }
-        if (!rollbackFailed) restoreSubmittedInput();
+        const recovery = submissionRecovery.failure(error);
+        if (!recovery.report) return;
         const msg = error instanceof Error ? error.message : "Failed to send message";
-        toast.error(rollbackFailed ? `${msg}; partial saved data may need to be removed before retrying.` : msg);
+        toast.error(
+          submissionRecovery.savedDataMayRemain
+            ? `${msg}; partial saved data may need to be removed before retrying.`
+            : msg,
+        );
       }
       return;
     }
 
-    let userMessageAccepted = false;
+    const submissionRecovery = submittedInputRecovery.generation(submitted);
     try {
       const generated = await generate({
         chatId: submittingChatId,
@@ -734,13 +770,13 @@ export const ChatInput = memo(function ChatInput({
         userMessage: message,
         ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
         onUserMessageAccepted: () => {
-          userMessageAccepted = true;
+          submissionRecovery.markUserMessageAccepted();
         },
       });
-      if (generated === false && !userMessageAccepted) restoreSubmittedInput();
+      if (generated === false) submissionRecovery.unsuccessful();
     } catch (error) {
-      if (isAbortError(error)) return;
-      if (!userMessageAccepted) restoreSubmittedInput();
+      const recovery = submissionRecovery.failure(error);
+      if (!recovery.report) return;
       console.error("Send failed:", error);
     } finally {
       if (pendingAttachments.length) invalidateGalleryImagesForChat(qc, submittingChatId);
@@ -762,11 +798,10 @@ export const ChatInput = memo(function ChatInput({
     updateMessageExtra,
     syncInputState,
     replaceAttachments,
-    updateAttachments,
-    setInputDraft,
     completions,
     onPeekPrompt,
     quoteFormat,
+    submittedInputRecovery,
   ]);
 
   const runQuickSlashCommand = useCallback(
@@ -776,32 +811,29 @@ export const ChatInput = memo(function ChatInput({
       const match = matchSlashCommand(commandLine);
       const baseCtx = buildContext();
       if (!match || !baseCtx) return;
+      const submitted: SubmittedInputSnapshot = {
+        chatId: submittingChatId,
+        text: textareaRef.current?.value ?? "",
+        height: textareaRef.current?.style.height ?? "auto",
+        attachments: attachmentsRef.current,
+        completions,
+      };
+      const submissionRecovery = submittedInputRecovery.generation(submitted);
       const generationStatus: { succeeded?: boolean } = {};
       const ctx: SlashCommandContext = {
         ...baseCtx,
         generate: async (params) => {
-          const succeeded = await baseCtx.generate(params);
+          const callerAccepted = params.onUserMessageAccepted;
+          const succeeded = await baseCtx.generate({
+            ...params,
+            onUserMessageAccepted: () => {
+              submissionRecovery.markUserMessageAccepted();
+              callerAccepted?.();
+            },
+          });
           if (succeeded !== undefined) generationStatus.succeeded = succeeded;
           return succeeded;
         },
-      };
-
-      const previousDraft = textareaRef.current?.value ?? "";
-      const previousHeight = textareaRef.current?.style.height ?? "auto";
-      const previousCompletions = completions;
-      const restoreSubmittedDraft = () => {
-        const currentValue = textareaRef.current?.value ?? "";
-        const canRestoreVisibleDraft =
-          useChatStore.getState().activeChatId === submittingChatId && currentValue.length === 0;
-        if (canRestoreVisibleDraft && textareaRef.current) {
-          textareaRef.current.value = previousDraft;
-          textareaRef.current.style.height = previousHeight;
-          syncInputState(previousDraft);
-          setCompletions(previousCompletions);
-        }
-        if (previousDraft && (canRestoreVisibleDraft || useChatStore.getState().activeChatId !== submittingChatId)) {
-          setInputDraft(submittingChatId, previousDraft);
-        }
       };
       if (draftTimerRef.current) {
         clearTimeout(draftTimerRef.current);
@@ -813,6 +845,7 @@ export const ChatInput = memo(function ChatInput({
       }
       syncInputState("");
       setCompletions([]);
+      replaceAttachments([], submittingChatId);
       clearInputDraft(submittingChatId);
 
       try {
@@ -820,17 +853,23 @@ export const ChatInput = memo(function ChatInput({
         if (result.feedback) {
           setFeedback(result.feedback);
         }
-        if (generationStatus.succeeded === false) {
-          restoreSubmittedDraft();
-        }
+        if (generationStatus.succeeded === false) submissionRecovery.unsuccessful();
       } catch (error) {
-        if (isAbortError(error)) return;
-        restoreSubmittedDraft();
+        const recovery = submissionRecovery.failure(error);
+        if (!recovery.report) return;
         const msg = error instanceof Error ? error.message : fallbackError;
         toast.error(msg);
       }
     },
-    [activeChatId, buildContext, clearInputDraft, completions, setInputDraft, syncInputState],
+    [
+      activeChatId,
+      buildContext,
+      clearInputDraft,
+      completions,
+      submittedInputRecovery,
+      replaceAttachments,
+      syncInputState,
+    ],
   );
 
   const handleImpersonateQuickButton = useCallback(async () => {
@@ -883,11 +922,14 @@ export const ChatInput = memo(function ChatInput({
     }
 
     message = resolveInputMacros(message);
-    const submittedDraft = raw;
-    const submittedHeight = textareaRef.current?.style.height ?? "auto";
-    const submittedAttachments = attachments;
-    const submittedCompletions = completions;
-    const pendingAttachments = submittedAttachments.map((a) => ({
+    const submitted: SubmittedInputSnapshot = {
+      chatId: submittingChatId,
+      text: raw,
+      height: textareaRef.current?.style.height ?? "auto",
+      attachments,
+      completions,
+    };
+    const pendingAttachments = submitted.attachments.map((a) => ({
       type: a.type,
       data: a.data,
       filename: a.name,
@@ -903,6 +945,7 @@ export const ChatInput = memo(function ChatInput({
     replaceAttachments([]);
     clearInputDraft(submittingChatId);
 
+    const submissionRecovery = submittedInputRecovery.postOnly(submitted);
     let createdMessageId: string | null = null;
     let preparedManagedAttachments: PreparedManagedImageAttachments | null = null;
     try {
@@ -924,12 +967,11 @@ export const ChatInput = memo(function ChatInput({
         invalidateGalleryImagesForManagedAttachments(qc, submittingChatId, managedAttachments);
       }
     } catch (error) {
-      let rollbackFailed = false;
       if (preparedManagedAttachments?.createdGalleryIds.length) {
         try {
           await deletePreparedManagedImageAttachments(preparedManagedAttachments);
         } catch {
-          rollbackFailed = true;
+          submissionRecovery.markAuxiliaryDataRollbackFailed();
         }
         invalidateGalleryImagesForManagedAttachments(qc, submittingChatId, preparedManagedAttachments.attachments);
       }
@@ -937,30 +979,17 @@ export const ChatInput = memo(function ChatInput({
         try {
           await deleteMessage.mutateAsync(createdMessageId);
         } catch {
-          rollbackFailed = true;
+          submissionRecovery.markSubmittedMessageRollbackFailed();
         }
       }
-      const activeChatIdAfterFailure = useChatStore.getState().activeChatId;
-      const currentValue = textareaRef.current?.value ?? "";
-      const canRestoreVisibleDraft = activeChatIdAfterFailure === submittingChatId && currentValue.length === 0;
-      if (canRestoreVisibleDraft && textareaRef.current) {
-        textareaRef.current.value = submittedDraft;
-        textareaRef.current.style.height = submittedHeight;
-        syncInputState(submittedDraft);
-        setCompletions(submittedCompletions);
-      }
-      if (submittedAttachments.length > 0) {
-        if (activeChatIdAfterFailure === submittingChatId) {
-          updateAttachments((current) => (current.length === 0 ? submittedAttachments : current));
-        } else {
-          pendingAttachmentDraftsRef.current.set(submittingChatId, submittedAttachments);
-        }
-      }
-      if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== submittingChatId)) {
-        setInputDraft(submittingChatId, submittedDraft);
-      }
+      const recovery = submissionRecovery.failure(error);
+      if (!recovery.report) return;
       const msg = error instanceof Error ? error.message : "Failed to post message";
-      toast.error(rollbackFailed ? `${msg}; partial saved data may need to be removed before retrying.` : msg);
+      toast.error(
+        submissionRecovery.savedDataMayRemain
+          ? `${msg}; partial saved data may need to be removed before retrying.`
+          : msg,
+      );
     }
   }, [
     activeChatId,
@@ -972,13 +1001,12 @@ export const ChatInput = memo(function ChatInput({
     qc,
     syncInputState,
     clearInputDraft,
-    setInputDraft,
     replaceAttachments,
-    updateAttachments,
     createMessage,
     deleteMessage,
     updateMessageExtra,
     quoteFormat,
+    submittedInputRecovery,
   ]);
 
   const handleGuidedGenerationButton = useCallback(async () => {
@@ -1530,9 +1558,7 @@ export const ChatInput = memo(function ChatInput({
           <button
             type="button"
             onClick={() =>
-              draftTranslationAction.action === "cancel"
-                ? cancelDraftTranslation()
-                : void handleTranslateDraft()
+              draftTranslationAction.action === "cancel" ? cancelDraftTranslation() : void handleTranslateDraft()
             }
             disabled={draftTranslationAction.disabled}
             className={cn(
@@ -1561,7 +1587,6 @@ export const ChatInput = memo(function ChatInput({
         )}
 
         {/* Send / Stop button */}
-
 
         <button
           onClick={isStreaming ? () => useChatStore.getState().stopGeneration() : handleSend}

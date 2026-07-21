@@ -14,6 +14,7 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { SetupReadinessChecklist } from "./SetupReadinessChecklist";
 import { buildSetupReadinessFacts } from "../lib/setup-readiness";
 import { isSetupReady } from "../../../../engine/onboarding";
@@ -166,8 +167,10 @@ export function SetupReadinessJourney() {
     (skipStarredPreset = false) => {
       if (!intent) return;
       if (!setupReady) return;
-      const connection =
-        languageConnections.find((row) => row.id === intent?.selectedConnectionId) ?? languageConnections[0];
+      const connectionId =
+        languageConnections.find((row) => row.id === intent.selectedConnectionId)?.id ??
+        connectionCatalogApi.selectDefaultTextConnectionId(languageConnections);
+      const connection = languageConnections.find((row) => row.id === connectionId);
       if (!connection) return;
       useSetupJourneyStore.getState().markConnection(connection.id);
       const selectedIntent = { ...intent, selectedConnectionId: connection.id };

@@ -11,7 +11,16 @@ const { connectionRows, createChatMutate } = vi.hoisted(() => ({
   createChatMutate: vi.fn(),
 }));
 const { embeddedRuntime } = vi.hoisted(() => ({ embeddedRuntime: { current: true } }));
+const { libraryPresence } = vi.hoisted(() => ({
+  libraryPresence: {
+    current: { status: "loading", isEmpty: null } as {
+      status: "loading" | "error" | "empty" | "populated";
+      isEmpty: boolean | null;
+    },
+  },
+}));
 vi.mock("../../../catalog/connections/index", () => ({ useConnections: () => ({ data: connectionRows.current }) }));
+vi.mock("../../../catalog/library-presence", () => ({ useLibraryPresence: () => libraryPresence.current }));
 vi.mock("../../../../shared/api/remote-runtime", () => ({ hasEmbeddedTauriRuntime: () => embeddedRuntime.current }));
 
 vi.mock("../../../catalog/chats/index", () => ({
@@ -71,6 +80,7 @@ describe("ModeHomeSurface launch splash", () => {
     connectionRows.current = [];
     createChatMutate.mockClear();
     beginSetupJourney.mockClear();
+    libraryPresence.current = { status: "loading", isEmpty: null };
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -229,6 +239,16 @@ describe("ModeHomeSurface quick-start prewarming", () => {
       root.render(<ModeHomeSurface hasActivity={false} />);
     });
     expect(container!.textContent).not.toContain("Import your library");
+  });
+
+  it("recommends import after every library collection is known empty", async () => {
+    libraryPresence.current = { status: "empty", isEmpty: true };
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+
+    expect(container!.textContent).toContain("Import your library");
   });
 
   it("records mode intent before opening the prerequisite detour", async () => {

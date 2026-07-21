@@ -70,7 +70,7 @@ vi.mock("./UserQuickRepliesManager", () => ({
 async function flushAsyncWork() {
   await act(async () => {
     await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 }
 
@@ -115,6 +115,133 @@ describe("BackupExportSettings remote backups", () => {
     await flushAsyncWork();
 
     expect(backupApi.listBackups).not.toHaveBeenCalled();
+  });
+
+  it("explains the remote Admin Access requirement before privileged backup actions", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <BackupExportSettings />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container?.textContent).toContain("Admin Access is required to manage backups on this remote runtime.");
+    const createButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Create Managed Backup"),
+    );
+    const downloadButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Download Backup"),
+    );
+    expect(createButton?.disabled).toBe(true);
+    expect(downloadButton?.disabled).toBe(true);
+
+    const adminButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Open Admin Access"),
+    );
+    expect(adminButton).toBeDefined();
+    act(() => adminButton!.click());
+    expect(useUIStore.getState()).toMatchObject({
+      settingsTab: "advanced",
+      pendingSettingsDestination: "admin-access",
+    });
+  });
+
+  it("rechecks Admin Access at operation time before create, download, or delete calls", async () => {
+    vi.mocked(readAdminSecretStorage).mockReturnValue("admin-secret");
+    vi.mocked(backupApi.listBackups).mockResolvedValue([
+      { name: "backup-1.zip", createdAt: "2026-07-20T12:00:00.000Z" },
+    ]);
+    vi.mocked(showConfirmDialog).mockResolvedValue(true);
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <BackupExportSettings />
+        </QueryClientProvider>,
+      );
+    });
+    await flushAsyncWork();
+
+    vi.mocked(readAdminSecretStorage).mockReturnValue("");
+    const buttons = Array.from(container!.querySelectorAll("button"));
+    const createButton = buttons.find((button) => button.textContent?.includes("Create Managed Backup"));
+    const downloadButton = buttons.find((button) => button.textContent?.includes("Download Backup"));
+    const deleteButton = buttons.find((button) => button.getAttribute("aria-label") === "Delete backup-1.zip");
+
+    await act(async () => {
+      createButton!.click();
+      downloadButton!.click();
+      deleteButton!.click();
+      await Promise.resolve();
+    });
+
+    expect(backupApi.createBackup).not.toHaveBeenCalled();
+    expect(backupApi.downloadBackup).not.toHaveBeenCalled();
+    expect(backupApi.deleteBackup).not.toHaveBeenCalled();
+  });
+
+  it("shows that existing backups are loading", async () => {
+    vi.mocked(readAdminSecretStorage).mockReturnValue("admin-secret");
+    vi.mocked(backupApi.listBackups).mockImplementationOnce(() => new Promise(() => {}));
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <BackupExportSettings />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container?.textContent).toContain("Loading existing backups");
+  });
+
+  it("explains when no managed backups exist yet", async () => {
+    vi.mocked(readAdminSecretStorage).mockReturnValue("admin-secret");
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <BackupExportSettings />
+        </QueryClientProvider>,
+      );
+    });
+    await flushAsyncWork();
+
+    expect(container?.textContent).toContain("No managed backups yet.");
+  });
+
+  it("offers Retry when managed backup history fails to load", async () => {
+    vi.mocked(readAdminSecretStorage).mockReturnValue("admin-secret");
+    vi.mocked(backupApi.listBackups).mockRejectedValueOnce(new Error("remote unavailable")).mockResolvedValueOnce([]);
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <BackupExportSettings />
+        </QueryClientProvider>,
+      );
+    });
+    await flushAsyncWork();
+
+    expect(container?.textContent).toContain("Couldn't load managed backups.");
+    const retryButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Retry"),
+    );
+    expect(retryButton).toBeDefined();
+
+    await act(async () => {
+      retryButton!.click();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+
+    expect(backupApi.listBackups).toHaveBeenCalledTimes(2);
+    expect(container?.textContent).toContain("No managed backups yet.");
   });
 
   it("labels the safe support export separately from the sensitive recovery export", async () => {

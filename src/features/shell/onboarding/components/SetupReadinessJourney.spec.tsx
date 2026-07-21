@@ -16,7 +16,14 @@ const mocks = vi.hoisted(() => ({
   },
   embedded: { current: false },
   health: vi.fn(),
-  connections: { current: [{ id: "saved", provider: "openai", model: "gpt" }] },
+  connections: {
+    current: [{ id: "saved", provider: "openai", model: "gpt" }] as Array<{
+      id: string;
+      provider: string;
+      model: string;
+      isDefault?: boolean;
+    }>,
+  },
   connectionsPending: { current: false },
   mutateAsync: vi.fn(),
   updateAsync: vi.fn(),
@@ -29,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   runtimeUrl: { current: "https://runtime-a.test" },
   sameOriginRuntimeUrl: { current: "https://de-koi.test" },
   invalidateQueries: vi.fn(),
+  selectDefaultTextConnectionId: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }) }));
@@ -55,6 +63,11 @@ vi.mock("../../../../shared/api/storage-api", () => ({
     get: vi.fn(),
     createChatMessage: vi.fn(),
     addChatMessageSwipe: vi.fn(),
+  },
+}));
+vi.mock("../../../../shared/api/connection-catalog-api", () => ({
+  connectionCatalogApi: {
+    selectDefaultTextConnectionId: (...args: unknown[]) => mocks.selectDefaultTextConnectionId(...args),
   },
 }));
 vi.mock("../../../../shared/stores/setup-journey.store", () => {
@@ -132,6 +145,11 @@ describe("SetupReadinessJourney", () => {
     mocks.sameOriginRuntimeUrl.current = "https://de-koi.test";
     mocks.connections.current = [{ id: "saved", provider: "openai", model: "gpt" }];
     mocks.connectionsPending.current = false;
+    mocks.selectDefaultTextConnectionId
+      .mockReset()
+      .mockImplementation((connections: Array<{ id: string; isDefault?: boolean }>) => {
+        return connections.find((connection) => connection.isDefault)?.id ?? connections[0]?.id ?? null;
+      });
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -190,6 +208,40 @@ describe("SetupReadinessJourney", () => {
     expect(mocks.mutateAsync).toHaveBeenCalledOnce();
     expect(mocks.markCompleted).toHaveBeenCalled();
     expect(container.textContent).not.toContain("Finish setting up De-Koi");
+  });
+
+  it("uses the stored default when Local Model is listed first", async () => {
+    mocks.embedded.current = true;
+    mocks.connections.current = [
+      { id: "sidecar:local", provider: "custom", model: "local" },
+      { id: "saved-default", provider: "openai", model: "gpt", isDefault: true },
+    ];
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.selectDefaultTextConnectionId).toHaveBeenCalled();
+    expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "saved-default" }));
+  });
+
+  it("keeps an explicit setup selection ahead of the stored default", async () => {
+    mocks.embedded.current = true;
+    mocks.intent.current = { ...mocks.intent.current!, selectedConnectionId: "sidecar:local" };
+    mocks.connections.current = [
+      { id: "sidecar:local", provider: "custom", model: "local" },
+      { id: "saved-default", provider: "openai", model: "gpt", isDefault: true },
+    ];
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "sidecar:local" }));
   });
 
   it("launches against the hosted page origin before runtime URL persistence", async () => {

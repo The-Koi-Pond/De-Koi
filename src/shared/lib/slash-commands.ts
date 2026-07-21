@@ -49,6 +49,7 @@ export interface SlashCommandContext {
     impersonateConnectionId?: string;
     impersonateBlockAgents?: boolean;
     impersonatePromptTemplate?: string;
+    onUserMessageAccepted?: () => void;
   }) => Promise<boolean | void>;
   /** Insert a message directly into the chat (no LLM) */
   createMessage: (data: SlashCommandMessageInput) => void;

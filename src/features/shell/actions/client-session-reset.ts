@@ -5,11 +5,17 @@ import { useChatStore } from "../../../shared/stores/chat.store";
 import { useEncounterStore } from "../../../shared/stores/encounter.store";
 import { useUIStore } from "../../../shared/stores/ui.store";
 
-export function resetClientSessionState(queryClient: Pick<QueryClient, "clear">) {
+export function resetClientDataState(queryClient: Pick<QueryClient, "clear">) {
   useChatStore.getState().reset();
   useAgentStore.getState().reset();
   useGameStateStore.getState().reset();
   useEncounterStore.getState().reset();
+
+  queryClient.clear();
+}
+
+export function resetClientSessionState(queryClient: Pick<QueryClient, "clear">) {
+  resetClientDataState(queryClient);
 
   const ui = useUIStore.getState();
   ui.closeModal();
@@ -17,6 +23,4 @@ export function resetClientSessionState(queryClient: Pick<QueryClient, "clear">)
   ui.closeRightPanel();
   ui.closeBotBrowser();
   ui.setChatBackground(null);
-
-  queryClient.clear();
 }

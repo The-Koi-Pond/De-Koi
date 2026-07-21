@@ -1,5 +1,6 @@
 ﻿import type { ReactNode } from "react";
 import { Bug, ClipboardList, Compass, FileQuestion, HeartHandshake, Info, Keyboard, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import { APP_VERSION } from "../../engine/contracts/constants/defaults";
 import { Modal } from "../../shared/components/ui/Modal";
 import { SUPPORT_LINKS } from "../../shared/config/support-links";
@@ -48,15 +49,23 @@ export function HelpHub({ open, onClose, onOpenHealth, onReplayOnboarding, onOpe
     void openBugReport({
       source: "help-hub",
       reportText: "Bug report started from the Help hub. Add what happened below.",
-    }).catch(() => undefined);
+    }).catch(() => toast.error("Couldn't open the bug report. Allow pop-ups and try again."));
   };
 
   const openDocs = () => {
-    if (SUPPORT_LINKS.docsUrl) void openExternalUrl(SUPPORT_LINKS.docsUrl).catch(() => undefined);
+    if (SUPPORT_LINKS.docsUrl) {
+      void openExternalUrl(SUPPORT_LINKS.docsUrl).catch(() =>
+        toast.error("Couldn't open the documentation. Allow pop-ups and try again."),
+      );
+    }
   };
 
   const openSupportContact = () => {
-    if (SUPPORT_LINKS.supportContact) void openExternalUrl(SUPPORT_LINKS.supportContact).catch(() => undefined);
+    if (SUPPORT_LINKS.supportContact) {
+      void openExternalUrl(SUPPORT_LINKS.supportContact).catch(() =>
+        toast.error("Couldn't open the support contact. Allow pop-ups and try again."),
+      );
+    }
   };
 
   return (

@@ -3737,7 +3737,10 @@ export function AdvancedSettings() {
     <div className="flex flex-col gap-3">
       <div className="text-xs text-[var(--muted-foreground)]">Advanced settings for power users.</div>
 
-      <div className="flex flex-col gap-2 rounded-lg bg-[var(--secondary)]/40 p-2.5 ring-1 ring-[var(--border)]">
+      <div
+        id="settings-destination-admin-access"
+        className="scroll-mt-4 flex flex-col gap-2 rounded-lg bg-[var(--secondary)]/40 p-2.5 ring-1 ring-[var(--border)] transition-shadow duration-700"
+      >
         <div className="flex items-center gap-1.5">
           <Power size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Admin Access</span>
@@ -3873,7 +3876,6 @@ export function AdvancedSettings() {
         onChange={setDebugMode}
         help="Shows the in-app agent debug panel and emits agent runtime diagnostics to the console for troubleshooting."
       />
-
     </div>
   );
 }

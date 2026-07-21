@@ -51,6 +51,7 @@ export const SETTINGS_DESTINATIONS = [
     title: "Prompt overrides",
     keywords: ["templates", "generation", "custom prompt"],
   },
+  { id: "admin-access", tab: "advanced", title: "Admin Access", keywords: ["remote", "secret", "privileged"] },
   { id: "backups", tab: "privacy", title: "Backups and profile export", keywords: ["backup", "export", "restore"] },
 ] as const satisfies readonly {
   id: string;

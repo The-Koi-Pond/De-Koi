@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { chatKeys } from "../../../catalog/chats/index";
+import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { getRecentClientDiagnostics } from "../../../../shared/lib/client-diagnostics";
 import { MUSIC_PLAYBACK_EVENT, type MusicPlaybackEventDetail } from "../../../../shared/lib/music-playback-events";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -11,11 +12,22 @@ import {
   handleGenerationDiagnosticEvent,
   handleSceneCreatedGenerationEvent,
   isTrackerPatchRetryRequest,
+  notifyOffChatAssistantMessage,
   runGenerationWithUi,
   showAgentWarningToast,
 } from "./use-generate";
 import type { AgentResult } from "../../../../engine/contracts/types/agent";
 import type { Chat, StreamEvent } from "../../../../engine/contracts/types/chat";
+
+const notificationMocks = vi.hoisted(() => ({
+  showLocalChatNotification: vi.fn(async () => true),
+}));
+const notificationSoundMocks = vi.hoisted(() => ({
+  playNotificationPing: vi.fn(),
+}));
+
+vi.mock("../../../../shared/lib/local-notifications", () => notificationMocks);
+vi.mock("../../../../shared/lib/notification-sound", () => notificationSoundMocks);
 
 vi.mock("sonner", () => {
   const base = vi.fn();
@@ -36,6 +48,66 @@ afterEach(() => {
   useChatStore.getState().reset();
   useUIStore.getState().setEnableStreaming(true);
   useUIStore.getState().setStreamingSpeed(50);
+});
+
+describe("off-chat assistant notifications", () => {
+  it("shows the local notification with chat identity for Roleplay messages", async () => {
+    const queryClient = new QueryClient();
+    const chat = { id: "roleplay-chat", mode: "roleplay", metadata: {} } as Chat;
+    queryClient.setQueryData(chatKeys.detail(chat.id), chat);
+    vi.spyOn(chatCommandApi, "markAutonomousUnread").mockResolvedValue(chat);
+    useChatStore.setState({ activeChatId: "other-chat" });
+    useUIStore.setState({
+      conversationBrowserNotifications: true,
+      rpNotificationSound: false,
+    });
+
+    await notifyOffChatAssistantMessage(queryClient, chat.id, {
+      id: "assistant-message",
+      chatId: chat.id,
+      role: "assistant",
+      characterId: null,
+      content: "A quiet reply",
+      createdAt: new Date().toISOString(),
+      extra: {},
+    });
+
+    expect(notificationMocks.showLocalChatNotification).toHaveBeenCalledWith({
+      enabled: true,
+      chatId: "roleplay-chat",
+      characterName: "Someone",
+      tag: "marinara-roleplay-roleplay-chat",
+    });
+    expect(notificationSoundMocks.playNotificationPing).not.toHaveBeenCalled();
+  });
+
+  it("does not use the Roleplay sound toggle for Conversation messages", async () => {
+    const queryClient = new QueryClient();
+    const chat = { id: "conversation-chat", mode: "conversation", metadata: {} } as Chat;
+    queryClient.setQueryData(chatKeys.detail(chat.id), chat);
+    vi.spyOn(chatCommandApi, "markAutonomousUnread").mockResolvedValue(chat);
+    useChatStore.setState({ activeChatId: "other-chat" });
+    useUIStore.setState({
+      conversationBrowserNotifications: true,
+      convoNotificationSound: false,
+      rpNotificationSound: true,
+    });
+
+    await notifyOffChatAssistantMessage(queryClient, chat.id, {
+      id: "assistant-message",
+      chatId: chat.id,
+      role: "assistant",
+      characterId: null,
+      content: "A quiet reply",
+      createdAt: new Date().toISOString(),
+      extra: {},
+    });
+
+    expect(notificationSoundMocks.playNotificationPing).not.toHaveBeenCalled();
+    expect(notificationMocks.showLocalChatNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: "conversation-chat" }),
+    );
+  });
 });
 
 function backgroundResult(generate: Record<string, unknown>): AgentResult {

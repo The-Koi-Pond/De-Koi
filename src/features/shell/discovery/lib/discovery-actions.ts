@@ -1,4 +1,5 @@
 import type { DiscoveryAction, DiscoveryChatDestination, DiscoveryMode } from "../discovery-types";
+import { toast } from "sonner";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../../../shared/lib/discovery-navigation";
@@ -133,9 +134,9 @@ export function runDiscoveryAction(action: DiscoveryAction): DiscoveryActionOutc
       break;
     case "report-bug":
       void openBugReport({
-        source: "help-hub",
+        source: "discover",
         reportText: "Bug report started from Discover. Add what happened below.",
-      }).catch(() => undefined);
+      }).catch(() => toast.error("Couldn't open the bug report. Allow pop-ups and try again."));
       break;
     case "go-home":
       useChatStore.getState().setActiveChatId(null);

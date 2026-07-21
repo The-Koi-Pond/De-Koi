@@ -228,7 +228,6 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
   const unreadCounts = useChatStore((s) => s.unreadCounts);
   const hydrateUnread = useChatStore((s) => s.hydrateUnread);
   const hasAnyDetailOpen = useUIStore((s) => s.hasAnyDetailOpen);
-  const editorDirty = useUIStore((s) => s.editorDirty);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const openRightPanel = useUIStore((s) => s.openRightPanel);
@@ -858,23 +857,15 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
           }
           if (
             chat.id !== activeChatId &&
-            !(await confirmDiscardPendingAppWork({ title: "Switch chats?", confirmLabel: "Switch anyway" }))
+            !(await confirmDiscardPendingAppWork({
+              purpose: "navigation",
+              title: "Switch chats?",
+              confirmLabel: "Switch anyway",
+            }))
           ) {
             return;
           }
           if (hasAnyDetailOpen()) {
-            if (editorDirty) {
-              if (
-                !(await showConfirmDialog({
-                  title: "Unsaved Changes",
-                  message: "You have unsaved changes. Discard and continue?",
-                  confirmLabel: "Discard",
-                  tone: "destructive",
-                }))
-              ) {
-                return;
-              }
-            }
             closeAllDetails();
           }
           internalNavRef.current = true;
@@ -1149,7 +1140,11 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
               onClick={async () => {
                 if (tab === activeTab) return;
                 if (
-                  !(await confirmDiscardPendingAppWork({ title: "Switch chat modes?", confirmLabel: "Switch anyway" }))
+                  !(await confirmDiscardPendingAppWork({
+                    purpose: "navigation",
+                    title: "Switch chat modes?",
+                    confirmLabel: "Switch anyway",
+                  }))
                 ) {
                   return;
                 }

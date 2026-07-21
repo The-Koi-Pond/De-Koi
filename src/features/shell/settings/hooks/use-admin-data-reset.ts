@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { adminApi } from "../../../../shared/api/admin-api";
-import { resetClientSessionState } from "../../actions";
+import { adminApi, getExpungeFailureReceipt } from "../../../../shared/api/admin-api";
+import { resetClientDataState, resetClientSessionState } from "../../actions";
 
 export type ExpungeScope =
   | "chats"
@@ -17,7 +17,13 @@ export function useExpungeData() {
   return useMutation({
     mutationFn: (scopes: ExpungeScope[]) => adminApi.expunge(scopes),
     onSuccess: async () => {
-      resetClientSessionState(qc);
+      resetClientDataState(qc);
+    },
+    onError: (error) => {
+      const receipt = getExpungeFailureReceipt(error);
+      if (receipt && (receipt.completedScopes.length > 0 || receipt.clearedCollections.length > 0)) {
+        resetClientDataState(qc);
+      }
     },
   });
 }

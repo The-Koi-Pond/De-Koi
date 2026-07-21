@@ -1,8 +1,5 @@
 import type { QuoteFormat, UserQuickReplyActionConfig } from "../../../../shared/stores/ui.store";
-import {
-  buildUserQuickReplyMenuEntries,
-  type UserQuickReplyMenuEntry,
-} from "../../shared/chat-ui";
+import { buildUserQuickReplyMenuEntries, type UserQuickReplyMenuEntry } from "../../shared/chat-ui";
 
 interface BuildGameUserQuickReplyMenuEntriesContext {
   actions: UserQuickReplyActionConfig[];
@@ -11,7 +8,7 @@ interface BuildGameUserQuickReplyMenuEntriesContext {
   quoteFormat: QuoteFormat;
   isStreaming: boolean;
   hasPendingGameTurnState: boolean;
-  executeGameTurn: (commandLine: string, fallbackError: string) => void | Promise<void>;
+  executeGameTurn: (commandLine: string, fallbackError: string, consumesDraft: boolean) => void | Promise<void>;
 }
 
 const PENDING_GAME_TURN_STATE_REASON = "Clear queued dice, movement, or attachments first.";
@@ -19,16 +16,19 @@ const PENDING_GAME_TURN_STATE_REASON = "Clear queued dice, movement, or attachme
 export function buildGameUserQuickReplyMenuEntries(
   context: BuildGameUserQuickReplyMenuEntriesContext,
 ): UserQuickReplyMenuEntry[] {
-  const entries = buildUserQuickReplyMenuEntries({
-    actions: context.actions,
-    mode: "game",
-    activeChatId: context.activeChatId,
-    draft: context.draft,
-    quoteFormat: context.quoteFormat,
-    isStreaming: context.isStreaming,
-    hasPendingAttachments: false,
-    executeCommand: context.executeGameTurn,
-  });
+  const entries = context.actions.flatMap((action) =>
+    buildUserQuickReplyMenuEntries({
+      actions: [action],
+      mode: "game",
+      activeChatId: context.activeChatId,
+      draft: context.draft,
+      quoteFormat: context.quoteFormat,
+      isStreaming: context.isStreaming,
+      hasPendingAttachments: false,
+      executeCommand: (commandLine, fallbackError) =>
+        context.executeGameTurn(commandLine, fallbackError, action.includeDraft),
+    }),
+  );
 
   if (!context.activeChatId || context.isStreaming || !context.hasPendingGameTurnState) return entries;
 

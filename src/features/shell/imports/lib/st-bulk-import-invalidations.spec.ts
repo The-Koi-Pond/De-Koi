@@ -36,6 +36,7 @@ describe("applySTBulkImportInvalidations", () => {
         }),
       ),
     ).toEqual([
+      ["characters", "presence"],
       ["characters", "list"],
       ["characters", "summaries"],
       ["characters", "library-summaries"],
@@ -43,6 +44,7 @@ describe("applySTBulkImportInvalidations", () => {
       ["chats", "list"],
       ["lorebooks"],
       ["presets"],
+      ["personas", "presence"],
       ["personas"],
       ["personas", "summaries"],
       ["personas", "active-summary"],

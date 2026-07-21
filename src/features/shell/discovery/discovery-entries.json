@@ -277,10 +277,10 @@
     "id": "game-tutorial",
     "title": "Game Tutorial",
     "category": "Help",
-    "summary": "A first-game spotlight tutorial for the Game map, party, controls, and narration/input area.",
+    "summary": "An on-demand spotlight tutorial for the Game map, party, controls, and narration/input area.",
     "keywords": ["game help", "tutorial", "map", "party", "controls", "first game"],
     "audience": "Game Mode users who need a quick orientation after setup.",
-    "where": "Auto-opens on the first game, and can be reopened from the Game controls help button.",
+    "where": "Discover > Game Tutorial, or the Game controls help button and More > Tutorial.",
     "actions": [{ "type": "open-chat-destination", "destination": "game-tutorial", "label": "Open Game Tutorial" }],
     "coverage": "advanced"
   },

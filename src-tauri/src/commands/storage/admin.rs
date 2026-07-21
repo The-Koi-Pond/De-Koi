@@ -28,158 +28,244 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
             "At least one expunge scope is required",
         ));
     }
-    let mut cleared_collections = Vec::new();
-    for scope in scopes {
-        match scope.as_str() {
-            "chats" => clear_collections(
+    let scopes = validate_and_dedupe_expunge_scopes(scopes)?;
+    run_expunge_scopes(&scopes, |scope, cleared_collections| {
+        execute_expunge_scope(state, scope, cleared_collections)
+    })
+}
+
+fn execute_expunge_scope(
+    state: &AppState,
+    scope: &str,
+    cleared_collections: &mut Vec<String>,
+) -> AppResult<()> {
+    match scope {
+        "chats" => clear_collections(
+            state,
+            &[
+                "chats",
+                "chat-folders",
+                "messages",
+                "message-swipes",
+                "gallery",
+                "agent-runs",
+                "agent-memory",
+                "memory-capture-jobs",
+                "game-checkpoints",
+                "game-state-snapshots",
+            ],
+            cleared_collections,
+        )?,
+        "characters" => {
+            let characters = state.storage.list("characters")?;
+            let versions = state.storage.list("character-versions")?;
+            clear_collections(
                 state,
                 &[
-                    "chats",
-                    "chat-folders",
-                    "messages",
-                    "message-swipes",
-                    "gallery",
-                    "agent-runs",
-                    "agent-memory",
-                    "memory-capture-jobs",
-                    "game-checkpoints",
-                    "game-state-snapshots",
+                    "characters",
+                    "character-groups",
+                    "character-versions",
+                    "character-gallery",
+                    "sprites",
                 ],
-                &mut cleared_collections,
-            )?,
-            "characters" => {
-                let characters = state.storage.list("characters")?;
-                let versions = state.storage.list("character-versions")?;
-                clear_collections(
-                    state,
-                    &[
-                        "characters",
-                        "character-groups",
-                        "character-versions",
-                        "character-gallery",
-                        "sprites",
-                    ],
-                    &mut cleared_collections,
-                )?;
-                for record in characters {
-                    avatars::remove_character_avatar_file_if_unreferenced(state, &record);
-                    if let Some(id) = record.get("id").and_then(Value::as_str) {
-                        sprites::remove_owned_sprite_dir(
-                            state,
-                            sprites::SpriteOwnerKind::Character,
-                            id,
-                        );
-                    }
-                }
-                for record in versions {
-                    characters::remove_character_version_avatar_file(state, &record);
-                }
-            }
-            "personas" => {
-                let personas = state.storage.list("personas")?;
-                clear_collections(
-                    state,
-                    &["personas", "persona-groups", "persona-gallery"],
-                    &mut cleared_collections,
-                )?;
-                for record in personas {
-                    avatars::remove_avatar_file_preserving_persona_snapshots(
+                cleared_collections,
+            )?;
+            for record in characters {
+                avatars::remove_character_avatar_file_if_unreferenced(state, &record);
+                if let Some(id) = record.get("id").and_then(Value::as_str) {
+                    sprites::remove_owned_sprite_dir(
                         state,
-                        "personas",
-                        &record,
+                        sprites::SpriteOwnerKind::Character,
+                        id,
                     );
-                    if let Some(id) = record.get("id").and_then(Value::as_str) {
-                        sprites::remove_owned_sprite_dir(
-                            state,
-                            sprites::SpriteOwnerKind::Persona,
-                            id,
-                        );
-                    }
                 }
             }
-            "lorebooks" => {
-                let lorebooks = state.storage.list("lorebooks")?;
-                clear_collections(
-                    state,
-                    &[
-                        "lorebooks",
-                        "lorebook-library-folders",
-                        "lorebook-entries",
-                        "lorebook-folders",
-                    ],
-                    &mut cleared_collections,
-                )?;
-                for record in lorebooks {
-                    lorebook_images::remove_lorebook_image_file(state, &record);
-                }
-            }
-            "presets" => clear_collections(
-                state,
-                &[
-                    "prompts",
-                    "preset-folders",
-                    "prompt-groups",
-                    "prompt-sections",
-                    "prompt-variables",
-                    "chat-presets",
-                ],
-                &mut cleared_collections,
-            )?,
-            "connections" => {
-                let connections = state.storage.list("connections")?;
-                clear_collections(
-                    state,
-                    &["connections", "connection-folders"],
-                    &mut cleared_collections,
-                )?;
-                for record in connections {
-                    entity_images::remove_entity_image_file(state, "connections", &record);
-                }
-            }
-            "automation" => {
-                let agents = state.storage.list("agents")?;
-                clear_collections(
-                    state,
-                    &[
-                        "agents",
-                        "custom-tools",
-                        "regex-scripts",
-                        "themes",
-                        "extensions",
-                    ],
-                    &mut cleared_collections,
-                )?;
-                for record in agents {
-                    entity_images::remove_entity_image_file(state, "agents", &record);
-                }
-            }
-            "media" => {
-                clear_collections(
-                    state,
-                    &[
-                        "gallery",
-                        "character-gallery",
-                        "persona-gallery",
-                        "global-gallery",
-                        "gallery-folders",
-                        "background-metadata",
-                        "sprites",
-                        "knowledge-sources",
-                    ],
-                    &mut cleared_collections,
-                )?;
-                clear_runtime_media(state)?;
-            }
-            other => {
-                return Err(AppError::invalid_input(format!(
-                    "Unknown expunge scope: {other}"
-                )))
+            for record in versions {
+                characters::remove_character_version_avatar_file(state, &record);
             }
         }
+        "personas" => {
+            let personas = state.storage.list("personas")?;
+            clear_collections(
+                state,
+                &["personas", "persona-groups", "persona-gallery"],
+                cleared_collections,
+            )?;
+            for record in personas {
+                avatars::remove_avatar_file_preserving_persona_snapshots(
+                    state, "personas", &record,
+                );
+                if let Some(id) = record.get("id").and_then(Value::as_str) {
+                    sprites::remove_owned_sprite_dir(state, sprites::SpriteOwnerKind::Persona, id);
+                }
+            }
+        }
+        "lorebooks" => {
+            let lorebooks = state.storage.list("lorebooks")?;
+            clear_collections(
+                state,
+                &[
+                    "lorebooks",
+                    "lorebook-library-folders",
+                    "lorebook-entries",
+                    "lorebook-folders",
+                ],
+                cleared_collections,
+            )?;
+            for record in lorebooks {
+                lorebook_images::remove_lorebook_image_file(state, &record);
+            }
+        }
+        "presets" => clear_collections(
+            state,
+            &[
+                "prompts",
+                "preset-folders",
+                "prompt-groups",
+                "prompt-sections",
+                "prompt-variables",
+                "chat-presets",
+            ],
+            cleared_collections,
+        )?,
+        "connections" => {
+            let connections = state.storage.list("connections")?;
+            clear_collections(
+                state,
+                &["connections", "connection-folders"],
+                cleared_collections,
+            )?;
+            for record in connections {
+                entity_images::remove_entity_image_file(state, "connections", &record);
+            }
+        }
+        "automation" => {
+            let agents = state.storage.list("agents")?;
+            clear_collections(
+                state,
+                &[
+                    "agents",
+                    "custom-tools",
+                    "regex-scripts",
+                    "themes",
+                    "extensions",
+                ],
+                cleared_collections,
+            )?;
+            for record in agents {
+                entity_images::remove_entity_image_file(state, "agents", &record);
+            }
+        }
+        "media" => {
+            clear_collections(
+                state,
+                &[
+                    "gallery",
+                    "character-gallery",
+                    "persona-gallery",
+                    "global-gallery",
+                    "gallery-folders",
+                    "background-metadata",
+                    "sprites",
+                    "knowledge-sources",
+                ],
+                cleared_collections,
+            )?;
+            clear_runtime_media(state)?;
+        }
+        other => {
+            return Err(AppError::invalid_input(format!(
+                "Unknown expunge scope: {other}"
+            )))
+        }
     }
-    cleared_collections.sort();
-    cleared_collections.dedup();
-    Ok(json!({ "success": true, "clearedCollections": cleared_collections }))
+    Ok(())
+}
+
+fn validate_expunge_scopes(scopes: &[String]) -> AppResult<()> {
+    for scope in scopes {
+        if !matches!(
+            scope.as_str(),
+            "chats"
+                | "characters"
+                | "personas"
+                | "lorebooks"
+                | "presets"
+                | "connections"
+                | "automation"
+                | "media"
+        ) {
+            return Err(AppError::invalid_input(format!(
+                "Unknown expunge scope: {scope}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_and_dedupe_expunge_scopes(scopes: Vec<String>) -> AppResult<Vec<String>> {
+    validate_expunge_scopes(&scopes)?;
+    let mut seen = std::collections::HashSet::new();
+    Ok(scopes
+        .into_iter()
+        .filter(|scope| seen.insert(scope.clone()))
+        .collect())
+}
+
+fn normalized_cleared_collections(cleared: &[String]) -> Vec<String> {
+    let mut collections = cleared.to_vec();
+    collections.sort();
+    collections.dedup();
+    collections
+}
+
+fn expunge_cause(error: &AppError) -> Value {
+    let mut cause = json!({
+        "code": error.code,
+        "message": error.message,
+    });
+    if let Some(details) = &error.details {
+        cause
+            .as_object_mut()
+            .expect("expunge cause should be an object")
+            .insert("details".to_string(), details.clone());
+    }
+    cause
+}
+
+fn run_expunge_scopes<F>(scopes: &[String], mut execute_scope: F) -> AppResult<Value>
+where
+    F: FnMut(&str, &mut Vec<String>) -> AppResult<()>,
+{
+    let mut completed_scopes = Vec::new();
+    let mut cleared_collections = Vec::new();
+
+    for (index, scope) in scopes.iter().enumerate() {
+        if let Err(cause) = execute_scope(scope, &mut cleared_collections) {
+            return Err(AppError::with_details(
+                "expunge_incomplete",
+                format!("Could not finish erasing the {scope} data scope"),
+                json!({
+                    "success": false,
+                    "requestedScopes": scopes,
+                    "completedScopes": completed_scopes,
+                    "remainingScopes": &scopes[index..],
+                    "failedScope": scope,
+                    "clearedCollections": normalized_cleared_collections(&cleared_collections),
+                    "cause": expunge_cause(&cause),
+                }),
+            ));
+        }
+        completed_scopes.push(scope.clone());
+    }
+
+    Ok(json!({
+        "success": true,
+        "requestedScopes": scopes,
+        "completedScopes": completed_scopes,
+        "remainingScopes": [],
+        "clearedCollections": normalized_cleared_collections(&cleared_collections),
+    }))
 }
 
 /// Gallery collections whose rows reference managed image files in the shared
@@ -466,7 +552,9 @@ mod tests {
     #[test]
     fn admin_expunge_connections_removes_owned_entity_image_files() {
         let state = test_state("connection-owned-files");
-        let image = state.data_dir.join("entity-images/connections/connection-1.png");
+        let image = state
+            .data_dir
+            .join("entity-images/connections/connection-1.png");
         std::fs::create_dir_all(image.parent().expect("entity image should have a parent"))
             .expect("entity image parent should be created");
         std::fs::write(&image, b"private image").expect("entity image should be written");
@@ -484,8 +572,11 @@ mod tests {
             )
             .expect("connection should write");
 
-        admin_expunge(&state, json!({ "confirm": true, "scopes": ["connections"] }))
-            .expect("connection expunge should succeed");
+        admin_expunge(
+            &state,
+            json!({ "confirm": true, "scopes": ["connections"] }),
+        )
+        .expect("connection expunge should succeed");
 
         assert!(!image.exists(), "connection image should be removed");
     }
@@ -563,5 +654,170 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn admin_expunge_validates_every_scope_before_mutating() {
+        let state = test_state("expunge-prevalidation");
+        seed_character(&state, "character-1");
+
+        let error = admin_expunge(
+            &state,
+            json!({ "confirm": true, "scopes": ["characters", "unknown"] }),
+        )
+        .expect_err("an unknown scope should reject the whole request");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("Unknown expunge scope: unknown"));
+        assert!(
+            character_exists(&state, "character-1"),
+            "prevalidation must happen before the first scope mutates storage"
+        );
+    }
+
+    #[test]
+    fn expunge_scopes_are_deduplicated_in_first_seen_order() {
+        let scopes = validate_and_dedupe_expunge_scopes(vec![
+            "media".to_string(),
+            "chats".to_string(),
+            "media".to_string(),
+            "characters".to_string(),
+            "chats".to_string(),
+        ])
+        .expect("known scopes should validate");
+
+        assert_eq!(scopes, vec!["media", "chats", "characters"]);
+    }
+
+    #[test]
+    fn admin_expunge_returns_an_ordered_complete_receipt() {
+        let state = test_state("expunge-complete-receipt");
+
+        let result = admin_expunge(
+            &state,
+            json!({ "confirm": true, "scopes": ["connections", "chats", "connections"] }),
+        )
+        .expect("known scopes should complete");
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["requestedScopes"], json!(["connections", "chats"]));
+        assert_eq!(result["completedScopes"], json!(["connections", "chats"]));
+        assert_eq!(result["remainingScopes"], json!([]));
+        assert_eq!(
+            result["clearedCollections"],
+            json!([
+                "agent-memory",
+                "agent-runs",
+                "chat-folders",
+                "chats",
+                "connection-folders",
+                "connections",
+                "gallery",
+                "game-checkpoints",
+                "game-state-snapshots",
+                "memory-capture-jobs",
+                "message-swipes",
+                "messages"
+            ])
+        );
+    }
+
+    #[test]
+    fn expunge_orchestration_reports_a_retryable_second_scope_failure() {
+        let scopes = vec![
+            "chats".to_string(),
+            "connections".to_string(),
+            "media".to_string(),
+        ];
+        let mut calls = Vec::new();
+
+        let error = run_expunge_scopes(&scopes, |scope, cleared| {
+            calls.push(scope.to_string());
+            match scope {
+                "chats" => {
+                    cleared.push("chats".to_string());
+                    Ok(())
+                }
+                "connections" => {
+                    cleared.push("connection-folders".to_string());
+                    Err(AppError::with_details(
+                        "io_error",
+                        "connection storage failed",
+                        json!({ "collection": "connections" }),
+                    ))
+                }
+                _ => panic!("unattempted scope must not execute"),
+            }
+        })
+        .expect_err("the injected second scope should reject");
+
+        assert_eq!(calls, vec!["chats", "connections"]);
+        assert_eq!(error.code, "expunge_incomplete");
+        assert_eq!(
+            error.details,
+            Some(json!({
+                "success": false,
+                "requestedScopes": ["chats", "connections", "media"],
+                "completedScopes": ["chats"],
+                "remainingScopes": ["connections", "media"],
+                "failedScope": "connections",
+                "clearedCollections": ["chats", "connection-folders"],
+                "cause": {
+                    "code": "io_error",
+                    "message": "connection storage failed",
+                    "details": { "collection": "connections" }
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn expunge_failure_remaining_scopes_can_be_retried_without_completed_scopes() {
+        let requested = vec![
+            "chats".to_string(),
+            "connections".to_string(),
+            "media".to_string(),
+        ];
+        let first_error = run_expunge_scopes(&requested, |scope, cleared| {
+            if scope == "connections" {
+                return Err(AppError::new("io_error", "connection storage failed"));
+            }
+            cleared.push(scope.to_string());
+            Ok(())
+        })
+        .expect_err("the first run should stop at connections");
+        let remaining: Vec<String> = first_error
+            .details
+            .as_ref()
+            .and_then(|details| details.get("remainingScopes"))
+            .and_then(Value::as_array)
+            .expect("failure should expose retryable remaining scopes")
+            .iter()
+            .map(|scope| {
+                scope
+                    .as_str()
+                    .expect("scope should be a string")
+                    .to_string()
+            })
+            .collect();
+        let mut retried = Vec::new();
+
+        let retry_receipt = run_expunge_scopes(&remaining, |scope, cleared| {
+            retried.push(scope.to_string());
+            cleared.push(scope.to_string());
+            Ok(())
+        })
+        .expect("retrying only the remainder should complete");
+
+        assert_eq!(retried, vec!["connections", "media"]);
+        assert_eq!(
+            retry_receipt["requestedScopes"],
+            json!(["connections", "media"])
+        );
+        assert_eq!(
+            retry_receipt["completedScopes"],
+            json!(["connections", "media"])
+        );
+        assert_eq!(retry_receipt["remainingScopes"], json!([]));
     }
 }

@@ -2,7 +2,12 @@ import type { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { characterKeys } from "../query-keys";
-import { cacheCharacterListRecordFromResult } from "./character-query-cache";
+import {
+  cacheCharacterListRecordFromResult,
+  invalidateCharacterCollectionQueries,
+  refreshCharacterCollectionAfterMutation,
+  removeCachedCharacterRecord,
+} from "./character-query-cache";
 
 describe("character query cache", () => {
   it("refreshes panel summaries from a saved character result", () => {
@@ -39,5 +44,25 @@ describe("character query cache", () => {
       }),
     ).toBe(true);
     expect(store.get(keyFor(panelSummariesKey))).toEqual([savedCharacter]);
+  });
+
+  it("invalidates library presence after character create and delete paths", () => {
+    const queryClient = {
+      getQueryData: vi.fn(() => undefined),
+      setQueryData: vi.fn(),
+      removeQueries: vi.fn(),
+      invalidateQueries: vi.fn(),
+    };
+
+    refreshCharacterCollectionAfterMutation(queryClient, { id: "char-1" });
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: characterKeys.presence() });
+
+    queryClient.invalidateQueries.mockClear();
+    removeCachedCharacterRecord(queryClient, "char-1");
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: characterKeys.presence() });
+
+    queryClient.invalidateQueries.mockClear();
+    invalidateCharacterCollectionQueries(queryClient);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: characterKeys.presence() });
   });
 });

@@ -7,7 +7,7 @@ import { useAgentStore } from "../../../shared/stores/agent.store";
 import { useChatStore } from "../../../shared/stores/chat.store";
 import { useEncounterStore } from "../../../shared/stores/encounter.store";
 import { useUIStore } from "../../../shared/stores/ui.store";
-import { resetClientSessionState } from "./client-session-reset";
+import { resetClientDataState, resetClientSessionState } from "./client-session-reset";
 
 describe("resetClientSessionState", () => {
   beforeEach(() => {
@@ -62,6 +62,44 @@ describe("resetClientSessionState", () => {
       rightPanelOpen: false,
       botBrowserOpen: false,
       chatBackground: null,
+    });
+    expect(queryClient.getQueryCache().findAll()).toHaveLength(0);
+  });
+
+  it("resets client data without closing the settings owner or other shell UI", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["characters"], [{ id: "character-1" }]);
+
+    useChatStore.getState().setActiveChatId("chat-1");
+    useAgentStore.getState().setProcessing(true);
+    useGameStateStore.getState().setGameState({ chatId: "chat-1", location: "Harbor" } as GameState);
+    useEncounterStore.setState({ active: true, initialized: true, isProcessing: true });
+    useUIStore.setState({
+      modal: { type: "confirm", props: {} },
+      characterDetailId: "character-1",
+      rightPanelOpen: true,
+      rightPanel: "settings",
+      botBrowserOpen: true,
+      chatBackground: "asset://background.png",
+    });
+
+    resetClientDataState(queryClient);
+
+    expect(useChatStore.getState().activeChatId).toBeNull();
+    expect(useAgentStore.getState().isProcessing).toBe(false);
+    expect(useGameStateStore.getState().current).toBeNull();
+    expect(useEncounterStore.getState()).toMatchObject({
+      active: false,
+      initialized: false,
+      isProcessing: false,
+    });
+    expect(useUIStore.getState()).toMatchObject({
+      modal: { type: "confirm", props: {} },
+      characterDetailId: "character-1",
+      rightPanelOpen: true,
+      rightPanel: "settings",
+      botBrowserOpen: true,
+      chatBackground: "asset://background.png",
     });
     expect(queryClient.getQueryCache().findAll()).toHaveLength(0);
   });
