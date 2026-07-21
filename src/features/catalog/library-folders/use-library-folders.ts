@@ -11,6 +11,8 @@ import type { StorageEntity } from "../../../engine/capabilities/storage";
 import { storageApi } from "../../../shared/api/storage-api";
 import { lorebookKeys } from "../lorebooks/query-keys";
 import { presetKeys } from "../presets/query-keys";
+import { toast } from "sonner";
+import { optimisticallyUpdateFolder, rollbackOptimisticFolderUpdate } from "../lib/optimistic-folder-update";
 
 export type LibraryFolderScope = "lorebooks" | "presets";
 
@@ -76,10 +78,28 @@ export function useCreateLibraryFolder(scope: LibraryFolderScope) {
 export function useUpdateLibraryFolder(scope: LibraryFolderScope) {
   const qc = useQueryClient();
   const { folderEntity } = scopeCollections[scope];
+  const queryKey = libraryFolderKeys.list(scope);
+  const mutationKey = [...queryKey, "update"] as const;
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; name?: string; collapsed?: boolean; sortOrder?: number; order?: number }) =>
-      storageApi.update<LibraryFolder>(folderEntity, id, updateLibraryFolderSchema.parse(data)),
-    onSuccess: () => qc.invalidateQueries({ queryKey: libraryFolderKeys.list(scope) }),
+    mutationKey,
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string;
+      name?: string;
+      collapsed?: boolean;
+      sortOrder?: number;
+      order?: number;
+    }) => storageApi.update<LibraryFolder>(folderEntity, id, updateLibraryFolderSchema.parse(data)),
+    onMutate: (variables) => optimisticallyUpdateFolder<LibraryFolder>(qc, queryKey, variables),
+    onError: (_error, _variables, context) => {
+      rollbackOptimisticFolderUpdate<LibraryFolder>(qc, queryKey, context);
+      toast.error("Couldn't update that folder. Your previous folder state was restored.");
+    },
+    onSettled: () => {
+      if (qc.isMutating({ mutationKey }) <= 1) return qc.invalidateQueries({ queryKey });
+    },
   });
 }
 
@@ -102,9 +122,7 @@ export function useMoveLibraryItem(scope: LibraryFolderScope) {
   return useMutation({
     mutationFn: ({ itemId, folderId }: { itemId: string; folderId: string | null }) => {
       const patch =
-        scope === "lorebooks"
-          ? updateLorebookSchema.parse({ folderId })
-          : updatePromptPresetSchema.parse({ folderId });
+        scope === "lorebooks" ? updateLorebookSchema.parse({ folderId }) : updatePromptPresetSchema.parse({ folderId });
       return storageApi.update(itemEntity, itemId, patch);
     },
     onSuccess: () => {
