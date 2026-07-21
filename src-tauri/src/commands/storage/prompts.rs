@@ -723,7 +723,7 @@ pub(crate) async fn embed_text(connection: &Value, model: &str, text: &str) -> A
 /// Maximum number of texts sent in a single embeddings request, mirroring the
 /// web build's batch size so a large lorebook needs one HTTP round-trip per 50
 /// entries instead of one per entry (#2285).
-const EMBEDDING_BATCH_SIZE: usize = 50;
+pub(crate) const EMBEDDING_BATCH_SIZE: usize = 50;
 
 /// Embed a batch of texts, returning one embedding per input in the same order.
 ///
@@ -742,6 +742,7 @@ pub(crate) async fn embed_texts(
         .unwrap_or("openai");
     match provider {
         "openai_chatgpt" => Err(openai_chatgpt_embedding_error()),
+        "claude_subscription" => Err(claude_subscription_embedding_error()),
         "google" | "google_vertex" | "ollama" => {
             let mut out = Vec::with_capacity(texts.len());
             for text in texts {

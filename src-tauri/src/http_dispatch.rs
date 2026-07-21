@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
 pub struct InvokeRequest {
@@ -76,13 +77,29 @@ fn optional_u32_strict(args: &Map<String, Value>, key: &str) -> AppResult<Option
         .map_err(|_| AppError::invalid_input(format!("{key} is too large")))
 }
 
+trait IntoBlockingDispatchArgs {
+    fn into_blocking_dispatch_args(self) -> Arc<Map<String, Value>>;
+}
+
+impl IntoBlockingDispatchArgs for Map<String, Value> {
+    fn into_blocking_dispatch_args(self) -> Arc<Map<String, Value>> {
+        Arc::new(self)
+    }
+}
+
+impl IntoBlockingDispatchArgs for &Arc<Map<String, Value>> {
+    fn into_blocking_dispatch_args(self) -> Arc<Map<String, Value>> {
+        Arc::clone(self)
+    }
+}
+
 async fn dispatch_blocking_http_storage(
     state: &AppState,
-    args: &Map<String, Value>,
+    args: impl IntoBlockingDispatchArgs,
     operation: impl FnOnce(&AppState, &Map<String, Value>) -> AppResult<Value> + Send + 'static,
 ) -> AppResult<Value> {
     let state = state.clone();
-    let args = args.clone();
+    let args = args.into_blocking_dispatch_args();
     tokio::task::spawn_blocking(move || operation(&state, &args))
         .await
         .map_err(|error| AppError::new("task_join_error", error.to_string()))?
@@ -124,7 +141,7 @@ fn optional_string_vec(args: &Map<String, Value>, key: &str) -> AppResult<Vec<St
 
 pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Value> {
     let command = request.command.as_str();
-    let args = args_object(request.args)?;
+    let args = Arc::new(args_object(request.args)?);
     match command {
         "load_url_binary" => load_url_binary(state, &args).await,
         "profile_import" => profile::profile_call(
@@ -2290,6 +2307,24 @@ mod tests {
                 "{command} should dispatch through the blocking storage worker"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn blocking_storage_dispatch_accepts_owned_request_args() {
+        let state = test_state("owned-blocking-dispatch-args");
+        let mut args = Map::new();
+        args.insert("payload".to_string(), json!({ "large": [1, 2, 3] }));
+
+        let result = dispatch_blocking_http_storage(&state, args, |_state, args| {
+            Ok(args
+                .get("payload")
+                .cloned()
+                .expect("worker should receive the request payload"))
+        })
+        .await
+        .expect("owned request map should cross the blocking boundary");
+
+        assert_eq!(result, json!({ "large": [1, 2, 3] }));
     }
 
     #[tokio::test]

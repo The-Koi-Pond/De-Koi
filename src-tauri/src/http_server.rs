@@ -1451,17 +1451,26 @@ async fn sidecar_embeddings_inner(state: &AppState, body: Value) -> Result<Value
         None
     };
 
-    let mut prompt_tokens = 0usize;
-    let mut data = Vec::with_capacity(inputs.len());
-    for (index, input) in inputs.iter().enumerate() {
-        prompt_tokens += approximate_embedding_tokens(input);
-        let embedding = prompts::embed_text(&connection, &model, input).await?;
-        data.push(json!({
-            "object": "embedding",
-            "index": index,
-            "embedding": embedding
-        }));
+    let prompt_tokens = inputs
+        .iter()
+        .map(|input| approximate_embedding_tokens(input))
+        .sum::<usize>();
+    let mut embeddings = Vec::with_capacity(inputs.len());
+    for chunk in inputs.chunks(prompts::EMBEDDING_BATCH_SIZE) {
+        let texts = chunk.iter().map(String::as_str).collect::<Vec<_>>();
+        embeddings.extend(prompts::embed_texts(&connection, &model, &texts).await?);
     }
+    let data = embeddings
+        .into_iter()
+        .enumerate()
+        .map(|(index, embedding)| {
+            json!({
+                "object": "embedding",
+                "index": index,
+                "embedding": embedding
+            })
+        })
+        .collect::<Vec<_>>();
 
     Ok(json!({
         "object": "list",
@@ -3662,6 +3671,65 @@ mod tests {
         );
         assert!(sidecar_embedding_inputs(&json!({ "input": [] })).is_err());
         assert!(sidecar_embedding_inputs(&json!({ "input": [1] })).is_err());
+    }
+
+    #[tokio::test]
+    async fn sidecar_embeddings_batch_compatible_provider_inputs() {
+        let listener =
+            tokio::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+                .await
+                .expect("test embedding provider should bind");
+        let address = listener
+            .local_addr()
+            .expect("test embedding provider address should load");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test embedding provider should accept one batch");
+            let mut buffer = [0_u8; 4096];
+            let read = stream
+                .read(&mut buffer)
+                .await
+                .expect("test embedding provider should read request");
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let body = request
+                .split("\r\n\r\n")
+                .nth(1)
+                .expect("embedding request should contain a body");
+            let body: Value =
+                serde_json::from_str(body).expect("embedding request body should be JSON");
+            assert_eq!(body["input"], json!(["first", "second"]));
+
+            let body = r#"{"data":[{"index":1,"embedding":[2.0]},{"index":0,"embedding":[1.0]}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("test embedding provider should write response");
+        });
+
+        let state = test_state("batched-sidecar-embeddings");
+        let result = sidecar_embeddings_inner(
+            &state,
+            json!({
+                "connection": {
+                    "provider": "openai",
+                    "baseUrl": format!("http://{address}/v1"),
+                    "apiKey": "sk-test-key",
+                    "embeddingModel": "test-embedding-model"
+                },
+                "input": ["first", "second"]
+            }),
+        )
+        .await
+        .expect("compatible provider should receive one batch");
+
+        assert_eq!(result["data"][0]["embedding"], json!([1.0]));
+        assert_eq!(result["data"][1]["embedding"], json!([2.0]));
     }
 
     #[test]
