@@ -23,11 +23,13 @@ describe("CharacterPickerEmptyState", () => {
     act(() =>
       root.render(
         <CharacterPickerEmptyState
-          hasError={false}
-          isPending={false}
-          hasSearch={false}
-          hasCharacters={false}
-          hasUnselectedCharacters={false}
+          status={{
+            hasError: false,
+            isPending: false,
+            hasSearch: false,
+            hasCharacters: false,
+            hasUnselectedCharacters: false,
+          }}
           noCharactersText="No characters yet."
           allAddedText="All characters added."
           onOpenCharacters={onOpenCharacters}
@@ -50,15 +52,17 @@ describe("CharacterPickerEmptyState", () => {
     act(() =>
       root.render(
         <CharacterPickerEmptyState
-          hasError={false}
-          isPending={false}
-          hasSearch={false}
-          hasCharacters={false}
-          hasUnselectedCharacters={false}
+          status={{
+            hasError: false,
+            isPending: false,
+            hasSearch: false,
+            hasCharacters: false,
+            hasUnselectedCharacters: false,
+            ...overrides,
+          }}
           noCharactersText="No characters yet."
           allAddedText="All characters added."
           onOpenCharacters={() => undefined}
-          {...overrides}
         />,
       ),
     );

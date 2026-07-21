@@ -242,14 +242,16 @@ function deriveCharacterPickerEmptyState({
   unfilteredError: boolean;
   selectedCharacterIds: string[];
 }): {
-  characters: CharacterSetupOption[];
+  hasSearch: boolean;
+  hasCharacters: boolean;
   isPending: boolean;
   hasError: boolean;
   hasUnselectedCharacters: boolean;
 } {
   const charactersForEmptyState = hasSearch ? (unfilteredCharacters ?? []) : characters;
   return {
-    characters: charactersForEmptyState,
+    hasSearch,
+    hasCharacters: charactersForEmptyState.length > 0,
     isPending: searchPending || (hasSearch && unfilteredFetching),
     hasError: baseError || (hasSearch && unfilteredError),
     hasUnselectedCharacters: charactersForEmptyState.some((character) => !selectedCharacterIds.includes(character.id)),
@@ -926,11 +928,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                   })}
                   {available.length === 0 && (
                     <CharacterPickerEmptyState
-                      hasError={characterEmptyState.hasError}
-                      isPending={characterEmptyState.isPending}
-                      hasSearch={hasCharacterSearch}
-                      hasCharacters={characterEmptyState.characters.length > 0}
-                      hasUnselectedCharacters={characterEmptyState.hasUnselectedCharacters}
+                      status={characterEmptyState}
                       noCharactersText="No characters yet. Create or import one before starting a conversation."
                       allAddedText="All characters added."
                       onOpenCharacters={() => {
@@ -1566,11 +1564,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
             })}
             {available.length === 0 && (
               <CharacterPickerEmptyState
-                hasError={characterEmptyState.hasError}
-                isPending={characterEmptyState.isPending}
-                hasSearch={hasCharacterSearch}
-                hasCharacters={characterEmptyState.characters.length > 0}
-                hasUnselectedCharacters={characterEmptyState.hasUnselectedCharacters}
+                status={characterEmptyState}
                 noCharactersText="No characters yet. Create or import one before adding them to this roleplay."
                 allAddedText="All characters already added."
                 onOpenCharacters={() => {
@@ -1857,11 +1851,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                         return characterMatchesSearch(c, charSearch);
                       }).length === 0 && (
                         <CharacterPickerEmptyState
-                          hasError={characterEmptyState.hasError}
-                          isPending={characterEmptyState.isPending}
-                          hasSearch={hasCharacterSearch}
-                          hasCharacters={characterEmptyState.characters.length > 0}
-                          hasUnselectedCharacters={characterEmptyState.hasUnselectedCharacters}
+                          status={characterEmptyState}
                           noCharactersText="No characters yet. Create or import one before applying setup."
                           allAddedText="All characters added."
                           onOpenCharacters={() => {

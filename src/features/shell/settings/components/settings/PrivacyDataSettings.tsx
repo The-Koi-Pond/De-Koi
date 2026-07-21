@@ -211,6 +211,9 @@ export function PrivacyDataSettings() {
                   : "Selected data erasure could not start."}
             </p>
             <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+              Requested: {expungeScopeLabels(expungeResult.requestedScopes)}.
+            </p>
+            <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
               {expungeResult.success ? "Erased" : "Completed"}: {expungeScopeLabels(expungeResult.completedScopes)}.
             </p>
             {!expungeResult.success && (

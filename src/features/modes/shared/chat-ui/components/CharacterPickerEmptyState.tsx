@@ -1,22 +1,21 @@
 export function CharacterPickerEmptyState({
-  hasError,
-  isPending,
-  hasSearch,
-  hasCharacters,
-  hasUnselectedCharacters,
+  status,
   noCharactersText,
   allAddedText,
   onOpenCharacters,
 }: {
-  hasError: boolean;
-  isPending: boolean;
-  hasSearch: boolean;
-  hasCharacters: boolean;
-  hasUnselectedCharacters: boolean;
+  status: {
+    hasError: boolean;
+    isPending: boolean;
+    hasSearch: boolean;
+    hasCharacters: boolean;
+    hasUnselectedCharacters: boolean;
+  };
   noCharactersText: string;
   allAddedText: string;
   onOpenCharacters: () => void;
 }) {
+  const { hasError, isPending, hasSearch, hasCharacters, hasUnselectedCharacters } = status;
   const message = hasError
     ? "Characters could not be loaded."
     : isPending

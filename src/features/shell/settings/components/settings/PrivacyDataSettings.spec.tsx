@@ -78,6 +78,7 @@ describe("PrivacyDataSettings selected erasure receipts", () => {
     act(() => findButton(container, "Confirm delete").click());
 
     expect(mocks.expungeMutate).toHaveBeenNthCalledWith(1, ["chats", "connections", "media"], expect.any(Object));
+    expect(container.textContent).toContain("Requested: Chats & Messages, Connections, Media & Assets.");
     expect(container.textContent).toContain("Completed: Chats & Messages.");
     expect(container.textContent).toContain("Still to erase: Connections, Media & Assets.");
     expect(findScopeCheckbox(container, "Chats & Messages").checked).toBe(false);

@@ -72,14 +72,17 @@
 5. Refresh client caches after partial mutation; show exact completed/remaining categories and retry only the remainder.
 6. Prove Tauri/HTTP serialization parity and run Rust storage tests plus Cargo check.
 
-## Task 7: Correct tutorial guidance and integrate
+## Task 7: Correct tutorial guidance
 
 **Primary files:** `discovery-entries.json`, discovery metadata tests/checks.
 
 1. Change Game tutorial copy from automatic first-game launch to the current manual Help/Discover action.
 2. Run discovery validation and the affected registry test.
-3. Run all focused tests, `pnpm typecheck`, `pnpm build`, `pnpm check:architecture`, and final `pnpm check`.
-4. Review the complete diff for mode separation, storage/error contracts, data persistence, bloat, and silent fallbacks.
-5. Run Bunny Review on the final local SHA and fix blocking findings.
-6. Inspect intended files, commit intentionally, push only to `origin`, and open one PR against `main` using the repository template.
-7. Re-run Bunny for every PR-affecting push, clear CI/review threads, mark ready, and merge to `main`.
+
+## Task 8: Integrate and ship
+
+1. Run all focused tests, `pnpm typecheck`, `pnpm build`, `pnpm check:architecture`, and final `pnpm check`.
+2. Review the complete diff for mode separation, storage/error contracts, data persistence, bloat, and silent fallbacks.
+3. Run Bunny Review on the final local SHA and fix blocking findings.
+4. Inspect intended files, commit intentionally, push only to `origin`, and open one PR against `main` using the repository template.
+5. Re-run Bunny for every PR-affecting push, clear CI/review threads, mark ready, and merge to `main`.
