@@ -6,7 +6,9 @@ import { updateConnectionSchema } from "../../../../engine/contracts/schemas/con
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import type { ConnectionFolder } from "../../../../engine/contracts/types/connection";
+import { optimisticallyUpdateFolder, rollbackOptimisticFolderUpdate } from "../../lib/optimistic-folder-update";
 import { assertStoredConnectionId, connectionKeys } from "./use-connections";
+import { toast } from "sonner";
 
 const connectionFolderKeys = {
   all: ["connection-folders"] as const,
@@ -32,7 +34,10 @@ export function useCreateConnectionFolder() {
 
 export function useUpdateConnectionFolder() {
   const qc = useQueryClient();
+  const queryKey = connectionFolderKeys.list();
+  const mutationKey = [...queryKey, "update"] as const;
   return useMutation({
+    mutationKey,
     mutationFn: ({
       id,
       ...data
@@ -43,7 +48,14 @@ export function useUpdateConnectionFolder() {
       sortOrder?: number;
       collapsed?: boolean;
     }) => storageApi.update<ConnectionFolder>("connection-folders", id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: connectionFolderKeys.list() }),
+    onMutate: (variables) => optimisticallyUpdateFolder<ConnectionFolder>(qc, queryKey, variables),
+    onError: (_error, _variables, context) => {
+      rollbackOptimisticFolderUpdate<ConnectionFolder>(qc, queryKey, context);
+      toast.error("Couldn't update that folder. Your previous folder state was restored.");
+    },
+    onSettled: () => {
+      if (qc.isMutating({ mutationKey }) <= 1) return qc.invalidateQueries({ queryKey });
+    },
   });
 }
 
