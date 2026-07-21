@@ -37,7 +37,7 @@ export function ExportFormatDialog({
     icon: typeof Layers;
     description: string;
   }> = [
-    { id: "native", label: "Marinara Native", icon: Layers, description: nativeDescription },
+    { id: "native", label: "De-Koi Native", icon: Layers, description: nativeDescription },
     { id: "compatible", label: "Compatible JSON", icon: FileJson, description: compatibleDescription },
     ...(showZipOption ? [{ id: "zip" as const, label: "Profile ZIP", icon: Archive, description: zipDescription }] : []),
     ...(showPngOption
