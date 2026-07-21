@@ -884,12 +884,20 @@
   min-height: clamp(12rem, 28vh, 17rem);
 }
 
+.deki-hero[data-state="compact"] {
+  min-height: clamp(7rem, 16vh, 9rem);
+}
+
 .deki-pond-scene {
   position: relative;
   width: min(100%, 24rem);
   aspect-ratio: 16 / 10;
   isolation: isolate;
   overflow: visible;
+}
+
+.deki-hero[data-state="compact"] .deki-pond-scene {
+  width: min(100%, 14rem);
 }
 
 .deki-pond-aura {
@@ -1036,8 +1044,16 @@
     min-height: clamp(10.5rem, 25vh, 13rem);
   }
 
+  .deki-hero[data-state="compact"] {
+    min-height: clamp(6rem, 16vh, 7rem);
+  }
+
   .deki-pond-scene {
     width: min(100%, 20rem);
+  }
+
+  .deki-hero[data-state="compact"] .deki-pond-scene {
+    width: min(100%, 12rem);
   }
 }
 

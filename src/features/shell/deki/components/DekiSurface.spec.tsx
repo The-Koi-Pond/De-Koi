@@ -1,4 +1,5 @@
 import { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -974,5 +975,297 @@ describe("DekiSurface concurrent sessions", () => {
         content: "Reply with a sidebar ping",
       }),
     );
+  });
+});
+
+describe("DekiSurface hero state", () => {
+  let root: Root | null = null;
+  let container: HTMLDivElement | null = null;
+  let queryClient: QueryClient | null = null;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    };
+    queryClient = new QueryClient();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    vi.mocked(dekiApi.preferences.get).mockResolvedValue({
+      selectedConnectionId: "conn-1",
+      selectedPersonaId: null,
+    });
+    vi.mocked(dekiApi.preferences.save).mockResolvedValue({
+      selectedConnectionId: "conn-1",
+      selectedPersonaId: null,
+    });
+    vi.mocked(dekiApi.actions.currentRecord).mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    if (root) {
+      act(() => {
+        root?.unmount();
+      });
+    }
+    root = null;
+    queryClient?.clear();
+    queryClient = null;
+    container?.remove();
+    container = null;
+    vi.restoreAllMocks();
+  });
+
+  const renderSurface = async (sessionId = "session-1") => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId={sessionId} />
+        </QueryClientProvider>,
+      );
+    });
+  };
+
+  const heroState = () => container!.querySelector<HTMLElement>(".deki-hero")?.dataset.state;
+
+  it("keeps the hero unsettled until history resolves, then uses the full welcome for an empty history", async () => {
+    let resolveHistory: ((value: Awaited<ReturnType<typeof dekiApi.history.get>>) => void) | null = null;
+    vi.mocked(dekiApi.history.get).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+
+    await renderSurface();
+    expect(heroState()).toBe("loading");
+
+    await act(async () => {
+      resolveHistory?.({
+        session: {
+          id: "session-1",
+          title: "Help",
+          messages: [],
+          compaction: EMPTY_DEKI_COMPACTION,
+          createdAt: "2026-06-25T12:00:00.000Z",
+          updatedAt: "2026-06-25T12:00:00.000Z",
+        },
+        messages: [],
+        compaction: EMPTY_DEKI_COMPACTION,
+      });
+      await Promise.resolve();
+    });
+
+    expect(heroState()).toBe("welcome");
+  });
+
+  it("uses the compact hero when loaded history contains persisted messages", async () => {
+    vi.mocked(dekiApi.history.get).mockResolvedValue({
+      session: {
+        id: "session-1",
+        title: "Help",
+        messages: [userMessage],
+        compaction: EMPTY_DEKI_COMPACTION,
+        createdAt: "2026-06-25T12:00:00.000Z",
+        updatedAt: "2026-06-25T12:00:00.000Z",
+      },
+      messages: [userMessage],
+      compaction: EMPTY_DEKI_COMPACTION,
+    });
+
+    await renderSurface();
+    await tick();
+
+    expect(heroState()).toBe("compact");
+  });
+
+  it("settles rejected current-session history into a recoverable welcome state", async () => {
+    vi.mocked(dekiApi.history.get).mockRejectedValue(new Error("Deki history unavailable"));
+
+    await renderSurface();
+    await tick();
+    await tick();
+
+    expect(heroState()).toBe("welcome");
+    expect(container!.querySelector("section")?.getAttribute("aria-busy")).toBe("false");
+    expect(container!.textContent).toContain("Howdy, welcome to De-Koi!");
+
+    const input = container!.querySelector<HTMLTextAreaElement>("textarea");
+    expect(input).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(input, "Can you still help me?");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(container!.querySelector<HTMLButtonElement>('button[aria-label="Send"]')?.disabled).toBe(false);
+  });
+
+  it("does not show prior-session history after the replacement session rejects", async () => {
+    vi.mocked(dekiApi.history.get).mockImplementation((sessionId) => {
+      if (sessionId === "session-1") {
+        return Promise.resolve({
+          session: {
+            id: "session-1",
+            title: "Help",
+            messages: [userMessage],
+            compaction: EMPTY_DEKI_COMPACTION,
+            createdAt: "2026-06-25T12:00:00.000Z",
+            updatedAt: "2026-06-25T12:00:00.000Z",
+          },
+          messages: [userMessage],
+          compaction: EMPTY_DEKI_COMPACTION,
+        });
+      }
+      return Promise.reject(new Error("Deki history unavailable"));
+    });
+
+    await renderSurface();
+    await tick();
+    expect(heroState()).toBe("compact");
+    expect(container!.textContent).toContain(userMessage.content);
+
+    flushSync(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-2" />
+        </QueryClientProvider>,
+      );
+    });
+    expect(heroState()).toBe("loading");
+
+    await tick();
+    await tick();
+
+    expect(heroState()).toBe("welcome");
+    expect(container!.querySelector("section")?.getAttribute("aria-busy")).toBe("false");
+    expect(container!.textContent).not.toContain(userMessage.content);
+  });
+
+  it("keeps a returning session loading until its replacement history request settles", async () => {
+    const returnedMessage = {
+      ...userMessage,
+      id: "deki-user-returned",
+      content: "The final A history response.",
+      createdAt: "2026-06-25T12:00:02.000Z",
+    };
+    let firstSessionALoad = true;
+    let resolveReturningHistory: ((value: Awaited<ReturnType<typeof dekiApi.history.get>>) => void) | null = null;
+    vi.mocked(dekiApi.history.get).mockImplementation((sessionId) => {
+      if (sessionId !== "session-1") return new Promise(() => undefined);
+      if (firstSessionALoad) {
+        firstSessionALoad = false;
+        return Promise.resolve({
+          session: {
+            id: "session-1",
+            title: "Help",
+            messages: [userMessage],
+            compaction: EMPTY_DEKI_COMPACTION,
+            createdAt: "2026-06-25T12:00:00.000Z",
+            updatedAt: "2026-06-25T12:00:00.000Z",
+          },
+          messages: [userMessage],
+          compaction: EMPTY_DEKI_COMPACTION,
+        });
+      }
+      return new Promise((resolve) => {
+        resolveReturningHistory = resolve;
+      });
+    });
+
+    await renderSurface();
+    await tick();
+    expect(heroState()).toBe("compact");
+
+    const input = container!.querySelector<HTMLTextAreaElement>("textarea");
+    expect(input).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(input, "Keep this draft while switching sessions");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const sendButton = () => container!.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!;
+    expect(sendButton().disabled).toBe(false);
+
+    flushSync(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-2" />
+        </QueryClientProvider>,
+      );
+    });
+    expect(heroState()).toBe("loading");
+
+    flushSync(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(heroState()).toBe("loading");
+    expect(container!.querySelector("section")?.getAttribute("aria-busy")).toBe("true");
+    expect(sendButton().disabled).toBe(true);
+    expect(container!.textContent).not.toContain(userMessage.content);
+
+    await act(async () => {
+      resolveReturningHistory?.({
+        session: {
+          id: "session-1",
+          title: "Help again",
+          messages: [returnedMessage],
+          compaction: EMPTY_DEKI_COMPACTION,
+          createdAt: "2026-06-25T12:00:00.000Z",
+          updatedAt: "2026-06-25T12:00:02.000Z",
+        },
+        messages: [returnedMessage],
+        compaction: EMPTY_DEKI_COMPACTION,
+      });
+      await Promise.resolve();
+    });
+
+    expect(heroState()).toBe("compact");
+    expect(container!.textContent).toContain(returnedMessage.content);
+    expect(container!.textContent).not.toContain(userMessage.content);
+  });
+
+  it("shows loading synchronously when switching from populated history to a pending session", async () => {
+    vi.mocked(dekiApi.history.get).mockImplementation((sessionId) => {
+      if (sessionId === "session-1") {
+        return Promise.resolve({
+          session: {
+            id: "session-1",
+            title: "Help",
+            messages: [userMessage],
+            compaction: EMPTY_DEKI_COMPACTION,
+            createdAt: "2026-06-25T12:00:00.000Z",
+            updatedAt: "2026-06-25T12:00:00.000Z",
+          },
+          messages: [userMessage],
+          compaction: EMPTY_DEKI_COMPACTION,
+        });
+      }
+      return new Promise(() => undefined);
+    });
+
+    await renderSurface();
+    await tick();
+    expect(heroState()).toBe("compact");
+
+    flushSync(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-2" />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(heroState()).toBe("loading");
   });
 });
