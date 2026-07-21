@@ -46,18 +46,16 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn backup_blocking_work_leaves_tokio_available() {
+        const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
         let (started_tx, started_rx) = mpsc::channel();
         let (progress_tx, progress_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
         let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
         let watchdog = std::thread::spawn(move || {
-            started_rx
-                .recv()
-                .expect("backup operation should begin its blocking work");
-            let progressed = progress_rx.recv_timeout(Duration::from_secs(1)).is_ok();
-            release_tx
-                .send(())
-                .expect("backup operation should still be waiting for release");
+            let started = started_rx.recv_timeout(PROBE_TIMEOUT).is_ok();
+            let progressed = started && progress_rx.recv_timeout(PROBE_TIMEOUT).is_ok();
+            let _ = release_tx.send(());
             progressed
         });
 
@@ -69,30 +67,40 @@ mod tests {
                 .send(())
                 .expect("Tokio test should observe the blocking operation");
             release_rx
-                .recv()
+                .recv_timeout(PROBE_TIMEOUT)
                 .expect("watchdog should release the blocking operation");
             Ok(json!({ "backup": "complete" }))
         }));
 
-        entered_rx
+        tokio::time::timeout(PROBE_TIMEOUT, entered_rx)
             .await
-            .expect("backup operation should enter its blocking body");
+            .expect("backup operation should enter its blocking body before the deadline")
+            .expect("backup operation should notify the Tokio test");
         let unrelated = tokio::spawn(async move {
             let _ = progress_tx.send(());
         });
-        unrelated
+        tokio::time::timeout(PROBE_TIMEOUT, unrelated)
             .await
-            .expect("unrelated Tokio work should complete");
-
-        assert!(
-            watchdog.join().expect("watchdog should not panic"),
-            "unrelated Tokio work should progress before the backup operation is released"
-        );
+            .expect("unrelated Tokio work should complete before the deadline")
+            .expect("unrelated Tokio work should not panic");
         assert_eq!(
-            work.await
+            tokio::time::timeout(PROBE_TIMEOUT, work)
+                .await
+                .expect("backup worker should complete before the deadline")
                 .expect("backup task should not panic")
                 .expect("backup task should succeed"),
             json!({ "backup": "complete" })
+        );
+        assert!(
+            tokio::time::timeout(
+                PROBE_TIMEOUT,
+                tokio::task::spawn_blocking(move || watchdog.join())
+            )
+            .await
+            .expect("watchdog should join before the deadline")
+            .expect("watchdog task should not panic")
+            .expect("watchdog thread should not panic"),
+            "unrelated Tokio work should progress before the backup operation is released"
         );
     }
 }
