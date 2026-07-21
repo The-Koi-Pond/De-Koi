@@ -210,6 +210,7 @@ export function useChatTimelineActions({
   const destructiveTimelineActionSeq = useRef(0);
   const peekPromptActionSeq = useRef(0);
   const pendingSwipeMutationsRef = useRef(new Map<string, Promise<void>>());
+  const pendingBranchMessageIdsRef = useRef(new Set<string>());
   const swipeRequestSeqCounterRef = useRef(0);
   const swipeRequestSeqRef = useRef(new Map<string, number>());
   const [deleteDialogMessageId, setDeleteDialogMessageId] = useState<string | null>(null);
@@ -660,15 +661,20 @@ export function useChatTimelineActions({
   );
 
   const handleBranch = useCallback(
-    (messageId: string) => {
-      branchChatRef.current.mutate(
-        { chatId: activeChatId, upToMessageId: messageId },
-        {
-          onSuccess: (newChat) => {
-            if (newChat) useChatStore.getState().setActiveChatId(newChat.id);
-          },
-        },
-      );
+    async (messageId: string) => {
+      if (!activeChatId || pendingBranchMessageIdsRef.current.has(messageId)) return;
+      pendingBranchMessageIdsRef.current.add(messageId);
+      try {
+        const newChat = await branchChatRef.current.mutateAsync({
+          chatId: activeChatId,
+          upToMessageId: messageId,
+        });
+        if (newChat) useChatStore.getState().setActiveChatId(newChat.id);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not create branch.");
+      } finally {
+        pendingBranchMessageIdsRef.current.delete(messageId);
+      }
     },
     [activeChatId, branchChatRef],
   );

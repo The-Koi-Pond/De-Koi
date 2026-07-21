@@ -9,6 +9,17 @@ import { useUIStore } from "../../../../../shared/stores/ui.store";
 const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
   retryAgents: vi.fn(),
+  branchMutateAsync: vi.fn(),
+  toastError: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
+
+vi.mock("../../../../catalog/chats/index", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../../catalog/chats/index")>()),
+  useBranchChat: () => ({
+    mutateAsync: mocks.branchMutateAsync,
+  }),
 }));
 
 vi.mock("../../../../runtime/generation/index", () => ({
@@ -20,13 +31,14 @@ vi.mock("../../../../runtime/generation/index", () => ({
 
 import { useChatTimelineActions } from "./use-chat-timeline-actions";
 
-describe("useChatTimelineActions regeneration", () => {
+describe("useChatTimelineActions", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClient;
   let regenerate:
     | ((messageId: string, options?: { chatId?: string; propagateErrors?: boolean; skipTouchConfirm?: boolean }) => Promise<void>)
     | null;
+  let branch: ((messageId: string) => void | Promise<void>) | null;
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -35,16 +47,20 @@ describe("useChatTimelineActions regeneration", () => {
     root = createRoot(container);
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     regenerate = null;
+    branch = null;
     mocks.generate.mockResolvedValue(true);
+    mocks.branchMutateAsync.mockResolvedValue({ id: "branched-chat" });
     useChatStore.getState().reset();
     useUIStore.setState({ guideGenerations: false });
 
     function Harness() {
-      regenerate = useChatTimelineActions({
+      const actions = useChatTimelineActions({
         activeChatId: "stale-active-chat",
         messages: [],
         messageIdByOrderIndex: new Map(),
-      }).handleRegenerate;
+      });
+      regenerate = actions.handleRegenerate;
+      branch = actions.handleBranch;
       return null;
     }
 
@@ -80,5 +96,29 @@ describe("useChatTimelineActions regeneration", () => {
       regenerateMessageId: "message-1",
       forCharacterId: null,
     });
+  });
+
+  it("reports branch creation failures and leaves the active chat unchanged", async () => {
+    const error = new Error("Branch storage failed");
+    mocks.branchMutateAsync.mockRejectedValueOnce(error);
+
+    await act(async () => {
+      await branch?.("message-1");
+    });
+
+    expect(mocks.branchMutateAsync).toHaveBeenCalledWith({
+      chatId: "stale-active-chat",
+      upToMessageId: "message-1",
+    });
+    expect(mocks.toastError).toHaveBeenCalledWith("Branch storage failed");
+    expect(useChatStore.getState().activeChatId).toBeNull();
+  });
+
+  it("opens the new chat after branch creation succeeds", async () => {
+    await act(async () => {
+      await branch?.("message-1");
+    });
+
+    expect(useChatStore.getState().activeChatId).toBe("branched-chat");
   });
 });

@@ -166,6 +166,7 @@ export interface ConversationMessageRenderContext {
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch?: (messageId: string) => void;
+  branchPending: boolean;
   onOpenCharacterProfile?: (characterId: string, anchorRect: DOMRect) => void;
   canOpenCharacterProfile?: boolean;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
@@ -380,12 +381,14 @@ export function MsgAction({
   title,
   className,
   tabIndex,
+  disabled,
 }: {
   icon: ReactNode;
   onClick: () => void;
   title: string;
   className?: string;
   tabIndex?: number;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -396,8 +399,9 @@ export function MsgAction({
       }}
       title={title}
       tabIndex={tabIndex}
+      disabled={disabled}
       className={cn(
-        "rounded p-1 text-foreground/70 transition-colors hover:bg-foreground/20 hover:text-foreground",
+        "rounded p-1 text-foreground/70 transition-colors hover:bg-foreground/20 hover:text-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30",
         className,
       )}
     >

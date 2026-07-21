@@ -252,6 +252,52 @@ describe("ConversationMessage memo subscriptions", () => {
     );
   });
 
+  it("acknowledges branch creation immediately and blocks duplicate clicks", async () => {
+    let resolveBranch: (() => void) | undefined;
+    const onBranch = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveBranch = resolve;
+        }),
+    );
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={message}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+            onBranch={onBranch}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const branchButton = container!.querySelector<HTMLButtonElement>('button[title="Branch from here"]');
+    expect(branchButton).not.toBeNull();
+
+    await act(async () => {
+      branchButton!.click();
+      branchButton!.click();
+      await Promise.resolve();
+    });
+
+    const pendingButton = container!.querySelector<HTMLButtonElement>('button[title="Creating branch…"]');
+    expect(onBranch).toHaveBeenCalledTimes(1);
+    expect(onBranch).toHaveBeenCalledWith("message-1");
+    expect(pendingButton?.disabled).toBe(true);
+    expect(pendingButton?.querySelector(".animate-spin")).not.toBeNull();
+
+    await act(async () => {
+      resolveBranch?.();
+      await Promise.resolve();
+    });
+
+    expect(container!.querySelector<HTMLButtonElement>('button[title="Branch from here"]')?.disabled).toBe(false);
+  });
+
   it("keeps markdown blocks when fenced examples contain a known speaker prefix", () => {
     const markdownMessage: Message = {
       ...message,

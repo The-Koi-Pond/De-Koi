@@ -4,6 +4,7 @@ import {
   Eye,
   EyeOff,
   GitBranch,
+  Loader2,
   Languages,
   Pencil,
   RefreshCw,
@@ -138,10 +139,17 @@ export function ConversationMessageActions({
       )}
       {context.onBranch && (
         <MsgAction
-          icon={<GitBranch size="0.75rem" />}
+          icon={
+            context.branchPending ? (
+              <Loader2 size="0.75rem" className="animate-spin" />
+            ) : (
+              <GitBranch size="0.75rem" />
+            )
+          }
           onClick={() => context.onBranch?.(context.message.id)}
-          title="Branch from here"
+          title={context.branchPending ? "Creating branch…" : "Branch from here"}
           tabIndex={tabIdx}
+          disabled={context.branchPending}
         />
       )}
       {context.onDelete && (

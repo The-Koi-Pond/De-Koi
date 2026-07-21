@@ -901,10 +901,12 @@ export const ChatMessage = memo(function ChatMessage({
   const [showGenerationReplay, setShowGenerationReplay] = useState(false);
   const [showActions, setShowActions] = useState(false);
   const [manuallyExpandedHidden, setManuallyExpandedHidden] = useState(false);
+  const [branchPending, setBranchPending] = useState(false);
   const [avatarLightbox, setAvatarLightbox] = useState<string | null>(null);
   const [avatarLightboxPrompt, setAvatarLightboxPrompt] = useState<string | null>(null);
   const scrollRestoreRef = useRef<{ el: HTMLElement; top: number } | null>(null);
   const lastMessageTapAtRef = useRef(0);
+  const branchPendingRef = useRef(false);
   const msgRef = useRef<HTMLDivElement>(null);
   const blipContentRef = useRef<{ messageId: string; length: number }>({ messageId: message.id, length: 0 });
   const openImageLightbox = useCallback((url: string, prompt?: unknown) => {
@@ -915,6 +917,19 @@ export const ChatMessage = memo(function ChatMessage({
     setAvatarLightbox(null);
     setAvatarLightboxPrompt(null);
   }, []);
+  const handleBranch = useCallback(() => {
+    if (!onBranch || branchPendingRef.current) return;
+    branchPendingRef.current = true;
+    setBranchPending(true);
+    void (async () => {
+      try {
+        await onBranch(message.id);
+      } finally {
+        branchPendingRef.current = false;
+        setBranchPending(false);
+      }
+    })();
+  }, [message.id, onBranch]);
 
   useEffect(() => {
     const previous = blipContentRef.current;
@@ -2284,9 +2299,16 @@ export const ChatMessage = memo(function ChatMessage({
               )}
               {onBranch && (
                 <ActionBtn
-                  icon={<GitBranch size={MESSAGE_ACTION_ICON_SIZE} />}
-                  onClick={() => onBranch(message.id)}
-                  title="Branch from here"
+                  icon={
+                    branchPending ? (
+                      <Loader2 size={MESSAGE_ACTION_ICON_SIZE} className="animate-spin" />
+                    ) : (
+                      <GitBranch size={MESSAGE_ACTION_ICON_SIZE} />
+                    )
+                  }
+                  onClick={handleBranch}
+                  title={branchPending ? "Creating branch…" : "Branch from here"}
+                  disabled={branchPending}
                   dark
                 />
               )}
@@ -2779,9 +2801,16 @@ export const ChatMessage = memo(function ChatMessage({
             )}
             {onBranch && (
               <ActionBtn
-                icon={<GitBranch size={MESSAGE_ACTION_ICON_SIZE} />}
-                onClick={() => onBranch(message.id)}
-                title="Branch from here"
+                icon={
+                  branchPending ? (
+                    <Loader2 size={MESSAGE_ACTION_ICON_SIZE} className="animate-spin" />
+                  ) : (
+                    <GitBranch size={MESSAGE_ACTION_ICON_SIZE} />
+                  )
+                }
+                onClick={handleBranch}
+                title={branchPending ? "Creating branch…" : "Branch from here"}
+                disabled={branchPending}
               />
             )}
             {onCloneSceneFromHere && (
