@@ -4075,19 +4075,20 @@ export async function assembleGenerationPrompt(
     input = { ...input, storedMessages: applyAllSegmentEdits(input.storedMessages, chatMeta) };
   }
 
-  const loadedCharacters = reusableContext?.characters ?? (await loadCharacters(storage, input.chat));
+  const [loadedCharacters, persona, selectedPreset] = await Promise.all([
+    reusableContext?.characters ?? loadCharacters(storage, input.chat),
+    reusableContext?.persona ?? loadPersona(storage, input.chat),
+    reusableContext?.selectedPreset ??
+      loadSelectedPromptPreset(storage, {
+        chat: input.chat,
+        connection: input.connection,
+        request: input.request,
+      }),
+  ]);
   const characters =
     chatMode === "roleplay"
       ? loadedCharacters
       : loadedCharacters.map((character) => ({ ...character, behavioralInterpretation: undefined }));
-  const persona = reusableContext?.persona ?? (await loadPersona(storage, input.chat));
-  const selectedPreset =
-    reusableContext?.selectedPreset ??
-    (await loadSelectedPromptPreset(storage, {
-      chat: input.chat,
-      connection: input.connection,
-      request: input.request,
-    }));
   const presetId = reusableContext?.presetId ?? selectedPreset?.id ?? null;
   const promptParameters =
     reusableContext?.promptParameters ??
@@ -4234,28 +4235,18 @@ export async function assembleGenerationPrompt(
         snapshotVariables: () => snapshotMacroVariables(macros),
       },
     });
-  let loreScan =
+  const [initialLoreScan, memoryRecallContext, canonicalMemoryContext] = await Promise.all([
     canReuseSourceSensitiveContext && reusableContext
-      ? reusableContext.loreScan
-      : await scanLorebooksForPositions(baseLorebookIncludedPositions);
-  let processedLore =
-    canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
-  const summaryProjection = reusableContext
-    ? {
-        text: reusableContext.summary,
-        coversPriorHistory: reusableContext.summaryCoversPriorHistory,
-      }
-    : summaryProjectionForGeneration(input.chat, maxContext);
-  const summary = summaryProjection.text;
-  const memoryRecallContext =
+      ? Promise.resolve(reusableContext.loreScan)
+      : scanLorebooksForPositions(baseLorebookIncludedPositions),
     canReuseSourceSensitiveContext && reusableContext
-      ? {
+      ? Promise.resolve({
           block: reusableContext.memoryRecallBlock,
           attributionItems: reusableContext.contextAttributionItems.filter(
             (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source !== "canonical_memory",
           ),
-        }
-      : await buildMemoryRecallBlock(
+        })
+      : buildMemoryRecallBlock(
           storage,
           input.chat,
           input.storedMessages,
@@ -4264,16 +4255,15 @@ export async function assembleGenerationPrompt(
           readNumber(input.request.memoryRecallTokenBudget, 0) || undefined,
           embeddingSource,
           characters.flatMap((character) => character.memories ?? []),
-        );
-  const canonicalMemoryContext =
+        ),
     canReuseSourceSensitiveContext && reusableContext
-      ? {
+      ? Promise.resolve({
           block: reusableContext.canonicalMemoryBlock,
           attributionItems: reusableContext.contextAttributionItems.filter(
             (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source === "canonical_memory",
           ),
-        }
-      : await buildCanonicalMemoryContext(storage, {
+        })
+      : buildCanonicalMemoryContext(storage, {
           chat: input.chat,
           storedMessages: input.storedMessages,
           latestUserInput: input.latestUserInput,
@@ -4285,7 +4275,18 @@ export async function assembleGenerationPrompt(
             memoryPersistence: character.memoryPersistence,
           })),
           maxContext,
-        });
+        }),
+  ]);
+  let loreScan = initialLoreScan;
+  let processedLore =
+    canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
+  const summaryProjection = reusableContext
+    ? {
+        text: reusableContext.summary,
+        coversPriorHistory: reusableContext.summaryCoversPriorHistory,
+      }
+    : summaryProjectionForGeneration(input.chat, maxContext);
+  const summary = summaryProjection.text;
   const canonicalMemoryBlock = canonicalMemoryContext?.block ?? null;
   const memoryRecallBlock =
     memoryRecallContext?.block && canonicalMemoryBlock

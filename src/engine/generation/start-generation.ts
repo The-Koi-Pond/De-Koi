@@ -104,6 +104,7 @@ import {
   scheduleAutomaticMemoryCaptureQueueProcessing,
 } from "./automatic-memory-capture-queue";
 import { scheduleSparseCharacterInterpretations } from "./behavioral-interpretation-background";
+import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
 import {
   applyCachedContextInjectionsToRegenerateInput,
   applyGenerationReplayToRegenerateInput,
@@ -4170,6 +4171,31 @@ async function runLorebookKeeperBackfill(
   return { results: allResults, events: allEvents };
 }
 
+function scheduleLorebookKeeperBackfillAfterSavedAssistant(
+  deps: GenerationEngineDeps,
+  input: StartGenerationInput,
+  chat: JsonRecord,
+  connection: JsonRecord,
+  signal?: AbortSignal,
+): boolean {
+  return scheduleLorebookKeeperBackfill({
+    storage: deps.storage,
+    chatId: readString(chat.id).trim(),
+    run: async () => {
+      await runLorebookKeeperBackfill(
+        deps,
+        {
+          chatId: readString(chat.id).trim(),
+          connectionId: readString(connection.id) || input.connectionId || null,
+          agentTypes: [LOREBOOK_KEEPER_AGENT_TYPE],
+          options: { lorebookKeeperBackfill: true },
+        },
+        { chat, connection, signal },
+      );
+    },
+  });
+}
+
 export async function retryGenerationAgents(
   deps: GenerationEngineDeps,
   input: RetryAgentsInput,
@@ -5098,24 +5124,8 @@ export async function* startGeneration(
         await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
         throwIfAborted(signal);
       }
-      if (savedAssistantGeneration) {
-        const autoLorebookBackfill = await runLorebookKeeperBackfill(
-          deps,
-          {
-            chatId,
-            connectionId: readString(connection.id) || input.connectionId || null,
-            agentTypes: [LOREBOOK_KEEPER_AGENT_TYPE],
-            options: { lorebookKeeperBackfill: true },
-          },
-          { chat, connection, signal },
-        );
-        for (const event of autoLorebookBackfill.events) {
-          yield event;
-        }
-        for (const result of autoLorebookBackfill.results) {
-          yield { type: "agent_result", data: result };
-        }
-      }
+      if (savedAssistantGeneration)
+        scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection, signal);
       if (savedAssistantGeneration) {
         const backgroundMaintenanceStartedAt = generationTimingStartedAt();
         let scheduledTaskCount = 0;
@@ -5396,24 +5406,8 @@ export async function* startGeneration(
       await evictStalePromptSnapshotsSafely(deps.storage, chatId);
     }
     throwIfAborted(signal);
-    if (savedAssistantGeneration) {
-      const autoLorebookBackfill = await runLorebookKeeperBackfill(
-        deps,
-        {
-          chatId,
-          connectionId: readString(connection.id) || input.connectionId || null,
-          agentTypes: [LOREBOOK_KEEPER_AGENT_TYPE],
-          options: { lorebookKeeperBackfill: true },
-        },
-        { chat, connection, signal },
-      );
-      for (const event of autoLorebookBackfill.events) {
-        yield event;
-      }
-      for (const result of autoLorebookBackfill.results) {
-        yield { type: "agent_result", data: result };
-      }
-    }
+    if (savedAssistantGeneration)
+      scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection, signal);
     if (savedAssistantGeneration) {
       const backgroundMaintenanceStartedAt = generationTimingStartedAt();
       let scheduledTaskCount = 0;
