@@ -34,7 +34,7 @@ export function hasEmbeddedTauriIpc(): boolean {
 export async function invokeTauri<T>(
   command: string,
   args?: Record<string, unknown>,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<T> {
   const runtimeTarget = remoteRuntimeTarget();
   const remoteCommand = isRemoteCommand(command);

@@ -59,24 +59,37 @@ export async function resolveGenerationConnection(
   storage: StorageGateway,
   chat: JsonRecord,
   input: { connectionId?: string | null },
+  options: { random?: () => number } = {},
 ): Promise<JsonRecord> {
-  async function randomConnection(): Promise<JsonRecord> {
-    const connections = await storage.list<JsonRecord>("connections");
-    const pool = connections.filter((connection) => boolish(connection.useForRandom, false));
-    const selected = pool[Math.floor(Math.random() * pool.length)];
+  const connections = await storage.list<JsonRecord>("connections");
+  const enabledConnections = connections.filter(
+    (connection) => readString(connection.id).trim() && boolish(connection.enabled, true),
+  );
+
+  function findConnection(id: string, label: string): JsonRecord {
+    return requireRecord(connections.find((connection) => readString(connection.id).trim() === id), label);
+  }
+
+  function randomConnection(): JsonRecord {
+    const pool = enabledConnections.filter((connection) => boolish(connection.useForRandom, false));
+    const selected = pool[Math.floor((options.random ?? Math.random)() * pool.length)];
     if (!selected) throw new Error("No connections are marked for the random pool");
     return selected;
   }
 
   const requested = readString(input.connectionId).trim();
   if (requested === "random") return randomConnection();
-  if (requested) return requireRecord(await storage.get("connections", requested), "Connection");
+  if (requested) return findConnection(requested, "Connection");
 
   const chatConnection = readString(chat.connectionId).trim();
   if (chatConnection === "random") return randomConnection();
-  if (chatConnection) return requireRecord(await storage.get("connections", chatConnection), "Chat connection");
+  if (chatConnection) return findConnection(chatConnection, "Chat connection");
 
-  throw new Error("No API connection configured for this chat");
+  const selected =
+    enabledConnections.find(
+      (connection) => boolish(connection.isDefault, false) || boolish(connection.default, false),
+    ) ?? enabledConnections[0];
+  return requireRecord(selected, "API connection");
 }
 
 export async function loadChatMessages(

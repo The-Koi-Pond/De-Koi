@@ -14,6 +14,7 @@ const activeTauriStreamIds = new Set<string>();
 const activeRemoteStreams = new Map<string, RuntimeTarget>();
 let unloadCancellationInstalled = false;
 const TAURI_STREAM_TERMINAL_CLEANUP_GRACE_MS = 250;
+const LLM_COMPLETE_TIMEOUT_MS = 300_000;
 
 function wait(ms: number): Promise<false> {
   return new Promise((resolve) => {
@@ -61,7 +62,7 @@ async function completeRich(request: LlmRequest): Promise<LlmCompletion> {
   return normalizeLlmCompletion(
     await invokeTauri("llm_complete", {
       request,
-    }),
+    }, { timeoutMs: LLM_COMPLETE_TIMEOUT_MS }),
   );
 }
 

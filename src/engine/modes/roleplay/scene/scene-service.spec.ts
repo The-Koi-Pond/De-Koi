@@ -510,6 +510,43 @@ describe("createRoleplayScene", () => {
   });
 });
 describe("roleplay scene conclusion summaries", () => {
+  it("resolves a Random summary override before sending requests to the LLM", async () => {
+    const connectionIds: Array<string | null | undefined> = [];
+    const { storage } = storageForScene({
+      chats: [
+        { id: "origin", name: "Origin", mode: "chat", metadata: {} },
+        {
+          id: "scene",
+          name: "Scene: Random Summary",
+          mode: "roleplay",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "nanogpt", enabled: true, useForRandom: true }],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: "The pair enter the flooded archive together." },
+          { id: "ending", role: "user", content: "They recover the ledger and agree to return home." },
+        ],
+      },
+    });
+    const llm: LlmGateway = {
+      async complete(request) {
+        connectionIds.push(request.connectionId);
+        return "The pair entered the flooded archive, recovered the ledger, and agreed to return home together.";
+      },
+      async *stream() {},
+      async listModels() {
+        return [];
+      },
+    };
+
+    await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene", connectionId: "random" });
+
+    expect(connectionIds.length).toBeGreaterThan(0);
+    expect(connectionIds).toEqual(connectionIds.map(() => "nanogpt"));
+  });
+
   it("does not conclude the scene with a transcript excerpt when summary generation fails", async () => {
     const longSceneBeat = [
       "Pulled from the safety of your screen and into the damp woods, you stand before the towering Trapper.",
