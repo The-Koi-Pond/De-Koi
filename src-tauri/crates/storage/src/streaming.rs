@@ -5,7 +5,8 @@ use crate::{
     recover_pending_collection_transactions, refresh_collection_backup,
     remove_collection_transaction_manifest, remove_path_if_exists,
     rollback_collection_replacements, storage_transaction_id, sync_directory, sync_file,
-    write_prepared_collection_transaction_manifest, FileStorage, PendingCollectionReplacement,
+    write_prepared_collection_transaction_manifest, FileStorage, FlushKind,
+    PendingCollectionReplacement,
 };
 use marinara_core::{AppError, AppResult};
 use serde::de::{Error as _, SeqAccess, Visitor};
@@ -258,7 +259,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked()?;
+        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
         let path = self.collection_path(collection)?;
         if !path.exists() {
             return Ok(0);
@@ -279,7 +280,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked()?;
+        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
         let path = self.collection_path(collection)?;
         if !path.exists() {
             return Ok((0, None));
@@ -343,7 +344,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked()?;
+        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
 
         let path = self.collection_path(collection)?;
         if !path.exists() {
@@ -496,7 +497,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked()?;
+        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
 
         let path = self.collection_path(collection)?;
         if !path.exists() {

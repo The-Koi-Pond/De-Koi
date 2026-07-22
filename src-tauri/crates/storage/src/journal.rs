@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use crate::transaction::{
     backup_path_for, parse_collection_file, preserve_corrupt_file, refresh_collection_backup,
@@ -30,6 +31,51 @@ struct CollectionJournalEntry {
 
 const COLLECTION_JOURNAL_SUFFIX: &str = ".pending.jsonl";
 
+/// The single owner for deciding when a generic collection journal becomes a
+/// full collection rewrite. The journal remains the acknowledgement boundary
+/// until one of these bounded maintenance limits is reached.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct JournalCompactionPolicy {
+    max_age: Duration,
+    max_entries: usize,
+    max_bytes: u64,
+}
+
+impl JournalCompactionPolicy {
+    pub(crate) const fn new(max_age: Duration, max_entries: usize, max_bytes: u64) -> Self {
+        Self {
+            max_age,
+            max_entries,
+            max_bytes,
+        }
+    }
+
+    fn should_compact(self, journal: &Path, now: SystemTime) -> AppResult<bool> {
+        // Compaction consumes the recovery evidence, so validate every entry
+        // before any threshold is allowed to replace the primary collection.
+        let entries = read_collection_journal_entries(journal)?;
+        let metadata = fs::metadata(journal)?;
+        if metadata.len() >= self.max_bytes {
+            return Ok(true);
+        }
+        if metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= self.max_age)
+        {
+            return Ok(true);
+        }
+        Ok(entries.len() >= self.max_entries)
+    }
+}
+
+impl Default for JournalCompactionPolicy {
+    fn default() -> Self {
+        Self::new(Duration::from_secs(5), 64, 256 * 1024)
+    }
+}
+
 fn collection_journal_path(collections_dir: &Path, collection: &str) -> AppResult<PathBuf> {
     validate_collection_name(collection)?;
     Ok(collections_dir.join(format!("{collection}{COLLECTION_JOURNAL_SUFFIX}")))
@@ -52,6 +98,61 @@ fn journal_recovery_error(
     )
 }
 
+fn read_collection_journal_entries(journal: &Path) -> AppResult<Vec<CollectionMutation>> {
+    let collection = journal
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_suffix(COLLECTION_JOURNAL_SUFFIX))
+        .ok_or_else(|| AppError::invalid_input("Invalid collection journal path"))?;
+    let raw = fs::read_to_string(journal).map_err(|error| {
+        journal_recovery_error(
+            collection,
+            journal,
+            format!("journal could not be read: {error}"),
+        )
+    })?;
+    let mut mutations = Vec::new();
+    for (index, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let entry: CollectionJournalEntry = serde_json::from_str(line).map_err(|error| {
+            journal_recovery_error(
+                collection,
+                journal,
+                format!("entry {} is invalid: {error}", index + 1),
+            )
+        })?;
+        if entry.version != COLLECTION_JOURNAL_VERSION {
+            return Err(journal_recovery_error(
+                collection,
+                journal,
+                format!(
+                    "entry {} has unsupported version {}",
+                    index + 1,
+                    entry.version
+                ),
+            ));
+        }
+        validate_collection_mutation(&entry.mutation).map_err(|error| {
+            journal_recovery_error(
+                collection,
+                journal,
+                format!("entry {} is not replayable: {}", index + 1, error.message),
+            )
+        })?;
+        mutations.push(entry.mutation);
+    }
+    if mutations.is_empty() {
+        return Err(journal_recovery_error(
+            collection,
+            journal,
+            "journal contains no replayable entries",
+        ));
+    }
+    Ok(mutations)
+}
+
 fn record_id(record: &Value) -> AppResult<&str> {
     record
         .get("id")
@@ -62,7 +163,10 @@ fn record_id(record: &Value) -> AppResult<&str> {
 }
 
 fn unique_record_ids(records: &[Value]) -> AppResult<Vec<&str>> {
-    let ids = records.iter().map(record_id).collect::<AppResult<Vec<_>>>()?;
+    let ids = records
+        .iter()
+        .map(record_id)
+        .collect::<AppResult<Vec<_>>>()?;
     let mut seen = HashSet::new();
     if ids.iter().any(|id| !seen.insert(*id)) {
         return Err(AppError::invalid_input(
@@ -187,16 +291,17 @@ fn base_collection_rows(
         Ok(rows) => Ok(rows),
         Err(primary_error) => {
             let backup = backup_path_for(&primary)?;
-            let backup_rows = parse_collection_file(collection, &backup).map_err(|backup_error| {
-                journal_recovery_error(
-                    collection,
-                    journal,
-                    format!(
-                        "primary and backup are unreadable: {}; {}",
-                        primary_error.message, backup_error.message
-                    ),
-                )
-            })?;
+            let backup_rows =
+                parse_collection_file(collection, &backup).map_err(|backup_error| {
+                    journal_recovery_error(
+                        collection,
+                        journal,
+                        format!(
+                            "primary and backup are unreadable: {}; {}",
+                            primary_error.message, backup_error.message
+                        ),
+                    )
+                })?;
             preserve_corrupt_file(&primary)?;
             write_file_atomically(&primary, &serde_json::to_vec_pretty(&backup_rows)?)?;
             Ok(backup_rows)
@@ -209,44 +314,7 @@ fn recover_collection_journal(
     collection: &str,
     journal: &Path,
 ) -> AppResult<()> {
-    let raw = fs::read_to_string(journal).map_err(|error| {
-        journal_recovery_error(collection, journal, format!("journal could not be read: {error}"))
-    })?;
-    let mut mutations = Vec::new();
-    for (index, line) in raw.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let entry: CollectionJournalEntry = serde_json::from_str(line).map_err(|error| {
-            journal_recovery_error(
-                collection,
-                journal,
-                format!("entry {} is invalid: {error}", index + 1),
-            )
-        })?;
-        if entry.version != COLLECTION_JOURNAL_VERSION {
-            return Err(journal_recovery_error(
-                collection,
-                journal,
-                format!("entry {} has unsupported version {}", index + 1, entry.version),
-            ));
-        }
-        validate_collection_mutation(&entry.mutation).map_err(|error| {
-            journal_recovery_error(
-                collection,
-                journal,
-                format!("entry {} is not replayable: {}", index + 1, error.message),
-            )
-        })?;
-        mutations.push(entry.mutation);
-    }
-    if mutations.is_empty() {
-        return Err(journal_recovery_error(
-            collection,
-            journal,
-            "journal contains no replayable entries",
-        ));
-    }
+    let mutations = read_collection_journal_entries(journal)?;
 
     let mut rows = base_collection_rows(collections_dir, collection, journal)?;
     for mutation in &mutations {
@@ -257,6 +325,22 @@ fn recover_collection_journal(
     install_recovered_rows_atomically(&primary, &rows, |_| Ok(()))?;
     remove_collection_journal(collections_dir, collection)?;
     Ok(())
+}
+
+pub(crate) fn collection_journal_needs_compaction(
+    collections_dir: &Path,
+    collection: &str,
+    policy: JournalCompactionPolicy,
+    now: SystemTime,
+) -> AppResult<bool> {
+    let journal = collection_journal_path(collections_dir, collection)?;
+    if !journal.exists() {
+        // Dirty cache state without a journal predates this policy or came from
+        // an explicit compatibility path. It has no replay evidence, so it
+        // must be materialized rather than retained in memory.
+        return Ok(true);
+    }
+    policy.should_compact(&journal, now)
 }
 
 fn install_recovered_rows_atomically(
@@ -282,10 +366,7 @@ pub(crate) fn recover_collection_journals(collections_dir: &Path) -> AppResult<(
     Ok(())
 }
 
-pub(crate) fn remove_collection_journal(
-    collections_dir: &Path,
-    collection: &str,
-) -> AppResult<()> {
+pub(crate) fn remove_collection_journal(collections_dir: &Path, collection: &str) -> AppResult<()> {
     let journal = collection_journal_path(collections_dir, collection)?;
     match fs::remove_file(&journal) {
         Ok(()) => sync_directory(collections_dir),
@@ -330,8 +411,12 @@ mod tests {
 
         assert_eq!(rows, once);
         assert_eq!(rows.len(), 2);
-        assert!(rows.iter().any(|row| row == &json!({ "id": "existing", "name": "After" })));
-        assert!(rows.iter().any(|row| row == &json!({ "id": "new", "name": "New" })));
+        assert!(rows
+            .iter()
+            .any(|row| row == &json!({ "id": "existing", "name": "After" })));
+        assert!(rows
+            .iter()
+            .any(|row| row == &json!({ "id": "new", "name": "New" })));
     }
 
     #[test]
@@ -432,7 +517,9 @@ mod tests {
 
         recover_collection_journals(&collections).unwrap();
 
-        let rows: Value = serde_json::from_slice(&fs::read(collections.join("characters.json")).unwrap()).unwrap();
+        let rows: Value =
+            serde_json::from_slice(&fs::read(collections.join("characters.json")).unwrap())
+                .unwrap();
         assert_eq!(
             rows,
             json!([
@@ -466,7 +553,8 @@ mod tests {
     fn corruption_after_valid_journal_entry_leaves_primary_unchanged() {
         let collections = temp_collections("valid-then-corrupt");
         let primary = collections.join("characters.json");
-        let original = serde_json::to_vec_pretty(&json!([{ "id": "safe", "name": "Before" }])).unwrap();
+        let original =
+            serde_json::to_vec_pretty(&json!([{ "id": "safe", "name": "Before" }])).unwrap();
         fs::write(&primary, &original).unwrap();
         append_collection_mutation(
             &collections,
