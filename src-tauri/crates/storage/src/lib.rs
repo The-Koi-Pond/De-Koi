@@ -16,7 +16,7 @@ use marinara_core::{ensure_object, new_id, now_iso, AppError, AppResult};
 use marinara_security::validate_collection_name;
 use messages::*;
 use projection::*;
-use serde::de::{Error as _, SeqAccess, Visitor};
+use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
 use serde::Deserializer as _;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
@@ -100,6 +100,8 @@ struct CollectionRowsVisitor<'a> {
     visit: &'a mut dyn FnMut(&Value) -> AppResult<()>,
 }
 
+struct CollectionValidationVisitor;
+
 impl<'de> Visitor<'de> for CollectionRowsVisitor<'_> {
     type Value = ();
 
@@ -114,6 +116,22 @@ impl<'de> Visitor<'de> for CollectionRowsVisitor<'_> {
         while let Some(row) = seq.next_element::<Value>()? {
             (self.visit)(&row).map_err(A::Error::custom)?;
         }
+        Ok(())
+    }
+}
+
+impl<'de> Visitor<'de> for CollectionValidationVisitor {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a storage collection JSON array")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while seq.next_element::<IgnoredAny>()?.is_some() {}
         Ok(())
     }
 }
@@ -198,6 +216,41 @@ impl FileStorage {
     /// Streams rows to the caller without cloning or collecting a collection.
     /// Cached rows are borrowed in place; uncached collections are parsed one row at a time.
     pub fn visit_collection_rows(
+        &self,
+        collection: &str,
+        visit: &mut dyn FnMut(&Value) -> AppResult<()>,
+    ) -> AppResult<()> {
+        // Validate before invoking the callback. A malformed collection must use
+        // the same recovery path as `list`, rather than delivering partial rows.
+        self.read_locked_or_recover(
+            || self.validate_collection_rows_no_recovery(collection),
+            || self.read_collection(collection).map(|_| ()),
+        )?;
+        self.visit_validated_collection_rows(collection, visit)
+    }
+
+    /// Visits only rows whose string field matches one of `filter_values`.
+    /// The cached path borrows rows in place; callers decide which matching rows
+    /// to clone, so a narrow query never clones the whole cached collection.
+    pub fn visit_collection_rows_where_in(
+        &self,
+        collection: &str,
+        filter_field: &str,
+        filter_values: &HashSet<String>,
+        visit: &mut dyn FnMut(&Value) -> AppResult<()>,
+    ) -> AppResult<()> {
+        if filter_values.is_empty() {
+            return Ok(());
+        }
+        self.visit_collection_rows(collection, &mut |row| {
+            if row_string_field_matches_in(row, filter_field, filter_values) {
+                visit(row)?;
+            }
+            Ok(())
+        })
+    }
+
+    fn visit_validated_collection_rows(
         &self,
         collection: &str,
         visit: &mut dyn FnMut(&Value) -> AppResult<()>,
@@ -1228,6 +1281,25 @@ impl FileStorage {
         let rows = self.read_collection_from_disk_no_recovery(collection)?;
         self.cache_collection(collection, &rows, false)?;
         Ok(rows)
+    }
+
+    fn validate_collection_rows_no_recovery(&self, collection: &str) -> AppResult<()> {
+        if self.is_collection_cached(collection)? {
+            return Ok(());
+        }
+        let path = self.collection_path(collection)?;
+        if !path.exists() || fs::metadata(&path)?.len() == 0 {
+            return Ok(());
+        }
+        let file = fs::File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut deserializer = serde_json::Deserializer::from_reader(reader);
+        (&mut deserializer)
+            .deserialize_seq(CollectionValidationVisitor)
+            .map_err(|error| AppError::new("storage_parse_error", error.to_string()))?;
+        deserializer
+            .end()
+            .map_err(|error| AppError::new("storage_parse_error", error.to_string()))
     }
 
     fn read_collection_from_disk(&self, collection: &str) -> AppResult<Vec<Value>> {
@@ -4804,6 +4876,95 @@ mod tests {
             1
         );
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn visit_collection_rows_recovers_before_delivering_partial_rows() {
+        let root = temp_storage_root("visit-collection-recovers-before-partial-rows");
+        let storage = FileStorage::new(&root).unwrap();
+        let collection = root.join("collections").join("messages.json");
+        let backup = root.join("collections").join("messages.json.bak");
+        fs::write(&collection, b"[{\"id\":\"partial\"},").unwrap();
+        fs::write(
+            &backup,
+            serde_json::to_vec_pretty(&json!([{ "id": "recovered", "chatId": "chat-1" }])).unwrap(),
+        )
+        .unwrap();
+
+        let mut ids = Vec::new();
+        storage
+            .visit_collection_rows("messages", &mut |row| {
+                ids.push(row["id"].as_str().unwrap().to_string());
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(ids, vec!["recovered"]);
+        assert_eq!(
+            storage.list("messages").unwrap(),
+            vec![json!({ "id": "recovered", "chatId": "chat-1" })]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn visit_collection_rows_replays_pending_append_journal_before_delivery() {
+        let root = temp_storage_root("visit-collection-replays-append-journal");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        write_test_collection(&messages, vec![json!({ "id": "baseline", "chatId": "chat-1" })]);
+        let storage = FileStorage::new(&root).unwrap();
+        append_journal::append_transaction(
+            &collections,
+            &[("messages", vec![json!({ "id": "journaled", "chatId": "chat-1" })])],
+        )
+        .unwrap();
+        fs::write(&messages, b"[{\"id\":\"partial\"},").unwrap();
+
+        let mut ids = Vec::new();
+        storage
+            .visit_collection_rows("messages", &mut |row| {
+                ids.push(row["id"].as_str().unwrap().to_string());
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(ids, vec!["baseline", "journaled"]);
+        assert_eq!(
+            storage.list("messages").unwrap(),
+            vec![
+                json!({ "id": "baseline", "chatId": "chat-1" }),
+                json!({ "id": "journaled", "chatId": "chat-1" }),
+            ]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn visit_collection_rows_where_in_filters_cached_rows_without_a_full_result_clone() {
+        let root = temp_storage_root("visit-collection-where-in-cached-rows");
+        let storage = FileStorage::new(&root).unwrap();
+        let mut rows = vec![json!({ "id": "selected", "messageId": "message-selected" })];
+        for index in 0..1_024 {
+            rows.push(json!({
+                "id": format!("unrelated-{index}"),
+                "messageId": format!("message-unrelated-{index}"),
+                "content": "large cached sidecar payload"
+            }));
+        }
+        storage.replace_all("message-swipes", rows).unwrap();
+        let values = HashSet::from(["message-selected".to_string()]);
+        let mut matched = Vec::new();
+
+        storage
+            .visit_collection_rows_where_in("message-swipes", "messageId", &values, &mut |row| {
+                matched.push(row["id"].as_str().unwrap().to_string());
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(matched, vec!["selected"]);
         fs::remove_dir_all(root).unwrap();
     }
 
