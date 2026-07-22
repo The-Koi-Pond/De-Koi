@@ -2912,7 +2912,9 @@ async function buildCrossChatAwarenessBlock(
   if (!boolish(meta.crossChatAwareness, false)) return null;
   const chatId = readString(chat.id).trim();
   if (!chatId) return null;
-  if (!storage.listSiblingConversationContext) return null;
+  if (!storage.listSiblingConversationContext) {
+    throw new Error("Cross-chat awareness is enabled, but sibling conversation context is not supported by this storage runtime.");
+  }
   const characterNames = characterNameLookup(characters);
   const siblingChats = await storage.listSiblingConversationContext<{ chat: JsonRecord; messages: JsonRecord[] }>({
     chatId,

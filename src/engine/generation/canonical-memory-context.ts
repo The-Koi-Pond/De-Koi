@@ -324,11 +324,10 @@ async function collectMemoryRows(
   );
   const orderedBatchRows = (rows: CanonicalMemoryRecord[]) =>
     rows
-      .map((memory, index) => ({
-        memory,
-        index,
-        ordinal: scopeOrdinal.get(`${memory.scope.kind}:${memory.scope.id}`) ?? Number.MAX_SAFE_INTEGER,
-      }))
+      .flatMap((memory, index) => {
+        const ordinal = scopeOrdinal.get(`${memory.scope.kind}:${memory.scope.id}`);
+        return ordinal === undefined ? [] : [{ memory, index, ordinal }];
+      })
       .sort((left, right) => left.ordinal - right.ordinal || left.index - right.index)
       .map(({ memory }) => memory);
   const indexed: CanonicalMemoryRecord[] = [];

@@ -4,6 +4,31 @@ import type { StorageGateway } from "../capabilities/storage";
 import { assembleGenerationPrompt } from "./prompt-assembly";
 
 describe("prompt assembly cross-chat awareness", () => {
+  it("fails explicitly when the storage runtime cannot provide sibling context", async () => {
+    const storage = {
+      list: vi.fn(async () => []),
+      get: vi.fn(async () => null),
+      listChatMessages: vi.fn(async () => []),
+      listChatMemories: vi.fn(async () => []),
+      promptFull: vi.fn(async () => null),
+    } as unknown as StorageGateway;
+
+    await expect(
+      assembleGenerationPrompt(storage, {
+        chat: {
+          id: "chat-current",
+          mode: "conversation",
+          characterIds: ["mira"],
+          metadata: { crossChatAwareness: true, enableMemoryRecall: false },
+        },
+        storedMessages: [{ id: "current", role: "user", content: "What should we do with the key?" }],
+        connection: { maxContext: 4096 },
+        request: {},
+        latestUserInput: "What should we do with the key?",
+      }),
+    ).rejects.toThrow("sibling conversation context is not supported");
+  });
+
   it("uses one bounded sibling-context query without listing chats or messages serially", async () => {
     const siblingContext = vi.fn(async () => [
       {

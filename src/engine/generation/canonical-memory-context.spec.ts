@@ -352,6 +352,36 @@ describe("canonical memory context", () => {
     expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-character", "memory-chat"]);
   });
 
+  it("filters batch rows whose scope was not requested", async () => {
+    const batch = vi.fn(async () => [
+      memory({
+        id: "memory-unrequested",
+        scope: { kind: "scene", id: "scene-other" },
+        content: "A record from an unrelated scene.",
+        confidence: 1,
+      }),
+      memory({
+        id: "memory-chat",
+        content: "Mira left the brass key beneath the red teacup.",
+        confidence: 0.91,
+      }),
+    ]);
+    const storage = {
+      ...storageWithMemories({ indexed: [] }),
+      queryMemoryIndexBatch: batch,
+    } as StorageGateway & { queryMemoryIndexBatch: typeof batch };
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where did Mira leave the brass key?",
+      characters: [],
+      maxContext: 4096,
+    });
+
+    expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-chat"]);
+  });
+
   it("uses canonical scope ordinal as the equal-score tie break before prompt cutoffs", async () => {
     const characterMemories = Array.from({ length: 10 }, (_, index) =>
       memory({
