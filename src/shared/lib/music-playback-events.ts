@@ -15,15 +15,25 @@ type MusicAiPickCompletion = {
 
 export type MusicAiPickRequestDetail = {
   fresh?: boolean | null;
+  volume: number;
   complete?: (result: MusicAiPickCompletion) => void;
 };
 
+function normalizeMusicVolume(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.trunc(value))) : 55;
+}
+
 export function handleMusicAiPickRequest(
   event: Event,
-  options: { blocked: boolean; run: () => Promise<unknown> },
+  options: { blocked: boolean; run: (detail: MusicAiPickRequestDetail) => Promise<unknown> },
 ): void {
   event.preventDefault();
-  const complete = (event as CustomEvent<MusicAiPickRequestDetail>).detail?.complete;
+  const rawDetail = (event as CustomEvent<Partial<MusicAiPickRequestDetail>>).detail ?? {};
+  const detail: MusicAiPickRequestDetail = {
+    ...rawDetail,
+    volume: normalizeMusicVolume(rawDetail.volume),
+  };
+  const complete = detail.complete;
   if (options.blocked) {
     complete?.({
       status: "failed",
@@ -31,7 +41,7 @@ export function handleMusicAiPickRequest(
     });
     return;
   }
-  void options.run().then(
+  void options.run(detail).then(
     () => complete?.({ status: "completed" }),
     () => complete?.({ status: "failed", message: MUSIC_AI_PICK_FAILED_MESSAGE }),
   );
@@ -70,11 +80,12 @@ export function consumePendingMusicPlaybackCue(): Extract<MusicPlaybackEventDeta
   return cue;
 }
 
-export function requestMusicAiPick(detail: MusicAiPickRequestDetail = { fresh: true }): boolean {
+export function requestMusicAiPick(detail: MusicAiPickRequestDetail): boolean {
   if (typeof window === "undefined") return false;
+  const normalizedDetail = { ...detail, volume: normalizeMusicVolume(detail.volume) };
   const event = new CustomEvent<MusicAiPickRequestDetail>(MUSIC_AI_PICK_REQUEST_EVENT, {
     cancelable: true,
-    detail,
+    detail: normalizedDetail,
   });
   return window.dispatchEvent(event) === false;
 }

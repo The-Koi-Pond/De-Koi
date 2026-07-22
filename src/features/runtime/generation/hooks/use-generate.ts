@@ -2099,10 +2099,13 @@ export function useGenerate() {
 
   const retryAgents = useCallback(
     async (chatId: string, agentTypes?: string[], options?: Record<string, unknown>) => {
+      const runInBackground = options?.runInBackground === true;
+      const engineOptions = { ...(options ?? {}) };
+      delete engineOptions.runInBackground;
       try {
         await assertChatCanGenerate(queryClient, chatId);
         const agentStore = useAgentStore.getState();
-        agentStore.setProcessing(true);
+        if (!runInBackground) agentStore.setProcessing(true);
         // Flush any pending debounced game-state edits before the engine re-reads
         // storage; otherwise retryGenerationAgents reads a stale snapshot and the
         // regenerated agent result clobbers the user's just-made manual HUD edit.
@@ -2126,7 +2129,7 @@ export function useGenerate() {
           // Full retry: clear everything; the result loop repopulates anything still failing.
           agentStore.clearFailedAgentTypes();
         }
-        const refreshTarget = retryRefreshTargetFromCache(queryClient, chatId, options);
+        const refreshTarget = retryRefreshTargetFromCache(queryClient, chatId, engineOptions);
         const { results, events } = await retryGenerationAgents(
           { storage: storageApi, llm: llmApi, integrations: integrationGateway, visuals: visualAssetsApi },
           {
@@ -2139,7 +2142,7 @@ export function useGenerate() {
               styleProfileId: useUIStore.getState().imageStyleProfiles.defaultProfileId,
               styleProfiles: useUIStore.getState().imageStyleProfiles,
             },
-            options: { ...(options ?? {}), bypassActivation: options?.bypassActivation ?? true },
+            options: { ...engineOptions, bypassActivation: engineOptions.bypassActivation ?? true },
           },
         );
         const failedRetries: AgentFailure[] = [];
@@ -2201,7 +2204,9 @@ export function useGenerate() {
         toast.error(errorMessage(error));
         throw error;
       } finally {
-        useAgentStore.getState().setProcessing(false);
+        // A background retry deliberately borrows the foreground generation's busy period.
+        // It never acquires this flag, so clearing it here would falsely mark that foreground response idle.
+        if (!runInBackground) useAgentStore.getState().setProcessing(false);
       }
     },
     [queryClient],

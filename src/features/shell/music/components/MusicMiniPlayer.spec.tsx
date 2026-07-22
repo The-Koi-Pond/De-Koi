@@ -158,9 +158,9 @@ describe("MusicMiniPlayer", () => {
   });
 
   it("requests an AI scene pick before using the direct Fresh Pick fallback", async () => {
-    const events: Event[] = [];
+    const events: CustomEvent<{ volume?: number }>[] = [];
     function onAiPick(event: Event) {
-      events.push(event);
+      events.push(event as CustomEvent<{ volume?: number }>);
       event.preventDefault();
     }
     window.addEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onAiPick);
@@ -171,6 +171,15 @@ describe("MusicMiniPlayer", () => {
         root.render(<MusicMiniPlayer variant="toolbar" />);
       });
 
+      const volume = container!.querySelector<HTMLInputElement>('input[aria-label="Music Player volume"]');
+      expect(volume).not.toBeNull();
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(volume, "23");
+        volume!.dispatchEvent(new Event("input", { bubbles: true }));
+        volume!.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+
       const freshPick = container!.querySelector<HTMLButtonElement>('button[aria-label="Fresh Music Player pick"]');
       expect(freshPick).not.toBeNull();
       await act(async () => {
@@ -179,6 +188,7 @@ describe("MusicMiniPlayer", () => {
       await flushAsyncWork();
 
       expect(events).toHaveLength(1);
+      expect(events[0]?.detail.volume).toBe(23);
       expect(musicApiMock.freshPick).not.toHaveBeenCalled();
       expect(musicApiMock.searchCandidates).not.toHaveBeenCalled();
       expect(musicApiMock.play).not.toHaveBeenCalled();
@@ -221,9 +231,7 @@ describe("MusicMiniPlayer", () => {
   });
 
   it("ignores an old AI pick completion after a newer context arrives", async () => {
-    let complete:
-      | ((result: { status: "completed" | "failed"; message?: string }) => void)
-      | undefined;
+    let complete: ((result: { status: "completed" | "failed"; message?: string }) => void) | undefined;
     function onAiPick(event: Event) {
       event.preventDefault();
       complete = (

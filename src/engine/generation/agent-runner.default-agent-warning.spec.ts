@@ -87,6 +87,54 @@ const illustratorLlm = {
 } as unknown as LlmGateway;
 
 describe("default agent connection warnings", () => {
+  it("runs Music Player automatically in roleplay when its module is enabled", async () => {
+    let requests = 0;
+    const musicLlm = {
+      async *stream() {
+        requests += 1;
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            action: "play",
+            mood: "quiet rain",
+            searchQuery: "quiet rain instrumental",
+            volume: 45,
+          }),
+        };
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    } as unknown as LlmGateway;
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: runtimeStorage({
+          connections: [],
+          agents: [{ id: "music-dj", type: "music-dj", name: "Music Player", enabled: true }],
+        }),
+        llm: musicLlm,
+        integrations: {
+          music: { isEnabled: async () => true },
+        } as unknown as IntegrationGateway,
+      },
+      {
+        chat: { id: "chat-1", mode: "roleplay", metadata: { activeAgentIds: [] } },
+        connection: { id: "chat-conn", name: "Chat", provider: "openai", model: "chat-model" },
+        storedMessages: [],
+        characters: [],
+        persona: null,
+        activatedLorebookEntries: [],
+        chatSummary: null,
+      },
+    );
+
+    const results = await runtime.runPost("The rain settles over the room.");
+
+    expect(requests).toBe(1);
+    expect(results).toEqual([expect.objectContaining({ agentType: "music-dj", success: true })]);
+  });
+
   it("includes a connection-scoped dismissal key for the default agent warning", async () => {
     const runtime = await createGenerationAgentRuntime(
       {
@@ -132,7 +180,6 @@ describe("default agent connection warnings", () => {
       }),
     );
   });
-
 
   it("adds manual paintbrush instructions to Illustrator retries", async () => {
     let capturedRequest: LlmRequest | null = null;
@@ -270,4 +317,5 @@ describe("default agent connection warnings", () => {
         success: true,
       }),
     ]);
-  });});
+  });
+});

@@ -862,12 +862,13 @@ describe("retryGenerationAgents Music Player retries", () => {
       {
         chatId: "chat-1",
         agentTypes: ["music-dj"],
-        options: { forMessageId: "assistant-1", bypassActivation: true },
+        options: { forMessageId: "assistant-1", bypassActivation: true, requestedMusicVolume: 123 },
       },
     );
 
     expect(result.results).toHaveLength(1);
     expect(result.results[0]?.agentType).toBe("music-dj");
+    expect(result.results[0]?.data).toEqual(expect.objectContaining({ volume: 100 }));
     expect(prompts.join("\n")).toContain("<music_dj_constraints>");
     expect(prompts.join("\n")).toContain('"manualRetry":true');
     expect(prompts.join("\n")).toContain('"forceFreshPick":true');

@@ -1,5 +1,9 @@
 import type { IntegrationGateway } from "../../engine/capabilities/integrations";
-import { DISCORD_MIRROR_MODULE_ID } from "../../engine/contracts/constants/core-modules";
+import {
+  DISCORD_MIRROR_MODULE_ID,
+  LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID,
+  MUSIC_DJ_MINI_PLAYER_MODULE_ID,
+} from "../../engine/contracts/constants/core-modules";
 import { coreModulesApi } from "./core-modules-api";
 import { imageGenerationApi } from "./image-generation-api";
 import { spotifyApi } from "./integration-utility-api";
@@ -17,12 +21,27 @@ async function discordMirrorModuleEnabled(): Promise<boolean> {
   }
 }
 
+async function musicPlayerModuleEnabled(): Promise<boolean> {
+  try {
+    const settings = await coreModulesApi.settings.get();
+    return (
+      settings.enabled[MUSIC_DJ_MINI_PLAYER_MODULE_ID] ??
+      settings.enabled[LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID] ??
+      false
+    );
+  } catch (error) {
+    console.warn("[integrations] Music Player automation skipped: core module settings unavailable", error);
+    return false;
+  }
+}
+
 export const integrationGateway: IntegrationGateway = {
   webResearch: {
     search: (input) => webResearchApi.search(input),
     readPage: (input) => webResearchApi.readPage(input),
   },
   music: {
+    isEnabled: musicPlayerModuleEnabled,
     status: (input) => musicApi.status(input),
     searchCandidates: (input) => musicApi.searchCandidates(input),
     play: (input) => musicApi.play(input),

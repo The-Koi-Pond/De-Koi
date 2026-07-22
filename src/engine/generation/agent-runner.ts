@@ -9,10 +9,7 @@ import {
   type AgentContext,
   type AgentResult,
 } from "../contracts/types/agent";
-import {
-  getDefaultAgentPrompt,
-  ROLEPLAY_QUALITY_EDITOR_PROMPT,
-} from "../contracts/constants/agent-prompts";
+import { getDefaultAgentPrompt, ROLEPLAY_QUALITY_EDITOR_PROMPT } from "../contracts/constants/agent-prompts";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
@@ -1149,6 +1146,14 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     hasExplicitAgentTypes && input.agentTypes ? filterAgentIdsForChatMode(input.agentTypes, chatMode(input)) : null;
   if (hasExplicitAgentTypes && requestedAgentTypes?.size === 0) {
     return { agents: [], skippedResults: [], staticInjections: [], agentWarnings: [] };
+  }
+  if (
+    !hasExplicitAgentTypes &&
+    chatMode(input) === "roleplay" &&
+    boolish(chatMetadata(input).enableAgents, true) &&
+    (await deps.integrations.music?.isEnabled?.()) === true
+  ) {
+    scopedAgentIds.add("music-dj");
   }
   if ((!requestedAgentTypes || requestedAgentTypes.size === 0) && scopedAgentIds.size === 0) {
     return { agents: [], skippedResults: [], staticInjections: [], agentWarnings: [] };

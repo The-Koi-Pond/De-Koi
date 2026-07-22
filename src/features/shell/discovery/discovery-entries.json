@@ -393,10 +393,10 @@
     "id": "music-dj",
     "title": "Music Player",
     "category": "Media",
-    "summary": "Generate a fresh pick from the visible Music Player controls, or activate the Music Player agent for automatic scene-aware picks and Game Mode scene-music retries. Character Music Taste supplies profile and manual character cues.",
+    "summary": "Enable the Music Player module for automatic scene-aware roleplay picks and visible Fresh Pick controls. Game Mode can also use its scene-music retries, while Character Music Taste supplies profile and manual character cues.",
     "keywords": ["youtube", "spotify legacy", "music", "dj", "playlist", "player", "playback", "scene music", "roleplay music", "character music", "profile music", "fresh pick", "mini player", "toolbar", "draggable"],
     "audience": "Users who want music controls, smarter roleplay cues, or mood-matched playlists inside chats and games.",
-    "where": "Chat or Game settings > Agents for automatic Music Player picks, Settings > Modules for visible controls, and Character editor > Metadata > Music Taste for profile cues.",
+    "where": "Settings > Modules for automatic roleplay music and visible controls, Game settings > Agents for game music, and Character editor > Metadata > Music Taste for profile cues.",
     "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
     "coverage": "advanced"
   },

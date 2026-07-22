@@ -203,7 +203,7 @@ describe("ConversationModeRoute music context", () => {
     const complete = vi.fn();
     const event = new CustomEvent("de-koi:music-ai-pick-request", {
       cancelable: true,
-      detail: { complete },
+      detail: { complete, volume: 23 },
     });
     await act(async () => {
       window.dispatchEvent(event);
@@ -211,7 +211,36 @@ describe("ConversationModeRoute music context", () => {
     });
 
     expect(event.defaultPrevented).toBe(true);
-    expect(handleRetryAgentMock).toHaveBeenCalledWith("music-dj");
+    expect(handleRetryAgentMock).toHaveBeenCalledWith("music-dj", {
+      allowDuringGeneration: true,
+      requestedMusicVolume: 23,
+    });
+    expect(complete).toHaveBeenCalledWith({ status: "completed" });
+  });
+
+  it("allows Fresh Music Player requests while text is streaming", async () => {
+    timelineState.agentProcessing = true;
+    timelineState.isStreaming = true;
+    handleRetryAgentMock.mockResolvedValue(undefined);
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ConversationModeRoute activeChatId="chat-1" />);
+    });
+
+    const complete = vi.fn();
+    const event = new CustomEvent("de-koi:music-ai-pick-request", {
+      cancelable: true,
+      detail: { complete, volume: 31 },
+    });
+    await act(async () => {
+      window.dispatchEvent(event);
+      await Promise.resolve();
+    });
+
+    expect(handleRetryAgentMock).toHaveBeenCalledWith("music-dj", {
+      allowDuringGeneration: true,
+      requestedMusicVolume: 31,
+    });
     expect(complete).toHaveBeenCalledWith({ status: "completed" });
   });
 
