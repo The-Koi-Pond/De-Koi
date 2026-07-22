@@ -18,58 +18,90 @@ describe("scheduleLorebookKeeperBackfill", () => {
     const firstRun = vi.fn(() => first.promise);
     const supersededRun = vi.fn(async () => undefined);
     const latestRun = vi.fn(async () => undefined);
+    expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: firstRun })).toBe(true);
+    expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: supersededRun })).toBe(true);
+    expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: latestRun })).toBe(true);
+    await vi.waitFor(() => expect(firstRun).toHaveBeenCalledOnce());
+    expect(supersededRun).not.toHaveBeenCalled();
+    expect(latestRun).not.toHaveBeenCalled();
+
+    first.resolve();
+    await vi.waitFor(() => expect(latestRun).toHaveBeenCalledOnce());
+    expect(supersededRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps success and failure silent by default without leaking identifiers or errors", async () => {
+    const storage = {} as StorageGateway;
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
 
     try {
-      expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: firstRun })).toBe(true);
-      expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: supersededRun })).toBe(true);
-      expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-1", run: latestRun })).toBe(true);
-      await vi.waitFor(() => expect(firstRun).toHaveBeenCalledOnce());
-      expect(supersededRun).not.toHaveBeenCalled();
-      expect(latestRun).not.toHaveBeenCalled();
+      expect(
+        scheduleLorebookKeeperBackfill({ storage, chatId: "private-chat-success", run: async () => undefined }),
+      ).toBe(true);
+      expect(
+        scheduleLorebookKeeperBackfill({
+          storage,
+          chatId: "private-chat-failed",
+          run: async () => {
+            throw new Error("secret token and private path");
+          },
+        }),
+      ).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-      first.resolve();
-      await vi.waitFor(() => expect(debug).toHaveBeenCalledWith("[generation] lorebook keeper backfill completed", { chatId: "chat-1" }));
-      await vi.waitFor(() => expect(latestRun).toHaveBeenCalledOnce());
-      expect(supersededRun).not.toHaveBeenCalled();
-      await vi.waitFor(() => expect(debug).toHaveBeenCalledTimes(2));
+      expect(info).not.toHaveBeenCalled();
+      expect(warning).not.toHaveBeenCalled();
+      expect(debug).not.toHaveBeenCalled();
     } finally {
+      info.mockRestore();
+      warning.mockRestore();
       debug.mockRestore();
     }
   });
 
-  it("contains a failed chat job without blocking another chat or later retries", async () => {
+  it("emits only sanitized opt-in completion diagnostics and contains reporter failures", async () => {
     const storage = {} as StorageGateway;
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
-    const otherChatRun = vi.fn(async () => undefined);
+    const diagnostics: unknown[] = [];
+    const reporter = vi.fn((diagnostic: unknown) => {
+      diagnostics.push(diagnostic);
+      if (diagnostics.length === 1) throw new Error("reporter failure with secret details");
+    });
+    const successTimes = [10, 25];
+    const failureTimes = [40, 70];
     const retryRun = vi.fn(async () => undefined);
 
-    try {
-      expect(
-        scheduleLorebookKeeperBackfill({
-          storage,
-          chatId: "chat-failed",
-          run: async () => {
-            throw new Error("storage unavailable");
-          },
-        }),
-      ).toBe(true);
-      expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-healthy", run: otherChatRun })).toBe(true);
+    expect(
+      scheduleLorebookKeeperBackfill({
+        storage,
+        chatId: "private-chat-success",
+        run: async () => undefined,
+        onDiagnostic: reporter,
+        now: () => successTimes.shift() ?? 25,
+      }),
+    ).toBe(true);
+    expect(
+      scheduleLorebookKeeperBackfill({
+        storage,
+        chatId: "private-chat-failure",
+        run: async () => {
+          throw new Error("secret token and private path");
+        },
+        onDiagnostic: reporter,
+        now: () => failureTimes.shift() ?? 70,
+      }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(reporter).toHaveBeenCalledTimes(2));
 
-      await vi.waitFor(() =>
-        expect(warning).toHaveBeenCalledWith("[generation] lorebook keeper backfill failed", {
-          chatId: "chat-failed",
-          error: "storage unavailable",
-        }),
-      );
-      await vi.waitFor(() => expect(otherChatRun).toHaveBeenCalledOnce());
+    expect(diagnostics).toEqual([
+      { stage: "lorebook_keeper_backfill", status: "ok", durationMs: 15, count: 1 },
+      { stage: "lorebook_keeper_backfill", status: "error", durationMs: 30, count: 1 },
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain("private-chat");
+    expect(JSON.stringify(diagnostics)).not.toContain("secret token");
 
-      expect(scheduleLorebookKeeperBackfill({ storage, chatId: "chat-failed", run: retryRun })).toBe(true);
-      await vi.waitFor(() => expect(retryRun).toHaveBeenCalledOnce());
-    } finally {
-      warning.mockRestore();
-      debug.mockRestore();
-    }
+    expect(scheduleLorebookKeeperBackfill({ storage, chatId: "private-chat-failure", run: retryRun })).toBe(true);
+    await vi.waitFor(() => expect(retryRun).toHaveBeenCalledOnce());
   });
 });

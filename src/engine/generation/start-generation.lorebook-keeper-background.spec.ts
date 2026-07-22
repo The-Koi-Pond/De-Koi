@@ -135,7 +135,8 @@ async function advanceToDone(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration Lorebook Keeper backfill", () => {
-  it("starts the normal-path Keeper backfill only after the consumer resumes past done", async () => {
+  it("starts the normal-path Keeper backfill after done even when the consumer stops iteration", async () => {
+    vi.useFakeTimers();
     const { storage, releaseBackfill, backfillStarted } = lorebookKeeperBackgroundStorage();
     const llm: LlmGateway = {
       complete: vi.fn(async () => ""),
@@ -152,16 +153,18 @@ describe("startGeneration Lorebook Keeper backfill", () => {
     try {
       await advanceToDone(generation);
       expect(backfillStarted()).toBe(false);
-      const completion = generation.next();
-      await vi.waitFor(() => expect(backfillStarted()).toBe(true));
+      await generation.return(undefined);
+      await vi.runOnlyPendingTimersAsync();
+      expect(backfillStarted()).toBe(true);
       releaseBackfill();
-      await completion;
     } finally {
       releaseBackfill();
+      vi.useRealTimers();
     }
   });
 
-  it("starts the direct-message Keeper backfill only after done and detaches foreground cancellation", async () => {
+  it("starts the direct-message Keeper backfill after done and detaches foreground cancellation", async () => {
+    vi.useFakeTimers();
     const { storage, releaseBackfill, backfillStarted } = lorebookKeeperBackgroundStorage();
     const controller = new AbortController();
     const llm: LlmGateway = {
@@ -186,12 +189,13 @@ describe("startGeneration Lorebook Keeper backfill", () => {
       await advanceToDone(generation);
       expect(backfillStarted()).toBe(false);
       controller.abort();
-      const completion = generation.next();
-      await vi.waitFor(() => expect(backfillStarted()).toBe(true));
+      await generation.return(undefined);
+      await vi.runOnlyPendingTimersAsync();
+      expect(backfillStarted()).toBe(true);
       releaseBackfill();
-      await completion;
     } finally {
       releaseBackfill();
+      vi.useRealTimers();
     }
   });
 });

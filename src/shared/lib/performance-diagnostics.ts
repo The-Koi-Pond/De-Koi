@@ -6,6 +6,7 @@ const PERFORMANCE_DIAGNOSTICS_STAGE_NAMES = [
   "generation.prompt_assembly",
   "generation.first_token",
   "generation.post_save",
+  "generation.lorebook_keeper_backfill",
   "deki.session_summaries",
   "deki.active_history",
   "generation.background_maintenance",
@@ -14,6 +15,7 @@ const PERFORMANCE_DIAGNOSTICS_STAGE_METADATA_KEYS = [
   "messageCount",
   "promptMessageCount",
   "scheduledTaskCount",
+  "runCount",
   "sessionCount",
 ] as const;
 const MAX_DIAGNOSTIC_COUNT = 1_000_000;

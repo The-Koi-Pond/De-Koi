@@ -174,6 +174,7 @@ export type GenerationPerformanceTiming = {
     | "generation.prompt_assembly"
     | "generation.first_token"
     | "generation.post_save"
+    | "generation.lorebook_keeper_backfill"
     | "generation.background_maintenance";
   elapsedMs: number;
   status: "ok" | "error";
@@ -181,6 +182,7 @@ export type GenerationPerformanceTiming = {
     messageCount?: number;
     promptMessageCount?: number;
     scheduledTaskCount?: number;
+    runCount?: number;
   };
 };
 
@@ -4180,6 +4182,15 @@ function scheduleLorebookKeeperBackfillAfterSavedAssistant(
   return scheduleLorebookKeeperBackfill({
     storage: deps.storage,
     chatId: readString(chat.id).trim(),
+    onDiagnostic: deps.onPerformanceTiming
+      ? (diagnostic) =>
+          deps.onPerformanceTiming?.({
+            name: "generation.lorebook_keeper_backfill",
+            elapsedMs: diagnostic.durationMs,
+            status: diagnostic.status,
+            metadata: { runCount: diagnostic.count },
+          })
+      : undefined,
     run: async () => {
       await runLorebookKeeperBackfill(
         deps,
@@ -5129,9 +5140,9 @@ export async function* startGeneration(
       if (postSaveStartedAt) {
         reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
       }
+      if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
       yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
       if (savedAssistantGeneration) {
-        scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
         const backgroundMaintenanceStartedAt = generationTimingStartedAt();
         let scheduledTaskCount = 0;
         try {
@@ -5410,9 +5421,9 @@ export async function* startGeneration(
     if (directPostSaveStartedAt) {
       reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "ok");
     }
+    if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
     yield { type: "done" };
     if (savedAssistantGeneration) {
-      scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
       const backgroundMaintenanceStartedAt = generationTimingStartedAt();
       let scheduledTaskCount = 0;
       try {

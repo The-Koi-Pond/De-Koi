@@ -70,6 +70,28 @@ describe("performance diagnostics", () => {
     });
   });
 
+  it("allows only the sanitized Lorebook Keeper timing count", () => {
+    window.localStorage.setItem("deKoiPerformanceDiagnostics", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    reportPerformanceStageTiming({
+      name: "generation.lorebook_keeper_backfill",
+      elapsedMs: 8.5,
+      status: "error",
+      metadata: { runCount: 1 },
+    });
+
+    expect(info).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith("[de-koi:perf] span", {
+      category: "generation",
+      name: "generation.lorebook_keeper_backfill",
+      status: "error",
+      elapsedMs: 8.5,
+      runCount: 1,
+    });
+  });
+
   it("emits opt-in milestones and successful async spans without argument payloads", async () => {
     window.localStorage.setItem("deKoiPerformanceDiagnostics", "1");
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
