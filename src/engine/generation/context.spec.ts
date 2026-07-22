@@ -39,6 +39,14 @@ describe("generation connection resolution", () => {
     ).resolves.toMatchObject({ id: "nanogpt" });
   });
 
+  it("fails clearly instead of falling back when the random pool is empty", async () => {
+    const storage = storageWithConnections([{ id: "default", isDefault: true, enabled: true }]);
+
+    await expect(resolveGenerationConnection(storage, {}, { connectionId: "random" })).rejects.toThrow(
+      "No connections are marked for the random pool",
+    );
+  });
+
   it("falls back to the default connection when neither the request nor chat selects one", async () => {
     const storage = storageWithConnections([
       { id: "other", enabled: true },

@@ -115,8 +115,12 @@ fn platform_label() -> &'static str {
     }
 }
 
-fn manual_update_hint() -> &'static str {
-    "Download the latest release asset for this platform, run the installer or replace the app bundle, then restart De-Koi."
+fn manual_update_hint(server_build: bool) -> &'static str {
+    if server_build {
+        "A newer main build is available. Use the normal De-Koi server or Pi update process, then restart De-Koi."
+    } else {
+        "Download the latest release asset for this platform, run the installer or replace the app bundle, then restart De-Koi."
+    }
 }
 
 fn clean_commit(value: Option<&str>) -> Option<String> {
@@ -136,7 +140,7 @@ fn release_payload_for(
     let target_commit = clean_commit(release.target_commit.as_deref());
     let commit_update =
         current_commit.is_some() && target_commit.is_some() && current_commit != target_commit;
-    let update_available = version_update || commit_update;
+    let update_available = version_update || (server_build && commit_update);
     json!({
         "currentVersion": APP_VERSION,
         "latestVersion": release.latest_version,
@@ -153,12 +157,12 @@ fn release_payload_for(
         "installType": if server_build { "server" } else { "tauri-desktop" },
         "serverPlatform": platform_label(),
         "clientPlatform": "desktop",
-        "updateMechanism": "manual-release",
+        "updateMechanism": if server_build { "source-main" } else { "manual-release" },
         "tauriUpdaterConfigured": false,
         "applyAvailable": false,
         "applyUnavailableReason": "tauri-updater-not-configured",
         "manualUpdateCommand": Value::Null,
-        "manualUpdateHint": manual_update_hint(),
+        "manualUpdateHint": manual_update_hint(server_build),
     })
 }
 
@@ -401,7 +405,7 @@ pub fn apply_update(input: Value) -> AppResult<Value> {
         "applyAvailable": false,
         "applyUnavailableReason": "tauri-updater-not-configured",
         "manualUpdateCommand": Value::Null,
-        "manualUpdateHint": manual_update_hint(),
+        "manualUpdateHint": manual_update_hint(cfg!(feature = "server")),
     }))
 }
 
@@ -449,6 +453,8 @@ mod tests {
         assert_eq!(payload["targetCommit"], "target1234567890");
         assert_eq!(payload["targetChannel"], "main");
         assert_eq!(payload["installType"], "server");
+        assert_eq!(payload["updateMechanism"], "source-main");
+        assert_eq!(payload["applyAvailable"], false);
     }
 
     #[test]
@@ -461,6 +467,18 @@ mod tests {
         assert_eq!(payload["versionUpdate"], false);
         assert_eq!(payload["commitUpdate"], true);
         assert_eq!(payload["updateAvailable"], true);
+    }
+
+    #[test]
+    fn desktop_commit_drift_is_reported_without_offering_a_same_version_release() {
+        let mut release = fallback_release(&format!("v{APP_VERSION}"));
+        release.target_commit = Some("target1234567890".to_string());
+
+        let payload = release_payload_for(&release, Some("current1234567890"), false);
+
+        assert_eq!(payload["versionUpdate"], false);
+        assert_eq!(payload["commitUpdate"], true);
+        assert_eq!(payload["updateAvailable"], false);
     }
 
     #[test]

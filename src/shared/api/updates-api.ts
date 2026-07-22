@@ -16,7 +16,7 @@ export type UpdateCheckResponse = {
   installType: string;
   serverPlatform: string;
   clientPlatform?: string;
-  updateMechanism: "manual-release";
+  updateMechanism: "manual-release" | "source-main";
   tauriUpdaterConfigured: boolean;
   applyAvailable: boolean;
   applyUnavailableReason: "tauri-updater-not-configured";
@@ -27,6 +27,12 @@ export type UpdateCheckResponse = {
 export function formatUpdateIdentity(version: string, commit: string | null | undefined): string {
   const normalizedCommit = commit?.trim();
   return `${version} (${normalizedCommit ? normalizedCommit.slice(0, 8) : "commit unavailable"})`;
+}
+
+export function canOpenUpdateRelease(
+  update: Pick<UpdateCheckResponse, "updateAvailable" | "versionUpdate" | "installType">,
+): boolean {
+  return update.updateAvailable && update.versionUpdate && update.installType !== "server";
 }
 
 export type UpdateApplyResponse = Omit<

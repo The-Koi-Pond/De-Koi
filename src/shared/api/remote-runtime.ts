@@ -495,7 +495,7 @@ function remoteTimeoutError(timeoutMs: number): ApiError {
   });
 }
 
-function remoteNetworkError(error: unknown): ApiError {
+function remoteNetworkError(error: unknown, details: Record<string, unknown> = {}): ApiError {
   if (error instanceof ApiError) return error;
   const message = error instanceof Error ? error.message : String(error ?? "Unknown network error");
   return new ApiError(
@@ -503,6 +503,7 @@ function remoteNetworkError(error: unknown): ApiError {
     503,
     {
       code: "remote_runtime_unreachable",
+      ...details,
       cause: error,
       causeMessage: message,
     },
@@ -839,6 +840,7 @@ export async function* streamRemoteLlm(
   const decoder = new TextDecoder();
   let buffer = "";
   let terminalEventReceived = false;
+  let partialOutput = false;
   try {
     while (true) {
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -848,6 +850,7 @@ export async function* streamRemoteLlm(
             new ApiError("Remote LLM stream was idle for 120 seconds.", 504, {
               code: "remote_runtime_stream_timeout",
               timeoutMs: REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS,
+              partialOutput,
             }),
           );
         }, REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS);
@@ -866,6 +869,7 @@ export async function* streamRemoteLlm(
       for (const data of parsed.events) {
         const event = normalizeRemoteLlmChunk(JSON.parse(data) as LlmChunk);
         if (event.type === "done" || event.type === "error") terminalEventReceived = true;
+        if ((event.type === "token" || event.type === "thinking") && event.text?.trim()) partialOutput = true;
         yield event;
         if (event.type === "error") return;
       }
@@ -873,12 +877,13 @@ export async function* streamRemoteLlm(
     if (!terminalEventReceived) {
       throw new ApiError("Remote LLM stream ended before a terminal event.", 502, {
         code: "llm_stream_incomplete",
+        partialOutput,
       });
     }
   } catch (error) {
     await reader.cancel(error).catch(() => undefined);
     if (error instanceof ApiError || isAbortError(error) || signal?.aborted) throw error;
-    throw remoteNetworkError(error);
+    throw remoteNetworkError(error, { partialOutput });
   } finally {
     reader.releaseLock();
   }

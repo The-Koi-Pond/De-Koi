@@ -310,9 +310,18 @@ describe("streamRemoteLlm", () => {
       ),
     ]);
 
-    await expect(collectStream()).rejects.toMatchObject({
+    const events = [];
+    let failure: unknown;
+    try {
+      for await (const event of streamRemoteLlm("stream-1", request, target)) events.push(event);
+    } catch (cause) {
+      failure = cause;
+    }
+
+    expect(events).toEqual([expect.objectContaining({ type: "token", text: "partial" })]);
+    expect(failure).toMatchObject({
       name: "ApiError",
-      details: { code: "llm_stream_incomplete" },
+      details: { code: "llm_stream_incomplete", partialOutput: true },
     });
   });
 
@@ -338,14 +347,16 @@ describe("streamRemoteLlm", () => {
     await expect(collectStream()).rejects.toMatchObject({
       name: "ApiError",
       status: 503,
-      details: { code: "remote_runtime_unreachable" },
+      details: { code: "remote_runtime_unreachable", partialOutput: true },
     });
   });
 
   it("rejects a stream after two minutes without another event", async () => {
     vi.useFakeTimers();
+    const cancel = vi.fn();
+    const stream = new ReadableStream({ start() {}, cancel });
     stubFetch([
-      new Response(new ReadableStream({ start() {} }), {
+      new Response(stream, {
         status: 200,
         headers: { "content-type": "text/event-stream" },
       }),
@@ -360,5 +371,7 @@ describe("streamRemoteLlm", () => {
     await vi.advanceTimersByTimeAsync(REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS);
 
     await rejection;
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(stream.locked).toBe(false);
   });
 });

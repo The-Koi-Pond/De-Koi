@@ -465,16 +465,48 @@ describe("startGeneration roleplay text persistence", () => {
     });
   });
 
-  it("does not create a blank assistant message when an incomplete stream has no text", async () => {
+  it.each(["llm_stream_incomplete", "remote_runtime_stream_timeout", "llm_stream_error"])(
+    "does not create a blank assistant message when %s has no text",
+    async (code) => {
+      const { storage, messages } = roleplayAttributionStorage();
+      const llm: LlmGateway = {
+        complete: vi.fn(async () => ""),
+        listModels: vi.fn(async () => []),
+        async *stream() {
+          yield* [];
+          throw Object.assign(new Error("LLM provider stream interrupted."), { code });
+        },
+      };
+
+      await expect(
+        collectEvents(
+          startGeneration(
+            { storage, llm, integrations: {} as IntegrationGateway },
+            {
+              chatId: "chat-1",
+              connectionId: "conn-1",
+              userMessage: "Continue.",
+              impersonateBlockAgents: true,
+            },
+          ),
+        ),
+      ).rejects.toMatchObject({ code });
+
+      expect(messages.filter((item) => item.role === "assistant")).toEqual([]);
+    },
+  );
+
+  it("does not create a blank assistant message for a zero-text length stop", async () => {
     const { storage, messages } = roleplayAttributionStorage();
     const llm: LlmGateway = {
       complete: vi.fn(async () => ""),
       listModels: vi.fn(async () => []),
       async *stream() {
-        yield* [];
-        throw Object.assign(new Error("LLM provider stream ended before a terminal event."), {
-          code: "llm_stream_incomplete",
-        });
+        yield {
+          type: "provider_metadata",
+          data: { finishReason: "length" },
+          finishReason: "length",
+        };
       },
     };
 
@@ -490,7 +522,7 @@ describe("startGeneration roleplay text persistence", () => {
           },
         ),
       ),
-    ).rejects.toMatchObject({ code: "llm_stream_incomplete" });
+    ).rejects.toMatchObject({ code: "llm_stream_length" });
 
     expect(messages.filter((item) => item.role === "assistant")).toEqual([]);
   });
