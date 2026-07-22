@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-22
 
-**Status:** Approved behavior; awaiting written-spec review
+**Status:** Approved
 
 **Branch:** `fix/runtime-reliability-shell`
 
