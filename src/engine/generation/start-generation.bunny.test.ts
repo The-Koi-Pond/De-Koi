@@ -435,6 +435,7 @@ describe("generation performance timing callbacks", () => {
         return [];
       },
       async *stream() {
+        yield* [];
         throw streamError;
       },
     };
@@ -503,6 +504,7 @@ describe("generation performance timing callbacks", () => {
         return [];
       },
       async *stream() {
+        yield* [];
         throw streamError;
       },
     };
