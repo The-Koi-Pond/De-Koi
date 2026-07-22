@@ -6,7 +6,9 @@ import {
   invokeRemote,
   readRemoteError,
   REMOTE_FINITE_REQUEST_TIMEOUT_MS,
+  REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS,
   remoteRuntimeTarget,
+  streamRemoteLlm,
 } from "./remote-runtime";
 import { useUIStore } from "../stores/ui.store";
 
@@ -276,5 +278,100 @@ describe("invokeRemote", () => {
     await vi.advanceTimersByTimeAsync(REMOTE_FINITE_REQUEST_TIMEOUT_MS);
 
     await rejection;
+  });
+});
+
+describe("streamRemoteLlm", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const request = { messages: [{ role: "user" as const, content: "Hello" }] };
+  const target = { baseUrl: "http://127.0.0.1:3080" };
+
+  async function collectStream() {
+    const events = [];
+    for await (const event of streamRemoteLlm("stream-1", request, target)) events.push(event);
+    return events;
+  }
+
+  it("rejects EOF without a terminal event", async () => {
+    const encoder = new TextEncoder();
+    stubFetch([
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: {"type":"token","text":"partial"}\n\n'));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    ]);
+
+    const events = [];
+    let failure: unknown;
+    try {
+      for await (const event of streamRemoteLlm("stream-1", request, target)) events.push(event);
+    } catch (cause) {
+      failure = cause;
+    }
+
+    expect(events).toEqual([expect.objectContaining({ type: "token", text: "partial" })]);
+    expect(failure).toMatchObject({
+      name: "ApiError",
+      details: { code: "llm_stream_incomplete", partialOutput: true },
+    });
+  });
+
+  it("normalizes a stream reader transport failure after partial output", async () => {
+    const encoder = new TextEncoder();
+    let sent = false;
+    stubFetch([
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            if (!sent) {
+              sent = true;
+              controller.enqueue(encoder.encode('data: {"type":"token","text":"partial"}\n\n'));
+              return;
+            }
+            controller.error(new TypeError("network connection lost"));
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    ]);
+
+    await expect(collectStream()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 503,
+      details: { code: "remote_runtime_unreachable", partialOutput: true },
+    });
+  });
+
+  it("rejects a stream after two minutes without another event", async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn();
+    const stream = new ReadableStream({ start() {}, cancel });
+    stubFetch([
+      new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      }),
+    ]);
+
+    const pending = collectStream();
+    const rejection = expect(pending).rejects.toMatchObject({
+      name: "ApiError",
+      status: 504,
+      details: { code: "remote_runtime_stream_timeout" },
+    });
+    await vi.advanceTimersByTimeAsync(REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS);
+
+    await rejection;
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(stream.locked).toBe(false);
   });
 });

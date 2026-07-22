@@ -552,6 +552,11 @@ export interface RoleplayQualityCorrectionExtra {
 
 /** Additional data attached to a message. */
 export interface MessageExtra {
+  /** Why a provider-produced partial reply ended before normal completion. */
+  generationInterrupted?: {
+    reason: "idle_timeout" | "incomplete_stream" | "length" | "transport";
+    message: string;
+  } | null;
   /** A character's pending or resolved request to research an exact web query. */
   characterWebResearchRequest?: CharacterWebResearchRequest | null;
   /** Public sources used during an approved research turn. */
@@ -643,7 +648,8 @@ export interface CharacterWebResearchRequest {
   query: string;
   reason: string;
   allowedDomains: string[];
-  status?: "pending" | "approved" | "declined";
+  status?: "pending" | "approved" | "researching" | "completed" | "failed" | "declined";
+  failureMessage?: string | null;
 }
 
 /** Metadata about how a message was generated. */

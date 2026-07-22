@@ -19,6 +19,7 @@ const AgentsPanel = lazy(RIGHT_PANEL_LOADERS.agents);
 const PersonasPanel = lazy(RIGHT_PANEL_LOADERS.personas);
 const GlobalGalleryPanel = lazy(RIGHT_PANEL_LOADERS.gallery);
 const SettingsPanel = lazy(RIGHT_PANEL_LOADERS.settings);
+const HelpPanel = lazy(RIGHT_PANEL_LOADERS.help);
 
 const PANELS: Record<string, LazyExoticComponent<ComponentType>> = {
   "bot-browser": BotBrowserPanel,
@@ -30,6 +31,7 @@ const PANELS: Record<string, LazyExoticComponent<ComponentType>> = {
   personas: PersonasPanel,
   gallery: GlobalGalleryPanel,
   settings: SettingsPanel,
+  help: HelpPanel,
 };
 
 function PanelFallback() {

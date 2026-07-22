@@ -1,4 +1,4 @@
-import { HelpCircle, Home, Maximize2, Minus, Square, X } from "lucide-react";
+import { Home, Maximize2, Minus, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   getDesktopWindowVisualState,
@@ -35,8 +35,6 @@ export function WindowTitleBar({
   dekiOpen = false,
   onOpenDeki,
   onGoHome,
-  onOpenHelp,
-  onOpenDiscover,
   leftSidebarPanel = "chats",
   onLeftSidebarPanelChange,
   titlebarAccessory,
@@ -45,8 +43,6 @@ export function WindowTitleBar({
   dekiOpen?: boolean;
   onOpenDeki?: () => void;
   onGoHome?: () => void;
-  onOpenHelp?: () => void;
-  onOpenDiscover?: () => void;
   leftSidebarPanel?: AppShellLeftSidebarPanel;
   onLeftSidebarPanelChange?: (panel: AppShellLeftSidebarPanel) => void;
   titlebarAccessory?: ReactNode;
@@ -251,18 +247,7 @@ export function WindowTitleBar({
           onMouseDown={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
         >
-          {onOpenHelp && (
-            <button
-              type="button"
-              className="mari-titlebar-action de-koi-icon-target rounded-md text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
-              onClick={onOpenHelp}
-              title="Help"
-              aria-label="Help"
-            >
-              <HelpCircle size="1rem" aria-hidden />
-            </button>
-          )}
-          <PanelNavButtons onOpenDiscover={onOpenDiscover} />
+          <PanelNavButtons />
           <span className="mari-window-actions-divider" aria-hidden />
         </div>
       </div>

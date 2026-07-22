@@ -50,6 +50,7 @@ const CLAUDE_SUBSCRIPTION_1M_BETA: &str = "context-1m-2025-08-07";
 const PROVIDER_LOCAL_URLS_ENABLED_FLAG: &str = "PROVIDER_LOCAL_URLS_ENABLED";
 const PROVIDER_RESPONSE_MAX_BYTES: usize = 5 * 1024 * 1024;
 const PROVIDER_RESPONSE_HEADERS_TIMEOUT_SECS: u64 = 5 * 60;
+const PROVIDER_STREAM_IDLE_TIMEOUT_SECS: u64 = 2 * 60;
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const GOOGLE_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GOOGLE_JWT_BEARER_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
@@ -580,6 +581,7 @@ fn provider_http_client(
 ) -> AppResult<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .connect_timeout(provider_response_headers_timeout())
+        .read_timeout(Duration::from_secs(PROVIDER_STREAM_IDLE_TIMEOUT_SECS))
         .redirect(reqwest::redirect::Policy::none());
     if let (Some(host), Some(addresses)) = (host, resolved_addresses) {
         builder = builder.resolve_to_addrs(host, addresses);
@@ -2758,6 +2760,124 @@ mod tests {
             emitted[0],
             json!({ "type": "token", "text": "done", "data": "done" })
         );
+    }
+
+    #[test]
+    fn openai_chat_stream_emits_finish_reason_metadata() {
+        let mut emitted = Vec::new();
+        let mut tool_calls = OpenAiToolCallAccumulator::default();
+        let mut emit = |value: Value| {
+            emitted.push(value);
+            Ok(())
+        };
+
+        let status = process_openai_sse_block(
+            r#"data: {"choices":[{"delta":{"content":"cut short"},"finish_reason":"length"}]}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("finish_reason chunk should parse");
+
+        assert_eq!(status, SseBlockStatus::Complete);
+        assert_eq!(
+            emitted.last(),
+            Some(&json!({
+                "type": "provider_metadata",
+                "data": { "finishReason": "length" },
+                "finishReason": "length"
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_stream_rejects_eof_without_terminal_event() {
+        let error = ensure_stream_completed(false).expect_err("EOF must be incomplete");
+
+        assert_eq!(error.code, "llm_stream_incomplete");
+        assert!(error.message.contains("terminal event"));
+    }
+
+    #[tokio::test]
+    async fn openai_stream_accepts_an_unterminated_final_terminal_block() {
+        let url = serve_response(
+            "200 OK",
+            "text/event-stream",
+            br#"data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}"#.to_vec(),
+        )
+        .await;
+        let mut request = request_for("openai", "gpt-4o", json!({}));
+        request.connection.base_url = url;
+        let mut emitted = Vec::new();
+        let mut emit = |value| {
+            emitted.push(value);
+            Ok(())
+        };
+
+        stream_openai_compatible(request, &mut emit)
+            .await
+            .expect("a complete final SSE event remains valid without a trailing blank line");
+
+        assert!(emitted.iter().any(|event| event["type"] == "token"));
+        assert!(emitted
+            .iter()
+            .any(|event| event["finishReason"] == "stop"));
+    }
+
+    #[tokio::test]
+    async fn openai_stream_rejects_an_unterminated_final_nonterminal_block() {
+        let url = serve_response(
+            "200 OK",
+            "text/event-stream",
+            br#"data: {"choices":[{"delta":{"content":"partial"}}]}"#.to_vec(),
+        )
+        .await;
+        let mut request = request_for("openai", "gpt-4o", json!({}));
+        request.connection.base_url = url;
+        let mut emit = |_value| Ok(());
+
+        let error = stream_openai_compatible(request, &mut emit)
+            .await
+            .expect_err("a nonterminal final SSE event must remain incomplete");
+
+        assert_eq!(error.code, "llm_stream_incomplete");
+    }
+
+    #[tokio::test]
+    async fn anthropic_stream_rejects_eof_without_message_stop() {
+        let url = serve_response(
+            "200 OK",
+            "text/event-stream",
+            b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n".to_vec(),
+        )
+        .await;
+        let mut request = request_for("anthropic", "claude-sonnet-4-5", json!({}));
+        request.connection.base_url = url;
+        let mut emit = |_value| Ok(());
+
+        let error = stream_anthropic(request, &mut emit)
+            .await
+            .expect_err("Anthropic EOF without message_stop must fail");
+
+        assert_eq!(error.code, "llm_stream_incomplete");
+    }
+
+    #[tokio::test]
+    async fn cohere_stream_rejects_eof_without_message_end() {
+        let url = serve_response(
+            "200 OK",
+            "text/event-stream",
+            b"data: {\"type\":\"content-delta\",\"delta\":{\"message\":{\"content\":{\"text\":\"partial\"}}}}\n\n".to_vec(),
+        )
+        .await;
+        let mut request = request_for("cohere", "command-r", json!({}));
+        request.connection.base_url = url;
+        let mut emit = |_value| Ok(());
+
+        let error = stream_cohere(request, &mut emit)
+            .await
+            .expect_err("Cohere EOF without message-end must fail");
+
+        assert_eq!(error.code, "llm_stream_incomplete");
     }
 
     #[test]

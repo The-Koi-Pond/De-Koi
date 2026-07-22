@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ChatMessageListOptions, ChatTranscriptPort } from "../capabilities/storage";
-import { llmParameters, loadChatMessages } from "./context";
+import type { ChatMessageListOptions, ChatTranscriptPort, StorageGateway } from "../capabilities/storage";
+import { llmParameters, loadChatMessages, resolveGenerationConnection } from "./context";
 import { recommendedGenerationProfileForRequest } from "./generate-route-utils";
 
 describe("generation context message loading", () => {
@@ -17,6 +17,43 @@ describe("generation context message loading", () => {
     await loadChatMessages(storage, "chat-1");
 
     expect(requestedOptions?.fieldSelections?.extra).toContain("attachments");
+  });
+});
+
+describe("generation connection resolution", () => {
+  function storageWithConnections(connections: Array<Record<string, unknown>>): StorageGateway {
+    return {
+      list: vi.fn(async (entity: string) => (entity === "connections" ? connections : [])),
+      get: vi.fn(async (_entity: string, id: string) => connections.find((connection) => connection.id === id) ?? null),
+    } as unknown as StorageGateway;
+  }
+
+  it("resolves a random request to a concrete enabled pool connection", async () => {
+    const storage = storageWithConnections([
+      { id: "disabled", useForRandom: true, enabled: false },
+      { id: "nanogpt", useForRandom: true, enabled: true },
+    ]);
+
+    await expect(
+      resolveGenerationConnection(storage, {}, { connectionId: "random" }, { random: () => 0 }),
+    ).resolves.toMatchObject({ id: "nanogpt" });
+  });
+
+  it("fails clearly instead of falling back when the random pool is empty", async () => {
+    const storage = storageWithConnections([{ id: "default", isDefault: true, enabled: true }]);
+
+    await expect(resolveGenerationConnection(storage, {}, { connectionId: "random" })).rejects.toThrow(
+      "No connections are marked for the random pool",
+    );
+  });
+
+  it("falls back to the default connection when neither the request nor chat selects one", async () => {
+    const storage = storageWithConnections([
+      { id: "other", enabled: true },
+      { id: "default", isDefault: true, enabled: true },
+    ]);
+
+    await expect(resolveGenerationConnection(storage, {}, {})).resolves.toMatchObject({ id: "default" });
   });
 });
 

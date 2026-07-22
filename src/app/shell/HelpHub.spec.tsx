@@ -2,6 +2,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HelpHub } from "./HelpHub";
+import { DISCOVERY_APP_EVENT } from "../../shared/lib/discovery-navigation";
+import { useUIStore } from "../../shared/stores/ui.store";
 
 const mocks = vi.hoisted(() => ({
   openBugReport: vi.fn(),
@@ -39,16 +41,12 @@ describe("HelpHub feature discovery", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     const onOpenDiscover = vi.fn();
+    window.addEventListener(DISCOVERY_APP_EVENT, onOpenDiscover);
+    useUIStore.setState({ rightPanelOpen: true, rightPanel: "help" });
 
     act(() => {
       root.render(
-        <HelpHub
-          open
-          onClose={vi.fn()}
-          onOpenHealth={vi.fn()}
-          onReplayOnboarding={vi.fn()}
-          onOpenDiscover={onOpenDiscover}
-        />,
+        <HelpHub />,
       );
     });
 
@@ -58,8 +56,10 @@ describe("HelpHub feature discovery", () => {
     expect(button).toBeTruthy();
     act(() => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(onOpenDiscover).toHaveBeenCalledOnce();
+    expect(useUIStore.getState().rightPanelOpen).toBe(false);
 
     act(() => root.unmount());
+    window.removeEventListener(DISCOVERY_APP_EVENT, onOpenDiscover);
     container.remove();
   });
 
@@ -71,7 +71,7 @@ describe("HelpHub feature discovery", () => {
     const root = createRoot(container);
 
     await act(async () => {
-      root.render(<HelpHub open onClose={vi.fn()} onOpenHealth={vi.fn()} onReplayOnboarding={vi.fn()} />);
+      root.render(<HelpHub />);
     });
 
     for (const label of ["Report a bug", "FAQ and docs", "Contact support"]) {

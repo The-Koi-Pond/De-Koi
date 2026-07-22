@@ -132,6 +132,13 @@ describe("CharacterWebResearchCard", () => {
 
     expect(container.textContent).toContain("Web research couldn't continue. The approval is still here; try again.");
     expect(button("Allow once").disabled).toBe(false);
+    expect(storageApi.patchChatMessageExtra).toHaveBeenLastCalledWith("message-1", {
+      characterWebResearchRequest: {
+        ...request,
+        status: "failed",
+        failureMessage: "Web research couldn't continue. The approval is still here; try again.",
+      },
+    });
   });
 
   it("clears a failed retry error after a successful retry", async () => {
@@ -180,7 +187,12 @@ describe("CharacterWebResearchCard", () => {
         requestMessageId: "message-1",
       }),
     });
-    expect(storageApi.patchChatMessageExtra).not.toHaveBeenCalled();
+    expect(storageApi.patchChatMessageExtra).toHaveBeenNthCalledWith(1, "message-1", {
+      characterWebResearchRequest: { ...request, status: "researching", failureMessage: null },
+    });
+    expect(storageApi.patchChatMessageExtra).toHaveBeenLastCalledWith("message-1", {
+      characterWebResearchRequest: { ...request, status: "completed", failureMessage: null },
+    });
     expect(onRegenerate).toHaveBeenCalledOnce();
     expect(onRegenerate).toHaveBeenCalledWith("message-1", {
       chatId: "chat-1",

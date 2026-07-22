@@ -33,6 +33,7 @@ function createBackfillHarness(messageCreatedAt: string, metadata: Record<string
   ]);
 
   return {
+    records,
     patchedSummaries,
     capabilities: {
       storage: {
@@ -123,5 +124,34 @@ describe("backfillConversationSummaries", () => {
 
     expect(completionSignal).toBe(controller.signal);
     expect(patchedSummaries).toEqual([]);
+  });
+
+  it("resolves Random to a concrete NanoGPT connection before summarizing", async () => {
+    const { capabilities, records } = createBackfillHarness("2020-01-01T15:30:00.000Z");
+    records.set("chats:chat-1", {
+      ...(records.get("chats:chat-1") as Record<string, unknown>),
+      connectionId: "random",
+    });
+    records.delete("connections:summary-connection");
+    records.set("connections:nanogpt-1", {
+      id: "nanogpt-1",
+      provider: "nanogpt",
+      model: "summary-model",
+      enabled: true,
+      useForRandom: true,
+    });
+    const requests: Array<{ connectionId?: string }> = [];
+    capabilities.llm.complete = vi.fn(async (request) => {
+      requests.push(request);
+      return JSON.stringify({ summary: "Random summary.", keyDetails: [] });
+    });
+
+    await backfillConversationSummaries(capabilities, {
+      chatId: "chat-1",
+      connectionId: "random",
+      maxMissingDays: 14,
+    });
+
+    expect(requests[0]?.connectionId).toBe("nanogpt-1");
   });
 });

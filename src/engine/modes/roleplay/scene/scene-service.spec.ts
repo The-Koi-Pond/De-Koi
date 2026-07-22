@@ -39,6 +39,9 @@ function storageForScene(args: {
   const storage = {
     async get<T>(entity: StorageEntity, id: string) {
       if (entity === "chats") return (chats.get(id) ?? null) as T | null;
+      if (entity === "connections") {
+        return ((args.connections ?? []).find((connection) => connection.id === id) ?? null) as T | null;
+      }
       if (entity === "prompts" && id === "preset_universal_v2") return { id, name: "De-Koi Universal Preset V2" } as T;
       if (entity === "characters") return null as T | null;
       return null as T | null;
@@ -510,6 +513,43 @@ describe("createRoleplayScene", () => {
   });
 });
 describe("roleplay scene conclusion summaries", () => {
+  it("resolves a Random summary override before sending requests to the LLM", async () => {
+    const connectionIds: Array<string | null | undefined> = [];
+    const { storage } = storageForScene({
+      chats: [
+        { id: "origin", name: "Origin", mode: "chat", metadata: {} },
+        {
+          id: "scene",
+          name: "Scene: Random Summary",
+          mode: "roleplay",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "nanogpt", enabled: true, useForRandom: true }],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: "The pair enter the flooded archive together." },
+          { id: "ending", role: "user", content: "They recover the ledger and agree to return home." },
+        ],
+      },
+    });
+    const llm: LlmGateway = {
+      async complete(request) {
+        connectionIds.push(request.connectionId);
+        return "The pair entered the flooded archive, recovered the ledger, and agreed to return home together.";
+      },
+      async *stream() {},
+      async listModels() {
+        return [];
+      },
+    };
+
+    await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene", connectionId: "random" });
+
+    expect(connectionIds.length).toBeGreaterThan(0);
+    expect(connectionIds).toEqual(connectionIds.map(() => "nanogpt"));
+  });
+
   it("does not conclude the scene with a transcript excerpt when summary generation fails", async () => {
     const longSceneBeat = [
       "Pulled from the safety of your screen and into the damp woods, you stand before the towering Trapper.",

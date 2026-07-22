@@ -1,5 +1,6 @@
 use crate::providers::sse::{
-    ensure_sse_buffer_within_limit, take_sse_block, OpenAiToolCallAccumulator,
+    ensure_sse_buffer_within_limit, ensure_sse_stream_completed, take_sse_block,
+    OpenAiToolCallAccumulator,
 };
 use crate::*;
 
@@ -125,13 +126,26 @@ pub(crate) async fn stream_openai_compatible(
     if !completed {
         decoder.finish(&mut buffer);
     }
-    if !completed && !buffer.trim().is_empty() {
-        process_openai_sse_block(&buffer, emit, &mut tool_calls)?;
+    // SSE permits a clean EOF without a trailing blank line. The leftover is
+    // accepted only when the provider parser identifies an explicit terminal
+    // event; ordinary text, tool calls, or partial JSON cannot complete it.
+    if !completed
+        && !buffer.trim().is_empty()
+        && process_openai_sse_block(&buffer, emit, &mut tool_calls)? == SseBlockStatus::Complete
+    {
+        completed = true;
     }
     for tool_call in tool_calls.into_tool_calls() {
         emit(json!({ "type": "tool_call", "data": tool_call }))?;
     }
-    Ok(())
+    ensure_stream_completed(completed)
+}
+
+pub(crate) fn ensure_stream_completed(completed: bool) -> AppResult<()> {
+    ensure_sse_stream_completed(
+        completed,
+        "LLM provider stream ended before a terminal event. The response may be incomplete; retry the request.",
+    )
 }
 
 pub(crate) const OPENAI_RESPONSES_ENCRYPTED_REASONING_INCLUDE: &str = "reasoning.encrypted_content";
@@ -729,13 +743,18 @@ pub(crate) async fn stream_openai_responses(
     if !completed {
         decoder.finish(&mut buffer);
     }
-    if !completed && !buffer.trim().is_empty() {
-        process_openai_responses_sse_block(&buffer, emit, &mut tool_calls)?;
+    // A final response.completed event remains valid when EOF arrives before
+    // the optional trailing blank line. No other leftover can mark completion.
+    if !completed
+        && !buffer.trim().is_empty()
+        && process_openai_responses_sse_block(&buffer, emit, &mut tool_calls)? == SseBlockStatus::Complete
+    {
+        completed = true;
     }
     for tool_call in tool_calls.into_tool_calls() {
         emit(json!({ "type": "tool_call", "data": tool_call }))?;
     }
-    Ok(())
+    ensure_stream_completed(completed)
 }
 
 pub(crate) fn process_openai_responses_sse_block(
@@ -1076,12 +1095,16 @@ pub(crate) fn process_openai_sse_block(
         if let Some(content) = delta.get("content") {
             emit_openai_content_delta(content, emit)?;
         }
-        if choice
+        if let Some(reason) = choice
             .get("finish_reason")
             .and_then(Value::as_str)
             .filter(|reason| !reason.is_empty())
-            .is_some()
         {
+            emit(json!({
+                "type": "provider_metadata",
+                "data": { "finishReason": reason },
+                "finishReason": reason
+            }))?;
             return Ok(SseBlockStatus::Complete);
         }
     }

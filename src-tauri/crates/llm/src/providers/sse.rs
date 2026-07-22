@@ -31,6 +31,13 @@ pub(crate) fn ensure_sse_buffer_within_limit(buffer: &str) -> AppResult<()> {
     Ok(())
 }
 
+pub(crate) fn ensure_sse_stream_completed(completed: bool, message: &'static str) -> AppResult<()> {
+    if completed {
+        return Ok(());
+    }
+    Err(AppError::new("llm_stream_incomplete", message))
+}
+
 #[derive(Default)]
 pub(crate) struct OpenAiToolCallAccumulator {
     calls: BTreeMap<u64, OpenAiToolCallParts>,

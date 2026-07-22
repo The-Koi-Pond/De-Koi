@@ -61,4 +61,11 @@ describe("DiscoverPanel contextual destinations", () => {
     expect(categoryOptions[0]?.getAttribute("aria-checked")).toBe("false");
     expect(categoryOptions[1]?.getAttribute("aria-checked")).toBe("true");
   });
+
+  it("owns vertical scrolling for the full Discover surface", () => {
+    const panel = container.querySelector(".de-koi-discover");
+
+    expect(panel?.className).toContain("overflow-y-auto");
+    expect(panel?.className).toContain("min-h-0");
+  });
 });

@@ -1,4 +1,6 @@
-use crate::providers::sse::{ensure_sse_buffer_within_limit, take_sse_block};
+use crate::providers::sse::{
+    ensure_sse_buffer_within_limit, ensure_sse_stream_completed, take_sse_block,
+};
 use crate::*;
 
 pub(crate) fn build_anthropic_body(request: &LlmRequest, stream: bool) -> Value {
@@ -195,10 +197,16 @@ pub(crate) async fn stream_anthropic(
     if !completed {
         decoder.finish(&mut buffer);
     }
-    if !completed && !buffer.trim().is_empty() {
-        process_anthropic_sse_block(&buffer, emit)?;
+    if !completed
+        && !buffer.trim().is_empty()
+        && process_anthropic_sse_block(&buffer, emit)? == SseBlockStatus::Complete
+    {
+        completed = true;
     }
-    Ok(())
+    ensure_sse_stream_completed(
+        completed,
+        "Anthropic stream ended before message_stop. The response may be incomplete; retry the request.",
+    )
 }
 
 pub(crate) fn emit_anthropic_usage(

@@ -1,5 +1,6 @@
 use crate::providers::sse::{
-    ensure_sse_buffer_within_limit, take_sse_block, OpenAiToolCallAccumulator,
+    ensure_sse_buffer_within_limit, ensure_sse_stream_completed, take_sse_block,
+    OpenAiToolCallAccumulator,
 };
 use crate::*;
 
@@ -195,13 +196,19 @@ pub(crate) async fn stream_cohere(
     if !completed {
         decoder.finish(&mut buffer);
     }
-    if !completed && !buffer.trim().is_empty() {
-        process_cohere_sse_block(&buffer, emit, &mut tool_calls)?;
+    if !completed
+        && !buffer.trim().is_empty()
+        && process_cohere_sse_block(&buffer, emit, &mut tool_calls)? == SseBlockStatus::Complete
+    {
+        completed = true;
     }
     for tool_call in tool_calls.into_tool_calls() {
         emit(json!({ "type": "tool_call", "data": tool_call }))?;
     }
-    Ok(())
+    ensure_sse_stream_completed(
+        completed,
+        "Cohere stream ended before message-end. The response may be incomplete; retry the request.",
+    )
 }
 
 pub(crate) fn cohere_delta_text(value: &Value) -> Option<String> {

@@ -1,4 +1,3 @@
-import { Search } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useUIStore } from "../../shared/stores/ui.store";
@@ -10,7 +9,7 @@ function stopTitlebarDrag(event: ReactMouseEvent<HTMLElement>) {
   event.stopPropagation();
 }
 
-export function PanelNavButtons({ className, onOpenDiscover }: { className?: string; onOpenDiscover?: () => void }) {
+export function PanelNavButtons({ className }: { className?: string }) {
   const toggleRightPanel = useUIStore((s) => s.toggleRightPanel);
   const rightPanel = useUIStore((s) => s.rightPanel);
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
@@ -68,19 +67,6 @@ export function PanelNavButtons({ className, onOpenDiscover }: { className?: str
           </button>
         );
       })}
-      {onOpenDiscover ? (
-        <button
-          type="button"
-          onClick={onOpenDiscover}
-          onMouseDown={stopTitlebarDrag}
-          onDoubleClick={stopTitlebarDrag}
-          className="mari-titlebar-action de-koi-icon-target relative rounded-md text-[var(--muted-foreground)] transition-all duration-200 hover:text-[var(--primary)]"
-          title="Discover"
-          aria-label="Discover"
-        >
-          <Search size="0.875rem" />
-        </button>
-      ) : null}
     </nav>
   );
 }

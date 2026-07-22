@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  discoveryActionReplacesCenterSurface,
   getAppShellCenterSurfaceState,
   getSetupJourneyHost,
   shouldBeginSetupJourney,
 } from "./app-shell-center-surfaces";
+
+describe("Discover action ownership", () => {
+  it("closes only when an action replaces the center surface", () => {
+    expect(discoveryActionReplacesCenterSurface("open-showcase")).toBe(true);
+    expect(discoveryActionReplacesCenterSurface("open-deki")).toBe(true);
+    expect(discoveryActionReplacesCenterSurface("open-help")).toBe(false);
+    expect(discoveryActionReplacesCenterSurface("open-discover")).toBe(false);
+  });
+});
 
 describe("getAppShellCenterSurfaceState", () => {
   it("lets Deki occupy the center surface when no full-view surface is active and a session is selected", () => {
@@ -102,6 +112,20 @@ describe("getAppShellCenterSurfaceState", () => {
         botBrowserOpen: false,
         gameAssetsBrowserOpen: false,
         rightPanelOpen: false,
+        detailViewOpen: false,
+        dekiOpen: false,
+        activeDekiSessionId: null,
+        discoverOpen: true,
+      }),
+    ).toEqual({ discoverSurfaceVisible: true, dekiSurfaceVisible: false, mainSurfaceVisible: false });
+  });
+
+  it("keeps Discover visible while a right sidebar panel is open", () => {
+    expect(
+      getAppShellCenterSurfaceState({
+        botBrowserOpen: false,
+        gameAssetsBrowserOpen: false,
+        rightPanelOpen: true,
         detailViewOpen: false,
         dekiOpen: false,
         activeDekiSessionId: null,

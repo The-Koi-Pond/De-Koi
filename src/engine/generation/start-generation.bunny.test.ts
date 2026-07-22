@@ -857,7 +857,15 @@ describe("user-message regeneration review guards", () => {
     const extraPatches: Array<Record<string, unknown>> = [];
     const savedText = 'QA Character: "Again."';
     const storage = generationStorage({
-      getTarget: (_call, target) => ({ ...target, role: "assistant", characterId: "char-1" }),
+      getTarget: (_call, target) => ({
+        ...target,
+        role: "assistant",
+        characterId: "char-1",
+        extra: {
+          ...(target.extra as Record<string, unknown>),
+          generationInterrupted: { reason: "incomplete_stream", message: "Generation interrupted" },
+        },
+      }),
       onSwipe: (content, options) => {
         savedSwipes.push(content);
         swipeOptions.push(options);
@@ -902,6 +910,8 @@ describe("user-message regeneration review guards", () => {
     expect(savedSwipes).toEqual([savedText]);
     expect(savedSwipeExtra).not.toHaveProperty("dialogueAttributions");
     expect(extraPatches[0]).not.toHaveProperty("dialogueAttributions");
+    expect(savedSwipeExtra.generationInterrupted).toBeNull();
+    expect(extraPatches[0]?.generationInterrupted).toBeNull();
     expect(savedSwipeExtra.generationInfo).toMatchObject({
       usage: { promptTokenCount: 9, candidatesTokenCount: 3, cachedContentTokenCount: 2, totalTokenCount: 12 },
       turnUsage: {

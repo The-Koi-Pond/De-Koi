@@ -42,7 +42,13 @@ import { gameAssetsApi } from "../../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
 import { importApi } from "../../../../../shared/api/import-api";
 import { CHARACTER_IMPORT_SIZE_ERROR, MAX_CHARACTER_IMPORT_UPLOAD_BYTES } from "../../../../../shared/api/file-payload";
-import { openUpdateRelease, updatesApi, type UpdateCheckResponse } from "../../../../../shared/api/updates-api";
+import {
+  canOpenUpdateRelease,
+  formatUpdateIdentity,
+  openUpdateRelease,
+  updatesApi,
+  type UpdateCheckResponse,
+} from "../../../../../shared/api/updates-api";
 import { backgroundsApi, fontsApi } from "../../../../../shared/api/settings-assets-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { saveTextFileToUserSelectedLocation } from "../../../../../shared/api/file-save-api";
@@ -3685,8 +3691,12 @@ export function AdvancedSettings() {
     try {
       const result = await updatesApi.check();
       setUpdateInfo(result);
-      if (result.updateAvailable) {
+      if (result.installType === "server" && result.commitUpdate && !result.versionUpdate) {
+        toast.success("A newer main build is available.");
+      } else if (result.updateAvailable) {
         toast.success(`Update ${result.releaseTag} is available.`);
+      } else if (result.commitUpdate) {
+        toast.info("Build identity differs, but no newer packaged release is available.");
       } else {
         toast.info("De-Koi is up to date.");
       }
@@ -3699,7 +3709,7 @@ export function AdvancedSettings() {
   };
 
   const handleOpenUpdate = async () => {
-    if (!updateInfo || !updateInfo.updateAvailable || openingUpdate || checkingUpdates) return;
+    if (!updateInfo || !canOpenUpdateRelease(updateInfo) || openingUpdate || checkingUpdates) return;
     setOpeningUpdate(true);
     try {
       await openUpdateRelease(updateInfo, openExternalUrl);
@@ -3821,7 +3831,7 @@ export function AdvancedSettings() {
             <button
               type="button"
               onClick={() => void handleOpenUpdate()}
-              disabled={!updateInfo || !updateInfo.updateAvailable || openingUpdate || checkingUpdates}
+              disabled={!updateInfo || !canOpenUpdateRelease(updateInfo) || openingUpdate || checkingUpdates}
               className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {openingUpdate ? (
@@ -3838,8 +3848,12 @@ export function AdvancedSettings() {
             </button>
           </div>
           {updateInfo && (
-            <div className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-              Current {updateInfo.currentVersion}; latest {updateInfo.latestVersion}. {updateInfo.manualUpdateHint}
+            <div className="space-y-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+              <div>Current build: {formatUpdateIdentity(updateInfo.currentVersion, updateInfo.currentCommit)}</div>
+              <div>
+                Latest {updateInfo.targetChannel || "release"}: {formatUpdateIdentity(updateInfo.latestVersion, updateInfo.targetCommit)}
+              </div>
+              <div>{updateInfo.manualUpdateHint}</div>
             </div>
           )}
         </div>

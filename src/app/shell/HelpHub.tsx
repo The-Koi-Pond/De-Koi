@@ -2,19 +2,12 @@
 import { Bug, ClipboardList, Compass, FileQuestion, HeartHandshake, Info, Keyboard, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { APP_VERSION } from "../../engine/contracts/constants/defaults";
-import { Modal } from "../../shared/components/ui/Modal";
 import { SUPPORT_LINKS } from "../../shared/config/support-links";
 import { openExternalUrl } from "../../shared/api/external-link-api";
 import { openBugReport } from "../../shared/lib/support-report";
 import { buildSlashHelpText } from "../../shared/lib/slash-commands";
-
-type HelpHubProps = {
-  open: boolean;
-  onClose: () => void;
-  onOpenHealth: () => void;
-  onReplayOnboarding: () => void;
-  onOpenDiscover?: () => void;
-};
+import { DISCOVERY_APP_EVENT } from "../../shared/lib/discovery-navigation";
+import { useUIStore } from "../../shared/stores/ui.store";
 
 function HelpAction({
   icon,
@@ -44,7 +37,21 @@ function HelpAction({
   );
 }
 
-export function HelpHub({ open, onClose, onOpenHealth, onReplayOnboarding, onOpenDiscover }: HelpHubProps) {
+export function HelpHub() {
+  const openHealth = () => {
+    const ui = useUIStore.getState();
+    ui.openRightPanel("settings");
+    ui.setSettingsTab("health");
+  };
+  const replayOnboarding = () => {
+    const ui = useUIStore.getState();
+    ui.closeRightPanel();
+    ui.setOnboardingTourOpen(true);
+  };
+  const openDiscover = () => {
+    useUIStore.getState().closeRightPanel();
+    window.dispatchEvent(new CustomEvent(DISCOVERY_APP_EVENT, { detail: { type: "open-discover" } }));
+  };
   const reportBug = () => {
     void openBugReport({
       source: "help-hub",
@@ -69,21 +76,19 @@ export function HelpHub({ open, onClose, onOpenHealth, onReplayOnboarding, onOpe
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Help" width="max-w-2xl">
-      <div className="grid gap-3 md:grid-cols-2">
-        {onOpenDiscover && (
-          <HelpAction
-            icon={<Compass size="1rem" aria-hidden />}
-            title="Find a feature"
-            description="Search De-Koi by what you want to do and jump to the tool that owns it."
-            onClick={onOpenDiscover}
-          />
-        )}
+    <div className="p-3">
+      <div className="grid gap-3">
+        <HelpAction
+          icon={<Compass size="1rem" aria-hidden />}
+          title="Find a feature"
+          description="Search De-Koi by what you want to do and jump to the tool that owns it."
+          onClick={openDiscover}
+        />
         <HelpAction
           icon={<ClipboardList size="1rem" aria-hidden />}
           title="Health diagnostics"
           description="Open setup, runtime, provider, storage, recent diagnostics, and support packet details."
-          onClick={onOpenHealth}
+          onClick={openHealth}
         />
         <HelpAction
           icon={<Bug size="1rem" aria-hidden />}
@@ -95,7 +100,7 @@ export function HelpHub({ open, onClose, onOpenHealth, onReplayOnboarding, onOpe
           icon={<RotateCcw size="1rem" aria-hidden />}
           title="Show me around"
           description="Take the optional app tour. The readiness checklist handles setup and can be resumed anytime."
-          onClick={onReplayOnboarding}
+          onClick={replayOnboarding}
         />
         {SUPPORT_LINKS.docsUrl && (
           <HelpAction
@@ -131,6 +136,6 @@ export function HelpHub({ open, onClose, onOpenHealth, onReplayOnboarding, onOpe
         <span aria-hidden>/</span>
         <span>Press ? to open Help.</span>
       </section>
-    </Modal>
+    </div>
   );
 }

@@ -6,7 +6,7 @@ import {
 } from "./conversation-streaming-draft";
 
 describe("conversation clean response display", () => {
-  it("keeps active regeneration feedback without rendering partial replacement text", () => {
+  it("keeps the saved message visible while regeneration is active", () => {
     expect(
       resolveConversationRegenerationDisplay({
         isRegenerating: true,
@@ -14,8 +14,8 @@ describe("conversation clean response display", () => {
         savedContentParts: ["Saved response."],
       }),
     ).toEqual({
-      messageContent: "",
-      contentParts: undefined,
+      messageContent: "Saved response.",
+      contentParts: ["Saved response."],
       showActiveRegeneration: true,
     });
   });

@@ -2,6 +2,7 @@ import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { ChatMessageListOptions, StorageEntity, StorageGateway } from "../../../capabilities/storage";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
+import { resolveGenerationConnection } from "../../../generation/context";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
 import { readString as stringValue } from "../../../shared/value-readers";
 import type { RPGStatsConfig } from "../../../contracts/types/character";
@@ -484,30 +485,8 @@ async function resolveConnectionId(
   chat: JsonRecord,
   overrideConnectionId?: string | null,
 ): Promise<string> {
-  const requested = overrideConnectionId?.trim();
-  if (requested) {
-    await requireStorageRecord(storage, "connections", requested, "Connection");
-    return requested;
-  }
-
-  const chatConnectionId = stringValue(chat.connectionId).trim();
-  if (chatConnectionId === "random") {
-    const connections = await safeList<JsonRecord>(storage, "connections");
-    const pool = connections.filter((connection) => boolish(connection.useForRandom));
-    const selected = pool[Math.floor(Math.random() * pool.length)];
-    const id = stringValue(selected?.id);
-    if (!id) throw new Error("No connections marked for the random pool");
-    return id;
-  }
-  if (chatConnectionId) {
-    await requireStorageRecord(storage, "connections", chatConnectionId, "Chat connection");
-    return chatConnectionId;
-  }
-
-  const connections = await safeList<JsonRecord>(storage, "connections");
-  const selected =
-    connections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ?? connections[0];
-  const id = stringValue(selected?.id);
+  const selected = await resolveGenerationConnection(storage, chat, { connectionId: overrideConnectionId });
+  const id = stringValue(selected.id);
   if (!id) throw new Error("No LLM connection is configured");
   return id;
 }

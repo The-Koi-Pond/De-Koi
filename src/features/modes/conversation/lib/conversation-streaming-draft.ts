@@ -12,8 +12,8 @@ export function resolveConversationRegenerationDisplay<TContentParts>(input: {
   }
 
   return {
-    messageContent: "",
-    contentParts: undefined,
+    messageContent: input.savedMessageContent,
+    contentParts: input.savedContentParts,
     showActiveRegeneration: true,
   };
 }

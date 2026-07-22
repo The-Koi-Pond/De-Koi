@@ -72,4 +72,19 @@ describe("invokeTauri performance diagnostics", () => {
       runtime: "remote",
     });
   });
+
+  it("forwards an explicit remote command deadline", async () => {
+    mocks.remoteRuntimeTarget.mockReturnValue({ baseUrl: "http://127.0.0.1:3080" });
+    mocks.isRemoteCommand.mockReturnValue(true);
+    mocks.invokeRemote.mockResolvedValue({ ok: true });
+
+    const { invokeTauri } = await import("./tauri-client");
+    await invokeTauri("llm_complete", { request: {} }, { timeoutMs: 300_000 });
+
+    expect(mocks.invokeRemote).toHaveBeenCalledWith(
+      "llm_complete",
+      { request: {} },
+      { timeoutMs: 300_000 },
+    );
+  });
 });

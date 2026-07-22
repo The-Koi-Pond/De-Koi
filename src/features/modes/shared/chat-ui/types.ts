@@ -62,6 +62,8 @@ export type RegenerateOptions = {
   skipTouchConfirm?: boolean;
   forCharacterId?: string | null;
   propagateErrors?: boolean;
+  /** Continue after a saved partial without replacing that interrupted message. */
+  continueResponse?: boolean;
 };
 
 export type MessageWithSwipes = Message & {

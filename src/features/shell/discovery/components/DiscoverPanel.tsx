@@ -125,7 +125,7 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
   const visibleEntries = shouldShowPreview ? taskEntries.slice(0, DEFAULT_PREVIEW_COUNT) : taskEntries;
 
   return (
-    <div className="de-koi-discover flex w-full min-w-0 flex-col gap-3 overflow-hidden p-3">
+    <div className="de-koi-discover flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain p-3">
       <div className="de-koi-discover-card rounded-lg border border-[var(--border)] bg-[var(--card)]/65 p-3 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--primary)]/25 bg-[var(--primary)]/10 text-[var(--primary)]">

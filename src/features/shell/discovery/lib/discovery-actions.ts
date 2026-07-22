@@ -130,7 +130,7 @@ export function runDiscoveryAction(action: DiscoveryAction): DiscoveryActionOutc
       emitDiscoveryEvent({ type: "open-deki" });
       break;
     case "open-help":
-      emitDiscoveryEvent({ type: "open-help" });
+      ui.openRightPanel("help");
       break;
     case "report-bug":
       void openBugReport({

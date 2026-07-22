@@ -2,7 +2,7 @@ import type { LlmGateway, LlmRequest } from "../../../capabilities/llm";
 import type { ChatMessageListOptions, StorageGateway } from "../../../capabilities/storage";
 import type { VisualAssetGateway } from "../../../capabilities/visual-assets";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
-import { boolish } from "../../../generation/runtime-records";
+import { resolveGenerationConnection } from "../../../generation/context";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
 import { readString as stringValue } from "../../../shared/value-readers";
 import type {
@@ -1159,20 +1159,8 @@ async function resolveConnectionId(
   chat: JsonRecord,
   override?: string | null,
 ): Promise<string> {
-  if (override?.trim()) return override.trim();
-  const chatConnectionId = stringValue(chat.connectionId).trim();
-  const connections = await storage.list<JsonRecord>("connections");
-  if (chatConnectionId === "random") {
-    const pool = connections.filter((connection) => boolish(connection.useForRandom, false));
-    const selected = pool[Math.floor(Math.random() * pool.length)];
-    if (!selected?.id) throw new Error("No connections marked for the random pool");
-    return stringValue(selected.id);
-  }
-  if (chatConnectionId) return chatConnectionId;
-  const selected =
-    connections.find((connection) => boolish(connection.isDefault, false) || boolish(connection.default, false)) ??
-    connections[0];
-  const id = stringValue(selected?.id);
+  const selected = await resolveGenerationConnection(storage, chat, { connectionId: override });
+  const id = stringValue(selected.id);
   if (!id) throw new Error("No connection configured");
   return id;
 }

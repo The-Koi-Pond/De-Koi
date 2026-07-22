@@ -3310,6 +3310,10 @@ async function saveAssistantMessage(args: {
   clearWebResearchRequest?: boolean;
   webResearchSources?: Array<{ title: string; url: string }> | null;
   roleplayQualityCorrection?: RoleplayQualityCorrectionExtra | null;
+  generationInterrupted?: {
+    reason: "idle_timeout" | "incomplete_stream" | "length" | "transport";
+    message: string;
+  } | null;
 }): Promise<unknown | null> {
   const regenerateMessageId = readString(args.input.regenerateMessageId).trim();
   const regenerationTargetRole = readString(args.regenerationTarget?.role).trim();
@@ -3335,6 +3339,9 @@ async function saveAssistantMessage(args: {
     ...(args.webResearchSources?.length ? { characterWebResearchSources: args.webResearchSources } : {}),
     ...(args.roleplayQualityCorrection !== undefined
       ? { roleplayQualityCorrection: args.roleplayQualityCorrection }
+      : {}),
+    ...(args.generationInterrupted !== undefined || regenerateMessageId
+      ? { generationInterrupted: args.generationInterrupted ?? null }
       : {}),
   };
   const generationInfo = {
@@ -3586,14 +3593,11 @@ interface StreamPartialSink {
 }
 
 /**
- * On a Stop mid-stream, persist whatever the model has already produced so the
- * partial assistant message is not lost. Returns the saved row (so the caller
- * can emit an `assistant_message` event for it) or null when there is nothing
- * worth saving. Reuses `saveAssistantMessage`, preserving impersonate and
- * regenerate routing. Post-save agent / illustration / tracker work is skipped:
- * the caller rethrows the abort right after this, before any of that runs.
+ * Persist whatever the model has already produced when a Stop or known stream
+ * interruption ends the turn. Returns the saved row (so the caller can emit an
+ * `assistant_message` event for it) or null when there is nothing worth saving.
  */
-async function persistPartialOnAbort(args: {
+async function persistPartialOnFailure(args: {
   deps: GenerationEngineDeps;
   chat: JsonRecord;
   characters: GenerationCharacterContext[];
@@ -3603,10 +3607,12 @@ async function persistPartialOnAbort(args: {
   partial: StreamPartialSink;
   chatSummaryFingerprint: string | null;
   signal: AbortSignal | undefined;
+  cause: unknown;
   existingExtra?: unknown;
   regenerationTarget?: JsonRecord | null;
 }): Promise<unknown | null> {
-  if (!args.signal?.aborted) return null;
+  const interruption = generationInterruption(args.cause);
+  if (!args.signal?.aborted && !interruption) return null;
   if (!args.partial.content.trim()) return null;
   try {
     return await saveAssistantMessage({
@@ -3626,10 +3632,39 @@ async function persistPartialOnAbort(args: {
       promptSnapshot: args.partial.promptSnapshot,
       existingExtra: args.existingExtra,
       regenerationTarget: args.regenerationTarget,
+      generationInterrupted: interruption,
     });
   } catch {
     return null;
   }
+}
+
+function generationInterruption(cause: unknown): {
+  reason: "idle_timeout" | "incomplete_stream" | "length" | "transport";
+  message: string;
+} | null {
+  const error = parseRecord(cause);
+  const details = parseRecord(error.details);
+  const code = readString(error.code || details.code).trim();
+  if (code === "remote_runtime_stream_timeout") {
+    return { reason: "idle_timeout", message: "Generation interrupted" };
+  }
+  if (code === "llm_stream_incomplete") {
+    return { reason: "incomplete_stream", message: "Generation interrupted" };
+  }
+  if (code === "llm_stream_length") {
+    return { reason: "length", message: "Generation interrupted" };
+  }
+  if (code === "llm_stream_error" || code === "remote_runtime_unreachable") {
+    return { reason: "transport", message: "Generation interrupted" };
+  }
+  return null;
+}
+
+function incompleteFinishReason(providerMetadata: unknown): string | null {
+  const metadata = parseRecord(providerMetadata);
+  const reason = readString(metadata.finishReason ?? metadata.finish_reason).trim().toLowerCase();
+  return reason === "length" || reason === "max_tokens" ? reason : null;
 }
 
 function messageId(saved: unknown): string | null {
@@ -4925,10 +4960,10 @@ async function* startGenerationImpl(
       if (mainTools?.characterWebResearchGrant) {
         await deps.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
       }
-      // On a Stop mid-stream, persist the partial text before the abort
-      // propagates so it is not discarded, and emit its message event so the
+      // On a Stop or recognized stream interruption, persist partial text
+      // before the failure propagates, and emit its message event so the
       // client upserts the saved row before clearing the streaming buffer.
-      const savedPartial = await persistPartialOnAbort({
+      const savedPartial = await persistPartialOnFailure({
         deps,
         chat,
         characters: assembly.characters,
@@ -4938,6 +4973,7 @@ async function* startGenerationImpl(
         partial: mainPartial,
         chatSummaryFingerprint: assembly.chatSummaryFingerprint,
         signal,
+        cause: err,
         existingExtra: await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId),
         regenerationTarget,
       });
@@ -5299,10 +5335,10 @@ async function* startGenerationImpl(
     if (mainToolsDirect?.characterWebResearchGrant) {
       await deps.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
     }
-    // On a Stop mid-stream, persist the partial text before the abort
-    // propagates so it is not discarded, and emit its message event so the
+    // On a Stop or recognized stream interruption, persist partial text
+    // before the failure propagates, and emit its message event so the
     // client upserts the saved row before clearing the streaming buffer.
-    const savedPartial = await persistPartialOnAbort({
+    const savedPartial = await persistPartialOnFailure({
       deps,
       chat,
       characters: assembly.characters,
@@ -5312,6 +5348,7 @@ async function* startGenerationImpl(
       partial: directPartial,
       chatSummaryFingerprint: assembly.chatSummaryFingerprint,
       signal,
+      cause: err,
       existingExtra: await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId),
       regenerationTarget,
     });
@@ -5597,8 +5634,13 @@ function llmChunkText(chunk: { text?: unknown; data?: unknown; error?: unknown; 
   return readString(chunk.message) || readString(chunk.error) || readString(data.message) || readString(data.error);
 }
 
-function llmStreamErrorMessage(chunk: { text?: unknown; data?: unknown }): string {
-  return llmChunkText(chunk).trim() || "LLM stream failed";
+function llmStreamError(chunk: { text?: unknown; data?: unknown }): Error & { code?: string; details?: unknown } {
+  const data = parseRecord(chunk.data);
+  const code = readString(data.code).trim();
+  return Object.assign(new Error(llmChunkText(chunk).trim() || "LLM stream failed"), {
+    ...(code ? { code } : {}),
+    ...(Object.keys(data).length > 0 ? { details: data } : {}),
+  });
 }
 
 /**
@@ -5794,8 +5836,14 @@ async function* streamMainGenerationLoop(args: {
         } else if (chunk.type === "provider_metadata") {
           continue;
         } else if (chunk.type === "error") {
-          throw new Error(llmStreamErrorMessage(chunk));
+          throw llmStreamError(chunk);
         }
+      }
+      const truncatedFinishReason = incompleteFinishReason(turnProviderMetadata);
+      if (truncatedFinishReason) {
+        throw Object.assign(new Error(`LLM provider stopped early (${truncatedFinishReason}).`), {
+          code: "llm_stream_length",
+        });
       }
       const streamUsage = mergeStreamUsageChunks(streamUsages);
       if (streamUsage != null) turnUsages.push(streamUsage);
@@ -5955,7 +6003,7 @@ async function* streamMainGenerationLoop(args: {
     // Expose the accumulated turn to the caller even when the stream is
     // aborted mid-flight, so a Stop can persist the partial assistant text
     // instead of discarding it. Runs on the normal return path too, but the
-    // caller only reads `partial` when `signal.aborted` is true.
+    // caller reads `partial` only when a Stop or recognized stream interruption occurs.
     if (partial) {
       partial.content = content + inFlightTurn;
       partial.thinking = thinking;

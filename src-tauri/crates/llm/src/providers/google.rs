@@ -1,4 +1,6 @@
-use crate::providers::sse::{ensure_sse_buffer_within_limit, take_sse_block};
+use crate::providers::sse::{
+    ensure_sse_buffer_within_limit, ensure_sse_stream_completed, take_sse_block,
+};
 use crate::*;
 
 pub(crate) fn google_vertex_endpoint(base: &str, model: &str, endpoint: &str) -> String {
@@ -605,13 +607,10 @@ pub(crate) async fn stream_google(
 }
 
 pub(crate) fn ensure_google_stream_completed(completed: bool) -> AppResult<()> {
-    if completed {
-        return Ok(());
-    }
-    Err(AppError::new(
-        "llm_stream_incomplete",
+    ensure_sse_stream_completed(
+        completed,
         "Google/Gemini stream ended before Gemini sent a finish reason. The provider response may be incomplete; retry the request.",
-    ))
+    )
 }
 
 pub(crate) fn process_google_sse_block(

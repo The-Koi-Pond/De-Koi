@@ -76,6 +76,7 @@ import { SwipeJumpControl } from "./SwipeJumpControl";
 import { readStoredThinking } from "../lib/message-thinking";
 import { MessageReasoningPanel } from "./MessageReasoningPanel";
 import { CharacterWebResearchCard, CharacterWebResearchSources } from "./CharacterWebResearchCard";
+import { GenerationInterruptedStatus } from "./GenerationInterruptedStatus";
 import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
 import { resolvePromptSnapshotFromExtra } from "../lib/prompt-snapshot";
 import { ResolvedAvatarImage } from "./ResolvedAvatarImage";
@@ -2402,6 +2403,14 @@ export const ChatMessage = memo(function ChatMessage({
             }
           />
         )}
+        {!isUser && (
+          <GenerationInterruptedStatus
+            interruption={extra.generationInterrupted}
+            messageId={message.id}
+            forCharacterId={message.characterId}
+            onRegenerate={onRegenerate}
+          />
+        )}
         {!isUser && <CharacterWebResearchSources sources={extra.characterWebResearchSources} />}
         {showThinking && thinking && <ThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
         {generationReplay && (
@@ -2896,6 +2905,14 @@ export const ChatMessage = memo(function ChatMessage({
               ? (id, options) => onRegenerate(id, { ...options, forCharacterId: message.characterId ?? null })
               : undefined
           }
+        />
+      )}
+      {!isUser && (
+        <GenerationInterruptedStatus
+          interruption={extra.generationInterrupted}
+          messageId={message.id}
+          forCharacterId={message.characterId}
+          onRegenerate={onRegenerate}
         />
       )}
       {!isUser && <CharacterWebResearchSources sources={extra.characterWebResearchSources} />}

@@ -7,14 +7,12 @@ import { PanelNavButtons } from "./PanelNavButtons";
 describe("PanelNavButtons", () => {
   let container: HTMLDivElement;
   let root: ReturnType<typeof createRoot>;
-  const openDiscover = vi.fn();
-
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     useUIStore.setState({ rightPanelOpen: false });
-    act(() => root.render(<PanelNavButtons onOpenDiscover={openDiscover} />));
+    act(() => root.render(<PanelNavButtons />));
   });
 
   afterEach(() => {
@@ -28,7 +26,8 @@ describe("PanelNavButtons", () => {
     expect(container.querySelector('button[aria-label="Tools"]')).toBeNull();
     expect(container.querySelector('button[aria-label="Characters"]')).toBeTruthy();
     expect(container.querySelector('button[aria-label="Connections"]')).toBeTruthy();
-    expect(container.querySelector('button[aria-label="Discover"]')).toBeTruthy();
+    expect(container.querySelector('button[aria-label="Discover"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Help"]')).toBeTruthy();
   });
 
   it("opts every icon-only destination into the shared coarse-pointer target", () => {

@@ -59,11 +59,17 @@ export async function resolveGenerationConnection(
   storage: StorageGateway,
   chat: JsonRecord,
   input: { connectionId?: string | null },
+  options: { random?: () => number } = {},
 ): Promise<JsonRecord> {
+  async function enabledConnections(): Promise<JsonRecord[]> {
+    return (await storage.list<JsonRecord>("connections")).filter(
+      (connection) => readString(connection.id).trim() && boolish(connection.enabled, true),
+    );
+  }
+
   async function randomConnection(): Promise<JsonRecord> {
-    const connections = await storage.list<JsonRecord>("connections");
-    const pool = connections.filter((connection) => boolish(connection.useForRandom, false));
-    const selected = pool[Math.floor(Math.random() * pool.length)];
+    const pool = (await enabledConnections()).filter((connection) => boolish(connection.useForRandom, false));
+    const selected = pool[Math.floor((options.random ?? Math.random)() * pool.length)];
     if (!selected) throw new Error("No connections are marked for the random pool");
     return selected;
   }
@@ -76,7 +82,12 @@ export async function resolveGenerationConnection(
   if (chatConnection === "random") return randomConnection();
   if (chatConnection) return requireRecord(await storage.get("connections", chatConnection), "Chat connection");
 
-  throw new Error("No API connection configured for this chat");
+  const connections = await enabledConnections();
+  const selected =
+    connections.find(
+      (connection) => boolish(connection.isDefault, false) || boolish(connection.default, false),
+    ) ?? connections[0];
+  return requireRecord(selected, "API connection");
 }
 
 export async function loadChatMessages(

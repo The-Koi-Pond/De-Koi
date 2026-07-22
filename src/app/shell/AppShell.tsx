@@ -4,7 +4,6 @@
 import { ChatSidebar, type ChatSidebarTab } from "./ChatSidebar";
 import { DekiSidebar } from "./DekiSidebar";
 import { AppFindOverlay } from "./AppFindOverlay";
-import { HelpHub } from "./HelpHub";
 import { TopBar } from "./TopBar";
 import { TopBarActionsProvider } from "../../shared/components/mobile-shell-actions";
 import { WindowTitleBar } from "./WindowTitleBar";
@@ -46,6 +45,7 @@ import {
 } from "../../shared/lib/app-close-guard";
 import { listenDraftPersistenceFailures } from "../../shared/lib/draft-persistence-events";
 import {
+  discoveryActionReplacesCenterSurface,
   getAutomaticMemoryCaptureToast,
   getAppShellCenterSurfaceState,
   getSetupJourneyHost,
@@ -500,7 +500,6 @@ export function AppShell() {
   const onboardingTourOpen = useUIStore((s) => s.onboardingTourOpen);
   // Shell interactivity follows the transient optional tour, not the legacy persisted completion flag.
   const hasCompletedOnboarding = !onboardingTourOpen;
-  const [helpHubOpen, setHelpHubOpen] = useState(false);
   const activeChatId = useChatStore((s) => s.activeChatId);
   const pendingNewChatMode = useChatStore((s) => s.pendingNewChatMode);
   const setupJourneyIntent = useSetupJourneyStore((s) => s.intent);
@@ -714,19 +713,7 @@ export function AppShell() {
   }, [activeChatId, closeDekiShell]);
 
   const openHelpHub = useCallback(() => {
-    setHelpHubOpen(true);
-  }, []);
-
-  const openHealthFromHelp = useCallback(() => {
-    const ui = useUIStore.getState();
-    ui.openRightPanel("settings");
-    ui.setSettingsTab("health");
-    setHelpHubOpen(false);
-  }, []);
-
-  const replayOnboardingFromHelp = useCallback(() => {
-    useUIStore.getState().setOnboardingTourOpen(true);
-    setHelpHubOpen(false);
+    useUIStore.getState().openRightPanel("help");
   }, []);
 
   useEffect(() => {
@@ -736,9 +723,9 @@ export function AppShell() {
       const tagName = target?.tagName.toLowerCase();
       if (tagName === "input" || tagName === "textarea" || target?.isContentEditable) return;
       event.preventDefault();
-      setHelpHubOpen(true);
+      useUIStore.getState().openRightPanel("help");
     };
-    const handleHelpRequest = () => setHelpHubOpen(true);
+    const handleHelpRequest = () => useUIStore.getState().openRightPanel("help");
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener(HELP_REQUEST_EVENT, handleHelpRequest);
     return () => {
@@ -750,6 +737,7 @@ export function AppShell() {
   useEffect(() => {
     const handleDiscoveryAction = (event: Event) => {
       const detail = (event as CustomEvent<DiscoveryAppEventDetail>).detail;
+      if (detail && discoveryActionReplacesCenterSurface(detail.type)) closeDiscover();
       if (detail?.type === "open-deki") {
         useChatStore.getState().setActiveChatId(null);
         useUIStore.getState().closeAllDetails();
@@ -761,7 +749,7 @@ export function AppShell() {
       }
 
       if (detail?.type === "open-help") {
-        setHelpHubOpen(true);
+        useUIStore.getState().openRightPanel("help");
         return;
       }
 
@@ -771,7 +759,6 @@ export function AppShell() {
       }
 
       if (detail?.type === "go-home") {
-        closeDiscover();
         closeDekiShell();
         setLeftSidebarPanel(null);
         setTrackerPanelOpen(false);
@@ -779,14 +766,12 @@ export function AppShell() {
       }
 
       if (detail?.type === "open-mode-setup") {
-        closeDiscover();
         useSetupJourneyStore.getState().begin(detail.mode);
         useChatStore.getState().setPendingNewChatMode(detail.mode);
         return;
       }
 
       if (detail?.type === "open-chat-list") {
-        closeDiscover();
         closeDekiShell();
         closeRightPanel();
         setActiveChatSidebarTab("conversation");
@@ -795,14 +780,12 @@ export function AppShell() {
       }
 
       if (detail?.type === "show-active-chat") {
-        closeDiscover();
         closeDekiShell();
         closeRightPanel();
         return;
       }
 
       if (detail?.type === "open-chat-destination") {
-        closeDiscover();
         closeDekiShell();
         closeRightPanel();
         if (detail.destination === "prompt-inspector") {
@@ -1450,8 +1433,6 @@ export function AppShell() {
             leftSidebarPanel={leftSidebarPanel}
             onLeftSidebarPanelChange={setLeftSidebarPanel}
             onOpenDeki={() => openActiveDeki()}
-            onOpenHelp={openHelpHub}
-            onOpenDiscover={openDiscover}
             onGoHome={closeDekiShell}
             titlebarAccessory={
               musicDjMiniPlayerEnabled ? (
@@ -1765,16 +1746,6 @@ export function AppShell() {
               <OnboardingTutorial onShellInertResync={syncMobilePanelInert} />
             </Suspense>
           )}
-          <HelpHub
-            open={helpHubOpen}
-            onClose={() => setHelpHubOpen(false)}
-            onOpenHealth={openHealthFromHelp}
-            onReplayOnboarding={replayOnboardingFromHelp}
-            onOpenDiscover={() => {
-              setHelpHubOpen(false);
-              openDiscover();
-            }}
-          />
           {debugMode && hasAgentDebugActivity && (
             <Suspense fallback={null}>
               <AgentDebugPanel />
