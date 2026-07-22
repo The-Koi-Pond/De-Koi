@@ -6,7 +6,9 @@ import {
   invokeRemote,
   readRemoteError,
   REMOTE_FINITE_REQUEST_TIMEOUT_MS,
+  REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS,
   remoteRuntimeTarget,
+  streamRemoteLlm,
 } from "./remote-runtime";
 import { useUIStore } from "../stores/ui.store";
 
@@ -274,6 +276,62 @@ describe("invokeRemote", () => {
       details: { code: "remote_runtime_timeout" },
     });
     await vi.advanceTimersByTimeAsync(REMOTE_FINITE_REQUEST_TIMEOUT_MS);
+
+    await rejection;
+  });
+});
+
+describe("streamRemoteLlm", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const request = { messages: [{ role: "user" as const, content: "Hello" }] };
+  const target = { baseUrl: "http://127.0.0.1:3080" };
+
+  async function collectStream() {
+    const events = [];
+    for await (const event of streamRemoteLlm("stream-1", request, target)) events.push(event);
+    return events;
+  }
+
+  it("rejects EOF without a terminal event", async () => {
+    const encoder = new TextEncoder();
+    stubFetch([
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: {"type":"token","text":"partial"}\n\n'));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    ]);
+
+    await expect(collectStream()).rejects.toMatchObject({
+      name: "ApiError",
+      details: { code: "llm_stream_incomplete" },
+    });
+  });
+
+  it("rejects a stream after two minutes without another event", async () => {
+    vi.useFakeTimers();
+    stubFetch([
+      new Response(new ReadableStream({ start() {} }), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      }),
+    ]);
+
+    const pending = collectStream();
+    const rejection = expect(pending).rejects.toMatchObject({
+      name: "ApiError",
+      status: 504,
+      details: { code: "remote_runtime_stream_timeout" },
+    });
+    await vi.advanceTimersByTimeAsync(REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS);
 
     await rejection;
   });

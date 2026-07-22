@@ -281,6 +281,7 @@ export const LEGACY_ADMIN_SECRET_STORAGE_KEY = "marinara_admin_secret";
 const REMOTE_RUNTIME_MARKERS = new Set(["de-koi-server", "marinara-server"]);
 /** Finite health and JSON command calls share one end-to-end deadline. Streaming calls remain caller-cancelled. */
 export const REMOTE_FINITE_REQUEST_TIMEOUT_MS = 30_000;
+export const REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS = 120_000;
 
 export type RuntimeTarget = {
   baseUrl: string;
@@ -837,19 +838,46 @@ export async function* streamRemoteLlm(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminalEventReceived = false;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const idleTimeout = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          reject(
+            new ApiError("Remote LLM stream was idle for 120 seconds.", 504, {
+              code: "remote_runtime_stream_timeout",
+              timeoutMs: REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS,
+            }),
+          );
+        }, REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS);
+      });
+      let next: ReadableStreamReadResult<Uint8Array>;
+      try {
+        next = await Promise.race([reader.read(), idleTimeout]);
+      } finally {
+        if (timeout !== undefined) clearTimeout(timeout);
+      }
+      const { done, value } = next;
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const parsed = parseSseData(buffer);
       buffer = parsed.rest;
       for (const data of parsed.events) {
         const event = normalizeRemoteLlmChunk(JSON.parse(data) as LlmChunk);
+        if (event.type === "done" || event.type === "error") terminalEventReceived = true;
         yield event;
         if (event.type === "error") return;
       }
     }
+    if (!terminalEventReceived) {
+      throw new ApiError("Remote LLM stream ended before a terminal event.", 502, {
+        code: "llm_stream_incomplete",
+      });
+    }
+  } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    throw error;
   } finally {
     reader.releaseLock();
   }
