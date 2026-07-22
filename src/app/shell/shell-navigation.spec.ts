@@ -31,11 +31,11 @@ describe("shell navigation registry", () => {
       "Presets",
       "Gallery",
     ]);
-    expect(TOOLS_NAV_ITEMS.map((item) => item.label)).toEqual(["Connections", "Agents", "Settings", "Discover"]);
+    expect(TOOLS_NAV_ITEMS.map((item) => item.label)).toEqual(["Connections", "Agents", "Settings", "Help", "Discover"]);
   });
 
   it("owns every panel's icon and semantic accent exactly once", () => {
-    expect(SHELL_PANEL_ITEMS).toHaveLength(9);
+    expect(SHELL_PANEL_ITEMS).toHaveLength(10);
     expect(new Set(SHELL_PANEL_ITEMS.map((item) => item.destination)).size).toBe(SHELL_PANEL_ITEMS.length);
     expect(SHELL_PANEL_ITEMS.every((item) => Boolean(item.icon))).toBe(true);
     expect(SHELL_PANEL_ITEMS.every((item) => ["primary", "accent"].includes(item.accentRole))).toBe(true);

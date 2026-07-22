@@ -94,6 +94,7 @@ describe("MobileTabBar left sidebar controls", () => {
       "Connections",
       "Agents",
       "Settings",
+      "Help",
       "Discover",
     ]);
     expect(menuItems.every((item) => item.className.includes("min-h-11"))).toBe(true);

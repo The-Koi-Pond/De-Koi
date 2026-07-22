@@ -166,12 +166,13 @@ describe("WindowTitleBar web mode", () => {
   it("keeps titlebar navigation labels accessible without visible text", async () => {
     await act(async () => {
       root = createRoot(container!);
-      root.render(<WindowTitleBar onOpenDiscover={vi.fn()} />);
+      root.render(<WindowTitleBar />);
     });
-    for (const label of ["Deki-senpai", "Characters", "Connections", "Discover"]) {
+    for (const label of ["Deki-senpai", "Characters", "Connections", "Help"]) {
       const button = container!.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
       expect(button).toBeTruthy();
       expect(button?.textContent?.trim()).toBe("");
     }
+    expect(container!.querySelector('button[aria-label="Discover"]')).toBeNull();
   });
 });

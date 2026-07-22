@@ -17,6 +17,7 @@ export type Panel =
   | "personas"
   | "gallery"
   | "settings"
+  | "help"
   | "bot-browser";
 export type FontSize = 12 | 14 | 16 | 17 | 19 | 22;
 export type VisualTheme = "default" | "sillytavern";

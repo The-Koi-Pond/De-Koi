@@ -17,6 +17,7 @@ export const RIGHT_PANEL_LOADERS = {
   gallery: () =>
     import("../../features/catalog/gallery/shell").then((module) => ({ default: module.GlobalGalleryPanel })),
   settings: () => import("../../features/shell/settings/shell").then((module) => ({ default: module.SettingsPanel })),
+  help: () => import("./HelpHub").then((module) => ({ default: module.HelpHub })),
 } satisfies Record<string, PanelLoader>;
 
 type RightPanelId = keyof typeof RIGHT_PANEL_LOADERS;

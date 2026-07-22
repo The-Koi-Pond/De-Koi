@@ -35,6 +35,12 @@ describe("settings discovery actions", () => {
     });
   });
 
+  it("opens Help as a right sidebar panel", () => {
+    runDiscoveryAction({ type: "open-help" });
+
+    expect(useUIStore.getState()).toMatchObject({ rightPanelOpen: true, rightPanel: "help" });
+  });
+
   it("routes an available contextual destination without replacing the active chat", () => {
     useChatStore.setState({
       activeChatId: "game-chat",

@@ -14,6 +14,20 @@ export type AppShellCenterSurfaceState = {
   mainSurfaceVisible: boolean;
 };
 
+const DISCOVERY_CENTER_REPLACEMENT_ACTIONS = new Set([
+  "open-deki",
+  "go-home",
+  "open-mode-setup",
+  "open-chat-list",
+  "show-active-chat",
+  "open-chat-destination",
+  "open-showcase",
+]);
+
+export function discoveryActionReplacesCenterSurface(type: string): boolean {
+  return DISCOVERY_CENTER_REPLACEMENT_ACTIONS.has(type);
+}
+
 export function getSetupJourneyHost({
   activeChatId,
   detailViewOpen,
@@ -56,7 +70,7 @@ export function getAppShellCenterSurfaceState({
   const fullViewSurfaceOpen = botBrowserOpen || gameAssetsBrowserOpen;
   const dekiSurfaceVisible =
     Boolean(activeDekiSessionId) && dekiOpen && !discoverOpen && !fullViewSurfaceOpen && !rightPanelOpen && !detailViewOpen;
-  const discoverSurfaceVisible = discoverOpen && !fullViewSurfaceOpen && !rightPanelOpen && !detailViewOpen;
+  const discoverSurfaceVisible = discoverOpen && !fullViewSurfaceOpen && !detailViewOpen;
 
   return {
     discoverSurfaceVisible,

@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Bot,
+  CircleHelp,
   FileText,
   Images,
   Link,
@@ -23,7 +24,8 @@ export type ShellPanelDestination =
   | "gallery"
   | "connections"
   | "agents"
-  | "settings";
+  | "settings"
+  | "help";
 
 export type ShellNavDestination = "chats" | "deki" | ShellPanelDestination | "discover";
 export type ShellNavGroup = "primary" | "library" | "tools";
@@ -115,6 +117,13 @@ export const SHELL_NAV_ITEMS = [
     label: "Settings",
     group: "tools",
     icon: Settings,
+    accentRole: "primary",
+  },
+  {
+    destination: "help",
+    label: "Help",
+    group: "tools",
+    icon: CircleHelp,
     accentRole: "primary",
   },
   {
