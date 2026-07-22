@@ -72,7 +72,7 @@ function diagnosticDetails(details: Record<string, unknown> | undefined): Record
 
 function diagnosticCountMetadata(
   metadata: PerformanceDiagnosticsStageTiming["metadata"],
-): Record<PerformanceDiagnosticsStageMetadataKey, number> | Record<string, never> {
+): Partial<Record<PerformanceDiagnosticsStageMetadataKey, number>> {
   if (!metadata) return {};
   const details: Partial<Record<PerformanceDiagnosticsStageMetadataKey, number>> = {};
   for (const key of PERFORMANCE_DIAGNOSTICS_STAGE_METADATA_KEYS) {

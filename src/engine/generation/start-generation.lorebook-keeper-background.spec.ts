@@ -103,7 +103,7 @@ function lorebookKeeperBackgroundStorage() {
     async createLorebookEntries() {
       return [];
     },
-    async promptFull<T = unknown>() {
+    async promptFull() {
       return null;
     },
   };
