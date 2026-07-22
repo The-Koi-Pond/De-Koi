@@ -7,6 +7,14 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+[[bench]]
+name = "journal_compaction"
+harness = false
+required-features = ["journal-compaction-bench"]
+
+[features]
+journal-compaction-bench = []
+
 [dependencies]
 marinara-core = { path = "../core" }
 marinara-security = { path = "../security" }

@@ -250,54 +250,91 @@ pub(crate) fn cleanup_orphaned_character_version_media(
     if !target_dir.is_dir() {
         return Ok(0);
     }
-    let mut candidates = fs::read_dir(&target_dir)?
+    let candidates = fs::read_dir(&target_dir)?
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|filename| is_content_addressed_version_filename(filename))
-        .collect::<HashSet<_>>();
+        .collect::<Vec<_>>();
+    let mut references = ReferencedCharacterVersionMedia::default();
     for collection in ["character-versions", "characters"] {
         storage.visit_collection_streaming(collection, |_index, row| {
-            for field in ["avatarFilename", "bannerImageFilename"] {
-                if let Some(filename) = row.get(field).and_then(Value::as_str) {
-                    candidates.remove(filename);
-                }
-            }
-            for field in ["avatarFilePath", "bannerImageFilePath"] {
-                if let Some(filename) = row
-                    .get(field)
-                    .and_then(Value::as_str)
-                    .and_then(|path| fs::canonicalize(path).ok())
-                    .filter(|path| path.starts_with(&target_dir))
-                    .and_then(|path| {
-                        path.file_name()
-                            .and_then(|name| name.to_str())
-                            .map(str::to_string)
-                    })
-                {
-                    candidates.remove(&filename);
-                }
-            }
-            let urls = [
-                row.get("avatarPath").and_then(Value::as_str),
-                row.get("avatar").and_then(Value::as_str),
-                row.get("avatarUrl").and_then(Value::as_str),
-                row.pointer("/data/extensions/publicProfile/bannerImage")
-                    .and_then(Value::as_str),
-            ];
-            candidates.retain(|filename| {
-                let canonical_url = file_path_asset_url(&target_dir.join(filename));
-                !urls.iter().flatten().any(|url| *url == canonical_url)
-            });
+            collect_referenced_character_version_media(&mut references, &target_dir, row);
             Ok(())
         })?;
     }
     let mut removed = 0;
-    for filename in candidates {
+    for filename in unreferenced_character_version_media(candidates, &references, &target_dir) {
         fs::remove_file(target_dir.join(filename))?;
         removed += 1;
     }
     Ok(removed)
+}
+
+#[derive(Default)]
+struct ReferencedCharacterVersionMedia {
+    filenames: HashSet<String>,
+    urls: HashSet<String>,
+}
+
+fn collect_referenced_character_version_media(
+    references: &mut ReferencedCharacterVersionMedia,
+    target_dir: &Path,
+    row: &Value,
+) {
+    let canonical_target_dir = fs::canonicalize(target_dir).ok();
+    for field in ["avatarFilename", "bannerImageFilename"] {
+        if let Some(filename) = row.get(field).and_then(Value::as_str) {
+            references.filenames.insert(filename.to_string());
+        }
+    }
+    for field in ["avatarFilePath", "bannerImageFilePath"] {
+        if let Some(filename) = row
+            .get(field)
+            .and_then(Value::as_str)
+            .and_then(|path| fs::canonicalize(path).ok())
+            .filter(|path| {
+                canonical_target_dir
+                    .as_ref()
+                    .is_some_and(|target| path.starts_with(target))
+            })
+            .and_then(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(str::to_string)
+            })
+        {
+            references.filenames.insert(filename);
+        }
+    }
+    for url in [
+        row.get("avatarPath").and_then(Value::as_str),
+        row.get("avatar").and_then(Value::as_str),
+        row.get("avatarUrl").and_then(Value::as_str),
+        row.pointer("/data/extensions/publicProfile/bannerImage")
+            .and_then(Value::as_str),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        references.urls.insert(url.to_string());
+    }
+}
+
+fn unreferenced_character_version_media(
+    candidates: impl IntoIterator<Item = String>,
+    references: &ReferencedCharacterVersionMedia,
+    target_dir: &Path,
+) -> Vec<String> {
+    candidates
+        .into_iter()
+        .filter(|filename| {
+            !references.filenames.contains(filename)
+                && !references
+                    .urls
+                    .contains(&file_path_asset_url(&target_dir.join(filename)))
+        })
+        .collect()
 }
 
 fn remove_live_character_banner_references(
@@ -582,6 +619,67 @@ mod tests {
         assert!(asset_dir.join(&live_banner).is_file());
         assert!(!asset_dir.join(&orphan).exists());
         assert!(asset_dir.join("user-file.png").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn referenced_media_reducer_classifies_each_candidate_once_and_keeps_all_reference_controls() {
+        let root = temp_dir("referenced-media-reducer");
+        let target_dir = root.join("avatars/characters/versions");
+        let outside_dir = root.join("outside");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::create_dir_all(&outside_dir).unwrap();
+        let candidates = (0..128)
+            .map(|index| format!("version-{index:064x}.png"))
+            .collect::<Vec<_>>();
+        fs::write(target_dir.join(&candidates[2]), b"managed").unwrap();
+        fs::write(outside_dir.join(&candidates[121]), b"outside").unwrap();
+
+        let mut references = ReferencedCharacterVersionMedia::default();
+        for filename in &candidates[4..120] {
+            collect_referenced_character_version_media(
+                &mut references,
+                &target_dir,
+                &json!({ "avatarFilename": filename }),
+            );
+        }
+        collect_referenced_character_version_media(
+            &mut references,
+            &target_dir,
+            &json!({ "bannerImageFilename": candidates[0] }),
+        );
+        collect_referenced_character_version_media(
+            &mut references,
+            &target_dir,
+            &json!({ "avatarFilePath": target_dir.join(&candidates[2]) }),
+        );
+        collect_referenced_character_version_media(
+            &mut references,
+            &target_dir,
+            &json!({ "avatarUrl": file_path_asset_url(&target_dir.join(&candidates[1])) }),
+        );
+        collect_referenced_character_version_media(
+            &mut references,
+            &target_dir,
+            &json!({
+                "data": {"extensions": {"publicProfile": {
+                    "bannerImage": file_path_asset_url(&target_dir.join(&candidates[3]))
+                }}}
+            }),
+        );
+        collect_referenced_character_version_media(
+            &mut references,
+            &target_dir,
+            &json!({ "avatarFilePath": outside_dir.join(&candidates[121]) }),
+        );
+
+        let orphans =
+            unreferenced_character_version_media(candidates.clone(), &references, &target_dir)
+                .into_iter()
+                .collect::<HashSet<_>>();
+
+        let expected_orphans = candidates[120..].iter().cloned().collect::<HashSet<_>>();
+        assert_eq!(orphans, expected_orphans);
         fs::remove_dir_all(root).unwrap();
     }
 }

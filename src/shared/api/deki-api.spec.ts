@@ -701,6 +701,103 @@ describe("dekiApi.history session updates", () => {
     storageApiMock.update.mockReset();
   });
 
+  it("hydrates only the requested durable message partition", async () => {
+    const sessionRows = [
+      {
+        id: "session-active",
+        title: "Active chat",
+        compaction: {},
+        createdAt: "2026-07-21T10:00:00.000Z",
+        updatedAt: "2026-07-21T10:00:00.000Z",
+      },
+      {
+        id: "session-requested",
+        title: "Requested chat",
+        compaction: {},
+        createdAt: "2026-07-21T09:00:00.000Z",
+        updatedAt: "2026-07-21T09:00:00.000Z",
+      },
+    ];
+    const messageRows = {
+      "session-active": [
+        {
+          id: "message-active",
+          sessionId: "session-active",
+          role: "user",
+          content: "Active history.",
+          createdAt: "2026-07-21T10:00:00.000Z",
+          sortOrder: 0,
+        },
+      ],
+      "session-requested": [
+        {
+          id: "message-requested",
+          sessionId: "session-requested",
+          role: "assistant",
+          content: "Requested history.",
+          createdAt: "2026-07-21T09:00:00.000Z",
+          sortOrder: 0,
+        },
+      ],
+    } as const;
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "app-settings" && id === "deki") {
+        return { id: "deki", value: { activeSessionId: "session-active" } };
+      }
+      if (entity === "deki-sessions") return sessionRows.find((row) => row.id === id) ?? null;
+      if (entity === "deki-messages") {
+        return (
+          [...messageRows["session-active"], ...messageRows["session-requested"]].find((row) => row.id === id) ?? null
+        );
+      }
+      return null;
+    });
+    storageApiMock.list.mockImplementation(async (entity: string, options?: { filters?: Record<string, unknown> }) => {
+      if (entity === "deki-sessions") return sessionRows;
+      if (entity === "deki-messages") {
+        const sessionId = options?.filters?.sessionId as keyof typeof messageRows | undefined;
+        return sessionId ? [...messageRows[sessionId]] : Object.values(messageRows).flat();
+      }
+      return [];
+    });
+    const messagePartitionReads = () => storageApiMock.list.mock.calls.filter(([entity]) => entity === "deki-messages");
+
+    const sessions = await dekiApi.sessions.list();
+
+    expect(sessions.sessions.map((session) => session.messages)).toEqual([[], []]);
+    expect(messagePartitionReads()).toHaveLength(0);
+
+    storageApiMock.list.mockClear();
+    const history = await dekiApi.history.get("session-requested");
+
+    expect(history.messages.map((message) => message.id)).toEqual(["message-requested"]);
+    expect(messagePartitionReads()).toEqual([
+      [
+        "deki-messages",
+        {
+          filters: { sessionId: "session-requested" },
+          orderBy: "sortOrder",
+        },
+      ],
+    ]);
+
+    storageApiMock.list.mockClear();
+    await dekiApi.history.appendMessage({
+      role: "assistant",
+      content: "Append only here.",
+    });
+
+    expect(messagePartitionReads()).toEqual([
+      [
+        "deki-messages",
+        {
+          filters: { sessionId: "session-active" },
+          orderBy: "sortOrder",
+        },
+      ],
+    ]);
+  });
+
   it("normalizes loose durable session and message rows before returning history", async () => {
     const action: DekiEntryAction = {
       type: "create_record",
@@ -743,11 +840,9 @@ describe("dekiApi.history session updates", () => {
       return [];
     });
 
-    const state = await dekiApi.sessions.list();
+    const history = await dekiApi.history.get("session-valid");
 
-    expect(state.activeSessionId).toBe("session-valid");
-    expect(state.sessions).toHaveLength(1);
-    expect(state.sessions[0]).toMatchObject({
+    expect(history.session).toMatchObject({
       id: "session-valid",
       title: "New Deki Chat",
       createdAt: "2026-06-28T10:00:00.000Z",
@@ -760,7 +855,7 @@ describe("dekiApi.history session updates", () => {
         }),
       ],
     });
-    expect(state.sessions[0]!.messages[0]).toHaveProperty("actionApplication", null);
+    expect(history.messages[0]).toHaveProperty("actionApplication", null);
     expect(storageApiMock.list).toHaveBeenCalledWith("deki-messages", {
       filters: { sessionId: "session-valid" },
       orderBy: "sortOrder",
@@ -930,7 +1025,9 @@ describe("dekiApi.history session updates", () => {
       }
       if (entity === "deki-sessions") return sessionRows.find((row) => row.id === id) ?? null;
       if (entity === "deki-messages") {
-        return [...messageRows["session-active"], ...messageRows["session-unrelated"]].find((row) => row.id === id) ?? null;
+        return (
+          [...messageRows["session-active"], ...messageRows["session-unrelated"]].find((row) => row.id === id) ?? null
+        );
       }
       return null;
     });
@@ -944,21 +1041,16 @@ describe("dekiApi.history session updates", () => {
     });
 
     await dekiApi.history.appendMessage({
-      sessionId: "session-active",
       role: "assistant",
       content: "Only persist this change.",
     });
 
-    expect(storageApiMock.update).not.toHaveBeenCalledWith(
-      "deki-sessions",
-      "session-unrelated",
-      expect.anything(),
-    );
-    expect(storageApiMock.update).not.toHaveBeenCalledWith(
-      "deki-messages",
-      "message-unrelated",
-      expect.anything(),
-    );
+    expect(storageApiMock.list).not.toHaveBeenCalledWith("deki-messages", {
+      filters: { sessionId: "session-unrelated" },
+      orderBy: "sortOrder",
+    });
+    expect(storageApiMock.update).not.toHaveBeenCalledWith("deki-sessions", "session-unrelated", expect.anything());
+    expect(storageApiMock.update).not.toHaveBeenCalledWith("deki-messages", "message-unrelated", expect.anything());
     expect(storageApiMock.create).toHaveBeenCalledWith(
       "deki-messages",
       expect.objectContaining({

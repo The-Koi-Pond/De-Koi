@@ -741,7 +741,12 @@ async fn profile_export_download(
     require_admin_access_for_command("profile_export", &headers, addr.ip())?;
     let started = Instant::now();
     request_log("profile_export_download started");
-    let download = profile::export_profile_download(&state.app, query.format.as_deref())?;
+    let app = state.app.clone();
+    let format = query.format;
+    let download = run_blocking_profile_export_download(move || {
+        profile::export_profile_download(&app, format.as_deref())
+    })
+    .await?;
     request_log(format!(
         "profile_export_download ok bytes={} in {}ms",
         download.bytes.len(),
@@ -765,6 +770,14 @@ async fn profile_export_download(
         response.headers_mut().insert(header::CONTENT_LENGTH, value);
     }
     Ok(response)
+}
+
+async fn run_blocking_profile_export_download<T: Send + 'static>(
+    operation: impl FnOnce() -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
 async fn profile_import_upload(
@@ -1451,17 +1464,26 @@ async fn sidecar_embeddings_inner(state: &AppState, body: Value) -> Result<Value
         None
     };
 
-    let mut prompt_tokens = 0usize;
-    let mut data = Vec::with_capacity(inputs.len());
-    for (index, input) in inputs.iter().enumerate() {
-        prompt_tokens += approximate_embedding_tokens(input);
-        let embedding = prompts::embed_text(&connection, &model, input).await?;
-        data.push(json!({
-            "object": "embedding",
-            "index": index,
-            "embedding": embedding
-        }));
+    let prompt_tokens = inputs
+        .iter()
+        .map(|input| approximate_embedding_tokens(input))
+        .sum::<usize>();
+    let mut embeddings = Vec::with_capacity(inputs.len());
+    for chunk in inputs.chunks(prompts::EMBEDDING_BATCH_SIZE) {
+        let texts = chunk.iter().map(String::as_str).collect::<Vec<_>>();
+        embeddings.extend(prompts::embed_texts(&connection, &model, &texts).await?);
     }
+    let data = embeddings
+        .into_iter()
+        .enumerate()
+        .map(|(index, embedding)| {
+            json!({
+                "object": "embedding",
+                "index": index,
+                "embedding": embedding
+            })
+        })
+        .collect::<Vec<_>>();
 
     Ok(json!({
         "object": "list",
@@ -2691,7 +2713,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{mpsc as std_mpsc, Mutex, OnceLock};
 
     fn test_state(label: &str) -> AppState {
         let root = std::env::temp_dir().join(format!(
@@ -2735,6 +2757,119 @@ mod tests {
             .extensions_mut()
             .insert(ConnectInfo(SocketAddr::new(ip, 54321)));
         request
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn profile_export_download_worker_leaves_tokio_available() {
+        const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+        let (started_tx, started_rx) = std_mpsc::channel();
+        let (progress_tx, progress_rx) = std_mpsc::channel();
+        let (release_tx, release_rx) = std_mpsc::channel();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let watchdog = std::thread::spawn(move || {
+            let started = started_rx.recv_timeout(PROBE_TIMEOUT).is_ok();
+            let progressed = started && progress_rx.recv_timeout(PROBE_TIMEOUT).is_ok();
+            let _ = release_tx.send(());
+            progressed
+        });
+
+        let work = tokio::spawn(run_blocking_profile_export_download(move || {
+            started_tx
+                .send(())
+                .expect("watchdog should observe the blocking operation");
+            entered_tx
+                .send(())
+                .expect("Tokio test should observe the blocking operation");
+            release_rx
+                .recv_timeout(PROBE_TIMEOUT)
+                .expect("watchdog should release the blocking operation");
+            Ok(json!({ "download": "complete" }))
+        }));
+
+        tokio::time::timeout(PROBE_TIMEOUT, entered_rx)
+            .await
+            .expect("profile export should enter its blocking body before the deadline")
+            .expect("profile export should notify the Tokio test");
+        let unrelated = tokio::spawn(async move {
+            let _ = progress_tx.send(());
+        });
+        tokio::time::timeout(PROBE_TIMEOUT, unrelated)
+            .await
+            .expect("unrelated Tokio work should complete before the deadline")
+            .expect("unrelated Tokio work should not panic");
+
+        assert_eq!(
+            tokio::time::timeout(PROBE_TIMEOUT, work)
+                .await
+                .expect("profile export worker should complete before the deadline")
+                .expect("profile export worker should not panic")
+                .expect("profile export worker should succeed"),
+            json!({ "download": "complete" })
+        );
+        assert!(
+            tokio::time::timeout(
+                PROBE_TIMEOUT,
+                tokio::task::spawn_blocking(move || watchdog.join())
+            )
+            .await
+            .expect("watchdog should join before the deadline")
+            .expect("watchdog task should not panic")
+            .expect("watchdog thread should not panic"),
+            "unrelated Tokio work should progress before profile export is released"
+        );
+    }
+
+    #[tokio::test]
+    async fn profile_export_download_endpoint_preserves_download_contract() {
+        let state = HttpState {
+            app: test_state("profile-export-download-contract"),
+            controls: HttpControls::new(test_security()),
+        };
+        let response = match profile_export_download(
+            State(state),
+            ConnectInfo(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 54321)),
+            HeaderMap::new(),
+            Query(ProfileExportQuery {
+                format: Some("native".to_string()),
+            }),
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(_) => panic!("native profile export endpoint should succeed"),
+        };
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/json")
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_DISPOSITION)
+                .and_then(|value| value.to_str().ok()),
+            Some("attachment; filename=\"de-koi-profile.json\"")
+        );
+        let content_length = response
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<usize>().ok())
+            .expect("download should include content length");
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("download body should be readable");
+        assert_eq!(bytes.len(), content_length);
+        let body: Value = serde_json::from_slice(&bytes).expect("native profile should be JSON");
+        assert!(
+            body.is_object(),
+            "native profile should remain a JSON object"
+        );
     }
 
     fn basic_auth(user: &str, pass: &str) -> BasicAuthConfig {
@@ -3662,6 +3797,65 @@ mod tests {
         );
         assert!(sidecar_embedding_inputs(&json!({ "input": [] })).is_err());
         assert!(sidecar_embedding_inputs(&json!({ "input": [1] })).is_err());
+    }
+
+    #[tokio::test]
+    async fn sidecar_embeddings_batch_compatible_provider_inputs() {
+        let listener =
+            tokio::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+                .await
+                .expect("test embedding provider should bind");
+        let address = listener
+            .local_addr()
+            .expect("test embedding provider address should load");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test embedding provider should accept one batch");
+            let mut buffer = [0_u8; 4096];
+            let read = stream
+                .read(&mut buffer)
+                .await
+                .expect("test embedding provider should read request");
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let body = request
+                .split("\r\n\r\n")
+                .nth(1)
+                .expect("embedding request should contain a body");
+            let body: Value =
+                serde_json::from_str(body).expect("embedding request body should be JSON");
+            assert_eq!(body["input"], json!(["first", "second"]));
+
+            let body = r#"{"data":[{"index":1,"embedding":[2.0]},{"index":0,"embedding":[1.0]}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("test embedding provider should write response");
+        });
+
+        let state = test_state("batched-sidecar-embeddings");
+        let result = sidecar_embeddings_inner(
+            &state,
+            json!({
+                "connection": {
+                    "provider": "openai",
+                    "baseUrl": format!("http://{address}/v1"),
+                    "apiKey": "sk-test-key",
+                    "embeddingModel": "test-embedding-model"
+                },
+                "input": ["first", "second"]
+            }),
+        )
+        .await
+        .expect("compatible provider should receive one batch");
+
+        assert_eq!(result["data"][0]["embedding"], json!([1.0]));
+        assert_eq!(result["data"][1]["embedding"], json!([2.0]));
     }
 
     #[test]

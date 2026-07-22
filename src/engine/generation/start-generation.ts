@@ -104,6 +104,7 @@ import {
   scheduleAutomaticMemoryCaptureQueueProcessing,
 } from "./automatic-memory-capture-queue";
 import { scheduleSparseCharacterInterpretations } from "./behavioral-interpretation-background";
+import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
 import {
   applyCachedContextInjectionsToRegenerateInput,
   applyGenerationReplayToRegenerateInput,
@@ -168,6 +169,23 @@ import {
 
 export type { StartGenerationInput } from "./start-generation-input";
 
+export type GenerationPerformanceTiming = {
+  name:
+    | "generation.prompt_assembly"
+    | "generation.first_token"
+    | "generation.post_save"
+    | "generation.lorebook_keeper_backfill"
+    | "generation.background_maintenance";
+  elapsedMs: number;
+  status: "ok" | "error";
+  metadata?: {
+    messageCount?: number;
+    promptMessageCount?: number;
+    scheduledTaskCount?: number;
+    runCount?: number;
+  };
+};
+
 export interface GenerationEngineDeps {
   storage: StorageGateway;
   llm: LlmGateway;
@@ -175,6 +193,7 @@ export interface GenerationEngineDeps {
   visuals?: VisualAssetGateway;
   events?: EventGateway;
   onTrackerSnapshotSaved?: TrackerSnapshotSavedHook;
+  onPerformanceTiming?: (timing: GenerationPerformanceTiming) => void;
 }
 
 export interface RetryAgentsInput extends JsonRecord {
@@ -4154,6 +4173,42 @@ async function runLorebookKeeperBackfill(
   return { results: allResults, events: allEvents };
 }
 
+function scheduleLorebookKeeperBackfillAfterSavedAssistant(
+  deps: GenerationEngineDeps,
+  input: StartGenerationInput,
+  chat: JsonRecord,
+  connection: JsonRecord,
+): boolean {
+  return scheduleLorebookKeeperBackfill({
+    storage: deps.storage,
+    chatId: readString(chat.id).trim(),
+    onDiagnostic: deps.onPerformanceTiming
+      ? (diagnostic) =>
+          deps.onPerformanceTiming?.({
+            name: "generation.lorebook_keeper_backfill",
+            elapsedMs: diagnostic.durationMs,
+            status: diagnostic.status,
+            metadata: { runCount: diagnostic.count },
+          })
+      : undefined,
+    run: async () => {
+      await runLorebookKeeperBackfill(
+        deps,
+        {
+          chatId: readString(chat.id).trim(),
+          connectionId: readString(connection.id) || input.connectionId || null,
+          agentTypes: [LOREBOOK_KEEPER_AGENT_TYPE],
+          options: { lorebookKeeperBackfill: true },
+        },
+        // Once visible completion is emitted, this repair work intentionally detaches from the
+        // foreground request signal. Explicit cancellation before done still stops generation;
+        // cancellation after done must not discard persisted-message maintenance.
+        { chat, connection },
+      );
+    },
+  });
+}
+
 export async function retryGenerationAgents(
   deps: GenerationEngineDeps,
   input: RetryAgentsInput,
@@ -4390,6 +4445,23 @@ export async function* startGeneration(
   assertChatCanGenerate(chat, input);
 
   const generationTimingStartedAt = () => Date.now();
+  const reportPerformanceTiming = (
+    name: GenerationPerformanceTiming["name"],
+    startedAt: number,
+    status: GenerationPerformanceTiming["status"],
+    metadata?: GenerationPerformanceTiming["metadata"],
+  ): void => {
+    try {
+      deps.onPerformanceTiming?.({
+        name,
+        elapsedMs: Math.max(0, Date.now() - startedAt),
+        status,
+        ...(metadata ? { metadata } : {}),
+      });
+    } catch {
+      // Optional diagnostics must not change generation control flow.
+    }
+  };
   const generationTimingEvent = (
     name: string,
     startedAt: number,
@@ -4626,27 +4698,37 @@ export async function* startGeneration(
   yield { type: "phase", data: "Assembling prompt..." };
   let prompt = directMessages;
   const assemblePromptStartedAt = generationTimingStartedAt();
-  if (!directMessages) {
-    chatForGeneration = await withRuntimeConversationCommandCapabilities(chatForGeneration, deps.integrations);
-    throwIfAborted(signal);
+  let assembly: Awaited<ReturnType<typeof assembleGenerationPrompt>>;
+  try {
+    if (!directMessages) {
+      chatForGeneration = await withRuntimeConversationCommandCapabilities(chatForGeneration, deps.integrations);
+      throwIfAborted(signal);
+    }
+    assembly = await assembleGenerationPrompt(deps.storage, {
+      chat: chatForGeneration,
+      storedMessages: generationMessages,
+      connection,
+      request: input,
+      latestUserInput,
+      userRegenerationSourceMessage,
+      embeddingSource: turnEmbeddingSource,
+      visuals: deps.visuals,
+      persistPromptVariables: true,
+    });
+  } catch (error) {
+    reportPerformanceTiming("generation.prompt_assembly", assemblePromptStartedAt, "error");
+    throw error;
   }
-  let assembly = await assembleGenerationPrompt(deps.storage, {
-    chat: chatForGeneration,
-    storedMessages: generationMessages,
-    connection,
-    request: input,
-    latestUserInput,
-    userRegenerationSourceMessage,
-    embeddingSource: turnEmbeddingSource,
-    visuals: deps.visuals,
-    persistPromptVariables: true,
-  });
   throwIfAborted(signal);
   const assemblePromptTiming = generationTimingEvent("assemble-prompt", assemblePromptStartedAt, {
     messageCount: generationMessages.length,
     promptMessageCount: assembly.messages.length,
   });
   if (assemblePromptTiming) yield assemblePromptTiming;
+  reportPerformanceTiming("generation.prompt_assembly", assemblePromptStartedAt, "ok", {
+    messageCount: generationMessages.length,
+    promptMessageCount: assembly.messages.length,
+  });
   mirrorSavedUserMessageToDiscord({ deps, chat, input, prepared: preparedUserInput, persona: assembly.persona });
 
   if (!directMessages) {
@@ -4776,6 +4858,12 @@ export async function* startGeneration(
     let webResearchRequest: Record<string, unknown> | null = null;
     let webResearchSources: Array<{ title: string; url: string }> = [];
     const modelCallStartedAt = generationTimingStartedAt();
+    let reportedFirstToken = false;
+    const reportFirstToken = () => {
+      if (reportedFirstToken) return;
+      reportedFirstToken = true;
+      reportPerformanceTiming("generation.first_token", modelCallStartedAt, "ok");
+    };
     try {
       ({
         content: streamedContent,
@@ -4804,8 +4892,12 @@ export async function* startGeneration(
         toolRuntimeInput,
         signal,
         partial: mainPartial,
+        onFirstToken: reportFirstToken,
       }));
     } catch (err) {
+      if (!reportedFirstToken) {
+        reportPerformanceTiming("generation.first_token", modelCallStartedAt, "error");
+      }
       if (mainTools?.characterWebResearchGrant) {
         await deps.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
       }
@@ -4882,17 +4974,18 @@ export async function* startGeneration(
     throwIfAborted(signal);
     for (const event of connected.events) yield event;
     let displayContent = finalAssistantContent(input, connected.displayContent);
-    const roleplayQuality = isUserMessageRegeneration || connected.suppressAssistantMessage
-      ? { content: displayContent, correction: null }
-      : await applyAutomaticRoleplayQualityCorrection({
-          deps,
-          chat: chatForGeneration,
-          input,
-          runtimeInput: generationAgentInput,
-          agencyContract: assembly.roleplayAgencyContract,
-          content: displayContent,
-          signal,
-        });
+    const roleplayQuality =
+      isUserMessageRegeneration || connected.suppressAssistantMessage
+        ? { content: displayContent, correction: null }
+        : await applyAutomaticRoleplayQualityCorrection({
+            deps,
+            chat: chatForGeneration,
+            input,
+            runtimeInput: generationAgentInput,
+            agencyContract: assembly.roleplayAgencyContract,
+            content: displayContent,
+            signal,
+          });
     throwIfAborted(signal);
     if (roleplayQuality.content !== displayContent) {
       displayContent = roleplayQuality.content;
@@ -4929,156 +5022,165 @@ export async function* startGeneration(
           roleplayQualityCorrection: roleplayQuality.correction,
         });
     const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
+    const postSaveStartedAt = saved ? generationTimingStartedAt() : null;
     let latestSaved = saved;
-    if (saved) {
-      await persistLorebookTimingStatesSafely(
-        deps.storage,
-        chatId,
-        assembly.lorebookTimingStates,
-        assembly.lorebookEntryStateOverrides,
-      );
-    }
-    throwIfAborted(signal);
-    if (savedAssistantGeneration) {
-      await mirrorSavedAssistantMessageToDiscord({
-        deps,
-        chat,
-        characters: assembly.characters,
-        input,
-        saved,
-        content: displayContent,
-      });
-    }
-    if (saved)
-      yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(saved) };
-    if (savedAssistantGeneration) {
-      await evictStalePromptSnapshotsSafely(deps.storage, chatId);
-    }
-    throwIfAborted(signal);
-
-    if (!isUserMessageRegeneration) {
-      const parallelResults = await parallelAgents;
-      throwIfAborted(signal);
-      const postResults = runtime && savedAssistantGeneration ? await runtime.runPost(displayContent) : [];
-      throwIfAborted(signal);
-      let emittedAgentResults = uniqueAgentResults([...parallelResults, ...postResults, ...agentEvents]);
-      emittedAgentResults = await generateTrackerAvatarsForResults({
-        deps,
-        chat: chatForGeneration,
-        results: emittedAgentResults,
-        baseline: generationTrackerBaseline,
-        signal,
-      });
-      for (const result of emittedAgentResults) {
-        yield { type: "agent_result", data: result };
-      }
-      agentEvents.length = 0;
-      const allAgentResults = uniqueAgentResults([...preSaveAgentResults, ...emittedAgentResults]);
+    try {
       if (saved) {
-        const patchedMessages = await patchSavedMessageAgentExtra({
-          storage: deps.storage,
-          chat: chatForGeneration,
-          storedMessages,
-          saved: latestSaved,
-          results: allAgentResults,
-          contextInjections: runtime?.preInjections ?? null,
-          availableSprites: runtime?.availableSprites ?? [],
+        await persistLorebookTimingStatesSafely(
+          deps.storage,
+          chatId,
+          assembly.lorebookTimingStates,
+          assembly.lorebookEntryStateOverrides,
+        );
+      }
+      throwIfAborted(signal);
+      if (savedAssistantGeneration) {
+        await mirrorSavedAssistantMessageToDiscord({
+          deps,
+          chat,
+          characters: assembly.characters,
+          input,
+          saved,
+          content: displayContent,
         });
-        for (const patched of patchedMessages) {
-          const patchedMessageId = messageId(patched);
-          if (patchedMessageId && patchedMessageId === messageId(latestSaved)) {
+      }
+      if (saved)
+        yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(saved) };
+      if (savedAssistantGeneration) {
+        await evictStalePromptSnapshotsSafely(deps.storage, chatId);
+      }
+      throwIfAborted(signal);
+
+      if (!isUserMessageRegeneration) {
+        const parallelResults = await parallelAgents;
+        throwIfAborted(signal);
+        const postResults = runtime && savedAssistantGeneration ? await runtime.runPost(displayContent) : [];
+        throwIfAborted(signal);
+        let emittedAgentResults = uniqueAgentResults([...parallelResults, ...postResults, ...agentEvents]);
+        emittedAgentResults = await generateTrackerAvatarsForResults({
+          deps,
+          chat: chatForGeneration,
+          results: emittedAgentResults,
+          baseline: generationTrackerBaseline,
+          signal,
+        });
+        for (const result of emittedAgentResults) {
+          yield { type: "agent_result", data: result };
+        }
+        agentEvents.length = 0;
+        const allAgentResults = uniqueAgentResults([...preSaveAgentResults, ...emittedAgentResults]);
+        if (saved) {
+          const patchedMessages = await patchSavedMessageAgentExtra({
+            storage: deps.storage,
+            chat: chatForGeneration,
+            storedMessages,
+            saved: latestSaved,
+            results: allAgentResults,
+            contextInjections: runtime?.preInjections ?? null,
+            availableSprites: runtime?.availableSprites ?? [],
+          });
+          for (const patched of patchedMessages) {
+            const patchedMessageId = messageId(patched);
+            if (patchedMessageId && patchedMessageId === messageId(latestSaved)) {
+              latestSaved = patched;
+              yield {
+                type: savedGenerationEventType(input, regenerationTarget),
+                data: savedGenerationEventData(patched),
+              };
+            } else {
+              yield { type: "message", data: savedGenerationEventData(patched) };
+            }
+          }
+        }
+
+        const hasIllustrationRequest = emittedAgentResults.some((result) => illustratorPromptData(result) !== null);
+        if (savedAssistantGeneration && hasIllustrationRequest) {
+          yield { type: "phase", data: "Generating illustration..." };
+          const illustration = await generateIllustrationAttachments({
+            deps,
+            chat,
+            results: emittedAgentResults,
+            reportUnavailable: false,
+            signal,
+          });
+          throwIfAborted(signal);
+          for (const event of illustration.events) yield event;
+          const patched = await appendSavedMessageAttachments({
+            storage: deps.storage,
+            saved: latestSaved,
+            attachments: illustration.attachments,
+          });
+          if (patched) {
             latestSaved = patched;
             yield {
               type: savedGenerationEventType(input, regenerationTarget),
               data: savedGenerationEventData(patched),
             };
-          } else {
-            yield { type: "message", data: savedGenerationEventData(patched) };
           }
         }
-      }
-
-      const hasIllustrationRequest = emittedAgentResults.some((result) => illustratorPromptData(result) !== null);
-      if (savedAssistantGeneration && hasIllustrationRequest) {
-        yield { type: "phase", data: "Generating illustration..." };
-        const illustration = await generateIllustrationAttachments({
-          deps,
-          chat,
-          results: emittedAgentResults,
-          reportUnavailable: false,
-          signal,
-        });
         throwIfAborted(signal);
-        for (const event of illustration.events) yield event;
-        const patched = await appendSavedMessageAttachments({
-          storage: deps.storage,
-          saved: latestSaved,
-          attachments: illustration.attachments,
-        });
-        if (patched) {
-          latestSaved = patched;
-          yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(patched) };
+        if (savedAssistantGeneration) {
+          await persistTrackerSnapshotSafely(
+            deps.storage,
+            chatId,
+            latestSaved,
+            allAgentResults,
+            generationTrackerBaseline,
+            readString(parseRecord(latestSaved).content),
+            deps.onTrackerSnapshotSaved,
+            true,
+          );
+        }
+        throwIfAborted(signal);
+        await persistSecretPlotAgentMemorySafely(deps.storage, chatId, allAgentResults);
+        throwIfAborted(signal);
+        await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
+        throwIfAborted(signal);
+      }
+      if (postSaveStartedAt) {
+        reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
+      }
+      if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+      yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
+      if (savedAssistantGeneration) {
+        const backgroundMaintenanceStartedAt = generationTimingStartedAt();
+        let scheduledTaskCount = 0;
+        try {
+          await enqueueAutomaticMemoryCaptureSafely(
+            deps,
+            chat,
+            assembly.characters,
+            savedUserMessage,
+            latestSaved,
+            connection,
+          );
+          scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
+          scheduledTaskCount += 2;
+          if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
+            scheduleSparseCharacterInterpretations(
+              { storage: deps.storage, llm: deps.llm },
+              {
+                characterIds: assembly.characters.map((character) => character.id),
+                connectionId: readString(connection.id) || input.connectionId || null,
+              },
+            );
+            scheduledTaskCount += 1;
+          }
+          reportPerformanceTiming("generation.background_maintenance", backgroundMaintenanceStartedAt, "ok", {
+            scheduledTaskCount,
+          });
+        } catch (error) {
+          reportPerformanceTiming("generation.background_maintenance", backgroundMaintenanceStartedAt, "error");
+          throw error;
         }
       }
-      throwIfAborted(signal);
-      if (savedAssistantGeneration) {
-        await persistTrackerSnapshotSafely(
-          deps.storage,
-          chatId,
-          latestSaved,
-          allAgentResults,
-          generationTrackerBaseline,
-          readString(parseRecord(latestSaved).content),
-          deps.onTrackerSnapshotSaved,
-          true,
-        );
+      return;
+    } catch (error) {
+      if (postSaveStartedAt) {
+        reportPerformanceTiming("generation.post_save", postSaveStartedAt, "error");
       }
-      throwIfAborted(signal);
-      await persistSecretPlotAgentMemorySafely(deps.storage, chatId, allAgentResults);
-      throwIfAborted(signal);
-      await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
-      throwIfAborted(signal);
+      throw error;
     }
-    if (savedAssistantGeneration) {
-      const autoLorebookBackfill = await runLorebookKeeperBackfill(
-        deps,
-        {
-          chatId,
-          connectionId: readString(connection.id) || input.connectionId || null,
-          agentTypes: [LOREBOOK_KEEPER_AGENT_TYPE],
-          options: { lorebookKeeperBackfill: true },
-        },
-        { chat, connection, signal },
-      );
-      for (const event of autoLorebookBackfill.events) {
-        yield event;
-      }
-      for (const result of autoLorebookBackfill.results) {
-        yield { type: "agent_result", data: result };
-      }
-    }
-    if (savedAssistantGeneration) {
-      await enqueueAutomaticMemoryCaptureSafely(
-        deps,
-        chat,
-        assembly.characters,
-        savedUserMessage,
-        latestSaved,
-        connection,
-      );
-      scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
-      if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
-        scheduleSparseCharacterInterpretations(
-          { storage: deps.storage, llm: deps.llm },
-          {
-            characterIds: assembly.characters.map((character) => character.id),
-            connectionId: readString(connection.id) || input.connectionId || null,
-          },
-        );
-      }
-    }
-    yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
-    return;
   }
 
   const directDirectiveMessages = directiveMessages(
@@ -5129,6 +5231,13 @@ export async function* startGeneration(
   let promptSnapshotDirect: MainGenerationPromptSnapshot | null = null;
   let webResearchRequestDirect: Record<string, unknown> | null = null;
   let webResearchSourcesDirect: Array<{ title: string; url: string }> = [];
+  const directModelCallStartedAt = generationTimingStartedAt();
+  let reportedDirectFirstToken = false;
+  const reportDirectFirstToken = () => {
+    if (reportedDirectFirstToken) return;
+    reportedDirectFirstToken = true;
+    reportPerformanceTiming("generation.first_token", directModelCallStartedAt, "ok");
+  };
   try {
     ({
       content: streamedContentDirect,
@@ -5157,8 +5266,12 @@ export async function* startGeneration(
       toolRuntimeInput: toolRuntimeInputDirect,
       signal,
       partial: directPartial,
+      onFirstToken: reportDirectFirstToken,
     }));
   } catch (err) {
+    if (!reportedDirectFirstToken) {
+      reportPerformanceTiming("generation.first_token", directModelCallStartedAt, "error");
+    }
     if (mainToolsDirect?.characterWebResearchGrant) {
       await deps.storage.patchChatMetadata(chatId, { characterWebResearchGrant: null });
     }
@@ -5232,17 +5345,18 @@ export async function* startGeneration(
     regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
     agentInjectionOverrides,
   };
-  const roleplayQualityDirect = isUserMessageRegeneration || connected.suppressAssistantMessage
-    ? { content: displayContentDirect, correction: null }
-    : await applyAutomaticRoleplayQualityCorrection({
-        deps,
-        chat: chatForGeneration,
-        input,
-        runtimeInput: directAgentInput,
-        agencyContract: assembly.roleplayAgencyContract,
-        content: displayContentDirect,
-        signal,
-      });
+  const roleplayQualityDirect =
+    isUserMessageRegeneration || connected.suppressAssistantMessage
+      ? { content: displayContentDirect, correction: null }
+      : await applyAutomaticRoleplayQualityCorrection({
+          deps,
+          chat: chatForGeneration,
+          input,
+          runtimeInput: directAgentInput,
+          agencyContract: assembly.roleplayAgencyContract,
+          content: displayContentDirect,
+          signal,
+        });
   throwIfAborted(signal);
   if (roleplayQualityDirect.content !== displayContentDirect) {
     displayContentDirect = roleplayQualityDirect.content;
@@ -5277,62 +5391,69 @@ export async function* startGeneration(
         roleplayQualityCorrection: roleplayQualityDirect.correction,
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
-  if (saved) {
-    await persistLorebookTimingStatesSafely(
-      deps.storage,
-      chatId,
-      assembly.lorebookTimingStates,
-      assembly.lorebookEntryStateOverrides,
-    );
-  }
-  throwIfAborted(signal);
-  if (savedAssistantGeneration) {
-    await mirrorSavedAssistantMessageToDiscord({
-      deps,
-      chat,
-      characters: assembly.characters,
-      input,
-      saved,
-      content: displayContentDirect,
-    });
-  }
-  if (saved) yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(saved) };
-  if (savedAssistantGeneration) {
-    await evictStalePromptSnapshotsSafely(deps.storage, chatId);
-  }
-  throwIfAborted(signal);
-  if (savedAssistantGeneration) {
-    const autoLorebookBackfill = await runLorebookKeeperBackfill(
-      deps,
-      {
+  const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
+  try {
+    if (saved) {
+      await persistLorebookTimingStatesSafely(
+        deps.storage,
         chatId,
-        connectionId: readString(connection.id) || input.connectionId || null,
-        agentTypes: [LOREBOOK_KEEPER_AGENT_TYPE],
-        options: { lorebookKeeperBackfill: true },
-      },
-      { chat, connection, signal },
-    );
-    for (const event of autoLorebookBackfill.events) {
-      yield event;
-    }
-    for (const result of autoLorebookBackfill.results) {
-      yield { type: "agent_result", data: result };
-    }
-  }
-  if (savedAssistantGeneration) {
-    await enqueueAutomaticMemoryCaptureSafely(deps, chat, assembly.characters, savedUserMessage, saved, connection);
-    scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
-    if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
-      scheduleSparseCharacterInterpretations(
-        { storage: deps.storage, llm: deps.llm },
-        {
-          characterIds: assembly.characters.map((character) => character.id),
-          connectionId: readString(connection.id) || input.connectionId || null,
-        },
+        assembly.lorebookTimingStates,
+        assembly.lorebookEntryStateOverrides,
       );
     }
+    throwIfAborted(signal);
+    if (savedAssistantGeneration) {
+      await mirrorSavedAssistantMessageToDiscord({
+        deps,
+        chat,
+        characters: assembly.characters,
+        input,
+        saved,
+        content: displayContentDirect,
+      });
+    }
+    if (saved)
+      yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(saved) };
+    if (savedAssistantGeneration) {
+      await evictStalePromptSnapshotsSafely(deps.storage, chatId);
+    }
+    throwIfAborted(signal);
+    if (directPostSaveStartedAt) {
+      reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "ok");
+    }
+    if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+    yield { type: "done" };
+    if (savedAssistantGeneration) {
+      const backgroundMaintenanceStartedAt = generationTimingStartedAt();
+      let scheduledTaskCount = 0;
+      try {
+        await enqueueAutomaticMemoryCaptureSafely(deps, chat, assembly.characters, savedUserMessage, saved, connection);
+        scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
+        scheduledTaskCount += 2;
+        if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
+          scheduleSparseCharacterInterpretations(
+            { storage: deps.storage, llm: deps.llm },
+            {
+              characterIds: assembly.characters.map((character) => character.id),
+              connectionId: readString(connection.id) || input.connectionId || null,
+            },
+          );
+          scheduledTaskCount += 1;
+        }
+        reportPerformanceTiming("generation.background_maintenance", backgroundMaintenanceStartedAt, "ok", {
+          scheduledTaskCount,
+        });
+      } catch (error) {
+        reportPerformanceTiming("generation.background_maintenance", backgroundMaintenanceStartedAt, "error");
+        throw error;
+      }
+    }
+  } catch (error) {
+    if (directPostSaveStartedAt) {
+      reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "error");
+    }
+    throw error;
   }
-  yield { type: "done" };
 }
 
 async function resolveForegroundGenerationConnection(
@@ -5486,6 +5607,7 @@ async function* streamMainGenerationLoop(args: {
   toolRuntimeInput: ToolRuntimeInput;
   signal: AbortSignal | undefined;
   partial?: StreamPartialSink | null;
+  onFirstToken?: () => void;
 }): AsyncGenerator<
   GenerationEvent,
   {
@@ -5513,6 +5635,7 @@ async function* streamMainGenerationLoop(args: {
     toolRuntimeInput,
     signal,
     partial,
+    onFirstToken,
   } = args;
   let content = "";
   let thinking = "";
@@ -5633,6 +5756,7 @@ async function* streamMainGenerationLoop(args: {
           providerMetadata = mergeProviderMetadata(providerMetadata, chunkProviderMetadata);
         }
         if (chunk.type === "token") {
+          onFirstToken?.();
           const text = llmChunkText(chunk);
           if (text) yield* emitInlineParts(text);
         } else if (chunk.type === "thinking") {

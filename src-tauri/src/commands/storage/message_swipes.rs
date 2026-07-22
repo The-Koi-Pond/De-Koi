@@ -839,9 +839,7 @@ pub(crate) fn materialize_message_for_output(
     }
     let filter_values = HashSet::from([id.clone()]);
     let mut swipes = if materialization.include_swipes {
-        state
-            .storage
-            .list_where_in(COLLECTION, "messageId", &filter_values)?
+        full_sidecars_for_message_ids(state, &filter_values)?
     } else {
         let fields = sidecar_summary_fields(materialization);
         state.storage.list_projected_where_in(
@@ -894,7 +892,7 @@ pub(crate) fn materialize_messages_for_output(
     }
     let mut grouped: HashMap<String, Vec<Value>> = HashMap::new();
     let sidecars = if materialization.include_swipes {
-        state.storage.list_where_in(COLLECTION, "messageId", &ids)?
+        full_sidecars_for_message_ids(state, &ids)?
     } else {
         let fields = sidecar_summary_fields(materialization);
         state.storage.list_projected_where_in(
@@ -937,6 +935,23 @@ pub(crate) fn materialize_messages_for_output(
         apply_sidecar_swipes(message, swipes, materialization);
     }
     Ok(())
+}
+
+fn full_sidecars_for_message_ids(
+    state: &AppState,
+    message_ids: &HashSet<String>,
+) -> AppResult<Vec<Value>> {
+    let mut sidecars = Vec::new();
+    state.storage.visit_collection_rows_where_in(
+        COLLECTION,
+        "messageId",
+        message_ids,
+        &mut |row| {
+            sidecars.push(row.clone());
+            Ok(())
+        },
+    )?;
+    Ok(sidecars)
 }
 
 #[cfg(test)]
@@ -1594,6 +1609,39 @@ mod tests {
             messages[0]["swipes"][0]["content"],
             "legacy padded message id"
         );
+    }
+
+    #[test]
+    fn batched_full_materialization_keeps_cached_sidecar_work_to_selected_messages() {
+        let state = test_state("batch-full-materialize-bounded-cached-sidecars");
+        let mut messages = vec![
+            json!({ "id": "message-selected-1", "chatId": "chat-1", "role": "assistant", "content": "first" }),
+            json!({ "id": "message-selected-2", "chatId": "chat-1", "role": "assistant", "content": "second" }),
+        ];
+        let mut sidecars = vec![
+            json!({ "id": "selected-1::swipe::0", "messageId": "message-selected-1", "index": 0, "content": "selected first" }),
+            json!({ "id": "selected-2::swipe::0", "messageId": "message-selected-2", "index": 0, "content": "selected second" }),
+        ];
+        for index in 0..1_024 {
+            sidecars.push(json!({
+                "id": format!("unrelated-{index}::swipe::0"),
+                "messageId": format!("message-unrelated-{index}"),
+                "index": 0,
+                "content": "unrelated cached swipe"
+            }));
+        }
+        state.storage.replace_all(COLLECTION, sidecars).unwrap();
+
+        materialize_messages(&state, &mut messages, true).unwrap();
+
+        assert_eq!(messages[0]["swipes"], json!([{
+            "id": "selected-1::swipe::0", "messageId": "message-selected-1", "index": 0, "content": "selected first"
+        }]));
+        assert_eq!(messages[1]["swipes"], json!([{
+            "id": "selected-2::swipe::0", "messageId": "message-selected-2", "index": 0, "content": "selected second"
+        }]));
+        assert_eq!(messages[0]["swipeCount"], json!(1));
+        assert_eq!(messages[1]["swipeCount"], json!(1));
     }
 
     #[test]

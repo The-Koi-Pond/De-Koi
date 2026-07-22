@@ -121,7 +121,12 @@ function invoke(command: string, args: JsonRecord): { status?: number; value: un
   if (command === "llm_list_models") {
     return { value: [{ id: connection.model, name: connection.model, provider: connection.provider }] };
   }
-  if (command === "memory_index_query" || command === "memory_query") {
+  if (
+    command === "memory_index_query" ||
+    command === "memory_index_query_batch" ||
+    command === "memory_query" ||
+    command === "memory_query_batch"
+  ) {
     return { value: [] };
   }
   if (command === "local_sidecar_status") {

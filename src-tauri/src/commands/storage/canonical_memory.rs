@@ -10,6 +10,7 @@ const INDEX_COLLECTION: &str = "memory-index-rows";
 const LEXICAL_PROVIDER: &str = "lexical";
 const LEXICAL_MODEL: &str = "de-koi-lexical-v1";
 const LEXICAL_DIMENSIONS: usize = 64;
+const MAX_BATCH_QUERIES: usize = 16;
 
 const MEMORY_KINDS: &[&str] = &[
     "episode",
@@ -231,6 +232,30 @@ fn memory_allowed_by_query(memory: &Value, body: &Value) -> bool {
     statuses.contains(status) && scope_matches(memory, body.get("scope"))
 }
 
+fn batch_queries(body: Value) -> AppResult<Vec<Value>> {
+    let body = marinara_core::ensure_object(body)?;
+    let queries = body
+        .get("queries")
+        .and_then(Value::as_array)
+        .ok_or_else(|| AppError::invalid_input("memory batch queries must be an array"))?;
+    if queries.len() > MAX_BATCH_QUERIES {
+        return Err(AppError::invalid_input(format!(
+            "memory batch queries may include at most {MAX_BATCH_QUERIES} scopes"
+        )));
+    }
+    queries
+        .iter()
+        .cloned()
+        .map(|query| {
+            if query.is_object() {
+                Ok(query)
+            } else {
+                Err(AppError::invalid_input("memory batch query entries must be objects"))
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
     let record = normalize_memory_record(marinara_core::ensure_object(body)?, true)?;
     state.storage.create(MEMORY_COLLECTION, record)
@@ -317,6 +342,30 @@ pub(crate) fn query_memories(state: &AppState, body: Value) -> AppResult<Value> 
     }
     let mut memories = state.storage.list(MEMORY_COLLECTION)?;
     memories.retain(|memory| memory_allowed_by_query(memory, &body));
+    Ok(Value::Array(memories))
+}
+
+pub(crate) fn query_memories_batch(state: &AppState, body: Value) -> AppResult<Value> {
+    let queries = batch_queries(body)?;
+    if queries.is_empty() {
+        return Ok(Value::Array(Vec::new()));
+    }
+    let stored = state.storage.list(MEMORY_COLLECTION)?;
+    let mut emitted = HashSet::new();
+    let mut memories = Vec::new();
+    // The request array is the batch's explicit scope ordinal. Preserve it so
+    // downstream equal-score cutoffs do not inherit storage-file order.
+    for query in &queries {
+        for memory in &stored {
+            let memory_id = read_string(memory.get("id"));
+            if !memory_id.is_empty()
+                && memory_allowed_by_query(memory, query)
+                && emitted.insert(memory_id)
+            {
+                memories.push(memory.clone());
+            }
+        }
+    }
     Ok(Value::Array(memories))
 }
 
@@ -501,6 +550,44 @@ pub(crate) fn query_memory_index(state: &AppState, body: Value) -> AppResult<Val
     }
     Ok(Value::Array(memories))
 }
+
+pub(crate) fn query_memory_index_batch(state: &AppState, body: Value) -> AppResult<Value> {
+    let queries = batch_queries(body)?;
+    if queries.is_empty() {
+        return Ok(Value::Array(Vec::new()));
+    }
+    let mut seen = HashSet::new();
+    let mut indexed = Vec::new();
+    for row in state.storage.list(INDEX_COLLECTION)? {
+        let memory_id = read_string(row.get("memoryId"));
+        if memory_id.is_empty() || !seen.insert(memory_id.clone()) {
+            continue;
+        }
+        let Ok(memory) = get_memory(state, &memory_id) else {
+            continue;
+        };
+        if memory.get("updatedAt") != row.get("canonicalUpdatedAt") {
+            continue;
+        }
+        indexed.push(memory);
+    }
+    let mut emitted = HashSet::new();
+    let mut memories = Vec::new();
+    // Match `query_memories_batch`: scope-query order, not index storage order,
+    // is the stable tie-break contract for a mixed-scope batch.
+    for query in &queries {
+        for memory in &indexed {
+            let memory_id = read_string(memory.get("id"));
+            if !memory_id.is_empty()
+                && memory_allowed_by_query(memory, query)
+                && emitted.insert(memory_id)
+            {
+                memories.push(memory.clone());
+            }
+        }
+    }
+    Ok(Value::Array(memories))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -607,6 +694,47 @@ mod tests {
             get_memory(&state, "memory-active").unwrap()["status"],
             json!("deleted")
         );
+    }
+
+    #[test]
+    fn batch_queries_return_the_union_of_requested_scopes_once() {
+        let state = test_state("batch-query-scopes");
+        seed_memory(&state, "memory-chat", "chat", "chat-1", "active");
+        seed_memory(&state, "memory-character", "character", "character-1", "active");
+        seed_memory(&state, "memory-other", "chat", "chat-2", "active");
+
+        let rows = query_memories_batch(
+            &state,
+            json!({
+                "queries": [
+                    { "scope": { "kind": "chat", "id": "chat-1" } },
+                    { "scope": { "kind": "character", "id": "character-1" } }
+                ]
+            }),
+        )
+        .expect("batch scope query should succeed");
+
+        assert_eq!(ids(&rows), vec!["memory-chat", "memory-character"]);
+    }
+
+    #[test]
+    fn batch_queries_preserve_requested_scope_ordinal_over_storage_order() {
+        let state = test_state("batch-query-scope-ordinal");
+        seed_memory(&state, "memory-character", "character", "character-1", "active");
+        seed_memory(&state, "memory-chat", "chat", "chat-1", "active");
+
+        let rows = query_memories_batch(
+            &state,
+            json!({
+                "queries": [
+                    { "scope": { "kind": "chat", "id": "chat-1" } },
+                    { "scope": { "kind": "character", "id": "character-1" } }
+                ]
+            }),
+        )
+        .expect("ordered batch scope query should succeed");
+
+        assert_eq!(ids(&rows), vec!["memory-chat", "memory-character"]);
     }
 
     #[test]

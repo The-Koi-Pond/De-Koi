@@ -43,6 +43,15 @@ Milestones currently include:
 
 IPC spans include the command name, runtime (`embedded` or `remote`), status, elapsed milliseconds, and failure name/message when a call fails. Arguments and request bodies are intentionally omitted.
 
+Generation and Deki stage spans use stable names and contain only elapsed time, status, and bounded counts. They never include prompt text, messages, session IDs, request payloads, provider settings, or runtime details:
+
+- `generation.prompt_assembly` with message and prompt-message counts
+- `generation.first_token`
+- `generation.post_save`
+- `generation.background_maintenance` with the number of scheduled maintenance tasks
+- `deki.session_summaries` with a session count
+- `deki.active_history` with a message count
+
 Diagnostics are opt-in, but treat exported logs as local troubleshooting material. They intentionally omit raw command arguments, request bodies, filters, row payloads, IDs, secrets, and full file paths. They can still include collection names, operation names, row counts, approximate byte sizes, cache status, timing, and error names/messages, which may reveal local workflow context. Review and redact logs before sharing them publicly.
 
 Storage spans include:

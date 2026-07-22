@@ -218,14 +218,22 @@ pub(crate) async fn llm_embed(state: &AppState, body: Value) -> AppResult<Value>
     if let Some(object) = connection.as_object_mut() {
         object.insert("model".to_string(), Value::String(model.clone()));
     }
-    let mut data = Vec::with_capacity(inputs.len());
-    for (index, input) in inputs.iter().enumerate() {
-        data.push(json!({
-            "object": "embedding",
-            "index": index,
-            "embedding": prompts::embed_text(&connection, &model, input).await?
-        }));
+    let mut embeddings = Vec::with_capacity(inputs.len());
+    for chunk in inputs.chunks(prompts::EMBEDDING_BATCH_SIZE) {
+        let texts = chunk.iter().map(String::as_str).collect::<Vec<_>>();
+        embeddings.extend(prompts::embed_texts(&connection, &model, &texts).await?);
     }
+    let data = embeddings
+        .into_iter()
+        .enumerate()
+        .map(|(index, embedding)| {
+            json!({
+                "object": "embedding",
+                "index": index,
+                "embedding": embedding
+            })
+        })
+        .collect::<Vec<_>>();
     Ok(json!({
         "object": "list",
         "data": data,
@@ -2227,6 +2235,100 @@ mod tests {
         format!("http://{address}/v1")
     }
 
+    async fn serve_bounded_batched_embedding_requests() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test embedding server should bind");
+        let address = listener
+            .local_addr()
+            .expect("test embedding server address should be readable");
+        tokio::spawn(async move {
+            for batch in [(0..50), (50..51)] {
+                let (mut stream, _) = listener
+                    .accept()
+                    .await
+                    .expect("test embedding server should accept one bounded request");
+                let mut buffer = [0_u8; 4096];
+                let read = stream
+                    .read(&mut buffer)
+                    .await
+                    .expect("test embedding server should read request");
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let body = request
+                    .split("\r\n\r\n")
+                    .nth(1)
+                    .expect("embedding request should contain a body");
+                let body: Value =
+                    serde_json::from_str(body).expect("embedding request body should be JSON");
+                let inputs = batch
+                    .clone()
+                    .map(|index| format!("input-{index}"))
+                    .collect::<Vec<_>>();
+                assert_eq!(body["input"], json!(inputs));
+
+                let data = batch
+                    .clone()
+                    .enumerate()
+                    .rev()
+                    .map(|(index, global_index)| {
+                        json!({ "index": index, "embedding": [global_index as f64] })
+                    })
+                    .collect::<Vec<_>>();
+                let body = json!({ "data": data }).to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("test embedding server should write response");
+            }
+        });
+        format!("http://{address}/v1")
+    }
+
+    async fn serve_sequential_ollama_embedding_requests() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test embedding server should bind");
+        let address = listener
+            .local_addr()
+            .expect("test embedding server address should be readable");
+        tokio::spawn(async move {
+            for (index, expected_prompt) in ["first", "second", "third"].into_iter().enumerate() {
+                let (mut stream, _) = listener
+                    .accept()
+                    .await
+                    .expect("single-input provider should receive every input");
+                let mut buffer = [0_u8; 4096];
+                let read = stream
+                    .read(&mut buffer)
+                    .await
+                    .expect("test embedding server should read request");
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let body = request
+                    .split("\r\n\r\n")
+                    .nth(1)
+                    .expect("embedding request should contain a body");
+                let body: Value =
+                    serde_json::from_str(body).expect("embedding request body should be JSON");
+                assert_eq!(body["prompt"], expected_prompt);
+
+                let body = format!(r#"{{"embedding":[{}]}}"#, index + 1);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("test embedding server should write response");
+            }
+        });
+        format!("http://{address}")
+    }
+
     async fn serve_recording_target() -> (String, Arc<AtomicBool>) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -2395,6 +2497,78 @@ mod tests {
         assert_eq!(result["fromProvider"], true);
         assert_eq!(result["fallback"], false);
         assert_eq!(result["models"][0]["id"], "command-a");
+    }
+
+    #[tokio::test]
+    async fn llm_embed_batches_compatible_inputs_with_a_provider_bound_and_restores_order() {
+        let state = test_state("batched-compatible-embeddings");
+        let input = (0..51)
+            .map(|index| Value::String(format!("input-{index}")))
+            .collect::<Vec<_>>();
+        let result = llm_embed(
+            &state,
+            json!({
+                "connection": {
+                    "provider": "openai",
+                    "baseUrl": serve_bounded_batched_embedding_requests().await,
+                    "apiKey": "sk-test-key",
+                    "embeddingModel": "test-embedding-model"
+                },
+                "input": input
+            }),
+        )
+        .await
+        .expect("compatible embeddings should use bounded provider batches");
+
+        assert_eq!(result["data"][0]["index"], 0);
+        assert_eq!(result["data"][0]["embedding"], json!([0.0]));
+        assert_eq!(result["data"][1]["index"], 1);
+        assert_eq!(result["data"][1]["embedding"], json!([1.0]));
+        assert_eq!(result["data"][50]["index"], 50);
+        assert_eq!(result["data"][50]["embedding"], json!([50.0]));
+    }
+
+    #[tokio::test]
+    async fn llm_embed_keeps_single_input_providers_sequential() {
+        let state = test_state("sequential-ollama-embeddings");
+        let result = llm_embed(
+            &state,
+            json!({
+                "connection": {
+                    "provider": "ollama",
+                    "baseUrl": serve_sequential_ollama_embedding_requests().await,
+                    "embeddingModel": "test-embedding-model"
+                },
+                "input": ["first", "second", "third"]
+            }),
+        )
+        .await
+        .expect("single-input providers should preserve sequential fallback");
+
+        assert_eq!(result["data"][0]["embedding"], json!([1.0]));
+        assert_eq!(result["data"][1]["embedding"], json!([2.0]));
+        assert_eq!(result["data"][2]["embedding"], json!([3.0]));
+    }
+
+    #[tokio::test]
+    async fn llm_embed_preserves_claude_subscription_embedding_error() {
+        let state = test_state("claude-subscription-embedding-error");
+        let error = llm_embed(
+            &state,
+            json!({
+                "connection": {
+                    "provider": "claude_subscription",
+                    "embeddingBaseUrl": "http://127.0.0.1:9/v1",
+                    "embeddingModel": "test-embedding-model"
+                },
+                "input": ["first", "second"]
+            }),
+        )
+        .await
+        .expect_err("Claude Subscription embeddings should remain unsupported");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("does not support embeddings"));
     }
 
     #[test]

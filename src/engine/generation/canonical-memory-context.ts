@@ -316,14 +316,32 @@ async function collectMemoryRows(
   input: CanonicalMemoryContextInput,
 ): Promise<Array<{ memory: CanonicalMemoryRecord; source: MemoryIndexSource }>> {
   const queries = scopeQueries(input);
+  const scopeOrdinal = new Map(
+    queries.map((query, index) => {
+      const scope = query.scope;
+      return [scope ? `${scope.kind}:${scope.id}` : "", index] as const;
+    }),
+  );
+  const orderedBatchRows = (rows: CanonicalMemoryRecord[]) =>
+    rows
+      .flatMap((memory, index) => {
+        const ordinal = scopeOrdinal.get(`${memory.scope.kind}:${memory.scope.id}`);
+        return ordinal === undefined ? [] : [{ memory, index, ordinal }];
+      })
+      .sort((left, right) => left.ordinal - right.ordinal || left.index - right.index)
+      .map(({ memory }) => memory);
   const indexed: CanonicalMemoryRecord[] = [];
-  if (storage.queryMemoryIndex) {
+  if (storage.queryMemoryIndexBatch) {
+    indexed.push(...orderedBatchRows(await storage.queryMemoryIndexBatch(queries)));
+  } else if (storage.queryMemoryIndex) {
     for (const query of queries) indexed.push(...(await storage.queryMemoryIndex(query)));
   }
   if (indexed.length > 0) return indexed.map((memory) => ({ memory, source: "index" }));
 
   const fallback: CanonicalMemoryRecord[] = [];
-  if (storage.queryMemories) {
+  if (storage.queryMemoriesBatch) {
+    fallback.push(...orderedBatchRows(await storage.queryMemoriesBatch(queries)));
+  } else if (storage.queryMemories) {
     for (const query of queries) fallback.push(...(await storage.queryMemories(query)));
   } else {
     const rows = await storage.list<unknown>("canonical-memories", { limit: MAX_CANDIDATE_MEMORIES });

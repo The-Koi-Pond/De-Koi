@@ -34,6 +34,11 @@ pub fn memory_query(state: State<'_, AppState>, body: Value) -> Result<Value, Ap
 }
 
 #[tauri::command]
+pub fn memory_query_batch(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    canonical_memory::query_memories_batch(&state, body)
+}
+
+#[tauri::command]
 pub fn memory_index_upsert(state: State<'_, AppState>, row: Value) -> Result<Value, AppError> {
     canonical_memory::upsert_memory_index_row(&state, row)
 }
@@ -57,4 +62,9 @@ pub fn memory_index_rebuild_lexical(
 #[tauri::command]
 pub fn memory_index_query(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
     canonical_memory::query_memory_index(&state, body)
+}
+
+#[tauri::command]
+pub fn memory_index_query_batch(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    canonical_memory::query_memory_index_batch(&state, body)
 }

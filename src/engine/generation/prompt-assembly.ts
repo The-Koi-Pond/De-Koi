@@ -2898,23 +2898,8 @@ function buildConversationScheduleBlock(
   };
 }
 
-function sharesConversationCharacter(source: JsonRecord, candidate: JsonRecord): boolean {
-  const sourceIds = new Set(activeCharacterIds(source));
-  if (sourceIds.size === 0) return false;
-  return activeCharacterIds(candidate).some((id) => sourceIds.has(id));
-}
-
 const CROSS_CHAT_SIBLING_SCAN_LIMIT = 24;
-
-function chatRecencyMs(chat: JsonRecord): number {
-  const raw =
-    readString(chat.lastActivityAt).trim() ||
-    readString(chat.updatedAt).trim() ||
-    readString(chat.lastMessageAt).trim() ||
-    readString(chat.createdAt).trim();
-  const time = raw ? Date.parse(raw) : Number.NaN;
-  return Number.isFinite(time) ? time : 0;
-}
+const CROSS_CHAT_SECTION_LIMIT = 6;
 
 async function buildCrossChatAwarenessBlock(
   storage: StorageGateway,
@@ -2927,26 +2912,29 @@ async function buildCrossChatAwarenessBlock(
   if (!boolish(meta.crossChatAwareness, false)) return null;
   const chatId = readString(chat.id).trim();
   if (!chatId) return null;
+  if (!storage.listSiblingConversationContext) {
+    throw new Error("Cross-chat awareness is enabled, but sibling conversation context is not supported by this storage runtime.");
+  }
   const characterNames = characterNameLookup(characters);
-  const chats = await storage.list<JsonRecord>("chats").catch(() => []);
-  const siblingChats = chats
-    .filter((candidate) => readString(candidate.id).trim() !== chatId)
-    .filter((candidate) => modeOf(candidate) === "conversation")
-    .filter((candidate) => sharesConversationCharacter(chat, candidate))
-    .sort((left, right) => chatRecencyMs(right) - chatRecencyMs(left))
-    .slice(0, CROSS_CHAT_SIBLING_SCAN_LIMIT);
+  const siblingChats = await storage.listSiblingConversationContext<{ chat: JsonRecord; messages: JsonRecord[] }>({
+    chatId,
+    characterIds: activeCharacterIds(chat),
+    candidateLimit: CROSS_CHAT_SIBLING_SCAN_LIMIT,
+    maxChats: CROSS_CHAT_SECTION_LIMIT,
+    messagesPerChat: 8,
+  }).catch(() => []);
   const sections: string[] = [];
   for (const sibling of siblingChats) {
-    if (sections.length >= 6) break;
-    const siblingId = readString(sibling.id).trim();
+    if (sections.length >= CROSS_CHAT_SECTION_LIMIT) break;
+    const siblingId = readString(sibling.chat.id).trim();
     if (!siblingId) continue;
     const lines = recentVisibleMessageLines(
-      await storage.listChatMessages<JsonRecord>(siblingId, { limit: 8 }).catch(() => []),
+      sibling.messages,
       characterNames,
       4,
     );
     if (lines.length === 0) continue;
-    const title = readString(sibling.name).trim() || siblingId;
+    const title = readString(sibling.chat.name).trim() || siblingId;
     sections.push([`Chat: ${title}`, ...lines.map((line) => `- ${line}`)].join("\n"));
   }
   if (sections.length === 0) return null;
@@ -4075,19 +4063,20 @@ export async function assembleGenerationPrompt(
     input = { ...input, storedMessages: applyAllSegmentEdits(input.storedMessages, chatMeta) };
   }
 
-  const loadedCharacters = reusableContext?.characters ?? (await loadCharacters(storage, input.chat));
+  const [loadedCharacters, persona, selectedPreset] = await Promise.all([
+    reusableContext?.characters ?? loadCharacters(storage, input.chat),
+    reusableContext?.persona ?? loadPersona(storage, input.chat),
+    reusableContext?.selectedPreset ??
+      loadSelectedPromptPreset(storage, {
+        chat: input.chat,
+        connection: input.connection,
+        request: input.request,
+      }),
+  ]);
   const characters =
     chatMode === "roleplay"
       ? loadedCharacters
       : loadedCharacters.map((character) => ({ ...character, behavioralInterpretation: undefined }));
-  const persona = reusableContext?.persona ?? (await loadPersona(storage, input.chat));
-  const selectedPreset =
-    reusableContext?.selectedPreset ??
-    (await loadSelectedPromptPreset(storage, {
-      chat: input.chat,
-      connection: input.connection,
-      request: input.request,
-    }));
   const presetId = reusableContext?.presetId ?? selectedPreset?.id ?? null;
   const promptParameters =
     reusableContext?.promptParameters ??
@@ -4234,28 +4223,18 @@ export async function assembleGenerationPrompt(
         snapshotVariables: () => snapshotMacroVariables(macros),
       },
     });
-  let loreScan =
+  const [initialLoreScan, memoryRecallContext, canonicalMemoryContext] = await Promise.all([
     canReuseSourceSensitiveContext && reusableContext
-      ? reusableContext.loreScan
-      : await scanLorebooksForPositions(baseLorebookIncludedPositions);
-  let processedLore =
-    canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
-  const summaryProjection = reusableContext
-    ? {
-        text: reusableContext.summary,
-        coversPriorHistory: reusableContext.summaryCoversPriorHistory,
-      }
-    : summaryProjectionForGeneration(input.chat, maxContext);
-  const summary = summaryProjection.text;
-  const memoryRecallContext =
+      ? Promise.resolve(reusableContext.loreScan)
+      : scanLorebooksForPositions(baseLorebookIncludedPositions),
     canReuseSourceSensitiveContext && reusableContext
-      ? {
+      ? Promise.resolve({
           block: reusableContext.memoryRecallBlock,
           attributionItems: reusableContext.contextAttributionItems.filter(
             (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source !== "canonical_memory",
           ),
-        }
-      : await buildMemoryRecallBlock(
+        })
+      : buildMemoryRecallBlock(
           storage,
           input.chat,
           input.storedMessages,
@@ -4264,16 +4243,15 @@ export async function assembleGenerationPrompt(
           readNumber(input.request.memoryRecallTokenBudget, 0) || undefined,
           embeddingSource,
           characters.flatMap((character) => character.memories ?? []),
-        );
-  const canonicalMemoryContext =
+        ),
     canReuseSourceSensitiveContext && reusableContext
-      ? {
+      ? Promise.resolve({
           block: reusableContext.canonicalMemoryBlock,
           attributionItems: reusableContext.contextAttributionItems.filter(
             (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source === "canonical_memory",
           ),
-        }
-      : await buildCanonicalMemoryContext(storage, {
+        })
+      : buildCanonicalMemoryContext(storage, {
           chat: input.chat,
           storedMessages: input.storedMessages,
           latestUserInput: input.latestUserInput,
@@ -4285,7 +4263,18 @@ export async function assembleGenerationPrompt(
             memoryPersistence: character.memoryPersistence,
           })),
           maxContext,
-        });
+        }),
+  ]);
+  let loreScan = initialLoreScan;
+  let processedLore =
+    canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
+  const summaryProjection = reusableContext
+    ? {
+        text: reusableContext.summary,
+        coversPriorHistory: reusableContext.summaryCoversPriorHistory,
+      }
+    : summaryProjectionForGeneration(input.chat, maxContext);
+  const summary = summaryProjection.text;
   const canonicalMemoryBlock = canonicalMemoryContext?.block ?? null;
   const memoryRecallBlock =
     memoryRecallContext?.block && canonicalMemoryBlock

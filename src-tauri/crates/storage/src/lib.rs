@@ -16,9 +16,11 @@ use marinara_core::{ensure_object, new_id, now_iso, AppError, AppResult};
 use marinara_security::validate_collection_name;
 use messages::*;
 use projection::*;
+use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
 use serde::Deserializer as _;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::fs;
 use std::io::{BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -26,7 +28,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, RwLock,
 };
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 pub use streaming::{StreamingFilterReport, StreamingTransformReport};
 use transaction::*;
 use write_gate::WriteGate;
@@ -35,6 +37,15 @@ const STORAGE_SAVE_DEBOUNCE_MS: u64 = 750;
 const MAX_CLEAN_COLLECTION_CACHE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PROJECTED_LIST_CACHE_SHAPES: usize = 32;
+
+type JournalClock = Arc<dyn Fn() -> SystemTime + Send + Sync>;
+type DeferredFlushScheduler = Arc<dyn Fn(FileStorage) + Send + Sync>;
+
+#[derive(Clone, Copy)]
+enum FlushKind {
+    Deferred,
+    Shutdown,
+}
 
 fn next_cache_access(cache: &mut StorageCache) -> u64 {
     cache.access_sequence = cache.access_sequence.saturating_add(1).max(1);
@@ -52,7 +63,12 @@ fn clean_cache_bytes(cache: &StorageCache) -> usize {
         .values()
         .filter(|entry| !entry.dirty)
         .map(|entry| entry.approx_bytes)
-        .chain(cache.projected_lists.values().map(|entry| entry.approx_bytes))
+        .chain(
+            cache
+                .projected_lists
+                .values()
+                .map(|entry| entry.approx_bytes),
+        )
         .sum()
 }
 
@@ -70,7 +86,11 @@ fn evict_oldest_clean_cache_entry(cache: &mut StorageCache) -> bool {
         .map(|(key, entry)| (CacheEvictionKey::Projection(key.clone()), entry.last_access));
     let selected = match (collection, projection) {
         (Some(collection), Some(projection)) => {
-            if collection.1 <= projection.1 { collection.0 } else { projection.0 }
+            if collection.1 <= projection.1 {
+                collection.0
+            } else {
+                projection.0
+            }
         }
         (Some(collection), None) => collection.0,
         (None, Some(projection)) => projection.0,
@@ -80,7 +100,9 @@ fn evict_oldest_clean_cache_entry(cache: &mut StorageCache) -> bool {
         CacheEvictionKey::Collection(key) => {
             cache.collections.remove(&key);
             cache.id_indexes.remove(&key);
-            cache.projected_lists.retain(|projection, _| projection.collection != key);
+            cache
+                .projected_lists
+                .retain(|projection, _| projection.collection != key);
         }
         CacheEvictionKey::Projection(key) => {
             cache.projected_lists.remove(&key);
@@ -92,6 +114,46 @@ fn evict_oldest_clean_cache_entry(cache: &mut StorageCache) -> bool {
 pub struct AtomicCollectionRows {
     collection: String,
     rows: Vec<Value>,
+}
+
+struct CollectionRowsVisitor<'a> {
+    visit: &'a mut dyn FnMut(&Value) -> AppResult<()>,
+}
+
+struct CollectionValidationVisitor;
+
+impl<'de> Visitor<'de> for CollectionRowsVisitor<'_> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a storage collection JSON array")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while let Some(row) = seq.next_element::<Value>()? {
+            (self.visit)(&row).map_err(A::Error::custom)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'de> Visitor<'de> for CollectionValidationVisitor {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a storage collection JSON array")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while seq.next_element::<IgnoredAny>()?.is_some() {}
+        Ok(())
+    }
 }
 
 impl AtomicCollectionRows {
@@ -115,11 +177,59 @@ pub struct FileStorage {
     cache: Arc<RwLock<StorageCache>>,
     flush_scheduled: Arc<AtomicBool>,
     write_gate: Arc<WriteGate>,
+    journal_compaction_policy: JournalCompactionPolicy,
+    journal_clock: JournalClock,
+    deferred_flush_scheduler: DeferredFlushScheduler,
+    #[cfg(feature = "journal-compaction-bench")]
+    journal_compaction_counter: Option<Arc<std::sync::atomic::AtomicUsize>>,
+}
+
+fn spawn_deferred_flush(storage: FileStorage) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(STORAGE_SAVE_DEBOUNCE_MS));
+        if let Err(error) = storage.flush_deferred_writes() {
+            eprintln!("[storage] delayed flush failed: {}", error.message);
+        }
+        storage.flush_scheduled.store(false, Ordering::SeqCst);
+        if storage.dirty_collection_count() > 0 {
+            storage.schedule_dirty_flush();
+        }
+    });
 }
 
 impl FileStorage {
     pub fn new(root: impl Into<PathBuf>) -> AppResult<Self> {
-        let root = root.into();
+        Self::new_with_journal_compaction_policy(
+            root.into(),
+            JournalCompactionPolicy::default(),
+            Arc::new(SystemTime::now),
+        )
+    }
+
+    fn new_with_journal_compaction_policy(
+        root: PathBuf,
+        journal_compaction_policy: JournalCompactionPolicy,
+        journal_clock: JournalClock,
+    ) -> AppResult<Self> {
+        Self::new_with_journal_compaction_policy_and_scheduler(
+            root,
+            journal_compaction_policy,
+            journal_clock,
+            Arc::new(spawn_deferred_flush),
+            #[cfg(feature = "journal-compaction-bench")]
+            None,
+        )
+    }
+
+    fn new_with_journal_compaction_policy_and_scheduler(
+        root: PathBuf,
+        journal_compaction_policy: JournalCompactionPolicy,
+        journal_clock: JournalClock,
+        deferred_flush_scheduler: DeferredFlushScheduler,
+        #[cfg(feature = "journal-compaction-bench")] journal_compaction_counter: Option<
+            Arc<std::sync::atomic::AtomicUsize>,
+        >,
+    ) -> AppResult<Self> {
         let collections = root.join("collections");
         fs::create_dir_all(&collections)?;
         let storage = Self {
@@ -128,6 +238,11 @@ impl FileStorage {
             cache: Arc::new(RwLock::new(StorageCache::default())),
             flush_scheduled: Arc::new(AtomicBool::new(false)),
             write_gate: Arc::new(WriteGate::default()),
+            journal_compaction_policy,
+            journal_clock,
+            deferred_flush_scheduler,
+            #[cfg(feature = "journal-compaction-bench")]
+            journal_compaction_counter,
         };
         recover_pending_collection_transactions(&collections)?;
         if let Err(error) = append_journal::recover(&collections) {
@@ -137,6 +252,21 @@ impl FileStorage {
         recover_collection_journals(&collections)?;
         append_journal::prepare_known_checkpoint(&collections)?;
         Ok(storage)
+    }
+
+    #[cfg(feature = "journal-compaction-bench")]
+    #[doc(hidden)]
+    pub fn new_for_journal_compaction_benchmark(
+        root: impl Into<PathBuf>,
+        journal_compaction_counter: Arc<std::sync::atomic::AtomicUsize>,
+    ) -> AppResult<Self> {
+        Self::new_with_journal_compaction_policy_and_scheduler(
+            root.into(),
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            Arc::new(SystemTime::now),
+            Arc::new(|_| {}),
+            Some(journal_compaction_counter),
+        )
     }
 
     pub fn root(&self) -> &Path {
@@ -150,7 +280,7 @@ impl FileStorage {
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
         append_journal::recover(&self.root.join("collections"))?;
-        self.flush_dirty_collections_locked()
+        self.flush_dirty_collections_locked(FlushKind::Shutdown)
     }
 
     fn flush_deferred_writes(&self) -> AppResult<()> {
@@ -161,7 +291,7 @@ impl FileStorage {
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
         // Avoid checkpointing unrelated pending appends. The dirty flush recovers
         // once up front if its write set contains a checkpoint-tracked collection.
-        self.flush_dirty_collections_locked()
+        self.flush_dirty_collections_locked(FlushKind::Deferred)
     }
 
     pub fn list(&self, collection: &str) -> AppResult<Vec<Value>> {
@@ -169,6 +299,78 @@ impl FileStorage {
             || self.read_collection_no_recovery(collection),
             || self.read_collection(collection),
         )
+    }
+
+    /// Streams rows to the caller without cloning or collecting a collection.
+    /// Cached rows are borrowed in place; uncached collections are parsed one row at a time.
+    pub fn visit_collection_rows(
+        &self,
+        collection: &str,
+        visit: &mut dyn FnMut(&Value) -> AppResult<()>,
+    ) -> AppResult<()> {
+        // Validate before invoking the callback. A malformed collection must use
+        // the same recovery path as `list`, rather than delivering partial rows.
+        self.read_locked_or_recover(
+            || self.validate_collection_rows_no_recovery(collection),
+            || self.read_collection(collection).map(|_| ()),
+        )?;
+        self.visit_validated_collection_rows(collection, visit)
+    }
+
+    /// Visits only rows whose string field matches one of `filter_values`.
+    /// The cached path borrows rows in place; callers decide which matching rows
+    /// to clone, so a narrow query never clones the whole cached collection.
+    pub fn visit_collection_rows_where_in(
+        &self,
+        collection: &str,
+        filter_field: &str,
+        filter_values: &HashSet<String>,
+        visit: &mut dyn FnMut(&Value) -> AppResult<()>,
+    ) -> AppResult<()> {
+        if filter_values.is_empty() {
+            return Ok(());
+        }
+        self.visit_collection_rows(collection, &mut |row| {
+            if row_string_field_matches_in(row, filter_field, filter_values) {
+                visit(row)?;
+            }
+            Ok(())
+        })
+    }
+
+    fn visit_validated_collection_rows(
+        &self,
+        collection: &str,
+        visit: &mut dyn FnMut(&Value) -> AppResult<()>,
+    ) -> AppResult<()> {
+        validate_collection_name(collection)?;
+        let _guard = self
+            .lock
+            .read()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        self.write_gate.ensure_available()?;
+        {
+            let cache = self
+                .cache
+                .read()
+                .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+            if let Some(cached) = cache.collections.get(collection) {
+                for row in &cached.rows {
+                    visit(row)?;
+                }
+                return Ok(());
+            }
+        }
+        let path = self.collection_path(collection)?;
+        if !path.exists() || fs::metadata(&path)?.len() == 0 {
+            return Ok(());
+        }
+        let file = fs::File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut deserializer = serde_json::Deserializer::from_reader(reader);
+        (&mut deserializer)
+            .deserialize_seq(CollectionRowsVisitor { visit })
+            .map_err(|error| AppError::new("storage_parse_error", error.to_string()))
     }
 
     pub fn list_where(
@@ -782,7 +984,7 @@ impl FileStorage {
                 .lock
                 .write()
                 .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-            self.flush_dirty_collections_locked()?;
+            self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
 
             let mut loaded = Vec::with_capacity(collections.len());
             let mut original_stamps = Vec::with_capacity(collections.len());
@@ -809,7 +1011,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked()?;
+        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
         for (collection, original_stamp) in &original_stamps {
             let path = self.collection_path(collection)?;
             if collection_content_stamp(&path)? != *original_stamp {
@@ -956,7 +1158,9 @@ impl FileStorage {
             return Ok(());
         } else {
             cache.collections.remove(collection);
-            while clean_cache_bytes(&cache).saturating_add(approx_bytes) > MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES {
+            while clean_cache_bytes(&cache).saturating_add(approx_bytes)
+                > MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES
+            {
                 if !evict_oldest_clean_cache_entry(&mut cache) {
                     break;
                 }
@@ -1070,20 +1274,10 @@ impl FileStorage {
         if self.flush_scheduled.swap(true, Ordering::SeqCst) {
             return;
         }
-        let storage = self.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(STORAGE_SAVE_DEBOUNCE_MS));
-            if let Err(error) = storage.flush_deferred_writes() {
-                eprintln!("[storage] delayed flush failed: {}", error.message);
-            }
-            storage.flush_scheduled.store(false, Ordering::SeqCst);
-            if storage.dirty_collection_count() > 0 {
-                storage.schedule_dirty_flush();
-            }
-        });
+        (self.deferred_flush_scheduler)(self.clone());
     }
 
-    fn flush_dirty_collections_locked(&self) -> AppResult<()> {
+    fn flush_dirty_collections_locked(&self, flush_kind: FlushKind) -> AppResult<()> {
         let dirty = {
             let cache = self
                 .cache
@@ -1096,13 +1290,37 @@ impl FileStorage {
                 .map(|(collection, cached)| (collection.clone(), cached.rows.clone()))
                 .collect::<Vec<_>>()
         };
-        if dirty
+        let collections_dir = self.root.join("collections");
+        let compact = dirty
+            .into_iter()
+            .filter_map(|(collection, rows)| {
+                let force = matches!(flush_kind, FlushKind::Shutdown)
+                    || append_journal::checkpoint_tracks(&collection);
+                let should_compact = collection_journal_needs_compaction(
+                    &collections_dir,
+                    &collection,
+                    self.journal_compaction_policy,
+                    (self.journal_clock)(),
+                    force,
+                );
+                match should_compact {
+                    Ok(true) => Some(Ok((collection, rows))),
+                    Ok(false) => None,
+                    Err(error) => Some(Err(error)),
+                }
+            })
+            .collect::<AppResult<Vec<_>>>()?;
+        if compact
             .iter()
             .any(|(collection, _)| append_journal::checkpoint_tracks(collection))
         {
-            append_journal::recover(&self.root.join("collections"))?;
+            append_journal::recover(&collections_dir)?;
         }
-        for (collection, rows) in dirty {
+        for (collection, rows) in compact {
+            #[cfg(feature = "journal-compaction-bench")]
+            if let Some(counter) = &self.journal_compaction_counter {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
             self.write_collection_file(&collection, &rows)?;
             if collection == "chats" {
                 let path = self.collection_path(&collection)?;
@@ -1113,7 +1331,7 @@ impl FileStorage {
                 .cache
                 .write()
                 .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
-            remove_collection_journal(&self.root.join("collections"), &collection)?;
+            remove_collection_journal(&collections_dir, &collection)?;
             if let Some(cached) = cache.collections.get_mut(&collection) {
                 cached.dirty = false;
             }
@@ -1167,6 +1385,25 @@ impl FileStorage {
         let rows = self.read_collection_from_disk_no_recovery(collection)?;
         self.cache_collection(collection, &rows, false)?;
         Ok(rows)
+    }
+
+    fn validate_collection_rows_no_recovery(&self, collection: &str) -> AppResult<()> {
+        if self.is_collection_cached(collection)? {
+            return Ok(());
+        }
+        let path = self.collection_path(collection)?;
+        if !path.exists() || fs::metadata(&path)?.len() == 0 {
+            return Ok(());
+        }
+        let file = fs::File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut deserializer = serde_json::Deserializer::from_reader(reader);
+        (&mut deserializer)
+            .deserialize_seq(CollectionValidationVisitor)
+            .map_err(|error| AppError::new("storage_parse_error", error.to_string()))?;
+        deserializer
+            .end()
+            .map_err(|error| AppError::new("storage_parse_error", error.to_string()))
     }
 
     fn read_collection_from_disk(&self, collection: &str) -> AppResult<Vec<Value>> {
@@ -2149,7 +2386,9 @@ impl FileStorage {
             }
         }
         cache.projected_lists.remove(key);
-        while clean_cache_bytes(&cache).saturating_add(approx_bytes) > MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES {
+        while clean_cache_bytes(&cache).saturating_add(approx_bytes)
+            > MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES
+        {
             if !evict_oldest_clean_cache_entry(&mut cache) {
                 break;
             }
@@ -2320,6 +2559,7 @@ impl FileStorage {
     }
 
     fn write_collection_immediate(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
+        validate_collection_journal_before_replacement(&self.root.join("collections"), collection)?;
         self.write_collection_file(collection, rows)?;
         if collection == "chats" {
             let path = self.collection_path(collection)?;
@@ -2566,8 +2806,11 @@ impl FileStorage {
     where
         F: FnOnce() -> AppResult<()>,
     {
-        self.flush_dirty_collections_locked()?;
+        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
         let collections_dir = self.root.join("collections");
+        for (collection, _) in &replacements {
+            validate_collection_journal_before_replacement(&collections_dir, collection)?;
+        }
         let replaces_append_checkpoint = replacements
             .iter()
             .any(|(collection, _)| append_journal::checkpoint_tracks(collection));
@@ -2766,7 +3009,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering as AtomicOrdering},
         Arc as TestArc,
     };
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     fn temp_storage_root(test_name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -2786,6 +3029,19 @@ mod tests {
         fs::write(path, serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
     }
 
+    fn storage_with_journal_compaction_policy(
+        root: &Path,
+        policy: JournalCompactionPolicy,
+        now: SystemTime,
+    ) -> FileStorage {
+        FileStorage::new_with_journal_compaction_policy(
+            root.to_path_buf(),
+            policy,
+            TestArc::new(move || now),
+        )
+        .unwrap()
+    }
+
     #[cfg(unix)]
     fn file_identity(path: &Path) -> u128 {
         use std::os::unix::fs::MetadataExt;
@@ -2800,11 +3056,7 @@ mod tests {
         fs::metadata(path).unwrap().creation_time() as u128
     }
 
-    fn write_test_transaction_manifest(
-        collections: &Path,
-        phase: &str,
-        entries: Value,
-    ) -> PathBuf {
+    fn write_test_transaction_manifest(collections: &Path, phase: &str, entries: Value) -> PathBuf {
         let manifest = collections.join(".collection-transaction-test.json");
         fs::write(
             &manifest,
@@ -2842,7 +3094,10 @@ mod tests {
 
         let storage = FileStorage::new(&root).expect("prepared transaction should recover");
 
-        assert_eq!(storage.list("messages").unwrap(), vec![json!({ "id": "old-message" })]);
+        assert_eq!(
+            storage.list("messages").unwrap(),
+            vec![json!({ "id": "old-message" })]
+        );
         assert!(!manifest.exists());
         assert!(!staged.exists());
         assert!(!backup.exists());
@@ -2872,7 +3127,10 @@ mod tests {
 
         let storage = FileStorage::new(&root).expect("committed transaction should recover");
 
-        assert_eq!(storage.list("messages").unwrap(), vec![json!({ "id": "new-message" })]);
+        assert_eq!(
+            storage.list("messages").unwrap(),
+            vec![json!({ "id": "new-message" })]
+        );
         assert!(!manifest.exists());
         assert!(!staged.exists());
         assert!(!backup.exists());
@@ -3043,7 +3301,9 @@ mod tests {
                                 .and_then(|value| value.to_str())
                                 .is_some_and(|name| name.starts_with(".collection-transaction-"))
                         })
-                        .ok_or_else(|| AppError::invalid_input("prepared manifest was not visible"))?;
+                        .ok_or_else(|| {
+                            AppError::invalid_input("prepared manifest was not visible")
+                        })?;
                     let value: Value = serde_json::from_slice(&fs::read(manifest)?)?;
                     saw_prepared_manifest.set(value["phase"] == json!("prepared"));
                     Ok(())
@@ -3052,12 +3312,15 @@ mod tests {
             .unwrap();
 
         assert!(saw_prepared_manifest.get());
-        assert!(fs::read_dir(&collections).unwrap().filter_map(Result::ok).all(|entry| {
-            !entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".collection-transaction-")
-        }));
+        assert!(fs::read_dir(&collections)
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| {
+                !entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".collection-transaction-")
+            }));
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3066,7 +3329,10 @@ mod tests {
         let root = temp_storage_root("startup-replays-journal");
         let collections = root.join("collections");
         let primary = collections.join("characters.json");
-        write_test_collection(&primary, vec![json!({ "id": "existing", "name": "Before" })]);
+        write_test_collection(
+            &primary,
+            vec![json!({ "id": "existing", "name": "Before" })],
+        );
         journal::append_collection_mutation(
             &collections,
             "characters",
@@ -3107,11 +3373,499 @@ mod tests {
     }
 
     #[test]
+    fn short_generic_mutation_burst_stays_journal_backed_during_deferred_flush() {
+        let root = temp_storage_root("short-generic-journal-burst");
+        let storage = FileStorage::new(&root).unwrap();
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert_eq!(
+            fs::read(&primary).unwrap(),
+            primary_before,
+            "a short mutation burst must not immediately serialize the whole collection"
+        );
+        assert!(
+            journal.exists(),
+            "the acknowledged mutation must remain journal-backed"
+        );
+        assert_eq!(
+            storage.list("characters").unwrap()[0]["name"],
+            "After",
+            "the live cache must expose the acknowledged journal overlay"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn entry_count_threshold_compacts_a_generic_collection() {
+        let root = temp_storage_root("generic-journal-entry-threshold");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), 2, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+
+        storage
+            .patch("characters", "character-1", json!({ "name": "First" }))
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(journal.exists());
+
+        storage
+            .patch("characters", "character-1", json!({ "name": "Second" }))
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert!(!journal.exists(), "the entry count threshold must compact");
+        assert_eq!(
+            parse_collection_file("characters", &primary).unwrap()[0]["name"],
+            "Second"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn byte_size_threshold_compacts_a_generic_collection() {
+        let root = temp_storage_root("generic-journal-byte-threshold");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, 1),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+
+        storage
+            .patch(
+                "characters",
+                "character-1",
+                json!({ "name": "x".repeat(1024) }),
+            )
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert!(!journal.exists(), "the byte-size threshold must compact");
+        assert_eq!(
+            parse_collection_file("characters", &primary).unwrap()[0]["name"]
+                .as_str()
+                .unwrap()
+                .len(),
+            1024
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn deferred_compaction_rejects_a_corrupt_journal_before_overwriting_the_primary() {
+        let root = temp_storage_root("corrupt-generic-journal-before-compaction");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, 1),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt threshold entry\\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = storage
+            .flush_deferred_writes()
+            .expect_err("a corrupt journal must block threshold compaction");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(journal.exists(), "recovery evidence must be preserved");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shutdown_flush_rejects_a_corrupt_generic_journal_before_overwriting_the_primary() {
+        let root = temp_storage_root("corrupt-generic-journal-shutdown-flush");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt shutdown entry\\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = storage
+            .flush()
+            .expect_err("shutdown must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(journal.exists(), "shutdown must preserve corrupt evidence");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn streaming_boundary_rejects_a_corrupt_generic_journal_before_overwriting_the_primary() {
+        let root = temp_storage_root("corrupt-generic-journal-streaming-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt streaming entry\\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = storage
+            .visit_collection_streaming("characters", |_, _| Ok(()))
+            .expect_err("streaming must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(journal.exists(), "streaming must preserve corrupt evidence");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_boundary_rejects_a_corrupt_generic_journal_before_overwriting_the_primary() {
+        let root = temp_storage_root("corrupt-generic-journal-atomic-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt atomic entry\\n").unwrap();
+        file.sync_all().unwrap();
+        let update_ran = std::cell::Cell::new(false);
+
+        let error = storage
+            .update_collections_atomically(vec!["personas"], |_| {
+                update_ran.set(true);
+                Ok(())
+            })
+            .expect_err("atomic update must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert!(
+            !update_ran.get(),
+            "the atomic callback must not run after a failed flush"
+        );
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(
+            journal.exists(),
+            "atomic update must preserve corrupt evidence"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn replacement_boundary_rejects_a_corrupt_generic_journal_before_importing_rows() {
+        let root = temp_storage_root("corrupt-generic-journal-replacement-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt replacement entry\\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = storage
+            .replace_all("characters", vec![json!({ "id": "imported-character" })])
+            .expect_err("replacement must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(
+            journal.exists(),
+            "replacement must preserve corrupt evidence"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bulk_import_boundary_rejects_a_corrupt_generic_journal_before_installing_rows() {
+        let root = temp_storage_root("corrupt-generic-journal-bulk-import-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt bulk import entry\\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = storage
+            .replace_all_many(vec![(
+                "personas",
+                vec![json!({ "id": "imported-persona" })],
+            )])
+            .expect_err("bulk import must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(!root.join("collections").join("personas.json").exists());
+        assert!(
+            journal.exists(),
+            "bulk import must preserve corrupt evidence"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bulk_import_compacts_and_preserves_a_valid_generic_journal_before_installing_rows() {
+        let root = temp_storage_root("valid-generic-journal-bulk-import-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+
+        storage
+            .replace_all_many(vec![(
+                "personas",
+                vec![json!({ "id": "imported-persona" })],
+            )])
+            .unwrap();
+
+        assert_eq!(
+            parse_collection_file("characters", &primary).unwrap()[0]["name"],
+            "After"
+        );
+        assert!(
+            !journal.exists(),
+            "the valid journal must be compacted before import"
+        );
+        assert_eq!(
+            storage.list("personas").unwrap(),
+            vec![json!({ "id": "imported-persona" })]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn age_threshold_compacts_a_generic_collection_with_a_deterministic_clock() {
+        let root = temp_storage_root("generic-journal-age-threshold");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(1), usize::MAX, u64::MAX),
+            SystemTime::now() + Duration::from_secs(2),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+
+        storage.flush_deferred_writes().unwrap();
+
+        assert!(
+            !journal.exists(),
+            "the injected clock must trigger age compaction"
+        );
+        assert_eq!(
+            parse_collection_file("characters", &primary).unwrap()[0]["name"],
+            "After"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shutdown_flush_compacts_an_uncompacted_generic_journal() {
+        let root = temp_storage_root("shutdown-compacts-generic-journal");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+        assert!(
+            journal.exists(),
+            "the policy keeps the short burst journal-backed"
+        );
+
+        storage.flush().unwrap();
+
+        assert!(
+            !journal.exists(),
+            "shutdown flush must compact pending mutations"
+        );
+        assert_eq!(
+            parse_collection_file("characters", &primary).unwrap()[0]["name"],
+            "After"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_replays_an_uncompacted_generic_journal() {
+        let root = temp_storage_root("startup-replays-uncompacted-generic-journal");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+        assert!(
+            journal.exists(),
+            "the journal must survive until compaction or restart"
+        );
+        drop(storage);
+
+        let restarted = FileStorage::new(&root).unwrap();
+
+        assert_eq!(restarted.list("characters").unwrap()[0]["name"], "After");
+        assert!(
+            !journal.exists(),
+            "successful startup replay clears recovered evidence"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn journal_append_failure_does_not_mutate_cache_or_primary() {
         let root = temp_storage_root("journal-append-failure");
         let storage = FileStorage::new(&root).unwrap();
         storage
-            .replace_all("characters", vec![json!({ "id": "character-1", "name": "Before" })])
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
             .unwrap();
         let journal_path = root.join("collections").join("characters.pending.jsonl");
         fs::create_dir(&journal_path).unwrap();
@@ -3143,9 +3897,18 @@ mod tests {
         let primary = collections.join("characters.json");
         let staged = collections.join("characters.json.profile-import-test-0.tmp");
         let backup = collections.join("characters.json.profile-import-test-0.backup");
-        write_test_collection(&primary, vec![json!({ "id": "character-1", "name": "Interrupted" })]);
-        write_test_collection(&staged, vec![json!({ "id": "character-1", "name": "Interrupted" })]);
-        write_test_collection(&backup, vec![json!({ "id": "character-1", "name": "Before" })]);
+        write_test_collection(
+            &primary,
+            vec![json!({ "id": "character-1", "name": "Interrupted" })],
+        );
+        write_test_collection(
+            &staged,
+            vec![json!({ "id": "character-1", "name": "Interrupted" })],
+        );
+        write_test_collection(
+            &backup,
+            vec![json!({ "id": "character-1", "name": "Before" })],
+        );
         write_test_transaction_manifest(
             &collections,
             "prepared",
@@ -3646,20 +4409,21 @@ mod tests {
         let storage = FileStorage::new(&root).unwrap();
 
         for index in 1..=2 {
-            assert!(
-                storage
-                    .append_many_uncached(vec![
-                        ("messages", vec![json!({ "id": format!("message-{index}") })]),
-                        (
-                            "message-swipes",
-                            vec![json!({
-                                "id": format!("message-{index}::swipe::0"),
-                                "messageId": format!("message-{index}"),
-                            })],
-                        ),
-                    ])
-                    .unwrap()
-            );
+            assert!(storage
+                .append_many_uncached(vec![
+                    (
+                        "messages",
+                        vec![json!({ "id": format!("message-{index}") })]
+                    ),
+                    (
+                        "message-swipes",
+                        vec![json!({
+                            "id": format!("message-{index}::swipe::0"),
+                            "messageId": format!("message-{index}"),
+                        })],
+                    ),
+                ])
+                .unwrap());
         }
 
         assert_eq!(storage.list("messages").unwrap().len(), 2);
@@ -3756,23 +4520,21 @@ mod tests {
         );
         let storage = FileStorage::new(&root).unwrap();
 
-        assert!(
-            storage
-                .append_many_uncached(vec![
-                    (
-                        "messages",
-                        vec![json!({ "id": "pending-message", "chatId": "fixture-chat" })],
-                    ),
-                    (
-                        "message-swipes",
-                        vec![json!({
-                            "id": "pending-message::swipe::0",
-                            "messageId": "pending-message",
-                        })],
-                    ),
-                ])
-                .unwrap()
-        );
+        assert!(storage
+            .append_many_uncached(vec![
+                (
+                    "messages",
+                    vec![json!({ "id": "pending-message", "chatId": "fixture-chat" })],
+                ),
+                (
+                    "message-swipes",
+                    vec![json!({
+                        "id": "pending-message::swipe::0",
+                        "messageId": "pending-message",
+                    })],
+                ),
+            ])
+            .unwrap());
         let journal = collections.join(".collection-append-journal.jsonl");
         let pending_journal = fs::read(&journal).unwrap();
         assert!(!pending_journal.is_empty());
@@ -3802,18 +4564,14 @@ mod tests {
 
         drop(storage);
         let recovered = FileStorage::new(&root).unwrap();
-        assert!(
-            recovered
-                .get("messages", "pending-message")
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            recovered
-                .get("message-swipes", "pending-message::swipe::0")
-                .unwrap()
-                .is_some()
-        );
+        assert!(recovered
+            .get("messages", "pending-message")
+            .unwrap()
+            .is_some());
+        assert!(recovered
+            .get("message-swipes", "pending-message::swipe::0")
+            .unwrap()
+            .is_some());
         assert_eq!(fs::metadata(journal).unwrap().len(), 0);
         drop(recovered);
         fs::remove_dir_all(root).unwrap();
@@ -3840,11 +4598,7 @@ mod tests {
         assert!(fs::metadata(&journal).unwrap().len() > 0);
 
         storage
-            .patch(
-                "messages",
-                "pending-message",
-                json!({ "content": "after" }),
-            )
+            .patch("messages", "pending-message", json!({ "content": "after" }))
             .unwrap();
         storage.flush_deferred_writes().unwrap();
 
@@ -3897,10 +4651,7 @@ mod tests {
         let collections = root.join("collections");
 
         let appended = storage
-            .append_many_uncached(vec![(
-                "characters",
-                vec![json!({ "id": "character-1" })],
-            )])
+            .append_many_uncached(vec![("characters", vec![json!({ "id": "character-1" })])])
             .unwrap();
 
         assert!(!appended);
@@ -3958,7 +4709,9 @@ mod tests {
         );
         write_test_collection(
             &collections.join("message-swipes.json"),
-            vec![json!({ "id": "historical-message::swipe::0", "messageId": "historical-message" })],
+            vec![
+                json!({ "id": "historical-message::swipe::0", "messageId": "historical-message" }),
+            ],
         );
 
         let storage = FileStorage::new(&root).unwrap();
@@ -4083,18 +4836,27 @@ mod tests {
         drop(storage);
         append_journal::append_transaction(
             &collections,
-            &[("messages", vec![json!({ "id": "message-2", "content": "first" })])],
+            &[(
+                "messages",
+                vec![json!({ "id": "message-2", "content": "first" })],
+            )],
         )
         .unwrap();
         append_journal::append_transaction(
             &collections,
-            &[("messages", vec![json!({ "id": "message-2", "content": "retry" })])],
+            &[(
+                "messages",
+                vec![json!({ "id": "message-2", "content": "retry" })],
+            )],
         )
         .unwrap();
 
         let recovered = FileStorage::new(&root).unwrap();
 
-        assert_eq!(recovered.get("messages", "message-2").unwrap().unwrap()["content"], "retry");
+        assert_eq!(
+            recovered.get("messages", "message-2").unwrap().unwrap()["content"],
+            "retry"
+        );
         assert_eq!(recovered.list("messages").unwrap().len(), 2);
         fs::remove_dir_all(root).unwrap();
     }
@@ -4176,10 +4938,13 @@ mod tests {
         fs::write(&backup, b"").unwrap();
 
         let error = storage
-            .append_many_uncached(vec![("message-swipes", vec![json!({
-                "id": "message-3::swipe::0",
-                "messageId": "message-3",
-            })])])
+            .append_many_uncached(vec![(
+                "message-swipes",
+                vec![json!({
+                    "id": "message-3::swipe::0",
+                    "messageId": "message-3",
+                })],
+            )])
             .unwrap_err();
 
         assert_eq!(error.code, "storage_append_journal_recovery_required");
@@ -4190,7 +4955,10 @@ mod tests {
         let restart_error = FileStorage::new(&root)
             .err()
             .expect("startup should reject an empty pending checkpoint backup");
-        assert_eq!(restart_error.code, "storage_append_journal_recovery_required");
+        assert_eq!(
+            restart_error.code,
+            "storage_append_journal_recovery_required"
+        );
         assert_eq!(fs::metadata(&backup).unwrap().len(), 0);
         fs::remove_dir_all(root).unwrap();
     }
@@ -4243,14 +5011,16 @@ mod tests {
         let storage = FileStorage::new(&root).unwrap();
         assert_eq!(storage.list("messages").unwrap().len(), 1);
         assert_eq!(storage.list("message-swipes").unwrap().len(), 1);
-        APPEND_APPLY_TEST_HOOK.with(|hook| *hook.borrow_mut() = Some(Box::new(|path| {
-            if path.file_name().and_then(|name| name.to_str()) == Some("message-swipes.json") {
-                return Err(AppError::io(std::io::Error::other(
-                    "injected second collection append failure",
-                )));
-            }
-            Ok(())
-        })));
+        APPEND_APPLY_TEST_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(|path| {
+                if path.file_name().and_then(|name| name.to_str()) == Some("message-swipes.json") {
+                    return Err(AppError::io(std::io::Error::other(
+                        "injected second collection append failure",
+                    )));
+                }
+                Ok(())
+            }))
+        });
 
         let result = storage.append_many_uncached(vec![
             ("messages", vec![json!({ "id": "message-2" })]),
@@ -4271,21 +5041,30 @@ mod tests {
     fn failed_synchronous_append_recovery_blocks_reads_and_writes_until_restart() {
         let root = temp_storage_root("atomic-append-recovery-failure");
         let collections = root.join("collections");
-        write_test_collection(&collections.join("messages.json"), vec![json!({ "id": "message-1" })]);
+        write_test_collection(
+            &collections.join("messages.json"),
+            vec![json!({ "id": "message-1" })],
+        );
         write_test_collection(
             &collections.join("message-swipes.json"),
             vec![json!({ "id": "message-1::swipe::0", "messageId": "message-1" })],
         );
         let storage = FileStorage::new(&root).unwrap();
-        APPEND_APPLY_TEST_HOOK.with(|hook| *hook.borrow_mut() = Some(Box::new(|path| {
-            if path.file_name().and_then(|name| name.to_str()) == Some("message-swipes.json") {
-                return Err(AppError::io(std::io::Error::other("injected append failure")));
-            }
-            Ok(())
-        })));
+        APPEND_APPLY_TEST_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(|path| {
+                if path.file_name().and_then(|name| name.to_str()) == Some("message-swipes.json") {
+                    return Err(AppError::io(std::io::Error::other(
+                        "injected append failure",
+                    )));
+                }
+                Ok(())
+            }))
+        });
         append_journal::APPEND_RECOVERY_TEST_HOOK.with(|hook| {
             *hook.borrow_mut() = Some(Box::new(|| {
-                Err(AppError::io(std::io::Error::other("injected recovery failure")))
+                Err(AppError::io(std::io::Error::other(
+                    "injected recovery failure",
+                )))
             }))
         });
 
@@ -4300,9 +5079,15 @@ mod tests {
         append_journal::APPEND_RECOVERY_TEST_HOOK.with(|hook| *hook.borrow_mut() = None);
 
         assert!(result.is_err());
-        assert_eq!(storage.list("messages").unwrap_err().code, "storage_append_journal_recovery_required");
         assert_eq!(
-            storage.replace_all("characters", vec![json!({ "id": "blocked" })]).unwrap_err().code,
+            storage.list("messages").unwrap_err().code,
+            "storage_append_journal_recovery_required"
+        );
+        assert_eq!(
+            storage
+                .replace_all("characters", vec![json!({ "id": "blocked" })])
+                .unwrap_err()
+                .code,
             "storage_append_journal_recovery_required"
         );
         drop(storage);
@@ -4317,7 +5102,10 @@ mod tests {
     fn replacement_checkpoints_pending_appends_before_installing_new_rows() {
         let root = temp_storage_root("replace-with-pending-append");
         let collections = root.join("collections");
-        write_test_collection(&collections.join("messages.json"), vec![json!({ "id": "baseline" })]);
+        write_test_collection(
+            &collections.join("messages.json"),
+            vec![json!({ "id": "baseline" })],
+        );
         let storage = FileStorage::new(&root).unwrap();
         storage
             .append_many_uncached(vec![("messages", vec![json!({ "id": "appended" })])])
@@ -4329,7 +5117,10 @@ mod tests {
         drop(storage);
         let restarted = FileStorage::new(&root).unwrap();
 
-        assert_eq!(restarted.list("messages").unwrap(), vec![json!({ "id": "replacement" })]);
+        assert_eq!(
+            restarted.list("messages").unwrap(),
+            vec![json!({ "id": "replacement" })]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -4743,6 +5534,101 @@ mod tests {
             1
         );
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn visit_collection_rows_recovers_before_delivering_partial_rows() {
+        let root = temp_storage_root("visit-collection-recovers-before-partial-rows");
+        let storage = FileStorage::new(&root).unwrap();
+        let collection = root.join("collections").join("messages.json");
+        let backup = root.join("collections").join("messages.json.bak");
+        fs::write(&collection, b"[{\"id\":\"partial\"},").unwrap();
+        fs::write(
+            &backup,
+            serde_json::to_vec_pretty(&json!([{ "id": "recovered", "chatId": "chat-1" }])).unwrap(),
+        )
+        .unwrap();
+
+        let mut ids = Vec::new();
+        storage
+            .visit_collection_rows("messages", &mut |row| {
+                ids.push(row["id"].as_str().unwrap().to_string());
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(ids, vec!["recovered"]);
+        assert_eq!(
+            storage.list("messages").unwrap(),
+            vec![json!({ "id": "recovered", "chatId": "chat-1" })]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn visit_collection_rows_replays_pending_append_journal_before_delivery() {
+        let root = temp_storage_root("visit-collection-replays-append-journal");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        write_test_collection(
+            &messages,
+            vec![json!({ "id": "baseline", "chatId": "chat-1" })],
+        );
+        let storage = FileStorage::new(&root).unwrap();
+        append_journal::append_transaction(
+            &collections,
+            &[(
+                "messages",
+                vec![json!({ "id": "journaled", "chatId": "chat-1" })],
+            )],
+        )
+        .unwrap();
+        fs::write(&messages, b"[{\"id\":\"partial\"},").unwrap();
+
+        let mut ids = Vec::new();
+        storage
+            .visit_collection_rows("messages", &mut |row| {
+                ids.push(row["id"].as_str().unwrap().to_string());
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(ids, vec!["baseline", "journaled"]);
+        assert_eq!(
+            storage.list("messages").unwrap(),
+            vec![
+                json!({ "id": "baseline", "chatId": "chat-1" }),
+                json!({ "id": "journaled", "chatId": "chat-1" }),
+            ]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn visit_collection_rows_where_in_filters_cached_rows_without_a_full_result_clone() {
+        let root = temp_storage_root("visit-collection-where-in-cached-rows");
+        let storage = FileStorage::new(&root).unwrap();
+        let mut rows = vec![json!({ "id": "selected", "messageId": "message-selected" })];
+        for index in 0..1_024 {
+            rows.push(json!({
+                "id": format!("unrelated-{index}"),
+                "messageId": format!("message-unrelated-{index}"),
+                "content": "large cached sidecar payload"
+            }));
+        }
+        storage.replace_all("message-swipes", rows).unwrap();
+        let values = HashSet::from(["message-selected".to_string()]);
+        let mut matched = Vec::new();
+
+        storage
+            .visit_collection_rows_where_in("message-swipes", "messageId", &values, &mut |row| {
+                matched.push(row["id"].as_str().unwrap().to_string());
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(matched, vec!["selected"]);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -6714,8 +7600,12 @@ mod tests {
     fn clean_cache_evicts_the_least_recently_used_entry_at_total_budget() {
         let root = temp_storage_root("cache-lru-total-budget");
         let storage = FileStorage::new(&root).unwrap();
-        storage.cache_collection("characters", &[json!({ "id": "a" })], false).unwrap();
-        storage.cache_collection("personas", &[json!({ "id": "b" })], false).unwrap();
+        storage
+            .cache_collection("characters", &[json!({ "id": "a" })], false)
+            .unwrap();
+        storage
+            .cache_collection("personas", &[json!({ "id": "b" })], false)
+            .unwrap();
         let _ = storage.cached_rows("characters").unwrap();
         {
             let mut cache = storage.cache.write().unwrap();
@@ -6723,11 +7613,17 @@ mod tests {
                 cache.collections.get("characters").unwrap().last_access
                     > cache.collections.get("personas").unwrap().last_access
             );
-            cache.collections.get_mut("characters").unwrap().approx_bytes = 32 * 1024 * 1024;
+            cache
+                .collections
+                .get_mut("characters")
+                .unwrap()
+                .approx_bytes = 32 * 1024 * 1024;
             cache.collections.get_mut("personas").unwrap().approx_bytes = 32 * 1024 * 1024;
         }
 
-        storage.cache_collection("gallery", &[json!({ "id": "c" })], false).unwrap();
+        storage
+            .cache_collection("gallery", &[json!({ "id": "c" })], false)
+            .unwrap();
 
         assert!(storage.is_collection_cached("characters").unwrap());
         assert!(!storage.is_collection_cached("personas").unwrap());
@@ -6742,10 +7638,17 @@ mod tests {
         for index in 0..2 {
             let key = ProjectionCacheKey {
                 collection: format!("projection-{index}"),
-                shape: ProjectionShape { fields: vec!["payload".to_string()], field_selections: Vec::new() },
+                shape: ProjectionShape {
+                    fields: vec!["payload".to_string()],
+                    field_selections: Vec::new(),
+                },
             };
             storage
-                .cache_projected_list(&key, &[json!({ "payload": "x".repeat(33 * 1024 * 1024) })], None)
+                .cache_projected_list(
+                    &key,
+                    &[json!({ "payload": "x".repeat(33 * 1024 * 1024) })],
+                    None,
+                )
                 .unwrap();
         }
 

@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
 pub struct InvokeRequest {
@@ -76,13 +77,29 @@ fn optional_u32_strict(args: &Map<String, Value>, key: &str) -> AppResult<Option
         .map_err(|_| AppError::invalid_input(format!("{key} is too large")))
 }
 
+trait IntoBlockingDispatchArgs {
+    fn into_blocking_dispatch_args(self) -> Arc<Map<String, Value>>;
+}
+
+impl IntoBlockingDispatchArgs for Map<String, Value> {
+    fn into_blocking_dispatch_args(self) -> Arc<Map<String, Value>> {
+        Arc::new(self)
+    }
+}
+
+impl IntoBlockingDispatchArgs for &Arc<Map<String, Value>> {
+    fn into_blocking_dispatch_args(self) -> Arc<Map<String, Value>> {
+        Arc::clone(self)
+    }
+}
+
 async fn dispatch_blocking_http_storage(
     state: &AppState,
-    args: &Map<String, Value>,
+    args: impl IntoBlockingDispatchArgs,
     operation: impl FnOnce(&AppState, &Map<String, Value>) -> AppResult<Value> + Send + 'static,
 ) -> AppResult<Value> {
     let state = state.clone();
-    let args = args.clone();
+    let args = args.into_blocking_dispatch_args();
     tokio::task::spawn_blocking(move || operation(&state, &args))
         .await
         .map_err(|error| AppError::new("task_join_error", error.to_string()))?
@@ -124,7 +141,7 @@ fn optional_string_vec(args: &Map<String, Value>, key: &str) -> AppResult<Vec<St
 
 pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Value> {
     let command = request.command.as_str();
-    let args = args_object(request.args)?;
+    let args = Arc::new(args_object(request.args)?);
     match command {
         "load_url_binary" => load_url_binary(state, &args).await,
         "profile_import" => profile::profile_call(
@@ -134,69 +151,120 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             &shared::ParsedPath::new("/profile/import"),
             optional_value(&args, "envelope"),
         ),
-        "backup_create" => backup::create_backup(state),
+        "backup_create" => {
+            dispatch_blocking_http_storage(state, &args, |state, _args| {
+                backup::create_backup(state)
+            })
+            .await
+        }
         "backup_list" => backup::list_backups(state),
         "backup_delete" => backup::delete_backup(state, required_string(&args, "name")?),
         "backup_download" => {
-            backup::download_backup(state, optional_string(&args, "name").as_deref())
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                let name = optional_string(args, "name");
+                backup::download_backup(state, name.as_deref())
+            })
+            .await
         }
-        "prompt_export" => exports::export_prompt(state, required_string(&args, "presetId")?),
-        "prompts_export_bulk" => exports::export_records(
-            state,
-            "marinara_presets",
-            "prompts",
-            json!({ "ids": required_string_vec(&args, "ids")? }),
-        ),
-        "character_export" => exports::export_record(
-            state,
-            "marinara_character",
-            "characters",
-            required_string(&args, "id")?,
-            optional_string(&args, "format").as_deref(),
-        ),
+        "prompt_export" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_prompt(state, required_string(args, "presetId")?)
+            })
+            .await
+        }
+        "prompts_export_bulk" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_records(
+                    state,
+                    "marinara_presets",
+                    "prompts",
+                    json!({ "ids": required_string_vec(args, "ids")? }),
+                )
+            })
+            .await
+        }
+        "character_export" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                let format = optional_string(args, "format");
+                exports::export_record(
+                    state,
+                    "marinara_character",
+                    "characters",
+                    required_string(args, "id")?,
+                    format.as_deref(),
+                )
+            })
+            .await
+        }
         "character_export_png" => {
-            exports::export_character_png(state, required_string(&args, "id")?)
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_character_png(state, required_string(args, "id")?)
+            })
+            .await
         }
         "character_embedded_lorebook_import" => {
             exports::import_character_embedded_lorebook(state, required_string(&args, "id")?)
         }
-        "characters_export_bulk" => exports::export_records(
-            state,
-            "marinara_characters",
-            "characters",
-            json!({
-                "ids": required_string_vec(&args, "ids")?,
-                "format": optional_value(&args, "format"),
-            }),
-        ),
-        "persona_export" => exports::export_record(
-            state,
-            "marinara_persona",
-            "personas",
-            required_string(&args, "id")?,
-            optional_string(&args, "format").as_deref(),
-        ),
-        "personas_export_bulk" => exports::export_records(
-            state,
-            "marinara_personas",
-            "personas",
-            json!({
-                "ids": required_string_vec(&args, "ids")?,
-                "format": optional_value(&args, "format"),
-            }),
-        ),
-        "lorebook_export" => exports::export_lorebook(
-            state,
-            required_string(&args, "id")?,
-            optional_string(&args, "format").as_deref(),
-        ),
-        "lorebooks_export_bulk" => exports::export_lorebooks(
-            state,
-            json!({
-                "ids": required_string_vec(&args, "ids")?,
-                "format": optional_value(&args, "format"),
-            }),
-        ),
+        "characters_export_bulk" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_records(
+                    state,
+                    "marinara_characters",
+                    "characters",
+                    json!({
+                        "ids": required_string_vec(args, "ids")?,
+                        "format": optional_value(args, "format"),
+                    }),
+                )
+            })
+            .await
+        }
+        "persona_export" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                let format = optional_string(args, "format");
+                exports::export_record(
+                    state,
+                    "marinara_persona",
+                    "personas",
+                    required_string(args, "id")?,
+                    format.as_deref(),
+                )
+            })
+            .await
+        }
+        "personas_export_bulk" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_records(
+                    state,
+                    "marinara_personas",
+                    "personas",
+                    json!({
+                        "ids": required_string_vec(args, "ids")?,
+                        "format": optional_value(args, "format"),
+                    }),
+                )
+            })
+            .await
+        }
+        "lorebook_export" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                let format = optional_string(args, "format");
+                exports::export_lorebook(state, required_string(args, "id")?, format.as_deref())
+            })
+            .await
+        }
+        "lorebooks_export_bulk" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                exports::export_lorebooks(
+                    state,
+                    json!({
+                        "ids": required_string_vec(args, "ids")?,
+                        "format": optional_value(args, "format"),
+                    }),
+                )
+            })
+            .await
+        }
         "lorebook_vectorize" => {
             prompts::vectorize_lorebook(
                 state,
@@ -965,6 +1033,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             })
             .await
         }
+        "memory_query_batch" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::query_memories_batch(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "memory_index_upsert" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::upsert_memory_index_row(state, optional_value(args, "row"))
@@ -989,6 +1063,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "memory_index_query" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::query_memory_index(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_index_query_batch" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::query_memory_index_batch(state, optional_value(args, "body"))
             })
             .await
         }
@@ -1037,6 +1117,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                         .storage
                         .count_messages_for_chat(required_string(args, "chatId")?)?
                 }))
+            })
+            .await
+        }
+        "chat_sibling_conversation_context" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chats::sibling_conversation_context(state, optional_value(args, "body"))
             })
             .await
         }
@@ -1631,7 +1717,8 @@ mod tests {
     use std::collections::BTreeSet;
     use std::io::Cursor;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     // Commands that stay out of /api/invoke because they require the client shell,
     // local filesystem paths, Tauri IPC channels, or user-machine devices.
@@ -1681,6 +1768,7 @@ mod tests {
         "chat_memory_pin",
         "chat_message_add_swipe",
         "chat_message_count",
+        "chat_sibling_conversation_context",
         "chat_message_delete_swipe",
         "chat_message_set_active_swipe",
         "chat_message_swipes",
@@ -1689,6 +1777,17 @@ mod tests {
         "chat_note_delete",
         "chat_notes_clear",
         "chat_notes_list",
+        "backup_create",
+        "backup_download",
+        "prompt_export",
+        "prompts_export_bulk",
+        "character_export",
+        "character_export_png",
+        "characters_export_bulk",
+        "persona_export",
+        "personas_export_bulk",
+        "lorebook_export",
+        "lorebooks_export_bulk",
         "connection_folder_reorder",
         "connection_move",
         "connection_save_default_parameters",
@@ -2290,6 +2389,89 @@ mod tests {
                 "{command} should dispatch through the blocking storage worker"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn blocking_storage_dispatch_accepts_owned_request_args() {
+        let state = test_state("owned-blocking-dispatch-args");
+        let mut args = Map::new();
+        args.insert("payload".to_string(), json!({ "large": [1, 2, 3] }));
+
+        let result = dispatch_blocking_http_storage(&state, args, |_state, args| {
+            Ok(args
+                .get("payload")
+                .cloned()
+                .expect("worker should receive the request payload"))
+        })
+        .await
+        .expect("owned request map should cross the blocking boundary");
+
+        assert_eq!(result, json!({ "large": [1, 2, 3] }));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocking_storage_dispatch_leaves_tokio_available() {
+        const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+        let state = test_state("blocking-dispatch-tokio-progress");
+        let (started_tx, started_rx) = mpsc::channel();
+        let (progress_tx, progress_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let watchdog = std::thread::spawn(move || {
+            let started = started_rx.recv_timeout(PROBE_TIMEOUT).is_ok();
+            let progressed = started && progress_rx.recv_timeout(PROBE_TIMEOUT).is_ok();
+            let _ = release_tx.send(());
+            progressed
+        });
+
+        let work_state = state.clone();
+        let work = tokio::spawn(async move {
+            dispatch_blocking_http_storage(&work_state, Map::new(), move |_state, _args| {
+                started_tx
+                    .send(())
+                    .expect("watchdog should observe the blocking operation");
+                entered_tx
+                    .send(())
+                    .expect("Tokio test should observe the blocking operation");
+                release_rx
+                    .recv_timeout(PROBE_TIMEOUT)
+                    .expect("watchdog should release the blocking operation");
+                Ok(json!({ "dispatch": "complete" }))
+            })
+            .await
+        });
+
+        tokio::time::timeout(PROBE_TIMEOUT, entered_rx)
+            .await
+            .expect("dispatch operation should enter its blocking body before the deadline")
+            .expect("dispatch operation should notify the Tokio test");
+        let unrelated = tokio::spawn(async move {
+            let _ = progress_tx.send(());
+        });
+        tokio::time::timeout(PROBE_TIMEOUT, unrelated)
+            .await
+            .expect("unrelated Tokio work should complete before the deadline")
+            .expect("unrelated Tokio work should not panic");
+        assert_eq!(
+            tokio::time::timeout(PROBE_TIMEOUT, work)
+                .await
+                .expect("dispatch worker should complete before the deadline")
+                .expect("dispatch task should not panic")
+                .expect("dispatch task should succeed"),
+            json!({ "dispatch": "complete" })
+        );
+        assert!(
+            tokio::time::timeout(
+                PROBE_TIMEOUT,
+                tokio::task::spawn_blocking(move || watchdog.join())
+            )
+            .await
+            .expect("watchdog should join before the deadline")
+            .expect("watchdog task should not panic")
+            .expect("watchdog thread should not panic"),
+            "unrelated Tokio work should progress before the dispatch operation is released"
+        );
     }
 
     #[tokio::test]

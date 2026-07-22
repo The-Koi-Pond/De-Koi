@@ -194,6 +194,14 @@ pub fn chat_message_count(state: State<'_, AppState>, chat_id: String) -> Result
 }
 
 #[tauri::command]
+pub fn chat_sibling_conversation_context(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    chats::sibling_conversation_context(&state, body)
+}
+
+#[tauri::command]
 pub fn chat_branch(
     state: State<'_, AppState>,
     chat_id: String,
