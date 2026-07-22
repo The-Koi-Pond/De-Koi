@@ -39,6 +39,7 @@ const MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PROJECTED_LIST_CACHE_SHAPES: usize = 32;
 
 type JournalClock = Arc<dyn Fn() -> SystemTime + Send + Sync>;
+type DeferredFlushScheduler = Arc<dyn Fn(FileStorage) + Send + Sync>;
 
 #[derive(Clone, Copy)]
 enum FlushKind {
@@ -178,6 +179,22 @@ pub struct FileStorage {
     write_gate: Arc<WriteGate>,
     journal_compaction_policy: JournalCompactionPolicy,
     journal_clock: JournalClock,
+    deferred_flush_scheduler: DeferredFlushScheduler,
+    #[cfg(feature = "journal-compaction-bench")]
+    journal_compaction_counter: Option<Arc<std::sync::atomic::AtomicUsize>>,
+}
+
+fn spawn_deferred_flush(storage: FileStorage) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(STORAGE_SAVE_DEBOUNCE_MS));
+        if let Err(error) = storage.flush_deferred_writes() {
+            eprintln!("[storage] delayed flush failed: {}", error.message);
+        }
+        storage.flush_scheduled.store(false, Ordering::SeqCst);
+        if storage.dirty_collection_count() > 0 {
+            storage.schedule_dirty_flush();
+        }
+    });
 }
 
 impl FileStorage {
@@ -194,6 +211,25 @@ impl FileStorage {
         journal_compaction_policy: JournalCompactionPolicy,
         journal_clock: JournalClock,
     ) -> AppResult<Self> {
+        Self::new_with_journal_compaction_policy_and_scheduler(
+            root,
+            journal_compaction_policy,
+            journal_clock,
+            Arc::new(spawn_deferred_flush),
+            #[cfg(feature = "journal-compaction-bench")]
+            None,
+        )
+    }
+
+    fn new_with_journal_compaction_policy_and_scheduler(
+        root: PathBuf,
+        journal_compaction_policy: JournalCompactionPolicy,
+        journal_clock: JournalClock,
+        deferred_flush_scheduler: DeferredFlushScheduler,
+        #[cfg(feature = "journal-compaction-bench")] journal_compaction_counter: Option<
+            Arc<std::sync::atomic::AtomicUsize>,
+        >,
+    ) -> AppResult<Self> {
         let collections = root.join("collections");
         fs::create_dir_all(&collections)?;
         let storage = Self {
@@ -204,6 +240,9 @@ impl FileStorage {
             write_gate: Arc::new(WriteGate::default()),
             journal_compaction_policy,
             journal_clock,
+            deferred_flush_scheduler,
+            #[cfg(feature = "journal-compaction-bench")]
+            journal_compaction_counter,
         };
         recover_pending_collection_transactions(&collections)?;
         if let Err(error) = append_journal::recover(&collections) {
@@ -213,6 +252,21 @@ impl FileStorage {
         recover_collection_journals(&collections)?;
         append_journal::prepare_known_checkpoint(&collections)?;
         Ok(storage)
+    }
+
+    #[cfg(feature = "journal-compaction-bench")]
+    #[doc(hidden)]
+    pub fn new_for_journal_compaction_benchmark(
+        root: impl Into<PathBuf>,
+        journal_compaction_counter: Arc<std::sync::atomic::AtomicUsize>,
+    ) -> AppResult<Self> {
+        Self::new_with_journal_compaction_policy_and_scheduler(
+            root.into(),
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            Arc::new(SystemTime::now),
+            Arc::new(|_| {}),
+            Some(journal_compaction_counter),
+        )
     }
 
     pub fn root(&self) -> &Path {
@@ -1220,17 +1274,7 @@ impl FileStorage {
         if self.flush_scheduled.swap(true, Ordering::SeqCst) {
             return;
         }
-        let storage = self.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(STORAGE_SAVE_DEBOUNCE_MS));
-            if let Err(error) = storage.flush_deferred_writes() {
-                eprintln!("[storage] delayed flush failed: {}", error.message);
-            }
-            storage.flush_scheduled.store(false, Ordering::SeqCst);
-            if storage.dirty_collection_count() > 0 {
-                storage.schedule_dirty_flush();
-            }
-        });
+        (self.deferred_flush_scheduler)(self.clone());
     }
 
     fn flush_dirty_collections_locked(&self, flush_kind: FlushKind) -> AppResult<()> {
@@ -1250,18 +1294,15 @@ impl FileStorage {
         let compact = dirty
             .into_iter()
             .filter_map(|(collection, rows)| {
-                let should_compact = match flush_kind {
-                    FlushKind::Shutdown => Ok(true),
-                    FlushKind::Deferred if append_journal::checkpoint_tracks(&collection) => {
-                        Ok(true)
-                    }
-                    FlushKind::Deferred => collection_journal_needs_compaction(
-                        &collections_dir,
-                        &collection,
-                        self.journal_compaction_policy,
-                        (self.journal_clock)(),
-                    ),
-                };
+                let force = matches!(flush_kind, FlushKind::Shutdown)
+                    || append_journal::checkpoint_tracks(&collection);
+                let should_compact = collection_journal_needs_compaction(
+                    &collections_dir,
+                    &collection,
+                    self.journal_compaction_policy,
+                    (self.journal_clock)(),
+                    force,
+                );
                 match should_compact {
                     Ok(true) => Some(Ok((collection, rows))),
                     Ok(false) => None,
@@ -1276,6 +1317,10 @@ impl FileStorage {
             append_journal::recover(&collections_dir)?;
         }
         for (collection, rows) in compact {
+            #[cfg(feature = "journal-compaction-bench")]
+            if let Some(counter) = &self.journal_compaction_counter {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
             self.write_collection_file(&collection, &rows)?;
             if collection == "chats" {
                 let path = self.collection_path(&collection)?;
@@ -2514,6 +2559,7 @@ impl FileStorage {
     }
 
     fn write_collection_immediate(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
+        validate_collection_journal_before_replacement(&self.root.join("collections"), collection)?;
         self.write_collection_file(collection, rows)?;
         if collection == "chats" {
             let path = self.collection_path(collection)?;
@@ -2762,6 +2808,9 @@ impl FileStorage {
     {
         self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
         let collections_dir = self.root.join("collections");
+        for (collection, _) in &replacements {
+            validate_collection_journal_before_replacement(&collections_dir, collection)?;
+        }
         let replaces_append_checkpoint = replacements
             .iter()
             .any(|(collection, _)| append_journal::checkpoint_tracks(collection));
@@ -3446,7 +3495,10 @@ mod tests {
         let primary = root.join("collections").join("characters.json");
         let journal = root.join("collections").join("characters.pending.jsonl");
         storage
-            .replace_all("characters", vec![json!({ "id": "character-1", "name": "Before" })])
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
             .unwrap();
         let primary_before = fs::read(&primary).unwrap();
         storage
@@ -3463,6 +3515,239 @@ mod tests {
         assert_eq!(error.code, "storage_journal_recovery_required");
         assert_eq!(fs::read(&primary).unwrap(), primary_before);
         assert!(journal.exists(), "recovery evidence must be preserved");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shutdown_flush_rejects_a_corrupt_generic_journal_before_overwriting_the_primary() {
+        let root = temp_storage_root("corrupt-generic-journal-shutdown-flush");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt shutdown entry\\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = storage
+            .flush()
+            .expect_err("shutdown must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(journal.exists(), "shutdown must preserve corrupt evidence");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn streaming_boundary_rejects_a_corrupt_generic_journal_before_overwriting_the_primary() {
+        let root = temp_storage_root("corrupt-generic-journal-streaming-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt streaming entry\\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = storage
+            .visit_collection_streaming("characters", |_, _| Ok(()))
+            .expect_err("streaming must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(journal.exists(), "streaming must preserve corrupt evidence");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_boundary_rejects_a_corrupt_generic_journal_before_overwriting_the_primary() {
+        let root = temp_storage_root("corrupt-generic-journal-atomic-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt atomic entry\\n").unwrap();
+        file.sync_all().unwrap();
+        let update_ran = std::cell::Cell::new(false);
+
+        let error = storage
+            .update_collections_atomically(vec!["personas"], |_| {
+                update_ran.set(true);
+                Ok(())
+            })
+            .expect_err("atomic update must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert!(
+            !update_ran.get(),
+            "the atomic callback must not run after a failed flush"
+        );
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(
+            journal.exists(),
+            "atomic update must preserve corrupt evidence"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn replacement_boundary_rejects_a_corrupt_generic_journal_before_importing_rows() {
+        let root = temp_storage_root("corrupt-generic-journal-replacement-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt replacement entry\\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = storage
+            .replace_all("characters", vec![json!({ "id": "imported-character" })])
+            .expect_err("replacement must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(
+            journal.exists(),
+            "replacement must preserve corrupt evidence"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bulk_import_boundary_rejects_a_corrupt_generic_journal_before_installing_rows() {
+        let root = temp_storage_root("corrupt-generic-journal-bulk-import-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        file.write_all(b"{ corrupt bulk import entry\\n").unwrap();
+        file.sync_all().unwrap();
+
+        let error = storage
+            .replace_all_many(vec![(
+                "personas",
+                vec![json!({ "id": "imported-persona" })],
+            )])
+            .expect_err("bulk import must reject corrupt recovery evidence");
+
+        assert_eq!(error.code, "storage_journal_recovery_required");
+        assert_eq!(fs::read(&primary).unwrap(), primary_before);
+        assert!(!root.join("collections").join("personas.json").exists());
+        assert!(
+            journal.exists(),
+            "bulk import must preserve corrupt evidence"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bulk_import_compacts_and_preserves_a_valid_generic_journal_before_installing_rows() {
+        let root = temp_storage_root("valid-generic-journal-bulk-import-boundary");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
+            SystemTime::now(),
+        );
+        let primary = root.join("collections").join("characters.json");
+        let journal = root.join("collections").join("characters.pending.jsonl");
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+
+        storage
+            .replace_all_many(vec![(
+                "personas",
+                vec![json!({ "id": "imported-persona" })],
+            )])
+            .unwrap();
+
+        assert_eq!(
+            parse_collection_file("characters", &primary).unwrap()[0]["name"],
+            "After"
+        );
+        assert!(
+            !journal.exists(),
+            "the valid journal must be compacted before import"
+        );
+        assert_eq!(
+            storage.list("personas").unwrap(),
+            vec![json!({ "id": "imported-persona" })]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

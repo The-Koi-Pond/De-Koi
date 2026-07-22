@@ -2,6 +2,10 @@ use marinara_storage::FileStorage;
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 fn temporary_root(label: &str) -> PathBuf {
@@ -34,9 +38,15 @@ fn seed_large_collection(storage: &FileStorage, rows: usize) {
         .expect("benchmark fixture should be written");
 }
 
+fn benchmark_storage(root: &PathBuf, compactions: Arc<AtomicUsize>) -> FileStorage {
+    FileStorage::new_for_journal_compaction_benchmark(root, compactions)
+        .expect("benchmark storage should open")
+}
+
 fn run_eager_compaction(rows: usize, patches: usize) -> std::time::Duration {
     let root = temporary_root("eager");
-    let storage = FileStorage::new(&root).expect("storage should open");
+    let compactions = Arc::new(AtomicUsize::new(0));
+    let storage = benchmark_storage(&root, compactions.clone());
     seed_large_collection(&storage, rows);
     let started = Instant::now();
     for index in 0..patches {
@@ -49,6 +59,7 @@ fn run_eager_compaction(rows: usize, patches: usize) -> std::time::Duration {
             .expect("patch should succeed");
         storage.flush().expect("eager compaction should succeed");
     }
+    assert_eq!(compactions.load(Ordering::SeqCst), patches);
     let elapsed = started.elapsed();
     drop(storage);
     fs::remove_dir_all(root).expect("benchmark storage root should be removed");
@@ -57,8 +68,12 @@ fn run_eager_compaction(rows: usize, patches: usize) -> std::time::Duration {
 
 fn run_journal_backed_burst(rows: usize, patches: usize) -> std::time::Duration {
     let root = temporary_root("journal-burst");
-    let storage = FileStorage::new(&root).expect("storage should open");
+    let compactions = Arc::new(AtomicUsize::new(0));
+    let storage = benchmark_storage(&root, compactions.clone());
     seed_large_collection(&storage, rows);
+    let primary = root.join("collections").join("characters.json");
+    let journal = root.join("collections").join("characters.pending.jsonl");
+    let primary_before = fs::read(&primary).expect("seeded primary should be readable");
     let started = Instant::now();
     for index in 0..patches {
         storage
@@ -69,7 +84,18 @@ fn run_journal_backed_burst(rows: usize, patches: usize) -> std::time::Duration 
             )
             .expect("patch should succeed");
     }
+    assert_eq!(fs::read(&primary).unwrap(), primary_before);
+    assert!(
+        journal.exists(),
+        "burst must remain journal-backed before final flush"
+    );
+    assert_eq!(compactions.load(Ordering::SeqCst), 0);
     storage.flush().expect("shutdown compaction should succeed");
+    assert_eq!(compactions.load(Ordering::SeqCst), 1);
+    assert!(
+        !journal.exists(),
+        "final flush should consume the validated journal"
+    );
     let elapsed = started.elapsed();
     drop(storage);
     fs::remove_dir_all(root).expect("benchmark storage root should be removed");

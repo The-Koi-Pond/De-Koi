@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -51,9 +51,6 @@ impl JournalCompactionPolicy {
     }
 
     fn should_compact(self, journal: &Path, now: SystemTime) -> AppResult<bool> {
-        // Compaction consumes the recovery evidence, so validate every entry
-        // before any threshold is allowed to replace the primary collection.
-        let entries = read_collection_journal_entries(journal)?;
         let metadata = fs::metadata(journal)?;
         if metadata.len() >= self.max_bytes {
             return Ok(true);
@@ -66,7 +63,7 @@ impl JournalCompactionPolicy {
         {
             return Ok(true);
         }
-        Ok(entries.len() >= self.max_entries)
+        collection_journal_has_at_least_entries(journal, self.max_entries)
     }
 }
 
@@ -98,58 +95,137 @@ fn journal_recovery_error(
     )
 }
 
-fn read_collection_journal_entries(journal: &Path) -> AppResult<Vec<CollectionMutation>> {
-    let collection = journal
+fn collection_name_for_journal(journal: &Path) -> AppResult<&str> {
+    journal
         .file_name()
         .and_then(|name| name.to_str())
         .and_then(|name| name.strip_suffix(COLLECTION_JOURNAL_SUFFIX))
-        .ok_or_else(|| AppError::invalid_input("Invalid collection journal path"))?;
-    let raw = fs::read_to_string(journal).map_err(|error| {
+        .ok_or_else(|| AppError::invalid_input("Invalid collection journal path"))
+}
+
+fn parse_collection_journal_entry(
+    collection: &str,
+    journal: &Path,
+    index: usize,
+    line: &str,
+) -> AppResult<CollectionMutation> {
+    let entry: CollectionJournalEntry = serde_json::from_str(line).map_err(|error| {
+        journal_recovery_error(
+            collection,
+            journal,
+            format!("entry {} is invalid: {error}", index + 1),
+        )
+    })?;
+    if entry.version != COLLECTION_JOURNAL_VERSION {
+        return Err(journal_recovery_error(
+            collection,
+            journal,
+            format!(
+                "entry {} has unsupported version {}",
+                index + 1,
+                entry.version
+            ),
+        ));
+    }
+    validate_collection_mutation(&entry.mutation).map_err(|error| {
+        journal_recovery_error(
+            collection,
+            journal,
+            format!("entry {} is not replayable: {}", index + 1, error.message),
+        )
+    })?;
+    Ok(entry.mutation)
+}
+
+fn visit_collection_journal_entries(
+    journal: &Path,
+    mut visit: impl FnMut(CollectionMutation) -> AppResult<()>,
+) -> AppResult<()> {
+    let collection = collection_name_for_journal(journal)?;
+    let file = fs::File::open(journal).map_err(|error| {
         journal_recovery_error(
             collection,
             journal,
             format!("journal could not be read: {error}"),
         )
     })?;
-    let mut mutations = Vec::new();
-    for (index, line) in raw.lines().enumerate() {
+    let mut entries = 0;
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|error| {
+            journal_recovery_error(
+                collection,
+                journal,
+                format!("entry {} could not be read: {error}", index + 1),
+            )
+        })?;
         if line.trim().is_empty() {
             continue;
         }
-        let entry: CollectionJournalEntry = serde_json::from_str(line).map_err(|error| {
-            journal_recovery_error(
-                collection,
-                journal,
-                format!("entry {} is invalid: {error}", index + 1),
-            )
-        })?;
-        if entry.version != COLLECTION_JOURNAL_VERSION {
-            return Err(journal_recovery_error(
-                collection,
-                journal,
-                format!(
-                    "entry {} has unsupported version {}",
-                    index + 1,
-                    entry.version
-                ),
-            ));
-        }
-        validate_collection_mutation(&entry.mutation).map_err(|error| {
-            journal_recovery_error(
-                collection,
-                journal,
-                format!("entry {} is not replayable: {}", index + 1, error.message),
-            )
-        })?;
-        mutations.push(entry.mutation);
+        visit(parse_collection_journal_entry(
+            collection, journal, index, &line,
+        )?)?;
+        entries += 1;
     }
-    if mutations.is_empty() {
+    if entries == 0 {
         return Err(journal_recovery_error(
             collection,
             journal,
             "journal contains no replayable entries",
         ));
     }
+    Ok(())
+}
+
+fn validate_collection_journal(journal: &Path) -> AppResult<()> {
+    visit_collection_journal_entries(journal, |_| Ok(()))
+}
+
+fn collection_journal_has_at_least_entries(journal: &Path, limit: usize) -> AppResult<bool> {
+    if limit == 0 {
+        return Ok(true);
+    }
+    let collection = collection_name_for_journal(journal)?;
+    let file = fs::File::open(journal).map_err(|error| {
+        journal_recovery_error(
+            collection,
+            journal,
+            format!("journal could not be read: {error}"),
+        )
+    })?;
+    let mut entries = 0;
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|error| {
+            journal_recovery_error(
+                collection,
+                journal,
+                format!("entry {} could not be read: {error}", index + 1),
+            )
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        parse_collection_journal_entry(collection, journal, index, &line)?;
+        entries += 1;
+        if entries >= limit {
+            return Ok(true);
+        }
+    }
+    if entries == 0 {
+        return Err(journal_recovery_error(
+            collection,
+            journal,
+            "journal contains no replayable entries",
+        ));
+    }
+    Ok(false)
+}
+
+fn read_collection_journal_entries(journal: &Path) -> AppResult<Vec<CollectionMutation>> {
+    let mut mutations = Vec::new();
+    visit_collection_journal_entries(journal, |mutation| {
+        mutations.push(mutation);
+        Ok(())
+    })?;
     Ok(mutations)
 }
 
@@ -332,6 +408,7 @@ pub(crate) fn collection_journal_needs_compaction(
     collection: &str,
     policy: JournalCompactionPolicy,
     now: SystemTime,
+    force: bool,
 ) -> AppResult<bool> {
     let journal = collection_journal_path(collections_dir, collection)?;
     if !journal.exists() {
@@ -340,7 +417,24 @@ pub(crate) fn collection_journal_needs_compaction(
         // must be materialized rather than retained in memory.
         return Ok(true);
     }
-    policy.should_compact(&journal, now)
+    let should_compact = force || policy.should_compact(&journal, now)?;
+    if should_compact {
+        // Every path that consumes a journal must validate its recovery evidence
+        // first, including shutdown, streaming, atomic replacement, and import.
+        validate_collection_journal(&journal)?;
+    }
+    Ok(should_compact)
+}
+
+pub(crate) fn validate_collection_journal_before_replacement(
+    collections_dir: &Path,
+    collection: &str,
+) -> AppResult<()> {
+    let journal = collection_journal_path(collections_dir, collection)?;
+    if journal.exists() {
+        validate_collection_journal(&journal)?;
+    }
+    Ok(())
 }
 
 fn install_recovered_rows_atomically(
