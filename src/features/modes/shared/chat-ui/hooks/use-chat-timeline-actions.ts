@@ -499,7 +499,8 @@ export function useChatTimelineActions({
       }
       try {
         if (options?.continueResponse) {
-          await generate({ chatId: targetChatId, connectionId: null });
+          const forCharacterId = readString(options.forCharacterId).trim() || null;
+          await generate({ chatId: targetChatId, connectionId: null, forCharacterId });
           return;
         }
         const currentInput = useChatStore.getState().currentInput;

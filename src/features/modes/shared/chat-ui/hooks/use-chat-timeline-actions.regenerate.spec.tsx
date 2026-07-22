@@ -43,6 +43,7 @@ describe("useChatTimelineActions", () => {
           chatId?: string;
           propagateErrors?: boolean;
           skipTouchConfirm?: boolean;
+          forCharacterId?: string | null;
           continueResponse?: boolean;
         },
       ) => Promise<void>)
@@ -118,10 +119,13 @@ describe("useChatTimelineActions", () => {
   });
 
   it("continues an interrupted response without replacing the saved partial", async () => {
+    useChatStore.setState({ currentInput: "Do not turn this into a guided regeneration." });
+
     await act(async () => {
       await regenerate?.("message-1", {
         chatId: "owning-chat",
         continueResponse: true,
+        forCharacterId: "character-1",
         skipTouchConfirm: true,
       });
     });
@@ -129,6 +133,7 @@ describe("useChatTimelineActions", () => {
     expect(mocks.generate).toHaveBeenCalledWith({
       chatId: "owning-chat",
       connectionId: null,
+      forCharacterId: "character-1",
     });
   });
 
