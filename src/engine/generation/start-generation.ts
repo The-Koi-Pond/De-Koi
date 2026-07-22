@@ -4039,6 +4039,16 @@ async function runGenerationAgentsForTarget(args: {
   }
 
   let finalResults = speculativeResults;
+  const requestedMusicVolume = Number(input.options?.requestedMusicVolume);
+  if (Number.isFinite(requestedMusicVolume) && agentTypes.has("music-dj")) {
+    const volume = Math.max(0, Math.min(100, Math.trunc(requestedMusicVolume)));
+    finalResults = finalResults.map((result) => {
+      if (result.agentType !== "music-dj") return result;
+      const data = parseRecord(result.data);
+      const action = readString(data.action).trim().toLowerCase();
+      return action === "play" || action === "volume" ? { ...result, data: { ...data, volume } } : result;
+    });
+  }
   finalResults = await generateTrackerAvatarsForResults({
     deps,
     chat: chatForAgents,

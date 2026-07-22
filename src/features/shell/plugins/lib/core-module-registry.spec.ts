@@ -22,8 +22,8 @@ describe("core module registry", () => {
       source: "core",
       runtime: "Desktop title-bar player and mobile floating widget",
     });
-    expect(musicModule?.description).toContain("Generate a fresh pick");
-    expect(musicModule?.description).toContain("activate the Music Player agent");
+    expect(musicModule?.description).toContain("automatic scene-aware picks in roleplay");
+    expect(musicModule?.description).toContain("fresh pick at any time");
     expect(musicModule?.description).not.toMatch(/YouTube-first/i);
     expect(modules.some((module) => module.id === LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID)).toBe(false);
     expect(SPOTIFY_MINI_PLAYER_MODULE_ID).toBe(MUSIC_DJ_MINI_PLAYER_MODULE_ID);

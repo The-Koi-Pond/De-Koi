@@ -135,13 +135,16 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
   useEffect(() => {
     if (data.chatMode !== "conversation") return;
     function onMusicAiPickRequest(event: Event) {
-      const blocked = timeline.isStreaming || timeline.agentProcessing || musicAiPickInFlightRef.current;
+      const blocked = (timeline.agentProcessing && !timeline.isStreaming) || musicAiPickInFlightRef.current;
       if (!blocked) musicAiPickInFlightRef.current = true;
       handleMusicAiPickRequest(event, {
         blocked,
-        run: async () => {
+        run: async (detail) => {
           try {
-            return await timeline.handleRetryAgent("music-dj");
+            return await timeline.handleRetryAgent("music-dj", {
+              allowDuringGeneration: true,
+              requestedMusicVolume: detail.volume ?? undefined,
+            });
           } finally {
             musicAiPickInFlightRef.current = false;
           }

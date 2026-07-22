@@ -9,6 +9,7 @@ export interface SpotifyGateway {
 }
 
 export interface MusicGateway {
+  isEnabled?(): Promise<boolean>;
   status<T = unknown>(input?: Record<string, unknown>): Promise<T>;
   searchCandidates<T = unknown>(input: Record<string, unknown>): Promise<T>;
   play<T = unknown>(input: Record<string, unknown>): Promise<T>;

@@ -353,6 +353,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     if (
       requestMusicAiPick({
         fresh: true,
+        volume,
         complete(result) {
           if (aiPickRequestIdRef.current !== requestId) return;
           setMessage((current) => {

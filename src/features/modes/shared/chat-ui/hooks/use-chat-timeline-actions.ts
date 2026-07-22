@@ -531,10 +531,23 @@ export function useChatTimelineActions({
   }, [activeChatId, agentProcessing, failedAgentTypes, isStreaming, retryAgents]);
 
   const handleRetryAgent = useCallback(
-    async (agentType: string) => {
+    async (agentType: string, options?: { allowDuringGeneration?: boolean; requestedMusicVolume?: number }) => {
       const type = agentType.trim();
-      if (!activeChatId || !type || isStreaming || agentProcessing) return;
-      await retryAgents(activeChatId, [type]);
+      const canRunDuringGeneration = type === "music-dj" && options?.allowDuringGeneration === true && isStreaming;
+      if (
+        !activeChatId ||
+        !type ||
+        (isStreaming && !canRunDuringGeneration) ||
+        (agentProcessing && !canRunDuringGeneration)
+      ) {
+        return;
+      }
+      await retryAgents(activeChatId, [type], {
+        ...(typeof options?.requestedMusicVolume === "number"
+          ? { requestedMusicVolume: options.requestedMusicVolume }
+          : {}),
+        ...(canRunDuringGeneration ? { runInBackground: true } : {}),
+      });
     },
     [activeChatId, agentProcessing, isStreaming, retryAgents],
   );

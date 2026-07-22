@@ -15,15 +15,17 @@ type MusicAiPickCompletion = {
 
 export type MusicAiPickRequestDetail = {
   fresh?: boolean | null;
+  volume?: number | null;
   complete?: (result: MusicAiPickCompletion) => void;
 };
 
 export function handleMusicAiPickRequest(
   event: Event,
-  options: { blocked: boolean; run: () => Promise<unknown> },
+  options: { blocked: boolean; run: (detail: MusicAiPickRequestDetail) => Promise<unknown> },
 ): void {
   event.preventDefault();
-  const complete = (event as CustomEvent<MusicAiPickRequestDetail>).detail?.complete;
+  const detail = (event as CustomEvent<MusicAiPickRequestDetail>).detail ?? {};
+  const complete = detail.complete;
   if (options.blocked) {
     complete?.({
       status: "failed",
@@ -31,7 +33,7 @@ export function handleMusicAiPickRequest(
     });
     return;
   }
-  void options.run().then(
+  void options.run(detail).then(
     () => complete?.({ status: "completed" }),
     () => complete?.({ status: "failed", message: MUSIC_AI_PICK_FAILED_MESSAGE }),
   );
