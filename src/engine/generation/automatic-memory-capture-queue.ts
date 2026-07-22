@@ -113,6 +113,41 @@ function publishMemoryCaptureCompletion(completion: AutomaticMemoryCaptureComple
 
 const activeWorkers = new WeakSet<StorageGateway>();
 const pendingWorkerReruns = new WeakSet<StorageGateway>();
+const foregroundGenerationCounts = new WeakMap<StorageGateway, number>();
+const deferredWorkerDependencies = new WeakMap<
+  StorageGateway,
+  StorageGateway | AutomaticMemoryCaptureQueueDependencies
+>();
+
+function foregroundGenerationActive(storage: StorageGateway): boolean {
+  return (foregroundGenerationCounts.get(storage) ?? 0) > 0;
+}
+
+function deferWorkerUntilForegroundCompletes(
+  storage: StorageGateway,
+  dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
+): void {
+  deferredWorkerDependencies.set(storage, dependencies);
+}
+
+export function beginForegroundGeneration(storage: StorageGateway): () => void {
+  foregroundGenerationCounts.set(storage, (foregroundGenerationCounts.get(storage) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = Math.max(0, (foregroundGenerationCounts.get(storage) ?? 1) - 1);
+    if (remaining > 0) {
+      foregroundGenerationCounts.set(storage, remaining);
+      return;
+    }
+    foregroundGenerationCounts.delete(storage);
+    const deferredDependencies = deferredWorkerDependencies.get(storage);
+    if (!deferredDependencies) return;
+    deferredWorkerDependencies.delete(storage);
+    scheduleAutomaticMemoryCaptureQueueProcessing(deferredDependencies);
+  };
+}
 
 function stableHash(value: string): string {
   let hash = 2166136261;
@@ -416,6 +451,10 @@ export async function processAutomaticMemoryCaptureQueue(
   const result = { processed: 0, completed: 0, retryable: 0, failed: 0, stale: 0 };
 
   for (const job of dueJobs) {
+    if (foregroundGenerationActive(storage)) {
+      deferWorkerUntilForegroundCompletes(storage, dependencies);
+      break;
+    }
     const id = readString(job.id).trim();
     if (!id) continue;
     const attempts = readNumber(job.attempts, 0) + 1;
@@ -520,6 +559,10 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
   dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
 ): void {
   const { storage } = queueDependencies(dependencies);
+  if (foregroundGenerationActive(storage)) {
+    deferWorkerUntilForegroundCompletes(storage, dependencies);
+    return;
+  }
   if (activeWorkers.has(storage)) {
     pendingWorkerReruns.add(storage);
     return;
