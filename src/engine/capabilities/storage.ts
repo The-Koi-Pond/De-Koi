@@ -52,6 +52,19 @@ export interface AddChatMessageSwipeOptions {
   characterId?: string | null;
 }
 
+export interface SiblingConversationContextQuery {
+  chatId: string;
+  characterIds: string[];
+  candidateLimit: number;
+  maxChats: number;
+  messagesPerChat: number;
+}
+
+export interface SiblingConversationContextRecord {
+  chat: Record<string, unknown>;
+  messages: Record<string, unknown>[];
+}
+
 export interface StorageImageAttachmentReference {
   type?: string | null;
   url?: string | null;
@@ -101,6 +114,9 @@ export interface ChatTranscriptPort {
     content: string,
     options?: AddChatMessageSwipeOptions,
   ): Promise<T>;
+  listSiblingConversationContext?<T = SiblingConversationContextRecord>(
+    query: SiblingConversationContextQuery,
+  ): Promise<T[]>;
 }
 
 export interface ChatMetadataPort {
@@ -112,7 +128,9 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   createMemory?(body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
   updateMemory?(memoryId: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord>;
   queryMemories?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
+  queryMemoriesBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
   queryMemoryIndex?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
+  queryMemoryIndexBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
   rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
   listChatMemories<T = unknown>(chatId: string, options?: ListChatMemoriesOptions): Promise<T[]>;
   refreshChatMemories?<T = unknown>(chatId: string, options?: RefreshChatMemoriesOptions): Promise<T>;

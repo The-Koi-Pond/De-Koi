@@ -2898,23 +2898,8 @@ function buildConversationScheduleBlock(
   };
 }
 
-function sharesConversationCharacter(source: JsonRecord, candidate: JsonRecord): boolean {
-  const sourceIds = new Set(activeCharacterIds(source));
-  if (sourceIds.size === 0) return false;
-  return activeCharacterIds(candidate).some((id) => sourceIds.has(id));
-}
-
 const CROSS_CHAT_SIBLING_SCAN_LIMIT = 24;
-
-function chatRecencyMs(chat: JsonRecord): number {
-  const raw =
-    readString(chat.lastActivityAt).trim() ||
-    readString(chat.updatedAt).trim() ||
-    readString(chat.lastMessageAt).trim() ||
-    readString(chat.createdAt).trim();
-  const time = raw ? Date.parse(raw) : Number.NaN;
-  return Number.isFinite(time) ? time : 0;
-}
+const CROSS_CHAT_SECTION_LIMIT = 6;
 
 async function buildCrossChatAwarenessBlock(
   storage: StorageGateway,
@@ -2927,26 +2912,27 @@ async function buildCrossChatAwarenessBlock(
   if (!boolish(meta.crossChatAwareness, false)) return null;
   const chatId = readString(chat.id).trim();
   if (!chatId) return null;
+  if (!storage.listSiblingConversationContext) return null;
   const characterNames = characterNameLookup(characters);
-  const chats = await storage.list<JsonRecord>("chats").catch(() => []);
-  const siblingChats = chats
-    .filter((candidate) => readString(candidate.id).trim() !== chatId)
-    .filter((candidate) => modeOf(candidate) === "conversation")
-    .filter((candidate) => sharesConversationCharacter(chat, candidate))
-    .sort((left, right) => chatRecencyMs(right) - chatRecencyMs(left))
-    .slice(0, CROSS_CHAT_SIBLING_SCAN_LIMIT);
+  const siblingChats = await storage.listSiblingConversationContext<{ chat: JsonRecord; messages: JsonRecord[] }>({
+    chatId,
+    characterIds: activeCharacterIds(chat),
+    candidateLimit: CROSS_CHAT_SIBLING_SCAN_LIMIT,
+    maxChats: CROSS_CHAT_SECTION_LIMIT,
+    messagesPerChat: 8,
+  }).catch(() => []);
   const sections: string[] = [];
   for (const sibling of siblingChats) {
-    if (sections.length >= 6) break;
-    const siblingId = readString(sibling.id).trim();
+    if (sections.length >= CROSS_CHAT_SECTION_LIMIT) break;
+    const siblingId = readString(sibling.chat.id).trim();
     if (!siblingId) continue;
     const lines = recentVisibleMessageLines(
-      await storage.listChatMessages<JsonRecord>(siblingId, { limit: 8 }).catch(() => []),
+      sibling.messages,
       characterNames,
       4,
     );
     if (lines.length === 0) continue;
-    const title = readString(sibling.name).trim() || siblingId;
+    const title = readString(sibling.chat.name).trim() || siblingId;
     sections.push([`Chat: ${title}`, ...lines.map((line) => `- ${line}`)].join("\n"));
   }
   if (sections.length === 0) return null;

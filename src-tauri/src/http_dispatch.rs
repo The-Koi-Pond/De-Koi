@@ -1033,6 +1033,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             })
             .await
         }
+        "memory_query_batch" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::query_memories_batch(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "memory_index_upsert" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::upsert_memory_index_row(state, optional_value(args, "row"))
@@ -1057,6 +1063,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "memory_index_query" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::query_memory_index(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_index_query_batch" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                canonical_memory::query_memory_index_batch(state, optional_value(args, "body"))
             })
             .await
         }
@@ -1105,6 +1117,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                         .storage
                         .count_messages_for_chat(required_string(args, "chatId")?)?
                 }))
+            })
+            .await
+        }
+        "chat_sibling_conversation_context" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chats::sibling_conversation_context(state, optional_value(args, "body"))
             })
             .await
         }
@@ -1750,6 +1768,7 @@ mod tests {
         "chat_memory_pin",
         "chat_message_add_swipe",
         "chat_message_count",
+        "chat_sibling_conversation_context",
         "chat_message_delete_swipe",
         "chat_message_set_active_swipe",
         "chat_message_swipes",

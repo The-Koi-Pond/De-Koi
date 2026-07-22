@@ -313,6 +313,43 @@ impl FileStorage {
         )
     }
 
+    pub fn list_messages_for_chats_page(
+        &self,
+        chat_ids: &HashSet<String>,
+        limit_per_chat: usize,
+    ) -> AppResult<Vec<Value>> {
+        if chat_ids.is_empty() || limit_per_chat == 0 {
+            return Ok(Vec::new());
+        }
+        let mut grouped = HashMap::<String, Vec<Value>>::new();
+        for row in self.list("messages")? {
+            let Some(chat_id) = row.get("chatId").and_then(Value::as_str) else {
+                continue;
+            };
+            if chat_ids.contains(chat_id) {
+                grouped.entry(chat_id.to_string()).or_default().push(row);
+            }
+        }
+        let mut selected = Vec::new();
+        for chat_id in chat_ids {
+            let Some(rows) = grouped.get_mut(chat_id) else {
+                continue;
+            };
+            rows.sort_by(|left, right| {
+                let left_time = left.get("createdAt").and_then(Value::as_str).unwrap_or("");
+                let right_time = right.get("createdAt").and_then(Value::as_str).unwrap_or("");
+                left_time.cmp(right_time).then_with(|| {
+                    let left_id = left.get("id").and_then(Value::as_str).unwrap_or("");
+                    let right_id = right.get("id").and_then(Value::as_str).unwrap_or("");
+                    left_id.cmp(right_id)
+                })
+            });
+            let start = rows.len().saturating_sub(limit_per_chat);
+            selected.extend(rows.drain(start..));
+        }
+        Ok(selected)
+    }
+
     pub fn list_messages_for_chat_page_projected(
         &self,
         chat_id: &str,

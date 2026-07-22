@@ -428,7 +428,9 @@ export const storageApi: StorageGateway = {
   createMemory: (body) => canonicalMemoryApi.create(body),
   updateMemory: (memoryId, patch) => canonicalMemoryApi.update(memoryId, patch),
   queryMemories: (body) => canonicalMemoryApi.query(body),
+  queryMemoriesBatch: (queries) => canonicalMemoryApi.queryBatch(queries),
   queryMemoryIndex: (body) => canonicalMemoryApi.index.query(body),
+  queryMemoryIndexBatch: (queries) => canonicalMemoryApi.index.queryBatch(queries),
   rebuildMemoryIndex: (body) => canonicalMemoryApi.index.rebuildLexical(body),
   list: async (entity: StorageEntity, options?: StorageListOptions) =>
     normalizeStorageReadResult(
@@ -488,6 +490,7 @@ export const storageApi: StorageGateway = {
       },
     });
   },
+  listSiblingConversationContext: (query) => invokeTauri("chat_sibling_conversation_context", { body: query }),
   getChatMessage: (messageId, options) => storageApi.get("messages", messageId, options),
   createChatMessage: (chatId, value) => storageApi.create("messages", chatMessageDefaults(chatId, value)),
   updateChatMessage: async <T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T> => {

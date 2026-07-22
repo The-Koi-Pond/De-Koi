@@ -944,11 +944,14 @@ describe("dekiApi.history session updates", () => {
     });
 
     await dekiApi.history.appendMessage({
-      sessionId: "session-active",
       role: "assistant",
       content: "Only persist this change.",
     });
 
+    expect(storageApiMock.list).not.toHaveBeenCalledWith("deki-messages", {
+      filters: { sessionId: "session-unrelated" },
+      orderBy: "sortOrder",
+    });
     expect(storageApiMock.update).not.toHaveBeenCalledWith(
       "deki-sessions",
       "session-unrelated",

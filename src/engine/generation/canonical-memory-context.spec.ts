@@ -317,6 +317,41 @@ describe("canonical memory context", () => {
     expect(storage.queryMemoryIndex).toHaveBeenCalledWith({ scope: { kind: "character", id: "char-1" } });
   });
 
+  it("queries mixed canonical scopes in one batch while retaining their ranked results", async () => {
+    const batch = vi.fn(async () => [
+      memory({
+        id: "memory-chat",
+        content: "Mira left the brass key beneath the red teacup.",
+        confidence: 0.91,
+      }),
+      memory({
+        id: "memory-character",
+        scope: { kind: "character", id: "char-1" },
+        content: "Mira calls the brass key her favorite keepsake.",
+        confidence: 0.72,
+      }),
+    ]);
+    const storage = {
+      ...storageWithMemories({ indexed: [] }),
+      queryMemoryIndexBatch: batch,
+    } as StorageGateway & { queryMemoryIndexBatch: typeof batch };
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where did Mira leave the brass key?",
+      characters: [{ id: "char-1", name: "Mira", tags: [] }],
+      maxContext: 4096,
+    });
+
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch).toHaveBeenCalledWith([
+      { scope: { kind: "chat", id: "chat-1" } },
+      { scope: { kind: "character", id: "char-1" } },
+    ]);
+    expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-character", "memory-chat"]);
+  });
+
   it("does not query character scope for an explicitly chat-only character", async () => {
     const storage = storageWithMemories({ indexed: [] });
 

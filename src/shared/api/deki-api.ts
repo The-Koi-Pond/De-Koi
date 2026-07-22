@@ -642,7 +642,7 @@ async function writeStorageRecord(
   else await storageApi.create(entity, value);
 }
 
-async function readDurableSessionsState(): Promise<DekiSessionsState | null> {
+async function readDurableSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState | null> {
   const records = await measureDekiStage(
     "deki.session_summaries",
     () =>
@@ -660,6 +660,9 @@ async function readDurableSessionsState(): Promise<DekiSessionsState | null> {
   const activeSessionId = summarySessionIds.includes(requestedActiveId ?? "")
     ? requestedActiveId!
     : (summarySessionIds[0] ?? null);
+  const messageSessionId = summarySessionIds.includes(hydrateSessionId ?? "")
+    ? hydrateSessionId!
+    : activeSessionId;
   const sessions: DekiSession[] = [];
   const seen = new Set<string>();
   for (const record of records) {
@@ -671,9 +674,11 @@ async function readDurableSessionsState(): Promise<DekiSessionsState | null> {
         orderBy: "sortOrder",
       });
     const messageRecords =
-      sessionId === activeSessionId
+      sessionId === messageSessionId
         ? await measureDekiStage("deki.active_history", readMessages, (messages) => ({ messageCount: messages.length }))
-        : await readMessages();
+        : hydrateSessionId === undefined
+          ? await readMessages()
+          : [];
     const messages = messageRecords
       .map((message) => normalizeDekiMessage(message))
       .filter((message): message is DekiMessage => !!message);
@@ -763,8 +768,8 @@ async function clearLegacyDekiHistorySettings(activeSessionId: string): Promise<
   });
 }
 
-async function readSessionsState(): Promise<DekiSessionsState> {
-  const durable = await readDurableSessionsState();
+async function readSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState> {
+  const durable = await readDurableSessionsState(hydrateSessionId);
   if (durable) return durable;
 
   const legacy = normalizeDekiSessionsState(await readSettingsValue());
@@ -1245,7 +1250,7 @@ export const dekiApi = {
       workspaceTrace?: DekiWorkspaceTraceItem[];
       workspaceHistory?: DekiWorkspaceHistoryItem[];
     }): Promise<DekiMessage> => {
-      const state = await readSessionsState();
+      const state = await readSessionsState(message.sessionId ?? null);
       const nextMessage = createDekiMessage(message);
       const nextState = updateSession(state, message.sessionId, (session) => {
         const messages = [...session.messages, nextMessage];

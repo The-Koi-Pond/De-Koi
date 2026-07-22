@@ -317,13 +317,17 @@ async function collectMemoryRows(
 ): Promise<Array<{ memory: CanonicalMemoryRecord; source: MemoryIndexSource }>> {
   const queries = scopeQueries(input);
   const indexed: CanonicalMemoryRecord[] = [];
-  if (storage.queryMemoryIndex) {
+  if (storage.queryMemoryIndexBatch) {
+    indexed.push(...(await storage.queryMemoryIndexBatch(queries)));
+  } else if (storage.queryMemoryIndex) {
     for (const query of queries) indexed.push(...(await storage.queryMemoryIndex(query)));
   }
   if (indexed.length > 0) return indexed.map((memory) => ({ memory, source: "index" }));
 
   const fallback: CanonicalMemoryRecord[] = [];
-  if (storage.queryMemories) {
+  if (storage.queryMemoriesBatch) {
+    fallback.push(...(await storage.queryMemoriesBatch(queries)));
+  } else if (storage.queryMemories) {
     for (const query of queries) fallback.push(...(await storage.queryMemories(query)));
   } else {
     const rows = await storage.list<unknown>("canonical-memories", { limit: MAX_CANDIDATE_MEMORIES });

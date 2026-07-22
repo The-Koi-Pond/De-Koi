@@ -17,6 +17,8 @@ export const canonicalMemoryApi = {
     invokeTauri<CanonicalMemoryRecord>("memory_update", { memoryId, patch }),
   delete: (memoryId: string) => invokeTauri<CanonicalMemoryRecord>("memory_delete", { memoryId }),
   query: (body: CanonicalMemoryQuery = {}) => invokeTauri<CanonicalMemoryRecord[]>("memory_query", { body }),
+  queryBatch: (queries: CanonicalMemoryQuery[]) =>
+    invokeTauri<CanonicalMemoryRecord[]>("memory_query_batch", { body: { queries } }),
   index: {
     upsert: (row: MemoryIndexRowInput) => invokeTauri<MemoryIndexRow>("memory_index_upsert", { row }),
     deleteForMemory: (memoryId: string) =>
@@ -24,5 +26,7 @@ export const canonicalMemoryApi = {
     rebuildLexical: (body: CanonicalMemoryQuery = {}) =>
       invokeTauri<MemoryLexicalRebuildResult>("memory_index_rebuild_lexical", { body }),
     query: (body: CanonicalMemoryQuery = {}) => invokeTauri<CanonicalMemoryRecord[]>("memory_index_query", { body }),
+    queryBatch: (queries: CanonicalMemoryQuery[]) =>
+      invokeTauri<CanonicalMemoryRecord[]>("memory_index_query_batch", { body: { queries } }),
   },
 };
