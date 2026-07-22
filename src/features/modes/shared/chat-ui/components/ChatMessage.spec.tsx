@@ -104,6 +104,44 @@ describe("ChatMessage", () => {
     vi.useRealTimers();
   });
 
+  it("shows recovery actions for an interrupted partial reply", () => {
+    const onRegenerate = vi.fn();
+    const interruptedMessage: Message = {
+      ...message,
+      content: "The reply began, but",
+      extra: {
+        ...message.extra,
+        generationInterrupted: { reason: "incomplete_stream", message: "Generation interrupted" },
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={interruptedMessage}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+            onRegenerate={onRegenerate}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.textContent).toContain("Generation interrupted");
+    const continueButton = container!.querySelector<HTMLButtonElement>(
+      'button[aria-label="Continue interrupted generation"]',
+    );
+    expect(continueButton).not.toBeNull();
+    act(() => continueButton!.click());
+    expect(onRegenerate).toHaveBeenCalledWith("message-1", {
+      continueResponse: true,
+      forCharacterId: "character-1",
+      skipTouchConfirm: true,
+    });
+  });
+
   it("opens the character profile from the assistant name", () => {
     const onOpenCharacterProfile = vi.fn();
 

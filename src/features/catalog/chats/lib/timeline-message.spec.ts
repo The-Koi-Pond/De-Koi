@@ -16,6 +16,12 @@ describe("timelineMessageProjection", () => {
       expect.arrayContaining(["characterWebResearchRequest", "characterWebResearchSources"]),
     );
   });
+
+  it("requests interrupted generation metadata needed after timeline refresh", () => {
+    const projection = timelineMessageProjection();
+
+    expect(projection.fieldSelections?.extra).toContain("generationInterrupted");
+  });
 });
 
 describe("sanitizeTimelineMessageRecord", () => {

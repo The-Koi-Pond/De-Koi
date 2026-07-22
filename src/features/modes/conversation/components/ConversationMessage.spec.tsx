@@ -83,6 +83,33 @@ describe("ConversationMessage memo subscriptions", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows an interrupted generation recovery state", () => {
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={{
+              ...message,
+              content: "The reply began, but",
+              extra: {
+                ...message.extra,
+                generationInterrupted: { reason: "incomplete_stream", message: "Generation interrupted" },
+              },
+            }}
+            onRegenerate={vi.fn()}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+            messageIndex={1}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.textContent).toContain("Generation interrupted");
+    expect(container!.querySelector('button[aria-label="Continue interrupted generation"]')).not.toBeNull();
+  });
+
   it("repaints store-selected UI state while props stay referentially stable", () => {
     const onRegenerate = vi.fn();
 

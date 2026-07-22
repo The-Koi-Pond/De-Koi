@@ -429,4 +429,105 @@ describe("startGeneration roleplay text persistence", () => {
     expect(llm.requests).toHaveLength(1);
     expect(messages.find((item) => item.role === "assistant")?.content).toBe(original);
   });
+
+  it("persists partial assistant text when the provider stream ends incompletely", async () => {
+    const { storage, messages } = roleplayAttributionStorage();
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      listModels: vi.fn(async () => []),
+      async *stream() {
+        yield { type: "token", text: "The reply began, but" };
+        throw Object.assign(new Error("LLM provider stream ended before a terminal event."), {
+          code: "llm_stream_incomplete",
+        });
+      },
+    };
+
+    await expect(
+      collectEvents(
+        startGeneration(
+          { storage, llm, integrations: {} as IntegrationGateway },
+          {
+            chatId: "chat-1",
+            connectionId: "conn-1",
+            userMessage: "Continue.",
+            impersonateBlockAgents: true,
+          },
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "llm_stream_incomplete" });
+
+    const assistant = messages.find((item) => item.role === "assistant");
+    expect(assistant?.content).toBe("The reply began, but");
+    expect(assistant?.extra.generationInterrupted).toEqual({
+      reason: "incomplete_stream",
+      message: "Generation interrupted",
+    });
+  });
+
+  it("does not create a blank assistant message when an incomplete stream has no text", async () => {
+    const { storage, messages } = roleplayAttributionStorage();
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      listModels: vi.fn(async () => []),
+      async *stream() {
+        throw Object.assign(new Error("LLM provider stream ended before a terminal event."), {
+          code: "llm_stream_incomplete",
+        });
+      },
+    };
+
+    await expect(
+      collectEvents(
+        startGeneration(
+          { storage, llm, integrations: {} as IntegrationGateway },
+          {
+            chatId: "chat-1",
+            connectionId: "conn-1",
+            userMessage: "Continue.",
+            impersonateBlockAgents: true,
+          },
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "llm_stream_incomplete" });
+
+    expect(messages.filter((item) => item.role === "assistant")).toEqual([]);
+  });
+
+  it("persists a provider length-limited reply as interrupted instead of successful", async () => {
+    const { storage, messages } = roleplayAttributionStorage();
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      listModels: vi.fn(async () => []),
+      async *stream() {
+        yield { type: "token", text: "The provider reached its" };
+        yield {
+          type: "provider_metadata",
+          data: { finishReason: "length" },
+          finishReason: "length",
+        };
+      },
+    };
+
+    await expect(
+      collectEvents(
+        startGeneration(
+          { storage, llm, integrations: {} as IntegrationGateway },
+          {
+            chatId: "chat-1",
+            connectionId: "conn-1",
+            userMessage: "Continue.",
+            impersonateBlockAgents: true,
+          },
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "llm_stream_length" });
+
+    const assistant = messages.find((item) => item.role === "assistant");
+    expect(assistant?.content).toBe("The provider reached its");
+    expect(assistant?.extra.generationInterrupted).toEqual({
+      reason: "length",
+      message: "Generation interrupted",
+    });
+  });
 });

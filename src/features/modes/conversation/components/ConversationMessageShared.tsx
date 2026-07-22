@@ -18,6 +18,7 @@ import type {
 import type { SaveMomentSource } from "../../shared/chat-ui/index";
 import {
   GenerationReplayDetailsModal,
+  GenerationInterruptedStatus,
   ImagePromptPanel,
   isImageMessageAttachment,
   MessageAttachmentImagePreview,
@@ -151,6 +152,7 @@ export interface ConversationMessageRenderContext {
   showInlineReasoning: boolean;
   generationReplay: MessageExtra["generationReplay"] | null;
   memoryCapture: MessageExtra["memoryCapture"] | null;
+  generationInterrupted: MessageExtra["generationInterrupted"] | null;
   characterWebResearchRequest: MessageExtra["characterWebResearchRequest"] | null;
   characterWebResearchSources: MessageExtra["characterWebResearchSources"] | null;
   activePromptSnapshot: Message["extra"]["generationPromptSnapshot"] | null;
@@ -589,6 +591,14 @@ export function ConversationMessageBodyContent({
           chatId={context.message.chatId}
           messageId={context.message.id}
           request={context.characterWebResearchRequest}
+          onRegenerate={context.onRegenerate}
+        />
+      )}
+      {!context.isUser && (
+        <GenerationInterruptedStatus
+          interruption={context.generationInterrupted}
+          messageId={context.message.id}
+          forCharacterId={context.message.characterId}
           onRegenerate={context.onRegenerate}
         />
       )}

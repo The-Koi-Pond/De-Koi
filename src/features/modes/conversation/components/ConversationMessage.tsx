@@ -593,6 +593,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     showInlineReasoning,
     generationReplay,
     memoryCapture,
+    generationInterrupted: extra.generationInterrupted ?? null,
     characterWebResearchRequest: extra.characterWebResearchRequest ?? null,
     characterWebResearchSources: extra.characterWebResearchSources ?? null,
     activePromptSnapshot,

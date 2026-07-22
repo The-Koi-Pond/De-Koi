@@ -498,6 +498,10 @@ export function useChatTimelineActions({
         return;
       }
       try {
+        if (options?.continueResponse) {
+          await generate({ chatId: targetChatId, connectionId: null });
+          return;
+        }
         const currentInput = useChatStore.getState().currentInput;
         const generationGuide = currentInput.trim();
         const hasInput = generationGuide.length > 0;
