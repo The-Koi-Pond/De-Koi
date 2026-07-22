@@ -877,7 +877,8 @@ export async function* streamRemoteLlm(
     }
   } catch (error) {
     await reader.cancel(error).catch(() => undefined);
-    throw error;
+    if (error instanceof ApiError || isAbortError(error) || signal?.aborted) throw error;
+    throw remoteNetworkError(error);
   } finally {
     reader.releaseLock();
   }

@@ -3,7 +3,7 @@ import type { LlmGateway, LlmMessage } from "../../../../capabilities/llm";
 import type { StorageGateway } from "../../../../capabilities/storage";
 import type { BaseLLMProvider } from "../../../../generation-core/llm/base-provider.js";
 import { extractLeadingThinkingBlocks } from "../../../../generation-core/llm/inline-thinking";
-import { boolish } from "../../../../generation/runtime-records";
+import { resolveGenerationConnection } from "../../../../generation/context";
 import { formatZonedDate, normalizeUserTimeZone } from "../../../../shared/time/timezone";
 import { readString as stringValue } from "../../../../shared/value-readers";
 import { stripConversationPromptTimestamps } from "./transcript-sanitize.js";
@@ -147,24 +147,7 @@ async function resolveSummaryConnection(
   chat: JsonRecord,
   requestedConnectionId?: string | null,
 ): Promise<JsonRecord> {
-  const requested = stringValue(requestedConnectionId).trim();
-  if (requested) {
-    const connection = await storage.get<JsonRecord>("connections", requested);
-    if (!connection) throw new Error("Requested summary connection was not found");
-    return connection;
-  }
-  const chatConnectionId = stringValue(chat.connectionId).trim();
-  if (chatConnectionId) {
-    const connection = await storage.get<JsonRecord>("connections", chatConnectionId);
-    if (!connection) throw new Error("Chat summary connection was not found");
-    return connection;
-  }
-  const connections = await storage.list<JsonRecord>("connections");
-  const selected =
-    connections.find((connection) => boolish(connection.isDefault, false) || boolish(connection.default, false)) ??
-    connections[0];
-  if (!selected) throw new Error("No API connection configured for this chat");
-  return selected;
+  return resolveGenerationConnection(storage, chat, { connectionId: requestedConnectionId });
 }
 
 async function loadScopedMessages(storage: StorageGateway, chatId: string): Promise<ConversationSummaryMessage[]> {

@@ -136,6 +136,7 @@ fn release_payload_for(
     let target_commit = clean_commit(release.target_commit.as_deref());
     let commit_update =
         current_commit.is_some() && target_commit.is_some() && current_commit != target_commit;
+    let update_available = version_update || commit_update;
     json!({
         "currentVersion": APP_VERSION,
         "latestVersion": release.latest_version,
@@ -143,7 +144,7 @@ fn release_payload_for(
         "releaseUrl": release.release_url,
         "releaseNotes": release.release_notes,
         "publishedAt": release.published_at,
-        "updateAvailable": version_update,
+        "updateAvailable": update_available,
         "versionUpdate": version_update,
         "commitUpdate": commit_update,
         "currentCommit": current_commit,
@@ -448,6 +449,18 @@ mod tests {
         assert_eq!(payload["targetCommit"], "target1234567890");
         assert_eq!(payload["targetChannel"], "main");
         assert_eq!(payload["installType"], "server");
+    }
+
+    #[test]
+    fn server_update_is_available_when_main_commit_differs_at_the_same_version() {
+        let mut release = fallback_release(&format!("v{APP_VERSION}"));
+        release.target_commit = Some("target1234567890".to_string());
+
+        let payload = release_payload_for(&release, Some("current1234567890"), true);
+
+        assert_eq!(payload["versionUpdate"], false);
+        assert_eq!(payload["commitUpdate"], true);
+        assert_eq!(payload["updateAvailable"], true);
     }
 
     #[test]

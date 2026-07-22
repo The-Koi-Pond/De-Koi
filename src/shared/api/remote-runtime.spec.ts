@@ -316,6 +316,32 @@ describe("streamRemoteLlm", () => {
     });
   });
 
+  it("normalizes a stream reader transport failure after partial output", async () => {
+    const encoder = new TextEncoder();
+    let sent = false;
+    stubFetch([
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            if (!sent) {
+              sent = true;
+              controller.enqueue(encoder.encode('data: {"type":"token","text":"partial"}\n\n'));
+              return;
+            }
+            controller.error(new TypeError("network connection lost"));
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    ]);
+
+    await expect(collectStream()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 503,
+      details: { code: "remote_runtime_unreachable" },
+    });
+  });
+
   it("rejects a stream after two minutes without another event", async () => {
     vi.useFakeTimers();
     stubFetch([

@@ -3340,7 +3340,9 @@ async function saveAssistantMessage(args: {
     ...(args.roleplayQualityCorrection !== undefined
       ? { roleplayQualityCorrection: args.roleplayQualityCorrection }
       : {}),
-    ...(args.generationInterrupted ? { generationInterrupted: args.generationInterrupted } : {}),
+    ...(args.generationInterrupted !== undefined || regenerateMessageId
+      ? { generationInterrupted: args.generationInterrupted ?? null }
+      : {}),
   };
   const generationInfo = {
     connectionId: readString(args.connection.id) || null,
