@@ -42,7 +42,12 @@ import { gameAssetsApi } from "../../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
 import { importApi } from "../../../../../shared/api/import-api";
 import { CHARACTER_IMPORT_SIZE_ERROR, MAX_CHARACTER_IMPORT_UPLOAD_BYTES } from "../../../../../shared/api/file-payload";
-import { openUpdateRelease, updatesApi, type UpdateCheckResponse } from "../../../../../shared/api/updates-api";
+import {
+  formatUpdateIdentity,
+  openUpdateRelease,
+  updatesApi,
+  type UpdateCheckResponse,
+} from "../../../../../shared/api/updates-api";
 import { backgroundsApi, fontsApi } from "../../../../../shared/api/settings-assets-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { saveTextFileToUserSelectedLocation } from "../../../../../shared/api/file-save-api";
@@ -3838,8 +3843,12 @@ export function AdvancedSettings() {
             </button>
           </div>
           {updateInfo && (
-            <div className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-              Current {updateInfo.currentVersion}; latest {updateInfo.latestVersion}. {updateInfo.manualUpdateHint}
+            <div className="space-y-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+              <div>Current build: {formatUpdateIdentity(updateInfo.currentVersion, updateInfo.currentCommit)}</div>
+              <div>
+                Latest {updateInfo.targetChannel || "release"}: {formatUpdateIdentity(updateInfo.latestVersion, updateInfo.targetCommit)}
+              </div>
+              <div>{updateInfo.manualUpdateHint}</div>
             </div>
           )}
         </div>

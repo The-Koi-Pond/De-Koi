@@ -9,6 +9,10 @@ export type UpdateCheckResponse = {
   publishedAt: string;
   updateAvailable: boolean;
   versionUpdate: boolean;
+  commitUpdate: boolean;
+  currentCommit: string | null;
+  targetCommit: string | null;
+  targetChannel: string;
   installType: string;
   serverPlatform: string;
   clientPlatform?: string;
@@ -19,6 +23,11 @@ export type UpdateCheckResponse = {
   manualUpdateCommand: string | null;
   manualUpdateHint: string;
 };
+
+export function formatUpdateIdentity(version: string, commit: string | null | undefined): string {
+  const normalizedCommit = commit?.trim();
+  return `${version} (${normalizedCommit ? normalizedCommit.slice(0, 8) : "commit unavailable"})`;
+}
 
 export type UpdateApplyResponse = Omit<
   UpdateCheckResponse,
