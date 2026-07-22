@@ -39,6 +39,9 @@ function storageForScene(args: {
   const storage = {
     async get<T>(entity: StorageEntity, id: string) {
       if (entity === "chats") return (chats.get(id) ?? null) as T | null;
+      if (entity === "connections") {
+        return ((args.connections ?? []).find((connection) => connection.id === id) ?? null) as T | null;
+      }
       if (entity === "prompts" && id === "preset_universal_v2") return { id, name: "De-Koi Universal Preset V2" } as T;
       if (entity === "characters") return null as T | null;
       return null as T | null;

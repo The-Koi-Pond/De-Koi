@@ -61,17 +61,14 @@ export async function resolveGenerationConnection(
   input: { connectionId?: string | null },
   options: { random?: () => number } = {},
 ): Promise<JsonRecord> {
-  const connections = await storage.list<JsonRecord>("connections");
-  const enabledConnections = connections.filter(
-    (connection) => readString(connection.id).trim() && boolish(connection.enabled, true),
-  );
-
-  function findConnection(id: string, label: string): JsonRecord {
-    return requireRecord(connections.find((connection) => readString(connection.id).trim() === id), label);
+  async function enabledConnections(): Promise<JsonRecord[]> {
+    return (await storage.list<JsonRecord>("connections")).filter(
+      (connection) => readString(connection.id).trim() && boolish(connection.enabled, true),
+    );
   }
 
-  function randomConnection(): JsonRecord {
-    const pool = enabledConnections.filter((connection) => boolish(connection.useForRandom, false));
+  async function randomConnection(): Promise<JsonRecord> {
+    const pool = (await enabledConnections()).filter((connection) => boolish(connection.useForRandom, false));
     const selected = pool[Math.floor((options.random ?? Math.random)() * pool.length)];
     if (!selected) throw new Error("No connections are marked for the random pool");
     return selected;
@@ -79,16 +76,17 @@ export async function resolveGenerationConnection(
 
   const requested = readString(input.connectionId).trim();
   if (requested === "random") return randomConnection();
-  if (requested) return findConnection(requested, "Connection");
+  if (requested) return requireRecord(await storage.get("connections", requested), "Connection");
 
   const chatConnection = readString(chat.connectionId).trim();
   if (chatConnection === "random") return randomConnection();
-  if (chatConnection) return findConnection(chatConnection, "Chat connection");
+  if (chatConnection) return requireRecord(await storage.get("connections", chatConnection), "Chat connection");
 
+  const connections = await enabledConnections();
   const selected =
-    enabledConnections.find(
+    connections.find(
       (connection) => boolish(connection.isDefault, false) || boolish(connection.default, false),
-    ) ?? enabledConnections[0];
+    ) ?? connections[0];
   return requireRecord(selected, "API connection");
 }
 

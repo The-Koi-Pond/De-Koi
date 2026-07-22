@@ -40,8 +40,11 @@ describe("representative dense UI readability", () => {
 
   it("uses the shared interaction target for app titlebar actions", () => {
     const source = readSource("src/app/shell/WindowTitleBar.tsx");
+    const panelSource = readSource("src/app/shell/PanelNavButtons.tsx");
+    const navigationSource = readSource("src/shared/components/shell-navigation.ts");
 
     expect(source).toMatch(/mari-title-home-button[^"\n]*de-koi-icon-target/);
-    expect(source).toMatch(/mari-titlebar-action de-koi-icon-target[\s\S]{0,300}title="Help"/);
+    expect(panelSource).toContain("mari-titlebar-action de-koi-icon-target");
+    expect(navigationSource).toContain('label: "Help"');
   });
 });
