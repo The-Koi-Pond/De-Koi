@@ -471,6 +471,7 @@ describe("startGeneration roleplay text persistence", () => {
       complete: vi.fn(async () => ""),
       listModels: vi.fn(async () => []),
       async *stream() {
+        yield* [];
         throw Object.assign(new Error("LLM provider stream ended before a terminal event."), {
           code: "llm_stream_incomplete",
         });
