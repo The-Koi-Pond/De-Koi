@@ -660,9 +660,12 @@ async function readDurableSessionsState(hydrateSessionId?: string | null): Promi
   const activeSessionId = summarySessionIds.includes(requestedActiveId ?? "")
     ? requestedActiveId!
     : (summarySessionIds[0] ?? null);
-  const messageSessionId = summarySessionIds.includes(hydrateSessionId ?? "")
-    ? hydrateSessionId!
-    : activeSessionId;
+  const messageSessionId =
+    hydrateSessionId === null
+      ? null
+      : summarySessionIds.includes(hydrateSessionId ?? "")
+        ? hydrateSessionId!
+        : activeSessionId;
   const sessions: DekiSession[] = [];
   const seen = new Set<string>();
   for (const record of records) {
@@ -1207,7 +1210,7 @@ export const dekiApi = {
     },
   },
   sessions: {
-    list: readSessionsState,
+    list: async (): Promise<DekiSessionsState> => readSessionsState(null),
     create: async (): Promise<DekiSessionsState> => {
       const state = await readSessionsState();
       const session = createEmptyDekiSession();
@@ -1240,7 +1243,7 @@ export const dekiApi = {
   },
   history: {
     get: async (sessionId?: string | null): Promise<DekiHistorySnapshot> => {
-      return historySnapshot(await readSessionsState(), sessionId);
+      return historySnapshot(await readSessionsState(sessionId ?? ""), sessionId);
     },
     appendMessage: async (message: {
       sessionId?: string | null;
@@ -1250,7 +1253,7 @@ export const dekiApi = {
       workspaceTrace?: DekiWorkspaceTraceItem[];
       workspaceHistory?: DekiWorkspaceHistoryItem[];
     }): Promise<DekiMessage> => {
-      const state = await readSessionsState(message.sessionId ?? null);
+      const state = await readSessionsState(message.sessionId ?? "");
       const nextMessage = createDekiMessage(message);
       const nextState = updateSession(state, message.sessionId, (session) => {
         const messages = [...session.messages, nextMessage];
