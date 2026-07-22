@@ -2204,6 +2204,8 @@ export function useGenerate() {
         toast.error(errorMessage(error));
         throw error;
       } finally {
+        // A background retry deliberately borrows the foreground generation's busy period.
+        // It never acquires this flag, so clearing it here would falsely mark that foreground response idle.
         if (!runInBackground) useAgentStore.getState().setProcessing(false);
       }
     },

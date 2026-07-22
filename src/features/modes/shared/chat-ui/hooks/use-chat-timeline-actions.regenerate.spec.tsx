@@ -151,4 +151,17 @@ describe("useChatTimelineActions", () => {
       runInBackground: true,
     });
   });
+
+  it("keeps non-music agent retries blocked while the chat response is streaming", async () => {
+    await act(async () => {
+      useChatStore.setState({ isStreaming: true, streamingChatId: "stale-active-chat" });
+      useAgentStore.getState().setProcessing(true);
+    });
+
+    await act(async () => {
+      await retryAgent?.("illustrator", { allowDuringGeneration: true });
+    });
+
+    expect(mocks.retryAgents).not.toHaveBeenCalled();
+  });
 });
