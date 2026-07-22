@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { LlmGateway } from "../capabilities/llm";
 import type { RefreshChatMemoriesOptions, StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { JsonRecord } from "./runtime-records";
 import {
+  beginForegroundGeneration,
   enqueueAutomaticMemoryCaptureJob,
   processAutomaticMemoryCaptureQueue,
   subscribeAutomaticMemoryCaptureCompletions,
@@ -250,6 +251,59 @@ describe("automatic memory capture queue", () => {
     expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed", attempts: 1 }));
   });
 
+  it("pauses a draining queue before its next job when foreground generation starts", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    harness.messages.set("user-2", message("user-2", "user", "I moved to Osaka."));
+    harness.messages.set("assistant-2", message("assistant-2", "assistant", "I'll remember that."));
+    const secondJob = await enqueueAutomaticMemoryCaptureJob(
+      harness.storage,
+      {
+        chat: { id: "chat-1", mode: "conversation" },
+        characters: [{ id: "char-1" }],
+        savedUserMessage: harness.messages.get("user-2"),
+        savedAssistantMessage: harness.messages.get("assistant-2"),
+      },
+      "2026-01-01T00:04:00.000Z",
+    );
+
+    let releaseFirstRefresh: () => void = () => {};
+    const firstRefreshReleased = new Promise<void>((resolve) => {
+      releaseFirstRefresh = resolve;
+    });
+    let markFirstRefreshStarted: () => void = () => {};
+    const firstRefreshStarted = new Promise<void>((resolve) => {
+      markFirstRefreshStarted = resolve;
+    });
+    const originalRefresh = harness.storage.refreshChatMemories!.bind(harness.storage);
+    let refreshCount = 0;
+    harness.storage.refreshChatMemories = async <T = unknown>(
+      chatId: string,
+      options?: RefreshChatMemoriesOptions,
+    ): Promise<T> => {
+      refreshCount += 1;
+      if (refreshCount === 1) {
+        markFirstRefreshStarted();
+        await firstRefreshReleased;
+      }
+      return originalRefresh<T>(chatId, options);
+    };
+
+    const processing = processAutomaticMemoryCaptureQueue(harness.storage, {
+      now: "2026-01-01T00:05:00.000Z",
+    });
+    await firstRefreshStarted;
+    const releaseForegroundGeneration = beginForegroundGeneration(harness.storage);
+    releaseFirstRefresh();
+
+    const result = await processing;
+    expect(result.processed).toBe(1);
+    expect(harness.jobs.get(String(secondJob?.id))?.status).toBe("pending");
+
+    releaseForegroundGeneration();
+    await vi.waitFor(() => expect(harness.jobs.get(String(secondJob?.id))?.status).toBe("completed"));
+  });
+
   it("marks the assistant message extra after capture completes", async () => {
     const harness = queueStorage();
     const job = await harness.enqueue();
@@ -331,9 +385,9 @@ describe("automatic memory capture queue", () => {
 
     expect(prompts.join("\n")).not.toContain("malformed-memory");
     expect(harness.jobs.get(String(job?.id))?.affectedCanonicalMemoryIds).toEqual([]);
-    expect(
-      Array.from(harness.canonicalMemories.values()).filter((memory) => memory.id !== "malformed-memory"),
-    ).toEqual([expect.objectContaining({ id: `canonical-${String(job?.id)}` })]);
+    expect(Array.from(harness.canonicalMemories.values()).filter((memory) => memory.id !== "malformed-memory")).toEqual(
+      [expect.objectContaining({ id: `canonical-${String(job?.id)}` })],
+    );
   });
 
   it("publishes the exact saved memory after durable capture completes", async () => {

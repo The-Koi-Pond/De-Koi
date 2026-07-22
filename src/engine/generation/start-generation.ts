@@ -100,6 +100,7 @@ import {
 } from "../shared/attachments/image-attachments";
 import type { GenerationEvent } from "./generation-events";
 import {
+  beginForegroundGeneration,
   enqueueAndScheduleAutomaticMemoryCapture,
   scheduleAutomaticMemoryCaptureQueueProcessing,
 } from "./automatic-memory-capture-queue";
@@ -4424,6 +4425,19 @@ export async function* dryRunGeneration(
 }
 
 export async function* startGeneration(
+  deps: GenerationEngineDeps,
+  input: StartGenerationInput,
+  signal?: AbortSignal,
+): AsyncGenerator<GenerationEvent> {
+  const releaseForegroundGeneration = beginForegroundGeneration(deps.storage);
+  try {
+    yield* startGenerationImpl(deps, input, signal);
+  } finally {
+    releaseForegroundGeneration();
+  }
+}
+
+async function* startGenerationImpl(
   deps: GenerationEngineDeps,
   input: StartGenerationInput,
   signal?: AbortSignal,
