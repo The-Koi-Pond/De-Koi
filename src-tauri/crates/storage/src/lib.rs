@@ -16,9 +16,11 @@ use marinara_core::{ensure_object, new_id, now_iso, AppError, AppResult};
 use marinara_security::validate_collection_name;
 use messages::*;
 use projection::*;
+use serde::de::{Error as _, SeqAccess, Visitor};
 use serde::Deserializer as _;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::fs;
 use std::io::{BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -92,6 +94,28 @@ fn evict_oldest_clean_cache_entry(cache: &mut StorageCache) -> bool {
 pub struct AtomicCollectionRows {
     collection: String,
     rows: Vec<Value>,
+}
+
+struct CollectionRowsVisitor<'a> {
+    visit: &'a mut dyn FnMut(&Value) -> AppResult<()>,
+}
+
+impl<'de> Visitor<'de> for CollectionRowsVisitor<'_> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a storage collection JSON array")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while let Some(row) = seq.next_element::<Value>()? {
+            (self.visit)(&row).map_err(A::Error::custom)?;
+        }
+        Ok(())
+    }
 }
 
 impl AtomicCollectionRows {
@@ -169,6 +193,43 @@ impl FileStorage {
             || self.read_collection_no_recovery(collection),
             || self.read_collection(collection),
         )
+    }
+
+    /// Streams rows to the caller without cloning or collecting a collection.
+    /// Cached rows are borrowed in place; uncached collections are parsed one row at a time.
+    pub fn visit_collection_rows(
+        &self,
+        collection: &str,
+        visit: &mut dyn FnMut(&Value) -> AppResult<()>,
+    ) -> AppResult<()> {
+        validate_collection_name(collection)?;
+        let _guard = self
+            .lock
+            .read()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        self.write_gate.ensure_available()?;
+        {
+            let cache = self
+                .cache
+                .read()
+                .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+            if let Some(cached) = cache.collections.get(collection) {
+                for row in &cached.rows {
+                    visit(row)?;
+                }
+                return Ok(());
+            }
+        }
+        let path = self.collection_path(collection)?;
+        if !path.exists() || fs::metadata(&path)?.len() == 0 {
+            return Ok(());
+        }
+        let file = fs::File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut deserializer = serde_json::Deserializer::from_reader(reader);
+        (&mut deserializer)
+            .deserialize_seq(CollectionRowsVisitor { visit })
+            .map_err(|error| AppError::new("storage_parse_error", error.to_string()))
     }
 
     pub fn list_where(
@@ -311,43 +372,6 @@ impl FileStorage {
             || self.read_messages_for_chat_page_no_recovery(chat_id, limit, before),
             || self.read_messages_for_chat_page(chat_id, limit, before),
         )
-    }
-
-    pub fn list_messages_for_chats_page(
-        &self,
-        chat_ids: &HashSet<String>,
-        limit_per_chat: usize,
-    ) -> AppResult<Vec<Value>> {
-        if chat_ids.is_empty() || limit_per_chat == 0 {
-            return Ok(Vec::new());
-        }
-        let mut grouped = HashMap::<String, Vec<Value>>::new();
-        for row in self.list("messages")? {
-            let Some(chat_id) = row.get("chatId").and_then(Value::as_str) else {
-                continue;
-            };
-            if chat_ids.contains(chat_id) {
-                grouped.entry(chat_id.to_string()).or_default().push(row);
-            }
-        }
-        let mut selected = Vec::new();
-        for chat_id in chat_ids {
-            let Some(rows) = grouped.get_mut(chat_id) else {
-                continue;
-            };
-            rows.sort_by(|left, right| {
-                let left_time = left.get("createdAt").and_then(Value::as_str).unwrap_or("");
-                let right_time = right.get("createdAt").and_then(Value::as_str).unwrap_or("");
-                left_time.cmp(right_time).then_with(|| {
-                    let left_id = left.get("id").and_then(Value::as_str).unwrap_or("");
-                    let right_id = right.get("id").and_then(Value::as_str).unwrap_or("");
-                    left_id.cmp(right_id)
-                })
-            });
-            let start = rows.len().saturating_sub(limit_per_chat);
-            selected.extend(rows.drain(start..));
-        }
-        Ok(selected)
     }
 
     pub fn list_messages_for_chat_page_projected(

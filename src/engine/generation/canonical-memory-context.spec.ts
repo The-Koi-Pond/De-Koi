@@ -352,6 +352,49 @@ describe("canonical memory context", () => {
     expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-character", "memory-chat"]);
   });
 
+  it("uses canonical scope ordinal as the equal-score tie break before prompt cutoffs", async () => {
+    const characterMemories = Array.from({ length: 10 }, (_, index) =>
+      memory({
+        id: `memory-character-${index}`,
+        scope: { kind: "character", id: "char-1" },
+        confidence: 0,
+        provenance: {
+          sourceChatId: "other-chat",
+          messageIds: ["message-old"],
+          sceneId: null,
+          characterId: "char-1",
+          timestamp: "2026-07-01T10:00:00.000Z",
+        },
+        content: `The brass key is hidden near archive shelf ${index}.`,
+      }),
+    );
+    const batch = vi.fn(async () => [
+      ...characterMemories,
+      memory({
+        id: "memory-chat",
+        confidence: 0.5833333333333334,
+        content: "The brass key is hidden near archive shelf chat.",
+      }),
+    ]);
+    const storage = {
+      ...storageWithMemories({ indexed: [] }),
+      queryMemoryIndexBatch: batch,
+    } as StorageGateway & { queryMemoryIndexBatch: typeof batch };
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key?",
+      characters: [{ id: "char-1", name: "Mira", tags: [] }],
+      maxContext: 4096,
+    });
+
+    expect(result?.attributionItems.map((item) => item.sourceId)).toEqual([
+      "memory-chat",
+      ...characterMemories.slice(0, 9).map((entry) => entry.id),
+    ]);
+  });
+
   it("does not query character scope for an explicitly chat-only character", async () => {
     const storage = storageWithMemories({ indexed: [] });
 
