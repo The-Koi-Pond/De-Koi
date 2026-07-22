@@ -29,15 +29,24 @@ export function CharacterWebResearchCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localStatus, setLocalStatus] = useState<CharacterWebResearchRequest["status"] | null>(null);
-  const resolvedStatus = request.status && request.status !== "pending" ? request.status : localStatus;
+  const resolvedStatus = localStatus ?? request.status ?? "pending";
 
   useEffect(() => {
     setLocalStatus(null);
     setError(null);
   }, [messageId, request.query, request.status]);
 
-  if (resolvedStatus && resolvedStatus !== "pending") {
+  if (resolvedStatus === "completed" || resolvedStatus === "declined" || resolvedStatus === "approved") {
     return <p className="mt-2 text-xs text-[var(--muted-foreground)]">Web research {resolvedStatus}.</p>;
+  }
+
+  if (resolvedStatus === "researching") {
+    return (
+      <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Web research in progress...
+      </p>
+    );
   }
 
   const decide = async (approval: CharacterWebResearchApproval | "decline") => {
@@ -59,12 +68,27 @@ export function CharacterWebResearchCard({
         allowedDomains: request.allowedDomains,
         requestMessageId: messageId,
       });
+      await storageApi.patchChatMessageExtra(messageId, {
+        characterWebResearchRequest: { ...request, status: "researching", failureMessage: null },
+      });
+      setLocalStatus("researching");
       await storageApi.patchChatMetadata(chatId, characterWebResearchApprovalPatch(approval, grant));
       await onRegenerate?.(messageId, { chatId, propagateErrors: true, skipTouchConfirm: true });
+      await storageApi.patchChatMessageExtra(messageId, {
+        characterWebResearchRequest: { ...request, status: "completed", failureMessage: null },
+      });
+      setLocalStatus("completed");
       setError(null);
       await qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
     } catch (cause) {
-      setError(toUserMessage(cause, "characterWebResearchRetry"));
+      const failureMessage = toUserMessage(cause, "characterWebResearchRetry");
+      await storageApi.patchChatMessageExtra(messageId, {
+        characterWebResearchRequest: { ...request, status: "failed", failureMessage },
+      });
+      await storageApi.patchChatMetadata(chatId, { characterWebResearchGrant: null });
+      setLocalStatus("failed");
+      setError(failureMessage);
+      await qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
     } finally {
       setBusy(false);
     }
@@ -74,7 +98,7 @@ export function CharacterWebResearchCard({
     <section className="mt-2 rounded-lg border border-sky-400/30 bg-sky-500/10 p-3 text-sm">
       <div className="flex items-center gap-2 font-medium">
         <Globe2 className="h-4 w-4" />
-        Allow this character to research the web?
+        {resolvedStatus === "failed" ? "Web research failed" : "Allow this character to research the web?"}
       </div>
       <p className="mt-1 text-xs text-[var(--muted-foreground)]">{request.reason}</p>
       <p className="mt-2 rounded bg-black/10 px-2 py-1 text-xs">{request.query}</p>
@@ -83,7 +107,11 @@ export function CharacterWebResearchCard({
           Limited to: {request.allowedDomains.join(", ")}
         </p>
       )}
-      {error && <div className="mt-2 rounded bg-red-500/10 px-2 py-1.5 text-xs text-red-500">{error}</div>}
+      {(error || request.failureMessage) && (
+        <div className="mt-2 rounded bg-red-500/10 px-2 py-1.5 text-xs text-red-500">
+          {error || request.failureMessage}
+        </div>
+      )}
       <div className="mt-2 flex gap-2">
         <button
           className="rounded px-2 py-1 text-xs hover:bg-black/10"

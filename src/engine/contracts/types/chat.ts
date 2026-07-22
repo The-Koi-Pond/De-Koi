@@ -648,7 +648,8 @@ export interface CharacterWebResearchRequest {
   query: string;
   reason: string;
   allowedDomains: string[];
-  status?: "pending" | "approved" | "declined";
+  status?: "pending" | "approved" | "researching" | "completed" | "failed" | "declined";
+  failureMessage?: string | null;
 }
 
 /** Metadata about how a message was generated. */

@@ -182,7 +182,7 @@ function scriptedWebResearchLlm(finalText = "Final sourced answer."): {
 async function runWebResearchPresentation(
   presentation: "quiet" | "visible",
   policy: "ask" | "always" = "always",
-  options: { searchFailure?: boolean; finalText?: string } = {},
+  options: { searchFailure?: boolean; finalText?: string; captureFailure?: boolean } = {},
 ) {
   const { storage, messages } = webResearchStorage(presentation, policy);
   const events: GenerationEvent[] = [];
@@ -209,19 +209,25 @@ async function runWebResearchPresentation(
   } as unknown as IntegrationGateway;
   const scripted = scriptedWebResearchLlm(options.finalText);
 
-  for await (const event of startGeneration(
-    { storage, llm: scripted.llm, integrations },
-    {
-      chatId: "chat-1",
-      connectionId: "conn-1",
-      userMessage: "When is the next lunar eclipse?",
-      impersonateBlockAgents: true,
-    },
-  )) {
-    events.push(event);
+  let failure: unknown = null;
+  try {
+    for await (const event of startGeneration(
+      { storage, llm: scripted.llm, integrations },
+      {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        userMessage: "When is the next lunar eclipse?",
+        impersonateBlockAgents: true,
+      },
+    )) {
+      events.push(event);
+    }
+  } catch (cause) {
+    if (!options.captureFailure) throw cause;
+    failure = cause;
   }
 
-  return { events, messages, requests: scripted.requests };
+  return { events, messages, requests: scripted.requests, failure };
 }
 
 describe("startGeneration character web research presentation", () => {
@@ -294,5 +300,15 @@ describe("startGeneration character web research presentation", () => {
       "No web search provider returned usable results.",
     );
     expect(finalRequest?.tools?.every((tool) => (tool.description ?? "").includes("Do not invent"))).toBe(true);
+  });
+
+  it("fails visibly without saving a blank assistant row when research produces no final prose", async () => {
+    const { failure, messages } = await runWebResearchPresentation("quiet", "always", {
+      finalText: "",
+      captureFailure: true,
+    });
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(messages.filter((message) => message.role === "assistant")).toEqual([]);
   });
 });
