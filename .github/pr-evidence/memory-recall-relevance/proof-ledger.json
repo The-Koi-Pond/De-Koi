@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Memory Recall relevance and visible-history deduplication",
+    "source": "Direct maintainer report reproduced on the Pi",
+    "classification": "prompt assembly and canonical memory ranking",
+    "status": "draft_pr_open"
+  },
+  "coreClaim": "An ordinary group-chat message recalls only query-relevant canonical memories plus intentional pinned records, and never duplicates transcript chunks whose source messages are already visible to the model.",
+  "scope": {
+    "inScope": [
+      "Transcript-memory provenance exclusion against selected visible history",
+      "Canonical-memory relevance qualification",
+      "Pinned canonical-memory compatibility",
+      "Older transcript recall outside the visible-history window"
+    ],
+    "outOfScope": [
+      "Automatic memory capture policy",
+      "Stored memory deletion or migration",
+      "Memory Recall UI counts",
+      "Semantic vector retrieval API changes",
+      "Provider transport"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/prompt-assembly.ts",
+      "src/engine/generation/canonical-memory-context.ts",
+      "src/engine/generation/prompt-assembly.context-priority.spec.ts",
+      "src/engine/generation/canonical-memory-context.spec.ts",
+      "src/engine/generation/start-generation.memory-recall.e2e.spec.ts",
+      "docs/superpowers/specs/2026-07-23-memory-recall-relevance-design.md",
+      "docs/superpowers/plans/2026-07-23-memory-recall-relevance.md",
+      ".github/pr-evidence/memory-recall-relevance/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "memory relevance",
+      "legacy imported memory compatibility",
+      "Bunny review"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Selected visible transcript source ids are excluded from transcript recall, and scoped canonical index rows require lexical relevance unless pinned.",
+    "riskType": "prompt-context duplication, relevance, and legacy compatibility",
+    "entrypoints": [
+      "Conversation and roleplay prompt assembly",
+      "Group reply prompt assembly",
+      "Reusable prompt context",
+      "Imported and automatically captured chat memories"
+    ],
+    "currentPathsOrFormats": [
+      "Canonical memory records returned by scoped index queries",
+      "Transcript memories with messageIds, firstMessageId, and lastMessageId",
+      "GenerationContextAttribution memory_recall rows"
+    ],
+    "legacyPathsOrFormats": [
+      "Imported chat memories without transcript message ids",
+      "Read-behind timestamp fallback for recent legacy memory rows",
+      "Pinned canonical memories without query overlap"
+    ],
+    "positiveRowsTested": [
+      "A behave-related Harlequin memory matches the exact reported user query",
+      "A pinned unrelated canonical memory remains eligible",
+      "An older transcript chunk outside the selected history window remains recallable",
+      "An imported old memory without transcript source ids remains recallable"
+    ],
+    "negativeRowsTested": [
+      "Same-owner grief and Pokemon-card memories do not match the reported query",
+      "A transcript chunk sourced from the visible previous assistant line is not injected",
+      "Read-behind still excludes the newest source message"
+    ],
+    "groundTruthFacts": [
+      "The scoped index API receives only scope and returns candidate rows without query similarity",
+      "The reported prompt contained one visible transcript line plus ten canonical rows",
+      "Four reported canonical rows had zero lexical overlap but still received a synthetic 0.18 semantic score"
+    ],
+    "userActionCopy": "No user action or data migration is required.",
+    "manualBlockers": []
+  },
+  "contractLaneGate": {
+    "brokenContract": "Prompt assembly treated selected visible dialogue as recallable history and treated scoped index membership as semantic relevance.",
+    "producer": "src/engine/generation/prompt-assembly.ts and canonical-memory-context.ts",
+    "consumer": "Provider-ready generation prompt and Memory Recall attribution UI",
+    "impliedContract": "Recall adds useful context that is absent from visible history; ownership and storage availability narrow candidates but do not establish query relevance.",
+    "actualEnforcement": "Prompt assembly passes selected source messages into transcript exclusion, while canonical ranking requires lexical overlap or pinned status.",
+    "primaryOwnerLane": "src/engine",
+    "wrongLaneFixToAvoid": "Do not hide truthful attribution counts in the UI or mutate/delete stored memories.",
+    "regressionProof": [
+      "The new focused tests failed on origin/main with four canonical rows and a duplicated transcript block.",
+      "The same tests pass after the owner-level selection repairs.",
+      "The generation suite, full Vitest suite, and pnpm check pass."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Relevant same-owner canonical memory remains available.",
+        "evidence": "The reported-query regression retains memory-relevant."
+      },
+      {
+        "claim": "Pinned canonical memory remains available without lexical overlap.",
+        "evidence": "The reported-query regression retains memory-pinned."
+      },
+      {
+        "claim": "Older transcript recall continues after visible-history compaction.",
+        "evidence": "The historyLimit 2 regression injects the older moonlit-mask transcript."
+      },
+      {
+        "claim": "Imported legacy memory remains compatible.",
+        "evidence": "The memory-recall end-to-end suite retains the jasmine-tea imported-memory path."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Index membership alone must not inject unrelated records.",
+        "evidence": "The reported-query regression excludes same-owner Columbina and Pokemon-card records."
+      },
+      {
+        "claim": "Visible dialogue must not be duplicated as recalled transcript.",
+        "evidence": "The visible-history regression excludes the previous assistant source id and produces no transcript memory block."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "The existing one-message read-behind timestamp fallback remains active.",
+        "evidence": "The original memory recall tests and six end-to-end preflight tests pass."
+      },
+      {
+        "claim": "Status, supersession, scope, token budget, and pinned rules remain active.",
+        "evidence": "All 578 generation tests and 2,251 repository tests pass."
+      }
+    ],
+    "untestedRows": [
+      "The exact merged image revision and live Pi prompt behavior are verified after merge and deployment."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The live Harlequin reply jumped from zero to eleven recalled items after a short question.",
+      "sourceType": "measured",
+      "evidence": "The saved Pi prompt attribution contained one transcript Memory 1 and ten canonical memories."
+    },
+    {
+      "description": "The literal dialogue memory came from the immediately preceding Harlequin message already present in visible chat history.",
+      "sourceType": "measured",
+      "evidence": "The chat memory record messageIds matched the previous assistant message id."
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Visible transcript source id excluded",
+      "Unrelated same-owner indexed records excluded",
+      "Pinned record retained",
+      "Older off-window transcript retained",
+      "Imported id-less memory retained"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run src/engine/generation/canonical-memory-context.spec.ts src/engine/generation/prompt-assembly.context-priority.spec.ts",
+      "pnpm vitest run src/engine/generation/start-generation.memory-recall.e2e.spec.ts",
+      "pnpm vitest run src/engine/generation",
+      "pnpm test",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check",
+      "git diff --check"
+    ]
+  },
+  "pr": {
+    "number": 1153,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1153",
+    "headRefName": "fix/memory-recall-relevance",
+    "baseRefName": "main",
+    "merged": false
+  },
+  "notes": [
+    "The maintainer authorized fixing, publishing, merging, and updating the Pi for this reported bug.",
+    "The UI count remains unchanged because it was accurately reporting injected prompt context."
+  ]
+}

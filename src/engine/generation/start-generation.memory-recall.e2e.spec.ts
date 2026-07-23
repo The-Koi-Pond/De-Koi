@@ -459,7 +459,9 @@ describe("startGeneration Memory Recall preflight", () => {
 
   it("extracts a memory after generation and injects it into the next generation", async () => {
     const calls: LlmRequest[] = [];
-    const harness = memoryRecallStorage();
+    const harness = memoryRecallStorage({
+      metadata: { enableMemoryRecall: true, memoryRecallReadBehindMessages: 1, contextMessageLimit: 2 },
+    });
     const deps = {
       storage: harness.storage,
       llm: memoryAwareLlm(calls),

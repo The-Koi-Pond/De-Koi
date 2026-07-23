@@ -2431,20 +2431,40 @@ function messageIdSet(messages: JsonRecord[]): Set<string> {
   return new Set(messages.map((message) => readString(message.id).trim()).filter(Boolean));
 }
 
-function memoryRecallReadBehindExclusion(
+function memoryRecallExcludedMessages(
   chat: JsonRecord,
   storedMessages: JsonRecord[],
-): Pick<ListChatMemoriesOptions, "excludeRecentMessageIds" | "excludeRecentStartAt"> {
+  visibleHistoryMessages: JsonRecord[],
+): JsonRecord[] {
   const readBehind = memoryRecallReadBehind(chat);
-  if (readBehind <= 0) return {};
+  const candidates = [
+    ...visibleHistoryMessages,
+    ...(readBehind > 0 ? recentMemoryRecallMessages(storedMessages, readBehind) : []),
+  ];
+  const seenIds = new Set<string>();
+  return candidates.filter((message, index) => {
+    const id = readString(message.id).trim();
+    if (!id) return candidates.indexOf(message) === index;
+    if (seenIds.has(id)) return false;
+    seenIds.add(id);
+    return true;
+  });
+}
 
-  const recentMessages = recentMemoryRecallMessages(storedMessages, readBehind);
-  const excludeRecentMessageIds = Array.from(messageIdSet(recentMessages));
-  if (excludeRecentMessageIds.length === 0) return {};
+function memoryRecallExclusion(
+  chat: JsonRecord,
+  storedMessages: JsonRecord[],
+  visibleHistoryMessages: JsonRecord[],
+): Pick<ListChatMemoriesOptions, "excludeRecentMessageIds" | "excludeRecentStartAt"> {
+  const excludedMessages = memoryRecallExcludedMessages(chat, storedMessages, visibleHistoryMessages);
+  const excludeRecentMessageIds = Array.from(messageIdSet(excludedMessages));
+  const excludeRecentStartAt = recentMemoryRecallMessages(storedMessages, memoryRecallReadBehind(chat))
+    .map((message) => readString(message.createdAt).trim())
+    .filter(Boolean)
+    .sort()[0];
 
-  const excludeRecentStartAt = readString(recentMessages[0]?.createdAt).trim();
   return {
-    excludeRecentMessageIds,
+    ...(excludeRecentMessageIds.length > 0 ? { excludeRecentMessageIds } : {}),
     ...(excludeRecentStartAt ? { excludeRecentStartAt } : {}),
   };
 }
@@ -2462,28 +2482,45 @@ function memoryChunkMessageIds(memory: JsonRecord): Set<string> {
   return ids;
 }
 
-function memoryOverlapsRecentMessages(memory: JsonRecord, recentIds: Set<string>, recentStartAt: string): boolean {
-  if (recentIds.size === 0) return false;
+function memoryOverlapsExcludedMessages(
+  memory: JsonRecord,
+  excludedIds: Set<string>,
+  excludedStartAt: string,
+): boolean {
   const chunkIds = memoryChunkMessageIds(memory);
   if (chunkIds.size > 0) {
     for (const id of chunkIds) {
-      if (recentIds.has(id)) return true;
+      if (excludedIds.has(id)) return true;
     }
     return false;
   }
 
   const lastMessageAt = readString(memory.lastMessageAt).trim();
-  return !!lastMessageAt && !!recentStartAt && lastMessageAt >= recentStartAt;
+  return !!lastMessageAt && !!excludedStartAt && lastMessageAt >= excludedStartAt;
 }
 
-function memoriesAfterReadBehind(chat: JsonRecord, storedMessages: JsonRecord[], memories: JsonRecord[]): JsonRecord[] {
-  const readBehind = memoryRecallReadBehind(chat);
-  if (readBehind <= 0 || memories.length === 0) return memories;
-
-  const recentMessages = recentMemoryRecallMessages(storedMessages, readBehind);
+function memoriesAfterExclusion(
+  chat: JsonRecord,
+  storedMessages: JsonRecord[],
+  visibleHistoryMessages: JsonRecord[],
+  memories: JsonRecord[],
+): JsonRecord[] {
+  if (memories.length === 0) return memories;
+  const recentMessages = recentMemoryRecallMessages(storedMessages, memoryRecallReadBehind(chat));
   const recentIds = messageIdSet(recentMessages);
-  const recentStartAt = readString(recentMessages[0]?.createdAt).trim();
-  return memories.filter((memory) => !memoryOverlapsRecentMessages(memory, recentIds, recentStartAt));
+  const recentStartAt =
+    recentMessages
+      .map((message) => readString(message.createdAt).trim())
+      .filter(Boolean)
+      .sort()[0] ?? "";
+  const visibleHistoryIds = messageIdSet(visibleHistoryMessages);
+  return memories.filter((memory) => {
+    if (memoryOverlapsExcludedMessages(memory, recentIds, recentStartAt)) return false;
+    for (const id of memoryChunkMessageIds(memory)) {
+      if (visibleHistoryIds.has(id)) return false;
+    }
+    return true;
+  });
 }
 
 function memoryRecallRecencyKey(memory: JsonRecord): string {
@@ -2557,6 +2594,7 @@ async function buildMemoryRecallBlock(
   requestedBudget?: number,
   embeddingSource?: { embed(texts: string[]): Promise<number[][] | null> } | null,
   characterMemoryLines: string[] = [],
+  visibleHistoryMessages: JsonRecord[] = [],
 ): Promise<MemoryRecallPromptContext | null> {
   if (!memoryRecallEnabled(chat) || !latestUserInput.trim()) return null;
   const chatId = readString(chat.id).trim();
@@ -2566,13 +2604,15 @@ async function buildMemoryRecallBlock(
     const rows = await storage.listChatMemories<unknown>(chatId, {
       limit: MAX_MEMORY_RECALL_SCORING_CHUNKS,
       order: "recent",
-      ...memoryRecallReadBehindExclusion(chat, storedMessages),
+      ...memoryRecallExclusion(chat, storedMessages, visibleHistoryMessages),
     });
     memories = memoryRecallRows(rows);
   } catch {
     memories = memoryRecallRows(chat.memories);
   }
-  memories = recentMemoryRecallScoringSet(memoriesAfterReadBehind(chat, storedMessages, memories));
+  memories = recentMemoryRecallScoringSet(
+    memoriesAfterExclusion(chat, storedMessages, visibleHistoryMessages, memories),
+  );
   if (memories.length === 0) return null;
 
   let semanticQueryVector: number[] | null = null;
@@ -3237,6 +3277,7 @@ function historyMessageContent(message: JsonRecord, includePastReasoning: boolea
 
 interface HistoryPromptSelection {
   messages: ChatMLMessage[];
+  sourceMessages: JsonRecord[];
   hiddenFromAiCount: number;
   skippedByLimitCount: number;
   requestedLimit: number;
@@ -3248,7 +3289,9 @@ function historyMessageSelection(
   includePastReasoning = false,
 ): HistoryPromptSelection {
   const requestedLimit = Math.max(0, limit);
-  if (requestedLimit <= 0) return { messages: [], hiddenFromAiCount: 0, skippedByLimitCount: 0, requestedLimit };
+  if (requestedLimit <= 0) {
+    return { messages: [], sourceMessages: [], hiddenFromAiCount: 0, skippedByLimitCount: 0, requestedLimit };
+  }
   let conversationStartIndex = 0;
   for (let index = storedMessages.length - 1; index >= 0; index -= 1) {
     if (boolish(parseRecord(storedMessages[index]!.extra).isConversationStart, false)) {
@@ -3258,7 +3301,7 @@ function historyMessageSelection(
   }
   const scopedMessages = conversationStartIndex > 0 ? storedMessages.slice(conversationStartIndex) : storedMessages;
   let hiddenFromAiCount = 0;
-  const visibleMessages: ChatMLMessage[] = [];
+  const visibleMessages: Array<{ prompt: ChatMLMessage; source: JsonRecord }> = [];
 
   for (const message of scopedMessages) {
     if (hiddenFromAi(message)) {
@@ -3273,18 +3316,23 @@ function historyMessageSelection(
     if (!content.length && images.length === 0) continue;
     const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
     visibleMessages.push({
-      role,
-      content,
-      contextKind: "history" as const,
-      characterId: readString(message.characterId).trim() || undefined,
-      name: readString(message.name).trim() || undefined,
-      ...(images.length ? { images } : {}),
-      ...(providerMetadata ? { providerMetadata } : {}),
+      source: message,
+      prompt: {
+        role,
+        content,
+        contextKind: "history" as const,
+        characterId: readString(message.characterId).trim() || undefined,
+        name: readString(message.name).trim() || undefined,
+        ...(images.length ? { images } : {}),
+        ...(providerMetadata ? { providerMetadata } : {}),
+      },
     });
   }
 
+  const selected = visibleMessages.slice(-requestedLimit);
   return {
-    messages: visibleMessages.slice(-requestedLimit),
+    messages: selected.map((entry) => entry.prompt),
+    sourceMessages: selected.map((entry) => entry.source),
     hiddenFromAiCount,
     skippedByLimitCount: Math.max(0, visibleMessages.length - requestedLimit),
     requestedLimit,
@@ -4231,6 +4279,36 @@ export async function assembleGenerationPrompt(
         snapshotVariables: () => snapshotMacroVariables(macros),
       },
     });
+  const summaryProjection = reusableContext
+    ? {
+        text: reusableContext.summary,
+        coversPriorHistory: reusableContext.summaryCoversPriorHistory,
+      }
+    : summaryProjectionForGeneration(input.chat, maxContext);
+  const summary = summaryProjection.text;
+  const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
+  const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
+  const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
+  const selectedHistoryLimit = compactedHistoryLimit(
+    chatMeta,
+    historyLimit,
+    shouldCompactHistoryForSummary(input.chat, selectedPreset, summary, summaryProjection.coversPriorHistory),
+  );
+  const sourceHistorySelection = historyMessageSelection(
+    input.storedMessages,
+    selectedHistoryLimit,
+    chatMeta.excludePastReasoning === false,
+  );
+  const historySelection: HistoryPromptSelection = reusableContext
+    ? {
+        messages: reusableContext.history,
+        sourceMessages: sourceHistorySelection.sourceMessages,
+        hiddenFromAiCount: 0,
+        skippedByLimitCount: 0,
+        requestedLimit: selectedHistoryLimit,
+      }
+    : sourceHistorySelection;
+  const history = historySelection.messages;
   const [initialLoreScan, memoryRecallContext, canonicalMemoryContext] = await Promise.all([
     canReuseSourceSensitiveContext && reusableContext
       ? Promise.resolve(reusableContext.loreScan)
@@ -4251,6 +4329,7 @@ export async function assembleGenerationPrompt(
           readNumber(input.request.memoryRecallTokenBudget, 0) || undefined,
           embeddingSource,
           characters.flatMap((character) => character.memories ?? []),
+          historySelection.sourceMessages,
         ),
     canReuseSourceSensitiveContext && reusableContext
       ? Promise.resolve({
@@ -4276,13 +4355,6 @@ export async function assembleGenerationPrompt(
   let loreScan = initialLoreScan;
   let processedLore =
     canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
-  const summaryProjection = reusableContext
-    ? {
-        text: reusableContext.summary,
-        coversPriorHistory: reusableContext.summaryCoversPriorHistory,
-      }
-    : summaryProjectionForGeneration(input.chat, maxContext);
-  const summary = summaryProjection.text;
   const canonicalMemoryBlock = canonicalMemoryContext?.block ?? null;
   const memoryRecallBlock =
     memoryRecallContext?.block && canonicalMemoryBlock
@@ -4291,24 +4363,7 @@ export async function assembleGenerationPrompt(
           "recalled fragments from relevant earlier context",
         )
       : memoryRecallContext?.block ?? null;
-  const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
-  const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
-  const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
   const historyAttributionKinds = new Set<GenerationContextAttributionItem["kind"]>(["chat_history", "chat_summary"]);
-  const selectedHistoryLimit = compactedHistoryLimit(
-    chatMeta,
-    historyLimit,
-    shouldCompactHistoryForSummary(input.chat, selectedPreset, summary, summaryProjection.coversPriorHistory),
-  );
-  const historySelection = reusableContext
-    ? {
-        messages: reusableContext.history,
-        hiddenFromAiCount: 0,
-        skippedByLimitCount: 0,
-        requestedLimit: selectedHistoryLimit,
-      }
-    : historyMessageSelection(input.storedMessages, selectedHistoryLimit, chatMeta.excludePastReasoning === false);
-  const history = historySelection.messages;
   const historyAndSummaryAttributionItems = reusableContext
     ? reusableContext.contextAttributionItems.filter((item) => historyAttributionKinds.has(item.kind))
     : [
