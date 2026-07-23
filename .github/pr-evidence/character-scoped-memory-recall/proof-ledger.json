@@ -5,7 +5,7 @@
     "title": "Character-scoped canonical recall in group conversations",
     "source": "Direct maintainer report reproduced on the Pi",
     "classification": "prompt assembly and reusable generation context",
-    "status": "verified"
+    "status": "ci_passed_bunny_retry"
   },
   "coreClaim": "Each generated group-conversation reply recalls active-chat canonical memories plus only the answering character's character-scoped canonical memories.",
   "scope": {
@@ -134,7 +134,7 @@
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm check",
-    "githubValidationPassed": false,
+    "githubValidationPassed": true,
     "negativeRowsTested": [
       "Jester excludes Harlequin character scope",
       "Harlequin excludes Jester character scope",
@@ -158,6 +158,7 @@
     "merged": false
   },
   "notes": [
-    "The maintainer explicitly authorized PR creation, merge, and Pi deployment after hosted gates pass."
+    "The maintainer explicitly authorized PR creation, merge, and Pi deployment after hosted gates pass.",
+    "The first hosted Bunny receipt saw superseded draft-transition cancellations alongside the successful final-head CI run, so a clean-head evidence commit and Bunny retry are required before merge."
   ]
 }
