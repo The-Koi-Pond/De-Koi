@@ -25,6 +25,15 @@ pub fn chat_memories_list(
 }
 
 #[tauri::command]
+pub async fn chat_memory_create(
+    state: State<'_, AppState>,
+    chat_id: String,
+    body: Value,
+) -> Result<Value, AppError> {
+    chat_memory::create_chat_memory(&state, &chat_id, body).await
+}
+
+#[tauri::command]
 pub fn chat_memory_delete(
     state: State<'_, AppState>,
     chat_id: String,
