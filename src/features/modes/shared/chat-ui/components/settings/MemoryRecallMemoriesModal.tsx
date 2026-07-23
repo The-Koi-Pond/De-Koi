@@ -308,6 +308,11 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
     setReplacementDraft("");
   }, [selected?.id, selected?.content]);
 
+  useEffect(() => {
+    setNewMemoryOpen(false);
+    setNewMemoryContent("");
+  }, [chatId]);
+
   const handleExport = async () => {
     if (localMemories.length === 0) {
       toast.error("There are no recall memories to export yet.");

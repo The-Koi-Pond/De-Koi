@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Brain,
   Check,
@@ -81,6 +81,11 @@ export function CharacterMemoriesTab({
   const [sourceChatId, setSourceChatId] = useState<string | null>(null);
   const [selectedChatMemoryIds, setSelectedChatMemoryIds] = useState<Set<string>>(new Set());
   const sourceRows = useChatMemoryRows(copyOpen ? sourceChatId : null);
+
+  useEffect(() => {
+    setNewMemoryOpen(false);
+    setNewMemoryContent("");
+  }, [characterId]);
 
   const memories = useMemo(() => {
     const query = search.trim().toLowerCase();

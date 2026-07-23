@@ -121,4 +121,32 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
     await act(async () => save?.click());
     expect(hookMocks.createMemory.mutateAsync).not.toHaveBeenCalled();
   });
+
+  it("does not carry an unsaved draft into another chat", () => {
+    const newMemory = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "New memory",
+    );
+    act(() => newMemory?.click());
+    const textarea = container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        textarea,
+        "Only chat one should see this.",
+      );
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    act(() => {
+      root?.render(<MemoryRecallMemoriesModal chatId="chat-2" open onClose={vi.fn()} />);
+    });
+
+    const nextNewMemory = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "New memory",
+    );
+    expect(nextNewMemory?.getAttribute("aria-expanded")).toBe("false");
+    act(() => nextNewMemory?.click());
+    expect(
+      container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]')?.value,
+    ).toBe("");
+  });
 });

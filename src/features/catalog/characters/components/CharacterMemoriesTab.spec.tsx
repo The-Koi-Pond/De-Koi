@@ -49,13 +49,13 @@ describe("CharacterMemoriesTab manual entry", () => {
     container = null;
   });
 
-  function renderTab() {
+  function renderTab(characterId = "char-1", characterName = "Mira") {
     act(() => {
-      root = createRoot(container!);
+      root ??= createRoot(container!);
       root.render(
         <CharacterMemoriesTab
-          characterId="char-1"
-          characterName="Mira"
+          characterId={characterId}
+          characterName={characterName}
           memoryPersistence="character"
           onMemoryPersistenceChange={vi.fn()}
         />,
@@ -108,5 +108,32 @@ describe("CharacterMemoriesTab manual entry", () => {
     expect(save?.disabled).toBe(true);
     await act(async () => save?.click());
     expect(hookMocks.createMemory.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not carry an unsaved draft into another character", () => {
+    renderTab();
+    const newMemory = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "New memory",
+    );
+    act(() => newMemory?.click());
+    const textarea = container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        textarea,
+        "Only Mira should see this.",
+      );
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    renderTab("char-2", "Nia");
+
+    const nextNewMemory = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "New memory",
+    );
+    expect(nextNewMemory?.getAttribute("aria-expanded")).toBe("false");
+    act(() => nextNewMemory?.click());
+    expect(
+      container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]')?.value,
+    ).toBe("");
   });
 });
