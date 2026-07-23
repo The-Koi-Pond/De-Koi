@@ -5,7 +5,7 @@
     "title": "Memory Recall relevance and visible-history deduplication",
     "source": "Direct maintainer report reproduced on the Pi",
     "classification": "prompt assembly and canonical memory ranking",
-    "status": "local_verified"
+    "status": "draft_pr_open"
   },
   "coreClaim": "An ordinary group-chat message recalls only query-relevant canonical memories plus intentional pinned records, and never duplicates transcript chunks whose source messages are already visible to the model.",
   "scope": {
@@ -172,8 +172,8 @@
     ]
   },
   "pr": {
-    "number": null,
-    "url": null,
+    "number": 1153,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1153",
     "headRefName": "fix/memory-recall-relevance",
     "baseRefName": "main",
     "merged": false
