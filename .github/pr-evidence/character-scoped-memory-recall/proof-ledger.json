@@ -151,8 +151,8 @@
     ]
   },
   "pr": {
-    "number": null,
-    "url": null,
+    "number": 1152,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1152",
     "headRefName": "fix/character-scoped-memory-recall",
     "baseRefName": "main",
     "merged": false
