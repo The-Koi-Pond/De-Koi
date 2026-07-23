@@ -383,8 +383,9 @@ mod tests {
                 query: None,
                 limit: None,
             },
-        );
-        assert!(denied.is_err());
+        )
+        .expect_err("missing chat grant should reject");
+        assert_eq!(denied.code, "invalid_input");
 
         let result = read(
             &state,
@@ -434,19 +435,6 @@ mod tests {
         )
         .await;
         assert!(denied.is_err());
-
-        let deleted = edit(
-            &state,
-            &[chat_grant("chat-rina")],
-            EditDekiMemoryArgs {
-                scope_type: "chat".to_string(),
-                scope_id: "chat-rina".to_string(),
-                memory_id: "chat-memory-deleted".to_string(),
-                content: "Deleted memory should remain inaccessible.".to_string(),
-            },
-        )
-        .await;
-        assert!(deleted.is_err());
 
         let updated = edit(
             &state,
@@ -498,8 +486,23 @@ mod tests {
                 content: "Rina entrusted the silver key to Celia.".to_string(),
             },
         )
-        .await;
-        assert!(denied.is_err());
+        .await
+        .expect_err("cross-chat grant should reject");
+        assert_eq!(denied.code, "invalid_input");
+
+        let deleted = edit(
+            &state,
+            &[chat_grant("chat-rina")],
+            EditDekiMemoryArgs {
+                scope_type: "chat".to_string(),
+                scope_id: "chat-rina".to_string(),
+                memory_id: "chat-memory-deleted".to_string(),
+                content: "Deleted memory should remain inaccessible.".to_string(),
+            },
+        )
+        .await
+        .expect_err("deleted chat memory should reject");
+        assert_eq!(deleted.code, "invalid_input");
 
         let updated = edit(
             &state,
