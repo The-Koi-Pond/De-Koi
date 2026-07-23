@@ -32,6 +32,8 @@ use std::time::Duration;
 mod chat_access;
 #[path = "deki/library.rs"]
 mod library;
+#[path = "deki/memory_access.rs"]
+mod memory_access;
 
 const DEKI_ACTION_ENTITIES: &[&str] = &[
     "characters",
@@ -96,6 +98,8 @@ const DEKI_WORKSPACE_TOOLS: &[&str] = &[
     "deki_code",
     "read_deki_chats",
     "read_deki_chat_messages",
+    "read_deki_memories",
+    "edit_deki_memory",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -121,6 +125,7 @@ struct DekiPromptRequest {
 enum DekiToolBundle {
     Code,
     Library,
+    Memory,
     Chat,
     Web,
     Creation,
@@ -253,6 +258,18 @@ fn looks_like_code_tool_request(message: &str) -> bool {
         || lower.contains("src/")
 }
 
+fn looks_like_memory_request(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .any(|word| {
+            matches!(
+                word,
+                "memory" | "memories" | "remember" | "remembered" | "remembers"
+            )
+        })
+}
+
 fn select_deki_tool_bundle(input: &DekiPromptRequest) -> DekiToolBundle {
     let message = deki_recent_routing_context(input);
     let message = message.as_str();
@@ -267,6 +284,7 @@ fn select_deki_tool_bundle(input: &DekiPromptRequest) -> DekiToolBundle {
             DekiToolBundle::Chat,
             looks_like_chat_context_question(message),
         ),
+        (DekiToolBundle::Memory, looks_like_memory_request(message)),
         (DekiToolBundle::Code, looks_like_code_tool_request(message)),
         (
             DekiToolBundle::Library,
@@ -288,6 +306,7 @@ fn deki_tool_names_for_bundle(bundle: DekiToolBundle, allow_code_edit: bool) -> 
     let mut names = match bundle {
         DekiToolBundle::Code => vec!["search_deki_code", "read_deki_code_file"],
         DekiToolBundle::Library => vec!["read_deki_library", "read_deki_library_items"],
+        DekiToolBundle::Memory => vec!["read_deki_memories"],
         DekiToolBundle::Chat => vec!["read_deki_chats", "read_deki_chat_messages"],
         DekiToolBundle::Web => vec!["search_deki_web", "read_deki_web_page"],
         DekiToolBundle::Creation => vec!["read_deki_library", "read_deki_library_items"],
@@ -299,6 +318,7 @@ fn deki_tool_names_for_bundle(bundle: DekiToolBundle, allow_code_edit: bool) -> 
         DekiToolBundle::Broad => vec![
             "read_deki_library",
             "read_deki_library_items",
+            "read_deki_memories",
             "read_deki_chats",
             "read_deki_chat_messages",
             "search_deki_web",
@@ -318,6 +338,8 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
     let latest = deki_prompt_routing_message(&input.user_message);
     let direct_extension = looks_like_extension_creation_request(latest);
     let direct_custom_agent = looks_like_custom_agent_creation_request(latest);
+    let mut allow_memory_edit =
+        looks_like_code_write_request(latest) && looks_like_memory_request(latest);
     let mut allow_code_edit = looks_like_code_write_request(latest)
         && looks_like_code_tool_request(latest)
         && !direct_extension
@@ -332,23 +354,35 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
         && !direct_custom_agent;
     let latest_is_contextual_mutation =
         latest_is_referential_mutation || latest_is_contextual_code_mutation;
-    if latest_is_contextual_mutation && !allow_code_edit && !allow_extension && !allow_custom_agent
+    if latest_is_contextual_mutation
+        && !allow_code_edit
+        && !allow_memory_edit
+        && !allow_extension
+        && !allow_custom_agent
     {
         let prior = deki_prior_routing_context(input);
         let prior_code = looks_like_code_tool_request(&prior);
+        let prior_memory = looks_like_memory_request(&prior);
         let prior_extension = prior.to_ascii_lowercase().contains("extension");
         let prior_custom_agent = prior.to_ascii_lowercase().contains("custom agent");
-        let prior_domain_count = [prior_code, prior_extension, prior_custom_agent]
-            .into_iter()
-            .filter(|matches| *matches)
-            .count();
+        let prior_domain_count = [
+            prior_code,
+            prior_memory,
+            prior_extension,
+            prior_custom_agent,
+        ]
+        .into_iter()
+        .filter(|matches| *matches)
+        .count();
         if prior_domain_count == 1 {
             if latest_is_referential_mutation {
                 allow_code_edit = prior_code;
+                allow_memory_edit = prior_memory;
                 allow_extension = prior_extension;
                 allow_custom_agent = prior_custom_agent;
-            } else if latest_is_contextual_code_mutation && prior_code {
-                allow_code_edit = true;
+            } else if latest_is_contextual_code_mutation {
+                allow_code_edit = prior_code;
+                allow_memory_edit = prior_memory;
             }
         }
     }
@@ -356,6 +390,12 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
     let mut names = deki_tool_names_for_bundle(bundle, false);
     if allow_code_edit {
         names.push("edit_deki_code_file");
+    }
+    if allow_memory_edit {
+        if !names.contains(&"read_deki_memories") {
+            names.push("read_deki_memories");
+        }
+        names.push("edit_deki_memory");
     }
     if allow_extension {
         names.push("create_deki_extension");
@@ -1210,6 +1250,47 @@ impl ToolRuntime for ReadDekiChatMessagesTool {
     }
 }
 
+#[tool(
+    name = "read_deki_memories",
+    description = "List bounded memory records for one explicit character or chat scope. Character memories require a character id. Chat memories require a user-approved Deki chat access grant covering the exact chat id. Returns projected memory fields only.",
+    input = memory_access::ReadDekiMemoriesArgs,
+)]
+struct ReadDekiMemoriesTool {
+    state: AppState,
+    grants: Vec<chat_access::DekiChatAccessGrant>,
+}
+
+#[async_trait]
+impl ToolRuntime for ReadDekiMemoriesTool {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        let args: memory_access::ReadDekiMemoriesArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_memories_read_invalid_args", error))?;
+        memory_access::read(&self.state, &self.grants, args)
+            .map_err(|error| deki_tool_error("deki_memories_read_failed", error))
+    }
+}
+
+#[tool(
+    name = "edit_deki_memory",
+    description = "Replace the content of one exact memory returned by read_deki_memories. Character edits require the exact character scope. Chat edits require a user-approved Deki chat access grant covering the exact chat id. This tool cannot delete memories or change status.",
+    input = memory_access::EditDekiMemoryArgs,
+)]
+struct EditDekiMemoryTool {
+    state: AppState,
+    grants: Vec<chat_access::DekiChatAccessGrant>,
+}
+
+#[async_trait]
+impl ToolRuntime for EditDekiMemoryTool {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        let args: memory_access::EditDekiMemoryArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_memory_edit_invalid_args", error))?;
+        memory_access::edit(&self.state, &self.grants, args)
+            .await
+            .map_err(|error| deki_tool_error("deki_memory_edit_failed", error))
+    }
+}
+
 #[derive(Clone, AgentHooks)]
 struct DekiAgent {
     state: AppState,
@@ -1230,7 +1311,7 @@ impl AgentDeriveT for DekiAgent {
     }
 
     fn description(&self) -> &'static str {
-        "You are Deki-senpai, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, inspect the creative library, and read approved chat context through tools. Use tools for factual answers about De-Koi internals."
+        "You are Deki-senpai, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, inspect the creative library, manage scoped memories, and read approved chat context through tools. Use tools for factual answers about De-Koi internals."
     }
 
     fn tools(&self) -> Vec<Box<dyn ToolT>> {
@@ -1249,6 +1330,14 @@ impl AgentDeriveT for DekiAgent {
                     grants: self.chat_access_grants.clone(),
                 }) as Box<dyn ToolT>,
                 "read_deki_chat_messages" => Box::new(ReadDekiChatMessagesTool {
+                    state: self.state.clone(),
+                    grants: self.chat_access_grants.clone(),
+                }) as Box<dyn ToolT>,
+                "read_deki_memories" => Box::new(ReadDekiMemoriesTool {
+                    state: self.state.clone(),
+                    grants: self.chat_access_grants.clone(),
+                }) as Box<dyn ToolT>,
+                "edit_deki_memory" => Box::new(EditDekiMemoryTool {
                     state: self.state.clone(),
                     grants: self.chat_access_grants.clone(),
                 }) as Box<dyn ToolT>,
@@ -2504,6 +2593,7 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "For questions about De-Koi internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless search/read tools confirm they exist in the current repository.".to_string(),
         "You can create user extensions with create_deki_extension and custom agent configurations with create_deki_custom_agent. Prefer those record-creation tools when the user asks for an extension or agent.".to_string(),
         "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups. read_deki_library returns only an overview. Use read_deki_library_items with exact ids when you need full selected records. Do not request full item details until the overview identifies likely relevant records.".to_string(),
+        "You can inspect scoped memories with read_deki_memories and replace one exact memory sentence with edit_deki_memory when the user explicitly asks for an edit. Character memory access requires an explicit character id. Private chat Memory Recall requires approved chat access covering the exact chat id; request the narrowest chat grant before reading or editing it. Always read first to obtain the exact memory id, and never claim an edit succeeded unless edit_deki_memory returns the updated memory.".to_string(),
         "Treat requests to look at, review, improve, polish, update, or sanity-check characters, personas, lorebooks, lorebook entries, prompt presets, or groups as a creative-library quality audit even when the user does not explicitly ask for one. Use read_deki_library and then read_deki_library_items when current stored fields, linked entries, or neighboring records matter.".to_string(),
         "For character cards and personas, proactively estimate whole-card length and flag anything over the recommended ~3,200 estimated tokens. Warn when an otherwise helpful addition would make a card too long, and prefer tighter, more specific wording over expansion unless the user explicitly chooses the length tradeoff.".to_string(),
         "During creative-library quality audits, check for shallow characterization, overly tropey or generic archetype behavior, repetition, vague traits without behavior, duplicate facts across fields, and lorebook entries that are too broad to activate cleanly. If a character feels shallow or generic, deepen it with concrete motives, contradictions, habits, memories, relationships, sensory details, and situation-specific behaviors. When correcting character-card or persona characterization, phrase the correction as what they are and the behavior to add instead of what they are not; avoid \"(Character) is not ...\" negative framing unless the user explicitly asks for a contrast. For card or persona corrections, place each corrected trait in the single best-fit field. Do not repeat the same trait label across description, personality, scenario, backstory, appearance, creator notes, or example dialogue; replace duplicated trait labels with one concrete behavior, memory, contradiction, or sensory cue where it belongs.".to_string(),
@@ -2520,7 +2610,7 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "For lorebook entry content, default to compact, activation-focused entries of 1-3 short paragraphs or about 100-180 words; split larger lore into multiple focused entries instead of drafting one oversized entry, unless the user explicitly asks for a longer reference-style entry.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
         "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content. Treat {{char}} and {{user}} as literal artifact placeholders, preserve {{char}} and {{user}} exactly when the target format uses them, and never replace them with Deki-senpai; use the target character name only when the artifact format calls for an actual name.".to_string(),
-        "You cannot run shell commands, inspect unapproved private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
+        "You cannot run shell commands, inspect unapproved private chats/messages/chat memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
     ];
     if let Some(persona) = persona {
         let persona_text = [
@@ -5336,6 +5426,7 @@ Extra visible text."#;
             ("Edit src/app/App.tsx", DekiToolBundle::Code),
             ("What personas are in my library?", DekiToolBundle::Library),
             ("Build me a lorebook profile", DekiToolBundle::Library),
+            ("Show my saved memories", DekiToolBundle::Memory),
             ("What did we discuss in our previous chat?", DekiToolBundle::Chat),
             (
                 "Approved web research grants for this turn. search_deki_web may be used for this query.",
@@ -5363,12 +5454,14 @@ Extra visible text."#;
     fn deki_read_only_bundles_never_include_write_tools() {
         for bundle in [
             DekiToolBundle::Library,
+            DekiToolBundle::Memory,
             DekiToolBundle::Chat,
             DekiToolBundle::Web,
             DekiToolBundle::ReadOnlyGeneral,
         ] {
             let names = deki_tool_names_for_bundle(bundle, false);
             assert!(!names.contains(&"edit_deki_code_file"), "{bundle:?}");
+            assert!(!names.contains(&"edit_deki_memory"), "{bundle:?}");
             assert!(!names.contains(&"create_deki_extension"), "{bundle:?}");
             assert!(!names.contains(&"create_deki_custom_agent"), "{bundle:?}");
         }
@@ -5397,6 +5490,51 @@ Extra visible text."#;
         ));
         assert!(!custom_agent.contains(&"create_deki_extension"));
         assert!(custom_agent.contains(&"create_deki_custom_agent"));
+    }
+
+    #[test]
+    fn deki_memory_tools_require_memory_scope_and_explicit_edit_intent() {
+        let read = deki_tool_names_for_request(&test_deki_prompt_request(
+            "Show me Rina's character memories.",
+        ));
+        assert!(read.contains(&"read_deki_memories"));
+        assert!(!read.contains(&"edit_deki_memory"));
+
+        let natural_read = deki_tool_names_for_request(&test_deki_prompt_request(
+            "What does Rina remember?",
+        ));
+        assert!(natural_read.contains(&"read_deki_memories"));
+        assert!(!natural_read.contains(&"edit_deki_memory"));
+
+        let edit = deki_tool_names_for_request(&test_deki_prompt_request(
+            "Edit Rina's memory to say she entrusted the silver key to Celia.",
+        ));
+        assert!(edit.contains(&"read_deki_memories"));
+        assert!(edit.contains(&"edit_deki_memory"));
+
+        let unrelated = deki_tool_names_for_request(&test_deki_prompt_request(
+            "Edit Rina's character description.",
+        ));
+        assert!(!unrelated.contains(&"edit_deki_memory"));
+
+        let follow_up = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
+            "Edit it.",
+            &[
+                ("user", "Show me Rina's character memories."),
+                ("assistant", "The silver-key memory could be clearer."),
+            ],
+        ));
+        assert!(follow_up.contains(&"read_deki_memories"));
+        assert!(follow_up.contains(&"edit_deki_memory"));
+    }
+
+    #[test]
+    fn deki_system_prompt_documents_scoped_memory_access() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("read_deki_memories"));
+        assert!(prompt.contains("edit_deki_memory"));
+        assert!(prompt.contains("approved chat access"));
     }
 
     #[test]
@@ -5469,6 +5607,7 @@ Extra visible text."#;
         let expected = [
             "read_deki_library",
             "read_deki_library_items",
+            "read_deki_memories",
             "read_deki_chats",
             "read_deki_chat_messages",
             "search_deki_web",
@@ -5485,6 +5624,7 @@ Extra visible text."#;
             );
         }
         assert!(!names.contains(&"edit_deki_code_file"));
+        assert!(!names.contains(&"edit_deki_memory"));
         assert!(!names.contains(&"create_deki_extension"));
         assert!(!names.contains(&"create_deki_custom_agent"));
     }

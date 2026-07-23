@@ -503,6 +503,10 @@ describe("DekiSurface message retry actions", () => {
     const declineButton = container!.querySelector<HTMLButtonElement>('button[aria-label="Decline chat access"]');
     expect(grantButton).not.toBeNull();
     expect(declineButton).not.toBeNull();
+    expect(container!.textContent).toContain("Chat context and scoped memory access");
+    expect(container!.textContent).toContain(
+      "Deki can read memories in the selected chats. Memory edits still require an explicit request.",
+    );
     const scopeSelect = container!.querySelector<HTMLSelectElement>('select[aria-label="Chat access scope"]');
     const windowSelect = container!.querySelector<HTMLSelectElement>('select[aria-label="Chat access window"]');
     expect(scopeSelect).not.toBeNull();

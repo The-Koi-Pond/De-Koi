@@ -167,17 +167,19 @@ describe("automatic memory capture notification policy", () => {
     const getAutomaticMemoryCaptureToast = module.getAutomaticMemoryCaptureToast as (
       enabled: boolean,
       completion: { operation: "created" | "updated"; memory: { content: string } },
-    ) => { title: string; description: string } | null;
+    ) => { title: string; description: string; duration: number } | null;
     const completion = { operation: "created" as const, memory: { content: "Celia's cat is named Miso." } };
 
     expect(getAutomaticMemoryCaptureToast(false, completion)).toBeNull();
     expect(getAutomaticMemoryCaptureToast(true, completion)).toEqual({
       title: "Memory saved",
       description: "Celia's cat is named Miso.",
+      duration: 8_000,
     });
     expect(getAutomaticMemoryCaptureToast(true, { ...completion, operation: "updated" })).toEqual({
       title: "Memory updated",
       description: "Celia's cat is named Miso.",
+      duration: 8_000,
     });
   });
 });

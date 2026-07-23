@@ -363,7 +363,10 @@ export function AppShell() {
       subscribeAutomaticMemoryCaptureCompletions((completion) => {
         const feedback = getAutomaticMemoryCaptureToast(automaticMemoryCaptureNotifications, completion);
         if (!feedback) return;
-        toast.success(feedback.title, { description: feedback.description });
+        toast.success(feedback.title, {
+          description: feedback.description,
+          duration: feedback.duration,
+        });
       }),
     [automaticMemoryCaptureNotifications],
   );

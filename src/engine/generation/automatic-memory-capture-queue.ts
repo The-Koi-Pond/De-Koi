@@ -1,6 +1,6 @@
 import type { LlmGateway } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
-import type { CanonicalMemoryInput, CanonicalMemoryRecord, MemoryScope } from "../contracts/types/memory";
+import type { CanonicalMemoryRecord, MemoryScope } from "../contracts/types/memory";
 import {
   canonicalMemoryEligibleForConsequences,
   extractCanonicalMemoryConsequences,
@@ -162,10 +162,6 @@ function jobIdFor(chatId: string, sourceMessageIds: string[]): string {
   return `memory-capture-${stableHash(`${AUTOMATIC_MEMORY_CAPTURE_VERSION}\u001f${chatId}\u001f${sourceMessageIds.join("\u001f")}`)}`;
 }
 
-function canonicalMemoryIdForJob(jobId: string): string {
-  return `canonical-${jobId}`;
-}
-
 function sourceSnapshot(value: unknown): SourceMessageSnapshot | null {
   const record = parseRecord(value);
   const id = readString(record.id).trim();
@@ -240,68 +236,6 @@ async function validateSourceMessages(storage: StorageGateway, job: JsonRecord):
     if (currentCharacterId !== snapshot.characterId) return "source_character_changed";
   }
   return null;
-}
-
-async function upsertCanonicalCharacterMemory(
-  storage: StorageGateway,
-  job: JsonRecord,
-  capture: Omit<AutomaticMemoryCaptureCompletion, "chatId" | "assistantMessageId">,
-  now: string,
-): Promise<void> {
-  if (readString(job.scopeKind).trim() !== "character") return;
-  const characterId = readString(job.characterId).trim();
-  const jobId = readString(job.id).trim();
-  if (!characterId || !jobId) return;
-  if (!storage.createMemory || !storage.updateMemory) {
-    throw new Error("Canonical memory storage is unavailable");
-  }
-
-  const sourceMessages = sourceSnapshotsFromJob(job);
-  const memoryId = canonicalMemoryIdForJob(jobId);
-  const mode = readString(job.mode).trim();
-  const input: CanonicalMemoryInput = {
-    id: memoryId,
-    kind: "episode",
-    status: "active",
-    scope: { kind: "character", id: characterId },
-    content: capture.memory.content,
-    confidence: 1,
-    provenance: {
-      sourceChatId: readString(job.chatId).trim(),
-      messageIds: jobSourceIds(job),
-      sceneId: readString(job.sceneId).trim() || null,
-      characterId,
-      timestamp:
-        sourceMessages.find((message) => message.id === readString(job.assistantMessageId).trim())?.createdAt || null,
-    },
-    tags: ["automatic", mode].filter(Boolean),
-    payload: {
-      automatic: true,
-      captureVersion: AUTOMATIC_MEMORY_CAPTURE_VERSION,
-      captureJobId: jobId,
-    },
-    createdAt: now,
-    updatedAt: now,
-  };
-  const existing = await storage.get("canonical-memories", memoryId).catch(() => null);
-  if (existing) {
-    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...patch } = input;
-    await storage.updateMemory(memoryId, patch);
-  } else {
-    await storage.createMemory(input);
-  }
-
-  if (storage.rebuildMemoryIndex) {
-    try {
-      await storage.rebuildMemoryIndex({ scope: { kind: "character", id: characterId } });
-    } catch (error) {
-      await updateJob(storage, jobId, {
-        canonicalIndexError: errorMessage(error),
-        canonicalIndexFailedAt: now,
-        updatedAt: now,
-      });
-    }
-  }
 }
 
 function queueDependencies(input: StorageGateway | AutomaticMemoryCaptureQueueDependencies): {
@@ -485,9 +419,6 @@ export async function processAutomaticMemoryCaptureQueue(
       const chatId = readString(job.chatId).trim();
       const refreshResult = await storage.refreshChatMemories(chatId, { sourceMessageIds });
       const capture = memoryCaptureFromRefresh(refreshResult);
-      if (capture) {
-        await upsertCanonicalCharacterMemory(storage, job, capture, now);
-      }
       const consequences = llm ? await extractAndPersistConsequences({ storage, llm, job, now }) : [];
       const consequenceStatus = llm ? "completed" : "skipped";
       const consequenceSkipReason = llm ? null : "llm_gateway_unavailable";
@@ -535,8 +466,6 @@ export async function processAutomaticMemoryCaptureQueue(
           operation: completion.operation === "created" ? "created" : "updated",
           memory: { id: completion.memory.id, content: completion.memory.content },
         });
-      } else if (capture && assistantMessageId) {
-        publishMemoryCaptureCompletion({ chatId, assistantMessageId, ...capture });
       }
     } catch (error) {
       const terminal = attempts >= maxAttempts;
