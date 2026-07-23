@@ -2662,7 +2662,16 @@ mod tests {
                     "id": "chat-1",
                     "name": "Manual memory chat",
                     "mode": "conversation",
-                    "memories": []
+                    "memories": [{
+                        "id": "existing-memory",
+                        "chatId": "chat-1",
+                        "content": "An existing memory stays unchanged.",
+                        "memoryKind": "manual",
+                        "scopeType": "chat",
+                        "scopeId": "chat-1",
+                        "status": "active",
+                        "messageCount": 1
+                    }]
                 }),
             )
             .expect("chat should be created");
@@ -2689,8 +2698,13 @@ mod tests {
         assert_eq!(created["embeddingSource"], json!("lexical"));
 
         let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
-        assert_eq!(chat["memories"].as_array().map(Vec::len), Some(1));
-        assert_eq!(chat["memories"][0], created);
+        assert_eq!(chat["memories"].as_array().map(Vec::len), Some(2));
+        assert_eq!(chat["memories"][0]["id"], json!("existing-memory"));
+        assert_eq!(
+            chat["memories"][0]["content"],
+            json!("An existing memory stays unchanged.")
+        );
+        assert_eq!(chat["memories"][1], created);
 
         let rejected = create_chat_memory(
             &state,
@@ -2701,7 +2715,7 @@ mod tests {
         .expect_err("empty manual memory should be rejected");
         assert_eq!(rejected.code, "invalid_input");
         let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
-        assert_eq!(chat["memories"].as_array().map(Vec::len), Some(1));
+        assert_eq!(chat["memories"].as_array().map(Vec::len), Some(2));
     }
 
     #[tokio::test]

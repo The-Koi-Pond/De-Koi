@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Manual character and chat memory entry",
+    "source": "Direct maintainer request",
+    "classification": "cross-entrypoint storage and UI change",
+    "status": "verified"
+  },
+  "coreClaim": "A user can manually add a durable memory from the character Memories tab or the current chat Memory Console, and each write stays with the owner shown in the UI.",
+  "scope": {
+    "inScope": [
+      "Character-scoped manual memory creation",
+      "Chat-scoped manual memory creation",
+      "Lexical indexing",
+      "Desktop and remote command parity",
+      "Inline UI feedback and owner changes",
+      "Feature discovery"
+    ],
+    "outOfScope": [
+      "Automatic memory extraction",
+      "Historical memory migration",
+      "Prompt assembly changes",
+      "Game-mode ownership changes",
+      "Import or export format changes"
+    ],
+    "intendedFiles": [
+      "src/features/catalog/characters",
+      "src/features/catalog/chats/hooks/use-chats.ts",
+      "src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.tsx",
+      "src/shared/api/chat-command-api.ts",
+      "src/shared/api/remote-runtime.ts",
+      "src-tauri/src/commands/storage/chat_memory.rs",
+      "src-tauri/src/commands/storage/commands/chats.rs",
+      "src-tauri/src/http_dispatch.rs",
+      "src-tauri/src/lib.rs",
+      "src/features/shell/discovery",
+      "docs/superpowers",
+      ".github/pr-evidence/manual-memory-entry/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "storage",
+      "cross-entrypoint behavior",
+      "Bunny review"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Character-panel writes create character-scoped canonical memories; Memory Console writes create chat-scoped embedded rows; neither unsaved draft follows a changed owner.",
+    "riskType": "cross-entrypoint storage ownership and compatibility",
+    "entrypoints": [
+      "Character Editor > Memories",
+      "Chat Settings > Continuity > Memory Console",
+      "Tauri chat_memory_create",
+      "Remote HTTP chat_memory_create"
+    ],
+    "currentPathsOrFormats": [
+      "canonical-memories rows with character scope and memory-index-rows lexical indexes",
+      "chats.memories rows with canonicalMemoryVersion 1, manual kind, chat scope, and lexical embedding"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing canonical character memories remain unchanged",
+      "Existing chats.memories rows remain unchanged and the new row is appended",
+      "Chats without manually created memories keep their current behavior"
+    ],
+    "outOfScopeClaims": [
+      "No historical rows are migrated.",
+      "No automatic capture or prompt behavior is changed.",
+      "No live native-app visual pass is claimed."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "src/features exposed memory management but no owner-specific create action; chat writes also needed privileged src-tauri persistence and remote parity.",
+    "producer": "src/features owner-specific composers through src/shared/api focused wrappers",
+    "consumer": "src-tauri chat memory storage and canonical character-memory storage, then existing recall consumers",
+    "impliedContract": "src/features selects the visible owner, src/shared/api transports the request, and src-tauri or the canonical memory capability owns durable storage and indexing.",
+    "actualEnforcement": "Character writes build a character-scoped CanonicalMemoryInput and rebuild only that character index; chat writes build and embed one chat-scoped row before one append patch; HTTP dispatch calls the same Rust function.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src-features owns editor state, src/shared/api owns command transport, and src-tauri owns privileged chat persistence while the existing canonical-memory capability owns character persistence.",
+    "consumerOnlyLanes": [
+      "src/features",
+      "src/shared/api"
+    ],
+    "wrongLaneFixToAvoid": "Do not write chats.memories directly from React, infer ownership in the remote wrapper, or duplicate the Rust persistence contract in the UI.",
+    "regressionProof": [
+      "character-memory-model.spec.ts proves exact character ownership and manual provenance",
+      "CharacterMemoriesTab.spec.tsx proves trimmed submission, empty rejection, accessibility, and owner-change reset",
+      "MemoryRecallMemoriesModal.component.spec.tsx proves the same chat-local UI invariants",
+      "chat_memory.rs proves an embedded append, unchanged existing row, and empty rejection",
+      "http_dispatch.rs proves remote dispatch reaches the shared capability"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A character-panel entry becomes a character-scoped canonical memory and refreshes that character's lexical index.",
+        "evidence": "character-memory-model.spec.ts and CharacterMemoriesTab.spec.tsx pass; pnpm check:architecture confirms the boundary."
+      },
+      {
+        "claim": "A Memory Console entry becomes one embedded chat-local memory through desktop and remote paths.",
+        "evidence": "chat-command-api.spec.ts plus the focused Rust manual_memory_creation and dispatch_creates_manual_chat_memory_through_the_shared_capability tests pass."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Whitespace-only content must not create a memory.",
+        "evidence": "Both UI component suites disable empty submission; the character model and Rust storage tests reject whitespace-only content."
+      },
+      {
+        "claim": "An unsaved draft must not appear under a different character or chat.",
+        "evidence": "CharacterMemoriesTab.spec.tsx and MemoryRecallMemoriesModal.component.spec.tsx rerender with a new owner and prove the composer resets."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Adding a chat memory must not mutate an existing chat-memory row.",
+        "evidence": "manual_memory_creation seeds an existing row, creates a new row, and asserts the original id and content are unchanged."
+      },
+      {
+        "claim": "Existing memory management and inherited character-memory behavior remain valid.",
+        "evidence": "The existing MemoryRecallMemoriesModal.spec.ts suite and full pnpm check pass unchanged."
+      }
+    ],
+    "untestedRows": [
+      "No native-app screenshot or manual click-through was captured; focused component tests and the production build cover the changed UI contract."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Manual chat memories are persisted with chat scope and a lexical embedding before the chat row is patched.",
+      "sourceType": "harness-proven",
+      "evidence": "manual_memory_creation asserts scopeType chat, scopeId chat-1, hasEmbedding true, embeddingSource lexical, and persisted equality."
+    },
+    {
+      "description": "Remote and desktop chat-memory creation share one Rust capability.",
+      "sourceType": "harness-proven",
+      "evidence": "The HTTP dispatch test invokes chat_memory_create and asserts the returned row is the persisted row; architecture dispatch validation passes."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Users who want a separate backup can export memories before editing or deleting them.",
+      "source": "Character Editor > Memories or Chat Settings > Continuity > Memory Console",
+      "destination": "A user-selected folder outside De-Koi application data",
+      "files": [
+        "<character-name>-memories.json or the Memory Recall export file"
+      ],
+      "action": "Use the existing Export control and save or copy the resulting JSON file into the selected backup folder.",
+      "detectedLayouts": [
+        "Character memories use the existing de_koi_character_memories export envelope.",
+        "Chat memories use the existing Memory Recall export envelope.",
+        "This PR does not change current or legacy export layouts."
+      ]
+    }
+  ],
+  "reviewThreadLedger": [
+    {
+      "finding": "Local Bunny review found unsaved composer drafts could follow a changed chat or character owner.",
+      "disposition": "fixed",
+      "fix": "Reset each composer when its owner id changes and added negative component tests for both surfaces.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Whitespace-only character memory",
+      "Whitespace-only chat memory with unchanged persisted row count",
+      "Character draft after owner change",
+      "Chat draft after owner change",
+      "Existing chat-memory row remains unchanged"
+    ],
+    "afterEvidence": [
+      "pnpm check",
+      "pnpm build",
+      "pnpm check:architecture",
+      "29 focused Vitest tests",
+      "cargo test manual_memory_creation",
+      "cargo test dispatch_creates_manual_chat_memory_through_the_shared_capability",
+      "git diff --check origin/main...HEAD"
+    ]
+  },
+  "pr": {
+    "number": 1151,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1151",
+    "headRefName": "feature/manual-memory-entry",
+    "baseRefName": "main",
+    "merged": false
+  },
+  "notes": [
+    "Bunny local review passed after the owner-change draft finding was fixed.",
+    "The user explicitly authorized PR creation and merge after hosted gates pass."
+  ]
+}
