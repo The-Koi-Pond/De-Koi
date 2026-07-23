@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Character-scoped canonical recall in group conversations",
+    "source": "Direct maintainer report reproduced on the Pi",
+    "classification": "prompt assembly and reusable generation context",
+    "status": "verified"
+  },
+  "coreClaim": "Each generated group-conversation reply recalls active-chat canonical memories plus only the answering character's character-scoped canonical memories.",
+  "scope": {
+    "inScope": [
+      "Conversation and roleplay generation-target scoping",
+      "Canonical-memory scope queries",
+      "Target-sensitive reusable prompt context",
+      "Focused group-conversation regression proof"
+    ],
+    "outOfScope": [
+      "Persisted memory records",
+      "Automatic memory capture",
+      "Memory management UI",
+      "Provider transport",
+      "Character-card token budgets"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/prompt-assembly.ts",
+      "src/engine/generation/canonical-memory-context.spec.ts",
+      "docs/superpowers/specs/2026-07-23-character-scoped-memory-recall-design.md",
+      "docs/superpowers/plans/2026-07-23-character-scoped-memory-recall.md",
+      ".github/pr-evidence/character-scoped-memory-recall/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "multi-character generation",
+      "reusable generation context",
+      "Bunny review"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "A targeted group reply sees the active chat scope and its own character scope; changing forCharacterId invalidates target-sensitive reusable context.",
+    "riskType": "prompt-context ownership and cross-character data isolation",
+    "entrypoints": [
+      "Conversation group reply with request.forCharacterId",
+      "Roleplay group reply with request.forCharacterId",
+      "Consecutive same-send group replies using PromptAssemblyReusableContext"
+    ],
+    "currentPathsOrFormats": [
+      "canonical-memories rows with chat, scene, or character scope",
+      "PromptAssemblyReusableContext.macroSensitiveScope targetCharacterId",
+      "GenerationContextAttribution canonical-memory source rows"
+    ],
+    "legacyPathsOrFormats": [
+      "Single-character prompts without a target keep their existing participant scope",
+      "Merged or untargeted generation keeps the existing participant set",
+      "Chat-scoped and scene-scoped memories remain eligible independently of character scope"
+    ],
+    "outOfScopeClaims": [
+      "This PR does not reduce character-card prompt size.",
+      "This PR does not remove intentional group-turn guidance.",
+      "This PR does not rewrite existing saved prompt snapshots."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Prompt assembly queried canonical memories for every attached character and reused the first reply's target-sensitive context for later group replies.",
+    "producer": "src/engine/generation/prompt-assembly.ts",
+    "consumer": "canonical-memory retrieval and provider-ready group reply prompts",
+    "impliedContract": "A per-character reply may use shared active-chat context and the answering character's durable card memory without inheriting another participant's private character scope.",
+    "actualEnforcement": "Prompt assembly derives the effective conversation or roleplay group target, selects that character for canonical-memory queries, and includes the same target in reusable-context matching.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Prompt assembly owns generation targets, prompt-context selection, and reusable-context validity.",
+    "consumerOnlyLanes": ["src/features", "src/shared/api", "src-tauri"],
+    "wrongLaneFixToAvoid": "Do not filter attribution in the UI, mutate stored memory scopes, or add provider-side prompt rewriting.",
+    "regressionProof": [
+      "canonical-memory-context.spec.ts assembles Jester then Harlequin with one reusable context and proves chat-plus-owner-only recall",
+      "The same test proves the second result reorders prompt characters to Harlequin instead of retaining Jester",
+      "Focused prompt suites and pnpm check pass"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Jester receives the active-chat memory and Jester's character memory.",
+        "evidence": "The focused regression asserts memory-chat and memory-jester in Jester's canonical attribution."
+      },
+      {
+        "claim": "Harlequin receives the active-chat memory and Harlequin's character memory after reusing Jester's prompt context.",
+        "evidence": "The focused regression passes reusableContext into Harlequin's assembly and asserts memory-chat, memory-harlequin, and Harlequin as the first prompt character."
+      },
+      {
+        "claim": "Existing prompt-generation behavior remains compatible.",
+        "evidence": "Four focused prompt files pass 50 tests; pnpm typecheck, pnpm check:architecture, and pnpm check exit successfully."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Jester must not receive Harlequin's character-scoped memory.",
+        "evidence": "The regression failed on original main because memory-harlequin was present, then passed after the owner-level fix."
+      },
+      {
+        "claim": "Harlequin must not reuse Jester's prompt target or Jester's character-scoped memory.",
+        "evidence": "The regression failed on original main with Jester still first and memory-jester still attributed, then passed after target-sensitive invalidation."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Active chat memories remain available to every targeted group reply.",
+        "evidence": "Both Jester and Harlequin assertions retain memory-chat."
+      },
+      {
+        "claim": "Untargeted generation preserves the existing participant-set behavior.",
+        "evidence": "Production filtering is conditional on a valid scoped conversation or roleplay target; existing canonical-memory tests pass unchanged."
+      }
+    ],
+    "untestedRows": [
+      "Existing saved prompt snapshots remain historical and are not recomputed.",
+      "The final Pi image and runtime behavior are verified after merge and deployment."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The reported Pi prompt snapshots gave Jester and Harlequin the same ten canonical memory ids drawn from all three character scopes.",
+      "sourceType": "measured",
+      "evidence": "The selected Hey, guys chat showed identical ten-item attribution; canonical-memories storage confirmed those rows were separately scoped to Jester, Harlequin, and Pierrot."
+    },
+    {
+      "description": "The prompt-size warning is dominated by character-card context rather than recalled memories.",
+      "sourceType": "measured",
+      "evidence": "Jester's saved prompt estimated 9,370 tokens with about 9,340 in Character Context and about 418 tokens in the Canonical Memory section."
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Jester excludes Harlequin character scope",
+      "Harlequin excludes Jester character scope",
+      "Target change invalidates reusable prompt-character order",
+      "Active chat scope remains shared"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run src/engine/generation/canonical-memory-context.spec.ts",
+      "pnpm vitest run src/engine/generation/canonical-memory-context.spec.ts src/engine/generation/prompt-assembly.context-priority.spec.ts src/engine/generation/prompt-assembly.behavioral-examples.spec.ts src/engine/generation/start-generation.bunny.test.ts",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check",
+      "git diff --check"
+    ]
+  },
+  "pr": {
+    "number": null,
+    "url": null,
+    "headRefName": "fix/character-scoped-memory-recall",
+    "baseRefName": "main",
+    "merged": false
+  },
+  "notes": [
+    "The maintainer explicitly authorized PR creation, merge, and Pi deployment after hosted gates pass."
+  ]
+}

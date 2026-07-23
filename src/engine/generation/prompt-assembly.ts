@@ -4091,9 +4091,9 @@ export async function assembleGenerationPrompt(
     normalizeWrapFormat(input.connection.wrapFormat) ??
     "xml";
   const activeGroupScenarioOverride = reusableContext?.groupScenarioOverride ?? groupScenarioOverride(chatMeta);
-  let promptCharacters = reusableContext?.promptCharacters ?? promptCharactersForGeneration(input, characters);
-  const compactMergedRoleplayCards = shouldCompactMergedRoleplayCharacterCards(input, promptCharacters);
   const individualGroupTarget = scopedIndividualGroupTarget(input, characters);
+  const sourceSensitiveGroupTarget =
+    scopedConversationGroupTarget(input, characters) ?? scopedRoleplayGroupTarget(input, characters);
   const regexTargetCharacterId = promptRegexTargetCharacterId(input, characters);
   const individualGroupTargetCharacter = individualGroupTarget
     ? (characters.find((character) => character.id === individualGroupTarget) ?? null)
@@ -4102,8 +4102,16 @@ export async function assembleGenerationPrompt(
   const canReuseMacroSensitiveContext = reusableContextMacroScopeMatches(
     reusableContext,
     deferCharacterMacros,
-    individualGroupTarget,
+    sourceSensitiveGroupTarget,
   );
+  let promptCharacters =
+    reusableContext && canReuseMacroSensitiveContext
+      ? reusableContext.promptCharacters
+      : promptCharactersForGeneration(input, characters);
+  const compactMergedRoleplayCards = shouldCompactMergedRoleplayCharacterCards(input, promptCharacters);
+  const canonicalMemoryCharacters = sourceSensitiveGroupTarget
+    ? characters.filter((character) => character.id === sourceSensitiveGroupTarget)
+    : characters;
   let embeddingSource =
     reusableContext && canReuseMacroSensitiveContext ? null : memoizedEmbeddingSource(input.embeddingSource);
   const macros = macroContext({
@@ -4255,7 +4263,7 @@ export async function assembleGenerationPrompt(
           chat: input.chat,
           storedMessages: input.storedMessages,
           latestUserInput: input.latestUserInput,
-          characters: characters.map((character) => ({
+          characters: canonicalMemoryCharacters.map((character) => ({
             id: character.id,
             name: character.name,
             description: character.description,
@@ -4622,7 +4630,7 @@ export async function assembleGenerationPrompt(
     userRegenerationSourceFingerprint: regenerationSourceFingerprint,
     macroSensitiveScope: {
       deferCharacterMacros,
-      targetCharacterId: individualGroupTarget,
+      targetCharacterId: sourceSensitiveGroupTarget,
     },
   };
 

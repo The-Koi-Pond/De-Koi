@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
-import type { CanonicalMemoryRecord } from "../contracts/types/memory";
+import type { CanonicalMemoryQuery, CanonicalMemoryRecord } from "../contracts/types/memory";
 import { assembleGenerationPrompt } from "./prompt-assembly";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 import type { JsonRecord } from "./runtime-records";
@@ -124,6 +124,31 @@ function promptStorage(memories: CanonicalMemoryRecord[], localMemories: JsonRec
     async listChatMemories<T = unknown>(): Promise<T[]> {
       return asStorageValue<T[]>(localMemories);
     },
+  } as StorageGateway;
+}
+
+function groupPromptStorage(memories: CanonicalMemoryRecord[]): StorageGateway {
+  const base = storageWithMemories({ indexed: [] });
+  const characters = new Map([
+    ["jester", { id: "jester", name: "Jester", description: "Jester core.", tags: [] }],
+    ["harlequin", { id: "harlequin", name: "Harlequin", description: "Harlequin core.", tags: [] }],
+  ]);
+  return {
+    ...base,
+    async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+      if (["personas", "regex-scripts", "lorebooks", "agents", "prompts"].includes(entity)) return [];
+      return asStorageValue<T[]>([]);
+    },
+    async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+      if (entity === "characters") return asStorageValue<T>(characters.get(id) ?? null);
+      return null;
+    },
+    queryMemoryIndex: vi.fn(async (query: CanonicalMemoryQuery) => {
+      if (!query.scope) return memories;
+      return memories.filter(
+        (candidate) => candidate.scope.kind === query.scope?.kind && candidate.scope.id === query.scope.id,
+      );
+    }),
   } as StorageGateway;
 }
 
@@ -586,5 +611,71 @@ describe("prompt assembly canonical memory integration", () => {
     const promptText = result.messages.map((message) => message.content).join("\n");
     expect(promptText).not.toContain('("content":"Miso sleeps on the blue blanket")');
     expect(promptText).toContain('{"fact":"Miso sleeps on the blue blanket"}');
+  });
+
+  it("recalls the active chat plus only the character answering across reusable group prompts", async () => {
+    const storage = groupPromptStorage([
+      memory({
+        id: "memory-chat",
+        scope: { kind: "chat", id: "chat-group" },
+        content: "The purple ribbon marks the group's shared meeting place.",
+      }),
+      memory({
+        id: "memory-jester",
+        scope: { kind: "character", id: "jester" },
+        provenance: {
+          sourceChatId: null,
+          messageIds: [],
+          sceneId: null,
+          characterId: "jester",
+          timestamp: "2026-07-23T20:18:00.000Z",
+        },
+        content: "Jester keeps the purple ribbon inside his ledger.",
+      }),
+      memory({
+        id: "memory-harlequin",
+        scope: { kind: "character", id: "harlequin" },
+        provenance: {
+          sourceChatId: null,
+          messageIds: [],
+          sceneId: null,
+          characterId: "harlequin",
+          timestamp: "2026-07-23T20:19:00.000Z",
+        },
+        content: "Harlequin ties the purple ribbon around his wrist.",
+      }),
+    ]);
+    const sharedInput = {
+      chat: {
+        id: "chat-group",
+        mode: "conversation",
+        characterIds: ["jester", "harlequin"],
+        metadata: { enableCanonicalMemoryRecall: true },
+      },
+      storedMessages: [{ id: "message-new", role: "user", content: "Who remembers the purple ribbon?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      latestUserInput: "Who remembers the purple ribbon?",
+    };
+
+    const jester = await assembleGenerationPrompt(storage, {
+      ...sharedInput,
+      request: { forCharacterId: "jester" },
+    });
+    const harlequin = await assembleGenerationPrompt(storage, {
+      ...sharedInput,
+      request: { forCharacterId: "harlequin" },
+      reusableContext: jester.reusableContext,
+    });
+    const canonicalIds = (result: typeof jester) =>
+      result.contextAttributionItems
+        .filter((item) => item.sourceCollection === "canonical-memories")
+        .map((item) => item.sourceId);
+
+    expect.soft(jester.characters[0]?.id).toBe("jester");
+    expect.soft(canonicalIds(jester)).toEqual(expect.arrayContaining(["memory-chat", "memory-jester"]));
+    expect.soft(canonicalIds(jester)).not.toContain("memory-harlequin");
+    expect.soft(harlequin.characters[0]?.id).toBe("harlequin");
+    expect.soft(canonicalIds(harlequin)).toEqual(expect.arrayContaining(["memory-chat", "memory-harlequin"]));
+    expect.soft(canonicalIds(harlequin)).not.toContain("memory-jester");
   });
 });
