@@ -76,6 +76,8 @@ describe("discovery showcase registry", () => {
 
     expect(summary).toContain("chat-local");
     expect(summary).toContain("character-wide");
+    expect(summary).toContain("manually add");
+    expect(entry?.where).toContain("Character Editor > Memories");
     expect(summary).toContain("speaker-labeled exchanges");
     expect(summary).toContain("rank");
     expect(summary).not.toMatch(/embeddings? (?:create|summarize|write)/);

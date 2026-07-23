@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
   Brain,
   Check,
@@ -76,6 +76,7 @@ export function CharacterMemoriesTab({
   const [editingContent, setEditingContent] = useState("");
   const [newMemoryOpen, setNewMemoryOpen] = useState(false);
   const [newMemoryContent, setNewMemoryContent] = useState("");
+  const newMemoryComposerId = useId();
   const [copyOpen, setCopyOpen] = useState(false);
   const [sourceChatId, setSourceChatId] = useState<string | null>(null);
   const [selectedChatMemoryIds, setSelectedChatMemoryIds] = useState<Set<string>>(new Set());
@@ -263,6 +264,8 @@ export function CharacterMemoriesTab({
         <button
           type="button"
           onClick={() => setNewMemoryOpen((open) => !open)}
+          aria-expanded={newMemoryOpen}
+          aria-controls={newMemoryComposerId}
           className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-[var(--primary-foreground)] hover:opacity-90"
         >
           <Plus size="0.9rem" /> New memory
@@ -291,7 +294,7 @@ export function CharacterMemoriesTab({
       </div>
 
       {newMemoryOpen && (
-        <div className="rounded-2xl border border-[var(--primary)]/35 bg-[var(--card)] p-4">
+        <div id={newMemoryComposerId} className="rounded-2xl border border-[var(--primary)]/35 bg-[var(--card)] p-4">
           <label className="text-sm font-semibold text-[var(--foreground)]">
             New memory for {characterName}
           </label>

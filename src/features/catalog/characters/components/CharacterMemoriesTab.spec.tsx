@@ -70,9 +70,13 @@ describe("CharacterMemoriesTab manual entry", () => {
       (button) => button.textContent?.trim() === "New memory",
     );
     expect(newMemory).toBeTruthy();
+    expect(newMemory?.getAttribute("aria-expanded")).toBe("false");
+    expect(newMemory?.getAttribute("aria-controls")).toBeTruthy();
     act(() => newMemory?.click());
+    expect(newMemory?.getAttribute("aria-expanded")).toBe("true");
 
     const textarea = container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]');
+    expect(textarea?.closest("[id]")?.id).toBe(newMemory?.getAttribute("aria-controls"));
     const save = Array.from(container!.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Save memory",
     );

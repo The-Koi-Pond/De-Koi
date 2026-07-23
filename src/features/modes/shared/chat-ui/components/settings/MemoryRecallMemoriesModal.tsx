@@ -259,6 +259,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   const searchId = useId();
   const editId = useId();
   const replacementId = useId();
+  const newMemoryComposerId = useId();
 
   const localMemories = useMemo(() => memoriesQuery.data ?? [], [memoriesQuery.data]);
   const memories = useMemo<DisplayMemory[]>(
@@ -466,6 +467,8 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
               type="button"
               onClick={() => setNewMemoryOpen((value) => !value)}
               disabled={createMemory.isPending}
+              aria-expanded={newMemoryOpen}
+              aria-controls={newMemoryComposerId}
               className="ml-1 inline-flex min-h-8 items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 disabled:opacity-45"
             >
               <Plus size="0.8rem" /> New memory
@@ -474,7 +477,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
         </div>
 
         {newMemoryOpen && (
-          <div className="rounded-md border border-[var(--primary)]/35 bg-[var(--card)] p-3">
+          <div id={newMemoryComposerId} className="rounded-md border border-[var(--primary)]/35 bg-[var(--card)] p-3">
             <label className="text-xs font-semibold text-[var(--foreground)]">New chat memory</label>
             <p className="mt-1 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
               This memory stays with the current chat. Add character-wide memories from the character panel.
