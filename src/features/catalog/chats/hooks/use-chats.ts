@@ -345,6 +345,17 @@ export function useChatMemories(chatId: string | null, enabled = true) {
   });
 }
 
+export function useCreateChatMemory(chatId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (content: string) => {
+      if (!chatId) throw new Error("No chat selected.");
+      return chatCommandApi.memoryCreate<ChatMemoryChunk>(chatId, { content });
+    },
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
+  });
+}
+
 export type InheritedCharacterMemory = {
   memory: CanonicalMemoryRecord;
   characterId: string;
