@@ -179,14 +179,14 @@ describe("canonical memory context", () => {
         memory({
           id: "memory-relationship",
           kind: "relationship_state",
-          content: "Mira trusts the user after the lantern promise.",
+          content: "Mira trusts the user with the brass key after the lantern promise.",
           confidence: 0.88,
         }),
         memory({
           id: "memory-scene",
           kind: "scene_event",
           scope: { kind: "scene", id: "scene-1" },
-          content: "The cafe scene paused with rain against the windows.",
+          content: "The cafe scene paused after the brass key changed hands, with rain against the windows.",
           confidence: 0.82,
           provenance: {
             sourceChatId: "chat-1",
@@ -223,6 +223,50 @@ describe("canonical memory context", () => {
       }),
     });
     expect(storage.queryMemoryIndex).toHaveBeenCalled();
+  });
+
+  it("does not treat same-character index membership as relevance", async () => {
+    const result = await buildCanonicalMemoryContext(
+      storageWithMemories({
+        indexed: [
+          memory({
+            id: "memory-relevant",
+            scope: { kind: "character", id: "harlequin" },
+            content: "Harlequin agreed to behave when Jester needed space.",
+          }),
+          memory({
+            id: "memory-unrelated-grief",
+            scope: { kind: "character", id: "harlequin" },
+            content: "Harlequin grieves for Columbina beneath the old theatre.",
+          }),
+          memory({
+            id: "memory-unrelated-cards",
+            scope: { kind: "character", id: "harlequin" },
+            content: "Harlequin collects rare Pokemon cards in a lacquered box.",
+          }),
+          memory({
+            id: "memory-pinned",
+            scope: { kind: "character", id: "harlequin" },
+            status: "pinned",
+            content: "Harlequin must never reveal the sealed backstage door.",
+          }),
+        ],
+      }),
+      {
+        chat: { id: "chat-group", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+        storedMessages: [{ id: "message-new", role: "user", content: "YOU? reminding HIM to behave?" }],
+        latestUserInput: "YOU? reminding HIM to behave?",
+        characters: [{ id: "harlequin", name: "Harlequin", tags: [] }],
+        maxContext: 4096,
+      },
+    );
+
+    expect(result?.attributionItems.map((item) => item.sourceId)).toHaveLength(2);
+    expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(
+      expect.arrayContaining(["memory-relevant", "memory-pinned"]),
+    );
+    expect(result?.block).not.toContain("Columbina");
+    expect(result?.block).not.toContain("Pokemon cards");
   });
 
   it("falls back to lexical canonical queries when index retrieval is unavailable", async () => {

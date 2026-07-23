@@ -216,7 +216,9 @@ function scoreCandidate(
   const lexicalCoverage = queryTokens.length > 0 ? lexicalScore / queryTokens.length : 0;
   const entityTokens = metadataEntityTokens(input);
   const entityScore = entityTokens.length > 0 ? lexicalOverlap(entityTokens, memory) / entityTokens.length : 0;
-  const semanticScore = indexSource === "index" ? 0.18 : 0;
+  // The current index API returns scoped rows, not query similarity. Index
+  // membership is retrieval provenance and must not qualify a memory as relevant.
+  const semanticScore = 0;
   const importance = payloadNumber(memory, "importance");
   const metadataScore =
     Math.min(0.18, lexicalCoverage * 0.18) +
@@ -471,7 +473,7 @@ export async function buildCanonicalMemoryContext(
     .map((row) => scoreCandidate(row.memory, input, queryTokens, row.source));
   const consideredCount = candidates.length;
   const ranked = dedupeAndFilterCandidates(candidates, input)
-    .filter((candidate) => candidate.indexSource === "index" || candidate.lexicalScore > 0 || candidate.memory.status === "pinned")
+    .filter((candidate) => candidate.lexicalScore > 0 || candidate.memory.status === "pinned")
     .filter((candidate) => candidate.score >= MIN_CANONICAL_MEMORY_SCORE || candidate.memory.status === "pinned")
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_CANDIDATE_MEMORIES);

@@ -421,6 +421,141 @@ describe("prompt context priority", () => {
     );
   });
 
+  it("does not recall a transcript chunk whose source message is already in visible history", async () => {
+    const result = await assembleGenerationPrompt(
+      contextPriorityStorage({
+        character: {
+          id: "harlequin",
+          data: { name: "Harlequin", description: "Harlequin is a theatrical provocateur." },
+        },
+        memories: [
+          {
+            id: "visible-transcript-memory",
+            status: "active",
+            pinned: true,
+            memoryKind: "transcript",
+            content: "Harlequin: I reminded Jester to behave.",
+            messageIds: ["previous-assistant"],
+            createdAt: "2026-07-23T22:43:38.000Z",
+            firstMessageAt: "2026-07-23T22:43:38.000Z",
+            lastMessageAt: "2026-07-23T22:43:38.000Z",
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-group",
+          mode: "conversation",
+          characterIds: ["harlequin"],
+          metadata: { enableMemoryRecall: true },
+        },
+        storedMessages: [
+          {
+            id: "previous-assistant",
+            role: "assistant",
+            characterId: "harlequin",
+            content: "Harlequin: I reminded Jester to behave.",
+            createdAt: "2026-07-23T22:43:38.000Z",
+          },
+          {
+            id: "current-user",
+            role: "user",
+            content: "YOU? reminding HIM to behave?",
+            createdAt: "2026-07-23T22:44:00.000Z",
+          },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { historyLimit: 2 },
+        latestUserInput: "YOU? reminding HIM to behave?",
+      },
+    );
+
+    expect(result.messages.map((message) => String(message.content ?? "")).join("\n")).not.toContain("<memories>");
+    expect(result.contextAttributionItems).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "memory_recall",
+          status: "injected",
+          sourceId: "visible-transcript-memory",
+        }),
+      ]),
+    );
+  });
+
+  it("still recalls transcript chunks older than the visible-history window", async () => {
+    const result = await assembleGenerationPrompt(
+      contextPriorityStorage({
+        character: {
+          id: "harlequin",
+          data: { name: "Harlequin", description: "Harlequin remembers old promises." },
+        },
+        memories: [
+          {
+            id: "older-transcript-memory",
+            status: "active",
+            pinned: true,
+            memoryKind: "transcript",
+            content: "Harlequin promised to return the moonlit silver mask.",
+            messageIds: ["old-assistant"],
+            createdAt: "2026-06-01T10:00:00.000Z",
+            firstMessageAt: "2026-06-01T10:00:00.000Z",
+            lastMessageAt: "2026-06-01T10:00:00.000Z",
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-group",
+          mode: "conversation",
+          characterIds: ["harlequin"],
+          metadata: { enableMemoryRecall: true },
+        },
+        storedMessages: [
+          {
+            id: "old-assistant",
+            role: "assistant",
+            content: "Harlequin promised to return the moonlit silver mask.",
+            createdAt: "2026-06-01T10:00:00.000Z",
+          },
+          {
+            id: "intervening-user",
+            role: "user",
+            content: "Much later, the scene changed.",
+            createdAt: "2026-07-23T22:42:00.000Z",
+          },
+          {
+            id: "recent-assistant",
+            role: "assistant",
+            content: "Harlequin waits by the curtain.",
+            createdAt: "2026-07-23T22:43:00.000Z",
+          },
+          {
+            id: "current-user",
+            role: "user",
+            content: "What happened to the moonlit silver mask?",
+            createdAt: "2026-07-23T22:44:00.000Z",
+          },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { historyLimit: 2 },
+        latestUserInput: "What happened to the moonlit silver mask?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+    expect(promptText).toContain("<memories>");
+    expect(promptText).toContain("Harlequin promised to return the moonlit silver mask.");
+    expect(result.contextAttributionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "memory_recall",
+          status: "injected",
+          snippet: "Harlequin promised to return the moonlit silver mask.",
+        }),
+      ]),
+    );
+  });
+
   it("uses active migrated canonical memories while ignoring inactive legacy projections", async () => {
     const result = await assembleGenerationPrompt(
       contextPriorityStorage({
