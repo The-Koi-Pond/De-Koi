@@ -7,7 +7,10 @@ import type {
 } from "../../../../engine/contracts/types/memory";
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { characterMemoryImportPatch } from "../lib/character-memory-model";
+import {
+  characterMemoryImportPatch,
+  createManualCharacterMemoryInput,
+} from "../lib/character-memory-model";
 
 export const characterMemoryKeys = {
   detail: (characterId: string) => ["character-memories", characterId] as const,
@@ -67,6 +70,27 @@ export function useUpdateCharacterMemory(characterId: string) {
     mutationFn: ({ memoryId, patch }: { memoryId: string; patch: CanonicalMemoryPatch }) =>
       canonicalMemoryApi.update(memoryId, patch),
     onSuccess: invalidate,
+  });
+}
+
+export function useCreateCharacterMemory(characterId: string) {
+  const invalidate = useInvalidateCharacterMemories(characterId);
+  return useMutation({
+    mutationFn: async (content: string) => {
+      const memory = await canonicalMemoryApi.create(
+        createManualCharacterMemoryInput(characterId, content),
+      );
+      let indexRefreshFailed = false;
+      try {
+        await canonicalMemoryApi.index.rebuildLexical({
+          scope: { kind: "character", id: characterId },
+        });
+      } catch {
+        indexRefreshFailed = true;
+      }
+      return { memory, indexRefreshFailed };
+    },
+    onSettled: invalidate,
   });
 }
 

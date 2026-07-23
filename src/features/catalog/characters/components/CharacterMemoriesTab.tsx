@@ -6,6 +6,7 @@ import {
   Download,
   Pencil,
   Pin,
+  Plus,
   RotateCcw,
   Search,
   Trash2,
@@ -23,6 +24,7 @@ import {
   useCharacterMemories,
   useCharacterMemorySourceChats,
   useChatMemoryRows,
+  useCreateCharacterMemory,
   useImportCharacterMemories,
   useUpdateCharacterMemory,
 } from "../hooks/use-character-memories";
@@ -63,6 +65,7 @@ export function CharacterMemoriesTab({
   onMemoryPersistenceChange,
 }: CharacterMemoriesTabProps) {
   const memoriesQuery = useCharacterMemories(characterId);
+  const createMemory = useCreateCharacterMemory(characterId);
   const updateMemory = useUpdateCharacterMemory(characterId);
   const importMemories = useImportCharacterMemories(characterId);
   const sourceChats = useCharacterMemorySourceChats(characterId);
@@ -71,6 +74,8 @@ export function CharacterMemoriesTab({
   const [filter, setFilter] = useState<MemoryFilter>("active");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
+  const [newMemoryOpen, setNewMemoryOpen] = useState(false);
+  const [newMemoryContent, setNewMemoryContent] = useState("");
   const [copyOpen, setCopyOpen] = useState(false);
   const [sourceChatId, setSourceChatId] = useState<string | null>(null);
   const [selectedChatMemoryIds, setSelectedChatMemoryIds] = useState<Set<string>>(new Set());
@@ -100,6 +105,23 @@ export function CharacterMemoriesTab({
     await updateMemory.mutateAsync({ memoryId, patch: { content } });
     setEditingId(null);
     toast.success("Memory updated");
+  };
+
+  const saveNewMemory = async () => {
+    const content = newMemoryContent.trim();
+    if (!content) return;
+    try {
+      const result = await createMemory.mutateAsync(content);
+      setNewMemoryContent("");
+      setNewMemoryOpen(false);
+      if (result.indexRefreshFailed) {
+        toast.warning("Memory added, but its recall index could not be refreshed.");
+      } else {
+        toast.success("Memory added");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not add memory.");
+    }
   };
 
   const changeStatus = async (memory: CanonicalMemoryRecord, status: MemoryStatus) => {
@@ -240,6 +262,13 @@ export function CharacterMemoriesTab({
         </select>
         <button
           type="button"
+          onClick={() => setNewMemoryOpen((open) => !open)}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-[var(--primary-foreground)] hover:opacity-90"
+        >
+          <Plus size="0.9rem" /> New memory
+        </button>
+        <button
+          type="button"
           onClick={exportMemories}
           className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--accent)]"
         >
@@ -260,6 +289,47 @@ export function CharacterMemoriesTab({
           onChange={(event) => void importFile(event.target.files?.[0])}
         />
       </div>
+
+      {newMemoryOpen && (
+        <div className="rounded-2xl border border-[var(--primary)]/35 bg-[var(--card)] p-4">
+          <label className="text-sm font-semibold text-[var(--foreground)]">
+            New memory for {characterName}
+          </label>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            This durable memory can follow the character into other chats.
+          </p>
+          <textarea
+            aria-label="New character memory"
+            value={newMemoryContent}
+            onChange={(event) => setNewMemoryContent(event.target.value)}
+            rows={4}
+            autoFocus
+            placeholder={`What should ${characterName} remember?`}
+            className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm leading-relaxed outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+          />
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setNewMemoryContent("");
+                setNewMemoryOpen(false);
+              }}
+              disabled={createMemory.isPending}
+              className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--accent)] disabled:opacity-40"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveNewMemory()}
+              disabled={!newMemoryContent.trim() || createMemory.isPending}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-40"
+            >
+              <Check size="0.9rem" /> {createMemory.isPending ? "Saving…" : "Save memory"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         {memoriesQuery.isLoading && (

@@ -15,6 +15,36 @@ export type CharacterMemoryExportV1 = {
 
 type CharacterMemoryImportInput = CanonicalMemoryInput & { id: string };
 
+export function createManualCharacterMemoryInput(
+  characterIdValue: string,
+  contentValue: string,
+  createdAt = new Date().toISOString(),
+): CanonicalMemoryInput {
+  const characterId = characterIdValue.trim();
+  if (!characterId) throw new Error("Choose a character before adding a memory.");
+  const content = contentValue.trim();
+  if (!content) throw new Error("Memory content is required.");
+
+  return {
+    kind: "fact",
+    status: "active",
+    scope: { kind: "character", id: characterId },
+    content,
+    confidence: 1,
+    provenance: {
+      sourceChatId: null,
+      messageIds: [],
+      sceneId: null,
+      characterId,
+      timestamp: createdAt,
+    },
+    tags: ["manual"],
+    payload: { manual: true, createdBy: "user" },
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
 export function characterMemoryImportPatch(
   input: CharacterMemoryImportInput,
 ): CanonicalMemoryPatch {
