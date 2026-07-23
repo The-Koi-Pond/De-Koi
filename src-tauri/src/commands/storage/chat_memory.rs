@@ -941,6 +941,50 @@ pub(crate) fn delete_chat_memory(
     set_chat_memory_values(state, chat_id, values)
 }
 
+pub(crate) async fn create_chat_memory(
+    state: &AppState,
+    chat_id: &str,
+    body: Value,
+) -> AppResult<Value> {
+    let content = body
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("Memory content is required"))?;
+    let chat = get_required(state, "chats", chat_id)?;
+    let embedding_context = memory_embedding_context(state, &chat).await?;
+    let mut values = chat_memory_values_for_mutation(&chat)?;
+    let now = now_iso();
+    let memory_id = new_id();
+    let mut memory = Map::new();
+    memory.insert("id".to_string(), Value::String(memory_id.clone()));
+    memory.insert("chatId".to_string(), Value::String(chat_id.to_string()));
+    memory.insert("content".to_string(), Value::String(content.to_string()));
+    memory.insert("canonicalMemoryVersion".to_string(), json!(1));
+    memory.insert("memoryKind".to_string(), json!("manual"));
+    memory.insert("scopeType".to_string(), json!("chat"));
+    memory.insert("scopeId".to_string(), json!(chat_id));
+    memory.insert("status".to_string(), json!("active"));
+    memory.insert("source".to_string(), json!("manual"));
+    memory.insert("creationReason".to_string(), json!("User-created memory"));
+    memory.insert("userEdited".to_string(), json!(true));
+    memory.insert("messageCount".to_string(), json!(1));
+    memory.insert("messageIds".to_string(), json!([]));
+    memory.insert("firstMessageAt".to_string(), Value::String(now.clone()));
+    memory.insert("lastMessageAt".to_string(), Value::String(now.clone()));
+    memory.insert("createdAt".to_string(), Value::String(now.clone()));
+    memory.insert("updatedAt".to_string(), Value::String(now));
+    memory.insert("legacySourceLane".to_string(), json!("chats.memories"));
+    memory.insert("legacySourceId".to_string(), Value::String(memory_id));
+    embed_chat_memory_object(&mut memory, embedding_context.as_ref()).await?;
+
+    let created = Value::Object(memory);
+    values.push(created.clone());
+    set_chat_memory_values(state, chat_id, values)?;
+    Ok(created)
+}
+
 pub(crate) async fn update_chat_memory(
     state: &AppState,
     chat_id: &str,
@@ -2607,6 +2651,73 @@ mod tests {
         assert_eq!(target["memories"][0]["scopeType"], json!("chat"));
         assert_eq!(target["memories"][0]["sourceChatId"], json!("source-chat"));
     }
+    #[tokio::test]
+    async fn manual_memory_creation() {
+        let state = test_state("chat-memory-manual-create");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Manual memory chat",
+                    "mode": "conversation",
+                    "memories": [{
+                        "id": "existing-memory",
+                        "chatId": "chat-1",
+                        "content": "An existing memory stays unchanged.",
+                        "memoryKind": "manual",
+                        "scopeType": "chat",
+                        "scopeId": "chat-1",
+                        "status": "active",
+                        "messageCount": 1
+                    }]
+                }),
+            )
+            .expect("chat should be created");
+
+        let created = create_chat_memory(
+            &state,
+            "chat-1",
+            json!({ "content": "  The ferry leaves before dawn.  " }),
+        )
+        .await
+        .expect("manual memory should be created");
+
+        assert_eq!(created["chatId"], json!("chat-1"));
+        assert_eq!(created["content"], json!("The ferry leaves before dawn."));
+        assert_eq!(created["memoryKind"], json!("manual"));
+        assert_eq!(created["scopeType"], json!("chat"));
+        assert_eq!(created["scopeId"], json!("chat-1"));
+        assert_eq!(created["source"], json!("manual"));
+        assert_eq!(created["creationReason"], json!("User-created memory"));
+        assert_eq!(created["status"], json!("active"));
+        assert_eq!(created["userEdited"], json!(true));
+        assert_eq!(created["messageIds"], json!([]));
+        assert_eq!(created["hasEmbedding"], json!(true));
+        assert_eq!(created["embeddingSource"], json!("lexical"));
+
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(chat["memories"].as_array().map(Vec::len), Some(2));
+        assert_eq!(chat["memories"][0]["id"], json!("existing-memory"));
+        assert_eq!(
+            chat["memories"][0]["content"],
+            json!("An existing memory stays unchanged.")
+        );
+        assert_eq!(chat["memories"][1], created);
+
+        let rejected = create_chat_memory(
+            &state,
+            "chat-1",
+            json!({ "content": "   " }),
+        )
+        .await
+        .expect_err("empty manual memory should be rejected");
+        assert_eq!(rejected.code, "invalid_input");
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(chat["memories"].as_array().map(Vec::len), Some(2));
+    }
+
     #[tokio::test]
     async fn memory_console_actions_update_index_state() {
         let state = test_state("chat-memory-console-actions");

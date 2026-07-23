@@ -4,10 +4,65 @@ import type { CanonicalMemoryRecord } from "../../../../engine/contracts/types/m
 import {
   characterMemoryImportPatch,
   characterMemoryStatusLabel,
+  createManualCharacterMemoryInput,
   createCharacterMemoryExport,
   normalizeChatMemoriesForCharacter,
   normalizeCharacterMemoryImport,
 } from "./character-memory-model";
+
+describe("manual character memory", () => {
+  it("creates an honestly attributed character-scoped input", () => {
+    const now = "2026-07-23T15:00:00.000Z";
+
+    expect(createManualCharacterMemoryInput(" char-1 ", "  Mira keeps the brass key.  ", now)).toEqual({
+      kind: "fact",
+      status: "active",
+      scope: { kind: "character", id: "char-1" },
+      content: "Mira keeps the brass key.",
+      confidence: 1,
+      provenance: {
+        sourceChatId: null,
+        messageIds: [],
+        sceneId: null,
+        characterId: "char-1",
+        timestamp: now,
+      },
+      tags: ["manual"],
+      payload: { manual: true, createdBy: "user" },
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+
+  it("rejects missing ownership and empty content", () => {
+    expect(() => createManualCharacterMemoryInput("", "Memory")).toThrow("Choose a character");
+    expect(() => createManualCharacterMemoryInput("char-1", "   ")).toThrow("Memory content is required");
+  });
+
+  it("accepts one caller-owned timestamp for a batch", () => {
+    const batchTimestamp = "2026-07-23T15:00:00.000Z";
+    const batch = ["First memory", "Second memory"].map((content) =>
+      createManualCharacterMemoryInput("char-1", content, batchTimestamp),
+    );
+
+    expect(batch.map(({ createdAt, updatedAt, provenance }) => ({
+      createdAt,
+      updatedAt,
+      provenanceTimestamp: provenance.timestamp,
+    }))).toEqual([
+      {
+        createdAt: batchTimestamp,
+        updatedAt: batchTimestamp,
+        provenanceTimestamp: batchTimestamp,
+      },
+      {
+        createdAt: batchTimestamp,
+        updatedAt: batchTimestamp,
+        provenanceTimestamp: batchTimestamp,
+      },
+    ]);
+  });
+});
 
 function memory(overrides: Partial<CanonicalMemoryRecord> = {}): CanonicalMemoryRecord {
   return {

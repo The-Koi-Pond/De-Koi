@@ -907,6 +907,14 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             })
             .await
         }
+        "chat_memory_create" => {
+            chat_memory::create_chat_memory(
+                state,
+                required_string(&args, "chatId")?,
+                optional_value(&args, "body"),
+            )
+            .await
+        }
         "chat_memory_delete" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 chat_memory::delete_chat_memory(
@@ -2176,6 +2184,41 @@ mod tests {
 
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("limit"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_creates_manual_chat_memory_through_the_shared_capability() {
+        let state = test_state("chat-memory-manual-create-dispatch");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Manual memory chat",
+                    "mode": "conversation",
+                    "memories": []
+                }),
+            )
+            .expect("chat should be created");
+
+        let created = dispatch(
+            &state,
+            InvokeRequest {
+                command: "chat_memory_create".to_string(),
+                args: Some(json!({
+                    "chatId": "chat-1",
+                    "body": { "content": "The ferry leaves before dawn." }
+                })),
+            },
+        )
+        .await
+        .expect("remote manual memory creation should succeed");
+
+        assert_eq!(created["memoryKind"], json!("manual"));
+        assert_eq!(created["scopeId"], json!("chat-1"));
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert_eq!(chat["memories"][0]["id"], created["id"]);
     }
 
     #[tokio::test]

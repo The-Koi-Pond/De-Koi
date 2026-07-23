@@ -602,10 +602,10 @@
     "id": "chat-memory-summaries",
     "title": "Chat Continuity Overview",
     "category": "Advanced",
-    "summary": "See what can carry forward: chat-local transcript fragments, inherited character-wide memories, speaker-labeled exchanges and typed consequences from saved exchanges, automatic capture status and partial-capture warnings, and embeddings that rank matches, alongside summaries, world info, and tracker agents.",
-    "keywords": ["continuity", "continuity overview", "memory", "summary", "summaries", "recall", "context", "long chat", "remember", "typed memory consequence", "partial memory capture", "remembered message", "world info", "lorebooks", "trackers", "what will this chat remember", "memory saved notification"],
+    "summary": "See what can carry forward and manually add chat-local memories in the Memory Console or character-wide memories in Character Editor. Review speaker-labeled exchanges, typed consequences, automatic capture status and partial-capture warnings, and embeddings that rank matches alongside summaries, world info, and tracker agents.",
+    "keywords": ["continuity", "continuity overview", "memory", "manual memory", "add chat memory", "add character memory", "summary", "summaries", "recall", "context", "long chat", "remember", "typed memory consequence", "partial memory capture", "remembered message", "world info", "lorebooks", "trackers", "what will this chat remember", "memory saved notification"],
     "audience": "Users running long conversations, roleplays, or campaigns who want to know what context can carry forward.",
-    "where": "Open a chat > Chat Settings > Continuity for chat-local and inherited character-wide memory details; open a remembered message chip for exact saved consequences or a partial-capture warning; control automatic memory-save notifications in Settings > Appearance > Notifications.",
+    "where": "Open a chat > Chat Settings > Continuity > Memory Console to add chat-local memories. Open Character Editor > Memories to add or manage character-wide memories. Open a remembered message chip for exact saved consequences or a partial-capture warning; control automatic memory-save notifications in Settings > Appearance > Notifications.",
     "actions": [{ "type": "open-chat-destination", "destination": "chat-settings-continuity", "label": "Open Chat Continuity" }],
     "coverage": "advanced"
   },

@@ -403,6 +403,7 @@ pub fn run() {
             storage_commands::game_state_snapshot_commands::tracker_snapshot_get,
             storage_commands::game_state_snapshot_commands::tracker_snapshot_save,
             storage_commands::chat_commands::chat_memories_list,
+            storage_commands::chat_commands::chat_memory_create,
             storage_commands::chat_commands::chat_memory_delete,
             storage_commands::chat_commands::chat_memory_update,
             storage_commands::chat_commands::chat_memory_soft_delete,

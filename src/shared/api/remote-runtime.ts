@@ -144,6 +144,7 @@ const REMOTE_COMMANDS = new Set([
   "tracker_snapshot_get",
   "tracker_snapshot_save",
   "chat_memories_list",
+  "chat_memory_create",
   "chat_memory_delete",
   "chat_memory_update",
   "chat_memory_soft_delete",

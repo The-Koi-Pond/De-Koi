@@ -30,6 +30,8 @@ export const chatCommandApi = {
   messageCount: (chatId: string | null) => invokeTauri<{ count: number }>("chat_message_count", { chatId }),
   memoriesList: <T = unknown>(chatId: string | null, options?: ListChatMemoriesOptions) =>
     invokeTauri<T>("chat_memories_list", memoryListArgs(chatId, options)),
+  memoryCreate: <T = unknown>(chatId: string | null, body: { content: string }) =>
+    invokeTauri<T>("chat_memory_create", { chatId, body }),
   memoryDelete: (chatId: string | null, memoryId: string) => invokeTauri("chat_memory_delete", { chatId, memoryId }),
   memoryUpdate: <T = unknown>(chatId: string | null, memoryId: string, body: { content: string }) =>
     invokeTauri<T>("chat_memory_update", { chatId, memoryId, body }),

@@ -6,6 +6,7 @@ import {
   Loader2,
   Pin,
   PinOff,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
@@ -24,6 +25,7 @@ import {
   useChatMemories,
   useClearChatMemories,
   useCorrectChatMemory,
+  useCreateChatMemory,
   useExportChatMemories,
   useImportChatMemories,
   useInheritedCharacterMemories,
@@ -240,9 +242,12 @@ function iconButtonClass(active = false, destructive = false) {
 }
 
 export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: string; open: boolean; onClose: () => void }) {
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
   const memoriesQuery = useChatMemories(chatId, open);
   const inheritedMemoriesQuery = useInheritedCharacterMemories(chatId, open);
   const openCharacterDetail = useUIStore((state) => state.openCharacterDetail);
+  const createMemory = useCreateChatMemory(chatId);
   const softDeleteMemory = useSoftDeleteChatMemory(chatId);
   const restoreMemory = useRestoreChatMemory(chatId);
   const updateMemory = useUpdateChatMemory(chatId);
@@ -256,6 +261,8 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   const searchId = useId();
   const editId = useId();
   const replacementId = useId();
+  const newMemoryComposerId = useId();
+  const newMemoryHelpId = `${newMemoryComposerId}-help`;
 
   const localMemories = useMemo(() => memoriesQuery.data ?? [], [memoriesQuery.data]);
   const memories = useMemo<DisplayMemory[]>(
@@ -274,6 +281,8 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ memoryId: string | null; content: string }>({ memoryId: null, content: "" });
   const [replacementDraft, setReplacementDraft] = useState("");
+  const [newMemoryOpen, setNewMemoryOpen] = useState(false);
+  const [newMemoryContent, setNewMemoryContent] = useState("");
 
   const filtered = useMemo(() => filterMemories(memories, { query, status, type, scope }), [memories, query, status, type, scope]);
   const selected = useMemo(
@@ -289,6 +298,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
     updateMemory.isPending ||
     pinMemory.isPending ||
     correctMemory.isPending ||
+    createMemory.isPending ||
     refreshMemories.isPending ||
     importMemories.isPending;
 
@@ -301,6 +311,11 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
     setReplacementDraft("");
   }, [selected?.id, selected?.content]);
 
+  useEffect(() => {
+    setNewMemoryOpen(false);
+    setNewMemoryContent("");
+  }, [chatId]);
+
   const handleExport = async () => {
     if (localMemories.length === 0) {
       toast.error("There are no recall memories to export yet.");
@@ -311,6 +326,23 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
       toast.success("Memory Recall exported.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to export Memory Recall.");
+    }
+  };
+
+  const handleCreate = async () => {
+    const content = newMemoryContent.trim();
+    if (!content) return;
+    const requestChatId = chatId;
+    try {
+      const created = await createMemory.mutateAsync(content);
+      if (chatIdRef.current !== requestChatId) return;
+      setSelectedId(created.id);
+      setNewMemoryContent("");
+      setNewMemoryOpen(false);
+      toast.success("Memory added and indexed.");
+    } catch (err) {
+      if (chatIdRef.current !== requestChatId) return;
+      toast.error(err instanceof Error ? err.message : "Failed to add memory.");
     }
   };
 
@@ -422,7 +454,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
             {memories.length > 0 && <span className="tabular-nums"> / ~{totalTokens.toLocaleString()} tokens</span>}
             {embeddingSummary && <span> / {embeddingSummary}</span>}
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center justify-end gap-1">
             <input
               ref={importInputRef}
               type="file"
@@ -442,8 +474,63 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
             <button type="button" onClick={handleClear} disabled={localMemories.length === 0 || clearMemories.isPending} className={iconButtonClass(false, true)} title="Clear local memories" aria-label="Clear local memories">
               <Trash2 size="0.875rem" />
             </button>
+            <button
+              type="button"
+              onClick={() => setNewMemoryOpen((value) => !value)}
+              disabled={createMemory.isPending}
+              aria-expanded={newMemoryOpen}
+              aria-controls={newMemoryComposerId}
+              className="ml-1 inline-flex min-h-8 items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 disabled:opacity-45"
+            >
+              <Plus size="0.8rem" /> New memory
+            </button>
           </div>
         </div>
+
+        {newMemoryOpen && (
+          <div id={newMemoryComposerId} className="rounded-md border border-[var(--primary)]/35 bg-[var(--card)] p-3">
+            <label className="text-xs font-semibold text-[var(--foreground)]">New chat memory</label>
+            <p className="mt-1 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+              This memory stays with the current chat. Add character-wide memories from the character panel.
+            </p>
+            <textarea
+              aria-label="New chat memory"
+              aria-describedby={newMemoryHelpId}
+              value={newMemoryContent}
+              onChange={(event) => setNewMemoryContent(event.target.value)}
+              rows={3}
+              autoFocus
+              placeholder="What should this chat remember?"
+              className="mt-2 w-full resize-y rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)] outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/25"
+            />
+            <p id={newMemoryHelpId} className="mt-1.5 text-[0.6875rem] text-[var(--muted-foreground)]">
+              Enter a memory before saving.
+            </p>
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setNewMemoryContent("");
+                  setNewMemoryOpen(false);
+                }}
+                disabled={createMemory.isPending}
+                className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[0.6875rem] font-medium hover:bg-[var(--accent)] disabled:opacity-45"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCreate()}
+                disabled={!newMemoryContent.trim() || createMemory.isPending}
+                aria-describedby={newMemoryHelpId}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 py-1.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] disabled:opacity-45"
+              >
+                {createMemory.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Check size="0.75rem" />}
+                {createMemory.isPending ? "Saving…" : "Save memory"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {inheritedScopeNotice && (
           <div
