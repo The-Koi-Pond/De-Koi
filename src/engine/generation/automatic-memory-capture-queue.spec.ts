@@ -206,8 +206,11 @@ describe("automatic memory capture queue", () => {
         return [];
       },
     };
+    const notices: unknown[] = [];
+    const unsubscribe = subscribeAutomaticMemoryCaptureCompletions((notice) => notices.push(notice));
 
     await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
+    unsubscribe();
 
     const consequence = Array.from(harness.canonicalMemories.values()).find((memory) => memory.kind === "fact");
     expect(consequence).toEqual(
@@ -219,6 +222,14 @@ describe("automatic memory capture queue", () => {
       }),
     );
     expect(harness.jobs.get(String(job?.id))?.affectedCanonicalMemoryIds).toEqual([consequence?.id]);
+    expect(notices).toEqual([
+      {
+        chatId: "chat-1",
+        assistantMessageId: "assistant-1",
+        operation: "created",
+        memory: { id: consequence?.id, content: "The user's cat is named Miso." },
+      },
+    ]);
     expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).toEqual(
       expect.objectContaining({
         consequences: {
@@ -386,11 +397,11 @@ describe("automatic memory capture queue", () => {
     expect(prompts.join("\n")).not.toContain("malformed-memory");
     expect(harness.jobs.get(String(job?.id))?.affectedCanonicalMemoryIds).toEqual([]);
     expect(Array.from(harness.canonicalMemories.values()).filter((memory) => memory.id !== "malformed-memory")).toEqual(
-      [expect.objectContaining({ id: `canonical-${String(job?.id)}` })],
+      [],
     );
   });
 
-  it("publishes the exact saved memory after durable capture completes", async () => {
+  it("does not publish raw transcript capture as saved memory", async () => {
     const harness = queueStorage();
     await harness.enqueue();
     const notices: unknown[] = [];
@@ -399,14 +410,7 @@ describe("automatic memory capture queue", () => {
     await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
     unsubscribe();
 
-    expect(notices).toEqual([
-      {
-        chatId: "chat-1",
-        assistantMessageId: "assistant-1",
-        operation: "created",
-        memory: { id: "memory-1", content: "Celia's cat is named Miso." },
-      },
-    ]);
+    expect(notices).toEqual([]);
   });
 
   it("retries transient failures with bounded backoff before succeeding", async () => {
@@ -579,38 +583,16 @@ describe("automatic memory capture queue", () => {
     expect(harness.canonicalMemories.size).toBe(0);
   });
 
-  it("creates one stable canonical character memory after local capture", async () => {
+  it("keeps raw local capture out of canonical character memory", async () => {
     const harness = queueStorage();
-    const job = await harness.enqueue();
+    await harness.enqueue();
 
     await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
 
-    expect(Array.from(harness.canonicalMemories.values())).toEqual([
-      expect.objectContaining({
-        id: `canonical-${String(job?.id)}`,
-        kind: "episode",
-        status: "active",
-        scope: { kind: "character", id: "char-1" },
-        content: "Celia's cat is named Miso.",
-        confidence: 1,
-        provenance: {
-          sourceChatId: "chat-1",
-          messageIds: ["user-1", "assistant-1"],
-          sceneId: null,
-          characterId: "char-1",
-          timestamp: "2026-01-01T00:01:00.000Z",
-        },
-        tags: ["automatic", "conversation"],
-        payload: {
-          automatic: true,
-          captureVersion: 2,
-          captureJobId: String(job?.id),
-        },
-      }),
-    ]);
+    expect(harness.canonicalMemories.size).toBe(0);
   });
 
-  it("updates the stable canonical ID when a resumed job is processed again", async () => {
+  it("does not promote raw capture when a completed job is resumed", async () => {
     const harness = queueStorage();
     const job = await harness.enqueue();
     await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
@@ -618,8 +600,7 @@ describe("automatic memory capture queue", () => {
 
     await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:04:00.000Z" });
 
-    expect(harness.canonicalMemories.size).toBe(1);
-    expect(harness.canonicalMemories.has(`canonical-${String(job?.id)}`)).toBe(true);
+    expect(harness.canonicalMemories.size).toBe(0);
   });
 
   it("treats legacy jobs without persisted scope as chat-local", async () => {

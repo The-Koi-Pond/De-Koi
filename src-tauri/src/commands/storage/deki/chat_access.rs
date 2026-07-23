@@ -180,15 +180,7 @@ pub(super) fn messages(
     grants: &[DekiChatAccessGrant],
     args: ReadDekiChatMessagesArgs,
 ) -> AppResult<Value> {
-    let chat_id = normalized_string(Some(&args.chat_id))
-        .ok_or_else(|| AppError::invalid_input("read_deki_chat_messages requires chatId"))?;
-    let allowed = allowed_chat_ids(state, grants)?;
-    require_chat_grant(&allowed)?;
-    if !allowed.contains(&chat_id) {
-        return Err(AppError::invalid_input(format!(
-            "Approved Deki chat access does not include chat '{chat_id}'"
-        )));
-    }
+    let chat_id = ensure_chat_allowed(state, grants, &args.chat_id)?;
     let grant_limit = window_limit_for_chat(state, grants, &chat_id)?;
     let requested_limit = args.limit.unwrap_or(grant_limit);
     let limit = requested_limit
@@ -209,6 +201,23 @@ pub(super) fn messages(
         "hasMore": rows.len() == limit,
         "before": args.before
     }))
+}
+
+pub(super) fn ensure_chat_allowed(
+    state: &AppState,
+    grants: &[DekiChatAccessGrant],
+    chat_id: &str,
+) -> AppResult<String> {
+    let chat_id = normalized_string(Some(chat_id))
+        .ok_or_else(|| AppError::invalid_input("Deki chat access requires chatId"))?;
+    let allowed = allowed_chat_ids(state, grants)?;
+    require_chat_grant(&allowed)?;
+    if !allowed.contains(&chat_id) {
+        return Err(AppError::invalid_input(format!(
+            "Approved Deki chat access does not include chat '{chat_id}'"
+        )));
+    }
+    Ok(chat_id)
 }
 
 pub(super) fn prompt_context(
@@ -808,6 +817,21 @@ mod tests {
         )
         .expect_err("unapproved chat should reject");
         assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn exact_chat_authorization_is_reusable_for_scoped_private_data() {
+        let state = test_state("exact-chat-authorization");
+        seed_chats(&state);
+        let grants = vec![character_grant()];
+
+        assert_eq!(
+            ensure_chat_allowed(&state, &grants, "  chat-rina  ")
+                .expect("covered chat should authorize"),
+            "chat-rina"
+        );
+        assert!(ensure_chat_allowed(&state, &grants, "chat-other").is_err());
+        assert!(ensure_chat_allowed(&state, &[], "chat-rina").is_err());
     }
 
     #[test]

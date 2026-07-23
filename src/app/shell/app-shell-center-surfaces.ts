@@ -50,11 +50,12 @@ export function shouldBeginSetupJourney(
 export function getAutomaticMemoryCaptureToast(
   enabled: boolean,
   completion: { operation: "created" | "updated"; memory: { content: string } },
-): { title: string; description: string } | null {
+): { title: string; description: string; duration: number } | null {
   if (!enabled) return null;
   return {
     title: completion.operation === "created" ? "Memory saved" : "Memory updated",
     description: completion.memory.content,
+    duration: 8_000,
   };
 }
 

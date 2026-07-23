@@ -1804,7 +1804,9 @@ function DekiChatAccessCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{actionTitle(action)}</div>
-          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">Read-only chat context</div>
+          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">
+            Chat context and scoped memory access
+          </div>
         </div>
         {handled && (
           <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg bg-emerald-500/10 px-2 font-semibold text-emerald-500">
@@ -1814,6 +1816,9 @@ function DekiChatAccessCard({
         )}
       </div>
       {action.rationale && <p className="mt-2 leading-relaxed text-[var(--foreground)]/75">{action.rationale}</p>}
+      <p className="mt-2 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+        Deki can read memories in the selected chats. Memory edits still require an explicit request.
+      </p>
       <dl className="mt-2 grid gap-1.5">
         <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
           <dt className="text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">Scope</dt>
