@@ -94,6 +94,15 @@ export function useCreateCharacterMemory(characterId: string) {
   });
 }
 
+export function useRebuildCharacterMemoryIndex(characterId: string) {
+  return useMutation({
+    mutationFn: () =>
+      canonicalMemoryApi.index.rebuildLexical({
+        scope: { kind: "character", id: characterId },
+      }),
+  });
+}
+
 export function useImportCharacterMemories(characterId: string) {
   const invalidate = useInvalidateCharacterMemories(characterId);
   return useMutation({

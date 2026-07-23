@@ -242,6 +242,8 @@ function iconButtonClass(active = false, destructive = false) {
 }
 
 export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: string; open: boolean; onClose: () => void }) {
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
   const memoriesQuery = useChatMemories(chatId, open);
   const inheritedMemoriesQuery = useInheritedCharacterMemories(chatId, open);
   const openCharacterDetail = useUIStore((state) => state.openCharacterDetail);
@@ -260,6 +262,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   const editId = useId();
   const replacementId = useId();
   const newMemoryComposerId = useId();
+  const newMemoryHelpId = `${newMemoryComposerId}-help`;
 
   const localMemories = useMemo(() => memoriesQuery.data ?? [], [memoriesQuery.data]);
   const memories = useMemo<DisplayMemory[]>(
@@ -329,13 +332,16 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   const handleCreate = async () => {
     const content = newMemoryContent.trim();
     if (!content) return;
+    const requestChatId = chatId;
     try {
       const created = await createMemory.mutateAsync(content);
+      if (chatIdRef.current !== requestChatId) return;
       setSelectedId(created.id);
       setNewMemoryContent("");
       setNewMemoryOpen(false);
       toast.success("Memory added and indexed.");
     } catch (err) {
+      if (chatIdRef.current !== requestChatId) return;
       toast.error(err instanceof Error ? err.message : "Failed to add memory.");
     }
   };
@@ -489,6 +495,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
             </p>
             <textarea
               aria-label="New chat memory"
+              aria-describedby={newMemoryHelpId}
               value={newMemoryContent}
               onChange={(event) => setNewMemoryContent(event.target.value)}
               rows={3}
@@ -496,6 +503,9 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
               placeholder="What should this chat remember?"
               className="mt-2 w-full resize-y rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)] outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/25"
             />
+            <p id={newMemoryHelpId} className="mt-1.5 text-[0.6875rem] text-[var(--muted-foreground)]">
+              Enter a memory before saving.
+            </p>
             <div className="mt-2 flex justify-end gap-2">
               <button
                 type="button"
@@ -512,6 +522,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
                 type="button"
                 onClick={() => void handleCreate()}
                 disabled={!newMemoryContent.trim() || createMemory.isPending}
+                aria-describedby={newMemoryHelpId}
                 className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 py-1.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] disabled:opacity-45"
               >
                 {createMemory.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Check size="0.75rem" />}

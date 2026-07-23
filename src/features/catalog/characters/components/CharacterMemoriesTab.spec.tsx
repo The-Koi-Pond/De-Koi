@@ -12,11 +12,16 @@ const hookMocks = vi.hoisted(() => ({
     })),
     isPending: false,
   },
+  rebuildMemoryIndex: {
+    mutateAsync: vi.fn(async () => ({ rebuilt: 1 })),
+    isPending: false,
+  },
 }));
 
 vi.mock("../hooks/use-character-memories", () => ({
   useCharacterMemories: () => ({ data: [], isLoading: false }),
   useCreateCharacterMemory: () => hookMocks.createMemory,
+  useRebuildCharacterMemoryIndex: () => hookMocks.rebuildMemoryIndex,
   useUpdateCharacterMemory: () => ({ mutateAsync: vi.fn() }),
   useImportCharacterMemories: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCharacterMemorySourceChats: () => ({ data: [] }),
@@ -40,6 +45,11 @@ describe("CharacterMemoriesTab manual entry", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     hookMocks.createMemory.mutateAsync.mockClear();
+    hookMocks.createMemory.mutateAsync.mockImplementation(async () => ({
+      memory: { id: "memory-new" },
+      indexRefreshFailed: false,
+    }));
+    hookMocks.rebuildMemoryIndex.mutateAsync.mockClear();
   });
 
   afterEach(() => {
@@ -106,8 +116,42 @@ describe("CharacterMemoriesTab manual entry", () => {
     );
 
     expect(save?.disabled).toBe(true);
+    expect(container!.textContent).toContain("Enter a memory before saving.");
     await act(async () => save?.click());
     expect(hookMocks.createMemory.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("keeps a durable recovery action visible until recall indexing succeeds", async () => {
+    hookMocks.createMemory.mutateAsync.mockResolvedValueOnce({
+      memory: { id: "memory-new" },
+      indexRefreshFailed: true,
+    });
+    renderTab();
+    const newMemory = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "New memory",
+    );
+    act(() => newMemory?.click());
+    const textarea = container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        textarea,
+        "Mira keeps the brass key.",
+      );
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Save memory",
+    );
+    await act(async () => save?.click());
+
+    expect(container!.textContent).toContain("Memory was saved, but it is not ready for recall.");
+    const retry = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry recall indexing",
+    );
+    expect(retry).toBeTruthy();
+    await act(async () => retry?.click());
+    expect(hookMocks.rebuildMemoryIndex.mutateAsync).toHaveBeenCalledOnce();
+    expect(container!.textContent).not.toContain("Memory was saved, but it is not ready for recall.");
   });
 
   it("does not carry an unsaved draft into another character", () => {
@@ -135,5 +179,52 @@ describe("CharacterMemoriesTab manual entry", () => {
     expect(
       container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]')?.value,
     ).toBe("");
+  });
+
+  it("does not apply a completed save to a character opened while the request was pending", async () => {
+    let finishSave!: (value: { memory: { id: string }; indexRefreshFailed: boolean }) => void;
+    hookMocks.createMemory.mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    renderTab();
+    const newMemory = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "New memory",
+    );
+    act(() => newMemory?.click());
+    const textarea = container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        textarea,
+        "Only Mira should save this.",
+      );
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Save memory",
+    );
+    act(() => save?.click());
+
+    renderTab("char-2", "Nia");
+    const nextNewMemory = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "New memory",
+    );
+    act(() => nextNewMemory?.click());
+    const nextTextarea = container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        nextTextarea,
+        "Nia's separate draft.",
+      );
+      nextTextarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => finishSave({ memory: { id: "memory-new" }, indexRefreshFailed: true }));
+
+    expect(nextNewMemory?.getAttribute("aria-expanded")).toBe("true");
+    expect(container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]')?.value)
+      .toBe("Nia's separate draft.");
+    expect(container!.textContent).not.toContain("not ready for recall");
   });
 });

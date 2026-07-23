@@ -83,8 +83,8 @@
     "wrongLaneFixToAvoid": "Do not write chats.memories directly from React, infer ownership in the remote wrapper, or duplicate the Rust persistence contract in the UI.",
     "regressionProof": [
       "character-memory-model.spec.ts proves exact character ownership and manual provenance",
-      "CharacterMemoriesTab.spec.tsx proves trimmed submission, empty rejection, accessibility, and owner-change reset",
-      "MemoryRecallMemoriesModal.component.spec.tsx proves the same chat-local UI invariants",
+      "CharacterMemoriesTab.spec.tsx proves trimmed submission, empty guidance, accessibility, owner-change reset, stale-request isolation, and persistent index recovery",
+      "MemoryRecallMemoriesModal.component.spec.tsx proves the same chat-local UI invariants and stale-request isolation",
       "chat_memory.rs proves an embedded append, unchanged existing row, and empty rejection",
       "http_dispatch.rs proves remote dispatch reaches the shared capability"
     ]
@@ -153,12 +153,36 @@
     }
   ],
   "reviewThreadLedger": [
-    {
-      "finding": "Local Bunny review found unsaved composer drafts could follow a changed chat or character owner.",
-      "disposition": "fixed",
-      "fix": "Reset each composer when its owner id changes and added negative component tests for both surfaces.",
-      "humanResolutionRequired": false
-    }
+      {
+        "finding": "Local Bunny review found unsaved composer drafts could follow a changed chat or character owner.",
+        "disposition": "fixed",
+        "fix": "Reset each composer when its owner id changes and added negative component tests for both surfaces.",
+        "humanResolutionRequired": false
+      },
+      {
+        "finding": "Hosted Bunny review found a character memory could be durably stored while its lexical index rebuild failed.",
+        "disposition": "fixed",
+        "fix": "Keep the composer in a persistent recovery state, block duplicate submission and cancellation, and require a successful retry before reporting recall readiness.",
+        "humanResolutionRequired": false
+      },
+      {
+        "finding": "Hosted Bunny review requested an explicit batch timestamp contract for manual character-memory inputs.",
+        "disposition": "verified",
+        "fix": "The helper already accepted a caller-owned timestamp; a durable batch test now proves one timestamp is reused for created, updated, and provenance fields.",
+        "humanResolutionRequired": false
+      },
+      {
+        "finding": "Hosted Bunny review found both disabled empty-memory Save controls lacked an explanation.",
+        "disposition": "fixed",
+        "fix": "Added visible, aria-associated guidance to both composers and component assertions for the empty state.",
+        "humanResolutionRequired": false
+      },
+      {
+        "finding": "Follow-up owner-boundary review found an old pending save could clear or alter a newly opened owner's composer.",
+        "disposition": "fixed",
+        "fix": "Guard post-request UI updates against the current character or chat id and prove new-owner drafts survive stale completions.",
+        "humanResolutionRequired": false
+      }
   ],
   "manualBlockers": [],
   "verification": {
@@ -172,13 +196,16 @@
       "Whitespace-only chat memory with unchanged persisted row count",
       "Character draft after owner change",
       "Chat draft after owner change",
+      "Stale character save completion after owner change",
+      "Stale chat save completion after owner change",
+      "Character lexical-index failure with explicit retry",
       "Existing chat-memory row remains unchanged"
     ],
     "afterEvidence": [
       "pnpm check",
       "pnpm build",
       "pnpm check:architecture",
-      "29 focused Vitest tests",
+      "33 focused Vitest tests",
       "cargo test manual_memory_creation",
       "cargo test dispatch_creates_manual_chat_memory_through_the_shared_capability",
       "git diff --check origin/main...HEAD"

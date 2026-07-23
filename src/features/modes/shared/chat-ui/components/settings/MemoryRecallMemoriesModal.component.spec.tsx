@@ -118,6 +118,7 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
     );
 
     expect(save?.disabled).toBe(true);
+    expect(container!.textContent).toContain("Enter a memory before saving.");
     await act(async () => save?.click());
     expect(hookMocks.createMemory.mutateAsync).not.toHaveBeenCalled();
   });
@@ -148,5 +149,54 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
     expect(
       container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]')?.value,
     ).toBe("");
+  });
+
+  it("does not apply a completed save to a chat opened while the request was pending", async () => {
+    let finishSave!: (value: { id: string; chatId: string; content: string }) => void;
+    hookMocks.createMemory.mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    const newMemory = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "New memory",
+    );
+    act(() => newMemory?.click());
+    const textarea = container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        textarea,
+        "Only chat one should save this.",
+      );
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Save memory",
+    );
+    act(() => save?.click());
+
+    act(() => {
+      root?.render(<MemoryRecallMemoriesModal chatId="chat-2" open onClose={vi.fn()} />);
+    });
+    const nextNewMemory = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "New memory",
+    );
+    act(() => nextNewMemory?.click());
+    const nextTextarea = container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        nextTextarea,
+        "Chat two's separate draft.",
+      );
+      nextTextarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      finishSave({ id: "memory-new", chatId: "chat-1", content: "Only chat one should save this." }),
+    );
+
+    expect(nextNewMemory?.getAttribute("aria-expanded")).toBe("true");
+    expect(container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]')?.value)
+      .toBe("Chat two's separate draft.");
   });
 });

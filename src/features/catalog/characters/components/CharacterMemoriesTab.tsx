@@ -25,6 +25,7 @@ import {
   useCharacterMemorySourceChats,
   useChatMemoryRows,
   useCreateCharacterMemory,
+  useRebuildCharacterMemoryIndex,
   useImportCharacterMemories,
   useUpdateCharacterMemory,
 } from "../hooks/use-character-memories";
@@ -64,8 +65,11 @@ export function CharacterMemoriesTab({
   memoryPersistence,
   onMemoryPersistenceChange,
 }: CharacterMemoriesTabProps) {
+  const characterIdRef = useRef(characterId);
+  characterIdRef.current = characterId;
   const memoriesQuery = useCharacterMemories(characterId);
   const createMemory = useCreateCharacterMemory(characterId);
+  const rebuildMemoryIndex = useRebuildCharacterMemoryIndex(characterId);
   const updateMemory = useUpdateCharacterMemory(characterId);
   const importMemories = useImportCharacterMemories(characterId);
   const sourceChats = useCharacterMemorySourceChats(characterId);
@@ -76,7 +80,9 @@ export function CharacterMemoriesTab({
   const [editingContent, setEditingContent] = useState("");
   const [newMemoryOpen, setNewMemoryOpen] = useState(false);
   const [newMemoryContent, setNewMemoryContent] = useState("");
+  const [newMemoryNeedsIndex, setNewMemoryNeedsIndex] = useState(false);
   const newMemoryComposerId = useId();
+  const newMemoryHelpId = `${newMemoryComposerId}-help`;
   const [copyOpen, setCopyOpen] = useState(false);
   const [sourceChatId, setSourceChatId] = useState<string | null>(null);
   const [selectedChatMemoryIds, setSelectedChatMemoryIds] = useState<Set<string>>(new Set());
@@ -85,6 +91,7 @@ export function CharacterMemoriesTab({
   useEffect(() => {
     setNewMemoryOpen(false);
     setNewMemoryContent("");
+    setNewMemoryNeedsIndex(false);
   }, [characterId]);
 
   const memories = useMemo(() => {
@@ -116,17 +123,36 @@ export function CharacterMemoriesTab({
   const saveNewMemory = async () => {
     const content = newMemoryContent.trim();
     if (!content) return;
+    const requestCharacterId = characterId;
     try {
       const result = await createMemory.mutateAsync(content);
-      setNewMemoryContent("");
-      setNewMemoryOpen(false);
+      if (characterIdRef.current !== requestCharacterId) return;
       if (result.indexRefreshFailed) {
+        setNewMemoryNeedsIndex(true);
         toast.warning("Memory added, but its recall index could not be refreshed.");
       } else {
+        setNewMemoryContent("");
+        setNewMemoryOpen(false);
         toast.success("Memory added");
       }
     } catch (error) {
+      if (characterIdRef.current !== requestCharacterId) return;
       toast.error(error instanceof Error ? error.message : "Could not add memory.");
+    }
+  };
+
+  const retryNewMemoryIndex = async () => {
+    const requestCharacterId = characterId;
+    try {
+      await rebuildMemoryIndex.mutateAsync();
+      if (characterIdRef.current !== requestCharacterId) return;
+      setNewMemoryNeedsIndex(false);
+      setNewMemoryContent("");
+      setNewMemoryOpen(false);
+      toast.success("Memory added and ready for recall");
+    } catch (error) {
+      if (characterIdRef.current !== requestCharacterId) return;
+      toast.error(error instanceof Error ? error.message : "Recall indexing still failed. Try again.");
     }
   };
 
@@ -308,13 +334,24 @@ export function CharacterMemoriesTab({
           </p>
           <textarea
             aria-label="New character memory"
+            aria-describedby={newMemoryHelpId}
             value={newMemoryContent}
             onChange={(event) => setNewMemoryContent(event.target.value)}
+            disabled={newMemoryNeedsIndex || rebuildMemoryIndex.isPending}
             rows={4}
             autoFocus
             placeholder={`What should ${characterName} remember?`}
             className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm leading-relaxed outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
           />
+          <p
+            id={newMemoryHelpId}
+            role={newMemoryNeedsIndex ? "alert" : undefined}
+            className="mt-2 text-xs text-[var(--muted-foreground)]"
+          >
+            {newMemoryNeedsIndex
+              ? "Memory was saved, but it is not ready for recall. Retry indexing before leaving this composer."
+              : "Enter a memory before saving."}
+          </p>
           <div className="mt-3 flex justify-end gap-2">
             <button
               type="button"
@@ -322,19 +359,32 @@ export function CharacterMemoriesTab({
                 setNewMemoryContent("");
                 setNewMemoryOpen(false);
               }}
-              disabled={createMemory.isPending}
+              disabled={createMemory.isPending || rebuildMemoryIndex.isPending || newMemoryNeedsIndex}
               className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--accent)] disabled:opacity-40"
             >
               Cancel
             </button>
-            <button
-              type="button"
-              onClick={() => void saveNewMemory()}
-              disabled={!newMemoryContent.trim() || createMemory.isPending}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-40"
-            >
-              <Check size="0.9rem" /> {createMemory.isPending ? "Saving…" : "Save memory"}
-            </button>
+            {newMemoryNeedsIndex ? (
+              <button
+                type="button"
+                onClick={() => void retryNewMemoryIndex()}
+                disabled={rebuildMemoryIndex.isPending}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-40"
+              >
+                <Check size="0.9rem" />
+                {rebuildMemoryIndex.isPending ? "Retrying…" : "Retry recall indexing"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void saveNewMemory()}
+                disabled={!newMemoryContent.trim() || createMemory.isPending}
+                aria-describedby={newMemoryHelpId}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-40"
+              >
+                <Check size="0.9rem" /> {createMemory.isPending ? "Saving…" : "Save memory"}
+              </button>
+            )}
           </div>
         </div>
       )}

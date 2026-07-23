@@ -38,6 +38,30 @@ describe("manual character memory", () => {
     expect(() => createManualCharacterMemoryInput("", "Memory")).toThrow("Choose a character");
     expect(() => createManualCharacterMemoryInput("char-1", "   ")).toThrow("Memory content is required");
   });
+
+  it("accepts one caller-owned timestamp for a batch", () => {
+    const batchTimestamp = "2026-07-23T15:00:00.000Z";
+    const batch = ["First memory", "Second memory"].map((content) =>
+      createManualCharacterMemoryInput("char-1", content, batchTimestamp),
+    );
+
+    expect(batch.map(({ createdAt, updatedAt, provenance }) => ({
+      createdAt,
+      updatedAt,
+      provenanceTimestamp: provenance.timestamp,
+    }))).toEqual([
+      {
+        createdAt: batchTimestamp,
+        updatedAt: batchTimestamp,
+        provenanceTimestamp: batchTimestamp,
+      },
+      {
+        createdAt: batchTimestamp,
+        updatedAt: batchTimestamp,
+        provenanceTimestamp: batchTimestamp,
+      },
+    ]);
+  });
 });
 
 function memory(overrides: Partial<CanonicalMemoryRecord> = {}): CanonicalMemoryRecord {
