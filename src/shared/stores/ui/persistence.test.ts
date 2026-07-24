@@ -98,6 +98,14 @@ describe("ui persistence migration", () => {
 
     expect(partialized.automaticMemoryCaptureNotifications).toBe(false);
   });
+
+  it("persists the recalled-memory indicator preference", () => {
+    const partialized = partializeUiState({
+      showMemoryRecallIndicators: false,
+    } as UIState);
+
+    expect(partialized.showMemoryRecallIndicators).toBe(false);
+  });
 });
 
 describe("setup journey persistence", () => {

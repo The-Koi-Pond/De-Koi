@@ -1834,6 +1834,8 @@ export async function runGenerationWithUi(
             const hasPendingGroupTurn = groupTurnActive && groupTurnIndex + 1 < groupTurnTotal;
             if (hasPendingGroupTurn) {
               resetLiveGenerationBuffers();
+              useChatStore.getState().setStreamingCharacterId(null, chatId);
+              clearChatAvailabilityState();
             } else {
               releaseForegroundGenerationUi();
             }

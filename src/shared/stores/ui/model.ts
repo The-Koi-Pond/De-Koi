@@ -485,6 +485,7 @@ export interface UIState {
   messageGrouping: boolean;
   conversationMessageStyle: ConversationMessageStyle;
   showTimestamps: boolean;
+  showMemoryRecallIndicators: boolean;
   showModelName: boolean;
   showTokenUsage: boolean;
   showMessageNumbers: boolean;
@@ -728,6 +729,7 @@ export interface UIState {
   setMessageGrouping: (v: boolean) => void;
   setConversationMessageStyle: (v: ConversationMessageStyle) => void;
   setShowTimestamps: (v: boolean) => void;
+  setShowMemoryRecallIndicators: (v: boolean) => void;
   setShowModelName: (v: boolean) => void;
   setShowTokenUsage: (v: boolean) => void;
   setShowMessageNumbers: (v: boolean) => void;

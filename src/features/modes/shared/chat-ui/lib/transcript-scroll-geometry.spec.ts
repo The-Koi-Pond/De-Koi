@@ -86,7 +86,7 @@ describe("transcript scroll geometry", () => {
     ).toBe(true);
   });
 
-  it("follows a newly appended assistant tail when the user stayed engaged", () => {
+  it("follows a newly appended assistant tail even after the user scrolled away", () => {
     expect(
       shouldFollowTranscriptBottom({
         hasFreshForcedBottomScroll: false,
@@ -106,7 +106,7 @@ describe("transcript scroll geometry", () => {
         tailMessageChanged: true,
         userScrolledAway: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -205,7 +205,7 @@ describe("transcript scroll state", () => {
       }),
     ).toBe(true);
   });
-  it("reveals the newest transcript window for a new outbound turn", () => {
+  it("reveals the newest transcript window for every new tail message", () => {
     expect(
       shouldRevealLatestTranscriptWindow({
         hasOlderWindow: true,
@@ -227,6 +227,6 @@ describe("transcript scroll state", () => {
         hasFreshForcedBottomScroll: false,
         userScrolledAway: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });

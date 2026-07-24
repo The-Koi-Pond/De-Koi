@@ -15,6 +15,8 @@ export function ChatPresentationSettings() {
   const setConversationMessageStyle = useUIStore((s) => s.setConversationMessageStyle);
   const showTimestamps = useUIStore((s) => s.showTimestamps);
   const setShowTimestamps = useUIStore((s) => s.setShowTimestamps);
+  const showMemoryRecallIndicators = useUIStore((s) => s.showMemoryRecallIndicators);
+  const setShowMemoryRecallIndicators = useUIStore((s) => s.setShowMemoryRecallIndicators);
   const showModelName = useUIStore((s) => s.showModelName);
   const setShowModelName = useUIStore((s) => s.setShowModelName);
   const showTokenUsage = useUIStore((s) => s.showTokenUsage);
@@ -73,6 +75,12 @@ export function ChatPresentationSettings() {
         checked={showTimestamps}
         onChange={setShowTimestamps}
         help="Displays the date and time each message was sent next to it in the chat."
+      />
+      <ToggleSetting
+        label="Show recalled-memory indicators"
+        checked={showMemoryRecallIndicators}
+        onChange={setShowMemoryRecallIndicators}
+        help="Shows the blue recalled-memory chip beside character names and timestamps. Hiding it does not disable memory recall."
       />
       <ToggleSetting
         label="Show model name on messages"

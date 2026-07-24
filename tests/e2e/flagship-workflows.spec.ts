@@ -26,6 +26,8 @@ const records = new Map<string, JsonRecord[]>();
 let nextId = 1;
 let streamCount = 0;
 let failChatCreation = false;
+let holdNextStream = false;
+let releaseHeldStream: (() => void) | null = null;
 
 function resetRuntime() {
   records.clear();
@@ -37,6 +39,9 @@ function resetRuntime() {
   nextId = 1;
   streamCount = 0;
   failChatCreation = false;
+  holdNextStream = false;
+  releaseHeldStream?.();
+  releaseHeldStream = null;
 }
 
 function json(response: ServerResponse, value: unknown, status = 200) {
@@ -163,6 +168,13 @@ function runtimeServer() {
         Connection: "keep-alive",
       });
       response.write(`data: ${JSON.stringify({ type: "start" })}\n\n`);
+      if (holdNextStream) {
+        await new Promise<void>((resolve) => {
+          releaseHeldStream = resolve;
+        });
+        holdNextStream = false;
+        releaseHeldStream = null;
+      }
       response.write(
         `data: ${JSON.stringify({ type: "token", text: `Deterministic streamed reply ${streamCount}` })}\n\n`,
       );
@@ -241,6 +253,45 @@ test("conversation can be created, streamed, retried, and restored after reload"
   await page.reload();
   await expect(page.getByText("Hello deterministic koi")).toBeVisible();
   await expect(page.getByText("Deterministic streamed reply 2")).toBeVisible();
+});
+
+test("a received conversation message follows the transcript to the bottom", async ({ page }) => {
+  await createConversation(page);
+  const chatId = String(collection("chats")[0]?.id ?? "");
+  const createdAt = new Date("2026-07-23T12:00:00.000Z");
+  for (let index = 0; index < 30; index += 1) {
+    collection("messages").push({
+      id: `scroll-history-${index}`,
+      chatId,
+      role: index % 2 === 0 ? "user" : "assistant",
+      characterId: index % 2 === 0 ? null : character.id,
+      content: `Existing conversation message ${index + 1}. ${"Long enough to overflow the transcript. ".repeat(4)}`,
+      createdAt: new Date(createdAt.getTime() + index * 1000).toISOString(),
+    });
+  }
+  await page.reload();
+
+  const transcript = page.locator(".mari-messages-scroll");
+  await expect.poll(() => transcript.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+
+  holdNextStream = true;
+  await page.getByPlaceholder(/Message/).fill("Send a reply after I scroll away");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => releaseHeldStream !== null).toBe(true);
+
+  await transcript.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -100 }));
+  });
+  await expect.poll(() => transcript.evaluate((element) => element.scrollTop)).toBe(0);
+
+  releaseHeldStream?.();
+  await expect(page.getByText("Deterministic streamed reply 1")).toBeVisible();
+  await expect
+    .poll(() =>
+      transcript.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight),
+    )
+    .toBeLessThan(2);
 });
 
 test("rejected chat creation shows actionable failure UI", async ({ page }) => {
