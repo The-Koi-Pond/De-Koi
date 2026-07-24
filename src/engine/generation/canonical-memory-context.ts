@@ -97,6 +97,7 @@ const STOPWORDS = new Set([
   "there",
   "they",
   "this",
+  "to",
   "was",
   "what",
   "when",
