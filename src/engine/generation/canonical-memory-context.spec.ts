@@ -245,6 +245,11 @@ describe("canonical memory context", () => {
             content: "Harlequin collects rare Pokemon cards in a lacquered box.",
           }),
           memory({
+            id: "memory-unrelated-common-word",
+            scope: { kind: "character", id: "harlequin" },
+            content: "Harlequin asked Pierrot to save a seat before the performance.",
+          }),
+          memory({
             id: "memory-pinned",
             scope: { kind: "character", id: "harlequin" },
             status: "pinned",
@@ -267,6 +272,7 @@ describe("canonical memory context", () => {
     );
     expect(result?.block).not.toContain("Columbina");
     expect(result?.block).not.toContain("Pokemon cards");
+    expect(result?.block).not.toContain("save a seat");
   });
 
   it("falls back to lexical canonical queries when index retrieval is unavailable", async () => {
