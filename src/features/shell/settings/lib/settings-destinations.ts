@@ -25,7 +25,16 @@ export const SETTINGS_DESTINATIONS = [
     id: "chat-presentation",
     tab: "appearance",
     title: "Chat presentation",
-    keywords: ["message layout", "grouping", "timestamps", "model name", "tokens", "message numbers"],
+    keywords: [
+      "message layout",
+      "grouping",
+      "timestamps",
+      "memory recall indicators",
+      "recalled memories",
+      "model name",
+      "tokens",
+      "message numbers",
+    ],
   },
   {
     id: "notification-sounds",

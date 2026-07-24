@@ -164,6 +164,7 @@ export function partializeUiState(state: UIState) {
     messageGrouping: state.messageGrouping,
     conversationMessageStyle: state.conversationMessageStyle,
     showTimestamps: state.showTimestamps,
+    showMemoryRecallIndicators: state.showMemoryRecallIndicators,
     showModelName: state.showModelName,
     showTokenUsage: state.showTokenUsage,
     showMessageNumbers: state.showMessageNumbers,
@@ -265,6 +266,7 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   persisted.trackerPanelSectionOrder = normalizeTrackerPanelSectionOrder(persisted.trackerPanelSectionOrder);
   persisted.conversationMessageStyle = normalizeConversationMessageStyle(persisted.conversationMessageStyle);
   persisted.showTimestamps = true;
+  persisted.showMemoryRecallIndicators = persisted.showMemoryRecallIndicators !== false;
   persisted.summaryPopoverSettings = normalizeSummaryPopoverSettings(persisted.summaryPopoverSettings);
   persisted.userQuickReplyActions = normalizeUserQuickReplyActions(persisted.userQuickReplyActions);
   persisted.quoteFormat = normalizeQuoteFormat(persisted.quoteFormat);

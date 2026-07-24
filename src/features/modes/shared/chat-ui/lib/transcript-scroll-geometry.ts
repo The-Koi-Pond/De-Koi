@@ -86,9 +86,9 @@ export function shouldFollowTranscriptBottom({
   tailMessageChanged = false,
   userScrolledAway,
 }: TranscriptFollowBottomInput): boolean {
-  if (hasFreshForcedBottomScroll || isOptimisticTail) return true;
+  if (hasFreshForcedBottomScroll || isOptimisticTail || tailMessageChanged) return true;
   if (userScrolledAway) return false;
-  return tailMessageChanged || isStreamingWithUserTail || isNearBottom;
+  return isStreamingWithUserTail || isNearBottom;
 }
 
 export type TranscriptWindowRevealInput = {
@@ -111,9 +111,9 @@ export function shouldRevealLatestTranscriptWindow({
   userScrolledAway,
 }: TranscriptWindowRevealInput): boolean {
   if (!hasOlderWindow || isLoadingMore) return false;
-  if (isOptimisticTail || hasFreshForcedBottomScroll) return true;
+  if (isOptimisticTail || hasFreshForcedBottomScroll || tailMessageChanged) return true;
   if (userScrolledAway) return false;
-  return tailMessageChanged || streamingStarted;
+  return streamingStarted;
 }
 
 export function scheduleTranscriptScrollWrite(write: () => void): () => void {

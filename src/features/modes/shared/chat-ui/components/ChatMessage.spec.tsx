@@ -63,6 +63,7 @@ function resetChatMessageUiState() {
     roleplayAvatarScale: 1,
     chatFontSize: 16,
     showMessageNumbers: false,
+    showMemoryRecallIndicators: true,
     guideGenerations: false,
     quoteFormat: "straight",
     summaryPopoverSettings: {
@@ -1103,6 +1104,16 @@ describe("ChatMessage", () => {
       messageId: "message-memory-indicators",
       promptSnapshot,
     });
+
+    act(() => {
+      useUIStore.setState({ showMemoryRecallIndicators: false });
+    });
+
+    expect(
+      Array.from(container!.querySelectorAll("button")).some((button) => button.textContent?.includes("remembered")),
+    ).toBe(true);
+    expect(container!.textContent).not.toContain("2 memories recalled");
+    expect(container!.textContent).not.toContain("Recalled memories");
   });
 
   it("does not claim a memory was remembered when completed capture details are missing", () => {

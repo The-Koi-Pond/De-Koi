@@ -5,6 +5,7 @@ import type {
   MessageExtra,
 } from "../../../../../engine/contracts/types/chat";
 import { cn } from "../../../../../shared/lib/utils";
+import { useUIStore } from "../../../../../shared/stores/ui.store";
 
 type MessageMemoryCapture = MessageExtra["memoryCapture"];
 
@@ -72,6 +73,7 @@ export function MessageMemoryIndicators({
 }: MessageMemoryIndicatorsProps) {
   const [open, setOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
+  const showMemoryRecallIndicators = useUIStore((state) => state.showMemoryRecallIndicators);
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
   const chipRef = useRef<HTMLButtonElement | null>(null);
   const savedChipRef = useRef<HTMLButtonElement | null>(null);
@@ -116,6 +118,11 @@ export function MessageMemoryIndicators({
     .filter((snippet): snippet is string => !!snippet)
     .slice(0, 3);
   const hiddenCount = Math.max(0, recalledCount - visibleSnippets.length);
+  const showRecalled = showMemoryRecallIndicators && recalledCount > 0;
+
+  useEffect(() => {
+    if (!showMemoryRecallIndicators) setOpen(false);
+  }, [showMemoryRecallIndicators]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -177,7 +184,7 @@ export function MessageMemoryIndicators({
     };
   }, [open, savedOpen]);
 
-  if (!remembered && recalledCount === 0) return null;
+  if (!remembered && !showRecalled) return null;
 
   return (
     <span className={cn("inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5", className)}>
@@ -250,7 +257,7 @@ export function MessageMemoryIndicators({
           )}
         </span>
       )}
-      {recalledCount > 0 && (
+      {showRecalled && (
         <span ref={popoverAnchorRef} className="relative inline-flex">
           <button
             ref={chipRef}

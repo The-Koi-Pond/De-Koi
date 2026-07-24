@@ -421,6 +421,77 @@ describe("showAgentWarningToast", () => {
   });
 });
 describe("runGenerationWithUi", () => {
+  it("clears a completed group responder while the next turn is still being selected", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "conversation-group-turn-gap";
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+    useChatStore.getState().setActiveChatId(chatId);
+    useUIStore.getState().setEnableStreaming(false);
+
+    let markFirstTurnHandled!: () => void;
+    const firstTurnHandled = new Promise<void>((resolve) => {
+      markFirstTurnHandled = resolve;
+    });
+    let releaseNextTurn!: () => void;
+    const waitForNextTurn = new Promise<void>((resolve) => {
+      releaseNextTurn = resolve;
+    });
+    let markNextTurnHandled!: () => void;
+    const nextTurnHandled = new Promise<void>((resolve) => {
+      markNextTurnHandled = resolve;
+    });
+    let finishGeneration!: () => void;
+    const waitToFinish = new Promise<void>((resolve) => {
+      finishGeneration = resolve;
+    });
+
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield {
+        type: "group_turn",
+        data: { characterId: "char-a", characterName: "Aki", index: 0, total: 2 },
+      } as StreamEvent;
+      yield { type: "token", data: "Aki answers." } as StreamEvent;
+      yield {
+        type: "assistant_message",
+        data: { id: "message-a", chatId, role: "assistant", characterId: "char-a", content: "Aki answers." },
+      } as StreamEvent;
+      markFirstTurnHandled();
+      await waitForNextTurn;
+      yield {
+        type: "group_turn",
+        data: { characterId: "char-b", characterName: "Bea", index: 1, total: 2 },
+      } as StreamEvent;
+      markNextTurnHandled();
+      await waitToFinish;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId }, stream);
+    await firstTurnHandled;
+
+    const betweenTurns = useChatStore.getState();
+    expect(betweenTurns.typingCharacterName).toBeNull();
+    expect(betweenTurns.streamingCharacterId).toBeNull();
+    expect(betweenTurns.abortControllers.has(chatId)).toBe(true);
+
+    releaseNextTurn();
+    await nextTurnHandled;
+
+    const nextTurn = useChatStore.getState();
+    expect(nextTurn.typingCharacterName).toBe("Bea");
+    expect(nextTurn.streamingCharacterId).toBe("char-b");
+
+    finishGeneration();
+    await run;
+
+    expect(useChatStore.getState().typingCharacterName).toBeNull();
+    queryClient.clear();
+  });
+
   it("does not force a fresh Music Player pick for automatic roleplay cues", async () => {
     vi.useFakeTimers();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

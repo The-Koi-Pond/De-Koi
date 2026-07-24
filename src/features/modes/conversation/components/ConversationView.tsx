@@ -810,6 +810,10 @@ export function ConversationView({
     }
     const tailMessageChanged = !!newestMsgId && followedTailMessageIdRef.current !== newestMsgId;
     followedTailMessageIdRef.current = newestMsgId;
+    if (tailMessageChanged) {
+      userScrolledAwayRef.current = false;
+      isNearBottomRef.current = true;
+    }
     if (
       shouldFollowTranscriptBottom({
         hasFreshForcedBottomScroll: false,
