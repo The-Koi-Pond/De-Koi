@@ -3,11 +3,54 @@ import type {
   GenerationContextAttributionItem,
   GenerationPromptSnapshot,
   MessageExtra,
+  MessageMemoryCaptureStatus,
 } from "../../../../../engine/contracts/types/chat";
 import { cn } from "../../../../../shared/lib/utils";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 
 type MessageMemoryCapture = MessageExtra["memoryCapture"];
+type MessageMemoryDisplayStatus = MessageMemoryCaptureStatus | "unsupported";
+type MessageMemoryLifecycleStatus = Exclude<MessageMemoryDisplayStatus, "completed">;
+
+const MEMORY_CAPTURE_STATUSES = new Set<MessageMemoryCaptureStatus>([
+  "processing",
+  "retryable",
+  "failed",
+  "completed",
+]);
+
+const MEMORY_CAPTURE_LIFECYCLE_PRESENTATION: Record<
+  MessageMemoryLifecycleStatus,
+  { label: string; title: string; detail: string }
+> = {
+  processing: {
+    label: "remembering…",
+    title: "Remembering",
+    detail: "De-Koi is checking this exchange for durable memory.",
+  },
+  retryable: {
+    label: "memory retrying",
+    title: "Memory retrying",
+    detail: "Memory capture hit a temporary problem and will retry automatically.",
+  },
+  failed: {
+    label: "memory unavailable",
+    title: "Memory unavailable",
+    detail: "Memory capture could not finish after several attempts. The conversation reply is still safe.",
+  },
+  unsupported: {
+    label: "memory status unavailable",
+    title: "Memory status unavailable",
+    detail: "De-Koi found an unsupported saved memory status. It was not treated as remembered.",
+  },
+};
+
+function normalizeMemoryCaptureStatus(value: unknown): MessageMemoryDisplayStatus {
+  if (typeof value !== "string") return "unsupported";
+  return MEMORY_CAPTURE_STATUSES.has(value as MessageMemoryCaptureStatus)
+    ? (value as MessageMemoryCaptureStatus)
+    : "unsupported";
+}
 
 interface MessageMemoryIndicatorsProps {
   isUser?: boolean;
@@ -99,18 +142,19 @@ export function MessageMemoryIndicators({
       : completeCapture
         ? [completeCapture]
         : [];
+  const captureStatus = memoryCapture ? normalizeMemoryCaptureStatus(memoryCapture.status) : null;
   const captureHasProblems =
     memoryCapture?.consequences?.status === "skipped" ||
     savedConsequences.length < consequenceEntries.length ||
     (!!savedCapture && !completeCapture) ||
     (savedMemories.length === 0 && !completeCapture);
-  const partialCapture = memoryCapture?.status === "completed" && savedMemories.length > 0 && captureHasProblems;
-  const unavailableCapture =
-    memoryCapture?.status === "completed" && savedMemories.length === 0 && captureHasProblems;
+  const partialCapture = captureStatus === "completed" && savedMemories.length > 0 && captureHasProblems;
+  const unavailableCapture = captureStatus === "completed" && savedMemories.length === 0 && captureHasProblems;
+  const lifecycleStatus: MessageMemoryLifecycleStatus | null =
+    !isUser && captureStatus && captureStatus !== "completed" ? captureStatus : null;
+  const lifecyclePresentation = lifecycleStatus ? MEMORY_CAPTURE_LIFECYCLE_PRESENTATION[lifecycleStatus] : null;
   const remembered =
-    !isUser &&
-    memoryCapture?.status === "completed" &&
-    (savedMemories.length > 0 || partialCapture || unavailableCapture);
+    !isUser && captureStatus === "completed" && (savedMemories.length > 0 || partialCapture || unavailableCapture);
   const recalledItems = useMemo(() => recalledMemoryItems(promptSnapshot), [promptSnapshot]);
   const recalledCount = !isUser ? recalledItems.length : 0;
   const visibleSnippets = recalledItems
@@ -184,11 +228,11 @@ export function MessageMemoryIndicators({
     };
   }, [open, savedOpen]);
 
-  if (!remembered && !showRecalled) return null;
+  if (!remembered && !lifecycleStatus && !showRecalled) return null;
 
   return (
     <span className={cn("inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5", className)}>
-      {remembered && (
+      {(remembered || lifecycleStatus) && (
         <span className="relative inline-flex">
           <button
             ref={savedChipRef}
@@ -196,15 +240,21 @@ export function MessageMemoryIndicators({
             aria-expanded={savedOpen}
             aria-haspopup="dialog"
             aria-controls={savedOpen ? savedTitleId : undefined}
-            aria-label="Open saved memory details"
-            title="Show saved memory"
+            aria-label={lifecycleStatus ? "Open memory capture status" : "Open saved memory details"}
+            title={lifecycleStatus ? "Show memory capture status" : "Show saved memory"}
             onClick={(event) => {
               event.stopPropagation();
               setSavedOpen((value) => !value);
             }}
-            className="inline-flex shrink-0 items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-300/80 outline-none transition-colors duration-150 hover:bg-emerald-400/15 focus-visible:ring-1 focus-visible:ring-emerald-300/45"
+            className={cn(
+              "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[0.5625rem] font-medium outline-none transition-colors duration-150 focus-visible:ring-1",
+              lifecycleStatus
+                ? "border-amber-400/20 bg-amber-400/10 text-amber-200/85 hover:bg-amber-400/15 focus-visible:ring-amber-300/45"
+                : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300/80 hover:bg-emerald-400/15 focus-visible:ring-emerald-300/45",
+            )}
           >
-            {partialCapture ? "⚠ partial memory" : unavailableCapture ? "⚠ memory unavailable" : "✦ remembered"}
+            {lifecyclePresentation?.label ??
+              (partialCapture ? "⚠ partial memory" : unavailableCapture ? "⚠ memory unavailable" : "✦ remembered")}
           </button>
           {savedOpen && (
             <div
@@ -215,16 +265,22 @@ export function MessageMemoryIndicators({
               onClick={(event) => event.stopPropagation()}
             >
               <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
-                {partialCapture
-                  ? "Partial memory capture"
-                  : unavailableCapture
-                    ? "Memory unavailable"
-                    : savedMemories.length > 1
-                      ? "Saved memories"
-                      : savedMemories[0]?.operation === "updated"
-                        ? "Updated memory"
-                        : "Saved memory"}
+                {lifecyclePresentation?.title ??
+                  (partialCapture
+                    ? "Partial memory capture"
+                    : unavailableCapture
+                      ? "Memory unavailable"
+                      : savedMemories.length > 1
+                        ? "Saved memories"
+                        : savedMemories[0]?.operation === "updated"
+                          ? "Updated memory"
+                          : "Saved memory")}
               </div>
+              {lifecyclePresentation?.detail && (
+                <p className="rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-100/90">
+                  {lifecyclePresentation.detail}
+                </p>
+              )}
               {partialCapture && (
                 <p className="mb-2 rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-200/90">
                   Some memory details could not be saved or verified.

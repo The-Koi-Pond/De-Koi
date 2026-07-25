@@ -339,18 +339,28 @@ async function collectMemoryRows(
   } else if (storage.queryMemoryIndex) {
     for (const query of queries) indexed.push(...(await storage.queryMemoryIndex(query)));
   }
-  if (indexed.length > 0) return indexed.map((memory) => ({ memory, source: "index" }));
-
   const fallback: CanonicalMemoryRecord[] = [];
-  if (storage.queryMemoriesBatch) {
-    fallback.push(...orderedBatchRows(await storage.queryMemoriesBatch(queries)));
-  } else if (storage.queryMemories) {
-    for (const query of queries) fallback.push(...(await storage.queryMemories(query)));
-  } else {
-    const rows = await storage.list<unknown>("canonical-memories", { limit: MAX_CANDIDATE_MEMORIES });
-    fallback.push(...rows.filter(isRecord).map((row) => row as unknown as CanonicalMemoryRecord));
+  try {
+    if (storage.queryMemoriesBatch) {
+      fallback.push(...orderedBatchRows(await storage.queryMemoriesBatch(queries)));
+    } else if (storage.queryMemories) {
+      for (const query of queries) fallback.push(...(await storage.queryMemories(query)));
+    } else if (indexed.length === 0) {
+      const rows = await storage.list<unknown>("canonical-memories", { limit: MAX_CANDIDATE_MEMORIES });
+      fallback.push(...rows.filter(isRecord).map((row) => row as unknown as CanonicalMemoryRecord));
+    }
+  } catch (error) {
+    // The durable query supplements the index so partial indexes can self-heal.
+    // Keep valid index recall available if that supplemental read is temporarily
+    // unavailable; without any index result there is no safe recall to return.
+    if (indexed.length === 0) throw error;
   }
-  return fallback.map((memory) => ({ memory, source: "lexical" }));
+
+  const seen = new Set(indexed.map((memory) => memory.id));
+  return [
+    ...indexed.map((memory) => ({ memory, source: "index" as const })),
+    ...fallback.filter((memory) => !seen.has(memory.id)).map((memory) => ({ memory, source: "lexical" as const })),
+  ];
 }
 
 function validMemoryRecord(value: CanonicalMemoryRecord): boolean {

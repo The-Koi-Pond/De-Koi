@@ -1471,14 +1471,17 @@ mod tests {
             canonical_memory::get_memory(&state, "memory-char-2").unwrap()["status"],
             json!("active")
         );
-        let index_ids = state
+        let remaining_index_rows = state
             .storage
             .list("memory-index-rows")
-            .expect("indexes should list")
-            .into_iter()
-            .filter_map(|row| row["id"].as_str().map(str::to_string))
-            .collect::<Vec<_>>();
-        assert_eq!(index_ids, vec!["index-char-2"]);
+            .expect("indexes should list");
+        assert_eq!(remaining_index_rows.len(), 2);
+        assert!(remaining_index_rows
+            .iter()
+            .all(|row| row["memoryId"] == json!("memory-char-2")));
+        assert!(remaining_index_rows
+            .iter()
+            .any(|row| row["id"] == json!("index-char-2")));
     }
 
     #[test]

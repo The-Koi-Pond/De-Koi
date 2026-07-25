@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use marinara_core::{new_id, AppError, AppResult};
+use marinara_core::{new_id, now_iso, AppError, AppResult};
 use serde_json::{json, Map, Value};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
@@ -26,20 +26,6 @@ const MEMORY_KINDS: &[&str] = &[
 ];
 const MEMORY_STATUSES: &[&str] = &["active", "superseded", "stale", "pinned", "deleted"];
 const MEMORY_SCOPES: &[&str] = &["user", "character", "chat", "scene", "world", "agent"];
-const INDEX_INVALIDATING_FIELDS: &[&str] = &[
-    "kind",
-    "status",
-    "scope",
-    "content",
-    "confidence",
-    "provenance",
-    "title",
-    "tags",
-    "payload",
-    "supersedesMemoryId",
-    "supersededByMemoryId",
-];
-
 fn read_string(value: Option<&Value>) -> String {
     value
         .and_then(Value::as_str)
@@ -257,8 +243,37 @@ fn batch_queries(body: Value) -> AppResult<Vec<Value>> {
 }
 
 pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
-    let record = normalize_memory_record(marinara_core::ensure_object(body)?, true)?;
-    state.storage.create(MEMORY_COLLECTION, record)
+    let mut record = marinara_core::ensure_object(normalize_memory_record(
+        marinara_core::ensure_object(body)?,
+        true,
+    )?)?;
+    let memory_id = require_string(&record, "id")?;
+    let now = now_iso();
+    record
+        .entry("createdAt".to_string())
+        .or_insert_with(|| Value::String(now.clone()));
+    record
+        .entry("updatedAt".to_string())
+        .or_insert_with(|| Value::String(now));
+    let record = Value::Object(record);
+
+    state.storage.update_collections_atomically(
+        vec![MEMORY_COLLECTION, INDEX_COLLECTION],
+        move |collections| {
+            let memories = collections[0].rows_mut();
+            if memories
+                .iter()
+                .any(|memory| read_string(memory.get("id")) == memory_id)
+            {
+                return Err(AppError::invalid_input(format!(
+                    "{MEMORY_COLLECTION}/{memory_id} already exists"
+                )));
+            }
+            memories.push(record.clone());
+            replace_memory_lexical_index(collections[1].rows_mut(), &record)?;
+            Ok(record)
+        },
+    )
 }
 
 pub(crate) fn get_memory(state: &AppState, memory_id: &str) -> AppResult<Value> {
@@ -269,29 +284,35 @@ pub(crate) fn get_memory(state: &AppState, memory_id: &str) -> AppResult<Value> 
 }
 
 pub(crate) fn update_memory(state: &AppState, memory_id: &str, patch: Value) -> AppResult<Value> {
-    let patch_object = marinara_core::ensure_object(patch.clone())?;
-    let current = get_memory(state, memory_id)?;
-    let normalized = normalize_memory_record(
-        marinara_core::ensure_object(merge_patch(&current, patch)?)?,
-        false,
-    )?;
-    let normalized_object = normalized.as_object().cloned().unwrap_or_default();
-    let mut write_patch = Map::new();
-    for key in patch_object.keys() {
-        if let Some(value) = normalized_object.get(key) {
-            write_patch.insert(key.clone(), value.clone());
-        }
-    }
-    let updated = state
-        .storage
-        .patch(MEMORY_COLLECTION, memory_id, Value::Object(write_patch))?;
-    if patch_object
-        .keys()
-        .any(|key| INDEX_INVALIDATING_FIELDS.contains(&key.as_str()))
-    {
-        delete_memory_index_rows_for_memory(state, memory_id)?;
-    }
-    Ok(updated)
+    let patch_object = marinara_core::ensure_object(patch)?;
+    let memory_id = memory_id.to_string();
+
+    state.storage.update_collections_atomically(
+        vec![MEMORY_COLLECTION, INDEX_COLLECTION],
+        move |collections| {
+            let memories = collections[0].rows_mut();
+            let memory = memories
+                .iter_mut()
+                .find(|memory| read_string(memory.get("id")) == memory_id)
+                .ok_or_else(|| {
+                    AppError::not_found(format!("{MEMORY_COLLECTION}/{memory_id} was not found"))
+                })?;
+            let current = memory.clone();
+            let mut normalized = marinara_core::ensure_object(normalize_memory_record(
+                marinara_core::ensure_object(merge_patch(
+                    &current,
+                    Value::Object(patch_object.clone()),
+                )?)?,
+                false,
+            )?)?;
+            normalized.insert("id".to_string(), Value::String(memory_id.clone()));
+            normalized.insert("updatedAt".to_string(), Value::String(now_iso()));
+            let updated = Value::Object(normalized);
+            *memory = updated.clone();
+            replace_memory_lexical_index(collections[1].rows_mut(), &updated)?;
+            Ok(updated)
+        },
+    )
 }
 
 pub(crate) fn delete_memory(state: &AppState, memory_id: &str) -> AppResult<Value> {
@@ -488,6 +509,50 @@ fn lexical_vector(tokens: &[String]) -> Vec<f64> {
     vector
 }
 
+fn memory_is_lexically_indexed(memory: &Value) -> bool {
+    matches!(
+        memory.get("status").and_then(Value::as_str),
+        Some("active" | "pinned")
+    )
+}
+
+fn lexical_index_row(memory: &Value) -> AppResult<Value> {
+    let memory_id = read_string(memory.get("id"));
+    if memory_id.is_empty() {
+        return Err(AppError::invalid_input("canonical memory id is required"));
+    }
+    let canonical_updated_at = read_string(memory.get("updatedAt"));
+    if canonical_updated_at.is_empty() {
+        return Err(AppError::invalid_input(
+            "canonical memory updatedAt is required",
+        ));
+    }
+    let content = read_string(memory.get("content"));
+    let tokens = lexical_tokens(&content);
+    let projection_hash = stable_hash(&format!("{}:{}", memory_id, tokens.join(" ")));
+    Ok(json!({
+        "id": format!("{memory_id}:lexical:{projection_hash}"),
+        "memoryId": memory_id,
+        "provider": LEXICAL_PROVIDER,
+        "model": LEXICAL_MODEL,
+        "dimensions": LEXICAL_DIMENSIONS,
+        "contentHash": stable_hash(&content),
+        "projectionHash": projection_hash,
+        "canonicalUpdatedAt": canonical_updated_at,
+        "lexicalTokens": tokens,
+        "vector": lexical_vector(&tokens)
+    }))
+}
+
+fn replace_memory_lexical_index(index_rows: &mut Vec<Value>, memory: &Value) -> AppResult<()> {
+    let memory_id = read_string(memory.get("id"));
+    index_rows.retain(|row| read_string(row.get("memoryId")) != memory_id);
+    if memory_is_lexically_indexed(memory) {
+        index_rows.push(lexical_index_row(memory)?);
+    }
+    Ok(())
+}
+
 pub(crate) fn rebuild_memory_lexical_index(state: &AppState, body: Value) -> AppResult<Value> {
     let memories = query_memories(state, body)?;
     let rows = match memories {
@@ -501,24 +566,7 @@ pub(crate) fn rebuild_memory_lexical_index(state: &AppState, body: Value) -> App
             continue;
         }
         delete_memory_index_rows_for_memory(state, &memory_id)?;
-        let content = read_string(memory.get("content"));
-        let tokens = lexical_tokens(&content);
-        let projection_hash = stable_hash(&format!("{}:{}", memory_id, tokens.join(" ")));
-        upsert_memory_index_row(
-            state,
-            json!({
-                "id": format!("{memory_id}:lexical:{projection_hash}"),
-                "memoryId": memory_id,
-                "provider": LEXICAL_PROVIDER,
-                "model": LEXICAL_MODEL,
-                "dimensions": LEXICAL_DIMENSIONS,
-                "contentHash": stable_hash(&content),
-                "projectionHash": projection_hash,
-                "canonicalUpdatedAt": memory.get("updatedAt").cloned().unwrap_or(Value::Null),
-                "lexicalTokens": tokens,
-                "vector": lexical_vector(&tokens)
-            }),
-        )?;
+        upsert_memory_index_row(state, lexical_index_row(&memory)?)?;
         rebuilt += 1;
     }
     Ok(json!({ "rebuilt": rebuilt }))
@@ -673,7 +721,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(updated["content"], json!("Mira remembers the silver key."));
-        assert_eq!(state.storage.list("memory-index-rows").unwrap().len(), 0);
+        let refreshed_index = state.storage.list("memory-index-rows").unwrap();
+        assert_eq!(refreshed_index.len(), 1);
+        assert_eq!(
+            refreshed_index[0]["canonicalUpdatedAt"],
+            updated["updatedAt"]
+        );
 
         seed_memory(&state, "memory-pinned", "chat", "chat-1", "pinned");
         seed_memory(&state, "memory-stale", "chat", "chat-1", "stale");
@@ -693,6 +746,52 @@ mod tests {
         assert_eq!(
             get_memory(&state, "memory-active").unwrap()["status"],
             json!("deleted")
+        );
+    }
+
+    #[test]
+    fn creating_active_memory_builds_its_lexical_index() {
+        let state = test_state("atomic-create-index");
+        seed_memory(&state, "memory-active", "character", "character-1", "active");
+        seed_memory(&state, "memory-stale", "character", "character-1", "stale");
+
+        let indexed = query_memory_index(
+            &state,
+            json!({ "scope": { "kind": "character", "id": "character-1" } }),
+        )
+        .expect("active memory should be indexed without an explicit rebuild");
+
+        assert_eq!(ids(&indexed), vec!["memory-active"]);
+    }
+
+    #[test]
+    fn updating_one_memory_keeps_both_memories_indexed() {
+        let state = test_state("atomic-update-index");
+        seed_memory(&state, "memory-one", "character", "character-1", "active");
+        seed_memory(&state, "memory-two", "character", "character-1", "active");
+
+        update_memory(
+            &state,
+            "memory-one",
+            json!({ "content": "Mira now keeps the silver key under the clock." }),
+        )
+        .expect("memory update should succeed");
+
+        let indexed = query_memory_index(
+            &state,
+            json!({ "scope": { "kind": "character", "id": "character-1" } }),
+        )
+        .expect("both active memories should remain indexed");
+
+        let mut indexed_ids = ids(&indexed);
+        indexed_ids.sort();
+        assert_eq!(indexed_ids, vec!["memory-one", "memory-two"]);
+        assert_eq!(
+            indexed
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["id"] == json!("memory-one")))
+                .map(|row| row["content"].clone()),
+            Some(json!("Mira now keeps the silver key under the clock."))
         );
     }
 
@@ -765,6 +864,8 @@ mod tests {
         let deleted = seed_memory(&state, "memory-deleted", "chat", "chat-1", "deleted");
         let superseded = seed_memory(&state, "memory-superseded", "chat", "chat-1", "superseded");
         seed_memory(&state, "memory-changed", "chat", "chat-1", "active");
+        delete_memory_index_rows_for_memory(&state, "memory-changed")
+            .expect("current projection should be removable for the stale-row fixture");
 
         for (id, memory_id, canonical_updated_at) in [
             ("index-active", "memory-active", active["updatedAt"].clone()),

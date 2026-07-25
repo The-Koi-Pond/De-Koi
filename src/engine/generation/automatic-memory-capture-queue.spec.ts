@@ -7,7 +7,9 @@ import {
   beginForegroundGeneration,
   enqueueAutomaticMemoryCaptureJob,
   processAutomaticMemoryCaptureQueue,
+  scheduleAutomaticMemoryCaptureQueueProcessing,
   subscribeAutomaticMemoryCaptureCompletions,
+  subscribeAutomaticMemoryCaptureStatuses,
 } from "./automatic-memory-capture-queue";
 import type { CharacterMemoryScopeCharacter } from "./character-memory-scope";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
@@ -416,17 +418,103 @@ describe("automatic memory capture queue", () => {
   it("retries transient failures with bounded backoff before succeeding", async () => {
     const harness = queueStorage({ refreshFailures: 1 });
     const job = await harness.enqueue();
+    const statuses: unknown[] = [];
+    const unsubscribe = subscribeAutomaticMemoryCaptureStatuses((status) => statuses.push(status));
 
     await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    unsubscribe();
     expect(harness.jobs.get(String(job?.id))).toEqual(
       expect.objectContaining({ status: "retryable", attempts: 1, lastError: "provider unavailable" }),
     );
+    expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).toEqual({
+      status: "retryable",
+      jobId: String(job?.id),
+      sourceMessageIds: ["user-1", "assistant-1"],
+      attempts: 1,
+      nextAttemptAt: "2026-01-01T00:04:00.000Z",
+      updatedAt: "2026-01-01T00:03:00.000Z",
+    });
+    expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).not.toHaveProperty("lastError");
+    expect(statuses).toEqual([
+      { chatId: "chat-1", assistantMessageId: "assistant-1", status: "processing" },
+      { chatId: "chat-1", assistantMessageId: "assistant-1", status: "retryable" },
+    ]);
 
     const retryAt = String(harness.jobs.get(String(job?.id))?.nextAttemptAt);
     await processAutomaticMemoryCaptureQueue(harness.storage, { now: retryAt });
 
     expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed", attempts: 2 }));
     expect(harness.refreshCalls).toHaveLength(2);
+  });
+
+  it("marks a terminal capture failure without exposing its provider error on the message", async () => {
+    const harness = queueStorage({ refreshFailures: 3 });
+    const job = await harness.enqueue();
+
+    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.storage, {
+      now: String(harness.jobs.get(String(job?.id))?.nextAttemptAt),
+    });
+    await processAutomaticMemoryCaptureQueue(harness.storage, {
+      now: String(harness.jobs.get(String(job?.id))?.nextAttemptAt),
+    });
+
+    expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).toEqual({
+      status: "failed",
+      jobId: String(job?.id),
+      sourceMessageIds: ["user-1", "assistant-1"],
+      attempts: 3,
+      failureCategory: "capture_unavailable",
+      updatedAt: "2026-01-01T00:09:00.000Z",
+    });
+    expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).not.toHaveProperty("lastError");
+    expect(harness.jobs.get(String(job?.id))?.lastError).toBe("provider unavailable");
+  });
+
+  it("wakes a retryable job at its backoff deadline without another generation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:03:00.000Z"));
+    try {
+      const harness = queueStorage({ refreshFailures: 1 });
+      const job = await harness.enqueue();
+
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.storage);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "retryable", attempts: 1 }));
+
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(harness.jobs.get(String(job?.id))?.status).toBe("retryable");
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed", attempts: 2 }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drains more than one bounded batch after a single schedule request", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:03:00.000Z"));
+    try {
+      const harness = queueStorage();
+      const template = await harness.enqueue();
+      for (let index = 1; index < 11; index += 1) {
+        harness.jobs.set(`batch-job-${index}`, {
+          ...template,
+          id: `batch-job-${index}`,
+          status: "pending",
+          attempts: 0,
+        } as JsonRecord);
+      }
+
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.storage);
+      await vi.runAllTimersAsync();
+
+      expect(Array.from(harness.jobs.values()).filter((job) => job.status === "completed")).toHaveLength(11);
+      expect(harness.refreshCalls).toHaveLength(11);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries a transient consequence-extraction failure without duplicating canonical consequences", async () => {

@@ -144,4 +144,54 @@ describe("MessageMemoryIndicators", () => {
 
     expect(container.querySelector("button")?.textContent).toContain(label);
   });
+
+  it.each([
+    ["processing", "remembering", "De-Koi is checking this exchange for durable memory."],
+    ["retryable", "memory retrying", "Memory capture hit a temporary problem and will retry automatically."],
+    [
+      "failed",
+      "memory unavailable",
+      "Memory capture could not finish after several attempts. The conversation reply is still safe.",
+    ],
+  ] as const)("shows a safe %s lifecycle state", (status, label, detail) => {
+    const memoryCapture = {
+      status,
+      jobId: "job-1",
+      sourceMessageIds: ["user-1", "assistant-1"],
+      attempts: status === "processing" ? 1 : 3,
+      updatedAt: "2026-07-20T00:00:00.000Z",
+      ...(status === "failed" ? { failureCategory: "capture_unavailable" } : {}),
+    } as MessageExtra["memoryCapture"];
+
+    act(() => {
+      root = createRoot(container);
+      root.render(<MessageMemoryIndicators memoryCapture={memoryCapture} />);
+    });
+
+    const button = container.querySelector("button");
+    expect(button?.textContent).toContain(label);
+    act(() => button?.click());
+    expect(container.textContent).toContain(detail);
+    expect(container.textContent).not.toContain("provider unavailable");
+  });
+
+  it("presents an unknown persisted capture status as unavailable instead of remembered", () => {
+    const memoryCapture = {
+      status: "legacy_unknown",
+      jobId: "job-1",
+      sourceMessageIds: ["user-1", "assistant-1"],
+    } as unknown as MessageExtra["memoryCapture"];
+
+    act(() => {
+      root = createRoot(container);
+      root.render(<MessageMemoryIndicators memoryCapture={memoryCapture} />);
+    });
+
+    const button = container.querySelector("button");
+    expect(button?.textContent).toContain("memory status unavailable");
+    expect(container.textContent).not.toContain("remembered");
+    act(() => button?.click());
+    expect(container.textContent).toContain("unsupported saved memory status");
+    expect(container.textContent).toContain("not treated as remembered");
+  });
 });

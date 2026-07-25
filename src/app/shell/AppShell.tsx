@@ -60,7 +60,10 @@ import { shouldUseLowPowerShellMode, syncShellRootAttributes } from "./shell-per
 import { usePageActivity } from "../../shared/hooks/use-page-activity";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { subscribeAutomaticMemoryCaptureCompletions } from "../../engine/generation/automatic-memory-capture-queue";
+import {
+  subscribeAutomaticMemoryCaptureCompletions,
+  subscribeAutomaticMemoryCaptureStatuses,
+} from "../../engine/generation/automatic-memory-capture-queue";
 import { HelpCircle, Loader2 } from "lucide-react";
 import {
   lazy,
@@ -369,6 +372,14 @@ export function AppShell() {
         });
       }),
     [automaticMemoryCaptureNotifications],
+  );
+
+  useEffect(
+    () =>
+      subscribeAutomaticMemoryCaptureStatuses(({ chatId }) => {
+        void queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+      }),
+    [queryClient],
   );
 
   useEffect(() => {
