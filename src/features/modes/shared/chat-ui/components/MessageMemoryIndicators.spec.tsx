@@ -175,7 +175,7 @@ describe("MessageMemoryIndicators", () => {
     expect(container.textContent).not.toContain("provider unavailable");
   });
 
-  it("does not present an unknown persisted capture status as remembered", () => {
+  it("presents an unknown persisted capture status as unavailable instead of remembered", () => {
     const memoryCapture = {
       status: "legacy_unknown",
       jobId: "job-1",
@@ -187,7 +187,11 @@ describe("MessageMemoryIndicators", () => {
       root.render(<MessageMemoryIndicators memoryCapture={memoryCapture} />);
     });
 
-    expect(container.querySelector("button")).toBeNull();
+    const button = container.querySelector("button");
+    expect(button?.textContent).toContain("memory status unavailable");
     expect(container.textContent).not.toContain("remembered");
+    act(() => button?.click());
+    expect(container.textContent).toContain("unsupported saved memory status");
+    expect(container.textContent).toContain("not treated as remembered");
   });
 });

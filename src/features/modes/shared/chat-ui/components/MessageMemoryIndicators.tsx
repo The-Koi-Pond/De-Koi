@@ -9,7 +9,8 @@ import { cn } from "../../../../../shared/lib/utils";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 
 type MessageMemoryCapture = MessageExtra["memoryCapture"];
-type MessageMemoryLifecycleStatus = Exclude<MessageMemoryCaptureStatus, "completed">;
+type MessageMemoryDisplayStatus = MessageMemoryCaptureStatus | "unsupported";
+type MessageMemoryLifecycleStatus = Exclude<MessageMemoryDisplayStatus, "completed">;
 
 const MEMORY_CAPTURE_STATUSES = new Set<MessageMemoryCaptureStatus>([
   "processing",
@@ -37,13 +38,18 @@ const MEMORY_CAPTURE_LIFECYCLE_PRESENTATION: Record<
     title: "Memory unavailable",
     detail: "Memory capture could not finish after several attempts. The conversation reply is still safe.",
   },
+  unsupported: {
+    label: "memory status unavailable",
+    title: "Memory status unavailable",
+    detail: "De-Koi found an unsupported saved memory status. It was not treated as remembered.",
+  },
 };
 
-function normalizeMemoryCaptureStatus(value: unknown): MessageMemoryCaptureStatus | null {
-  if (typeof value !== "string") return null;
+function normalizeMemoryCaptureStatus(value: unknown): MessageMemoryDisplayStatus {
+  if (typeof value !== "string") return "unsupported";
   return MEMORY_CAPTURE_STATUSES.has(value as MessageMemoryCaptureStatus)
     ? (value as MessageMemoryCaptureStatus)
-    : null;
+    : "unsupported";
 }
 
 interface MessageMemoryIndicatorsProps {
@@ -136,7 +142,7 @@ export function MessageMemoryIndicators({
       : completeCapture
         ? [completeCapture]
         : [];
-  const captureStatus = normalizeMemoryCaptureStatus(memoryCapture?.status);
+  const captureStatus = memoryCapture ? normalizeMemoryCaptureStatus(memoryCapture.status) : null;
   const captureHasProblems =
     memoryCapture?.consequences?.status === "skipped" ||
     savedConsequences.length < consequenceEntries.length ||
