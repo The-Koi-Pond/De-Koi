@@ -78,15 +78,28 @@ export interface AutomaticMemoryCaptureCompletion {
   memory: { id: string; content: string };
 }
 
+export interface AutomaticMemoryCaptureStatus {
+  chatId: string;
+  assistantMessageId: string;
+  status: "processing" | "retryable" | "failed" | "completed";
+}
+
 type AutomaticMemoryCaptureCompletionListener = (completion: AutomaticMemoryCaptureCompletion) => void;
+type AutomaticMemoryCaptureStatusListener = (status: AutomaticMemoryCaptureStatus) => void;
 
 const completionListeners = new Set<AutomaticMemoryCaptureCompletionListener>();
+const statusListeners = new Set<AutomaticMemoryCaptureStatusListener>();
 
 export function subscribeAutomaticMemoryCaptureCompletions(
   listener: AutomaticMemoryCaptureCompletionListener,
 ): () => void {
   completionListeners.add(listener);
   return () => completionListeners.delete(listener);
+}
+
+export function subscribeAutomaticMemoryCaptureStatuses(listener: AutomaticMemoryCaptureStatusListener): () => void {
+  statusListeners.add(listener);
+  return () => statusListeners.delete(listener);
 }
 
 function memoryCaptureFromRefresh(
@@ -111,8 +124,19 @@ function publishMemoryCaptureCompletion(completion: AutomaticMemoryCaptureComple
   }
 }
 
+function publishMemoryCaptureStatus(status: AutomaticMemoryCaptureStatus): void {
+  for (const listener of statusListeners) {
+    try {
+      listener(status);
+    } catch {
+      // UI observers cannot invalidate a lifecycle state that is already durable.
+    }
+  }
+}
+
 const activeWorkers = new WeakSet<StorageGateway>();
 const pendingWorkerReruns = new WeakSet<StorageGateway>();
+const scheduledWorkerTimers = new WeakMap<StorageGateway, ReturnType<typeof setTimeout>>();
 const foregroundGenerationCounts = new WeakMap<StorageGateway, number>();
 const deferredWorkerDependencies = new WeakMap<
   StorageGateway,
@@ -219,6 +243,19 @@ function jobSourceIds(job: JsonRecord): string[] {
 
 async function updateJob(storage: StorageGateway, id: string, patch: Record<string, unknown>): Promise<JsonRecord> {
   return storage.update<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION, id, patch);
+}
+
+async function patchMemoryCaptureStatus(
+  storage: StorageGateway,
+  job: JsonRecord,
+  status: AutomaticMemoryCaptureStatus["status"],
+  memoryCapture: Record<string, unknown>,
+): Promise<void> {
+  const assistantMessageId = readString(job.assistantMessageId).trim();
+  const chatId = readString(job.chatId).trim();
+  if (!assistantMessageId || !chatId) return;
+  await storage.patchChatMessageExtra(assistantMessageId, { memoryCapture });
+  publishMemoryCaptureStatus({ chatId, assistantMessageId, status });
 }
 
 async function validateSourceMessages(storage: StorageGateway, job: JsonRecord): Promise<string | null> {
@@ -402,19 +439,34 @@ export async function processAutomaticMemoryCaptureQueue(
       lastError: null,
     });
 
-    const staleReason = await validateSourceMessages(storage, job);
-    if (staleReason) {
-      await updateJob(storage, id, {
-        status: "stale",
-        staleReason,
-        completedAt: now,
+    try {
+      await patchMemoryCaptureStatus(storage, job, "processing", {
+        status: "processing",
+        jobId: id,
+        sourceMessageIds: jobSourceIds(job),
+        attempts,
         updatedAt: now,
       });
-      result.stale += 1;
-      continue;
-    }
+      const staleReason = await validateSourceMessages(storage, job);
+      if (staleReason) {
+        await updateJob(storage, id, {
+          status: "stale",
+          staleReason,
+          completedAt: now,
+          updatedAt: now,
+        });
+        await patchMemoryCaptureStatus(storage, job, "failed", {
+          status: "failed",
+          jobId: id,
+          sourceMessageIds: jobSourceIds(job),
+          attempts,
+          failureCategory: "capture_unavailable",
+          updatedAt: now,
+        }).catch(() => {});
+        result.stale += 1;
+        continue;
+      }
 
-    try {
       const sourceMessageIds = jobSourceIds(job);
       const chatId = readString(job.chatId).trim();
       const refreshResult = await storage.refreshChatMemories(chatId, { sourceMessageIds });
@@ -446,6 +498,7 @@ export async function processAutomaticMemoryCaptureQueue(
             },
           },
         });
+        publishMemoryCaptureStatus({ chatId, assistantMessageId, status: "completed" });
       }
       await updateJob(storage, id, {
         status: "completed",
@@ -469,13 +522,22 @@ export async function processAutomaticMemoryCaptureQueue(
       }
     } catch (error) {
       const terminal = attempts >= maxAttempts;
+      const nextAttemptAt = terminal ? null : retryTime(now, attempts);
       await updateJob(storage, id, {
         status: terminal ? "failed" : "retryable",
         lastError: errorMessage(error),
         failedAt: terminal ? now : null,
-        nextAttemptAt: terminal ? null : retryTime(now, attempts),
+        nextAttemptAt,
         updatedAt: now,
       });
+      await patchMemoryCaptureStatus(storage, job, terminal ? "failed" : "retryable", {
+        status: terminal ? "failed" : "retryable",
+        jobId: id,
+        sourceMessageIds: jobSourceIds(job),
+        attempts,
+        ...(terminal ? { failureCategory: "capture_unavailable" } : { nextAttemptAt }),
+        updatedAt: now,
+      }).catch(() => {});
       if (terminal) result.failed += 1;
       else result.retryable += 1;
     }
@@ -484,10 +546,52 @@ export async function processAutomaticMemoryCaptureQueue(
   return result;
 }
 
+function clearScheduledWorker(storage: StorageGateway): void {
+  const timer = scheduledWorkerTimers.get(storage);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  scheduledWorkerTimers.delete(storage);
+}
+
+async function scheduleNextAutomaticMemoryCaptureQueuePass(
+  dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
+): Promise<void> {
+  const { storage } = queueDependencies(dependencies);
+  if (foregroundGenerationActive(storage)) {
+    deferWorkerUntilForegroundCompletes(storage, dependencies);
+    return;
+  }
+
+  const jobs = await storage.list<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION).catch(() => []);
+  const now = Date.now();
+  let nextRunAt: number | null = null;
+  for (const job of jobs) {
+    const status = jobStatus(job);
+    if (status === "pending" || status === "processing") {
+      nextRunAt = now;
+      break;
+    }
+    if (status !== "retryable") continue;
+    const parsed = Date.parse(readString(job.nextAttemptAt).trim());
+    const runAt = Number.isFinite(parsed) ? parsed : now;
+    nextRunAt = nextRunAt === null ? runAt : Math.min(nextRunAt, runAt);
+  }
+  if (nextRunAt === null) return;
+
+  clearScheduledWorker(storage);
+  const delay = Math.max(0, nextRunAt - now);
+  const timer = setTimeout(() => {
+    scheduledWorkerTimers.delete(storage);
+    scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
+  }, delay);
+  scheduledWorkerTimers.set(storage, timer);
+}
+
 export function scheduleAutomaticMemoryCaptureQueueProcessing(
   dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
 ): void {
   const { storage } = queueDependencies(dependencies);
+  clearScheduledWorker(storage);
   if (foregroundGenerationActive(storage)) {
     deferWorkerUntilForegroundCompletes(storage, dependencies);
     return;
@@ -502,7 +606,9 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
     if (pendingWorkerReruns.has(storage)) {
       pendingWorkerReruns.delete(storage);
       scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
+      return;
     }
+    void scheduleNextAutomaticMemoryCaptureQueuePass(dependencies);
   });
 }
 

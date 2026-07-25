@@ -107,6 +107,31 @@ export function MessageMemoryIndicators({
   const partialCapture = memoryCapture?.status === "completed" && savedMemories.length > 0 && captureHasProblems;
   const unavailableCapture =
     memoryCapture?.status === "completed" && savedMemories.length === 0 && captureHasProblems;
+  const lifecycleStatus = !isUser && memoryCapture?.status !== "completed" ? (memoryCapture?.status ?? null) : null;
+  const lifecycleLabel =
+    lifecycleStatus === "processing"
+      ? "remembering…"
+      : lifecycleStatus === "retryable"
+        ? "memory retrying"
+        : lifecycleStatus === "failed"
+          ? "memory unavailable"
+          : null;
+  const lifecycleTitle =
+    lifecycleStatus === "processing"
+      ? "Remembering"
+      : lifecycleStatus === "retryable"
+        ? "Memory retrying"
+        : lifecycleStatus === "failed"
+          ? "Memory unavailable"
+          : null;
+  const lifecycleDetail =
+    lifecycleStatus === "processing"
+      ? "De-Koi is checking this exchange for durable memory."
+      : lifecycleStatus === "retryable"
+        ? "Memory capture hit a temporary problem and will retry automatically."
+        : lifecycleStatus === "failed"
+          ? "Memory capture could not finish after several attempts. The conversation reply is still safe."
+          : null;
   const remembered =
     !isUser &&
     memoryCapture?.status === "completed" &&
@@ -184,11 +209,11 @@ export function MessageMemoryIndicators({
     };
   }, [open, savedOpen]);
 
-  if (!remembered && !showRecalled) return null;
+  if (!remembered && !lifecycleStatus && !showRecalled) return null;
 
   return (
     <span className={cn("inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5", className)}>
-      {remembered && (
+      {(remembered || lifecycleStatus) && (
         <span className="relative inline-flex">
           <button
             ref={savedChipRef}
@@ -196,15 +221,21 @@ export function MessageMemoryIndicators({
             aria-expanded={savedOpen}
             aria-haspopup="dialog"
             aria-controls={savedOpen ? savedTitleId : undefined}
-            aria-label="Open saved memory details"
-            title="Show saved memory"
+            aria-label={lifecycleStatus ? "Open memory capture status" : "Open saved memory details"}
+            title={lifecycleStatus ? "Show memory capture status" : "Show saved memory"}
             onClick={(event) => {
               event.stopPropagation();
               setSavedOpen((value) => !value);
             }}
-            className="inline-flex shrink-0 items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-300/80 outline-none transition-colors duration-150 hover:bg-emerald-400/15 focus-visible:ring-1 focus-visible:ring-emerald-300/45"
+            className={cn(
+              "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[0.5625rem] font-medium outline-none transition-colors duration-150 focus-visible:ring-1",
+              lifecycleStatus
+                ? "border-amber-400/20 bg-amber-400/10 text-amber-200/85 hover:bg-amber-400/15 focus-visible:ring-amber-300/45"
+                : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300/80 hover:bg-emerald-400/15 focus-visible:ring-emerald-300/45",
+            )}
           >
-            {partialCapture ? "⚠ partial memory" : unavailableCapture ? "⚠ memory unavailable" : "✦ remembered"}
+            {lifecycleLabel ??
+              (partialCapture ? "⚠ partial memory" : unavailableCapture ? "⚠ memory unavailable" : "✦ remembered")}
           </button>
           {savedOpen && (
             <div
@@ -215,16 +246,20 @@ export function MessageMemoryIndicators({
               onClick={(event) => event.stopPropagation()}
             >
               <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
-                {partialCapture
-                  ? "Partial memory capture"
-                  : unavailableCapture
-                    ? "Memory unavailable"
-                    : savedMemories.length > 1
-                      ? "Saved memories"
-                      : savedMemories[0]?.operation === "updated"
-                        ? "Updated memory"
-                        : "Saved memory"}
+                {lifecycleTitle ??
+                  (partialCapture
+                    ? "Partial memory capture"
+                    : unavailableCapture
+                      ? "Memory unavailable"
+                      : savedMemories.length > 1
+                        ? "Saved memories"
+                        : savedMemories[0]?.operation === "updated"
+                          ? "Updated memory"
+                          : "Saved memory")}
               </div>
+              {lifecycleDetail && (
+                <p className="rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-100/90">{lifecycleDetail}</p>
+              )}
               {partialCapture && (
                 <p className="mb-2 rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-200/90">
                   Some memory details could not be saved or verified.

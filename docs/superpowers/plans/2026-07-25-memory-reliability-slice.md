@@ -192,4 +192,3 @@ Review the root cause, risk matrix, diff, test evidence, hostable parity, and us
 - [ ] **Step 4: Commit, push, open PR, and merge after required checks**
 
 Use an authorship-neutral branch/title, push only to `origin`, open the PR against `main`, wait for required CI and review gates, and merge without force-pushing.
-

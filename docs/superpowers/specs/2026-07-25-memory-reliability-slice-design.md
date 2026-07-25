@@ -55,4 +55,3 @@ Raw provider/storage errors remain in the internal job record and never enter me
 - Queue regressions: retryable and terminal failures patch safe message lifecycle states.
 - Component regressions: retrying and failed chips render safe copy without raw errors.
 - Cross-lane checks: focused tests, `pnpm typecheck`, `pnpm check:architecture`, `cargo check --manifest-path src-tauri/Cargo.toml`, and full `pnpm check`.
-

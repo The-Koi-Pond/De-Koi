@@ -520,10 +520,14 @@ export interface MessageAttachment {
 }
 
 export interface MessageMemoryCaptureExtra {
-  status: "completed";
+  status: "processing" | "retryable" | "failed" | "completed";
   jobId: string;
   sourceMessageIds: string[];
-  completedAt: string;
+  attempts?: number;
+  nextAttemptAt?: string | null;
+  failureCategory?: "capture_unavailable";
+  updatedAt?: string;
+  completedAt?: string;
   capture?: {
     operation: "created" | "updated";
     memory: { id: string; content: string };

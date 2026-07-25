@@ -297,6 +297,34 @@ describe("canonical memory context", () => {
     expect(result?.attributionItems[0]?.metadata).toMatchObject({ indexSource: "lexical" });
   });
 
+  it("merges durable canonical rows when the index covers only part of a scope", async () => {
+    const indexedMemory = memory({
+      id: "memory-indexed",
+      content: "The obsidian compass points toward the archive.",
+    });
+    const storage = storageWithMemories({
+      indexed: [indexedMemory],
+      fallback: [
+        indexedMemory,
+        memory({
+          id: "memory-unindexed",
+          content: "The obsidian archive key is hidden beneath the clock.",
+        }),
+      ],
+    });
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [{ id: "message-new", role: "user", content: "What do we know about the obsidian items?" }],
+      latestUserInput: "What do we know about the obsidian items?",
+      characters: [],
+      maxContext: 4096,
+    });
+
+    expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-indexed", "memory-unindexed"]);
+    expect(result?.attributionItems.map((item) => item.metadata?.indexSource)).toEqual(["index", "lexical"]);
+  });
+
   it("filters stale index hits, superseded memories, deleted memories, and newest-message provenance", async () => {
     const result = await buildCanonicalMemoryContext(
       storageWithMemories({
