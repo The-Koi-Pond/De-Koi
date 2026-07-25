@@ -519,8 +519,10 @@ export interface MessageAttachment {
   [key: string]: MessageAttachmentExtraValue;
 }
 
+export type MessageMemoryCaptureStatus = "processing" | "retryable" | "failed" | "completed";
+
 export interface MessageMemoryCaptureExtra {
-  status: "processing" | "retryable" | "failed" | "completed";
+  status: MessageMemoryCaptureStatus;
   jobId: string;
   sourceMessageIds: string[];
   attempts?: number;

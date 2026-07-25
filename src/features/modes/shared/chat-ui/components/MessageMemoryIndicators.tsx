@@ -3,11 +3,48 @@ import type {
   GenerationContextAttributionItem,
   GenerationPromptSnapshot,
   MessageExtra,
+  MessageMemoryCaptureStatus,
 } from "../../../../../engine/contracts/types/chat";
 import { cn } from "../../../../../shared/lib/utils";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 
 type MessageMemoryCapture = MessageExtra["memoryCapture"];
+type MessageMemoryLifecycleStatus = Exclude<MessageMemoryCaptureStatus, "completed">;
+
+const MEMORY_CAPTURE_STATUSES = new Set<MessageMemoryCaptureStatus>([
+  "processing",
+  "retryable",
+  "failed",
+  "completed",
+]);
+
+const MEMORY_CAPTURE_LIFECYCLE_PRESENTATION: Record<
+  MessageMemoryLifecycleStatus,
+  { label: string; title: string; detail: string }
+> = {
+  processing: {
+    label: "remembering…",
+    title: "Remembering",
+    detail: "De-Koi is checking this exchange for durable memory.",
+  },
+  retryable: {
+    label: "memory retrying",
+    title: "Memory retrying",
+    detail: "Memory capture hit a temporary problem and will retry automatically.",
+  },
+  failed: {
+    label: "memory unavailable",
+    title: "Memory unavailable",
+    detail: "Memory capture could not finish after several attempts. The conversation reply is still safe.",
+  },
+};
+
+function normalizeMemoryCaptureStatus(value: unknown): MessageMemoryCaptureStatus | null {
+  if (typeof value !== "string") return null;
+  return MEMORY_CAPTURE_STATUSES.has(value as MessageMemoryCaptureStatus)
+    ? (value as MessageMemoryCaptureStatus)
+    : null;
+}
 
 interface MessageMemoryIndicatorsProps {
   isUser?: boolean;
@@ -99,43 +136,19 @@ export function MessageMemoryIndicators({
       : completeCapture
         ? [completeCapture]
         : [];
+  const captureStatus = normalizeMemoryCaptureStatus(memoryCapture?.status);
   const captureHasProblems =
     memoryCapture?.consequences?.status === "skipped" ||
     savedConsequences.length < consequenceEntries.length ||
     (!!savedCapture && !completeCapture) ||
     (savedMemories.length === 0 && !completeCapture);
-  const partialCapture = memoryCapture?.status === "completed" && savedMemories.length > 0 && captureHasProblems;
-  const unavailableCapture =
-    memoryCapture?.status === "completed" && savedMemories.length === 0 && captureHasProblems;
-  const lifecycleStatus = !isUser && memoryCapture?.status !== "completed" ? (memoryCapture?.status ?? null) : null;
-  const lifecycleLabel =
-    lifecycleStatus === "processing"
-      ? "remembering…"
-      : lifecycleStatus === "retryable"
-        ? "memory retrying"
-        : lifecycleStatus === "failed"
-          ? "memory unavailable"
-          : null;
-  const lifecycleTitle =
-    lifecycleStatus === "processing"
-      ? "Remembering"
-      : lifecycleStatus === "retryable"
-        ? "Memory retrying"
-        : lifecycleStatus === "failed"
-          ? "Memory unavailable"
-          : null;
-  const lifecycleDetail =
-    lifecycleStatus === "processing"
-      ? "De-Koi is checking this exchange for durable memory."
-      : lifecycleStatus === "retryable"
-        ? "Memory capture hit a temporary problem and will retry automatically."
-        : lifecycleStatus === "failed"
-          ? "Memory capture could not finish after several attempts. The conversation reply is still safe."
-          : null;
+  const partialCapture = captureStatus === "completed" && savedMemories.length > 0 && captureHasProblems;
+  const unavailableCapture = captureStatus === "completed" && savedMemories.length === 0 && captureHasProblems;
+  const lifecycleStatus: MessageMemoryLifecycleStatus | null =
+    !isUser && captureStatus && captureStatus !== "completed" ? captureStatus : null;
+  const lifecyclePresentation = lifecycleStatus ? MEMORY_CAPTURE_LIFECYCLE_PRESENTATION[lifecycleStatus] : null;
   const remembered =
-    !isUser &&
-    memoryCapture?.status === "completed" &&
-    (savedMemories.length > 0 || partialCapture || unavailableCapture);
+    !isUser && captureStatus === "completed" && (savedMemories.length > 0 || partialCapture || unavailableCapture);
   const recalledItems = useMemo(() => recalledMemoryItems(promptSnapshot), [promptSnapshot]);
   const recalledCount = !isUser ? recalledItems.length : 0;
   const visibleSnippets = recalledItems
@@ -234,7 +247,7 @@ export function MessageMemoryIndicators({
                 : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300/80 hover:bg-emerald-400/15 focus-visible:ring-emerald-300/45",
             )}
           >
-            {lifecycleLabel ??
+            {lifecyclePresentation?.label ??
               (partialCapture ? "⚠ partial memory" : unavailableCapture ? "⚠ memory unavailable" : "✦ remembered")}
           </button>
           {savedOpen && (
@@ -246,7 +259,7 @@ export function MessageMemoryIndicators({
               onClick={(event) => event.stopPropagation()}
             >
               <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
-                {lifecycleTitle ??
+                {lifecyclePresentation?.title ??
                   (partialCapture
                     ? "Partial memory capture"
                     : unavailableCapture
@@ -257,8 +270,10 @@ export function MessageMemoryIndicators({
                           ? "Updated memory"
                           : "Saved memory")}
               </div>
-              {lifecycleDetail && (
-                <p className="rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-100/90">{lifecycleDetail}</p>
+              {lifecyclePresentation?.detail && (
+                <p className="rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-100/90">
+                  {lifecyclePresentation.detail}
+                </p>
               )}
               {partialCapture && (
                 <p className="mb-2 rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-200/90">

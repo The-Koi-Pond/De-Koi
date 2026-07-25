@@ -350,6 +350,9 @@ async function collectMemoryRows(
       fallback.push(...rows.filter(isRecord).map((row) => row as unknown as CanonicalMemoryRecord));
     }
   } catch (error) {
+    // The durable query supplements the index so partial indexes can self-heal.
+    // Keep valid index recall available if that supplemental read is temporarily
+    // unavailable; without any index result there is no safe recall to return.
     if (indexed.length === 0) throw error;
   }
 

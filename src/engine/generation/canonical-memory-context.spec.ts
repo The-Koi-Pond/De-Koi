@@ -37,6 +37,7 @@ function memory(overrides: Partial<CanonicalMemoryRecord> & { id: string; conten
 function storageWithMemories(args: {
   indexed?: CanonicalMemoryRecord[];
   fallback?: CanonicalMemoryRecord[];
+  fallbackError?: Error;
 }): StorageGateway {
   return {
     async list<T = unknown>() {
@@ -103,7 +104,10 @@ function storageWithMemories(args: {
       return null;
     },
     queryMemoryIndex: vi.fn(async () => args.indexed ?? []),
-    queryMemories: vi.fn(async () => args.fallback ?? []),
+    queryMemories: vi.fn(async () => {
+      if (args.fallbackError) throw args.fallbackError;
+      return args.fallback ?? [];
+    }),
   } as StorageGateway;
 }
 
@@ -323,6 +327,48 @@ describe("canonical memory context", () => {
 
     expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-indexed", "memory-unindexed"]);
     expect(result?.attributionItems.map((item) => item.metadata?.indexSource)).toEqual(["index", "lexical"]);
+  });
+
+  it("preserves valid indexed recall when the supplemental durable query fails", async () => {
+    const result = await buildCanonicalMemoryContext(
+      storageWithMemories({
+        indexed: [
+          memory({
+            id: "memory-indexed",
+            content: "The obsidian compass points toward the archive.",
+          }),
+        ],
+        fallbackError: new Error("durable query unavailable"),
+      }),
+      {
+        chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+        storedMessages: [{ id: "message-new", role: "user", content: "Where does the obsidian compass point?" }],
+        latestUserInput: "Where does the obsidian compass point?",
+        characters: [],
+        maxContext: 4096,
+      },
+    );
+
+    expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-indexed"]);
+    expect(result?.attributionItems[0]?.metadata?.indexSource).toBe("index");
+  });
+
+  it("surfaces a durable query failure when no valid indexed recall exists", async () => {
+    await expect(
+      buildCanonicalMemoryContext(
+        storageWithMemories({
+          indexed: [],
+          fallbackError: new Error("durable query unavailable"),
+        }),
+        {
+          chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+          storedMessages: [{ id: "message-new", role: "user", content: "Where does the obsidian compass point?" }],
+          latestUserInput: "Where does the obsidian compass point?",
+          characters: [],
+          maxContext: 4096,
+        },
+      ),
+    ).rejects.toThrow("durable query unavailable");
   });
 
   it("filters stale index hits, superseded memories, deleted memories, and newest-message provenance", async () => {

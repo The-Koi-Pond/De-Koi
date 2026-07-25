@@ -174,4 +174,20 @@ describe("MessageMemoryIndicators", () => {
     expect(container.textContent).toContain(detail);
     expect(container.textContent).not.toContain("provider unavailable");
   });
+
+  it("does not present an unknown persisted capture status as remembered", () => {
+    const memoryCapture = {
+      status: "legacy_unknown",
+      jobId: "job-1",
+      sourceMessageIds: ["user-1", "assistant-1"],
+    } as unknown as MessageExtra["memoryCapture"];
+
+    act(() => {
+      root = createRoot(container);
+      root.render(<MessageMemoryIndicators memoryCapture={memoryCapture} />);
+    });
+
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).not.toContain("remembered");
+  });
 });
