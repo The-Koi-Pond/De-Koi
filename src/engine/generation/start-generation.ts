@@ -269,6 +269,7 @@ function boundedSameSendPeerContext(contributions: SameSendPeerContribution[]): 
 
 type InternalStartGenerationOptions = {
   groupTurnChild?: boolean;
+  memoryCaptureUserMessage?: unknown;
   latestUserInput?: string | null;
   sameSendPeerContext?: string;
   skipUserMessageSave?: boolean;
@@ -2240,6 +2241,7 @@ async function* runIndividualGroupTurnLoop(args: {
   input: StartGenerationInput;
   connection: JsonRecord;
   turnIds: string[];
+  savedUserMessage: unknown;
   latestUserInput: string;
   revalidateLaterResponders: boolean;
   signal?: AbortSignal;
@@ -2274,6 +2276,7 @@ async function* runIndividualGroupTurnLoop(args: {
     };
     internalStartGenerationOptions.set(childInput, {
       groupTurnChild: true,
+      memoryCaptureUserMessage: args.savedUserMessage,
       latestUserInput: args.latestUserInput,
       sameSendPeerContext: boundedSameSendPeerContext(priorResponderContributions),
       skipUserMessageSave: true,
@@ -3663,7 +3666,9 @@ function generationInterruption(cause: unknown): {
 
 function incompleteFinishReason(providerMetadata: unknown): string | null {
   const metadata = parseRecord(providerMetadata);
-  const reason = readString(metadata.finishReason ?? metadata.finish_reason).trim().toLowerCase();
+  const reason = readString(metadata.finishReason ?? metadata.finish_reason)
+    .trim()
+    .toLowerCase();
   return reason === "length" || reason === "max_tokens" ? reason : null;
 }
 
@@ -4652,6 +4657,7 @@ async function* startGenerationImpl(
         input,
         connection,
         turnIds: groupTurnIds,
+        savedUserMessage,
         latestUserInput,
         revalidateLaterResponders,
         signal,
@@ -5210,7 +5216,7 @@ async function* startGenerationImpl(
             deps,
             chat,
             assembly.characters,
-            savedUserMessage,
+            internalOptions.memoryCaptureUserMessage ?? savedUserMessage,
             latestSaved,
             connection,
           );
@@ -5488,7 +5494,14 @@ async function* startGenerationImpl(
       const backgroundMaintenanceStartedAt = generationTimingStartedAt();
       let scheduledTaskCount = 0;
       try {
-        await enqueueAutomaticMemoryCaptureSafely(deps, chat, assembly.characters, savedUserMessage, saved, connection);
+        await enqueueAutomaticMemoryCaptureSafely(
+          deps,
+          chat,
+          assembly.characters,
+          internalOptions.memoryCaptureUserMessage ?? savedUserMessage,
+          saved,
+          connection,
+        );
         scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
         scheduledTaskCount += 2;
         if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
