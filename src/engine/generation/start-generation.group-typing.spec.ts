@@ -582,7 +582,7 @@ describe("startGeneration group typing", () => {
     ]);
   });
 
-  it("defers automatic memory consequence extraction until every relevant group responder finishes", async () => {
+  it("preserves saved user evidence until deferred group memory extraction runs", async () => {
     const { storage } = groupTypingStorage();
     const jobs = new Map<string, Record<string, unknown>>();
     const order: string[] = [];
@@ -651,6 +651,27 @@ describe("startGeneration group typing", () => {
 
     await vi.waitFor(() => expect(order).toContain("memory"));
     expect(order.slice(0, 2)).toEqual(["stream-1", "stream-2"]);
+    await vi.waitFor(() =>
+      expect(Array.from(jobs.values()).filter((job) => job.status === "completed")).toHaveLength(2),
+    );
+    expect(
+      Array.from(jobs.values()).map((job) => ({
+        sourceMessageIds: job.sourceMessageIds,
+        userMessageId: job.userMessageId,
+        assistantMessageId: job.assistantMessageId,
+      })),
+    ).toEqual([
+      {
+        sourceMessageIds: ["message-1", "message-2"],
+        userMessageId: "message-1",
+        assistantMessageId: "message-2",
+      },
+      {
+        sourceMessageIds: ["message-1", "message-3"],
+        userMessageId: "message-1",
+        assistantMessageId: "message-3",
+      },
+    ]);
   });
 
   it("emits debug timing diagnostics for merged roleplay group generation", async () => {
