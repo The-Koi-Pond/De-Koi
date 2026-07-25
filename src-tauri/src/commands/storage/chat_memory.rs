@@ -2269,18 +2269,6 @@ mod tests {
             .collect()
     }
 
-    fn memory_index_ids(state: &AppState) -> Vec<String> {
-        let mut ids = state
-            .storage
-            .list("memory-index-rows")
-            .expect("memory indexes should list")
-            .iter()
-            .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToOwned::to_owned))
-            .collect::<Vec<_>>();
-        ids.sort();
-        ids
-    }
-
     fn seed_chat_scoped_memory_index(
         state: &AppState,
         chat_id: &str,
@@ -2935,7 +2923,14 @@ mod tests {
             .expect("chat should read")
             .expect("chat should exist");
         assert_eq!(memory_ids(&chat["memories"]), Vec::<String>::new());
-        assert_eq!(memory_index_ids(&state), vec!["index-other".to_string()]);
+        let remaining_index_rows = state.storage.list("memory-index-rows").unwrap();
+        assert_eq!(remaining_index_rows.len(), 2);
+        assert!(remaining_index_rows
+            .iter()
+            .all(|row| row["memoryId"] == json!("canonical-other")));
+        assert!(remaining_index_rows
+            .iter()
+            .any(|row| row["id"] == json!("index-other")));
     }
     #[test]
     fn delete_chat_memory_rejects_malformed_serialized_chunks() {
@@ -4973,7 +4968,14 @@ mod tests {
         .expect("memory import should succeed");
 
         assert_eq!(result["replaced"], json!(true));
-        assert_eq!(memory_index_ids(&state), vec!["index-other".to_string()]);
+        let remaining_index_rows = state.storage.list("memory-index-rows").unwrap();
+        assert_eq!(remaining_index_rows.len(), 2);
+        assert!(remaining_index_rows
+            .iter()
+            .all(|row| row["memoryId"] == json!("canonical-other")));
+        assert!(remaining_index_rows
+            .iter()
+            .any(|row| row["id"] == json!("index-other")));
     }
 
     #[tokio::test]
@@ -5029,7 +5031,14 @@ mod tests {
         .expect("append import should succeed");
 
         assert_eq!(result["replaced"], json!(false));
-        assert_eq!(memory_index_ids(&state), vec!["index-existing".to_string()]);
+        let remaining_index_rows = state.storage.list("memory-index-rows").unwrap();
+        assert_eq!(remaining_index_rows.len(), 2);
+        assert!(remaining_index_rows
+            .iter()
+            .all(|row| row["memoryId"] == json!("canonical-existing")));
+        assert!(remaining_index_rows
+            .iter()
+            .any(|row| row["id"] == json!("index-existing")));
     }
     #[tokio::test]
     async fn import_chat_memories_ignores_payload_replace_without_explicit_option() {
