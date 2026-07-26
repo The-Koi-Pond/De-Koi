@@ -53,12 +53,14 @@ describe("SceneBanner", () => {
 
   it("confirms scene discard in the app dialog and shows progress until deletion finishes", async () => {
     let finishDiscard: (() => void) | undefined;
+    const onConclude = vi.fn();
     const onAbandon = vi.fn(
       () =>
         new Promise<void>((resolve) => {
           finishDiscard = resolve;
         }),
     );
+    const onFork = vi.fn();
     vi.mocked(showConfirmDialog).mockResolvedValue(true);
 
     await act(async () => {
@@ -67,8 +69,9 @@ describe("SceneBanner", () => {
         <EndSceneBar
           sceneChatId="scene-1"
           originChatId="origin-1"
-          onConclude={vi.fn()}
+          onConclude={onConclude}
           onAbandon={onAbandon}
+          onFork={onFork}
         />,
       );
     });
@@ -97,6 +100,23 @@ describe("SceneBanner", () => {
     expect(pendingButton).toBeTruthy();
     expect(pendingButton).toHaveProperty("disabled", true);
     expect(container!.textContent).not.toContain("Discard scene?");
+
+    const endButton = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "End Scene",
+    );
+    const convertButton = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Convert",
+    );
+    expect(endButton).toHaveProperty("disabled", true);
+    expect(convertButton).toHaveProperty("disabled", true);
+
+    await act(async () => {
+      endButton!.click();
+      convertButton!.click();
+    });
+
+    expect(onConclude).not.toHaveBeenCalled();
+    expect(onFork).not.toHaveBeenCalled();
 
     await act(async () => {
       finishDiscard?.();

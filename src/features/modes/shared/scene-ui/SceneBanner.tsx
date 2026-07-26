@@ -140,7 +140,7 @@ export function EndSceneBar({
   const [isDiscarding, setIsDiscarding] = useState(false);
 
   const handleConfirmEnd = async () => {
-    if (isEnding) return;
+    if (isEnding || isDiscarding) return;
     setIsEnding(true);
     try {
       await onConclude(sceneChatId);
@@ -150,6 +150,7 @@ export function EndSceneBar({
   };
 
   const handleConvert = async () => {
+    if (isDiscarding) return;
     const confirmed = await showConfirmDialog({
       title: "Convert this scene into a standalone roleplay?",
       message:
