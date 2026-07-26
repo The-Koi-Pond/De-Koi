@@ -120,7 +120,7 @@ interface EndSceneBarProps {
   sceneChatId: string;
   originChatId?: string;
   onConclude: (id: string) => void | Promise<void>;
-  onAbandon?: (id: string) => void;
+  onAbandon?: (id: string) => void | Promise<void>;
   onFork?: (id: string, mode: SceneForkMode) => void;
   isForking?: boolean;
 }
@@ -136,11 +136,11 @@ export function EndSceneBar({
 }: EndSceneBarProps) {
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const [confirmEnd, setConfirmEnd] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const [isDiscarding, setIsDiscarding] = useState(false);
 
   const handleConfirmEnd = async () => {
-    if (isEnding) return;
+    if (isEnding || isDiscarding) return;
     setIsEnding(true);
     try {
       await onConclude(sceneChatId);
@@ -150,6 +150,7 @@ export function EndSceneBar({
   };
 
   const handleConvert = async () => {
+    if (isDiscarding) return;
     const confirmed = await showConfirmDialog({
       title: "Convert this scene into a standalone roleplay?",
       message:
@@ -159,6 +160,26 @@ export function EndSceneBar({
       tone: "destructive",
     });
     if (confirmed && !isForking) onFork?.(sceneChatId, "convert");
+  };
+
+  const handleDiscard = async () => {
+    if (isDiscarding) return;
+    setConfirmEnd(false);
+    const confirmed = await showConfirmDialog({
+      title: "Discard this scene?",
+      message: "This will permanently delete the scene without saving a summary or memory.",
+      confirmLabel: "Discard",
+      cancelLabel: "Keep Scene",
+      tone: "destructive",
+    });
+    if (!confirmed) return;
+
+    setIsDiscarding(true);
+    try {
+      await onAbandon?.(sceneChatId);
+    } finally {
+      setIsDiscarding(false);
+    }
   };
 
   return (
@@ -181,9 +202,9 @@ export function EndSceneBar({
       {!confirmEnd && (
         <button
           onClick={() => {
-            setConfirmDiscard(false);
             setConfirmEnd(true);
           }}
+          disabled={isDiscarding}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition-all hover:opacity-80"
           style={{
             background: "var(--card)",
@@ -221,13 +242,10 @@ export function EndSceneBar({
           </button>
         </div>
       )}
-      {onAbandon && !confirmDiscard && (
+      {onAbandon && (
         <button
-          onClick={() => {
-            setConfirmEnd(false);
-            setConfirmDiscard(true);
-          }}
-          disabled={isEnding}
+          onClick={handleDiscard}
+          disabled={isEnding || isDiscarding}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition-all hover:opacity-80"
           style={{
             color: "var(--muted-foreground)",
@@ -235,13 +253,13 @@ export function EndSceneBar({
           title="Discard the scene without saving"
         >
           <Trash2 size={13} />
-          Discard
+          {isDiscarding ? "Discarding..." : "Discard"}
         </button>
       )}
-      {onFork && !confirmDiscard && (
+      {onFork && (
         <button
           onClick={handleConvert}
-          disabled={isForking}
+          disabled={isForking || isDiscarding}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition-all hover:opacity-80"
           style={{
             color: "var(--muted-foreground)",
@@ -251,29 +269,6 @@ export function EndSceneBar({
           <ArrowRightLeft size={13} />
           Convert
         </button>
-      )}
-      {onAbandon && confirmDiscard && (
-        <div className="flex items-center gap-1.5">
-          <span className="text-[0.6875rem] text-[var(--destructive)]">Discard scene?</span>
-          <button
-            onClick={() => onAbandon(sceneChatId)}
-            className="rounded-lg px-2 py-0.5 text-[0.6875rem] font-medium transition-all hover:opacity-80"
-            style={{ background: "var(--destructive)", color: "var(--destructive-foreground)" }}
-          >
-            Yes
-          </button>
-          <button
-            onClick={() => setConfirmDiscard(false)}
-            className="rounded-lg px-2 py-0.5 text-[0.6875rem] font-medium transition-all hover:opacity-80"
-            style={{
-              background: "var(--card)",
-              color: "var(--card-foreground)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            No
-          </button>
-        </div>
       )}
     </div>
   );
