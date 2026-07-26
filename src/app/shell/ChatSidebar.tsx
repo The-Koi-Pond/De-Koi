@@ -62,7 +62,11 @@ import { Modal } from "../../shared/components/ui/Modal";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { useStartNewChat } from "./useStartNewChat";
 import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
-import { deleteSelectedChatsSequentially, formatDeleteSelectedChatsError } from "./chat-sidebar-batch-actions";
+import {
+  deleteSingleChatWithConfirmation,
+  deleteSelectedChatsSequentially,
+  formatDeleteSelectedChatsError,
+} from "./chat-sidebar-batch-actions";
 import {
   deriveChatSidebarRows,
   type ChatSidebarRow as DerivedChatSidebarRow,
@@ -784,6 +788,24 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
   // ── Batch actions ──
   const [batchMovingFolder, setBatchMovingFolder] = useState(false);
 
+  const handleSingleChatDelete = useCallback(
+    async (chatId: string) => {
+      try {
+        return await deleteSingleChatWithConfirmation({
+          chatId,
+          activeChatId,
+          confirmDeletion: () => confirmChatDeletion(1),
+          deleteChat: deleteChat.mutateAsync,
+          setActiveChatId,
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to delete chat.");
+        return false;
+      }
+    },
+    [activeChatId, deleteChat, setActiveChatId],
+  );
+
   const handleBatchDelete = useCallback(async () => {
     if (selectedChatIds.size === 0) return;
     const deletableIds = Array.from(selectedChatIds);
@@ -1093,11 +1115,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
                 if (branchCount > 1 && chat.groupId) {
                   setDeleteTarget({ chatId: chat.id, groupId: chat.groupId, branchCount });
                 } else {
-                  const confirmation = await confirmChatDeletion(1);
-                  if (confirmation.confirmed) {
-                    deleteChat.mutate({ id: chat.id, deleteMemories: confirmation.deleteMemories });
-                    if (activeChatId === chat.id) setActiveChatId(null);
-                  }
+                  await handleSingleChatDelete(chat.id);
                 }
               }}
               className="shrink-0 rounded-md p-1 text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20"
@@ -1490,14 +1508,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
             <div className="flex flex-col gap-2">
               <button
                 onClick={async () => {
-                  const confirmation = await confirmChatDeletion(1);
-                  if (!confirmation.confirmed) return;
-                  deleteChat.mutate({
-                    id: deleteTarget.chatId,
-                    deleteMemories: confirmation.deleteMemories,
-                  });
-                  if (activeChatId === deleteTarget.chatId) setActiveChatId(null);
-                  setDeleteTarget(null);
+                  if (await handleSingleChatDelete(deleteTarget.chatId)) setDeleteTarget(null);
                 }}
                 disabled={deleteChatGroup.isPending}
                 className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"

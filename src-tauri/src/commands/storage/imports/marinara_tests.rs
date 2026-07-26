@@ -379,6 +379,39 @@ fn native_marinara_character_imports_portable_memories_with_rebound_scope() {
 }
 
 #[test]
+fn native_marinara_character_import_rejects_unknown_memory_links_before_writing() {
+    let state = test_state("native-character-unknown-memory-link");
+    let error = import_marinara_envelope(
+        &state,
+        json!({
+            "type": "marinara_character",
+            "version": 1,
+            "data": {
+                "spec": "chara_card_v2",
+                "data": { "name": "Broken Link Character" },
+                "memories": [
+                    {
+                        "exportId": "memory-1",
+                        "kind": "fact",
+                        "status": "active",
+                        "content": "This row points to a memory that is absent.",
+                        "confidence": 0.9,
+                        "supersededByExportId": "missing-memory"
+                    }
+                ]
+            }
+        }),
+    )
+    .expect_err("unknown portable memory links should reject the whole import");
+
+    assert_eq!(error.code, "invalid_input");
+    assert!(error.message.contains("unknown exportId"));
+    assert!(state.storage.list("characters").unwrap().is_empty());
+    assert!(state.storage.list("canonical-memories").unwrap().is_empty());
+    assert!(state.storage.list("memory-index-rows").unwrap().is_empty());
+}
+
+#[test]
 fn malformed_native_character_memory_rolls_back_character_and_memory_state() {
     let state = test_state("native-character-invalid-memory");
     let error = import_marinara_envelope(

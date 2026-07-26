@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DeleteSelectedChatsError,
+  deleteSingleChatWithConfirmation,
   deleteSelectedChatsSequentially,
   formatDeleteSelectedChatsError,
 } from "./chat-sidebar-batch-actions";
@@ -107,5 +108,39 @@ describe("deleteSelectedChatsSequentially", () => {
     expect(deleteChat).toHaveBeenCalledTimes(2);
     expect(setActiveChatId).toHaveBeenCalledWith(null);
     expect(exitMultiSelect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("deleteSingleChatWithConfirmation", () => {
+  it("forwards the user's memory cleanup choice to the delete mutation", async () => {
+    const deleteChat = vi.fn(async () => undefined);
+    const setActiveChatId = vi.fn();
+
+    await deleteSingleChatWithConfirmation({
+      chatId: "chat-a",
+      activeChatId: "chat-a",
+      confirmDeletion: vi.fn(async () => ({ confirmed: true, deleteMemories: true })),
+      deleteChat,
+      setActiveChatId,
+    });
+
+    expect(deleteChat).toHaveBeenCalledWith({ id: "chat-a", deleteMemories: true });
+    expect(setActiveChatId).toHaveBeenCalledWith(null);
+  });
+
+  it("does not delete when the user cancels", async () => {
+    const deleteChat = vi.fn(async () => undefined);
+    const setActiveChatId = vi.fn();
+
+    await deleteSingleChatWithConfirmation({
+      chatId: "chat-a",
+      activeChatId: null,
+      confirmDeletion: vi.fn(async () => ({ confirmed: false, deleteMemories: false })),
+      deleteChat,
+      setActiveChatId,
+    });
+
+    expect(deleteChat).not.toHaveBeenCalled();
+    expect(setActiveChatId).not.toHaveBeenCalled();
   });
 });

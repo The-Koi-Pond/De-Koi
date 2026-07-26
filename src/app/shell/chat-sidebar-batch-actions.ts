@@ -7,6 +7,14 @@ type DeleteSelectedChatsInput = {
   exitMultiSelect: () => void;
 };
 
+type DeleteSingleChatWithConfirmationInput = {
+  chatId: string;
+  activeChatId: string | null;
+  confirmDeletion: () => Promise<{ confirmed: boolean; deleteMemories: boolean }>;
+  deleteChat: (input: { id: string; deleteMemories: boolean }) => Promise<unknown>;
+  setActiveChatId: (chatId: string | null) => void;
+};
+
 type DeleteSelectedChatsErrorInput = {
   cause: unknown;
   deletedCount: number;
@@ -36,6 +44,20 @@ export function formatDeleteSelectedChatsError(error: unknown) {
     return `Deleted ${error.deletedCount} of ${error.totalCount} chats. ${error.message}`;
   }
   return error instanceof Error ? error.message : "Failed to delete selected chats.";
+}
+
+export async function deleteSingleChatWithConfirmation({
+  chatId,
+  activeChatId,
+  confirmDeletion,
+  deleteChat,
+  setActiveChatId,
+}: DeleteSingleChatWithConfirmationInput) {
+  const confirmation = await confirmDeletion();
+  if (!confirmation.confirmed) return false;
+  await deleteChat({ id: chatId, deleteMemories: confirmation.deleteMemories });
+  if (activeChatId === chatId) setActiveChatId(null);
+  return true;
 }
 
 export async function deleteSelectedChatsSequentially({

@@ -1164,6 +1164,21 @@ mod tests {
             }),
         )
         .unwrap();
+        upsert_memory_index_row(
+            &state,
+            json!({
+                "id": "memory-shared:stale",
+                "memoryId": "memory-shared",
+                "provider": "lexical",
+                "model": "de-koi-lexical-v1",
+                "dimensions": 64,
+                "contentHash": "stale-content",
+                "projectionHash": "stale-projection",
+                "canonicalUpdatedAt": created["updatedAt"],
+                "vector": [0.1]
+            }),
+        )
+        .unwrap();
 
         let result = delete_memories_learned_only_from_chats(
             &state,
@@ -1187,5 +1202,8 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["memoryId"], "memory-shared");
         assert_eq!(rows[0]["canonicalUpdatedAt"], retained["updatedAt"]);
+        assert_ne!(rows[0]["id"], "memory-shared:stale");
+        assert_ne!(rows[0]["contentHash"], "stale-content");
+        assert_ne!(rows[0]["projectionHash"], "stale-projection");
     }
 }

@@ -24,6 +24,17 @@ pub(super) fn portable_character_memory_bodies(
             ));
         }
     }
+    for memory in memories {
+        for export_field in ["supersedesExportId", "supersededByExportId"] {
+            if let Some(linked_export_id) = memory.get(export_field).and_then(Value::as_str) {
+                if !id_map.contains_key(linked_export_id.trim()) {
+                    return Err(AppError::invalid_input(format!(
+                        "character memory {export_field} references an unknown exportId"
+                    )));
+                }
+            }
+        }
+    }
 
     let mut bodies = Vec::with_capacity(memories.len());
     for memory in memories {
@@ -53,11 +64,7 @@ pub(super) fn portable_character_memory_bodies(
             ("supersededByExportId", "supersededByMemoryId"),
         ] {
             if let Some(linked_export_id) = memory.get(export_field).and_then(Value::as_str) {
-                let linked_memory_id = id_map.get(linked_export_id).ok_or_else(|| {
-                    AppError::invalid_input(format!(
-                        "character memory {export_field} references an unknown exportId"
-                    ))
-                })?;
+                let linked_memory_id = &id_map[linked_export_id.trim()];
                 body.insert(
                     memory_field.to_string(),
                     Value::String(linked_memory_id.clone()),
