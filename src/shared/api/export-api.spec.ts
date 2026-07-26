@@ -34,10 +34,34 @@ describe("exportApi", () => {
 
     await expect(exportApi.character("character-1")).resolves.toMatchObject({ filename: "Mira_Koi.dekoi.json" });
   });
+  it("forwards memory inclusion only when explicitly requested for character exports", async () => {
+    const { exportApi } = await import("./export-api");
+
+    await exportApi.character("character-1", "native", { includeMemories: true });
+    await exportApi.charactersBulk(["character-1"], "native", { includeMemories: true });
+    await exportApi.character("character-2", "native");
+
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(1, "character_export", {
+      id: "character-1",
+      format: "native",
+      includeMemories: true,
+    });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(2, "characters_export_bulk", {
+      ids: ["character-1"],
+      format: "native",
+      includeMemories: true,
+    });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(3, "character_export", {
+      id: "character-2",
+      format: "native",
+    });
+  });
   it("keeps compatible single-item exports on plain json filenames", async () => {
     const { exportApi } = await import("./export-api");
 
-    await expect(exportApi.character("character-1", "compatible")).resolves.toMatchObject({ filename: "character.json" });
+    await expect(exportApi.character("character-1", "compatible")).resolves.toMatchObject({
+      filename: "character.json",
+    });
     await expect(exportApi.persona("persona-1", "compatible")).resolves.toMatchObject({ filename: "persona.json" });
     await expect(exportApi.lorebook("lorebook-1", "compatible")).resolves.toMatchObject({ filename: "lorebook.json" });
   });

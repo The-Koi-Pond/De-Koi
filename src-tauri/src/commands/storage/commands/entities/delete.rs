@@ -6,6 +6,16 @@ pub(crate) fn delete_entity(
     id: &str,
     force: bool,
 ) -> Result<Value, AppError> {
+    delete_entity_with_options(state, entity, id, force, false)
+}
+
+pub(crate) fn delete_entity_with_options(
+    state: &AppState,
+    entity: &str,
+    id: &str,
+    force: bool,
+    delete_memories: bool,
+) -> Result<Value, AppError> {
     validate_storage_entity(entity)?;
     reject_message_swipe_mutation(entity)?;
     if entity == "connections" {
@@ -24,7 +34,12 @@ pub(crate) fn delete_entity(
         if existed {
             deleted_chat_ids = chats::delete_chat_with_messages(state, id)?;
         }
-        return Ok(json!({ "deleted": existed, "deletedChatIds": deleted_chat_ids }));
+        let mut result = json!({ "deleted": existed, "deletedChatIds": deleted_chat_ids });
+        if delete_memories {
+            result["memoryCleanup"] =
+                chats::cleanup_deleted_chat_memories(state, &deleted_chat_ids);
+        }
+        return Ok(result);
     }
     if is_protected_record(entity, id) {
         return Err(AppError::invalid_input(

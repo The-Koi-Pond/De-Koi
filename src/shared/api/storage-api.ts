@@ -476,6 +476,7 @@ export const storageApi: StorageGateway = {
         entity,
         id,
         ...(options?.force === undefined ? {} : { force: options.force }),
+        ...(options?.deleteMemories === undefined ? {} : { deleteMemories: options.deleteMemories }),
       }),
       storageDeleteInvalidationKinds(entity),
     ),

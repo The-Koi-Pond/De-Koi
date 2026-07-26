@@ -6,12 +6,15 @@ mod marinara_assets;
 mod marinara_chat_bulk;
 #[path = "marinara_helpers.rs"]
 mod marinara_helpers;
+#[path = "marinara_memories.rs"]
+mod marinara_memories;
 #[path = "marinara_rollback.rs"]
 mod marinara_rollback;
 
 use marinara_assets::*;
 use marinara_chat_bulk::*;
 use marinara_helpers::*;
+use marinara_memories::*;
 use marinara_rollback::*;
 
 const PROFILE_IMPORT_GUIDANCE: &str =
@@ -181,6 +184,7 @@ fn import_marinara_character(state: &AppState, data: Value) -> AppResult<Value> 
             .unwrap_or("Imported Character")
             .to_string();
         let mut created_character_id = None;
+        let mut created_memory_ids = Vec::new();
         let result = (|| -> AppResult<Value> {
             let character = state.storage.create("characters", record)?;
             let character_id = created_record_id(&character, "character")?;
@@ -188,6 +192,12 @@ fn import_marinara_character(state: &AppState, data: Value) -> AppResult<Value> 
             let sprites_imported = restore_sprites(state, &character_id, data.get("sprites"))?;
             let gallery_imported =
                 restore_character_gallery(state, &character_id, data.get("gallery"))?;
+            let memory_bodies =
+                portable_character_memory_bodies(&character_id, data.get("memories"))?;
+            for body in memory_bodies {
+                let created = canonical_memory::create_memory(state, body)?;
+                created_memory_ids.push(created_record_id(&created, "memory")?);
+            }
             flush_import_writes(state)?;
             Ok(json!({
                 "success": true,
@@ -197,11 +207,21 @@ fn import_marinara_character(state: &AppState, data: Value) -> AppResult<Value> 
                 "name": name,
                 "character": character,
                 "spritesImported": sprites_imported,
-                "galleryImported": gallery_imported
+                "galleryImported": gallery_imported,
+                "memoriesImported": created_memory_ids.len()
             }))
         })();
         return result.map_err(|error| {
             let mut rollback_errors = Vec::new();
+            for memory_id in created_memory_ids.iter().rev() {
+                if let Err(rollback_error) =
+                    canonical_memory::purge_memory(state, memory_id)
+                {
+                    rollback_errors.push(format!(
+                        "canonical memory {memory_id}: {rollback_error}"
+                    ));
+                }
+            }
             if let Some(character_id) = created_character_id.as_deref() {
                 rollback_records_by_field_collect(
                     state,

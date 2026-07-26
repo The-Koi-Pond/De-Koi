@@ -6,13 +6,14 @@ import { useRef, useState } from "react";
 import { X, Trash2, FileText, MessageSquare, Download, Pencil, Upload, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { showConfirmDialog, showPromptDialog } from "../../../../../shared/lib/app-dialogs";
+import { showPromptDialog } from "../../../../../shared/lib/app-dialogs";
 import { getChatDisplayName } from "../../../../../shared/lib/chat-display";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { cn } from "../../../../../shared/lib/utils";
 import { importApi } from "../../../../../shared/api/import-api";
 import {
   chatKeys,
+  confirmChatDeletion,
   useChatGroup,
   useDeleteChat,
   useDeleteChatGroup,
@@ -115,19 +116,11 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
   };
 
   const handleDelete = async (chatId: string) => {
-    if (
-      !(await showConfirmDialog({
-        title: "Delete Chat File",
-        message: "Delete this chat file? Messages will be lost.",
-        confirmLabel: "Delete",
-        tone: "destructive",
-      }))
-    ) {
-      return;
-    }
+    const confirmation = await confirmChatDeletion(1);
+    if (!confirmation.confirmed) return;
     const nextActiveChatId = chatId === activeChatId ? chatFiles.find((c) => c.id !== chatId)?.id : null;
     try {
-      await deleteChat.mutateAsync({ id: chatId, groupId });
+      await deleteChat.mutateAsync({ id: chatId, groupId, deleteMemories: confirmation.deleteMemories });
       if (nextActiveChatId) setActiveChatId(nextActiveChatId);
     } catch (err) {
       toast.error(toUserMessage(err, "deleteChatFile"));
@@ -359,22 +352,17 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
         <div className="border-t border-[var(--border)] px-4 py-3">
           <button
             onClick={async () => {
-              if (
-                !(await showConfirmDialog({
-                  title: "Delete Entire Group",
-                  message: `Delete all ${chatFiles.length} chats in this group? This cannot be undone.`,
-                  confirmLabel: "Delete Group",
-                  tone: "destructive",
-                }))
-              ) {
-                return;
-              }
-              deleteChatGroup.mutate(groupId, {
-                onSuccess: () => {
-                  setActiveChatId(null);
-                  onClose();
+              const confirmation = await confirmChatDeletion(chatFiles.length);
+              if (!confirmation.confirmed) return;
+              deleteChatGroup.mutate(
+                { groupId, deleteMemories: confirmation.deleteMemories },
+                {
+                  onSuccess: () => {
+                    setActiveChatId(null);
+                    onClose();
+                  },
                 },
-              });
+              );
             }}
             disabled={deleteChatGroup.isPending}
             className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--destructive)]/10 px-3 py-2 text-xs font-medium text-[var(--destructive)] ring-1 ring-[var(--destructive)]/20 transition-all hover:bg-[var(--destructive)]/20 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"

@@ -18,27 +18,28 @@ describe("deleteSelectedChatsSequentially", () => {
   it("deletes selected chats one at a time before leaving multi-select", async () => {
     const first = deferred();
     const second = deferred();
-    const deleteChat = vi.fn((chatId: string) => (chatId === "chat-a" ? first.promise : second.promise));
+    const deleteChat = vi.fn((input: { id: string }) => (input.id === "chat-a" ? first.promise : second.promise));
     const setActiveChatId = vi.fn();
     const exitMultiSelect = vi.fn();
 
     const pending = deleteSelectedChatsSequentially({
       chatIds: ["chat-a", "chat-b"],
       activeChatId: "chat-b",
+      deleteMemories: true,
       deleteChat,
       setActiveChatId,
       exitMultiSelect,
     });
 
     expect(deleteChat).toHaveBeenCalledTimes(1);
-    expect(deleteChat).toHaveBeenNthCalledWith(1, "chat-a");
+    expect(deleteChat).toHaveBeenNthCalledWith(1, { id: "chat-a", deleteMemories: true });
     expect(exitMultiSelect).not.toHaveBeenCalled();
 
     first.resolve();
     await Promise.resolve();
 
     expect(deleteChat).toHaveBeenCalledTimes(2);
-    expect(deleteChat).toHaveBeenNthCalledWith(2, "chat-b");
+    expect(deleteChat).toHaveBeenNthCalledWith(2, { id: "chat-b", deleteMemories: true });
     expect(setActiveChatId).not.toHaveBeenCalled();
 
     second.resolve();
@@ -49,8 +50,8 @@ describe("deleteSelectedChatsSequentially", () => {
   });
 
   it("resets selection mode when the first delete fails", async () => {
-    const deleteChat = vi.fn(async (chatId: string) => {
-      if (chatId === "chat-a") throw new Error("storage delete failed");
+    const deleteChat = vi.fn(async (input: { id: string }) => {
+      if (input.id === "chat-a") throw new Error("storage delete failed");
     });
     const setActiveChatId = vi.fn();
     const exitMultiSelect = vi.fn();
@@ -59,6 +60,7 @@ describe("deleteSelectedChatsSequentially", () => {
       deleteSelectedChatsSequentially({
         chatIds: ["chat-a", "chat-b"],
         activeChatId: "chat-b",
+        deleteMemories: false,
         deleteChat,
         setActiveChatId,
         exitMultiSelect,
@@ -75,8 +77,8 @@ describe("deleteSelectedChatsSequentially", () => {
   });
 
   it("reports partial deletion after clearing deleted active chat state", async () => {
-    const deleteChat = vi.fn(async (chatId: string) => {
-      if (chatId === "chat-b") throw new Error("storage delete failed");
+    const deleteChat = vi.fn(async (input: { id: string }) => {
+      if (input.id === "chat-b") throw new Error("storage delete failed");
     });
     const setActiveChatId = vi.fn();
     const exitMultiSelect = vi.fn();
@@ -86,6 +88,7 @@ describe("deleteSelectedChatsSequentially", () => {
       await deleteSelectedChatsSequentially({
         chatIds: ["chat-a", "chat-b"],
         activeChatId: "chat-a",
+        deleteMemories: false,
         deleteChat,
         setActiveChatId,
         exitMultiSelect,

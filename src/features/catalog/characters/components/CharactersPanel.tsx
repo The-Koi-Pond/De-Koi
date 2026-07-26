@@ -46,10 +46,7 @@ const CHARACTER_GROUP_DRAG_MIME = "application/x-de-koi-character-id";
 
 type CharacterDragSource = { kind: "list" } | { kind: "group"; groupId: string | null };
 
-function sameCharacterGroupDropTarget(
-  left: CharacterGroupDropTarget | null,
-  right: CharacterGroupDropTarget,
-): boolean {
+function sameCharacterGroupDropTarget(left: CharacterGroupDropTarget | null, right: CharacterGroupDropTarget): boolean {
   if (!left) return false;
   if (left.kind !== right.kind) return false;
   if (left.kind === "root") return true;
@@ -60,10 +57,13 @@ export function CharactersPanel() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 180);
   const searchQuery = useMemo(() => parseCharacterSearchQuery(debouncedSearch), [debouncedSearch]);
-  const { data: characters, isLoading, isFetching, isError, refetch } = useCharacterPanelSummaries(
-    true,
-    searchQuery.text,
-  );
+  const {
+    data: characters,
+    isLoading,
+    isFetching,
+    isError,
+    refetch,
+  } = useCharacterPanelSummaries(true, searchQuery.text);
   const { data: groups } = useCharacterGroups();
   const deleteCharacter = useDeleteCharacter();
   const duplicateCharacter = useDuplicateCharacter();
@@ -152,10 +152,12 @@ export function CharactersPanel() {
     exportingSelected,
     handleDeleteSelected,
     handleExportSelected,
+    includeMemoriesInExport,
     selectAllVisible,
     selectedCharacterIds,
     selectionMode,
     setExportDialogOpen,
+    setIncludeMemoriesInExport,
     toggleSelection,
   } = useCharactersPanelSelection({ sortedCharacters, deleteCharacter });
 
@@ -243,13 +245,7 @@ export function CharactersPanel() {
       moveCharacterToGroup(groupId, characterId, parsedGroups);
       clearCharacterDragState();
     },
-    [
-      canDropCharacterOnTarget,
-      clearCharacterDragState,
-      draggedCharacterId,
-      moveCharacterToGroup,
-      parsedGroups,
-    ],
+    [canDropCharacterOnTarget, clearCharacterDragState, draggedCharacterId, moveCharacterToGroup, parsedGroups],
   );
 
   const handleToggleGroupMember = useCallback(
@@ -349,7 +345,10 @@ export function CharactersPanel() {
           onSelectVisible={selectAllVisible}
           onClearSelection={clearSelection}
           onDeleteSelected={handleDeleteSelected}
-          onExportSelected={() => setExportDialogOpen(true)}
+          onExportSelected={() => {
+            setIncludeMemoriesInExport(false);
+            setExportDialogOpen(true);
+          }}
           onDone={exitSelectionMode}
         />
       )}
@@ -359,7 +358,17 @@ export function CharactersPanel() {
         title="Export Characters"
         description="Native keeps De-Koi metadata. Compatible exports direct Chara Card V2 JSON for other platforms."
         compatibleDescription="Exports direct Chara Card V2 JSON files without the native wrapper."
-        onClose={() => setExportDialogOpen(false)}
+        onClose={() => {
+          setIncludeMemoriesInExport(false);
+          setExportDialogOpen(false);
+        }}
+        option={{
+          checked: includeMemoriesInExport,
+          label: "Include character memories",
+          description:
+            "Only De-Koi Native exports can include memories. Source chat and message IDs are never exported.",
+          onCheckedChange: setIncludeMemoriesInExport,
+        }}
         onSelect={handleExportSelected}
       />
 

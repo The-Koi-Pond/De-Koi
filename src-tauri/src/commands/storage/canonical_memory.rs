@@ -172,6 +172,10 @@ fn normalize_memory_record(mut object: Map<String, Value>, for_create: bool) -> 
     Ok(Value::Object(object))
 }
 
+pub(crate) fn validate_memory_input(body: &Value) -> AppResult<()> {
+    normalize_memory_record(marinara_core::ensure_object(body.clone())?, true).map(|_| ())
+}
+
 fn merge_patch(current: &Value, patch: Value) -> AppResult<Value> {
     let mut object = current
         .as_object()
@@ -319,6 +323,162 @@ pub(crate) fn delete_memory(state: &AppState, memory_id: &str) -> AppResult<Valu
     let deleted = update_memory(state, memory_id, json!({ "status": "deleted" }))?;
     delete_memory_index_rows_for_memory(state, memory_id)?;
     Ok(deleted)
+}
+
+pub(crate) fn purge_memory(state: &AppState, memory_id: &str) -> AppResult<()> {
+    let memory_id = memory_id.to_string();
+    state.storage.update_collections_atomically(
+        vec![MEMORY_COLLECTION, INDEX_COLLECTION],
+        move |collections| {
+            let (memory_collections, index_collections) = collections.split_at_mut(1);
+            memory_collections[0]
+                .rows_mut()
+                .retain(|memory| read_string(memory.get("id")) != memory_id);
+            index_collections[0]
+                .rows_mut()
+                .retain(|row| read_string(row.get("memoryId")) != memory_id);
+            Ok(())
+        },
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ChatMemoryCleanupResult {
+    pub deleted: usize,
+    pub retained_shared: usize,
+}
+
+fn memory_source_chat_ids(memory: &Value) -> HashSet<String> {
+    let mut source_chat_ids = HashSet::new();
+    let scope = memory.get("scope").and_then(Value::as_object);
+    if scope
+        .and_then(|scope| scope.get("kind"))
+        .and_then(Value::as_str)
+        == Some("chat")
+    {
+        let scope_id = read_string(scope.and_then(|scope| scope.get("id")));
+        if !scope_id.is_empty() {
+            source_chat_ids.insert(scope_id);
+        }
+    }
+    let provenance_chat_id = read_string(
+        memory
+            .get("provenance")
+            .and_then(Value::as_object)
+            .and_then(|provenance| provenance.get("sourceChatId")),
+    );
+    if !provenance_chat_id.is_empty() {
+        source_chat_ids.insert(provenance_chat_id);
+    }
+    if let Some(payload_source_chat_ids) = memory
+        .get("payload")
+        .and_then(Value::as_object)
+        .and_then(|payload| payload.get("sourceChatIds"))
+        .and_then(Value::as_array)
+    {
+        source_chat_ids.extend(
+            payload_source_chat_ids
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|source_chat_id| !source_chat_id.is_empty())
+                .map(ToOwned::to_owned),
+        );
+    }
+    source_chat_ids
+}
+
+pub(crate) fn delete_memories_learned_only_from_chats(
+    state: &AppState,
+    chat_ids: &HashSet<String>,
+) -> AppResult<ChatMemoryCleanupResult> {
+    if chat_ids.is_empty() {
+        return Ok(ChatMemoryCleanupResult {
+            deleted: 0,
+            retained_shared: 0,
+        });
+    }
+    let chat_ids = chat_ids.clone();
+    state.storage.update_collections_atomically(
+        vec![MEMORY_COLLECTION, INDEX_COLLECTION],
+        move |collections| {
+            let (memory_collections, index_collections) = collections.split_at_mut(1);
+            let memories = memory_collections[0].rows_mut();
+            let index_rows = index_collections[0].rows_mut();
+            let mut deleted_memory_ids = HashSet::new();
+            let mut updated_memories = Vec::new();
+            let mut retained_memories = Vec::with_capacity(memories.len());
+            let mut deleted = 0usize;
+            let mut retained_shared = 0usize;
+
+            for mut memory in memories.drain(..) {
+                let known_sources = memory_source_chat_ids(&memory);
+                if known_sources.is_empty()
+                    || !known_sources.iter().any(|source| chat_ids.contains(source))
+                {
+                    retained_memories.push(memory);
+                    continue;
+                }
+                let mut remaining_sources = known_sources
+                    .difference(&chat_ids)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                remaining_sources.sort();
+                if remaining_sources.is_empty() {
+                    let memory_id = read_string(memory.get("id"));
+                    if !memory_id.is_empty() {
+                        deleted_memory_ids.insert(memory_id);
+                    }
+                    deleted += 1;
+                    continue;
+                }
+
+                if let Some(provenance) = memory
+                    .get_mut("provenance")
+                    .and_then(Value::as_object_mut)
+                {
+                    let current_source = read_string(provenance.get("sourceChatId"));
+                    if current_source.is_empty() || chat_ids.contains(&current_source) {
+                        provenance.insert(
+                            "sourceChatId".to_string(),
+                            Value::String(remaining_sources[0].clone()),
+                        );
+                    }
+                    provenance.insert("messageIds".to_string(), Value::Array(Vec::new()));
+                }
+                if let Some(payload) = memory.get_mut("payload").and_then(Value::as_object_mut) {
+                    payload.insert(
+                        "sourceChatIds".to_string(),
+                        Value::Array(
+                            remaining_sources
+                                .iter()
+                                .cloned()
+                                .map(Value::String)
+                                .collect(),
+                        ),
+                    );
+                }
+                if let Some(object) = memory.as_object_mut() {
+                    object.insert("updatedAt".to_string(), Value::String(now_iso()));
+                }
+                updated_memories.push(memory.clone());
+                retained_memories.push(memory);
+                retained_shared += 1;
+            }
+
+            *memories = retained_memories;
+            index_rows.retain(|row| {
+                !deleted_memory_ids.contains(&read_string(row.get("memoryId")))
+            });
+            for memory in &updated_memories {
+                replace_memory_lexical_index(index_rows, memory)?;
+            }
+            Ok(ChatMemoryCleanupResult {
+                deleted,
+                retained_shared,
+            })
+        },
+    )
 }
 
 pub(crate) fn soft_delete_memories_for_scope(
@@ -936,5 +1096,96 @@ mod tests {
         assert!(rows
             .iter()
             .all(|row| row["projectionHash"].as_str().is_some()));
+    }
+
+    #[test]
+    fn delete_memories_learned_only_from_chats_removes_exclusive_sources_and_indexes() {
+        let state = test_state("delete-exclusive-chat-sources");
+        seed_memory(&state, "memory-active", "character", "character-1", "active");
+        seed_memory(&state, "memory-pinned", "character", "character-1", "pinned");
+        create_memory(
+            &state,
+            json!({
+                "id": "memory-manual",
+                "kind": "fact",
+                "status": "active",
+                "scope": { "kind": "character", "id": "character-1" },
+                "content": "Mira prefers jasmine tea.",
+                "confidence": 1.0,
+                "provenance": { "characterId": "character-1" }
+            }),
+        )
+        .unwrap();
+
+        let result = delete_memories_learned_only_from_chats(
+            &state,
+            &HashSet::from(["chat-1".to_string()]),
+        )
+        .unwrap();
+
+        assert_eq!(
+            result,
+            ChatMemoryCleanupResult {
+                deleted: 2,
+                retained_shared: 0
+            }
+        );
+        assert!(get_memory(&state, "memory-active").is_err());
+        assert!(get_memory(&state, "memory-pinned").is_err());
+        assert_eq!(get_memory(&state, "memory-manual").unwrap()["status"], "active");
+        let indexed_ids = state
+            .storage
+            .list(INDEX_COLLECTION)
+            .unwrap()
+            .into_iter()
+            .filter_map(|row| row["memoryId"].as_str().map(ToOwned::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(indexed_ids, vec!["memory-manual"]);
+    }
+
+    #[test]
+    fn delete_memories_learned_only_from_chats_retains_shared_memory_without_deleted_provenance() {
+        let state = test_state("delete-shared-chat-sources");
+        let created = create_memory(
+            &state,
+            json!({
+                "id": "memory-shared",
+                "kind": "fact",
+                "status": "active",
+                "scope": { "kind": "character", "id": "character-1" },
+                "content": "Mira keeps the silver key under the clock.",
+                "confidence": 0.9,
+                "provenance": {
+                    "sourceChatId": "chat-1",
+                    "messageIds": ["message-1"],
+                    "characterId": "character-1"
+                },
+                "payload": { "sourceChatIds": ["chat-2", "chat-1"] }
+            }),
+        )
+        .unwrap();
+
+        let result = delete_memories_learned_only_from_chats(
+            &state,
+            &HashSet::from(["chat-1".to_string()]),
+        )
+        .unwrap();
+
+        assert_eq!(
+            result,
+            ChatMemoryCleanupResult {
+                deleted: 0,
+                retained_shared: 1
+            }
+        );
+        let retained = get_memory(&state, "memory-shared").unwrap();
+        assert_eq!(retained["provenance"]["sourceChatId"], "chat-2");
+        assert_eq!(retained["provenance"]["messageIds"], json!([]));
+        assert_eq!(retained["payload"]["sourceChatIds"], json!(["chat-2"]));
+        assert_ne!(retained["updatedAt"], created["updatedAt"]);
+        let rows = state.storage.list(INDEX_COLLECTION).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["memoryId"], "memory-shared");
+        assert_eq!(rows[0]["canonicalUpdatedAt"], retained["updatedAt"]);
     }
 }

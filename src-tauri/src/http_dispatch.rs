@@ -186,12 +186,15 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "character_export" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 let format = optional_string(args, "format");
-                exports::export_record(
+                exports::export_record_with_options(
                     state,
                     "marinara_character",
                     "characters",
                     required_string(args, "id")?,
                     format.as_deref(),
+                    args.get("includeMemories")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                 )
             })
             .await
@@ -214,6 +217,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                     json!({
                         "ids": required_string_vec(args, "ids")?,
                         "format": optional_value(args, "format"),
+                        "includeMemories": args.get("includeMemories")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                     }),
                 )
             })
@@ -1104,7 +1110,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         }
         "chat_group_delete" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
-                chats::delete_chat_group(state, required_string(args, "groupId")?)
+                let group_id = required_string(args, "groupId")?;
+                if args.get("deleteMemories").and_then(Value::as_bool) == Some(true) {
+                    chats::delete_chat_group_with_options(state, group_id, true)
+                } else {
+                    chats::delete_chat_group(state, group_id)
+                }
             })
             .await
         }

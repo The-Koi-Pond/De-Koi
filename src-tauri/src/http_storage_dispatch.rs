@@ -134,12 +134,12 @@ pub fn storage_update(state: &AppState, args: &Map<String, Value>) -> AppResult<
 pub fn storage_delete(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     let entity = required_string(args, "entity")?;
     let id = required_string(args, "id")?;
-    entity_commands::delete_entity(
-        state,
-        entity,
-        id,
-        args.get("force").and_then(Value::as_bool).unwrap_or(false),
-    )
+    let force = args.get("force").and_then(Value::as_bool).unwrap_or(false);
+    if args.get("deleteMemories").and_then(Value::as_bool) == Some(true) {
+        entity_commands::delete_entity_with_options(state, entity, id, force, true)
+    } else {
+        entity_commands::delete_entity(state, entity, id, force)
+    }
 }
 
 pub fn regex_script_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {

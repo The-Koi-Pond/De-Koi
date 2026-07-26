@@ -2,6 +2,9 @@ import { downloadPayloadFromApiValue, triggerDownload, type DownloadPayload } fr
 import { invokeTauri } from "./tauri-client";
 
 type ExportFormat = string | null | undefined;
+export type CharacterExportOptions = {
+  includeMemories?: boolean;
+};
 
 async function exportDownload(command: string, args: Record<string, unknown>, fallbackFilename: string) {
   const value = await invokeTauri(command, args);
@@ -17,16 +20,28 @@ export const exportApi = {
     exportDownload("prompt_export", { presetId }, "preset.dekoi.json"),
   promptsBulk: (ids: string[]): Promise<DownloadPayload> =>
     exportDownload("prompts_export_bulk", { ids }, "de-koi-presets.zip"),
-  character: (id: string, format?: ExportFormat): Promise<DownloadPayload> =>
+  character: (id: string, format?: ExportFormat, options?: CharacterExportOptions): Promise<DownloadPayload> =>
     exportDownload(
       "character_export",
-      { id, format: format ?? null },
+      {
+        id,
+        format: format ?? null,
+        ...(options?.includeMemories === undefined ? {} : { includeMemories: options.includeMemories }),
+      },
       format === "compatible" ? "character.json" : "character.dekoi.json",
     ),
   characterPng: (id: string): Promise<DownloadPayload> =>
     exportDownload("character_export_png", { id }, "character.png"),
-  charactersBulk: (ids: string[], format?: ExportFormat): Promise<DownloadPayload> =>
-    exportDownload("characters_export_bulk", { ids, format: format ?? null }, "de-koi-characters.zip"),
+  charactersBulk: (ids: string[], format?: ExportFormat, options?: CharacterExportOptions): Promise<DownloadPayload> =>
+    exportDownload(
+      "characters_export_bulk",
+      {
+        ids,
+        format: format ?? null,
+        ...(options?.includeMemories === undefined ? {} : { includeMemories: options.includeMemories }),
+      },
+      "de-koi-characters.zip",
+    ),
   persona: (id: string, format?: ExportFormat): Promise<DownloadPayload> =>
     exportDownload(
       "persona_export",

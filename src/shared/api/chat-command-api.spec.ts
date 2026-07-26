@@ -26,4 +26,15 @@ describe("chatCommandApi", () => {
       body: { content: "The ferry leaves before dawn." },
     });
   });
+
+  it("forwards the explicit memory policy for group deletion", async () => {
+    const { chatCommandApi } = await import("./chat-command-api");
+
+    await chatCommandApi.groupDelete("group-1", { deleteMemories: true });
+
+    expect(mocks.invokeTauri).toHaveBeenCalledWith("chat_group_delete", {
+      groupId: "group-1",
+      deleteMemories: true,
+    });
+  });
 });

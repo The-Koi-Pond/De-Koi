@@ -18,13 +18,20 @@ export type ConfirmDialogState = AppDialogCommon & {
   kind: "confirm";
 };
 
+export type ConfirmOptionDialogState = AppDialogCommon & {
+  kind: "confirm-option";
+  optionLabel: string;
+  optionDescription?: string;
+  defaultChecked?: boolean;
+};
+
 export type PromptDialogState = AppDialogCommon & {
   kind: "prompt";
   defaultValue?: string;
   placeholder?: string;
 };
 
-export type AppDialogState = AlertDialogState | ConfirmDialogState | PromptDialogState;
+export type AppDialogState = AlertDialogState | ConfirmDialogState | ConfirmOptionDialogState | PromptDialogState;
 
 interface DialogStoreState {
   dialog: AppDialogState | null;

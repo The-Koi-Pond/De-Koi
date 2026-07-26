@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { createChatSchema } from "../../../../engine/contracts/schemas/chat.schema";
 import type { Chat } from "../../../../engine/contracts/types/chat";
@@ -17,12 +18,21 @@ import {
 } from "./chat-cache";
 import type { ChatListItem } from "./use-chat-summaries";
 
-type DeleteChatInput = string | { id: string; groupId?: string | null };
+export type DeleteChatInput = string | { id: string; groupId?: string | null; deleteMemories?: boolean };
 
 interface DeleteChatResult {
   deleted: boolean;
   deletedChatIds?: string[];
+  memoryCleanup?: {
+    requested: boolean;
+    completed: boolean;
+    deleted: number;
+    retainedShared: number;
+    errorCode?: string;
+  };
 }
+
+type DeleteChatGroupInput = string | { groupId: string; deleteMemories?: boolean };
 
 function getDeleteChatId(input: DeleteChatInput) {
   return typeof input === "string" ? input : input.id;
@@ -30,6 +40,29 @@ function getDeleteChatId(input: DeleteChatInput) {
 
 function getDeleteChatGroupId(input: DeleteChatInput) {
   return typeof input === "string" ? null : (input.groupId ?? null);
+}
+
+function getDeleteChatMemories(input: DeleteChatInput) {
+  return typeof input === "string" ? false : (input.deleteMemories ?? false);
+}
+
+function getDeleteGroupId(input: DeleteChatGroupInput) {
+  return typeof input === "string" ? input : input.groupId;
+}
+
+function getDeleteGroupMemories(input: DeleteChatGroupInput) {
+  return typeof input === "string" ? false : (input.deleteMemories ?? false);
+}
+
+function handleMemoryCleanupResult(qc: ReturnType<typeof useQueryClient>, result?: DeleteChatResult["memoryCleanup"]) {
+  if (!result?.requested) return;
+  void qc.invalidateQueries({ queryKey: ["character-memories"] });
+  void qc.invalidateQueries({ queryKey: ["character-memory-chat-rows"] });
+  if (!result.completed) {
+    toast.warning(
+      "The chat was deleted, but De-Koi could not finish removing every selected memory. Review Manage Memories before relying on the cleanup.",
+    );
+  }
 }
 
 function uniqueIds(ids: Array<string | null | undefined>) {
@@ -73,7 +106,9 @@ export function useDeleteChat() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: DeleteChatInput): Promise<DeleteChatResult> =>
-      (await storageApi.delete("chats", getDeleteChatId(input))) as DeleteChatResult,
+      (await storageApi.delete("chats", getDeleteChatId(input), {
+        deleteMemories: getDeleteChatMemories(input),
+      })) as DeleteChatResult,
     onMutate: async (input) => {
       const id = getDeleteChatId(input);
       const providedGroupId = getDeleteChatGroupId(input);
@@ -102,6 +137,7 @@ export function useDeleteChat() {
       return { previous, previousSummaries, previousGroup, groupId };
     },
     onSuccess: (data, input) => {
+      handleMemoryCleanupResult(qc, data.memoryCleanup);
       for (const chatId of uniqueIds([getDeleteChatId(input), ...(data.deletedChatIds ?? [])])) {
         clearChatActivity(chatId);
       }
@@ -137,8 +173,12 @@ export function useDeleteChat() {
 export function useDeleteChatGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (groupId: string) => chatCommandApi.groupDelete(groupId),
-    onMutate: async (groupId) => {
+    mutationFn: (input: DeleteChatGroupInput) =>
+      chatCommandApi.groupDelete(getDeleteGroupId(input), {
+        deleteMemories: getDeleteGroupMemories(input),
+      }),
+    onMutate: async (input) => {
+      const groupId = getDeleteGroupId(input);
       await qc.cancelQueries({ queryKey: chatKeys.list() });
       await qc.cancelQueries({ queryKey: chatKeys.summaries() });
       const previous = qc.getQueryData<Chat[]>(chatKeys.list());
@@ -153,11 +193,12 @@ export function useDeleteChatGroup() {
       return { previous, previousSummaries, groupId };
     },
     onSuccess: (data) => {
+      handleMemoryCleanupResult(qc, data.memoryCleanup);
       for (const chatId of uniqueIds(data.deletedChatIds ?? [])) {
         clearChatActivity(chatId);
       }
     },
-    onError: (_err, _groupId, context) => {
+    onError: (_err, _input, context) => {
       if (context?.previous) qc.setQueryData(chatKeys.list(), context.previous);
       for (const [queryKey, data] of context?.previousSummaries ?? []) {
         qc.setQueryData(queryKey, data);
@@ -166,7 +207,7 @@ export function useDeleteChatGroup() {
         qc.invalidateQueries({ queryKey: chatKeys.group(context.groupId) });
       }
     },
-    onSettled: (_data, _err, _groupId, context) => {
+    onSettled: (_data, _err, _input, context) => {
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       qc.invalidateQueries({ queryKey: chatKeys.summaries() });
       if (context?.groupId) {

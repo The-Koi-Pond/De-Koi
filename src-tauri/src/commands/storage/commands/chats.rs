@@ -164,11 +164,18 @@ pub fn chat_notes_clear(state: State<'_, AppState>, chat_id: String) -> Result<V
 pub async fn chat_group_delete(
     state: State<'_, AppState>,
     group_id: String,
+    delete_memories: Option<bool>,
 ) -> Result<Value, AppError> {
     let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || chats::delete_chat_group(&state, &group_id))
-        .await
-        .map_err(|error| AppError::new("task_join_error", error.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        if delete_memories.unwrap_or(false) {
+            chats::delete_chat_group_with_options(&state, &group_id, true)
+        } else {
+            chats::delete_chat_group(&state, &group_id)
+        }
+    })
+    .await
+    .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
 #[tauri::command]

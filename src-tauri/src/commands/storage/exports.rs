@@ -59,6 +59,17 @@ pub(crate) fn export_record(
     id: &str,
     format: Option<&str>,
 ) -> AppResult<Value> {
+    export_record_with_options(state, kind, collection, id, format, false)
+}
+
+pub(crate) fn export_record_with_options(
+    state: &AppState,
+    kind: &str,
+    collection: &str,
+    id: &str,
+    format: Option<&str>,
+    include_memories: bool,
+) -> AppResult<Value> {
     let mut record = get_required(state, collection, id)?;
     if collection == "messages" {
         message_swipes::materialize_message(state, &mut record, true)?;
@@ -67,7 +78,7 @@ pub(crate) fn export_record(
     let item = if compatible {
         compatible_record(collection, &record)?
     } else {
-        native_record_export(state, kind, collection, &record)?
+        native_record_export(state, kind, collection, &record, include_memories)?
     };
     json_download(
         &item,
@@ -83,8 +94,19 @@ pub(crate) fn export_records(
 ) -> AppResult<Value> {
     let ids = string_array_from_value(body.get("ids"));
     let format = body.get("format").and_then(Value::as_str);
+    let include_memories = body
+        .get("includeMemories")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     if matches!(collection, "characters" | "personas" | "prompts") {
-        return export_named_records(state, kind, collection, ids, format);
+        return export_named_records(
+            state,
+            kind,
+            collection,
+            ids,
+            format,
+            include_memories,
+        );
     }
 
     let mut items = Vec::new();
@@ -473,9 +495,12 @@ fn native_record_export(
     kind: &str,
     collection: &str,
     record: &Value,
+    include_memories: bool,
 ) -> AppResult<Value> {
     match collection {
-        "characters" => character_export_envelope(state, record),
+        "characters" => {
+            character_export_envelope_with_options(state, record, include_memories)
+        }
         "personas" => persona_export_envelope(state, record),
         "prompts" => preset_export_envelope(state, record),
         _ => Ok(json!({
@@ -493,6 +518,7 @@ fn export_named_records(
     collection: &str,
     ids: Vec<String>,
     format: Option<&str>,
+    include_memories: bool,
 ) -> AppResult<Value> {
     let compatible = format == Some("compatible") && collection != "prompts";
     let mut zip = ExportZip::new();
@@ -504,7 +530,7 @@ fn export_named_records(
         let item = if compatible {
             compatible_record(collection, &record)?
         } else {
-            native_record_export(state, kind, collection, &record)?
+            native_record_export(state, kind, collection, &record, include_memories)?
         };
         let fallback = format!(
             "{}-{}",
@@ -554,7 +580,71 @@ fn compatible_record(collection: &str, record: &Value) -> AppResult<Value> {
     })
 }
 
-fn character_export_envelope(state: &AppState, character: &Value) -> AppResult<Value> {
+fn portable_character_memories(state: &AppState, character_id: &str) -> AppResult<Vec<Value>> {
+    let mut memories = state
+        .storage
+        .list("canonical-memories")?
+        .into_iter()
+        .filter(|memory| {
+            memory.get("scope").and_then(Value::as_object).is_some_and(|scope| {
+                scope.get("kind").and_then(Value::as_str) == Some("character")
+                    && scope.get("id").and_then(Value::as_str) == Some(character_id)
+            })
+        })
+        .collect::<Vec<_>>();
+    memories.sort_by(|left, right| {
+        left.get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .cmp(right.get("id").and_then(Value::as_str).unwrap_or_default())
+    });
+    let export_ids = memories
+        .iter()
+        .enumerate()
+        .filter_map(|(index, memory)| {
+            memory
+                .get("id")
+                .and_then(Value::as_str)
+                .map(|id| (id.to_string(), format!("memory-{}", index + 1)))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    Ok(memories
+        .into_iter()
+        .filter_map(|memory| {
+            let id = memory.get("id")?.as_str()?;
+            let mut portable = Map::new();
+            portable.insert(
+                "exportId".to_string(),
+                Value::String(export_ids.get(id)?.clone()),
+            );
+            for field in ["kind", "status", "title", "content", "confidence", "tags"] {
+                if let Some(value) = memory.get(field) {
+                    portable.insert(field.to_string(), value.clone());
+                }
+            }
+            for (source_field, export_field) in [
+                ("supersedesMemoryId", "supersedesExportId"),
+                ("supersededByMemoryId", "supersededByExportId"),
+            ] {
+                if let Some(linked_id) = memory.get(source_field).and_then(Value::as_str) {
+                    if let Some(export_id) = export_ids.get(linked_id) {
+                        portable.insert(
+                            export_field.to_string(),
+                            Value::String(export_id.clone()),
+                        );
+                    }
+                }
+            }
+            Some(Value::Object(portable))
+        })
+        .collect())
+}
+
+fn character_export_envelope_with_options(
+    state: &AppState,
+    character: &Value,
+    include_memories: bool,
+) -> AppResult<Value> {
     let id = record_id(character, "character")?;
     let data = character_data_value(character);
     let mut exported = Map::new();
@@ -574,6 +664,12 @@ fn character_export_envelope(state: &AppState, character: &Value) -> AppResult<V
     let gallery = gallery_for_character(state, id)?;
     if !gallery.is_empty() {
         exported.insert("gallery".to_string(), Value::Array(gallery));
+    }
+    if include_memories {
+        exported.insert(
+            "memories".to_string(),
+            Value::Array(portable_character_memories(state, id)?),
+        );
     }
     exported.insert(
         "metadata".to_string(),
@@ -1512,6 +1608,61 @@ mod tests {
             export.get("filename").and_then(Value::as_str),
             Some("Mira_Koi.dekoi.json")
         );
+    }
+
+    #[test]
+    fn character_export_memory_privacy_is_opt_in_and_native_only() {
+        let state = test_state("character-memory-privacy");
+        let character = state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "character-1",
+                    "name": "Mira",
+                    "data": { "name": "Mira" }
+                }),
+            )
+            .unwrap();
+        canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "private-memory-id",
+                "kind": "fact",
+                "status": "active",
+                "scope": { "kind": "character", "id": "character-1" },
+                "title": "Key location",
+                "content": "Mira keeps the silver key under the clock.",
+                "confidence": 0.9,
+                "tags": ["key"],
+                "provenance": {
+                    "sourceChatId": "private-chat",
+                    "messageIds": ["private-message"],
+                    "characterId": "character-1"
+                },
+                "payload": {
+                    "sourceChatIds": ["private-chat"],
+                    "provider": "private-provider"
+                }
+            }),
+        )
+        .unwrap();
+
+        let without = character_export_envelope_with_options(&state, &character, false).unwrap();
+        assert!(without["data"].get("memories").is_none());
+
+        let with = character_export_envelope_with_options(&state, &character, true).unwrap();
+        let memory = &with["data"]["memories"][0];
+        assert_eq!(memory["content"], "Mira keeps the silver key under the clock.");
+        assert_eq!(memory["kind"], "fact");
+        assert!(memory.get("provenance").is_none());
+        assert!(memory.get("payload").is_none());
+        assert!(memory.get("createdAt").is_none());
+        assert!(!with.to_string().contains("private-chat"));
+        assert!(!with.to_string().contains("private-message"));
+        assert!(!with.to_string().contains("private-provider"));
+
+        assert!(compatible_character_export(&character).get("memories").is_none());
     }
 
     #[test]

@@ -322,6 +322,101 @@ fn native_marinara_character_import_materializes_embedded_avatar() {
 }
 
 #[test]
+fn native_marinara_character_imports_portable_memories_with_rebound_scope() {
+    let state = test_state("native-character-memories");
+    let imported = import_marinara_envelope(
+        &state,
+        json!({
+            "type": "marinara_character",
+            "version": 1,
+            "data": {
+                "spec": "chara_card_v2",
+                "data": { "name": "Remembering Character" },
+                "memories": [
+                    {
+                        "exportId": "memory-1",
+                        "kind": "fact",
+                        "status": "active",
+                        "content": "Mira keeps the silver key under the clock.",
+                        "confidence": 0.9,
+                        "tags": ["key"],
+                        "supersededByExportId": "memory-2"
+                    },
+                    {
+                        "exportId": "memory-2",
+                        "kind": "fact",
+                        "status": "pinned",
+                        "content": "Mira moved the silver key to the desk.",
+                        "confidence": 0.95,
+                        "tags": ["key"],
+                        "supersedesExportId": "memory-1"
+                    }
+                ]
+            }
+        }),
+    )
+    .expect("native character memories should import");
+
+    let character_id = imported["characterId"].as_str().unwrap();
+    let memories = state.storage.list("canonical-memories").unwrap();
+    assert_eq!(memories.len(), 2);
+    assert!(memories.iter().all(|memory| {
+        memory["scope"] == json!({ "kind": "character", "id": character_id })
+            && memory["provenance"]["sourceChatId"].is_null()
+            && memory["provenance"]["messageIds"] == json!([])
+    }));
+    let first = memories
+        .iter()
+        .find(|memory| memory["content"].as_str().unwrap().contains("under the clock"))
+        .unwrap();
+    let second = memories
+        .iter()
+        .find(|memory| memory["content"].as_str().unwrap().contains("to the desk"))
+        .unwrap();
+    assert_eq!(first["supersededByMemoryId"], second["id"]);
+    assert_eq!(second["supersedesMemoryId"], first["id"]);
+    assert_eq!(state.storage.list("memory-index-rows").unwrap().len(), 2);
+}
+
+#[test]
+fn malformed_native_character_memory_rolls_back_character_and_memory_state() {
+    let state = test_state("native-character-invalid-memory");
+    let error = import_marinara_envelope(
+        &state,
+        json!({
+            "type": "marinara_character",
+            "version": 1,
+            "data": {
+                "spec": "chara_card_v2",
+                "data": { "name": "Invalid Memory Character" },
+                "memories": [
+                    {
+                        "exportId": "memory-1",
+                        "kind": "fact",
+                        "status": "active",
+                        "content": "Valid first row.",
+                        "confidence": 0.9
+                    },
+                    {
+                        "exportId": "memory-2",
+                        "kind": "fact",
+                        "status": "active",
+                        "content": "Invalid second row.",
+                        "confidence": 2.0
+                    }
+                ]
+            }
+        }),
+    )
+    .expect_err("malformed portable memory should reject the native import");
+
+    assert_eq!(error.code, "invalid_input");
+    assert!(state.storage.list("characters").unwrap().is_empty());
+    assert!(state.storage.list("canonical-memories").unwrap().is_empty());
+    assert!(state.storage.list("memory-index-rows").unwrap().is_empty());
+}
+
+#[test]
 fn native_marinara_character_import_materializes_embedded_gallery_assets() {
     let state = test_state("native-character-gallery");
     let imported = import_marinara_envelope(

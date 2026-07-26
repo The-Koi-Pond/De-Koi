@@ -17,6 +17,7 @@ export function useCharactersPanelSelection({
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(new Set());
   const [exportingSelected, setExportingSelected] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [includeMemoriesInExport, setIncludeMemoriesInExport] = useState(false);
 
   const enterSelectionMode = useCallback(() => {
     setSelectionMode(true);
@@ -50,15 +51,22 @@ export function useCharactersPanelSelection({
       setExportingSelected(true);
       setExportDialogOpen(false);
       try {
-        exportApi.triggerDownload(await exportApi.charactersBulk([...selectedCharacterIds], format));
+        exportApi.triggerDownload(
+          await exportApi.charactersBulk(
+            [...selectedCharacterIds],
+            format,
+            format === "native" ? { includeMemories: includeMemoriesInExport } : undefined,
+          ),
+        );
         toast.success(`Exported ${selectedCharacterIds.size} character${selectedCharacterIds.size === 1 ? "" : "s"}`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to export characters");
       } finally {
         setExportingSelected(false);
+        setIncludeMemoriesInExport(false);
       }
     },
-    [selectedCharacterIds],
+    [includeMemoriesInExport, selectedCharacterIds],
   );
 
   const handleDeleteSelected = useCallback(async () => {
@@ -101,10 +109,12 @@ export function useCharactersPanelSelection({
     exportingSelected,
     handleDeleteSelected,
     handleExportSelected,
+    includeMemoriesInExport,
     selectAllVisible,
     selectedCharacterIds,
     selectionMode,
     setExportDialogOpen,
+    setIncludeMemoriesInExport,
     toggleSelection,
   };
 }

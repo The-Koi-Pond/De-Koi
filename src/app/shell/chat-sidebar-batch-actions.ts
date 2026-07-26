@@ -1,7 +1,8 @@
 type DeleteSelectedChatsInput = {
   chatIds: string[];
   activeChatId: string | null;
-  deleteChat: (chatId: string) => Promise<unknown>;
+  deleteMemories: boolean;
+  deleteChat: (input: { id: string; deleteMemories: boolean }) => Promise<unknown>;
   setActiveChatId: (chatId: string | null) => void;
   exitMultiSelect: () => void;
 };
@@ -40,6 +41,7 @@ export function formatDeleteSelectedChatsError(error: unknown) {
 export async function deleteSelectedChatsSequentially({
   chatIds,
   activeChatId,
+  deleteMemories,
   deleteChat,
   setActiveChatId,
   exitMultiSelect,
@@ -47,7 +49,7 @@ export async function deleteSelectedChatsSequentially({
   let deletedCount = 0;
   try {
     for (const chatId of chatIds) {
-      await deleteChat(chatId);
+      await deleteChat({ id: chatId, deleteMemories });
       deletedCount += 1;
       if (activeChatId === chatId) setActiveChatId(null);
     }
