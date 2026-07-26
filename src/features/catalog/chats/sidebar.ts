@@ -10,3 +10,4 @@ export {
   useUpdateFolder,
 } from "./hooks/use-chat-folders";
 export type { BulkChatExportFormat } from "./lib/chat-transcript-export";
+export { confirmChatDeletion } from "./lib/chat-delete-confirmation";

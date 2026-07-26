@@ -35,6 +35,7 @@ import {
   useDeleteChat,
   useDeleteChatGroup,
   useUpdateChatMetadata,
+  confirmChatDeletion,
   type BulkChatExportFormat,
 } from "../../features/catalog/chats/sidebar";
 import {
@@ -61,7 +62,11 @@ import { Modal } from "../../shared/components/ui/Modal";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { useStartNewChat } from "./useStartNewChat";
 import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
-import { deleteSelectedChatsSequentially, formatDeleteSelectedChatsError } from "./chat-sidebar-batch-actions";
+import {
+  deleteSingleChatWithConfirmation,
+  deleteSelectedChatsSequentially,
+  formatDeleteSelectedChatsError,
+} from "./chat-sidebar-batch-actions";
 import {
   deriveChatSidebarRows,
   type ChatSidebarRow as DerivedChatSidebarRow,
@@ -122,20 +127,26 @@ export function ChatSidebarRecoveryView({
       disabled={action.id === "retry" && isFetching}
       className={cn(
         "min-h-9 rounded-lg px-3 py-1.5 text-[0.6875rem] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60",
-        primary ? "bg-[var(--primary)]/15 text-[var(--primary)] hover:bg-[var(--primary)]/25" : "bg-[var(--secondary)] text-[var(--foreground)] hover:bg-[var(--sidebar-accent)]",
+        primary
+          ? "bg-[var(--primary)]/15 text-[var(--primary)] hover:bg-[var(--primary)]/25"
+          : "bg-[var(--secondary)] text-[var(--foreground)] hover:bg-[var(--sidebar-accent)]",
       )}
     >
       {action.id === "retry" && isFetching ? "Checking..." : action.label}
     </button>
   );
-  return <>
-    <p className="text-xs font-semibold text-[var(--foreground)]">{recovery.title}</p>
-    <p className="max-w-[16rem] text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">{recovery.description}</p>
-    <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-      {renderAction(recovery.primaryAction, true)}
-      {recovery.secondaryAction && renderAction(recovery.secondaryAction, false)}
-    </div>
-  </>;
+  return (
+    <>
+      <p className="text-xs font-semibold text-[var(--foreground)]">{recovery.title}</p>
+      <p className="max-w-[16rem] text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+        {recovery.description}
+      </p>
+      <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+        {renderAction(recovery.primaryAction, true)}
+        {recovery.secondaryAction && renderAction(recovery.secondaryAction, false)}
+      </div>
+    </>
+  );
 }
 
 type ChatSidebarProps = {
@@ -777,24 +788,35 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
   // ── Batch actions ──
   const [batchMovingFolder, setBatchMovingFolder] = useState(false);
 
+  const handleSingleChatDelete = useCallback(
+    async (chatId: string) => {
+      try {
+        return await deleteSingleChatWithConfirmation({
+          chatId,
+          activeChatId,
+          confirmDeletion: () => confirmChatDeletion(1),
+          deleteChat: deleteChat.mutateAsync,
+          setActiveChatId,
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to delete chat.");
+        return false;
+      }
+    },
+    [activeChatId, deleteChat, setActiveChatId],
+  );
+
   const handleBatchDelete = useCallback(async () => {
     if (selectedChatIds.size === 0) return;
     const deletableIds = Array.from(selectedChatIds);
     if (deletableIds.length === 0) return;
-    if (
-      !(await showConfirmDialog({
-        title: "Delete Chats",
-        message: `Delete ${deletableIds.length} chat${deletableIds.length > 1 ? "s" : ""}?`,
-        confirmLabel: "Delete",
-        tone: "destructive",
-      }))
-    ) {
-      return;
-    }
+    const confirmation = await confirmChatDeletion(deletableIds.length);
+    if (!confirmation.confirmed) return;
     try {
       await deleteSelectedChatsSequentially({
         chatIds: deletableIds,
         activeChatId,
+        deleteMemories: confirmation.deleteMemories,
         deleteChat: deleteChat.mutateAsync,
         setActiveChatId,
         exitMultiSelect,
@@ -824,15 +846,20 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
     [selectedChatIds, moveChatMut, exitMultiSelect],
   );
 
-  const handleDeleteEntireGroup = useCallback(() => {
+  const handleDeleteEntireGroup = useCallback(async () => {
     if (!deleteTarget?.groupId || deleteChatGroup.isPending) return;
+    const confirmation = await confirmChatDeletion(deleteTarget.branchCount);
+    if (!confirmation.confirmed) return;
     const deletingGroupId = deleteTarget.groupId;
-    deleteChatGroup.mutate(deletingGroupId, {
-      onSuccess: () => {
-        if (activeGroupId === deletingGroupId) setActiveChatId(null);
-        setDeleteTarget(null);
+    deleteChatGroup.mutate(
+      { groupId: deletingGroupId, deleteMemories: confirmation.deleteMemories },
+      {
+        onSuccess: () => {
+          if (activeGroupId === deletingGroupId) setActiveChatId(null);
+          setDeleteTarget(null);
+        },
       },
-    });
+    );
   }, [activeGroupId, deleteChatGroup, deleteTarget, setActiveChatId]);
 
   // ── Chat row renderer (shared between unfiled + folder sections) ──
@@ -1040,7 +1067,9 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
         )}
 
         {!multiSelectMode && (
-          <div className={cn(CHAT_ROW_ACTION_RAIL_CLASS_NAME, pinned && "pointer-events-auto max-w-32 px-1 opacity-100")}>
+          <div
+            className={cn(CHAT_ROW_ACTION_RAIL_CLASS_NAME, pinned && "pointer-events-auto max-w-32 px-1 opacity-100")}
+          >
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -1086,17 +1115,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
                 if (branchCount > 1 && chat.groupId) {
                   setDeleteTarget({ chatId: chat.id, groupId: chat.groupId, branchCount });
                 } else {
-                  if (
-                    await showConfirmDialog({
-                      title: "Delete Chat",
-                      message: "Delete this chat?",
-                      confirmLabel: "Delete",
-                      tone: "destructive",
-                    })
-                  ) {
-                    deleteChat.mutate(chat.id);
-                    if (activeChatId === chat.id) setActiveChatId(null);
-                  }
+                  await handleSingleChatDelete(chat.id);
                 }
               }}
               className="shrink-0 rounded-md p-1 text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20"
@@ -1488,10 +1507,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
             </div>
             <div className="flex flex-col gap-2">
               <button
-                onClick={() => {
-                  deleteChat.mutate(deleteTarget.chatId);
-                  if (activeChatId === deleteTarget.chatId) setActiveChatId(null);
-                  setDeleteTarget(null);
+                onClick={async () => {
+                  if (await handleSingleChatDelete(deleteTarget.chatId)) setDeleteTarget(null);
                 }}
                 disabled={deleteChatGroup.isPending}
                 className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"

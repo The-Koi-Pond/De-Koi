@@ -3,7 +3,7 @@ import { Modal } from "./Modal";
 import { dismissActiveDialog, resolveActiveDialog } from "../../lib/app-dialogs";
 import { useDialogStore } from "../../stores/dialog.store";
 
-function getDialogTitle(kind: "alert" | "confirm" | "prompt", title?: string) {
+function getDialogTitle(kind: "alert" | "confirm" | "confirm-option" | "prompt", title?: string) {
   if (title) return title;
   if (kind === "alert") return "Notice";
   if (kind === "prompt") return "Input Required";
@@ -13,6 +13,7 @@ function getDialogTitle(kind: "alert" | "confirm" | "prompt", title?: string) {
 export function AppDialogRenderer() {
   const dialog = useDialogStore((state) => state.dialog);
   const [promptValue, setPromptValue] = useState("");
+  const [optionChecked, setOptionChecked] = useState(false);
   const promptInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -22,6 +23,10 @@ export function AppDialogRenderer() {
     }
 
     setPromptValue(dialog.defaultValue ?? "");
+  }, [dialog]);
+
+  useEffect(() => {
+    setOptionChecked(dialog?.kind === "confirm-option" ? (dialog.defaultChecked ?? false) : false);
   }, [dialog]);
 
   useEffect(() => {
@@ -97,6 +102,43 @@ export function AppDialogRenderer() {
               {dialog.confirmLabel ?? "Confirm"}
             </button>
           </div>
+        )}
+
+        {dialog.kind === "confirm-option" && (
+          <>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--secondary)] p-3">
+              <input
+                type="checkbox"
+                checked={optionChecked}
+                onChange={(event) => setOptionChecked(event.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
+              />
+              <span className="space-y-1">
+                <span className="block text-sm font-medium text-[var(--foreground)]">{dialog.optionLabel}</span>
+                {dialog.optionDescription && (
+                  <span className="block text-xs leading-relaxed text-[var(--muted-foreground)]">
+                    {dialog.optionDescription}
+                  </span>
+                )}
+              </span>
+            </label>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={dismissActiveDialog}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              >
+                {dialog.cancelLabel ?? "Cancel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveActiveDialog({ confirmed: true, optionChecked })}
+                className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${confirmToneClass}`}
+              >
+                {dialog.confirmLabel ?? "Confirm"}
+              </button>
+            </div>
+          </>
         )}
 
         {dialog.kind === "alert" && (

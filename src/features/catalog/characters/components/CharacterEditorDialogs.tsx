@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { CharacterData } from "../../../../engine/contracts/types/character";
 import { exportApi } from "../../../../shared/api/export-api";
 import { AvatarGenerationModal } from "../../../../shared/components/ui/AvatarGenerationModal";
@@ -28,6 +29,15 @@ export function CharacterEditorDialogs({
   onCloseAvatarGenerator,
   onUseGeneratedAvatar,
 }: CharacterEditorDialogsProps) {
+  const [includeMemories, setIncludeMemories] = useState(false);
+  useEffect(() => {
+    if (exportDialogOpen) setIncludeMemories(false);
+  }, [exportDialogOpen]);
+
+  const closeExportDialog = () => {
+    setIncludeMemories(false);
+    onCloseExportDialog();
+  };
   const handleExportError = (error: unknown) => {
     toastExportError(error, "Failed to export character.");
   };
@@ -40,10 +50,17 @@ export function CharacterEditorDialogs({
         description="Native keeps De-Koi metadata. Compatible exports direct Chara Card V2 JSON for other platforms."
         compatibleDescription="Exports direct Chara Card V2 JSON without the native wrapper."
         showPngOption
-        onClose={onCloseExportDialog}
+        onClose={closeExportDialog}
+        option={{
+          checked: includeMemories,
+          label: "Include character memories",
+          description:
+            "Only De-Koi Native exports can include memories. Source chat and message IDs are never exported.",
+          onCheckedChange: setIncludeMemories,
+        }}
         onSelect={(format: ExportFormatChoice) => {
           if (!characterId) return;
-          onCloseExportDialog();
+          closeExportDialog();
           if (format === "compatible-png") {
             void exportApi
               .characterPng(characterId)
@@ -51,7 +68,7 @@ export function CharacterEditorDialogs({
               .catch(handleExportError);
           } else {
             void exportApi
-              .character(characterId, format)
+              .character(characterId, format, format === "native" ? { includeMemories } : undefined)
               .then((payload) => triggerDownloadWithToast(payload, "Character exported."))
               .catch(handleExportError);
           }

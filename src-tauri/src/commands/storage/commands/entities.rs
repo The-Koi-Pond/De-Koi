@@ -53,6 +53,7 @@ mod support;
 use delete::chat_folder_delete_atomic_rows;
 pub(crate) use delete::{
     connection_folder_reorder_inner, connection_move_inner, delete_entity,
+    delete_entity_with_options,
     lorebook_entry_reorder_inner, lorebook_folder_reorder_inner,
 };
 pub(crate) use duplicate::duplicate_entity;
@@ -940,10 +941,15 @@ pub async fn storage_delete(
     entity: String,
     id: String,
     force: Option<bool>,
+    delete_memories: Option<bool>,
 ) -> Result<Value, AppError> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        delete_entity(&state, &entity, &id, force.unwrap_or(false))
+        if delete_memories.unwrap_or(false) {
+            delete_entity_with_options(&state, &entity, &id, force.unwrap_or(false), true)
+        } else {
+            delete_entity(&state, &entity, &id, force.unwrap_or(false))
+        }
     })
     .await
     .map_err(|error| AppError::new("task_join_error", error.to_string()))?
@@ -8581,5 +8587,39 @@ mod tests {
             .expect("folder should exist");
         assert_eq!(folder_b["sortOrder"], 0);
         assert_eq!(folder_b["order"], 0);
+    }
+
+    #[test]
+    fn delete_chat_memory_policy_defaults_to_keep_and_honors_explicit_delete() {
+        let state = test_state("delete-chat-memory-policy");
+        for chat_id in ["chat-keep", "chat-delete"] {
+            state
+                .storage
+                .create("chats", json!({ "id": chat_id, "name": chat_id, "metadata": {} }))
+                .unwrap();
+            canonical_memory::create_memory(
+                &state,
+                json!({
+                    "id": format!("memory-{chat_id}"),
+                    "kind": "fact",
+                    "status": "active",
+                    "scope": { "kind": "character", "id": "character-1" },
+                    "content": format!("A fact learned in {chat_id}."),
+                    "confidence": 0.9,
+                    "provenance": { "sourceChatId": chat_id, "messageIds": ["message-1"] }
+                }),
+            )
+            .unwrap();
+        }
+
+        delete_entity(&state, "chats", "chat-keep", false).unwrap();
+        assert!(canonical_memory::get_memory(&state, "memory-chat-keep").is_ok());
+
+        let result =
+            delete_entity_with_options(&state, "chats", "chat-delete", false, true).unwrap();
+        assert!(canonical_memory::get_memory(&state, "memory-chat-delete").is_err());
+        assert_eq!(result["memoryCleanup"]["requested"], true);
+        assert_eq!(result["memoryCleanup"]["completed"], true);
+        assert_eq!(result["memoryCleanup"]["deleted"], 1);
     }
 }

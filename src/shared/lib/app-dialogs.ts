@@ -3,23 +3,32 @@ import {
   type AlertDialogState,
   type AppDialogState,
   type ConfirmDialogState,
+  type ConfirmOptionDialogState,
   type PromptDialogState,
 } from "../stores/dialog.store";
 
+export type ConfirmDialogWithOptionResult = {
+  confirmed: boolean;
+  optionChecked: boolean;
+};
+
+type DialogResolution = boolean | string | null | void | ConfirmDialogWithOptionResult;
+
 type ActiveDialogResolver = {
   kind: AppDialogState["kind"];
-  resolve: (value: boolean | string | null | void) => void;
+  resolve: (value: DialogResolution) => void;
 };
 
 let activeResolver: ActiveDialogResolver | null = null;
 
 function resolveFallback(kind: AppDialogState["kind"]) {
   if (kind === "confirm") return false;
+  if (kind === "confirm-option") return { confirmed: false, optionChecked: false };
   if (kind === "prompt") return null;
   return undefined;
 }
 
-function openDialog<T extends boolean | string | null | void>(dialog: AppDialogState): Promise<T> {
+function openDialog<T extends DialogResolution>(dialog: AppDialogState): Promise<T> {
   if (activeResolver) {
     activeResolver.resolve(resolveFallback(activeResolver.kind));
     activeResolver = null;
@@ -30,12 +39,12 @@ function openDialog<T extends boolean | string | null | void>(dialog: AppDialogS
   return new Promise<T>((resolve) => {
     activeResolver = {
       kind: dialog.kind,
-      resolve: resolve as (value: boolean | string | null | void) => void,
+      resolve: resolve as (value: DialogResolution) => void,
     };
   });
 }
 
-export function resolveActiveDialog(value: boolean | string | null | void) {
+export function resolveActiveDialog(value: DialogResolution) {
   const resolver = activeResolver;
   activeResolver = null;
   useDialogStore.getState().closeDialog();
@@ -61,6 +70,18 @@ export function showConfirmDialog(options: Omit<ConfirmDialogState, "kind">): Pr
     kind: "confirm",
     confirmLabel: "Confirm",
     cancelLabel: "Cancel",
+    ...options,
+  });
+}
+
+export function showConfirmDialogWithOption(
+  options: Omit<ConfirmOptionDialogState, "kind">,
+): Promise<ConfirmDialogWithOptionResult> {
+  return openDialog<ConfirmDialogWithOptionResult>({
+    kind: "confirm-option",
+    confirmLabel: "Confirm",
+    cancelLabel: "Cancel",
+    defaultChecked: false,
     ...options,
   });
 }

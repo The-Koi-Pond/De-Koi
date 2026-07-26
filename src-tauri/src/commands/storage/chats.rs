@@ -1402,6 +1402,36 @@ fn set_connected_chat(chat: &mut Value, connected_chat_id: &str, now: &str) -> A
 }
 
 pub(crate) fn delete_chat_group(state: &AppState, group_id: &str) -> AppResult<Value> {
+    delete_chat_group_with_options(state, group_id, false)
+}
+
+pub(crate) fn cleanup_deleted_chat_memories(
+    state: &AppState,
+    deleted_chat_ids: &[String],
+) -> Value {
+    let deleted_chat_ids = deleted_chat_ids.iter().cloned().collect::<HashSet<_>>();
+    match canonical_memory::delete_memories_learned_only_from_chats(state, &deleted_chat_ids) {
+        Ok(result) => json!({
+            "requested": true,
+            "completed": true,
+            "deleted": result.deleted,
+            "retainedShared": result.retained_shared
+        }),
+        Err(error) => json!({
+            "requested": true,
+            "completed": false,
+            "deleted": 0,
+            "retainedShared": 0,
+            "errorCode": error.code
+        }),
+    }
+}
+
+pub(crate) fn delete_chat_group_with_options(
+    state: &AppState,
+    group_id: &str,
+    delete_memories: bool,
+) -> AppResult<Value> {
     let chats = match list_collection(state, "chats", Some(("groupId", group_id)))? {
         Value::Array(rows) => rows,
         _ => Vec::new(),
@@ -1422,7 +1452,12 @@ pub(crate) fn delete_chat_group(state: &AppState, group_id: &str) -> AppResult<V
     }
     deleted_chat_ids.sort_unstable();
     deleted_chat_ids.dedup();
-    Ok(json!({ "deleted": deleted, "deletedChatIds": deleted_chat_ids }))
+    let mut result = json!({ "deleted": deleted, "deletedChatIds": deleted_chat_ids });
+    if delete_memories {
+        result["memoryCleanup"] =
+            cleanup_deleted_chat_memories(state, &deleted_chat_ids);
+    }
+    Ok(result)
 }
 
 pub(crate) fn branch_chat(state: &AppState, chat_id: &str, body: Value) -> AppResult<Value> {
@@ -3063,6 +3098,47 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(state.storage.get("chats", "other-chat").unwrap().is_some());
+    }
+
+    #[test]
+    fn delete_chat_group_memory_policy_cleans_the_complete_group_scope_once() {
+        let state = test_state("group-delete-memory-policy");
+        for chat_id in ["chat-a", "chat-b"] {
+            state
+                .storage
+                .create(
+                    "chats",
+                    json!({
+                        "id": chat_id,
+                        "name": chat_id,
+                        "groupId": "group-1",
+                        "metadata": {}
+                    }),
+                )
+                .unwrap();
+        }
+        canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "memory-shared-by-group",
+                "kind": "fact",
+                "status": "active",
+                "scope": { "kind": "character", "id": "character-1" },
+                "content": "A fact supported by both group chats.",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-a", "messageIds": ["message-a"] },
+                "payload": { "sourceChatIds": ["chat-a", "chat-b"] }
+            }),
+        )
+        .unwrap();
+
+        let result =
+            delete_chat_group_with_options(&state, "group-1", true).unwrap();
+
+        assert_eq!(result["memoryCleanup"]["completed"], true);
+        assert_eq!(result["memoryCleanup"]["deleted"], 1);
+        assert_eq!(result["memoryCleanup"]["retainedShared"], 0);
+        assert!(canonical_memory::get_memory(&state, "memory-shared-by-group").is_err());
     }
 
     #[test]

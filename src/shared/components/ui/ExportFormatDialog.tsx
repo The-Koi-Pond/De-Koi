@@ -16,6 +16,12 @@ interface ExportFormatDialogProps {
   showPngOption?: boolean;
   onClose: () => void;
   onSelect: (format: ExportFormatChoice) => void;
+  option?: {
+    checked: boolean;
+    label: string;
+    description?: string;
+    onCheckedChange: (checked: boolean) => void;
+  };
 }
 
 export function ExportFormatDialog({
@@ -30,6 +36,7 @@ export function ExportFormatDialog({
   showPngOption = false,
   onClose,
   onSelect,
+  option,
 }: ExportFormatDialogProps) {
   const options: Array<{
     id: ExportFormatChoice;
@@ -39,7 +46,9 @@ export function ExportFormatDialog({
   }> = [
     { id: "native", label: "De-Koi Native", icon: Layers, description: nativeDescription },
     { id: "compatible", label: "Compatible JSON", icon: FileJson, description: compatibleDescription },
-    ...(showZipOption ? [{ id: "zip" as const, label: "Profile ZIP", icon: Archive, description: zipDescription }] : []),
+    ...(showZipOption
+      ? [{ id: "zip" as const, label: "Profile ZIP", icon: Archive, description: zipDescription }]
+      : []),
     ...(showPngOption
       ? [{ id: "compatible-png" as const, label: "Compatible PNG Card", icon: ImageDown, description: pngDescription }]
       : []),
@@ -50,6 +59,24 @@ export function ExportFormatDialog({
     <Modal open={open} onClose={onClose} title={title} width="max-w-lg">
       <div className="space-y-4">
         <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">{description}</p>
+        {option && (
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/55 p-3">
+            <input
+              type="checkbox"
+              checked={option.checked}
+              onChange={(event) => option.onCheckedChange(event.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
+            />
+            <span>
+              <span className="block text-sm font-medium text-[var(--foreground)]">{option.label}</span>
+              {option.description && (
+                <span className="mt-1 block text-xs leading-relaxed text-[var(--muted-foreground)]">
+                  {option.description}
+                </span>
+              )}
+            </span>
+          </label>
+        )}
         <div className={cn("grid gap-2", gridColumns)}>
           {options.map((option) => {
             const Icon = option.icon;

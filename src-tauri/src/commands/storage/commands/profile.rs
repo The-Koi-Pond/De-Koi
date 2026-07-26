@@ -330,15 +330,17 @@ pub async fn character_export(
     state: State<'_, AppState>,
     id: String,
     format: Option<String>,
+    include_memories: Option<bool>,
 ) -> Result<Value, AppError> {
     let state = state.inner().clone();
     run_blocking_export(move || {
-        exports::export_record(
+        exports::export_record_with_options(
             &state,
             "marinara_character",
             "characters",
             &id,
             format.as_deref(),
+            include_memories.unwrap_or(false),
         )
     })
     .await
@@ -366,6 +368,7 @@ pub async fn characters_export_bulk(
     state: State<'_, AppState>,
     ids: Vec<String>,
     format: Option<String>,
+    include_memories: Option<bool>,
 ) -> Result<Value, AppError> {
     let state = state.inner().clone();
     run_blocking_export(move || {
@@ -373,7 +376,11 @@ pub async fn characters_export_bulk(
             &state,
             "marinara_characters",
             "characters",
-            json!({ "ids": ids, "format": format }),
+            json!({
+                "ids": ids,
+                "format": format,
+                "includeMemories": include_memories.unwrap_or(false)
+            }),
         )
     })
     .await

@@ -9,9 +9,7 @@ function memoryListArgs(chatId: string | null, options?: ListChatMemoriesOptions
   if (options?.order) args.order = options.order;
   const excludeRecentMessageIds = Array.from(
     new Set(
-      (options?.excludeRecentMessageIds ?? [])
-        .map((id) => (typeof id === "string" ? id.trim() : ""))
-        .filter(Boolean),
+      (options?.excludeRecentMessageIds ?? []).map((id) => (typeof id === "string" ? id.trim() : "")).filter(Boolean),
     ),
   );
   if (excludeRecentMessageIds.length > 0) args.excludeRecentMessageIds = excludeRecentMessageIds;
@@ -24,6 +22,17 @@ function memoryListArgs(chatId: string | null, options?: ListChatMemoriesOptions
 export interface ChatGroupDeleteResult {
   deleted: number;
   deletedChatIds?: string[];
+  memoryCleanup?: {
+    requested: boolean;
+    completed: boolean;
+    deleted: number;
+    retainedShared: number;
+    errorCode?: string;
+  };
+}
+
+export interface ChatGroupDeleteOptions {
+  deleteMemories?: boolean;
 }
 
 export const chatCommandApi = {
@@ -50,14 +59,15 @@ export const chatCommandApi = {
     invokeTauri<T>("chat_memory_indexes_rebuild", { chatId }),
   memoriesExport: <T = unknown>(chatId: string) => invokeTauri<T>("chat_memories_export", { chatId }),
   memoriesImport: <T = unknown>(chatId: string, body: unknown, replace?: boolean) =>
-    invokeTauri<T>(
-      "chat_memories_import",
-      typeof replace === "boolean" ? { chatId, body, replace } : { chatId, body },
-    ),
+    invokeTauri<T>("chat_memories_import", typeof replace === "boolean" ? { chatId, body, replace } : { chatId, body }),
   notesList: <T = unknown>(chatId: string | null) => invokeTauri<T>("chat_notes_list", { chatId }),
   noteDelete: (chatId: string | null, noteId: string) => invokeTauri("chat_note_delete", { chatId, noteId }),
   notesClear: (chatId: string | null) => invokeTauri("chat_notes_clear", { chatId }),
-  groupDelete: (groupId: string) => invokeTauri<ChatGroupDeleteResult>("chat_group_delete", { groupId }),
+  groupDelete: (groupId: string, options?: ChatGroupDeleteOptions) =>
+    invokeTauri<ChatGroupDeleteResult>("chat_group_delete", {
+      groupId,
+      ...(options?.deleteMemories === undefined ? {} : { deleteMemories: options.deleteMemories }),
+    }),
   markAutonomousUnread: <T = unknown>(chatId: string, body: { characterId?: string | null; count?: number | null }) =>
     invokeTauri<T>("chat_autonomous_unread_mark", { chatId, body }),
   clearAutonomousUnread: <T = unknown>(chatId: string) => invokeTauri<T>("chat_autonomous_unread_clear", { chatId }),

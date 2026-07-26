@@ -1,9 +1,18 @@
 type DeleteSelectedChatsInput = {
   chatIds: string[];
   activeChatId: string | null;
-  deleteChat: (chatId: string) => Promise<unknown>;
+  deleteMemories: boolean;
+  deleteChat: (input: { id: string; deleteMemories: boolean }) => Promise<unknown>;
   setActiveChatId: (chatId: string | null) => void;
   exitMultiSelect: () => void;
+};
+
+type DeleteSingleChatWithConfirmationInput = {
+  chatId: string;
+  activeChatId: string | null;
+  confirmDeletion: () => Promise<{ confirmed: boolean; deleteMemories: boolean }>;
+  deleteChat: (input: { id: string; deleteMemories: boolean }) => Promise<unknown>;
+  setActiveChatId: (chatId: string | null) => void;
 };
 
 type DeleteSelectedChatsErrorInput = {
@@ -37,9 +46,24 @@ export function formatDeleteSelectedChatsError(error: unknown) {
   return error instanceof Error ? error.message : "Failed to delete selected chats.";
 }
 
+export async function deleteSingleChatWithConfirmation({
+  chatId,
+  activeChatId,
+  confirmDeletion,
+  deleteChat,
+  setActiveChatId,
+}: DeleteSingleChatWithConfirmationInput) {
+  const confirmation = await confirmDeletion();
+  if (!confirmation.confirmed) return false;
+  await deleteChat({ id: chatId, deleteMemories: confirmation.deleteMemories });
+  if (activeChatId === chatId) setActiveChatId(null);
+  return true;
+}
+
 export async function deleteSelectedChatsSequentially({
   chatIds,
   activeChatId,
+  deleteMemories,
   deleteChat,
   setActiveChatId,
   exitMultiSelect,
@@ -47,7 +71,7 @@ export async function deleteSelectedChatsSequentially({
   let deletedCount = 0;
   try {
     for (const chatId of chatIds) {
-      await deleteChat(chatId);
+      await deleteChat({ id: chatId, deleteMemories });
       deletedCount += 1;
       if (activeChatId === chatId) setActiveChatId(null);
     }

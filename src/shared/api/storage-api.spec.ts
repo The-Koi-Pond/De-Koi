@@ -80,4 +80,22 @@ describe("storageApi deletes", () => {
       force: true,
     });
   });
+
+  it("forwards an explicit chat memory deletion policy and otherwise omits it", async () => {
+    invokeTauriMock.mockResolvedValue({ deleted: true });
+    const { storageApi } = await import("./storage-api");
+
+    await storageApi.delete("chats", "chat-1", { deleteMemories: true });
+    await storageApi.delete("chats", "chat-2");
+
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(1, "storage_delete", {
+      entity: "chats",
+      id: "chat-1",
+      deleteMemories: true,
+    });
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(2, "storage_delete", {
+      entity: "chats",
+      id: "chat-2",
+    });
+  });
 });
