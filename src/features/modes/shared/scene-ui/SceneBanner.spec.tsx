@@ -102,4 +102,34 @@ describe("SceneBanner", () => {
       finishDiscard?.();
     });
   });
+
+  it("keeps the scene when discard confirmation is cancelled", async () => {
+    const onAbandon = vi.fn();
+    vi.mocked(showConfirmDialog).mockResolvedValue(false);
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <EndSceneBar
+          sceneChatId="scene-1"
+          originChatId="origin-1"
+          onConclude={vi.fn()}
+          onAbandon={onAbandon}
+        />,
+      );
+    });
+
+    const discardButton = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Discard",
+    );
+
+    await act(async () => {
+      discardButton!.click();
+    });
+
+    expect(showConfirmDialog).toHaveBeenCalledOnce();
+    expect(onAbandon).not.toHaveBeenCalled();
+    expect(container!.textContent).toContain("Discard");
+    expect(container!.textContent).not.toContain("Discarding...");
+  });
 });
