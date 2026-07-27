@@ -13,6 +13,9 @@ describe("settings information architecture", () => {
     expect(drawer).toContain('role="switch"');
     expect(drawer).toContain("aria-checked={automaticRoleplayQualityCorrection}");
     expect(drawer).toContain("Clean replies stay fast and use no extra model call.");
+    expect(drawer).toContain("high-confidence prose and strict-agency problems");
+    expect(drawer).toContain("strong local");
+    expect(drawer).toContain("evidence and keeps the original whenever a correction is uncertain or fails");
   });
 
   it("keeps per-chat context, research, and reasoning in separate sections", () => {

@@ -75,8 +75,107 @@ describe("roleplay quality history signals", () => {
 });
 
 describe("roleplay quality response signals", () => {
-  const strictAgency =
-    "strict agency: never write {{user}}'s dialogue, intent, decisions, or deliberate actions.";
+  const strictAgency = "strict agency: never write {{user}}'s dialogue, intent, decisions, or deliberate actions.";
+
+  it("routes a Director-style reply from accumulated structure rather than subject matter", () => {
+    const content = [
+      "The instruction lands between them. Not softly, but with weight.",
+      "You said the chair should make people prove themselves before they are trusted.",
+      "Not a suggestion. Not a possibility. A verdict.",
+      "—The room waits while every person supplies another polished reaction.",
+      "—The silence stretches. —The answer settles. —The moment hangs.",
+      "This paragraph repeats the same emotional conclusion without adding usable state. ".repeat(95),
+    ].join("\n\n");
+    const result = analyzeRoleplayResponse({
+      content,
+      latestUserInput: "The chair should make people prove themselves before they are trusted.",
+      messages: [
+        assistant("The question lands between them. Not gently, but with force."),
+        assistant("The name lands between them. Not quietly, but like a judgment."),
+      ],
+      selectedControls: { length: "flexible length", styleFlavor: "grounded prose" },
+    });
+
+    expect(result.shouldAudit).toBe(true);
+    expect(result.signals.map((entry) => entry.kind)).toEqual(
+      expect.arrayContaining(["user_echo", "rhetorical_repetition", "length_mismatch"]),
+    );
+  });
+
+  it.each([
+    ["explicit intimacy", "Two adult lovers continue an invited explicit scene with specific physical detail."],
+    ["lyrical prose", "Moonlight combs silver through the reeds while Ilyra listens for the ferryman's bell."],
+    ["horror", "The wet footprints stop at the crib. Mara keeps the axe raised and says nothing."],
+    ["non-English", "La lluvia golpea la ventana. Mara guarda la carta y espera una respuesta."],
+  ])("does not route one isolated clean %s feature", (_label, content) => {
+    expect(analyzeRoleplayResponse({ content, latestUserInput: "Continue." }).shouldAudit).toBe(false);
+  });
+
+  it("honors Long and Scene Draft controls instead of treating size as suspicion", () => {
+    const content = Array.from(
+      { length: 90 },
+      (_, index) => `Distinct scene sentence ${index} changes one concrete fact.`,
+    ).join(" ");
+
+    expect(
+      analyzeRoleplayResponse({
+        content,
+        latestUserInput: "Write the full chapter.",
+        selectedControls: { length: "length_scene_draft", styleFlavor: "style_lyrical" },
+      }).signals.some((entry) => entry.kind === "length_mismatch"),
+    ).toBe(false);
+  });
+
+  it("requires two independent minor kinds when no pattern recurs three times", () => {
+    const result = analyzeRoleplayResponse({
+      content: "Mara repeats the exact user wording about the sealed blue envelope.",
+      latestUserInput: "The exact user wording about the sealed blue envelope.",
+    });
+
+    expect(result.signals.map((entry) => entry.kind)).toContain("user_echo");
+    expect(result.shouldAudit).toBe(false);
+  });
+
+  it("routes one structural pattern only after it appears in the candidate and two prior replies", () => {
+    const result = analyzeRoleplayResponse({
+      content: "For a long moment, Mara studies the seal before answering.",
+      latestUserInput: "I wait.",
+      messages: [
+        assistant("For a long moment, rain ticks against the window."),
+        assistant("For a long moment, neither guard speaks."),
+      ],
+    });
+
+    expect(result.signals).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "repeated_phrase", occurrences: 3 })]),
+    );
+    expect(result.shouldAudit).toBe(true);
+  });
+
+  it("flags an authoritative named-pronoun contradiction without inferring identity", () => {
+    const result = analyzeRoleplayResponse({
+      content: "Rowan closes the file because she has made her decision.",
+      personaName: "Rowan",
+      personaDescription: "Pronouns: they/them.",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        shouldAudit: true,
+        signals: expect.arrayContaining([
+          expect.objectContaining({ kind: "identity_contradiction", severity: "high" }),
+        ]),
+      }),
+    );
+  });
+
+  it("flags malformed internal or mixed-script output but not ordinary Unicode", () => {
+    expect(analyzeRoleplayResponse({ content: "Mara hand鞭s over the key." }).shouldAudit).toBe(true);
+    expect(analyzeRoleplayResponse({ content: "Mara\u0001 hands over the key." }).shouldAudit).toBe(true);
+    expect(analyzeRoleplayResponse({ content: "Pokémon, naïve, 東京, and Мария remain valid text." }).shouldAudit).toBe(
+      false,
+    );
+  });
 
   it.each([
     ["dialogue", '"I accept," Celia says, taking the contract.'],
@@ -84,6 +183,8 @@ describe("roleplay quality response signals", () => {
     ["intent", "You decide to betray Mira before dawn."],
     ["belief", "Celia believes the locked room is empty."],
     ["deliberate action", "You cross the hall and open the sealed door."],
+    ["deliberate lean", "You lean your shoulder against the doorframe, arms crossed."],
+    ["deliberate grip", "You grip the handle to stay upright."],
   ])("flags source-backed strict-agency %s candidates", (_label, content) => {
     const result = analyzeRoleplayResponse({
       content,

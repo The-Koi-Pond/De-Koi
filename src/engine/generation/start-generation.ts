@@ -119,7 +119,7 @@ import type { GenerationCharacterContext, GenerationPersonaContext } from "./pro
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { buildGenerationTurnUsage } from "./usage-ledger";
 import { applyRuntimeRegexScripts } from "./regex-runtime";
-import { validateRoleplayQualityAudit } from "./roleplay-quality-audit";
+import { roleplayQualityReasonsForSignals, validateRoleplayQualityAudit } from "./roleplay-quality-audit";
 import { analyzeRoleplayResponse } from "./roleplay-quality-signals";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationSubjectMatches } from "../generation-core/images/illustration-reference-matching";
@@ -299,6 +299,7 @@ export interface GenerationDryRunInput extends StartGenerationInput {
 interface GenerationDryRunResult {
   runId: string | null;
   content: string;
+  roleplayQualityCorrection: RoleplayQualityCorrectionExtra | null;
   thinking: string;
   usage: unknown;
   providerMetadata: unknown;
@@ -3104,6 +3105,16 @@ interface AutomaticRoleplayQualityCorrectionResult {
   correction: RoleplayQualityCorrectionExtra | null;
 }
 
+function latestVisibleRoleplayUserInput(messages: JsonRecord[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (hiddenFromAi(message) || readString(message.role).trim() !== "user") continue;
+    const content = readString(message.content).trim();
+    if (content) return content;
+  }
+  return "";
+}
+
 function automaticRoleplayQualityCorrectionEnabled(chat: JsonRecord, input: StartGenerationInput): boolean {
   const mode = readString(chat.mode || chat.chatMode).trim();
   if (mode !== "roleplay" && mode !== "visual_novel") return false;
@@ -3149,12 +3160,17 @@ async function applyAutomaticRoleplayQualityCorrection(args: {
   }
   const analysis = analyzeRoleplayResponse({
     content: args.content,
+    messages: args.runtimeInput.storedMessages,
+    latestUserInput: latestVisibleRoleplayUserInput(args.runtimeInput.storedMessages),
     personaName: args.runtimeInput.persona?.name ?? null,
+    personaDescription: args.runtimeInput.persona?.description ?? null,
     characterNames: args.runtimeInput.characters.map((character) => character.name),
+    selectedControls: parseRecord(args.chat.promptVariables),
     agencyContract: args.agencyContract,
   });
-  const highSeveritySignals = analysis.signals.filter((signal) => signal.severity === "high");
-  if (highSeveritySignals.length === 0) return { content: args.content, correction: null };
+  if (!analysis.shouldAudit) return { content: args.content, correction: null };
+  const allowedReasons = roleplayQualityReasonsForSignals(analysis.signals);
+  if (allowedReasons.length === 0) return { content: args.content, correction: null };
 
   const deadline = createRoleplayQualityAuditDeadline(args.signal);
   try {
@@ -3168,13 +3184,13 @@ async function applyAutomaticRoleplayQualityCorrection(args: {
       { ...args.runtimeInput, signal: deadline.signal },
       {
         mainResponse: args.content,
-        agencyContract: args.agencyContract ?? "",
-        signals: highSeveritySignals,
+        agencyContract: args.agencyContract,
+        signals: analysis.signals,
       },
     );
     throwIfAborted(args.signal);
     const repair = validateRoleplayQualityAudit(args.content, result, {
-      allowedReasons: ["agency"],
+      allowedReasons,
     });
     if (!repair.changed || repair.evidence.length === 0) {
       return { content: args.content, correction: null };
@@ -4460,9 +4476,41 @@ export async function* dryRunGeneration(
   if (content !== streamedContent) {
     yield { type: "content_replace", data: content };
   }
+  const dryRunAgentInput: GenerationAgentRuntimeInput = {
+    chat: chatForGeneration,
+    connection,
+    storedMessages: generationMessages,
+    cadenceMessages: storedMessages,
+    characters: assembly.characters,
+    persona: assembly.persona,
+    activatedLorebookEntries: assembly.activatedLorebookEntries,
+    chatSummary: assembly.chatSummary,
+    embeddingSource: generationEmbeddingSource(deps.llm, connection),
+    debugMode: input.debugMode === true,
+    debugSink: input.debugSink,
+    hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
+    signal,
+    forCharacterId: readString(input.forCharacterId).trim() || null,
+    regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
+  };
+  const roleplayQuality = await applyAutomaticRoleplayQualityCorrection({
+    deps,
+    chat: chatForGeneration,
+    input,
+    runtimeInput: dryRunAgentInput,
+    agencyContract: assembly.roleplayAgencyContract,
+    content,
+    signal,
+  });
+  throwIfAborted(signal);
+  if (roleplayQuality.content !== content) {
+    content = roleplayQuality.content;
+    yield { type: "content_replace", data: content };
+  }
   const result: GenerationDryRunResult = {
     runId,
     content,
+    roleplayQualityCorrection: roleplayQuality.correction,
     thinking: streamedThinking,
     usage,
     providerMetadata,

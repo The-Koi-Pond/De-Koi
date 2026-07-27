@@ -235,16 +235,16 @@ describe("startGeneration roleplay text persistence", () => {
       },
     );
     const original = 'Mira opens the ledger. You accept the bargain. "Good," she says. This tail is unfinished';
-    const corrected = 'Mira opens the ledger. "The bargain is yours to accept," she says.';
+    const corrected = 'Mira opens the ledger. "Your choice," she says.';
     const llm = roleplayLlm([
       original,
       JSON.stringify({
-        editedText: corrected,
-        changes: [
+        edits: [
           {
+            before: 'You accept the bargain. "Good," she says.',
+            after: '"Your choice," she says.',
             reason: "agency",
             description: "Removed a decision assigned to the user.",
-            evidence: "You accept the bargain.",
           },
         ],
       }),
@@ -269,12 +269,10 @@ describe("startGeneration roleplay text persistence", () => {
     expect(assistant?.extra.roleplayQualityCorrection).toEqual({
       source: "focused_editor_audit",
       reasons: ["agency"],
-      evidence: ["You accept the bargain."],
+      evidence: ['You accept the bargain. "Good," she says.'],
       durationMs: expect.any(Number),
     });
-    expect(assistant?.swipes[0]?.extra?.roleplayQualityCorrection).toEqual(
-      assistant?.extra.roleplayQualityCorrection,
-    );
+    expect(assistant?.swipes[0]?.extra?.roleplayQualityCorrection).toEqual(assistant?.extra.roleplayQualityCorrection);
     expect(events.filter((event) => event.type === "content_replace")).toEqual([
       { type: "content_replace", data: corrected },
     ]);
@@ -288,16 +286,16 @@ describe("startGeneration roleplay text persistence", () => {
       },
     );
     const original = "You sign the contract.";
-    const corrected = "Mira leaves the contract open for your signature.";
+    const corrected = "The contract waits.";
     const llm = roleplayLlm([
       original,
       JSON.stringify({
-        editedText: corrected,
-        changes: [
+        edits: [
           {
+            before: original,
+            after: corrected,
             reason: "agency",
             description: "Removed a deliberate action assigned to the user.",
-            evidence: original,
           },
         ],
       }),
@@ -318,8 +316,104 @@ describe("startGeneration roleplay text persistence", () => {
     expect(messages.find((item) => item.role === "assistant")?.content).toBe(corrected);
   });
 
+  it("audits accumulated prose signals without requiring strict agency", async () => {
+    const { storage, messages } = roleplayAttributionStorage(
+      {},
+      {
+        promptVariables: {
+          length: "under 150 words",
+          styleFlavor: "grounded prose",
+        },
+      },
+    );
+    const echoed = "The sealed blue envelope must be opened before dawn";
+    const repeatedContrast = "Not carefully, but completely. Not later, but now. Not privately, but before everyone.";
+    const original = [
+      `${echoed}.`,
+      repeatedContrast,
+      "The same polished conclusion circles the room without adding a decision or changing anyone's position. ".repeat(
+        22,
+      ),
+    ].join(" ");
+    const correctedContrast = "Open it before dawn, in front of everyone.";
+    const llm = roleplayLlm([
+      original,
+      JSON.stringify({
+        edits: [
+          {
+            before: repeatedContrast,
+            after: correctedContrast,
+            reason: "repetition",
+            description: "Collapsed repeated contrast.",
+          },
+        ],
+      }),
+    ]);
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: `${echoed}.`,
+        },
+      ),
+    );
+
+    expect(llm.requests).toHaveLength(2);
+    expect(messages.find((item) => item.role === "assistant")?.content).toContain(correctedContrast);
+    expect(messages.find((item) => item.role === "assistant")?.extra.roleplayQualityCorrection).toEqual(
+      expect.objectContaining({
+        reasons: ["repetition"],
+        evidence: [repeatedContrast],
+      }),
+    );
+  });
+
   it.each([
-    ["a clean strict-agency turn", 'Mira opens the ledger. "The choice is yours."', "strict agency: preserve user choices."],
+    [
+      "invited adult intimacy",
+      "The two adult lovers continue their invited explicit intimacy with specific physical detail and clear reactions.",
+      { length: "length_flexible", styleFlavor: "style_grounded" },
+      "Continue.",
+    ],
+    [
+      "lyrical Scene Draft",
+      Array.from(
+        { length: 90 },
+        (_, index) => `Moonlit sentence ${index} changes one concrete part of the long river journey.`,
+      ).join(" "),
+      { length: "length_scene_draft", styleFlavor: "style_lyrical" },
+      "Write the full chapter.",
+    ],
+    [
+      "non-English prose",
+      "La lluvia golpea la ventana. Mara guarda la carta, cruza la habitación y espera una respuesta.",
+      { length: "length_flexible", language: "Español" },
+      "Continúa.",
+    ],
+  ])("keeps clean %s replies on the one-call path", async (_label, response, promptVariables, userMessage) => {
+    const { storage, messages } = roleplayAttributionStorage({}, { promptVariables });
+    const llm = roleplayLlm(response);
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        { chatId: "chat-1", connectionId: "conn-1", userMessage },
+      ),
+    );
+
+    expect(llm.requests).toHaveLength(1);
+    expect(messages.find((item) => item.role === "assistant")?.content).toBe(response);
+  });
+
+  it.each([
+    [
+      "a clean strict-agency turn",
+      'Mira opens the ledger. "The choice is yours."',
+      "strict agency: preserve user choices.",
+    ],
     ["an organic-agency candidate", "You accept the bargain.", "organic agency: infer minor actions when useful."],
   ])("adds no audit call for %s", async (_label, response, agencyStrictness) => {
     const { storage, messages } = roleplayAttributionStorage({}, { promptVariables: { agencyStrictness } });

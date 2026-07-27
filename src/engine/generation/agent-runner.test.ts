@@ -311,6 +311,48 @@ describe("generation agent runner", () => {
     expect(requests).toEqual([]);
   });
 
+  it("omits the agency contract from audits that have no agency signal", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield { type: "token", text: '{"edits":[]}' };
+      },
+    };
+
+    await runFocusedRoleplayQualityAudit(
+      {
+        storage: testStorage([], [connection]),
+        llm,
+        integrations: noopIntegrations,
+      },
+      runtimeInput(connection),
+      {
+        mainResponse: "His hand鞭s close around the latch.",
+        agencyContract: "strict agency: preserve the user's choices.",
+        signals: [
+          {
+            kind: "malformed_output",
+            severity: "high",
+            evidence: ["hand鞭s"],
+            guidance: "Repair the malformed word.",
+          },
+        ],
+      },
+    );
+
+    const prompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(prompt).toContain('"agencyContract":null');
+    expect(prompt).not.toContain("strict agency: preserve the user's choices.");
+  });
+
   it("rejects a focused audit when the authoritative agency contract is missing", async () => {
     const requests: LlmRequest[] = [];
     const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };

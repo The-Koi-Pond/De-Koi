@@ -149,7 +149,7 @@ export interface AgentDeps {
 
 export interface FocusedRoleplayQualityAuditInput {
   mainResponse: string;
-  agencyContract: string;
+  agencyContract?: string | null;
   signals: RoleplayQualitySignal[];
 }
 
@@ -1670,8 +1670,8 @@ export async function runFocusedRoleplayQualityAudit(
   input: GenerationAgentRuntimeInput,
   audit: FocusedRoleplayQualityAuditInput,
 ): Promise<AgentResult> {
-  const agencyContract = audit.agencyContract.trim();
-  if (!agencyContract) {
+  const agencyContract = audit.agencyContract?.trim() ?? "";
+  if (audit.signals.some((signal) => signal.kind === "agency_candidate") && !agencyContract) {
     return failedFocusedRoleplayQualityAudit(
       "missing_agency_contract",
       "The focused Roleplay quality audit requires an authoritative agency contract.",
@@ -1695,12 +1695,27 @@ export async function runFocusedRoleplayQualityAudit(
 
   const context = await buildAgentContext(deps, auditInput, [editor]);
   context.mainResponse = audit.mainResponse;
+  const latestUserInput =
+    [...input.storedMessages]
+      .reverse()
+      .find((message) => readString(message.role).trim() === "user" && !hiddenFromAi(message))?.content ?? "";
+  const hasAgencySignal = audit.signals.some((signal) => signal.kind === "agency_candidate");
   const policyJson = JSON.stringify({
-    agencyContract,
+    agencyContract: hasAgencySignal ? agencyContract : null,
+    selectedControls: parseRecord(input.chat.promptVariables),
+    latestUserInput: readString(latestUserInput),
+    persona: input.persona
+      ? {
+          name: input.persona.name,
+          description: input.persona.description,
+        }
+      : null,
+    characters: input.characters.map((character) => character.name),
     signals: audit.signals.slice(0, 6).map((signal) => ({
       kind: signal.kind,
       severity: signal.severity,
       evidence: signal.evidence.slice(0, 3),
+      occurrences: signal.occurrences ?? 1,
     })),
   }).replace(/</g, "\\u003c");
   const coreEditor: ResolvedAgent = {

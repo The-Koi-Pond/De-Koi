@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_AGENT_PROMPTS } from "./agent-prompts";
+import { DEFAULT_AGENT_PROMPTS, ROLEPLAY_QUALITY_EDITOR_PROMPT } from "./agent-prompts";
 
 describe("default agent prompts", () => {
+  it("constrains focused Roleplay quality corrections to exact bounded edits", () => {
+    expect(ROLEPLAY_QUALITY_EDITOR_PROMPT).toContain('"edits"');
+    expect(ROLEPLAY_QUALITY_EDITOR_PROMPT).toContain('"before"');
+    expect(ROLEPLAY_QUALITY_EDITOR_PROMPT).toContain('"after"');
+    expect(ROLEPLAY_QUALITY_EDITOR_PROMPT).toContain("Do not return the complete response");
+    expect(ROLEPLAY_QUALITY_EDITOR_PROMPT).toContain("explicit, dark, violent, coercive, romantic, or sexual");
+    expect(ROLEPLAY_QUALITY_EDITOR_PROMPT).toContain("MUST NOT be longer");
+    expect(ROLEPLAY_QUALITY_EDITOR_PROMPT).toContain("agencyContract");
+    expect(ROLEPLAY_QUALITY_EDITOR_PROMPT).not.toContain('"editedText"');
+  });
+
   it("anchors sprite expression selection to the latest turn source", () => {
     const prompt = DEFAULT_AGENT_PROMPTS.expression;
 
