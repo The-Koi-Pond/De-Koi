@@ -1,0 +1,263 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Reduce repetitive and over-contextualized Conversation replies",
+    "source": "Live Conversation B writing-quality audit and approved behavior comparison",
+    "classification": "prompt assembly, legacy memory compatibility, and roleplay scene conclusion behavior",
+    "status": "verified"
+  },
+  "coreClaim": "Conversation replies receive less duplicated and irrelevant context, stay grounded in supplied history, and vary oversized response length while concluded roleplay scenes remain visible to the user without being repeated to the model.",
+  "rootCause": "Scene conclusions were represented in multiple model-visible paths, targeted group turns rendered full cards for every character, scene summaries had no hard word ceiling, and the stock Conversation guidance did not guard invented history or repeated oversized replies.",
+  "scope": {
+    "inScope": [
+      "AI-hidden visible scene conclusion messages",
+      "Current and legacy same-chat scene-memory suppression",
+      "Cross-chat scene-memory retention",
+      "Targeted Conversation target and peer card projection",
+      "Conversation factual-grounding and repeated-long-reply guidance",
+      "Final scene-summary compression with a hard 220-word ceiling"
+    ],
+    "outOfScope": [
+      "Roleplay and Game character-card projection changes",
+      "Deleting visible scene conclusions or stored character memories",
+      "Model, provider, temperature, or connection changes",
+      "Live character-card content, which was approved and updated separately"
+    ],
+    "intendedFiles": [
+      "src/engine/contracts/constants/conversation-prompt.ts",
+      "src/engine/contracts/constants/conversation-prompt.spec.ts",
+      "src/engine/generation/conversation-freshness.ts",
+      "src/engine/generation/conversation-freshness.spec.ts",
+      "src/engine/generation/prompt-assembly.ts",
+      "src/engine/generation/prompt-assembly.context-priority.spec.ts",
+      "src/engine/generation/prompt-assembly.public-profile.spec.ts",
+      "src/engine/modes/roleplay/scene/scene-service.ts",
+      "src/engine/modes/roleplay/scene/scene-service.spec.ts",
+      ".github/pr-evidence/conversation-writing-quality/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "legacy compatibility",
+      "cross-chat memory behavior",
+      "provider-produced summary bounds",
+      "Bunny review"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Only targeted multi-character Conversation turns use the compact target/peer projection; scene-memory filtering affects only the originating chat; other chats retain the memory; visible conclusions are excluded from model history; summary output cannot exceed 220 words.",
+    "riskType": "prompt compatibility and cross-chat continuity",
+    "entrypoints": [
+      "Targeted multi-character Conversation generation",
+      "Single-character and untargeted Conversation generation",
+      "Roleplay prompt generation",
+      "Roleplay scene creation and conclusion",
+      "Later scene creation from an origin Conversation"
+    ],
+    "currentPathsOrFormats": [
+      "Character scene memories carrying originChatId and sceneChatId",
+      "Messages carrying extra.hiddenFromAI or extra.hiddenFromAi",
+      "Conversation requests carrying forCharacterId"
+    ],
+    "legacyPathsOrFormats": [
+      "Character scene memories with sceneChatId but no originChatId",
+      "Origin chats whose metadata.roleplaySceneHistory identifies legacy scene chats"
+    ],
+    "outOfScopeClaims": [
+      "No claim that all prose quality is deterministic across every model.",
+      "No claim that historical memories are deleted or migrated.",
+      "No claim that Roleplay or Game prompt projection is compacted.",
+      "No new discoverable workflow or UI surface is introduced."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Conversation prompt assembly treated origin-scene memory copies and all peer card fields as relevant input, while scene conclusion writes did not distinguish user-visible timeline content from future model history.",
+    "producer": "src/engine/modes/roleplay/scene/scene-service.ts produces scene conclusion messages, summaries, and character scene memories.",
+    "consumer": "src/engine/generation/prompt-assembly.ts and later scene creation consume messages, character memories, and scoped character cards.",
+    "impliedContract": "The scene service records durable continuity with provenance; engine prompt assembly decides which durable context is relevant to the current chat and current responder.",
+    "actualEnforcement": "Scene writes carry hidden flags and originChatId; prompt assembly recognizes current and legacy scene provenance, filters only origin-chat duplicates, and applies compact defaults only to scoped multi-character Conversation turns.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Generation relevance remains in src/engine/generation and roleplay scene lifecycle remains in src/engine/modes/roleplay/scene.",
+    "consumerOnlyLanes": [],
+    "wrongLaneFixToAvoid": "Do not delete stored memories, hide the conclusion from the user, compact Roleplay cards, or move prompt relevance decisions into React, storage adapters, or provider transport.",
+    "regressionProof": [
+      "prompt-assembly.context-priority.spec.ts proves current, legacy, and cross-chat memory rows.",
+      "prompt-assembly.public-profile.spec.ts proves target and peer field inclusion and exclusion.",
+      "scene-service.spec.ts proves hidden conclusion handling, future scene context filtering, provenance, compression retry, and provider-ignored hard caps.",
+      "conversation-prompt.spec.ts and conversation-freshness.spec.ts prove grounding and response-length guidance."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A targeted Conversation responder keeps core character fields and eligible same-day memories while peers retain only description, personality, and scenario.",
+        "evidence": "prompt-assembly.public-profile.spec.ts passes explicit target and peer inclusion rows."
+      },
+      {
+        "claim": "A concluded scene remains visible in the origin timeline and its character memory remains available in a different chat.",
+        "evidence": "scene-service.spec.ts asserts the visible assistant return message; prompt-assembly.context-priority.spec.ts asserts cross-chat retention."
+      },
+      {
+        "claim": "An oversized final scene summary gets a compression retry and can never persist above 220 words.",
+        "evidence": "scene-service.spec.ts passes both cooperative-provider compression and provider-ignores-retry rows while preserving beginning and ending facts."
+      },
+      {
+        "claim": "The repository baseline remains green after rebasing onto current main.",
+        "evidence": "pnpm test passed 440 files and 2,318 tests with one upstream skip; pnpm check completed with exit code 0."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The origin Conversation must not receive its own current or legacy scene-memory copy in the generated prompt.",
+        "evidence": "prompt-assembly.context-priority.spec.ts excludes both originChatId and roleplaySceneHistory-matched legacy rows."
+      },
+      {
+        "claim": "AI-hidden scene conclusions must not enter ordinary prompt history or a later scene's copied conversation context.",
+        "evidence": "scene-service.spec.ts passes a later-scene negative row containing an AI-hidden prior conclusion."
+      },
+      {
+        "claim": "Targeted Conversation peer prompts must not include backstory, system instructions, post-history instructions, appearance, greeting, examples, public profile, memory, or behavioral interpretation.",
+        "evidence": "prompt-assembly.public-profile.spec.ts asserts unique markers for every excluded peer field and the target-only bulky fields."
+      },
+      {
+        "claim": "Roleplay prompt projection must not adopt the targeted Conversation compaction rules.",
+        "evidence": "The existing merged Roleplay prompt suite remains green in the full test run."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "A legacy scene memory without originChatId is suppressed only when its sceneChatId is recorded in the current origin chat history.",
+        "evidence": "prompt-assembly.context-priority.spec.ts tests the legacy sceneChatId match and verifies the same row remains in another chat."
+      },
+      {
+        "claim": "Custom character marker field selections remain authoritative instead of receiving compact defaults.",
+        "evidence": "Existing prompt marker and context-priority suites remain green; compact defaults are gated on absence of explicit characterFields."
+      }
+    ],
+    "untestedRows": [
+      "No live provider sampling is claimed by this PR; deterministic prompt and persistence contracts are covered locally.",
+      "The engine changes require a later De-Koi deployment before they affect the Pi runtime."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The compact projection is gated by Conversation mode, more than one attached character, and a valid forCharacterId.",
+      "sourceType": "harness-proven",
+      "evidence": "The targeted group test enters that path while existing single-character, untargeted, and Roleplay suites remain green."
+    },
+    {
+      "description": "Final scene summaries use whitespace-delimited word counting and preserve both head and tail content when hard-capped.",
+      "sourceType": "harness-proven",
+      "evidence": "The provider-ignored retry test asserts at most 220 words plus both opening and ending facts."
+    },
+    {
+      "description": "Both hiddenFromAI and hiddenFromAi spellings are written for compatibility and read through the shared hiddenFromAi helper.",
+      "sourceType": "harness-proven",
+      "evidence": "scene-service.spec.ts asserts both fields and verifies the shared reader excludes the record."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Live model before/after sampling after deployment",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "The PR changes deterministic context selection, persistence metadata, and prompt guidance; subjective model output remains provider-dependent."
+    }
+  ],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny found the first hard cap kept only the beginning and could discard the scene ending.",
+      "disposition": "fixed",
+      "fix": "The cap now combines beginning and ending segments, with a regression asserting both survive.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found an AI-hidden conclusion could still leak into a later scene's copied origin context.",
+      "disposition": "fixed",
+      "fix": "Scene context requests hidden metadata and filters through hiddenFromAi; a later-scene regression covers the path.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Pre-PR Bunny found Behavioral Interpretation still leaked through the approved compact target and peer projection.",
+      "disposition": "fixed",
+      "fix": "Compact targeted Conversation cards now omit the generated interpretation block, and target plus peer markers are asserted absent.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Pre-PR boundary review found the worktree base lagged current origin/main and made the raw diff include unrelated upstream inversions.",
+      "disposition": "fixed",
+      "fix": "The single intended commit was rebased onto current origin/main and the three-dot diff now contains only the intended files.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny said a pure originChatId scene memory could escape same-chat suppression.",
+      "disposition": "proven-and-clarified",
+      "fix": "The existing originChatId equality filter already suppressed it; the regression now uses a sceneChatId absent from history to prove the explicit provenance path independently.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny found that a stale or recycled sceneChatId could override explicit provenance from a different origin chat.",
+      "disposition": "fixed",
+      "fix": "Explicit originChatId now takes precedence; sceneChatId history is consulted only for legacy rows without originChatId, with a colliding-ID negative row.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny said Behavioral Interpretation remained visible in compact targeted Conversation context.",
+      "disposition": "proven-and-clarified",
+      "fix": "The reviewed head already blanked Behavioral Interpretation whenever compactTargetedConversation is active, and target plus peer marker assertions prove it.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny described the 220-word head-and-tail clamp as a missing change.",
+      "disposition": "proven-and-clarified",
+      "fix": "The reviewed head already hard-capped at 220 words, preserved opening and ending content, inserted an ellipsis, and restored terminal punctuation; the provider-ignored retry regression proves it.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm test && pnpm check",
+    "baselineEvidence": "After rebasing onto current origin/main, 440 test files and 2,318 tests passed with one upstream skip; TypeScript, architecture, security, storage contracts, docs, discovery, agent workflow, launcher safety, main protection, and cargo workspace checks exited 0.",
+    "githubValidationPassed": false,
+    "edgeRowsTested": [
+      "Current originChatId memory",
+      "Legacy sceneChatId memory",
+      "Explicit different-origin provenance with a colliding legacy sceneChatId",
+      "Cross-chat memory retention",
+      "Hidden conclusion in later scene context",
+      "Target and peer compact cards",
+      "Provider cooperative and ignored compression retries"
+    ],
+    "negativeRowsTested": [
+      "No origin-chat memory echo",
+      "No recycled sceneChatId override of explicit different-origin provenance",
+      "No hidden conclusion context",
+      "No bulky target or peer fields",
+      "No Roleplay projection change"
+    ],
+    "afterEvidence": [
+      "pnpm exec vitest run src/engine/generation/prompt-assembly.public-profile.spec.ts src/engine/generation/prompt-assembly.context-priority.spec.ts src/engine/modes/roleplay/scene/scene-service.spec.ts src/engine/generation/conversation-freshness.spec.ts src/engine/contracts/constants/conversation-prompt.spec.ts",
+      "pnpm test",
+      "pnpm check",
+      "git diff --check origin/main...HEAD"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm test && pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "passed locally after four findings were repaired",
+    "prHealthStatus": "pending"
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}

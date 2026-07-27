@@ -108,9 +108,17 @@ describe("conversation freshness guidance", () => {
       chat: { id: "chat-1", mode: "conversation", characterIds: ["mira"], metadata: {} },
       storedMessages: [
         { id: "user-1", role: "user", content: "rough day" },
-        { id: "assistant-1", role: "assistant", content: "I hear you. That sounds really hard. What do you need right now?" },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "I hear you. That sounds really hard. What do you need right now?",
+        },
         { id: "user-2", role: "user", content: "mostly tired" },
-        { id: "assistant-2", role: "assistant", content: "I hear you. That sounds exhausting. How are you feeling about it?" },
+        {
+          id: "assistant-2",
+          role: "assistant",
+          content: "I hear you. That sounds exhausting. How are you feeling about it?",
+        },
         { id: "user-3", role: "user", content: "I do not know" },
       ],
       connection: { provider: "openai", model: "qa-model" },
@@ -143,5 +151,26 @@ describe("conversation freshness guidance", () => {
     const text = promptText(result.messages);
 
     expect(text).not.toContain("Recent replies leaned on question endings");
+  });
+
+  it("asks the next reply to reset after repeated oversized texts", async () => {
+    const longReply = Array.from({ length: 90 }, (_, index) => `detail${index + 1}`).join(" ");
+    const result = await assembleGenerationPrompt(conversationStorage(mira), {
+      chat: { id: "chat-1", mode: "conversation", characterIds: ["mira"], metadata: {} },
+      storedMessages: [
+        { id: "user-1", role: "user", content: "what happened?" },
+        { id: "assistant-1", role: "assistant", content: longReply },
+        { id: "user-2", role: "user", content: "okay" },
+        { id: "assistant-2", role: "assistant", content: longReply },
+        { id: "user-3", role: "user", content: "and now?" },
+      ],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "and now?",
+    });
+
+    expect(promptText(result.messages)).toContain(
+      "Recent replies were much longer than normal texts; make the next reply substantially shorter",
+    );
   });
 });

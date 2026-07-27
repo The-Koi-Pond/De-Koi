@@ -271,7 +271,7 @@ describe("prompt context priority", () => {
           { id: "old-assistant", role: "assistant", content: "The lanterns are ready." },
           { id: "current", role: "user", content: "What happens next?" },
         ],
-        connection: { maxContext: 1_600 },
+        connection: { maxContext: 1_800 },
         request: {},
         latestUserInput: "What happens next?",
       },
@@ -287,7 +287,7 @@ describe("prompt context priority", () => {
     expect(underBudget.messages).toBe(assembly.messages);
     expect(underBudget.messages.map((message) => message.content).join("\n---\n")).toBe(originalText);
 
-    const fitted = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 500 }, { maxContext: 1_600 });
+    const fitted = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 500 }, { maxContext: 1_800 });
     const fittedText = fitted.messages.map((message) => message.content).join("\n");
     expect(fittedText).not.toContain("Festival continuity paragraph 1.");
     expect(fittedText).toContain("Mira is a careful festival guide.");
@@ -670,6 +670,85 @@ describe("prompt context priority", () => {
     expect(promptText).toContain("fox mask is locked in the cedar cabinet");
     expect(promptText).not.toContain("hidden beneath the pier");
   });
+
+  it("keeps a concluded scene memory cross-chat without repeating it in the origin conversation", async () => {
+    const sceneSummary = "Mira returned the blue lantern and promised to guard the archive gate.";
+    const legacySceneSummary = "Mira previously closed the silver gate before scene memories stored an origin chat id.";
+    const recycledSceneSummary =
+      "Mira's different conversation reused a stale scene id but kept explicit origin provenance.";
+    const storage = contextPriorityStorage({
+      character: {
+        id: "mira",
+        data: {
+          name: "Mira",
+          description: "Mira is a careful festival guide.",
+          extensions: {
+            characterMemories: [
+              {
+                createdAt: todayIso(),
+                from: "Lantern Promise",
+                sceneChatId: "current-scene-not-in-history",
+                originChatId: "origin-chat",
+                summary: sceneSummary,
+              },
+              {
+                createdAt: todayIso(),
+                from: "Silver Gate",
+                sceneChatId: "legacy-scene",
+                summary: legacySceneSummary,
+              },
+              {
+                createdAt: todayIso(),
+                from: "Recycled Scene Id",
+                sceneChatId: "legacy-scene",
+                originChatId: "different-origin-chat",
+                summary: recycledSceneSummary,
+              },
+            ],
+          },
+        },
+      },
+      memories: [],
+    });
+    const origin = await assembleGenerationPrompt(storage, {
+      chat: {
+        id: "origin-chat",
+        mode: "conversation",
+        characterIds: ["mira"],
+        metadata: {
+          enableMemoryRecall: false,
+          lastRoleplaySceneSummary: sceneSummary,
+          roleplaySceneHistory: [{ sceneChatId: "legacy-scene", summary: legacySceneSummary }],
+        },
+      },
+      storedMessages: [{ id: "latest", role: "user", content: "What now?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "What now?",
+    });
+    const otherChat = await assembleGenerationPrompt(storage, {
+      chat: {
+        id: "other-chat",
+        mode: "conversation",
+        characterIds: ["mira"],
+        metadata: { enableMemoryRecall: false },
+      },
+      storedMessages: [{ id: "latest", role: "user", content: "Do you remember the lantern?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "Do you remember the lantern?",
+    });
+
+    const originText = origin.messages.map((message) => String(message.content ?? "")).join("\n");
+    const otherChatText = otherChat.messages.map((message) => String(message.content ?? "")).join("\n");
+    expect(originText.split(sceneSummary)).toHaveLength(2);
+    expect(originText).not.toContain(legacySceneSummary);
+    expect(originText).toContain(recycledSceneSummary);
+    expect(otherChatText).toContain(sceneSummary);
+    expect(otherChatText).toContain(legacySceneSummary);
+    expect(otherChatText).toContain(recycledSceneSummary);
+  });
+
   it("uses the shared roleplay Memory Recall default when metadata omits the explicit flag", async () => {
     const result = await assembleGenerationPrompt(
       contextPriorityStorage({
