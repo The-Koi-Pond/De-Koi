@@ -17,6 +17,7 @@ function storageForScene(args: {
   chats: JsonRecord[];
   messages: Record<string, JsonRecord[]>;
   connections?: JsonRecord[];
+  characters?: JsonRecord[];
 }): {
   storage: StorageGateway;
   createdRecords: Array<{ entity: StorageEntity; value: JsonRecord }>;
@@ -27,6 +28,7 @@ function storageForScene(args: {
   bulkDeletedMessageBatches: Array<{ chatId: string; messageIds: string[] }>;
 } {
   const chats = new Map(args.chats.map((chat) => [String(chat.id), { ...chat }]));
+  const characters = new Map((args.characters ?? []).map((character) => [String(character.id), { ...character }]));
   const messages = new Map(
     Object.entries(args.messages).map(([chatId, rows]) => [chatId, rows.map((row) => ({ ...row }))]),
   );
@@ -42,8 +44,8 @@ function storageForScene(args: {
       if (entity === "connections") {
         return ((args.connections ?? []).find((connection) => connection.id === id) ?? null) as T | null;
       }
+      if (entity === "characters") return (characters.get(id) ?? null) as T | null;
       if (entity === "prompts" && id === "preset_universal_v2") return { id, name: "De-Koi Universal Preset V2" } as T;
-      if (entity === "characters") return null as T | null;
       return null as T | null;
     },
     async list<T>(entity: StorageEntity) {
@@ -83,6 +85,12 @@ function storageForScene(args: {
         const current = chats.get(id) ?? { id };
         const next = { ...current, ...patch };
         chats.set(id, next);
+        return next as T;
+      }
+      if (entity === "characters") {
+        const current = characters.get(id) ?? { id };
+        const next = { ...current, ...patch };
+        characters.set(id, next);
         return next as T;
       }
       return { id, ...patch } as T;
@@ -421,6 +429,37 @@ describe("createRoleplayScene", () => {
     expect(createdScene).not.toHaveProperty("folderId", "conversation-folder");
   });
 
+  it("does not copy AI-hidden conclusion messages into a later scene's conversation context", async () => {
+    const { storage, createdRecords } = storageForScene({
+      chats: [{ id: "origin", name: "Dinner Chat", mode: "conversation", characterIds: ["char-1"], metadata: {} }],
+      messages: {
+        origin: [
+          { id: "user-1", role: "user", content: "VISIBLE_USER_CONTEXT" },
+          {
+            id: "old-conclusion",
+            role: "assistant",
+            content: "HIDDEN_SCENE_CONCLUSION",
+            extra: { hiddenFromAI: true, hiddenFromAi: true },
+          },
+          { id: "assistant-1", role: "assistant", content: "VISIBLE_ASSISTANT_CONTEXT" },
+        ],
+      },
+    });
+
+    await createRoleplayScene(storage, {
+      originChatId: "origin",
+      initiatorCharId: null,
+      connectionId: null,
+      plan: basePlan,
+    });
+
+    const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
+    const context = String((createdScene?.metadata as JsonRecord | undefined)?.sceneConversationContext ?? "");
+    expect(context).toContain("VISIBLE_USER_CONTEXT");
+    expect(context).toContain("VISIBLE_ASSISTANT_CONTEXT");
+    expect(context).not.toContain("HIDDEN_SCENE_CONCLUSION");
+  });
+
   it("never auto-applies a library background from the scene plan", async () => {
     const { storage, createdRecords } = storageForScene({
       chats: [{ id: "origin", name: "Dinner Chat", mode: "conversation", characterIds: ["char-1"], metadata: {} }],
@@ -658,6 +697,7 @@ describe("roleplay scene conclusion summaries", () => {
         },
       ],
       connections: [{ id: "main" }],
+      characters: [{ id: "jester", data: { name: "Jester", extensions: {} } }],
       messages: {
         scene: [
           { id: "opening", role: "assistant", content: beginningBeat + longFiller },
@@ -706,8 +746,24 @@ describe("roleplay scene conclusion summaries", () => {
     expect(result.summary).toContain("Chai entered the violet tent");
     expect(result.summary).toContain("Pierrot admitted his fear");
     expect(result.summary).toContain("Jester finally lowered the leashes");
-    expect(returnMessage).toMatchObject({ role: "assistant", characterId: null });
+    expect(returnMessage).toMatchObject({
+      role: "assistant",
+      characterId: null,
+      extra: { hiddenFromAI: true, hiddenFromAi: true },
+    });
     expect(returnMessage?.content).toContain(result.summary);
+    await expect(storage.get("characters", "jester")).resolves.toMatchObject({
+      data: {
+        extensions: {
+          characterMemories: [
+            expect.objectContaining({
+              sceneChatId: "scene",
+              originChatId: "origin",
+            }),
+          ],
+        },
+      },
+    });
   });
 
   it("rejects an empty final synthesis after successful chunk summaries", async () => {
@@ -782,11 +838,21 @@ describe("roleplay scene conclusion summaries", () => {
     const longMiddle = Array.from({ length: 34 }, (_, index) => {
       return `Middle detail ${index + 1}: the scene summary keeps describing negotiations, pauses, reactions, and emotional context before it reaches the final outcome.`;
     }).join(" ");
+    const finalRequests: Array<{ system: string; user: string }> = [];
     const llm: LlmGateway = {
       async complete(request) {
         const system = request.messages.find((message) => message.role === "system")?.content ?? "";
+        const user = request.messages.find((message) => message.role === "user")?.content ?? "";
         if (system.includes("Summarize this section")) {
           return "The chunk summary includes the opening challenge and the ending fact.";
+        }
+        finalRequests.push({ system, user });
+        if (finalRequests.length > 1) {
+          return [
+            "Chai challenged Jester's rules and kept the negotiation focused on trust, choice, and the consequences of the game.",
+            "The confrontation moved through pauses and reversals without breaking their agreement.",
+            "ENDING_FACT Jester admits that Chai's last demand changed him, leaving that admission as the scene's unresolved consequence.",
+          ].join(" ");
         }
         return `${longMiddle} ENDING_FACT Jester admits the game changed him after Chai's final demand.`;
       },
@@ -801,7 +867,60 @@ describe("roleplay scene conclusion summaries", () => {
     const result = await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" });
 
     expect(result.summary).toContain("ENDING_FACT Jester admits");
+    expect(result.summary.trim().split(/\s+/).length).toBeLessThanOrEqual(220);
+    expect(finalRequests).toHaveLength(2);
+    expect(finalRequests[0]?.system).toContain("120-220 words");
+    expect(finalRequests[1]?.system).toContain("previous answer was too long");
+    expect(finalRequests[1]?.user).toContain("Middle detail 34");
+    expect(finalRequests[1]?.user).toContain("ENDING_FACT Jester admits");
   });
+
+  it("hard-caps the final summary when the provider ignores the compression retry", async () => {
+    const { storage, createdMessages } = storageForScene({
+      chats: [
+        { id: "origin", name: "Jester", mode: "conversation", metadata: {} },
+        {
+          id: "scene",
+          name: "Scene: Provider Ignores Limit",
+          mode: "roleplay",
+          characterIds: [],
+          connectionId: "main",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "main" }],
+      messages: {
+        scene: [{ id: "opening", role: "assistant", content: "The scene reaches a clear conclusion." }],
+      },
+    });
+    const oversizedSummary = [
+      `The opening establishes the agreement ${"opening detail ".repeat(100)}.`,
+      `The middle changes their relationship ${"middle detail ".repeat(100)}.`,
+      `The ending records the final consequence ${"ending detail ".repeat(10)}.`,
+    ].join(" ");
+    const completionSystems: string[] = [];
+    const llm: LlmGateway = {
+      async complete(request) {
+        completionSystems.push(request.messages.find((message) => message.role === "system")?.content ?? "");
+        return oversizedSummary;
+      },
+      async *stream() {},
+      async listModels() {
+        return [];
+      },
+    };
+
+    const result = await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" });
+
+    expect(
+      completionSystems.filter((system) => system.includes("Synthesize the final conclusion summary")),
+    ).toHaveLength(2);
+    expect(result.summary.trim().split(/\s+/).length).toBeLessThanOrEqual(220);
+    expect(result.summary).toContain("The opening establishes the agreement");
+    expect(result.summary).toContain("The ending records the final consequence");
+    expect(createdMessages.find((message) => message.chatId === "origin")?.value.content).toContain(result.summary);
+  });
+
   it("retries LinkAPI-style empty assistant scene summary responses with a larger no-reasoning budget", async () => {
     const { storage } = storageForScene({
       chats: [
