@@ -59,7 +59,7 @@ function preview(scope: MemoryCleanupScope): MemoryCleanupPreview {
         sourceIds: ["memory-1", "memory-2"],
         expected: {},
         replacement: { content: "Combined memory", kind: "fact" },
-        reason: "Overlapping detail",
+        reason: "Overlapping memories",
         selected: true,
         estimatedTokensBefore: 10,
         estimatedTokensAfter: 4,
@@ -80,7 +80,6 @@ function preview(scope: MemoryCleanupScope): MemoryCleanupPreview {
     afterCount: 2,
     estimatedTokensBefore: 19,
     estimatedTokensAfter: 7,
-    protectedCount: 0,
     deferredCandidateCount: 0,
   };
 }
@@ -125,7 +124,6 @@ describe("useMemoryCleanup", () => {
     mocks.apply.mockResolvedValue({
       batchId: "cleanup-batch-1",
       combined: 1,
-      shortened: 0,
       superseded: 2,
       created: 1,
     });
@@ -187,7 +185,6 @@ describe("useMemoryCleanup", () => {
     let finishApply!: (value: {
       batchId: string;
       combined: number;
-      shortened: number;
       superseded: number;
       created: number;
     }) => void;
@@ -217,7 +214,6 @@ describe("useMemoryCleanup", () => {
       finishApply({
         batchId: "cleanup-batch-old-owner",
         combined: 1,
-        shortened: 0,
         superseded: 2,
         created: 1,
       });
