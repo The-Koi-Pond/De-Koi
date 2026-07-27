@@ -8,7 +8,6 @@ import type {
 const MEMORY_CLEANUP_MAX_GROUPS = 20;
 const MEMORY_CLEANUP_MAX_GROUP_RECORDS = 8;
 const MEMORY_CLEANUP_MAX_GROUP_CHARS = 12_000;
-const MEMORY_CLEANUP_VERBOSE_CHARS = 600;
 
 const LEXICAL_SIMILARITY_THRESHOLD = 0.6;
 const EMBEDDING_SIMILARITY_THRESHOLD = 0.88;
@@ -43,7 +42,6 @@ interface MemoryCleanupCandidateGroup {
 
 export interface PreparedMemoryCleanupCandidates {
   eligible: MemoryCleanupSource[];
-  protected: MemoryCleanupSource[];
   groups: MemoryCleanupCandidateGroup[];
   deferredCandidateCount: number;
 }
@@ -115,16 +113,8 @@ function shouldGroup(left: MemoryCleanupSource, right: MemoryCleanupSource): boo
   );
 }
 
-export function isMemoryCleanupProtected(source: MemoryCleanupSource): boolean {
-  return (
-    source.status !== "active" ||
-    source.pinned ||
-    source.userEdited ||
-    source.origin === "manual" ||
-    source.origin === "imported" ||
-    source.origin === "correction" ||
-    source.origin === "command"
-  );
+export function isMemoryCleanupEligible(source: MemoryCleanupSource): boolean {
+  return source.status === "active" || source.status === "pinned";
 }
 
 function boundedGroup(sources: MemoryCleanupSource[], sequence: number): MemoryCleanupCandidateGroup | null {
@@ -136,36 +126,31 @@ function boundedGroup(sources: MemoryCleanupSource[], sequence: number): MemoryC
     selected.push(source);
     characters += source.content.length;
   }
-  if (selected.length === 0) return null;
+  if (selected.length < 2) return null;
   return {
     id: `cleanup-group-${sequence + 1}`,
     sourceIds: selected.map((source) => source.id),
   };
 }
 
-function buildBoundedCandidateGroups(
-  eligible: MemoryCleanupSource[],
-  protectedSources: MemoryCleanupSource[],
-): MemoryCleanupCandidateGroup[] {
-  const allSources = [...eligible, ...protectedSources];
-  const eligibleIds = new Set(eligible.map((source) => source.id));
-  const adjacency = new Map(allSources.map((source) => [source.id, new Set<string>()]));
+function buildBoundedCandidateGroups(eligible: MemoryCleanupSource[]): MemoryCleanupCandidateGroup[] {
+  const adjacency = new Map(eligible.map((source) => [source.id, new Set<string>()]));
 
-  for (let leftIndex = 0; leftIndex < allSources.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < allSources.length; rightIndex += 1) {
-      const left = allSources[leftIndex];
-      const right = allSources[rightIndex];
+  for (let leftIndex = 0; leftIndex < eligible.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < eligible.length; rightIndex += 1) {
+      const left = eligible[leftIndex];
+      const right = eligible[rightIndex];
       if (!left || !right || !shouldGroup(left, right)) continue;
       adjacency.get(left.id)?.add(right.id);
       adjacency.get(right.id)?.add(left.id);
     }
   }
 
-  const byId = new Map(allSources.map((source) => [source.id, source]));
+  const byId = new Map(eligible.map((source) => [source.id, source]));
   const visited = new Set<string>();
   const groups: MemoryCleanupCandidateGroup[] = [];
 
-  for (const source of allSources) {
+  for (const source of eligible) {
     if (visited.has(source.id) || (adjacency.get(source.id)?.size ?? 0) === 0) continue;
     const component: MemoryCleanupSource[] = [];
     const pending = [source.id];
@@ -179,19 +164,7 @@ function buildBoundedCandidateGroups(
         if (!visited.has(adjacent)) pending.push(adjacent);
       }
     }
-    if (!component.some((member) => eligibleIds.has(member.id))) continue;
     const group = boundedGroup(component, groups.length);
-    if (group) groups.push(group);
-  }
-
-  for (const source of eligible) {
-    if (
-      source.content.length <= MEMORY_CLEANUP_VERBOSE_CHARS ||
-      groups.some((group) => group.sourceIds.includes(source.id))
-    ) {
-      continue;
-    }
-    const group = boundedGroup([source], groups.length);
     if (group) groups.push(group);
   }
 
@@ -199,15 +172,12 @@ function buildBoundedCandidateGroups(
 }
 
 export function prepareMemoryCleanupCandidates(sources: MemoryCleanupSource[]): PreparedMemoryCleanupCandidates {
-  const eligible = sources.filter((source) => !isMemoryCleanupProtected(source));
-  const protectedSources = sources.filter(isMemoryCleanupProtected);
+  const eligible = sources.filter(isMemoryCleanupEligible);
   const oversizedEligible = eligible.filter((source) => source.content.length > MEMORY_CLEANUP_MAX_GROUP_CHARS);
   const modelEligible = eligible.filter((source) => source.content.length <= MEMORY_CLEANUP_MAX_GROUP_CHARS);
-  const modelProtected = protectedSources.filter((source) => source.content.length <= MEMORY_CLEANUP_MAX_GROUP_CHARS);
-  const groups = buildBoundedCandidateGroups(modelEligible, modelProtected);
+  const groups = buildBoundedCandidateGroups(modelEligible);
   return {
     eligible,
-    protected: protectedSources,
     groups: groups.slice(0, MEMORY_CLEANUP_MAX_GROUPS),
     deferredCandidateCount: oversizedEligible.length + Math.max(0, groups.length - MEMORY_CLEANUP_MAX_GROUPS),
   };
@@ -251,23 +221,23 @@ export function validateCleanupProposal(
     throw new Error("Cleanup proposal sources must share one scope.");
   }
 
-  for (const id of proposal.sourceIds) {
-    const source = sourcesById.get(id);
-    if (source && isMemoryCleanupProtected(source)) {
-      throw new Error(`Cleanup source ${id} is protected.`);
+  for (const source of referenced) {
+    if (!isMemoryCleanupEligible(source)) {
+      throw new Error(`Cleanup source ${source.id} is inactive.`);
     }
   }
 
   if (proposal.type === "keep_one") {
     if (!proposal.winnerId) throw new Error("Keep-one proposals require a winner.");
     if (proposal.replacement) throw new Error("Keep-one proposals cannot create a replacement.");
-  }
-  if (proposal.type === "combine" || proposal.type === "shorten") {
-    if (proposal.type === "combine" && proposal.sourceIds.length < 2) {
-      throw new Error("Combine cleanup requires at least two sources.");
+    const winner = sourcesById.get(proposal.winnerId);
+    if (referenced.some((source) => source.pinned) && !winner?.pinned) {
+      throw new Error("Keep-one cleanup must retain a pinned winner.");
     }
-    if (proposal.type === "shorten" && proposal.sourceIds.length !== 1) {
-      throw new Error("Shorten cleanup requires exactly one source.");
+  }
+  if (proposal.type === "combine") {
+    if (proposal.sourceIds.length < 2) {
+      throw new Error("Combine cleanup requires at least two sources.");
     }
     if (!proposal.replacement?.content.trim() || !proposal.replacement.kind.trim()) {
       throw new Error("Cleanup replacement content and kind are required.");

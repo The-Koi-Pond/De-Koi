@@ -32,9 +32,9 @@ export interface MemoryCleanupSource {
   embedding?: number[];
 }
 
-export type MemoryCleanupProposalType = "keep_one" | "combine" | "shorten" | "conflict";
+export type MemoryCleanupProposalType = "keep_one" | "combine" | "conflict";
 
-export type MemoryCleanupReason = "Repeated fact" | "Overlapping detail" | "Shorter wording" | "Possible conflict";
+export type MemoryCleanupReason = "Repeated fact" | "Overlapping memories" | "Possible conflict";
 
 export interface MemoryCleanupProposal {
   id: string;
@@ -58,7 +58,6 @@ export interface MemoryCleanupPreview {
   afterCount: number;
   estimatedTokensBefore: number;
   estimatedTokensAfter: number;
-  protectedCount: number;
   deferredCandidateCount: number;
 }
 
@@ -71,7 +70,6 @@ export interface MemoryCleanupApplyRequest {
 export interface MemoryCleanupApplyResult {
   batchId: string;
   combined: number;
-  shortened: number;
   superseded: number;
   created: number;
 }

@@ -29,7 +29,7 @@ function proposal(overrides: Partial<MemoryCleanupProposal> = {}): MemoryCleanup
     sourceIds: ["memory-a", "memory-b"],
     expected: {},
     replacement: { content: "Mira keeps the brass key.", kind: "fact" },
-    reason: "Overlapping detail",
+    reason: "Overlapping memories",
     selected: true,
     estimatedTokensBefore: 12,
     estimatedTokensAfter: 7,
@@ -38,20 +38,28 @@ function proposal(overrides: Partial<MemoryCleanupProposal> = {}): MemoryCleanup
 }
 
 describe("memory cleanup preparation", () => {
-  it("protects curated and inactive rows while allowing automatic rows", () => {
+  it("allows every active provenance and pin variant while excluding inactive rows", () => {
     const prepared = prepareMemoryCleanupCandidates([
       source({ id: "automatic", origin: "automatic" }),
-      source({ id: "pinned", pinned: true }),
-      source({ id: "manual", userEdited: true }),
+      source({ id: "pinned", status: "pinned", pinned: true }),
+      source({ id: "manual", origin: "manual", userEdited: true }),
       source({ id: "imported", origin: "imported" }),
+      source({ id: "correction", origin: "correction" }),
+      source({ id: "command", origin: "command" }),
       source({ id: "wrong", status: "wrong" }),
     ]);
 
-    expect(prepared.eligible.map((memory) => memory.id)).toEqual(["automatic"]);
-    expect(prepared.protected.map((memory) => memory.id)).toEqual(["pinned", "manual", "imported", "wrong"]);
+    expect(prepared.eligible.map((memory) => memory.id)).toEqual([
+      "automatic",
+      "pinned",
+      "manual",
+      "imported",
+      "correction",
+      "command",
+    ]);
   });
 
-  it("groups exact, provenance-overlap, lexical, embedding, and verbose candidates", () => {
+  it("groups exact, provenance-overlap, lexical, and embedding candidates", () => {
     const prepared = prepareMemoryCleanupCandidates([
       source({ id: "exact-a", content: "Mira keeps the brass key." }),
       source({ id: "exact-b", content: "  mira keeps the brass key. " }),
@@ -61,7 +69,6 @@ describe("memory cleanup preparation", () => {
       source({ id: "lexical-b", content: "Every day Mira carries her brass key." }),
       source({ id: "embedding-a", content: "One unrelated phrase.", embedding: [1, 0] }),
       source({ id: "embedding-b", content: "Another unrelated phrase.", embedding: [0.9, 0.1] }),
-      source({ id: "verbose", content: "x".repeat(601) }),
     ]);
 
     const groups = prepared.groups.map((group) => [...group.sourceIds].sort().join(","));
@@ -69,7 +76,13 @@ describe("memory cleanup preparation", () => {
     expect(groups).toContain("provenance,same-message");
     expect(groups).toContain("lexical-a,lexical-b");
     expect(groups).toContain("embedding-a,embedding-b");
-    expect(prepared.groups.some((group) => group.sourceIds.includes("verbose"))).toBe(true);
+  });
+
+  it("does not create a singleton candidate because a memory is long", () => {
+    const prepared = prepareMemoryCleanupCandidates([source({ id: "long", content: "x".repeat(601) })]);
+
+    expect(prepared.groups).toEqual([]);
+    expect(prepared.deferredCandidateCount).toBe(0);
   });
 
   it("does not group merely related memories", () => {
@@ -92,9 +105,10 @@ describe("memory cleanup preparation", () => {
 
   it("caps model-facing groups and reports deferred candidates", () => {
     const prepared = prepareMemoryCleanupCandidates(
-      Array.from({ length: 22 }, (_, index) =>
-        source({ id: `verbose-${index}`, content: `${index}:${"x".repeat(601)}` }),
-      ),
+      Array.from({ length: 22 }, (_, index) => [
+        source({ id: `pair-${index}-a`, content: `unique-${index}` }),
+        source({ id: `pair-${index}-b`, content: `unique-${index}` }),
+      ]).flat(),
     );
 
     expect(prepared.groups).toHaveLength(20);
@@ -110,9 +124,32 @@ describe("memory cleanup preparation", () => {
 });
 
 describe("memory cleanup proposal validation", () => {
-  it("allows a retained protected winner but never consumes it", () => {
-    const automatic = source({ id: "automatic" });
-    const pinned = source({ id: "pinned", pinned: true });
+  it("allows active manual, imported, correction, and command memories to be consumed", () => {
+    const sources = [
+      source({ id: "manual", origin: "manual", userEdited: true }),
+      source({ id: "imported", origin: "imported" }),
+      source({ id: "correction", origin: "correction" }),
+      source({ id: "command", origin: "command" }),
+    ];
+
+    for (const candidate of sources) {
+      const other = source({ id: `other-${candidate.id}` });
+      const value = proposal({ sourceIds: [candidate.id, other.id] });
+      expect(
+        validateCleanupProposal(
+          value,
+          new Map([
+            [candidate.id, candidate],
+            [other.id, other],
+          ]),
+        ),
+      ).toEqual(value);
+    }
+  });
+
+  it("requires a pinned winner when keep-one consolidation references pinned memory", () => {
+    const automatic = source({ id: "automatic", confidence: 0.99 });
+    const pinned = source({ id: "pinned", status: "pinned", pinned: true });
     const valid = proposal({
       type: "keep_one",
       sourceIds: ["automatic"],
@@ -130,23 +167,39 @@ describe("memory cleanup proposal validation", () => {
         ]),
       ),
     ).toEqual(valid);
+
+    expect(() =>
+      validateCleanupProposal(
+        proposal({
+          type: "keep_one",
+          sourceIds: ["pinned"],
+          winnerId: "automatic",
+          replacement: undefined,
+          reason: "Repeated fact",
+        }),
+        new Map([
+          [automatic.id, automatic],
+          [pinned.id, pinned],
+        ]),
+      ),
+    ).toThrow("pinned winner");
   });
 
-  it("rejects protected consumption, cross-scope rows, and selected conflicts", () => {
+  it("rejects inactive consumption, cross-scope rows, and selected conflicts", () => {
     const automatic = source({ id: "automatic" });
-    const manual = source({ id: "manual", origin: "manual", userEdited: true });
+    const inactive = source({ id: "inactive", status: "wrong" });
     const otherScope = source({
       id: "other",
       scope: { kind: "chat", id: "chat-2" },
     });
     const sources = new Map([
       [automatic.id, automatic],
-      [manual.id, manual],
+      [inactive.id, inactive],
       [otherScope.id, otherScope],
     ]);
 
-    expect(() => validateCleanupProposal(proposal({ sourceIds: ["automatic", "manual"] }), sources)).toThrow(
-      "protected",
+    expect(() => validateCleanupProposal(proposal({ sourceIds: ["automatic", "inactive"] }), sources)).toThrow(
+      "inactive",
     );
     expect(() => validateCleanupProposal(proposal({ sourceIds: ["automatic", "other"] }), sources)).toThrow("scope");
     expect(() =>
@@ -171,17 +224,5 @@ describe("memory cleanup proposal validation", () => {
     expect(() => validateCleanupProposal(proposal({ type: "combine", sourceIds: ["automatic"] }), sources)).toThrow(
       "at least two",
     );
-    expect(() =>
-      validateCleanupProposal(
-        proposal({
-          type: "shorten",
-          sourceIds: ["automatic", "automatic-2"],
-        }),
-        new Map([
-          [automatic.id, automatic],
-          ["automatic-2", source({ id: "automatic-2" })],
-        ]),
-      ),
-    ).toThrow("exactly one");
   });
 });
