@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type {
-  MemoryCleanupApplyResult,
   MemoryCleanupPreview,
   MemoryCleanupProposal,
   MemoryCleanupScope,
   MemoryCleanupSource,
-  MemoryCleanupUndoResult,
 } from "../../../../engine/contracts/types/memory-maintenance";
 import { analyzeMemoryCleanup } from "../../../../engine/generation/memory-cleanup";
 import { llmApi } from "../../../../shared/api/llm-api";
@@ -41,8 +39,6 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
   const [replacementText, setReplacementText] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
-  const [lastApplyResult, setLastApplyResult] = useState<MemoryCleanupApplyResult | null>(null);
-  const [lastUndoResult, setLastUndoResult] = useState<MemoryCleanupUndoResult | null>(null);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -53,8 +49,6 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
     setReplacementText({});
     setError(null);
     setLastBatchId(null);
-    setLastApplyResult(null);
-    setLastUndoResult(null);
   }, []);
 
   useEffect(() => {
@@ -76,8 +70,6 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
     setPhase("analyzing");
     setError(null);
     setLastBatchId(null);
-    setLastApplyResult(null);
-    setLastUndoResult(null);
     try {
       const connectionId = (await resolveConnectionId()).trim();
       if (!connectionId) throw new Error("AI cleanup needs a configured text connection.");
@@ -158,7 +150,6 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
       await onChanged();
       if (keyRef.current !== key) return result;
       setLastBatchId(result.batchId);
-      setLastApplyResult(result);
       setPhase("applied");
       return result;
     } catch (applyError) {
@@ -181,7 +172,6 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
       });
       await onChanged();
       if (keyRef.current !== key) return result;
-      setLastUndoResult(result);
       setLastBatchId(null);
       setPhase("preview");
       return result;
@@ -207,8 +197,6 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
     replacementText,
     error,
     lastBatchId,
-    lastApplyResult,
-    lastUndoResult,
     analyze,
     apply,
     undo,

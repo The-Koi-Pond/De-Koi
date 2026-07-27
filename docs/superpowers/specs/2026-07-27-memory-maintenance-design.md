@@ -359,6 +359,13 @@ Implementation validation includes focused TypeScript and Rust tests,
 `cargo check --manifest-path src-tauri/Cargo.toml`, `pnpm build`, and the full
 `pnpm check` shipping gate.
 
+The production merge build with `main` at `070a42382` measured 179.3 KiB
+startup JS, 1702.5 KiB total JS, 268.0 KiB for the largest lazy route, and
+79.0 KiB CSS after the cleanup hook's unconsumed result state was removed. The
+shared cleanup review chunk is 7.2 KiB gzip. The total-JS guard therefore moves
+from 1700 to 1710 KiB with measured evidence in this PR; the startup, largest
+lazy-route, and CSS guards remain unchanged.
+
 ## Out of Scope
 
 - automatic scheduled cleanup;
