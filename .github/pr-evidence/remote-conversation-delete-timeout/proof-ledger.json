@@ -5,7 +5,7 @@
     "title": "Stop remote conversation deletion from flushing unrelated storage",
     "source": "Live Raspberry Pi user report",
     "classification": "remote runtime storage transaction performance and user-data deletion",
-    "status": "ci_passed"
+    "status": "main_conflict_resolved_local_verification_passed"
   },
   "coreClaim": "Deleting a conversation through the remote runtime completes without forcing unrelated dirty collections to disk, while atomic message and swipe deletion and fail-closed journal validation remain intact.",
   "rootCause": "FileStorage::update_collections_atomically used shutdown-style global dirty flushing before reading targets, before committing targets, and again through replace_all_many_locked. A chat delete therefore serialized unrelated large dirty collections such as character-versions while holding the global write gate, causing the browser's 30-second deadline to expire and later refreshes to restore the optimistic chat row.",
@@ -94,7 +94,7 @@
       },
       {
         "claim": "The storage capability remains internally consistent.",
-        "evidence": "The full marinara-storage library suite passed 136 tests after the fix."
+        "evidence": "The full marinara-storage library suite passed 137 tests after the fix and integration with main's deferred-flush clone bound."
       }
     ],
     "contradictionRows": [
@@ -114,7 +114,7 @@
     "legacyDefaultRows": [
       {
         "claim": "Existing collection journals keep fail-closed validation.",
-        "evidence": "All journal, recovery, replacement, streaming, and atomic-boundary tests pass in the 136-test storage suite."
+        "evidence": "All journal, recovery, replacement, streaming, and atomic-boundary tests pass in the 137-test storage suite."
       },
       {
         "claim": "Existing desktop and remote callers keep the same storage_delete contract.",
@@ -170,13 +170,13 @@
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm check",
-    "baselineEvidence": "pnpm check passed. pnpm test passed 2352 tests with 1 skipped; the full Rust library run passed 1365 tests and had one unrelated Windows descendant-process timing failure that passed immediately in an exact isolated rerun; marinara-storage passed all 136 tests; delete_chat passed all 8 focused tests."
+    "baselineEvidence": "pnpm check passed. pnpm test passed 2352 tests with 1 skipped; the full Rust library run passed 1365 tests and had one unrelated Windows descendant-process timing failure that passed immediately in an exact isolated rerun; after integrating current main, marinara-storage passed all 137 tests and delete_chat passed all 8 focused tests."
   },
   "checks": {
     "baselineCommand": "pnpm check",
     "baselineStatus": "pass",
-    "ciStatus": "pass",
-    "bunnyReviewStatus": "rerun_pending",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
     "prHealthStatus": "pending"
   },
   "pr": {
@@ -185,8 +185,8 @@
     "headRefName": "fix/remote-conversation-delete-timeout",
     "baseRefName": "main",
     "healthStatus": "pending",
-    "bunnyReviewStatus": "rerun_pending",
-    "checksStatus": "pass",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
     "merged": false,
     "mergeCommit": ""
   },
@@ -200,6 +200,7 @@
   },
   "notes": [
     "The live server container was restarted after diagnosis to clear orphaned timed-out delete workers; mounts and health were reverified.",
-    "The full Rust library run's only failure was backgroundremover_timeout_kills_descendant_processes, an unrelated Windows process-timing test; its exact isolated rerun passed 1/1."
+    "The full Rust library run's only failure was backgroundremover_timeout_kills_descendant_processes, an unrelated Windows process-timing test; its exact isolated rerun passed 1/1.",
+    "Main advanced with PR #1164 while this PR was in review. The conflict resolution preserves its clone-only-after-compaction memory bound and applies target collection filtering before compaction; both regressions and the 137-test storage suite pass together."
   ]
 }
