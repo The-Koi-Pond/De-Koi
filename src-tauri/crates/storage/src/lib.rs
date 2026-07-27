@@ -41,10 +41,31 @@ const MAX_PROJECTED_LIST_CACHE_SHAPES: usize = 32;
 type JournalClock = Arc<dyn Fn() -> SystemTime + Send + Sync>;
 type DeferredFlushScheduler = Arc<dyn Fn(FileStorage) + Send + Sync>;
 
+#[cfg(test)]
+type DirtyFlushCloneTestHook = Box<dyn FnMut(&Path, &str) + Send + 'static>;
+
+#[cfg(test)]
+static DIRTY_FLUSH_CLONE_TEST_HOOK: std::sync::Mutex<Option<DirtyFlushCloneTestHook>> =
+    std::sync::Mutex::new(None);
+
 #[derive(Clone, Copy)]
 enum FlushKind {
     Deferred,
     Shutdown,
+}
+
+fn clone_dirty_collection_rows(
+    _storage_root: &Path,
+    _collection: &str,
+    rows: &[Value],
+) -> Vec<Value> {
+    #[cfg(test)]
+    if let Ok(mut hook) = DIRTY_FLUSH_CLONE_TEST_HOOK.lock() {
+        if let Some(hook) = hook.as_mut() {
+            hook(_storage_root, _collection);
+        }
+    }
+    rows.to_vec()
 }
 
 fn next_cache_access(cache: &mut StorageCache) -> u64 {
@@ -974,6 +995,10 @@ impl FileStorage {
         F: FnOnce(&mut [AtomicCollectionRows]) -> AppResult<T>,
     {
         let _atomic_update = self.write_gate.begin_atomic_update()?;
+        let target_collections = collections
+            .iter()
+            .map(|collection| (*collection).to_string())
+            .collect::<HashSet<_>>();
         // Load the rows and capture each collection's file stamp under the SAME
         // write lock, so the conflict baseline reflects exactly the bytes the rows
         // were read from. Sampling the stamp after the lock is released would let a
@@ -984,7 +1009,7 @@ impl FileStorage {
                 .lock
                 .write()
                 .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-            self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
+            self.flush_dirty_collections_locked_for(FlushKind::Shutdown, &target_collections)?;
 
             let mut loaded = Vec::with_capacity(collections.len());
             let mut original_stamps = Vec::with_capacity(collections.len());
@@ -1011,7 +1036,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
+        self.flush_dirty_collections_locked_for(FlushKind::Shutdown, &target_collections)?;
         for (collection, original_stamp) in &original_stamps {
             let path = self.collection_path(collection)?;
             if collection_content_stamp(&path)? != *original_stamp {
@@ -1042,6 +1067,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
         self.replace_all_many_locked(replacements, after_install)
     }
 
@@ -1278,7 +1304,25 @@ impl FileStorage {
     }
 
     fn flush_dirty_collections_locked(&self, flush_kind: FlushKind) -> AppResult<()> {
-        let dirty = {
+        self.flush_dirty_collections_locked_matching(flush_kind, |_| true)
+    }
+
+    fn flush_dirty_collections_locked_for(
+        &self,
+        flush_kind: FlushKind,
+        collections: &HashSet<String>,
+    ) -> AppResult<()> {
+        self.flush_dirty_collections_locked_matching(flush_kind, |collection| {
+            collections.contains(collection)
+        })
+    }
+
+    fn flush_dirty_collections_locked_matching(
+        &self,
+        flush_kind: FlushKind,
+        should_flush: impl Fn(&str) -> bool,
+    ) -> AppResult<()> {
+        let dirty_collections = {
             let cache = self
                 .cache
                 .read()
@@ -1287,13 +1331,17 @@ impl FileStorage {
                 .collections
                 .iter()
                 .filter(|(_, cached)| cached.dirty)
-                .map(|(collection, cached)| (collection.clone(), cached.rows.clone()))
+                .map(|(collection, _)| collection.clone())
                 .collect::<Vec<_>>()
         };
         let collections_dir = self.root.join("collections");
-        let compact = dirty
+        for collection in &dirty_collections {
+            validate_collection_journal_before_replacement(&collections_dir, collection)?;
+        }
+        let compact = dirty_collections
             .into_iter()
-            .filter_map(|(collection, rows)| {
+            .filter(|collection| should_flush(collection))
+            .filter_map(|collection| {
                 let force = matches!(flush_kind, FlushKind::Shutdown)
                     || append_journal::checkpoint_tracks(&collection);
                 let should_compact = collection_journal_needs_compaction(
@@ -1304,7 +1352,7 @@ impl FileStorage {
                     force,
                 );
                 match should_compact {
-                    Ok(true) => Some(Ok((collection, rows))),
+                    Ok(true) => Some(Ok(collection)),
                     Ok(false) => None,
                     Err(error) => Some(Err(error)),
                 }
@@ -1312,11 +1360,24 @@ impl FileStorage {
             .collect::<AppResult<Vec<_>>>()?;
         if compact
             .iter()
-            .any(|(collection, _)| append_journal::checkpoint_tracks(collection))
+            .any(|collection| append_journal::checkpoint_tracks(collection))
         {
             append_journal::recover(&collections_dir)?;
         }
-        for (collection, rows) in compact {
+        for collection in compact {
+            let rows = {
+                let cache = self
+                    .cache
+                    .read()
+                    .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+                let cached = cache.collections.get(&collection).ok_or_else(|| {
+                    AppError::new(
+                        "storage_cache_error",
+                        format!("Dirty collection disappeared during flush: {collection}"),
+                    )
+                })?;
+                clone_dirty_collection_rows(&self.root, &collection, &cached.rows)
+            };
             #[cfg(feature = "journal-compaction-bench")]
             if let Some(counter) = &self.journal_compaction_counter {
                 counter.fetch_add(1, Ordering::SeqCst);
@@ -2806,7 +2867,6 @@ impl FileStorage {
     where
         F: FnOnce() -> AppResult<()>,
     {
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
         let collections_dir = self.root.join("collections");
         for (collection, _) in &replacements {
             validate_collection_journal_before_replacement(&collections_dir, collection)?;
@@ -3007,7 +3067,7 @@ mod tests {
     use super::*;
     use std::sync::{
         atomic::{AtomicUsize, Ordering as AtomicOrdering},
-        Arc as TestArc,
+        Arc as TestArc, Mutex as TestMutex,
     };
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -3443,6 +3503,66 @@ mod tests {
         assert_eq!(
             parse_collection_file("characters", &primary).unwrap()[0]["name"],
             "Second"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn deferred_flush_clones_only_collections_selected_for_compaction() {
+        let root = temp_storage_root("deferred-flush-selected-clones");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), 2, u64::MAX),
+            SystemTime::now(),
+        );
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "personas",
+                vec![json!({ "id": "persona-1", "name": "Before" })],
+            )
+            .unwrap();
+
+        storage
+            .patch("personas", "persona-1", json!({ "name": "Still dirty" }))
+            .unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "First" }))
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "Second" }))
+            .unwrap();
+
+        let cloned = TestArc::new(TestMutex::new(Vec::new()));
+        let observed = TestArc::clone(&cloned);
+        let observed_root = root.clone();
+        *DIRTY_FLUSH_CLONE_TEST_HOOK.lock().unwrap() =
+            Some(Box::new(move |storage_root, collection| {
+                if storage_root == observed_root {
+                    observed.lock().unwrap().push(collection.to_string());
+                }
+            }));
+        storage.flush_deferred_writes().unwrap();
+        *DIRTY_FLUSH_CLONE_TEST_HOOK.lock().unwrap() = None;
+
+        let mut cloned = cloned.lock().unwrap().clone();
+        cloned.sort();
+        assert_eq!(
+            cloned,
+            vec!["characters"],
+            "a below-threshold dirty collection must remain journal-backed without cloning rows"
+        );
+        assert!(
+            root.join("collections")
+                .join("personas.pending.jsonl")
+                .exists(),
+            "the below-threshold collection must remain dirty"
         );
         fs::remove_dir_all(root).unwrap();
     }
@@ -5267,6 +5387,39 @@ mod tests {
         assert_eq!(storage.list("messages").unwrap().len(), 2);
         assert_eq!(storage.list("message-swipes").unwrap().len(), 2);
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn update_collections_atomically_keeps_unrelated_dirty_collections_deferred() {
+        let root = temp_storage_root("update-collections-targeted-flush");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all("messages", vec![json!({ "id": "message-1" })])
+            .unwrap();
+        storage.replace_all("message-swipes", Vec::new()).unwrap();
+        storage
+            .cache_collection(
+                "character-versions",
+                &[json!({ "id": "large-unrelated-version" })],
+                true,
+            )
+            .unwrap();
+
+        storage
+            .update_collections_atomically(vec!["messages", "message-swipes"], |_| Ok(()))
+            .unwrap();
+
+        assert!(
+            !root
+                .join("collections")
+                .join("character-versions.json")
+                .exists(),
+            "an atomic update must not force unrelated dirty collections to disk"
+        );
+        assert_eq!(storage.dirty_collection_count(), 1);
+
+        storage.flush().unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
