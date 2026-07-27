@@ -115,11 +115,27 @@ describe("memory cleanup preparation", () => {
     expect(prepared.deferredCandidateCount).toBe(2);
   });
 
-  it("defers a single oversized memory instead of exceeding the model prompt cap", () => {
+  it("does not treat one oversized memory as a deferred consolidation candidate", () => {
     const prepared = prepareMemoryCleanupCandidates([source({ id: "oversized", content: "x".repeat(12_001) })]);
 
     expect(prepared.groups).toEqual([]);
-    expect(prepared.deferredCandidateCount).toBe(1);
+    expect(prepared.deferredCandidateCount).toBe(0);
+  });
+
+  it("groups oversized exact duplicates because they do not need a model prompt", () => {
+    const content = "x".repeat(12_001);
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "oversized-a", content }),
+      source({ id: "oversized-b", content }),
+    ]);
+
+    expect(prepared.groups).toEqual([
+      {
+        id: "cleanup-group-1",
+        sourceIds: ["oversized-a", "oversized-b"],
+      },
+    ]);
+    expect(prepared.deferredCandidateCount).toBe(0);
   });
 });
 

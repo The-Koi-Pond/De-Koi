@@ -40,6 +40,11 @@ interface MemoryCleanupCandidateGroup {
   sourceIds: string[];
 }
 
+interface BuiltMemoryCleanupCandidateGroups {
+  groups: MemoryCleanupCandidateGroup[];
+  deferredCandidateCount: number;
+}
+
 export interface PreparedMemoryCleanupCandidates {
   eligible: MemoryCleanupSource[];
   groups: MemoryCleanupCandidateGroup[];
@@ -133,7 +138,19 @@ function boundedGroup(sources: MemoryCleanupSource[], sequence: number): MemoryC
   };
 }
 
-function buildBoundedCandidateGroups(eligible: MemoryCleanupSource[]): MemoryCleanupCandidateGroup[] {
+function exactDuplicateGroup(
+  sources: MemoryCleanupSource[],
+  sequence: number,
+): MemoryCleanupCandidateGroup | null {
+  const selected = sources.slice(0, MEMORY_CLEANUP_MAX_GROUP_RECORDS);
+  if (selected.length < 2) return null;
+  return {
+    id: `cleanup-group-${sequence + 1}`,
+    sourceIds: selected.map((source) => source.id),
+  };
+}
+
+function buildBoundedCandidateGroups(eligible: MemoryCleanupSource[]): BuiltMemoryCleanupCandidateGroups {
   const adjacency = new Map(eligible.map((source) => [source.id, new Set<string>()]));
 
   for (let leftIndex = 0; leftIndex < eligible.length; leftIndex += 1) {
@@ -149,6 +166,7 @@ function buildBoundedCandidateGroups(eligible: MemoryCleanupSource[]): MemoryCle
   const byId = new Map(eligible.map((source) => [source.id, source]));
   const visited = new Set<string>();
   const groups: MemoryCleanupCandidateGroup[] = [];
+  let deferredCandidateCount = 0;
 
   for (const source of eligible) {
     if (visited.has(source.id) || (adjacency.get(source.id)?.size ?? 0) === 0) continue;
@@ -164,22 +182,28 @@ function buildBoundedCandidateGroups(eligible: MemoryCleanupSource[]): MemoryCle
         if (!visited.has(adjacent)) pending.push(adjacent);
       }
     }
-    const group = boundedGroup(component, groups.length);
+    const normalized = normalizedContent(component[0]?.content ?? "");
+    const exactDuplicates = component.every((member) => normalizedContent(member.content) === normalized);
+    const group = exactDuplicates
+      ? exactDuplicateGroup(component, groups.length)
+      : boundedGroup(component, groups.length);
     if (group) groups.push(group);
+    if (!group || group.sourceIds.length < component.length) {
+      deferredCandidateCount += 1;
+    }
   }
 
-  return groups;
+  return { groups, deferredCandidateCount };
 }
 
 export function prepareMemoryCleanupCandidates(sources: MemoryCleanupSource[]): PreparedMemoryCleanupCandidates {
   const eligible = sources.filter(isMemoryCleanupEligible);
-  const oversizedEligible = eligible.filter((source) => source.content.length > MEMORY_CLEANUP_MAX_GROUP_CHARS);
-  const modelEligible = eligible.filter((source) => source.content.length <= MEMORY_CLEANUP_MAX_GROUP_CHARS);
-  const groups = buildBoundedCandidateGroups(modelEligible);
+  const built = buildBoundedCandidateGroups(eligible);
   return {
     eligible,
-    groups: groups.slice(0, MEMORY_CLEANUP_MAX_GROUPS),
-    deferredCandidateCount: oversizedEligible.length + Math.max(0, groups.length - MEMORY_CLEANUP_MAX_GROUPS),
+    groups: built.groups.slice(0, MEMORY_CLEANUP_MAX_GROUPS),
+    deferredCandidateCount:
+      built.deferredCandidateCount + Math.max(0, built.groups.length - MEMORY_CLEANUP_MAX_GROUPS),
   };
 }
 
