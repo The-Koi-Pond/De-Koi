@@ -35,7 +35,7 @@ const MAX_AUDIT_EDITS = 6;
 const MAX_EVIDENCE_LENGTH = 240;
 const INTERNAL_OUTPUT_PATTERN =
   /<\/?(?:analysis|assistant_response|roleplay_quality|roleplay_quality_audit)\b|^\s*```(?:json)?/i;
-const SIGNAL_REASONS: Partial<Record<RoleplayQualitySignalKind, RoleplayQualityChangeReason>> = {
+const SIGNAL_REASONS: Record<RoleplayQualitySignalKind, RoleplayQualityChangeReason> = {
   agency_candidate: "agency",
   identity_contradiction: "continuity",
   repeated_phrase: "repetition",
@@ -126,6 +126,8 @@ export function validateRoleplayQualityAudit(
       !CHANGE_REASONS.has(reason) ||
       !allowedReasons.has(reason) ||
       !description ||
+      // Reject the whole batch when the editor ignored the unique-span contract.
+      // Applying only the other edits would hide a malformed correction request.
       indexes.length !== 1 ||
       INTERNAL_OUTPUT_PATTERN.test(after) ||
       structuredOutput(after)

@@ -47,6 +47,22 @@ describe("roleplay quality audit validation", () => {
     ).toEqual(["agency", "continuity", "repetition", "pacing", "malformed"]);
   });
 
+  it.each([
+    ["repeated_phrase", "repetition"],
+    ["repeated_opening", "repetition"],
+    ["repeated_closing", "repetition"],
+    ["repeated_gesture", "repetition"],
+    ["user_echo", "repetition"],
+    ["rhetorical_repetition", "repetition"],
+    ["cast_saturation", "pacing"],
+    ["length_mismatch", "pacing"],
+    ["malformed_output", "malformed"],
+    ["identity_contradiction", "continuity"],
+    ["agency_candidate", "agency"],
+  ] satisfies Array<[RoleplayQualitySignalKind, string]>)("maps %s to the guarded %s editor reason", (kind, reason) => {
+    expect(roleplayQualityAudit.roleplayQualityReasonsForSignals([signal(kind)])).toEqual([reason]);
+  });
+
   it("applies one exact source-backed replacement without rewriting unrelated prose", () => {
     const repair = validateRoleplayQualityAudit(
       original,
@@ -142,6 +158,28 @@ describe("roleplay quality audit validation", () => {
         allowedReasons: allowedReasons as Array<"agency" | "continuity" | "repetition" | "pacing" | "malformed">,
       }),
     ).toEqual(expect.objectContaining({ content: source, changed: false, reasons: [], evidence: [] }));
+  });
+
+  it("rejects the entire edit batch when one source span is ambiguous", () => {
+    const source = "Mira waits. Mira closes the ledger.";
+    const repair = validateRoleplayQualityAudit(
+      source,
+      result({
+        edits: [
+          edit("waits", "stops", "pacing", "Shortened a beat."),
+          edit("Mira", "She", "continuity", "Changed an ambiguous repeated name."),
+        ],
+      }),
+      { allowedReasons: ["pacing", "continuity"] },
+    );
+
+    expect(repair).toEqual({
+      content: source,
+      changed: false,
+      reasons: [],
+      evidence: [],
+      durationMs: 321,
+    });
   });
 
   it("bounds and deduplicates correction metadata", () => {

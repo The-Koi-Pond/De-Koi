@@ -158,7 +158,21 @@
       "reason": "The control already existed and only its explanatory copy changed; typecheck, settings information-architecture tests, and the full repository check cover the change."
     }
   ],
-  "reviewThreadLedger": [],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny reported that ambiguous exact-span evidence is rejected without applying other edits in the same batch.",
+      "disposition": "proven-and-clarified",
+      "reason": "The editor prompt already requires each before value to identify one unique span. Whole-batch rejection is the deliberate fail-closed boundary; applying a subset would hide a malformed correction request.",
+      "fix": "Added an explicit code comment and a regression test proving that one ambiguous edit rejects the entire batch while preserving the original response.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny reported that a future Roleplay quality signal could be added without a deliberate correction-reason mapping.",
+      "disposition": "fixed",
+      "fix": "Made the signal-to-reason map exhaustive over RoleplayQualitySignalKind and added a table test covering every current signal kind.",
+      "humanResolutionRequired": false
+    }
+  ],
   "verification": {
     "originalReproPassed": true,
     "focusedReproPassed": true,
