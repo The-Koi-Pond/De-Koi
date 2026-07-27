@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Stop remote conversation deletion from flushing unrelated storage",
+    "source": "Live Raspberry Pi user report",
+    "classification": "remote runtime storage transaction performance and user-data deletion",
+    "status": "main_conflict_resolved_local_verification_passed"
+  },
+  "coreClaim": "Deleting a conversation through the remote runtime completes without forcing unrelated dirty collections to disk, while atomic message and swipe deletion and fail-closed journal validation remain intact.",
+  "rootCause": "FileStorage::update_collections_atomically used shutdown-style global dirty flushing before reading targets, before committing targets, and again through replace_all_many_locked. A chat delete therefore serialized unrelated large dirty collections such as character-versions while holding the global write gate, causing the browser's 30-second deadline to expire and later refreshes to restore the optimistic chat row.",
+  "scope": {
+    "inScope": [
+      "Target-scoped dirty collection flushing for FileStorage atomic updates",
+      "Global corrupt-journal validation before atomic updates",
+      "Focused regression coverage for unrelated deferred collections",
+      "Live Pi diagnosis and post-merge deletion verification"
+    ],
+    "outOfScope": [
+      "Changing the browser's 30-second remote request deadline",
+      "Changing conversation deletion confirmation or memory-cleanup choices",
+      "Changing collection formats, migrations, or import/export behavior",
+      "Deleting or pruning pre-existing orphaned temporary files"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/lib.rs",
+      ".github/pr-evidence/remote-conversation-delete-timeout/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src-tauri/crates/storage/src/lib.rs",
+      ".github/pr-evidence/remote-conversation-delete-timeout/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "storage transactions",
+      "user-data deletion",
+      "remote runtime",
+      "deferred persistence"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "An atomic update flushes only dirty collections named in its transaction but still validates recovery evidence for every dirty collection before running its callback.",
+    "riskType": "storage durability, transaction isolation, and remote-runtime latency",
+    "entrypoints": [
+      "Browser ChatSidebar delete action",
+      "src/shared/api storage_delete remote invoke",
+      "src-tauri HTTP storage dispatch",
+      "FileStorage::update_collections_atomically"
+    ],
+    "currentPathsOrFormats": [
+      "data/collections/chats.json",
+      "data/collections/messages.json",
+      "data/collections/message-swipes.json",
+      "data/collections/*.pending.jsonl",
+      "data/collections/.collection-append-journal.jsonl"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing dirty cached collections and generic pending journals continue to use their current persistence and recovery formats."
+    ],
+    "outOfScopeClaims": [
+      "This change does not make every storage operation complete within a fixed deadline.",
+      "This change does not alter cleanup semantics for chats, messages, swipes, memories, gallery rows, or agent bookkeeping.",
+      "This change does not remove old temporary files already present on a data volume."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A transaction over named collections performed global shutdown persistence work for unrelated dirty collections.",
+    "producer": "FileStorage::update_collections_atomically",
+    "consumer": "Remote chat deletion through message_swipe_storage::delete_message_rows_for_chats_with_swipes",
+    "impliedContract": "Atomic updates durably synchronize their target collections without turning unrelated deferred writes into transaction latency.",
+    "actualEnforcement": "Target names are collected once and passed to flush_dirty_collections_locked_for at both atomic boundaries; global replacement and shutdown callers retain global flush behavior.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "The storage capability owns write-gate serialization, dirty caches, journals, and multi-collection transactions.",
+    "consumerOnlyLanes": [
+      "src-tauri",
+      "src/shared/api",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not increase the browser timeout or suppress the mutation error; that would leave the global storage stall and optimistic rollback behavior intact.",
+    "regressionProof": [
+      "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-storage update_collections_atomically_keeps_unrelated_dirty_collections_deferred -- --nocapture",
+      "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-storage --lib -- --test-threads=1",
+      "cargo test --manifest-path src-tauri/Cargo.toml delete_chat -- --test-threads=1"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Atomic message and swipe work leaves an unrelated dirty character-versions collection deferred.",
+        "evidence": "The new focused test failed before the fix because character-versions.json was written, then passed after target-scoped flushing."
+      },
+      {
+        "claim": "Existing chat deletion behavior still removes chat-owned data.",
+        "evidence": "The focused delete_chat Rust filter passed 8 tests covering chat/group deletion, gallery files, agent bookkeeping, and optional memory cleanup."
+      },
+      {
+        "claim": "The storage capability remains internally consistent.",
+        "evidence": "The full marinara-storage library suite passed 137 tests after the fix and integration with main's deferred-flush clone bound."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Target scoping must not allow corrupt unrelated journals to be ignored.",
+        "evidence": "atomic_boundary_rejects_a_corrupt_generic_journal_before_overwriting_the_primary initially caught this risk and passes after global validation was separated from targeted persistence."
+      },
+      {
+        "claim": "Normal explicit replacement and shutdown paths must retain global flushing.",
+        "evidence": "replace_all_many_and_then now performs the same global shutdown flush before entering the no-longer-self-flushing locked replacement helper; FileStorage::flush is unchanged."
+      },
+      {
+        "claim": "The browser deadline is not the root cause.",
+        "evidence": "The live Pi logged 21 storage_delete starts without completions while remaining healthy; the server reached 96 percent of its 2 GiB limit and nearly 2 GB of block writes while unrelated 127 MB character-version temp files appeared."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing collection journals keep fail-closed validation.",
+        "evidence": "All journal, recovery, replacement, streaming, and atomic-boundary tests pass in the 137-test storage suite."
+      },
+      {
+        "claim": "Existing desktop and remote callers keep the same storage_delete contract.",
+        "evidence": "No TypeScript wrapper, HTTP command name, Rust command signature, or response shape changed."
+      }
+    ],
+    "untestedRows": [
+      "Final production-image timing and real remote conversation deletion will be verified after the merged revision is deployed to the Pi."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The Pi was running matching server and web images for main commit 583bd21a689fb8c52897076c8a1758b0f59dd0a6 when the bug reproduced.",
+      "sourceType": "measured",
+      "evidence": "Docker OCI revision labels and the Pi checkout HEAD matched."
+    },
+    {
+      "description": "The chat delete transaction targets messages and message-swipes through FileStorage::update_collections_atomically.",
+      "sourceType": "derived",
+      "evidence": "delete_chat_with_messages calls delete_message_rows_for_chats_with_swipes, whose storage implementation names exactly those two collections."
+    },
+    {
+      "description": "The global flush wrote unrelated character-version transaction temps during the stalled requests.",
+      "sourceType": "measured",
+      "evidence": "The Pi data directory contained multiple 127 MB character-versions transaction temp files while storage_delete requests remained unfinished and block I/O approached 2 GB."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Conversation deletion remains destructive. Before deleting a conversation that must be retained, export it to a user-controlled folder.",
+      "source": "Open the conversation, then use the conversation export action before confirming deletion.",
+      "destination": "A user-selected folder outside De-Koi's application data directory.",
+      "files": [
+        "<conversation-name>.json"
+      ],
+      "action": "Save the exported conversation JSON at the destination, verify the file exists, and only then confirm conversation deletion.",
+      "detectedLayouts": [
+        "Current De-Koi conversation export JSON"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge live Pi delete timing",
+      "blockingCoreClaim": false,
+      "status": "post-merge-verification",
+      "reason": "Local regression and safety suites prove the code claim. The merged prealpha images must still be deployed before the exact remote runtime path can be measured against the live data volume."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check passed. pnpm test passed 2352 tests with 1 skipped; the full Rust library run passed 1365 tests and had one unrelated Windows descendant-process timing failure that passed immediately in an exact isolated rerun; after integrating current main, marinara-storage passed all 137 tests and delete_chat passed all 8 focused tests."
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pass",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1163,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1163",
+    "headRefName": "fix/remote-conversation-delete-timeout",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "The live server container was restarted after diagnosis to clear orphaned timed-out delete workers; mounts and health were reverified.",
+    "The full Rust library run's only failure was backgroundremover_timeout_kills_descendant_processes, an unrelated Windows process-timing test; its exact isolated rerun passed 1/1.",
+    "Main advanced with PR #1164 while this PR was in review. The conflict resolution preserves its clone-only-after-compaction memory bound and applies target collection filtering before compaction; both regressions and the 137-test storage suite pass together."
+  ]
+}

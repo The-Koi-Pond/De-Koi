@@ -995,6 +995,10 @@ impl FileStorage {
         F: FnOnce(&mut [AtomicCollectionRows]) -> AppResult<T>,
     {
         let _atomic_update = self.write_gate.begin_atomic_update()?;
+        let target_collections = collections
+            .iter()
+            .map(|collection| (*collection).to_string())
+            .collect::<HashSet<_>>();
         // Load the rows and capture each collection's file stamp under the SAME
         // write lock, so the conflict baseline reflects exactly the bytes the rows
         // were read from. Sampling the stamp after the lock is released would let a
@@ -1005,7 +1009,7 @@ impl FileStorage {
                 .lock
                 .write()
                 .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-            self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
+            self.flush_dirty_collections_locked_for(FlushKind::Shutdown, &target_collections)?;
 
             let mut loaded = Vec::with_capacity(collections.len());
             let mut original_stamps = Vec::with_capacity(collections.len());
@@ -1032,7 +1036,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
+        self.flush_dirty_collections_locked_for(FlushKind::Shutdown, &target_collections)?;
         for (collection, original_stamp) in &original_stamps {
             let path = self.collection_path(collection)?;
             if collection_content_stamp(&path)? != *original_stamp {
@@ -1063,6 +1067,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
         self.replace_all_many_locked(replacements, after_install)
     }
 
@@ -1299,6 +1304,24 @@ impl FileStorage {
     }
 
     fn flush_dirty_collections_locked(&self, flush_kind: FlushKind) -> AppResult<()> {
+        self.flush_dirty_collections_locked_matching(flush_kind, |_| true)
+    }
+
+    fn flush_dirty_collections_locked_for(
+        &self,
+        flush_kind: FlushKind,
+        collections: &HashSet<String>,
+    ) -> AppResult<()> {
+        self.flush_dirty_collections_locked_matching(flush_kind, |collection| {
+            collections.contains(collection)
+        })
+    }
+
+    fn flush_dirty_collections_locked_matching(
+        &self,
+        flush_kind: FlushKind,
+        should_flush: impl Fn(&str) -> bool,
+    ) -> AppResult<()> {
         let dirty_collections = {
             let cache = self
                 .cache
@@ -1312,8 +1335,12 @@ impl FileStorage {
                 .collect::<Vec<_>>()
         };
         let collections_dir = self.root.join("collections");
+        for collection in &dirty_collections {
+            validate_collection_journal_before_replacement(&collections_dir, collection)?;
+        }
         let compact = dirty_collections
             .into_iter()
+            .filter(|collection| should_flush(collection))
             .filter_map(|collection| {
                 let force = matches!(flush_kind, FlushKind::Shutdown)
                     || append_journal::checkpoint_tracks(&collection);
@@ -2840,7 +2867,6 @@ impl FileStorage {
     where
         F: FnOnce() -> AppResult<()>,
     {
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
         let collections_dir = self.root.join("collections");
         for (collection, _) in &replacements {
             validate_collection_journal_before_replacement(&collections_dir, collection)?;
@@ -5361,6 +5387,39 @@ mod tests {
         assert_eq!(storage.list("messages").unwrap().len(), 2);
         assert_eq!(storage.list("message-swipes").unwrap().len(), 2);
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn update_collections_atomically_keeps_unrelated_dirty_collections_deferred() {
+        let root = temp_storage_root("update-collections-targeted-flush");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all("messages", vec![json!({ "id": "message-1" })])
+            .unwrap();
+        storage.replace_all("message-swipes", Vec::new()).unwrap();
+        storage
+            .cache_collection(
+                "character-versions",
+                &[json!({ "id": "large-unrelated-version" })],
+                true,
+            )
+            .unwrap();
+
+        storage
+            .update_collections_atomically(vec!["messages", "message-swipes"], |_| Ok(()))
+            .unwrap();
+
+        assert!(
+            !root
+                .join("collections")
+                .join("character-versions.json")
+                .exists(),
+            "an atomic update must not force unrelated dirty collections to disk"
+        );
+        assert_eq!(storage.dirty_collection_count(), 1);
+
+        storage.flush().unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
