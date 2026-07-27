@@ -182,12 +182,7 @@ describe("useMemoryCleanup", () => {
   });
 
   it("does not report a successful old-owner apply as an error after navigation", async () => {
-    let finishApply!: (value: {
-      batchId: string;
-      combined: number;
-      superseded: number;
-      created: number;
-    }) => void;
+    let finishApply!: (value: { batchId: string; combined: number; superseded: number; created: number }) => void;
     mocks.apply.mockImplementation(
       () =>
         new Promise((resolve) => {
