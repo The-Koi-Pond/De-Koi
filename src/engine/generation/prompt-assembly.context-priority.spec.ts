@@ -674,6 +674,8 @@ describe("prompt context priority", () => {
   it("keeps a concluded scene memory cross-chat without repeating it in the origin conversation", async () => {
     const sceneSummary = "Mira returned the blue lantern and promised to guard the archive gate.";
     const legacySceneSummary = "Mira previously closed the silver gate before scene memories stored an origin chat id.";
+    const recycledSceneSummary =
+      "Mira's different conversation reused a stale scene id but kept explicit origin provenance.";
     const storage = contextPriorityStorage({
       character: {
         id: "mira",
@@ -685,7 +687,7 @@ describe("prompt context priority", () => {
               {
                 createdAt: todayIso(),
                 from: "Lantern Promise",
-                sceneChatId: "scene-1",
+                sceneChatId: "current-scene-not-in-history",
                 originChatId: "origin-chat",
                 summary: sceneSummary,
               },
@@ -694,6 +696,13 @@ describe("prompt context priority", () => {
                 from: "Silver Gate",
                 sceneChatId: "legacy-scene",
                 summary: legacySceneSummary,
+              },
+              {
+                createdAt: todayIso(),
+                from: "Recycled Scene Id",
+                sceneChatId: "legacy-scene",
+                originChatId: "different-origin-chat",
+                summary: recycledSceneSummary,
               },
             ],
           },
@@ -709,10 +718,7 @@ describe("prompt context priority", () => {
         metadata: {
           enableMemoryRecall: false,
           lastRoleplaySceneSummary: sceneSummary,
-          roleplaySceneHistory: [
-            { sceneChatId: "scene-1", summary: sceneSummary },
-            { sceneChatId: "legacy-scene", summary: legacySceneSummary },
-          ],
+          roleplaySceneHistory: [{ sceneChatId: "legacy-scene", summary: legacySceneSummary }],
         },
       },
       storedMessages: [{ id: "latest", role: "user", content: "What now?" }],
@@ -737,8 +743,10 @@ describe("prompt context priority", () => {
     const otherChatText = otherChat.messages.map((message) => String(message.content ?? "")).join("\n");
     expect(originText.split(sceneSummary)).toHaveLength(2);
     expect(originText).not.toContain(legacySceneSummary);
+    expect(originText).toContain(recycledSceneSummary);
     expect(otherChatText).toContain(sceneSummary);
     expect(otherChatText).toContain(legacySceneSummary);
+    expect(otherChatText).toContain(recycledSceneSummary);
   });
 
   it("uses the shared roleplay Memory Recall default when metadata omits the explicit flag", async () => {

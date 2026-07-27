@@ -562,7 +562,7 @@ function sceneMemoryBelongsToOriginChat(memory: JsonRecord, chat: JsonRecord | u
   const chatId = readString(chat?.id).trim();
   if (!chatId) return false;
   const originChatId = readString(memory.originChatId).trim();
-  if (originChatId && originChatId === chatId) return true;
+  if (originChatId) return originChatId === chatId;
   const sceneChatId = readString(memory.sceneChatId).trim();
   return !!sceneChatId && sceneChatIds.has(sceneChatId);
 }

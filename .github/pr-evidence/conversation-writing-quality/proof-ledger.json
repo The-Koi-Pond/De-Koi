@@ -189,6 +189,30 @@
       "disposition": "fixed",
       "fix": "The single intended commit was rebased onto current origin/main and the three-dot diff now contains only the intended files.",
       "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny said a pure originChatId scene memory could escape same-chat suppression.",
+      "disposition": "proven-and-clarified",
+      "fix": "The existing originChatId equality filter already suppressed it; the regression now uses a sceneChatId absent from history to prove the explicit provenance path independently.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny found that a stale or recycled sceneChatId could override explicit provenance from a different origin chat.",
+      "disposition": "fixed",
+      "fix": "Explicit originChatId now takes precedence; sceneChatId history is consulted only for legacy rows without originChatId, with a colliding-ID negative row.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny said Behavioral Interpretation remained visible in compact targeted Conversation context.",
+      "disposition": "proven-and-clarified",
+      "fix": "The reviewed head already blanked Behavioral Interpretation whenever compactTargetedConversation is active, and target plus peer marker assertions prove it.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny described the 220-word head-and-tail clamp as a missing change.",
+      "disposition": "proven-and-clarified",
+      "fix": "The reviewed head already hard-capped at 220 words, preserved opening and ending content, inserted an ellipsis, and restored terminal punctuation; the provider-ignored retry regression proves it.",
+      "humanResolutionRequired": false
     }
   ],
   "verification": {
@@ -201,6 +225,7 @@
     "edgeRowsTested": [
       "Current originChatId memory",
       "Legacy sceneChatId memory",
+      "Explicit different-origin provenance with a colliding legacy sceneChatId",
       "Cross-chat memory retention",
       "Hidden conclusion in later scene context",
       "Target and peer compact cards",
@@ -208,6 +233,7 @@
     ],
     "negativeRowsTested": [
       "No origin-chat memory echo",
+      "No recycled sceneChatId override of explicit different-origin provenance",
       "No hidden conclusion context",
       "No bulky target or peer fields",
       "No Roleplay projection change"
