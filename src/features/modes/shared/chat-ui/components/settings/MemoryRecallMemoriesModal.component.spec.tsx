@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRecallMemoriesModal } from "./MemoryRecallMemoriesModal";
 
 const hookMocks = vi.hoisted(() => ({
+  memories: [] as Array<Record<string, unknown>>,
   createMemory: {
     mutateAsync: vi.fn(async () => ({
       id: "memory-new",
@@ -13,6 +14,12 @@ const hookMocks = vi.hoisted(() => ({
     })),
     isPending: false,
   },
+  repairMemories: {
+    mutateAsync: vi.fn(async () => ({ rebuilt: 4, reused: 3 })),
+    isPending: false,
+  },
+  showConfirmDialog: vi.fn(async () => true),
+  cleanupModalProps: null as Record<string, unknown> | null,
 }));
 
 function mutation() {
@@ -24,7 +31,7 @@ function mutation() {
 }
 
 vi.mock("../../../../../catalog/chats/index", () => ({
-  useChatMemories: () => ({ data: [], isLoading: false, isFetching: false, error: null }),
+  useChatMemories: () => ({ data: hookMocks.memories, isLoading: false, isFetching: false, error: null }),
   useInheritedCharacterMemories: () => ({ data: [], isLoading: false, error: null }),
   useCreateChatMemory: () => hookMocks.createMemory,
   useSoftDeleteChatMemory: mutation,
@@ -33,9 +40,24 @@ vi.mock("../../../../../catalog/chats/index", () => ({
   usePinChatMemory: mutation,
   useCorrectChatMemory: mutation,
   useClearChatMemories: mutation,
-  useRefreshChatMemories: mutation,
+  useRepairChatMemories: () => hookMocks.repairMemories,
   useExportChatMemories: mutation,
   useImportChatMemories: mutation,
+}));
+
+vi.mock("../../../../../catalog/memory-maintenance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../../catalog/memory-maintenance")>();
+  return {
+    ...actual,
+    MemoryCleanupReviewModal: (props: Record<string, unknown>) => {
+      hookMocks.cleanupModalProps = props;
+      return props.open ? <div data-testid="memory-cleanup-review" /> : null;
+    },
+  };
+});
+
+vi.mock("../../../../../../shared/lib/app-dialogs", () => ({
+  showConfirmDialog: hookMocks.showConfirmDialog,
 }));
 
 vi.mock("../../../../../../shared/components/ui/Modal", () => ({
@@ -65,6 +87,26 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     hookMocks.createMemory.mutateAsync.mockClear();
+    hookMocks.repairMemories.mutateAsync.mockClear();
+    hookMocks.showConfirmDialog.mockClear();
+    hookMocks.memories = [
+      {
+        id: "local-memory",
+        chatId: "chat-1",
+        content: "Mira keeps the brass key.",
+        memoryKind: "transcript",
+        scopeType: "chat",
+        scopeId: "chat-1",
+        status: "active",
+        messageCount: 1,
+        messageIds: ["message-1"],
+        firstMessageAt: "2026-07-01T00:00:00.000Z",
+        lastMessageAt: "2026-07-01T00:00:00.000Z",
+        createdAt: "2026-07-01T00:00:00.000Z",
+        hasEmbedding: true,
+      },
+    ];
+    hookMocks.cleanupModalProps = null;
     act(() => {
       root = createRoot(container!);
       root.render(<MemoryRecallMemoriesModal chatId="chat-1" open onClose={vi.fn()} />);
@@ -146,9 +188,7 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
     );
     expect(nextNewMemory?.getAttribute("aria-expanded")).toBe("false");
     act(() => nextNewMemory?.click());
-    expect(
-      container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]')?.value,
-    ).toBe("");
+    expect(container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]')?.value).toBe("");
   });
 
   it("does not apply a completed save to a chat opened while the request was pending", async () => {
@@ -196,7 +236,72 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
     );
 
     expect(nextNewMemory?.getAttribute("aria-expanded")).toBe("true");
-    expect(container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]')?.value)
-      .toBe("Chat two's separate draft.");
+    expect(container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New chat memory"]')?.value).toBe(
+      "Chat two's separate draft.",
+    );
+  });
+
+  it("places deterministic repair behind a clearly labeled advanced action", async () => {
+    expect(container!.querySelector('button[aria-label="Rebuild memories"]')).toBeNull();
+
+    const advanced = container!.querySelector<HTMLButtonElement>('button[aria-label="Memory maintenance actions"]');
+    expect(advanced).toBeTruthy();
+    act(() => advanced?.click());
+
+    const repair = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Repair from chat history"),
+    );
+    expect(repair).toBeTruthy();
+    expect(container!.textContent).toContain("does not summarize memories or use AI");
+
+    await act(async () => repair?.click());
+
+    expect(hookMocks.showConfirmDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Repair memories from chat history?",
+        confirmLabel: "Repair memories",
+      }),
+    );
+    expect(hookMocks.repairMemories.mutateAsync).toHaveBeenCalledOnce();
+  });
+
+  it("explains why cleanup and export are unavailable without local memories", () => {
+    hookMocks.memories = [];
+    act(() => {
+      root?.render(<MemoryRecallMemoriesModal chatId="chat-1" open onClose={vi.fn()} />);
+    });
+
+    expect(container!.textContent).toContain(
+      "No local memories yet. Add or import one to enable export, clear, and cleanup.",
+    );
+    expect(container!.querySelector('button[aria-label="Export local memories"]')?.getAttribute("title")).toBe(
+      "Export local memories",
+    );
+    expect(container!.querySelector('button[aria-label="Clear local memories"]')?.getAttribute("title")).toBe(
+      "No local memories to clear yet",
+    );
+    const tidy = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Tidy memories",
+    );
+    expect(tidy?.getAttribute("title")).toBe("No local memories to tidy yet");
+  });
+
+  it("opens labeled cleanup with real adapter-normalized local sources", () => {
+    const tidy = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Tidy memories",
+    );
+    expect(tidy).toBeTruthy();
+    act(() => tidy?.click());
+
+    expect(hookMocks.cleanupModalProps?.scope).toEqual({
+      kind: "chat",
+      id: "chat-1",
+    });
+    expect((hookMocks.cleanupModalProps?.sources as Array<{ id: string }>).map((source) => source.id)).toEqual([
+      "local-memory",
+    ]);
+    const cleanupReview = container!.querySelector('[data-testid="memory-cleanup-review"]');
+    expect(cleanupReview).toBeTruthy();
+    expect(cleanupReview?.closest('[role="dialog"]')).toBeNull();
   });
 });

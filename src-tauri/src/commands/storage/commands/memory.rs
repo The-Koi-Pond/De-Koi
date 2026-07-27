@@ -1,4 +1,4 @@
-use super::canonical_memory;
+use super::{canonical_memory, memory_maintenance};
 use crate::state::AppState;
 use marinara_core::AppError;
 use serde_json::Value;
@@ -67,4 +67,20 @@ pub fn memory_index_query(state: State<'_, AppState>, body: Value) -> Result<Val
 #[tauri::command]
 pub fn memory_index_query_batch(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
     canonical_memory::query_memory_index_batch(&state, body)
+}
+
+#[tauri::command]
+pub async fn memory_cleanup_apply(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_maintenance::apply_memory_cleanup(&state, body).await
+}
+
+#[tauri::command]
+pub fn memory_cleanup_undo(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_maintenance::undo_memory_cleanup(&state, body)
 }

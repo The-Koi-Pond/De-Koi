@@ -174,6 +174,8 @@ const REMOTE_COMMANDS = new Set([
   "memory_delete",
   "memory_query",
   "memory_query_batch",
+  "memory_cleanup_apply",
+  "memory_cleanup_undo",
   "memory_index_upsert",
   "memory_index_delete_for_memory",
   "memory_index_rebuild_lexical",

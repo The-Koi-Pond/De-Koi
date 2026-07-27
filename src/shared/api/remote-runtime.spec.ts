@@ -4,6 +4,7 @@ import { ApiError } from "./api-errors";
 import {
   checkRemoteRuntimeHealth,
   invokeRemote,
+  isRemoteCommand,
   readRemoteError,
   REMOTE_FINITE_REQUEST_TIMEOUT_MS,
   REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS,
@@ -27,6 +28,13 @@ function textResponse(body: string, init: ResponseInit = {}): Response {
     ...init,
   });
 }
+
+describe("memory maintenance remote routing", () => {
+  it("explicitly allows apply and undo through the hostable runtime", () => {
+    expect(isRemoteCommand("memory_cleanup_apply")).toBe(true);
+    expect(isRemoteCommand("memory_cleanup_undo")).toBe(true);
+  });
+});
 
 function stubFetch(responses: Response[]) {
   const fetchMock = vi.fn<typeof fetch>();
