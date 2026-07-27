@@ -551,7 +551,7 @@ export interface MessageMemoryCaptureExtra {
 
 export interface RoleplayQualityCorrectionExtra {
   source: "focused_editor_audit";
-  reasons: Array<"agency" | "continuity" | "repetition">;
+  reasons: Array<"agency" | "continuity" | "repetition" | "pacing" | "malformed">;
   evidence: string[];
   durationMs: number;
 }

@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Add a high-confidence Roleplay prose quality gate",
+    "source": "Reported Roleplay writing issues and AI-like prose patterns",
+    "classification": "engine generation, prompt enforcement, and settings copy",
+    "status": "verified"
+  },
+  "coreClaim": "Roleplay generations with strong, locally detectable prose or player-agency problems receive a bounded exact-span correction pass, while clean replies and non-Roleplay modes keep their existing one-call path and unusable corrections preserve the original response.",
+  "rootCause": "Roleplay prompts requested good prose but the generation boundary did not inspect completed text or safely correct high-confidence violations, so instruction drift could reach the transcript unchanged.",
+  "scope": {
+    "inScope": [
+      "Local high-confidence Roleplay quality signals",
+      "A bounded exact-span model correction pass",
+      "Fail-closed correction validation",
+      "Production and dry-run generation parity",
+      "Settings copy describing the behavior",
+      "Deterministic and opt-in live-model benchmarks"
+    ],
+    "outOfScope": [
+      "General-purpose style scoring",
+      "Calling a model on every Roleplay response",
+      "Rewriting clean responses",
+      "Conversation or Game mode correction",
+      "Exhaustive player-agency verb detection in every language"
+    ],
+    "riskFlags": [
+      "prompt",
+      "provider call count",
+      "cross-entrypoint dry-run behavior",
+      "model-produced user-visible text"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Only strong local evidence or corroborated minor signals route Roleplay text to a constrained editor; accepted edits are exact, non-overlapping, authorized, non-expanding replacements and all invalid editor output falls back to the original.",
+    "riskType": "prompt and cross-entrypoint generation compatibility",
+    "entrypoints": [
+      "Saved Roleplay generation",
+      "Roleplay regeneration and continuation through startGeneration",
+      "Roleplay dry-run generation",
+      "Legacy visual_novel mode aliases"
+    ],
+    "currentPathsOrFormats": [
+      "Plain assistant Roleplay text",
+      "JSON exact-span edit arrays with before, after, reason, and description",
+      "Chat quality audit metadata"
+    ],
+    "legacyPathsOrFormats": [
+      "Clean Roleplay replies retain the existing one-call path",
+      "Conversation and Game generation remain outside the Roleplay quality gate",
+      "Invalid or unusable editor responses retain the original assistant text"
+    ],
+    "outOfScopeClaims": [
+      "No claim that subjective writing quality can be fully classified by local code.",
+      "No claim that strict player-agency detection is exhaustive outside English.",
+      "No new mode, panel, or discoverable workflow is introduced."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The Roleplay generation owner requested prose constraints but did not enforce high-confidence violations after the model completed a reply.",
+    "producer": "src/engine/generation/start-generation.ts and the selected language-model connection",
+    "consumer": "Roleplay transcript persistence, dry-run previews, and users reading generated scene prose",
+    "impliedContract": "Roleplay text should respect explicit prose and player-agency constraints without adding routine latency or allowing a corrective model call to replace valid output with malformed or broader text.",
+    "actualEnforcement": "src/engine/generation/roleplay-quality-signals.ts performs local routing, roleplay-quality-audit.ts validates bounded exact-span edits, and start-generation.ts applies the same fail-closed correction path to production and dry-run output.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "The engine generation orchestrator owns completed model output and mode separation; the settings UI only explains the engine behavior.",
+    "consumerOnlyLanes": [
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not patch one Roleplay or character prompt, run an AI judge on every reply, apply whole-response rewrites, or make React responsible for generation correctness.",
+    "regressionProof": [
+      "Focused signal, audit, agent-runner, and start-generation suites prove routing, exact-span validation, one-call controls, mode separation, and dry-run parity.",
+      "The opt-in real-model benchmark exercises eight diverse clean scenes and five injected suspicious replies through production dry-run generation."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Clean and diverse Roleplay responses keep the one-call fast path.",
+        "evidence": "Deterministic one-call controls pass, and the real-model matrix kept 7 of 8 clean scenarios on one call."
+      },
+      {
+        "claim": "High-confidence repetition, echo, malformed text, identity contradiction, cast saturation, length mismatch, and strict player-agency candidates can route to correction.",
+        "evidence": "roleplay-quality-signals.spec.ts passes direct and corroborated routing rows while rejecting isolated minor evidence."
+      },
+      {
+        "claim": "Accepted editor output changes only explicitly authorized exact spans and cannot lengthen the response.",
+        "evidence": "roleplay-quality-audit.spec.ts passes valid multi-edit application, authorization, overlap, ambiguity, no-op, and expansion checks."
+      },
+      {
+        "claim": "Production and dry-run Roleplay generation share the same correction path.",
+        "evidence": "start-generation focused suites pass saved generation, continuation, and dry-run correction rows."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Conversation and Game responses must not receive Roleplay correction calls.",
+        "evidence": "Focused start-generation mode controls assert one provider call and no quality correction outside Roleplay."
+      },
+      {
+        "claim": "A single weak or subjective style clue must not add a model call.",
+        "evidence": "Signal tests require one high-confidence kind, two independent minor kinds, or at least three corroborating occurrences."
+      },
+      {
+        "claim": "Malformed, overlapping, unauthorized, ambiguous, expanding, empty, structured, or no-op editor output must not replace the original.",
+        "evidence": "Audit validator negative rows pass and the real-model echo/rhetorical retry preserved the original when the editor returned unusable output."
+      },
+      {
+        "claim": "Player-agency restrictions must not leak into correction prompts for unrelated signal kinds.",
+        "evidence": "Prompt contract tests assert agency guidance is conditional on an agency signal."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Legacy visual_novel mode aliases receive the same Roleplay protection.",
+        "evidence": "Mode contract and generation tests include Roleplay and legacy visual_novel routing."
+      },
+      {
+        "claim": "Existing chats without the enabled Roleplay quality setting retain prior behavior.",
+        "evidence": "Agent runner and start-generation tests cover disabled audit and unchanged response paths."
+      }
+    ],
+    "untestedRows": [
+      "Strict player-agency verb detection is strongest in English; adding equivalent exhaustive rules for every supported language would require separate language-specific work.",
+      "No visual screenshot was captured because the UI change is explanatory settings copy rather than layout or interaction behavior."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Local signal detection runs before any optional editor call, so a clean reply does not consume a second model request.",
+      "sourceType": "harness-proven",
+      "evidence": "Focused agent-runner and start-generation tests assert provider call counts for clean controls."
+    },
+    {
+      "description": "Invalid corrections preserve the exact original response.",
+      "sourceType": "harness-proven",
+      "evidence": "Audit validator negative rows and the live echo/rhetorical failure case both retained the original."
+    },
+    {
+      "description": "The real-model matrix completed eight diverse scenarios without empty output or leaked internal tags.",
+      "sourceType": "measured",
+      "evidence": "docs/benchmarks/roleplay-quality-live-2026-07-27.md records the isolated production dry-run benchmark."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Exhaustive multilingual strict-agency detection",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "The feature is intentionally high-confidence and fail-closed; repetition, echo, length, structure, and malformed-output signals remain language-agnostic while English agency coverage is documented and tested."
+    },
+    {
+      "item": "Settings screenshot",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "The control already existed and only its explanatory copy changed; typecheck, settings information-architecture tests, and the full repository check cover the change."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "Architecture, security, storage contracts, TypeScript, docs, discovery, workflow protection, Rust workspace compilation, Bunny guidance, and the non-blocking unused-code report completed with exit code 0.",
+    "edgeRowsTested": [
+      "One strong signal versus corroborated minor signals",
+      "Repeated and ambiguous exact spans",
+      "Overlapping and expanding edits",
+      "Roleplay, legacy visual_novel, Conversation, and Game modes",
+      "Saved generation, continuation, and dry-run paths"
+    ],
+    "negativeRowsTested": [
+      "Clean one-call fast path",
+      "Disabled quality audit",
+      "Unrelated mode controls",
+      "Malformed or unusable editor output preserves the original",
+      "Unrelated signals omit player-agency prompt policy"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run src/engine/generation/roleplay-quality-signals.spec.ts src/engine/generation/roleplay-quality-audit.spec.ts src/engine/generation/start-generation.bunny.test.ts src/engine/generation/start-generation.dialogue-attribution.spec.ts src/engine/generation/agent-runner.test.ts tests/unit/roleplay-quality-live-benchmark.spec.ts",
+      "pnpm typecheck",
+      "pnpm check",
+      "pnpm lint:eslint",
+      "pnpm exec prettier --check on all changed files",
+      "git diff --check origin/main"
+    ]
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}

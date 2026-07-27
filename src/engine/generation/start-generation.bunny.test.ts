@@ -144,6 +144,7 @@ function generationStorage(args: {
   getTarget: (call: number, target: JsonRecord) => JsonRecord | null | Promise<JsonRecord | null>;
   chatMode?: string;
   chatMetadata?: JsonRecord;
+  chatPromptVariables?: JsonRecord;
   messages?: JsonRecord[];
   agentRows?: JsonRecord[];
   onCreate?: (chatId: string, value: Record<string, unknown>) => unknown;
@@ -158,6 +159,7 @@ function generationStorage(args: {
       ? (records.chat.metadata as JsonRecord)
       : {};
   records.chat.metadata = { ...chatMetadata, ...args.chatMetadata };
+  if (args.chatPromptVariables) records.chat.promptVariables = { ...args.chatPromptVariables };
   let targetGetCalls = 0;
   const createdMessageValues = new Map<string, Record<string, unknown>>();
   return {
@@ -993,6 +995,131 @@ describe("user-message regeneration review guards", () => {
     expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "token", data: "dry response" })]));
     expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "user_message" })]));
     expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "assistant_message" })]));
+  });
+
+  it("dry-runs the same evidence-gated Roleplay correction without chat-state writes", async () => {
+    const writeCalls: string[] = [];
+    const echoed = "The sealed blue envelope must be opened before dawn";
+    const repeatedContrast =
+      "Not carefully, but completely. Not later, but now. Not privately, but before everyone.";
+    const original = [
+      `${echoed}.`,
+      repeatedContrast,
+      "The same polished conclusion circles the room without adding a decision or changing anyone's position. ".repeat(
+        22,
+      ),
+    ].join(" ");
+    const correctedContrast = "Open it before dawn, in front of everyone.";
+    const responses = [
+      original,
+      JSON.stringify({
+        edits: [
+          {
+            before: repeatedContrast,
+            after: correctedContrast,
+            reason: "repetition",
+            description: "Collapsed repeated contrast.",
+          },
+        ],
+      }),
+    ];
+    let modelCalls = 0;
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      chatMode: "roleplay",
+      chatPromptVariables: { length: "under 150 words", styleFlavor: "grounded prose" },
+      onCreate: () => {
+        writeCalls.push("createChatMessage");
+        return {};
+      },
+      onSwipe: () => {
+        writeCalls.push("addChatMessageSwipe");
+      },
+      onPatchExtra: () => {
+        writeCalls.push("patchChatMessageExtra");
+      },
+      onPatchChatMetadata: () => {
+        writeCalls.push("patchChatMetadata");
+      },
+    });
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream() {
+        yield { type: "token", text: responses[modelCalls++] ?? "" };
+      },
+    };
+
+    const events = await collect(
+      dryRunGeneration(
+        { storage, llm, integrations: noopIntegrations },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          message: `${echoed}.`,
+          runId: "dry-run-quality",
+        },
+      ),
+    );
+    const dryRunResult = events.map(eventRecord).find((event) => event.type === "dry_run_result");
+    const data = eventRecord(dryRunResult?.data);
+
+    expect(modelCalls).toBe(2);
+    expect(writeCalls).toEqual([]);
+    expect(data.content).toContain(correctedContrast);
+    expect(data.roleplayQualityCorrection).toEqual(
+      expect.objectContaining({
+        source: "focused_editor_audit",
+        reasons: ["repetition"],
+        evidence: [repeatedContrast],
+      }),
+    );
+  });
+
+  it.each(["conversation", "game"])("does not apply Roleplay correction to %s dry runs", async (chatMode) => {
+    const echoed = "The sealed blue envelope must be opened before dawn";
+    const suspicious = [
+      `${echoed}.`,
+      "Not carefully, but completely. Not later, but now. Not privately, but before everyone.",
+      "The same polished conclusion circles the room without adding a decision or changing anyone's position. ".repeat(
+        22,
+      ),
+    ].join(" ");
+    let modelCalls = 0;
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      chatMode,
+      chatPromptVariables: { length: "under 150 words", styleFlavor: "grounded prose" },
+    });
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream() {
+        modelCalls += 1;
+        yield { type: "token", text: suspicious };
+      },
+    };
+
+    const events = await collect(
+      dryRunGeneration(
+        { storage, llm, integrations: noopIntegrations },
+        { chatId: "chat-1", connectionId: "conn-1", message: `${echoed}.` },
+      ),
+    );
+    const dryRunResult = events.map(eventRecord).find((event) => event.type === "dry_run_result");
+    const data = eventRecord(dryRunResult?.data);
+
+    expect(modelCalls).toBe(1);
+    expect(data.content).toBe(suspicious);
+    expect(data.roleplayQualityCorrection).toBeNull();
   });
 
   it("saves assembled user-message regeneration without assistant agent metadata", async () => {

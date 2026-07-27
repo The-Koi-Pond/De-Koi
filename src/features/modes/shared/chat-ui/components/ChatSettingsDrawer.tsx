@@ -2109,7 +2109,7 @@ function ChatSettingsDrawerInner({
             <Section
               label="Roleplay Quality"
               icon={<Sparkles size="0.875rem" />}
-              help="Quiet protection against likely strict-agency violations in generated replies."
+              help="Quiet protection against high-confidence prose and strict-agency problems."
             >
               <button
                 type="button"
@@ -2131,16 +2131,14 @@ function ChatSettingsDrawerInner({
                 <div className="min-w-0 flex-1">
                   <span className="text-xs font-medium">Automatic high-confidence correction</span>
                   <p className="mt-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-                    Clean replies stay fast and use no extra model call. Under a strict agency preset, De-Koi checks only
-                    likely violations and keeps the original reply if that check fails.
+                    Clean replies stay fast and use no extra model call. De-Koi reviews only replies with strong local
+                    evidence and keeps the original whenever a correction is uncertain or fails.
                   </p>
                 </div>
                 <div
                   className={cn(
                     "ml-3 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                    automaticRoleplayQualityCorrection
-                      ? "bg-[var(--primary)]"
-                      : "bg-[var(--muted-foreground)]/50",
+                    automaticRoleplayQualityCorrection ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
                   )}
                 >
                   <div
