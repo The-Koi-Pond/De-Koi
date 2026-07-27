@@ -501,16 +501,16 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                     .and_then(|value| value.as_str().map(ToOwned::to_owned))
                     .unwrap_or_else(|| "active".to_string());
                 let previous_updated_at = memory.remove("cleanupPreviousUpdatedAt");
+                let previous_superseded_at = memory.remove("cleanupPreviousSupersededAt");
                 let previous_superseded_at_present = memory
                     .remove("cleanupPreviousSupersededAtPresent")
                     .and_then(|value| value.as_bool())
-                    .unwrap_or(false);
-                let previous_superseded_at = memory.remove("cleanupPreviousSupersededAt");
+                    .unwrap_or(previous_superseded_at.is_some());
+                let previous_superseded_by = memory.remove("cleanupPreviousSupersededByMemoryId");
                 let previous_superseded_by_present = memory
                     .remove("cleanupPreviousSupersededByMemoryIdPresent")
                     .and_then(|value| value.as_bool())
-                    .unwrap_or(false);
-                let previous_superseded_by = memory.remove("cleanupPreviousSupersededByMemoryId");
+                    .unwrap_or(previous_superseded_by.is_some());
                 memory.insert("status".to_string(), json!(previous_status));
                 for field in [
                     "supersededAt",
@@ -774,6 +774,71 @@ mod tests {
                     .find(|memory| memory["id"] == json!("memory-a"))
             })
             .expect("memory-a should be restored");
+        assert_eq!(
+            restored_memory_a["supersededAt"],
+            json!("2026-06-01T00:00:00.000Z")
+        );
+        assert_eq!(
+            restored_memory_a["supersededByMemoryId"],
+            json!("prior-replacement")
+        );
+
+        let reapplied = apply_chat_cleanup(&state, apply_request())
+            .await
+            .expect("cleanup should reapply");
+        state
+            .storage
+            .update_collections_atomically(vec!["chats"], |collections| {
+                let chat = collections[0]
+                    .rows_mut()
+                    .iter_mut()
+                    .find(|chat| chat["id"] == json!("chat-1"))
+                    .expect("chat should exist");
+                let memories = chat["memories"]
+                    .as_array_mut()
+                    .expect("memories should be an array");
+                for memory in memories
+                    .iter_mut()
+                    .filter(|memory| matches!(memory["id"].as_str(), Some("memory-a" | "memory-b")))
+                {
+                    let memory = memory
+                        .as_object_mut()
+                        .expect("chat memory should be an object");
+                    memory.remove("cleanupPreviousSupersededAtPresent");
+                    memory.remove("cleanupPreviousSupersededByMemoryIdPresent");
+                }
+                Ok(())
+            })
+            .expect("partial cleanup metadata should seed");
+
+        undo_chat_cleanup(
+            &state,
+            UndoCleanupRequest {
+                scope: CleanupScope {
+                    kind: "chat".to_string(),
+                    id: "chat-1".to_string(),
+                },
+                batch_id: reapplied["batchId"]
+                    .as_str()
+                    .expect("batch id should be returned")
+                    .to_string(),
+            },
+        )
+        .expect("cleanup with partial presence metadata should undo");
+
+        let restored_again = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should work")
+            .expect("chat should exist");
+        let restored_memory_a = restored_again["memories"]
+            .as_array()
+            .and_then(|memories| {
+                memories
+                    .iter()
+                    .find(|memory| memory["id"] == json!("memory-a"))
+            })
+            .expect("memory-a should be restored again");
         assert_eq!(
             restored_memory_a["supersededAt"],
             json!("2026-06-01T00:00:00.000Z")
