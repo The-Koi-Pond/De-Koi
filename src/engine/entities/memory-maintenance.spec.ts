@@ -81,6 +81,15 @@ describe("memory cleanup preparation", () => {
     expect(prepared.groups).toEqual([]);
   });
 
+  it("never groups identical content across owner scopes", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "chat-one", scope: { kind: "chat", id: "chat-1" } }),
+      source({ id: "chat-two", scope: { kind: "chat", id: "chat-2" } }),
+    ]);
+
+    expect(prepared.groups).toEqual([]);
+  });
+
   it("caps model-facing groups and reports deferred candidates", () => {
     const prepared = prepareMemoryCleanupCandidates(
       Array.from({ length: 22 }, (_, index) =>

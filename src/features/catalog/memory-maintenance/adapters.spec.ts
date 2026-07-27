@@ -54,21 +54,69 @@ describe("canonicalMemoryCleanupSource", () => {
 });
 
 describe("chatMemoryCleanupInput", () => {
-  it("never relabels chat-scoped rows as scene-scoped when a console contains both", () => {
-    const base = {
-      chatId: "chat-1",
-      content: "Memory",
-      messageCount: 1,
-      messageIds: ["message-1"],
-      firstMessageAt: "2026-07-01T00:00:00.000Z",
-      lastMessageAt: "2026-07-01T00:00:00.000Z",
-      createdAt: "2026-07-01T00:00:00.000Z",
-      hasEmbedding: true,
-    } satisfies Omit<ChatMemoryChunk, "id">;
+  const baseChatMemory = {
+    chatId: "chat-1",
+    content: "Memory",
+    messageCount: 1,
+    firstMessageAt: "2026-07-01T00:00:00.000Z",
+    lastMessageAt: "2026-07-01T00:00:00.000Z",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    hasEmbedding: true,
+  } satisfies Omit<ChatMemoryChunk, "id">;
+
+  it.each([
+    ["missing", undefined],
+    ["empty", []],
+  ])("protects a manual chat row with %s messageIds", (_label, messageIds) => {
+    const input = chatMemoryCleanupInput(
+      [{ ...baseChatMemory, id: "manual-memory", messageIds }],
+      "chat-1",
+    );
+
+    expect(input.sources).toEqual([
+      expect.objectContaining({
+        id: "manual-memory",
+        origin: "manual",
+      }),
+    ]);
+  });
+
+  it("normalizes imported and edited local rows as protected cleanup sources", () => {
     const input = chatMemoryCleanupInput(
       [
-        { ...base, id: "chat-memory", scopeType: "chat", scopeId: "chat-1" },
-        { ...base, id: "scene-memory", scopeType: "scene", scopeId: "chat-1" },
+        {
+          ...baseChatMemory,
+          id: "imported-memory",
+          messageIds: ["message-1"],
+          sourceChatId: "other-chat",
+        },
+        {
+          ...baseChatMemory,
+          id: "edited-memory",
+          messageIds: ["message-2"],
+          userEdited: true,
+        },
+      ],
+      "chat-1",
+    );
+
+    expect(input.sources).toEqual([
+      expect.objectContaining({ id: "imported-memory", origin: "imported" }),
+      expect.objectContaining({ id: "edited-memory", origin: "automatic", userEdited: true }),
+    ]);
+  });
+
+  it("never relabels chat-scoped rows as scene-scoped when a console contains both", () => {
+    const input = chatMemoryCleanupInput(
+      [
+        { ...baseChatMemory, id: "chat-memory", messageIds: ["message-1"], scopeType: "chat", scopeId: "chat-1" },
+        {
+          ...baseChatMemory,
+          id: "scene-memory",
+          messageIds: ["message-1"],
+          scopeType: "scene",
+          scopeId: "chat-1",
+        },
       ],
       "chat-1",
     );

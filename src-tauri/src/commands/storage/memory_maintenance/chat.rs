@@ -506,16 +506,22 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                 let previous_superseded_at_present = memory
                     .remove("cleanupPreviousSupersededAtPresent")
                     .and_then(|value| value.as_bool())
-                    // Older or partially written metadata can lack the flag.
-                    // A saved value still proves the field existed.
-                    .unwrap_or(previous_superseded_at.is_some());
+                    .unwrap_or(false)
+                    // A non-null saved value wins over an absent or
+                    // contradictory legacy flag: it proves the field existed.
+                    || previous_superseded_at
+                        .as_ref()
+                        .is_some_and(|value| !value.is_null());
                 let previous_superseded_by = memory.remove("cleanupPreviousSupersededByMemoryId");
                 let previous_superseded_by_present = memory
                     .remove("cleanupPreviousSupersededByMemoryIdPresent")
                     .and_then(|value| value.as_bool())
-                    // Preserve legacy partial metadata by inferring presence
-                    // from the saved chain value when the flag is absent.
-                    .unwrap_or(previous_superseded_by.is_some());
+                    .unwrap_or(false)
+                    // Preserve a valid saved chain value even when legacy
+                    // metadata omitted or contradicted its presence flag.
+                    || previous_superseded_by
+                        .as_ref()
+                        .is_some_and(|value| !value.is_null());
                 memory.insert("status".to_string(), json!(previous_status));
                 for field in [
                     "supersededAt",
@@ -789,6 +795,10 @@ mod tests {
             restored_memory_a["supersededByMemoryId"],
             json!("prior-replacement")
         );
+        assert!(
+            restored_memory_a.get("updatedAt").is_none(),
+            "undo must preserve the exact absence of optional chat updatedAt"
+        );
 
         let reapplied = apply_chat_cleanup(&state, apply_request())
             .await
@@ -811,12 +821,23 @@ mod tests {
                     let memory = memory
                         .as_object_mut()
                         .expect("chat memory should be an object");
-                    memory.remove("cleanupPreviousSupersededAtPresent");
-                    memory.remove("cleanupPreviousSupersededByMemoryIdPresent");
+                    if memory.get("id").and_then(Value::as_str) == Some("memory-a") {
+                        memory.insert(
+                            "cleanupPreviousSupersededAtPresent".to_string(),
+                            Value::Bool(false),
+                        );
+                        memory.insert(
+                            "cleanupPreviousSupersededByMemoryIdPresent".to_string(),
+                            Value::Bool(false),
+                        );
+                    } else {
+                        memory.remove("cleanupPreviousSupersededAtPresent");
+                        memory.remove("cleanupPreviousSupersededByMemoryIdPresent");
+                    }
                 }
                 Ok(())
             })
-            .expect("partial cleanup metadata should seed");
+            .expect("contradictory and partial cleanup metadata should seed");
 
         undo_chat_cleanup(
             &state,
@@ -853,6 +874,10 @@ mod tests {
         assert_eq!(
             restored_memory_a["supersededByMemoryId"],
             json!("prior-replacement")
+        );
+        assert!(
+            restored_memory_a.get("updatedAt").is_none(),
+            "legacy metadata recovery must not invent an optional updatedAt"
         );
     }
 }

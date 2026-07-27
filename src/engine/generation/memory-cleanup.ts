@@ -209,15 +209,14 @@ function normalizeModelProposal(
   return validateCleanupProposal(proposal, sourcesById);
 }
 
-function assertNoDuplicateConsumption(proposals: MemoryCleanupProposal[]): void {
-  const consumed = new Set<string>();
+function assertNoOverlappingProposals(proposals: MemoryCleanupProposal[]): void {
+  const claimed = new Set<string>();
   for (const proposal of proposals) {
-    if (proposal.type === "conflict") continue;
     for (const sourceId of proposal.sourceIds) {
-      if (consumed.has(sourceId)) {
+      if (claimed.has(sourceId)) {
         throw new Error(`Memory cleanup source ${sourceId} was proposed more than once.`);
       }
-      consumed.add(sourceId);
+      claimed.add(sourceId);
     }
   }
 }
@@ -312,7 +311,10 @@ export async function analyzeMemoryCleanup(input: {
   if (modelProposalCount > 0 && invalidModelProposalCount === modelProposalCount) {
     throw new Error("No valid cleanup proposals were returned.");
   }
-  assertNoDuplicateConsumption(proposals);
+  // Conflicts are visible, non-applying proposals, but they still claim their
+  // sources for this preview. The model may not also offer an actionable edit
+  // for the same memory and quietly undermine the conflict warning.
+  assertNoOverlappingProposals(proposals);
   const totals = previewTotals(scopedSources, proposals);
   return {
     version: 1,

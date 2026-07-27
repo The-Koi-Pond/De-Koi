@@ -103,6 +103,9 @@ function embeddingSimilarity(left: MemoryCleanupSource, right: MemoryCleanupSour
 }
 
 function shouldGroup(left: MemoryCleanupSource, right: MemoryCleanupSource): boolean {
+  // Cleanup is reviewed and applied atomically for one owner scope. Identical
+  // content in another scope is intentionally a separate review, never a
+  // cross-owner deletion candidate.
   if (scopeKey(left.scope) !== scopeKey(right.scope)) return false;
   return (
     normalizedContent(left.content) === normalizedContent(right.content) ||

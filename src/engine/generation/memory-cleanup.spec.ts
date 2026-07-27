@@ -107,6 +107,46 @@ describe("analyzeMemoryCleanup", () => {
     ).rejects.toThrow("No valid cleanup proposals");
   });
 
+  it("rejects conflict and actionable proposals that overlap the same sources", async () => {
+    const llm = gateway(async () =>
+      JSON.stringify({
+        proposals: [
+          {
+            type: "conflict",
+            sourceIds: ["alive", "dead"],
+            reason: "Possible conflict",
+          },
+          {
+            type: "combine",
+            sourceIds: ["alive", "dead"],
+            replacement: { content: "The captain's fate is uncertain.", kind: "fact" },
+            reason: "Overlapping detail",
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      analyzeMemoryCleanup({
+        scope: { kind: "chat", id: "chat-1" },
+        sources: [
+          source({
+            id: "alive",
+            scope: { kind: "chat", id: "chat-1" },
+            content: "The captain is alive aboard the ship.",
+          }),
+          source({
+            id: "dead",
+            scope: { kind: "chat", id: "chat-1" },
+            content: "The captain is dead aboard the ship.",
+          }),
+        ],
+        connectionId: "connection-1",
+        llm,
+      }),
+    ).rejects.toThrow("more than once");
+  });
+
   it("creates exact-duplicate keep-one proposals without an LLM call", async () => {
     const complete = vi.fn<LlmGateway["complete"]>();
     const preview = await analyzeMemoryCleanup({

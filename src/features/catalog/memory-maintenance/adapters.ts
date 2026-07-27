@@ -18,7 +18,8 @@ function chatMemoryCleanupOrigin(memory: ChatMemoryChunk): MemoryCleanupSource["
   if (memory.memoryKind === "command" || memory.source === "connected_command" || memory.commandMemoryKey) {
     return "command";
   }
-  if (memory.memoryKind === "manual" || memory.source === "manual" || !memory.messageIds?.length) {
+  const hasMessageProvenance = Array.isArray(memory.messageIds) && memory.messageIds.length > 0;
+  if (memory.memoryKind === "manual" || memory.source === "manual" || !hasMessageProvenance) {
     return "manual";
   }
   return "automatic";

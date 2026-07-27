@@ -480,7 +480,10 @@ export function MemoryRecallMemoriesModal({
   };
 
   const handleClear = async () => {
-    if (localMemories.length === 0) return;
+    if (localMemories.length === 0) {
+      toast.error("There are no local memories to clear yet.");
+      return;
+    }
     const ok = await showConfirmDialog({
       title: "Clear Memories",
       message: "Remove all recall memories for this chat? This cannot be restored from the console.",
@@ -535,7 +538,7 @@ export function MemoryRecallMemoriesModal({
                 onClick={() => void handleExport()}
                 disabled={localMemories.length === 0 || exportMemories.isPending}
                 className={iconButtonClass()}
-                title="Export local memories"
+                title={localMemories.length === 0 ? "No local memories to export yet" : "Export local memories"}
                 aria-label="Export local memories"
               >
                 <Upload size="0.875rem" />
@@ -593,7 +596,7 @@ export function MemoryRecallMemoriesModal({
                 onClick={handleClear}
                 disabled={localMemories.length === 0 || clearMemories.isPending}
                 className={iconButtonClass(false, true)}
-                title="Clear local memories"
+                title={localMemories.length === 0 ? "No local memories to clear yet" : "Clear local memories"}
                 aria-label="Clear local memories"
               >
                 <Trash2 size="0.875rem" />
@@ -621,8 +624,11 @@ export function MemoryRecallMemoriesModal({
             </div>
           </div>
           {localMemories.length === 0 && (
-            <p className="text-[0.6875rem] text-[var(--muted-foreground)]" role="status">
-              Add or import a local memory to enable export, clear, and cleanup.
+            <p
+              className="rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[0.6875rem] text-amber-800 dark:text-amber-200"
+              role="status"
+            >
+              No local memories yet. Add or import one to enable export, clear, and cleanup.
             </p>
           )}
 

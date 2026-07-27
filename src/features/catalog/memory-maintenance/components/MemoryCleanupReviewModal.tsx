@@ -68,7 +68,10 @@ export function MemoryCleanupReviewModal({
               Pinned, manually written, edited, imported, corrected, and tool-created memories will not be rewritten.
             </p>
             {sources.length === 0 && (
-              <p className="text-xs text-[var(--muted-foreground)]" role="status">
+              <p
+                className="rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+                role="status"
+              >
                 There are no automatic memories available to analyze yet.
               </p>
             )}

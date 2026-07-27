@@ -114,9 +114,7 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
   }, []);
 
   const selectedProposals = useCallback((): MemoryCleanupProposal[] => {
-    if (!preview || ownerKey(preview.scope) !== keyRef.current) {
-      throw new Error("Analyze memories again before applying cleanup.");
-    }
+    if (!preview) return [];
     return preview.proposals
       .filter((proposal) => selected[proposal.id] && proposal.type !== "conflict")
       .map((proposal) => ({
@@ -134,6 +132,14 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
   }, [preview, replacementText, selected]);
 
   const apply = useCallback(async () => {
+    if (!preview || ownerKey(preview.scope) !== keyRef.current) {
+      // Navigation invalidates the preview. A stale click/event is a benign
+      // no-op; keep the new owner in a clean, immediately actionable state.
+      setPreview(null);
+      setPhase("idle");
+      setError(null);
+      return undefined;
+    }
     const proposals = selectedProposals();
     if (proposals.length === 0) throw new Error("Select at least one cleanup change.");
     if (proposals.some((proposal) => proposal.replacement && !proposal.replacement.content.trim())) {
@@ -159,7 +165,7 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
       }
       throw applyError;
     }
-  }, [key, onChanged, scope, selectedProposals]);
+  }, [key, onChanged, preview, scope, selectedProposals]);
 
   const undo = useCallback(async () => {
     if (!lastBatchId) throw new Error("There is no cleanup batch to undo.");

@@ -45,24 +45,16 @@ vi.mock("../../../../../catalog/chats/index", () => ({
   useImportChatMemories: mutation,
 }));
 
-vi.mock("../../../../../catalog/memory-maintenance", () => ({
-  chatMemoryCleanupInput: (memories: Array<Record<string, unknown>>, chatId: string) => {
-    const scope = { kind: "chat", id: chatId };
-    return {
-      scope,
-      sources: memories.map((memory) => ({
-        id: memory.id,
-        scope,
-        content: memory.content,
-        origin: memory.memoryKind === "manual" ? "manual" : "automatic",
-      })),
-    };
-  },
-  MemoryCleanupReviewModal: (props: Record<string, unknown>) => {
-    hookMocks.cleanupModalProps = props;
-    return props.open ? <div data-testid="memory-cleanup-review" /> : null;
-  },
-}));
+vi.mock("../../../../../catalog/memory-maintenance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../../catalog/memory-maintenance")>();
+  return {
+    ...actual,
+    MemoryCleanupReviewModal: (props: Record<string, unknown>) => {
+      hookMocks.cleanupModalProps = props;
+      return props.open ? <div data-testid="memory-cleanup-review" /> : null;
+    },
+  };
+});
 
 vi.mock("../../../../../../shared/lib/app-dialogs", () => ({
   showConfirmDialog: hookMocks.showConfirmDialog,
@@ -279,9 +271,14 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
       root?.render(<MemoryRecallMemoriesModal chatId="chat-1" open onClose={vi.fn()} />);
     });
 
-    expect(container!.textContent).toContain("Add or import a local memory to enable export, clear, and cleanup.");
+    expect(container!.textContent).toContain(
+      "No local memories yet. Add or import one to enable export, clear, and cleanup.",
+    );
     expect(container!.querySelector('button[aria-label="Export local memories"]')?.getAttribute("title")).toBe(
-      "Export local memories",
+      "No local memories to export yet",
+    );
+    expect(container!.querySelector('button[aria-label="Clear local memories"]')?.getAttribute("title")).toBe(
+      "No local memories to clear yet",
     );
     const tidy = Array.from(container!.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Tidy memories",
@@ -289,7 +286,7 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
     expect(tidy?.getAttribute("title")).toBe("No local memories to tidy yet");
   });
 
-  it("opens labeled cleanup with only editable local sources", () => {
+  it("opens labeled cleanup with real adapter-normalized local sources", () => {
     const tidy = Array.from(container!.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Tidy memories",
     );

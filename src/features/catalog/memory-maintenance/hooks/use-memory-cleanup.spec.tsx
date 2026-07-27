@@ -154,7 +154,9 @@ describe("useMemoryCleanup", () => {
     render();
 
     expect(current.preview).toBeNull();
-    await expect(current.apply()).rejects.toThrow("Analyze memories again");
+    await expect(current.apply()).resolves.toBeUndefined();
+    expect(current.phase).toBe("idle");
+    expect(current.error).toBeNull();
     expect(mocks.apply).not.toHaveBeenCalled();
   });
 
