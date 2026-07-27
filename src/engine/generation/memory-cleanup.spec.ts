@@ -46,7 +46,7 @@ describe("analyzeMemoryCleanup", () => {
             type: "combine",
             sourceIds: ["memory-a", "memory-b"],
             replacement: { content: "Mira keeps the brass key.", kind: "fact" },
-            reason: "Overlapping detail",
+            reason: "Overlapping memories",
           },
         ],
       });
@@ -56,7 +56,13 @@ describe("analyzeMemoryCleanup", () => {
       scope: { kind: "character", id: "mira" },
       sources: [
         source({ id: "memory-a", content: "Mira has and keeps the brass key." }),
-        source({ id: "memory-b", content: "Mira keeps the brass key in her pocket." }),
+        source({
+          id: "memory-b",
+          content: "Mira keeps the brass key in her pocket.",
+          status: "pinned",
+          origin: "imported",
+          pinned: true,
+        }),
         source({ id: "unrelated", content: "The ferry leaves before dawn.", messageIds: ["unrelated-chat-message"] }),
       ],
       connectionId: "connection-1",
@@ -68,6 +74,17 @@ describe("analyzeMemoryCleanup", () => {
     expect(requests[0]?.connectionId).toBe("connection-1");
     expect(requests[0]?.parameters).toEqual({ temperature: 0, maxTokens: 1_200 });
     expect(JSON.stringify(requests)).not.toContain("unrelated-chat-message");
+    expect(JSON.stringify(requests)).toContain("two or more");
+    expect(JSON.stringify(requests)).toContain("Length alone");
+    const prompt = JSON.parse(String(requests[0]?.messages[1]?.content)) as {
+      allowedTypes: string[];
+      sources: Array<{ id: string; pinned: boolean }>;
+    };
+    expect(prompt.allowedTypes).toEqual(["keep_one", "combine", "conflict"]);
+    expect(prompt.sources).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "memory-b", pinned: true })]),
+    );
+    expect(JSON.stringify(requests)).not.toContain("shorten");
     expect(preview.beforeCount).toBe(3);
     expect(preview.afterCount).toBe(2);
   });
@@ -120,7 +137,7 @@ describe("analyzeMemoryCleanup", () => {
             type: "combine",
             sourceIds: ["alive", "dead"],
             replacement: { content: "The captain's fate is uncertain.", kind: "fact" },
-            reason: "Overlapping detail",
+            reason: "Overlapping memories",
           },
         ],
       }),
@@ -170,7 +187,7 @@ describe("analyzeMemoryCleanup", () => {
     ]);
   });
 
-  it("keeps protected exact duplicates as winners and never supersedes them", async () => {
+  it("consolidates edited and imported exact duplicates while preserving a pinned winner", async () => {
     const complete = vi.fn<LlmGateway["complete"]>();
     const preview = await analyzeMemoryCleanup({
       scope: { kind: "character", id: "mira" },
@@ -182,7 +199,9 @@ describe("analyzeMemoryCleanup", () => {
           userEdited: true,
         }),
         source({
-          id: "imported",
+          id: "pinned",
+          status: "pinned",
+          pinned: true,
           createdAt: "2026-07-01T00:00:00.000Z",
           origin: "imported",
         }),
@@ -192,13 +211,54 @@ describe("analyzeMemoryCleanup", () => {
     });
 
     expect(complete).not.toHaveBeenCalled();
-    expect(preview.protectedCount).toBe(2);
     expect(preview.proposals).toEqual([
       expect.objectContaining({
         type: "keep_one",
-        winnerId: "edited",
-        sourceIds: ["automatic"],
+        winnerId: "pinned",
+        sourceIds: expect.arrayContaining(["automatic", "edited"]),
       }),
     ]);
+  });
+
+  it("does not ask the model to rewrite one long memory", async () => {
+    const complete = vi.fn<LlmGateway["complete"]>();
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources: [source({ id: "long", content: "x".repeat(601) })],
+      connectionId: "connection-1",
+      llm: gateway(complete),
+    });
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(preview.proposals).toEqual([]);
+    expect(preview.beforeCount).toBe(1);
+    expect(preview.afterCount).toBe(1);
+  });
+
+  it("rejects single-memory shortening proposals", async () => {
+    const llm = gateway(async () =>
+      JSON.stringify({
+        proposals: [
+          {
+            type: "shorten",
+            sourceIds: ["memory-a"],
+            replacement: { content: "Mira has the key.", kind: "fact" },
+            reason: "Shorter wording",
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      analyzeMemoryCleanup({
+        scope: { kind: "character", id: "mira" },
+        sources: [
+          source({ id: "memory-a", content: "Mira has and keeps the brass key." }),
+          source({ id: "memory-b", content: "Mira keeps the brass key in her pocket." }),
+        ],
+        connectionId: "connection-1",
+        llm,
+      }),
+    ).rejects.toThrow("No valid cleanup proposals");
   });
 });
