@@ -134,6 +134,103 @@ describe("character public profiles in prompt assembly", () => {
     expect(promptText).not.toContain("Private setup notes");
   });
 });
+
+describe("targeted Conversation group prompt cards", () => {
+  it("keeps the target's core card while rendering compact peer context", async () => {
+    const createdAt = new Date().toISOString();
+    const result = await assembleGenerationPrompt(
+      promptStorage([
+        {
+          id: "mira",
+          data: {
+            name: "Mira",
+            description: "TARGET_DESCRIPTION_KEEP",
+            personality: "TARGET_PERSONALITY_KEEP",
+            scenario: "TARGET_SCENARIO_KEEP",
+            backstory: "TARGET_BACKSTORY_KEEP",
+            system_prompt: "TARGET_SYSTEM_PROMPT_KEEP",
+            post_history_instructions: "TARGET_POST_HISTORY_KEEP",
+            appearance: "TARGET_APPEARANCE_OMIT",
+            first_mes: "TARGET_GREETING_OMIT",
+            mes_example: "TARGET_EXAMPLE_OMIT",
+            extensions: {
+              behavioralInterpretation: "TARGET_BEHAVIORAL_INTERPRETATION_OMIT",
+              publicProfile: { displayName: "TARGET_PUBLIC_PROFILE_OMIT" },
+              characterMemories: [{ createdAt, summary: "TARGET_MEMORY_KEEP" }],
+            },
+          },
+        },
+        {
+          id: "orin",
+          data: {
+            name: "Orin",
+            description: "PEER_DESCRIPTION_KEEP",
+            personality: "PEER_PERSONALITY_KEEP",
+            scenario: "PEER_SCENARIO_KEEP",
+            backstory: "PEER_BACKSTORY_OMIT",
+            system_prompt: "PEER_SYSTEM_PROMPT_OMIT",
+            post_history_instructions: "PEER_POST_HISTORY_OMIT",
+            appearance: "PEER_APPEARANCE_OMIT",
+            first_mes: "PEER_GREETING_OMIT",
+            mes_example: "PEER_EXAMPLE_OMIT",
+            extensions: {
+              behavioralInterpretation: "PEER_BEHAVIORAL_INTERPRETATION_OMIT",
+              publicProfile: { displayName: "PEER_PUBLIC_PROFILE_OMIT" },
+              characterMemories: [{ createdAt, summary: "PEER_MEMORY_OMIT" }],
+            },
+          },
+        },
+      ]),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "conversation",
+          characterIds: ["mira", "orin"],
+          metadata: {},
+        },
+        storedMessages: [{ role: "user", content: "Mira, what do you think?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { forCharacterId: "mira" },
+        latestUserInput: "Mira, what do you think?",
+      },
+    );
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+    for (const expected of [
+      "TARGET_DESCRIPTION_KEEP",
+      "TARGET_PERSONALITY_KEEP",
+      "TARGET_SCENARIO_KEEP",
+      "TARGET_BACKSTORY_KEEP",
+      "TARGET_SYSTEM_PROMPT_KEEP",
+      "TARGET_POST_HISTORY_KEEP",
+      "TARGET_MEMORY_KEEP",
+      "PEER_DESCRIPTION_KEEP",
+      "PEER_PERSONALITY_KEEP",
+      "PEER_SCENARIO_KEEP",
+    ]) {
+      expect(promptText).toContain(expected);
+    }
+    for (const omitted of [
+      "TARGET_APPEARANCE_OMIT",
+      "TARGET_GREETING_OMIT",
+      "TARGET_EXAMPLE_OMIT",
+      "TARGET_BEHAVIORAL_INTERPRETATION_OMIT",
+      "TARGET_PUBLIC_PROFILE_OMIT",
+      "PEER_BACKSTORY_OMIT",
+      "PEER_SYSTEM_PROMPT_OMIT",
+      "PEER_POST_HISTORY_OMIT",
+      "PEER_APPEARANCE_OMIT",
+      "PEER_GREETING_OMIT",
+      "PEER_EXAMPLE_OMIT",
+      "PEER_BEHAVIORAL_INTERPRETATION_OMIT",
+      "PEER_PUBLIC_PROFILE_OMIT",
+      "PEER_MEMORY_OMIT",
+    ]) {
+      expect(promptText).not.toContain(omitted);
+    }
+  });
+});
+
 describe("merged roleplay prompt compaction", () => {
   it("omits bulky greeting and example fields for merged multi-character roleplay prompts", async () => {
     const result = await assembleGenerationPrompt(

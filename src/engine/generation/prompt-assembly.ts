@@ -455,7 +455,7 @@ function chatPromptVariables(chat: JsonRecord): Record<string, string> {
   };
 }
 
-function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
+function loadCharacterContext(record: JsonRecord, chat?: JsonRecord): GenerationCharacterContext {
   const data = dataRecord(record);
   const extensions = parseRecord(data.extensions);
   const name = field(data, "name") || field(record, "name") || "Character";
@@ -491,7 +491,7 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
       field(data, "post_history_instructions") || field(data, "postHistoryInstructions") || undefined,
     depthPrompt: characterDepthPrompt(data, extensions),
     behavioralInterpretation: behavioralInterpretation || undefined,
-    memories: sameDayCharacterMemories(extensions),
+    memories: sameDayCharacterMemories(extensions, chat),
     memoryPersistence: record.memoryPersistence === "chat" ? "chat" : "character",
     tags: stringArray(data.tags ?? record.tags),
   };
@@ -548,11 +548,32 @@ function characterMemoryDate(value: unknown): string {
   return /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(raw) ? raw.slice(0, 10) : "";
 }
 
-function sameDayCharacterMemories(extensions: JsonRecord): string[] {
+function originSceneChatIds(chat: JsonRecord | undefined): Set<string> {
+  const metadata = parseRecord(chat?.metadata);
+  return new Set(
+    parseArray(metadata.roleplaySceneHistory)
+      .filter(isRecord)
+      .map((entry) => readString(entry.sceneChatId).trim())
+      .filter(Boolean),
+  );
+}
+
+function sceneMemoryBelongsToOriginChat(memory: JsonRecord, chat: JsonRecord | undefined, sceneChatIds: Set<string>) {
+  const chatId = readString(chat?.id).trim();
+  if (!chatId) return false;
+  const originChatId = readString(memory.originChatId).trim();
+  if (originChatId && originChatId === chatId) return true;
+  const sceneChatId = readString(memory.sceneChatId).trim();
+  return !!sceneChatId && sceneChatIds.has(sceneChatId);
+}
+
+function sameDayCharacterMemories(extensions: JsonRecord, chat?: JsonRecord): string[] {
   const today = nowIso().slice(0, 10);
+  const sceneChatIds = originSceneChatIds(chat);
   return parseArray(extensions.characterMemories)
     .filter(isRecord)
     .filter((memory) => characterMemoryDate(memory.createdAt) === today)
+    .filter((memory) => !sceneMemoryBelongsToOriginChat(memory, chat, sceneChatIds))
     .map((memory) => {
       const summary = prepareMemoryPromptContent(cleanPromptText(readString(memory.summary).trim()));
       if (!summary) return "";
@@ -654,7 +675,7 @@ function isRpgStats(value: unknown): GenerationPersonaContext["rpgStats"] | unde
 export async function loadCharacters(storage: StorageGateway, chat: JsonRecord): Promise<GenerationCharacterContext[]> {
   const ids = activeCharacterIds(chat);
   const rows = await Promise.all(ids.map((id) => storage.get<JsonRecord>("characters", id)));
-  return rows.filter(isRecord).map(loadCharacterContext);
+  return rows.filter(isRecord).map((row) => loadCharacterContext(row, chat));
 }
 
 export async function loadPersona(storage: StorageGateway, chat: JsonRecord): Promise<GenerationPersonaContext | null> {
@@ -1395,6 +1416,17 @@ const DEFAULT_CHARACTER_MARKER_FIELDS = [
   "post_history_instructions",
 ] as const;
 
+const TARGETED_CONVERSATION_TARGET_FIELDS = [
+  "description",
+  "personality",
+  "scenario",
+  "backstory",
+  "system_prompt",
+  "post_history_instructions",
+] as const;
+
+const TARGETED_CONVERSATION_PEER_FIELDS = ["description", "personality", "scenario"] as const;
+
 const COMPACT_MERGED_ROLEPLAY_OMITTED_CHARACTER_FIELDS = new Set([
   "first_mes",
   "firstMes",
@@ -1479,6 +1511,10 @@ function characterMarkerFields(marker: MarkerConfig | null, compactCharacterCard
     : resolvedFields;
 }
 
+function hasExplicitCharacterMarkerFields(marker: MarkerConfig | null): boolean {
+  return !!marker?.characterFields?.some((fieldName) => typeof fieldName === "string" && fieldName.trim());
+}
+
 function renderNamedFields(entries: Array<[string, string | undefined]>, wrapFormat: WrapFormat, depth = 1): string {
   return entries
     .map(([label, value]) => {
@@ -1525,21 +1561,29 @@ function renderCharacters(
   marker: MarkerConfig | null,
   macros: MacroContext | null = null,
   groupScenarioOverride: GroupScenarioOverride = NO_GROUP_SCENARIO_OVERRIDE,
-  options: { compactCharacterCards?: boolean } = {},
+  options: { compactCharacterCards?: boolean; conversationTargetId?: string | null } = {},
 ): string {
-  const fields = characterMarkerFields(marker, options.compactCharacterCards === true);
+  const defaultFields = characterMarkerFields(marker, options.compactCharacterCards === true);
+  const compactTargetedConversation = !!options.conversationTargetId && !hasExplicitCharacterMarkerFields(marker);
   const characterBlocks = characters
     .map((character) => {
+      const isConversationTarget = character.id === options.conversationTargetId;
+      const fields = compactTargetedConversation
+        ? [...(isConversationTarget ? TARGETED_CONVERSATION_TARGET_FIELDS : TARGETED_CONVERSATION_PEER_FIELDS)]
+        : defaultFields;
       const content = renderNamedFields(
         [
           ["Name", character.name],
-          ["Public Profile", characterPublicProfileText(character.publicProfile)],
+          ["Public Profile", compactTargetedConversation ? "" : characterPublicProfileText(character.publicProfile)],
           ...fields.map((fieldName): [string, string] => [
             CHARACTER_FIELD_LABELS[fieldName] ?? fieldName,
             characterMarkerFieldValue(character, fieldName, macros, groupScenarioOverride),
           ]),
-          ["Behavioral Interpretation", character.behavioralInterpretation ?? ""],
-          ...(fields.includes("memories")
+          [
+            "Behavioral Interpretation",
+            compactTargetedConversation ? "" : (character.behavioralInterpretation ?? ""),
+          ],
+          ...(fields.includes("memories") || (compactTargetedConversation && !isConversationTarget)
             ? []
             : ([["Memories", character.memories?.join("\n") ?? ""]] as Array<[string, string]>)),
         ],
@@ -1551,7 +1595,7 @@ function renderCharacters(
     })
     .filter(Boolean);
   const groupScenarioBlock =
-    groupScenarioOverride.enabled && groupScenarioOverride.text && fields.includes("scenario")
+    groupScenarioOverride.enabled && groupScenarioOverride.text && defaultFields.includes("scenario")
       ? renderNamedFields(
           [["Scenario", groupScenarioMarkerValue(groupScenarioOverride.text, macros, characters)]],
           wrapFormat,
@@ -1563,9 +1607,9 @@ function renderCharacters(
 
 function renderDialogueExamples(
   characters: GenerationCharacterContext[],
-  options: { compactCharacterCards?: boolean } = {},
+  options: { compactCharacterCards?: boolean; omit?: boolean } = {},
 ): string {
-  if (options.compactCharacterCards === true) return "";
+  if (options.compactCharacterCards === true || options.omit === true) return "";
   return characters
     .map((character) => character.mesExample)
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
@@ -1965,6 +2009,7 @@ function fallbackSystemPrompt(
     macros: MacroContext;
     groupScenarioOverride: GroupScenarioOverride;
     compactCharacterCards: boolean;
+    conversationTargetId: string | null;
   },
 ): { content: string; contextSegments: NonNullable<ChatMLMessage["contextSegments"]> } {
   const mode = readString(input.chat.mode || input.chat.chatMode, "conversation");
@@ -1973,6 +2018,7 @@ function fallbackSystemPrompt(
     {
       content: renderCharacters(args.characters, args.wrapFormat, null, args.macros, args.groupScenarioOverride, {
         compactCharacterCards: args.compactCharacterCards,
+        conversationTargetId: args.conversationTargetId,
       }),
       contextKind: "prompt",
       displayName: "Characters",
@@ -2953,26 +2999,26 @@ async function buildCrossChatAwarenessBlock(
   const chatId = readString(chat.id).trim();
   if (!chatId) return null;
   if (!storage.listSiblingConversationContext) {
-    throw new Error("Cross-chat awareness is enabled, but sibling conversation context is not supported by this storage runtime.");
+    throw new Error(
+      "Cross-chat awareness is enabled, but sibling conversation context is not supported by this storage runtime.",
+    );
   }
   const characterNames = characterNameLookup(characters);
-  const siblingChats = await storage.listSiblingConversationContext<{ chat: JsonRecord; messages: JsonRecord[] }>({
-    chatId,
-    characterIds: activeCharacterIds(chat),
-    candidateLimit: CROSS_CHAT_SIBLING_SCAN_LIMIT,
-    maxChats: CROSS_CHAT_SECTION_LIMIT,
-    messagesPerChat: 8,
-  }).catch(() => []);
+  const siblingChats = await storage
+    .listSiblingConversationContext<{ chat: JsonRecord; messages: JsonRecord[] }>({
+      chatId,
+      characterIds: activeCharacterIds(chat),
+      candidateLimit: CROSS_CHAT_SIBLING_SCAN_LIMIT,
+      maxChats: CROSS_CHAT_SECTION_LIMIT,
+      messagesPerChat: 8,
+    })
+    .catch(() => []);
   const sections: string[] = [];
   for (const sibling of siblingChats) {
     if (sections.length >= CROSS_CHAT_SECTION_LIMIT) break;
     const siblingId = readString(sibling.chat.id).trim();
     if (!siblingId) continue;
-    const lines = recentVisibleMessageLines(
-      sibling.messages,
-      characterNames,
-      4,
-    );
+    const lines = recentVisibleMessageLines(sibling.messages, characterNames, 4);
     if (lines.length === 0) continue;
     const title = readString(sibling.chat.name).trim() || siblingId;
     sections.push([`Chat: ${title}`, ...lines.map((line) => `- ${line}`)].join("\n"));
@@ -3990,16 +4036,21 @@ function sectionContent(args: {
   macros: MacroContext | null;
   groupScenarioOverride: GroupScenarioOverride;
   compactCharacterCards: boolean;
+  conversationTargetId: string | null;
 }) {
   switch (args.marker?.type) {
     case "character":
       return renderCharacters(args.characters, args.wrapFormat, args.marker, args.macros, args.groupScenarioOverride, {
         compactCharacterCards: args.compactCharacterCards,
+        conversationTargetId: args.conversationTargetId,
       });
     case "persona":
       return renderPersona(args.persona, args.wrapFormat);
     case "dialogue_examples":
-      return renderDialogueExamples(args.characters, { compactCharacterCards: args.compactCharacterCards });
+      return renderDialogueExamples(args.characters, {
+        compactCharacterCards: args.compactCharacterCards,
+        omit: !!args.conversationTargetId,
+      });
     case "chat_summary":
       return args.summary ?? "";
     case "world_info_before":
@@ -4140,8 +4191,8 @@ export async function assembleGenerationPrompt(
     "xml";
   const activeGroupScenarioOverride = reusableContext?.groupScenarioOverride ?? groupScenarioOverride(chatMeta);
   const individualGroupTarget = scopedIndividualGroupTarget(input, characters);
-  const sourceSensitiveGroupTarget =
-    scopedConversationGroupTarget(input, characters) ?? scopedRoleplayGroupTarget(input, characters);
+  const targetedConversationCharacterId = scopedConversationGroupTarget(input, characters);
+  const sourceSensitiveGroupTarget = targetedConversationCharacterId ?? scopedRoleplayGroupTarget(input, characters);
   const regexTargetCharacterId = promptRegexTargetCharacterId(input, characters);
   const individualGroupTargetCharacter = individualGroupTarget
     ? (characters.find((character) => character.id === individualGroupTarget) ?? null)
@@ -4211,7 +4262,7 @@ export async function assembleGenerationPrompt(
   if (!canReuseSourceSensitiveContext) {
     const authoredPromptCharacters = promptCharactersForGeneration(input, characters);
     const behavioralExampleSelection =
-      chatMode === "game" || compactMergedRoleplayCards
+      chatMode === "game" || compactMergedRoleplayCards || !!targetedConversationCharacterId
         ? null
         : await selectBehavioralExamples({
             candidates: buildBehavioralExamplePool(authoredPromptCharacters),
@@ -4362,7 +4413,7 @@ export async function assembleGenerationPrompt(
           "recalled fragments from earlier in this chat",
           "recalled fragments from relevant earlier context",
         )
-      : memoryRecallContext?.block ?? null;
+      : (memoryRecallContext?.block ?? null);
   const historyAttributionKinds = new Set<GenerationContextAttributionItem["kind"]>(["chat_history", "chat_summary"]);
   const historyAndSummaryAttributionItems = reusableContext
     ? reusableContext.contextAttributionItems.filter((item) => historyAttributionKinds.has(item.kind))
@@ -4415,6 +4466,7 @@ export async function assembleGenerationPrompt(
         macros,
         groupScenarioOverride: activeGroupScenarioOverride,
         compactCharacterCards: compactMergedRoleplayCards,
+        conversationTargetId: targetedConversationCharacterId,
       });
       const resolvedContent =
         marker?.type === "character" ? rawContent : resolvePromptMacros(rawContent, macros, deferCharacterMacros);
@@ -4485,6 +4537,7 @@ export async function assembleGenerationPrompt(
       macros,
       groupScenarioOverride: activeGroupScenarioOverride,
       compactCharacterCards: compactMergedRoleplayCards,
+      conversationTargetId: targetedConversationCharacterId,
     });
     messages.push({
       role: "system",
@@ -4624,9 +4677,8 @@ export async function assembleGenerationPrompt(
   if (individualGroupTarget) {
     messages = scopeIndividualGroupHistoryRoles(messages, individualGroupTarget);
   }
-  const conversationGroupTarget = scopedConversationGroupTarget(input, characters);
-  if (conversationGroupTarget) {
-    messages = scopeIndividualGroupHistoryRoles(messages, conversationGroupTarget);
+  if (targetedConversationCharacterId) {
+    messages = scopeIndividualGroupHistoryRoles(messages, targetedConversationCharacterId);
   }
   messages = finalizeDeferredCharacterMessages(messages, macros, individualGroupTargetCharacter);
   if (messages.some((message) => hasDeferredCharacterMacros(message.content))) {

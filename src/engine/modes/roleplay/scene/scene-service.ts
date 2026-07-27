@@ -3,6 +3,7 @@ import type { ChatMessageListOptions, StorageGateway } from "../../../capabiliti
 import type { VisualAssetGateway } from "../../../capabilities/visual-assets";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { resolveGenerationConnection } from "../../../generation/context";
+import { hiddenFromAi } from "../../../generation/runtime-records";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
 import { readString as stringValue } from "../../../shared/value-readers";
 import type {
@@ -80,6 +81,7 @@ const SCENE_SUMMARY_FINAL_MAX_TOKENS = 1400;
 const SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS = 2800;
 const SCENE_SUMMARY_CHUNK_MAX_SUMMARY_CHARS = 2400;
 const SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS = 8000;
+const SCENE_SUMMARY_FINAL_MAX_WORDS = 220;
 const SCENE_SUMMARY_FINAL_MIN_SENTENCES = 3;
 const SCENE_SUMMARY_SUBSTANTIAL_TRANSCRIPT_MIN_LINES = 8;
 const SCENE_SUMMARY_SUBSTANTIAL_TRANSCRIPT_MIN_CHARS = 1800;
@@ -281,6 +283,7 @@ export async function concludeRoleplayScene(
     role: "assistant",
     characterId: null,
     content: formatSceneReturnMessage(sceneChat, summary),
+    extra: { hiddenFromAI: true, hiddenFromAi: true },
   });
   await appendSceneMemory(capabilities.storage, originChatId, input.sceneChatId, summary);
   await writeCharacterSceneMemories(capabilities.storage, sceneChat, summary);
@@ -533,13 +536,18 @@ async function synthesizeSceneSummary(context: SceneFinalSummaryContext): Promis
     },
   );
   let summary = sanitizeSceneSummary(raw, SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
-  if (!requiresSubstantialFinalSummary(context) || !isFinalSceneSummaryTooBrief(summary)) return summary;
+  const revisionReason = isFinalSceneSummaryTooLong(summary)
+    ? "too_long"
+    : requiresSubstantialFinalSummary(context) && isFinalSceneSummaryTooBrief(summary)
+      ? "too_brief"
+      : null;
+  if (!revisionReason) return limitFinalSceneSummaryWords(summary);
 
   const retryRaw = await completeSceneSummaryText(
     context.capabilities.llm,
     {
       connectionId: context.connectionId,
-      messages: finalSceneSummaryMessages(context, summary),
+      messages: finalSceneSummaryMessages(context, { summary, reason: revisionReason }),
     },
     {
       temperature: 0.35,
@@ -549,24 +557,32 @@ async function synthesizeSceneSummary(context: SceneFinalSummaryContext): Promis
   );
   summary = sanitizeSceneSummary(retryRaw, SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
   if (isFinalSceneSummaryTooBrief(summary)) throw new Error("The model returned an incomplete scene summary");
-  return summary;
+  return limitFinalSceneSummaryWords(summary);
 }
+
+type FinalSceneSummaryRevision = {
+  summary: string;
+  reason: "too_brief" | "too_long";
+};
 
 function finalSceneSummaryMessages(
   context: SceneFinalSummaryContext,
-  previousTooBriefSummary?: string,
+  revision?: FinalSceneSummaryRevision,
 ): SceneSummaryCompletionRequest["messages"] {
+  const previousSummary = revision?.summary ?? "";
   return [
     {
       role: "system",
       content: [
         "Synthesize the final conclusion summary for a completed roleplay scene.",
         "Use every section summary below so the final summary represents the whole scene, not only the beginning or ending.",
-        "Write concise but substantial third-person prose, roughly 2-5 paragraphs and at least 3 complete sentences when there is enough scene history.",
+        "Write concise but substantial third-person prose in one or two compact paragraphs totaling 120-220 words. Never exceed 220 words.",
         "Include the scene premise, key events across the full scene, emotional and relationship shifts, concrete outcomes, promises, conflicts, reveals, and unresolved hooks.",
-        previousTooBriefSummary
+        revision?.reason === "too_brief"
           ? "Your previous answer was too brief. Rewrite it as a fuller whole-scene conclusion, not a one-sentence takeaway."
-          : "Do not collapse the scene into a one-sentence takeaway when the section summaries contain multiple beats.",
+          : revision?.reason === "too_long"
+            ? "Your previous answer was too long. Compress it to 120-220 words while preserving the beginning, ending, concrete outcomes, and unresolved hooks."
+            : "Do not collapse the scene into a one-sentence takeaway when the section summaries contain multiple beats.",
         "Do not invent events. Return only the final summary.",
       ].join("\n"),
     },
@@ -582,9 +598,13 @@ function finalSceneSummaryMessages(
         "Active persona:",
         context.plannerContext.persona ? formatParticipant(context.plannerContext.persona) : "(none)",
         "",
-        previousTooBriefSummary ? "Previous summary was too brief:" : "",
-        previousTooBriefSummary ?? "",
-        previousTooBriefSummary ? "" : "",
+        revision?.reason === "too_brief"
+          ? "Previous summary was too brief:"
+          : revision?.reason === "too_long"
+            ? "Previous summary was too long:"
+            : "",
+        previousSummary,
+        revision ? "" : "",
         "Section summaries:",
         formatSceneChunkSummaries(context.chunkSummaries),
       ]
@@ -604,6 +624,22 @@ function requiresSubstantialFinalSummary(context: SceneFinalSummaryContext): boo
 
 function isFinalSceneSummaryTooBrief(summary: string): boolean {
   return countCompleteSentences(summary) < SCENE_SUMMARY_FINAL_MIN_SENTENCES;
+}
+
+function sceneSummaryWordCount(summary: string): number {
+  return summary.trim() ? summary.trim().split(/\s+/).length : 0;
+}
+
+function isFinalSceneSummaryTooLong(summary: string): boolean {
+  return sceneSummaryWordCount(summary) > SCENE_SUMMARY_FINAL_MAX_WORDS;
+}
+
+function limitFinalSceneSummaryWords(summary: string): string {
+  if (!isFinalSceneSummaryTooLong(summary)) return summary;
+  const words = summary.trim().split(/\s+/);
+  const tailWordCount = Math.floor(SCENE_SUMMARY_FINAL_MAX_WORDS / 3);
+  const headWordCount = SCENE_SUMMARY_FINAL_MAX_WORDS - tailWordCount - 1;
+  return ensureTerminalPunctuation([...words.slice(0, headWordCount), "…", ...words.slice(-tailWordCount)].join(" "));
 }
 
 function countCompleteSentences(value: string): number {
@@ -954,7 +990,11 @@ function sanitizeScenePlan(parsed: JsonRecord, fallback: SceneFullPlan, allowedC
 }
 
 function normalizePlannerText(value: string): string {
-  return value.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t");
+  return value
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t");
 }
 
 function safeTitle(value: string, fallback: string): string {
@@ -1003,8 +1043,10 @@ async function buildSceneConversationContext(storage: StorageGateway, originChat
     await messagesForChat(storage, originChatId, {
       limit: SCENE_CONVERSATION_CONTEXT_LIMIT,
       fields: ["role", "content"],
+      fieldSelections: { extra: ["hiddenFromAI", "hiddenFromAi"] },
     })
   )
+    .filter((message) => !hiddenFromAi(message))
     .slice(-24)
     .map((message) => {
       const role = stringValue(message.role) || "message";
@@ -1043,6 +1085,7 @@ async function writeCharacterSceneMemories(
     stringValue(sceneChat.name)
       .replace(/^Scene:\s*/i, "")
       .trim() || "Scene";
+  const originChatId = stringValue(parseJsonObject(sceneChat.metadata).sceneOriginChatId);
   const createdAt = new Date().toISOString();
   const summaryLine = `[Scene on ${createdAt.slice(0, 10)}: ${sceneName}] ${summary.trim()}`;
   for (const characterId of stringArray(sceneChat.characterIds)) {
@@ -1060,6 +1103,7 @@ async function writeCharacterSceneMemories(
         from: sceneName,
         fromCharId: null,
         sceneChatId: stringValue(sceneChat.id),
+        originChatId: originChatId || null,
         summary: summaryLine,
         createdAt,
       },

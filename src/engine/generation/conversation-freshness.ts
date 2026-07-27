@@ -12,10 +12,13 @@ interface ConversationFreshnessInput {
 }
 
 const RECENT_ASSISTANT_MESSAGE_LIMIT = 8;
+const OVERSIZED_TEXT_WORD_THRESHOLD = 80;
+const OVERSIZED_TEXT_REPEAT_THRESHOLD = 2;
 
 const SUPPORTIVE_CHECK_IN_PATTERN =
   /\b(i hear you|that sounds|that must be|i'?m sorry|you'?re valid|how are you feeling|do you want to talk)\b/i;
-const SUMMARY_BACK_PATTERN = /\b(it sounds like|sounds like you|what i'?m hearing|so you'?re saying|if i understand)\b/i;
+const SUMMARY_BACK_PATTERN =
+  /\b(it sounds like|sounds like you|what i'?m hearing|so you'?re saying|if i understand)\b/i;
 const STOCK_OPENER_CLOSER_PATTERN = /\b(totally|get that|no worries|for sure|let me know|i'?m here)\b/i;
 const QUESTION_REQUEST_PATTERN = /\b(ask me|questions?|interview me|walk me through|help me unpack|keep asking)\b/i;
 
@@ -36,6 +39,10 @@ function assistantMessages(messages: ConversationFreshnessMessage[]): string[] {
 
 function countMatches(messages: string[], pattern: RegExp): number {
   return messages.reduce((count, message) => count + (pattern.test(message) ? 1 : 0), 0);
+}
+
+function wordCount(message: string): number {
+  return message.trim() ? message.trim().split(/\s+/).length : 0;
 }
 
 function endsWithQuestion(message: string): boolean {
@@ -70,6 +77,15 @@ export function buildConversationFreshnessGuidance(input: ConversationFreshnessI
 
   if (countMatches(recentAssistantMessages, STOCK_OPENER_CLOSER_PATTERN) >= 3) {
     lines.push("Recent replies reused stock openers or closers; vary the entry and exit shape of the next text.");
+  }
+
+  if (
+    recentAssistantMessages.filter((message) => wordCount(message) >= OVERSIZED_TEXT_WORD_THRESHOLD).length >=
+    OVERSIZED_TEXT_REPEAT_THRESHOLD
+  ) {
+    lines.push(
+      "Recent replies were much longer than normal texts; make the next reply substantially shorter unless the user explicitly asks for detail.",
+    );
   }
 
   return lines.length > 0 ? lines.join("\n") : null;

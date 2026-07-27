@@ -34,6 +34,16 @@ describe("default conversation system prompts", () => {
     );
   });
 
+  it("does not invent earlier user disclosures that are absent from supplied context", () => {
+    for (const prompt of [DEFAULT_CONVERSATION_SYSTEM_PROMPT, DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT]) {
+      expect(prompt).toContain("Treat only the supplied chat, memories, and character context as known");
+      expect(prompt).toContain(
+        "Never claim {{userName}} previously said, worried about, planned, or struggled with something unless the supplied context contains it",
+      );
+      expect(prompt).toContain("stay with the present message or ask about the present or future");
+    }
+  });
+
   it("preserves timestamp awareness without allowing metadata in replies", () => {
     expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).toContain("Use them only to understand timing");
     expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).toContain(
