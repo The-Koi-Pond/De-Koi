@@ -220,7 +220,8 @@ fn build_replacement(
     message_ids.sort();
     let replacement_id = new_id();
     // The replacement is a new record created by cleanup. Source transcript
-    // times and the exact consumed source IDs remain attached as provenance.
+    // times and the exact consumed source IDs remain attached as provenance;
+    // applied_at is the explicit fallback when no source transcript time exists.
     Ok(Some(json!({
         "id": replacement_id,
         "chatId": scope.id,
@@ -505,11 +506,15 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                 let previous_superseded_at_present = memory
                     .remove("cleanupPreviousSupersededAtPresent")
                     .and_then(|value| value.as_bool())
+                    // Older or partially written metadata can lack the flag.
+                    // A saved value still proves the field existed.
                     .unwrap_or(previous_superseded_at.is_some());
                 let previous_superseded_by = memory.remove("cleanupPreviousSupersededByMemoryId");
                 let previous_superseded_by_present = memory
                     .remove("cleanupPreviousSupersededByMemoryIdPresent")
                     .and_then(|value| value.as_bool())
+                    // Preserve legacy partial metadata by inferring presence
+                    // from the saved chain value when the flag is absent.
                     .unwrap_or(previous_superseded_by.is_some());
                 memory.insert("status".to_string(), json!(previous_status));
                 for field in [
@@ -525,6 +530,8 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                         memory.insert("updatedAt".to_string(), Value::String(value));
                     }
                     _ => {
+                        // ChatMemoryChunk.updatedAt is optional. Undo restores
+                        // the exact pre-cleanup absence instead of inventing time.
                         memory.remove("updatedAt");
                     }
                 }

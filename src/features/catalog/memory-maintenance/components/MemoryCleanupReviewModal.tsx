@@ -67,6 +67,11 @@ export function MemoryCleanupReviewModal({
             <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
               Pinned, manually written, edited, imported, corrected, and tool-created memories will not be rewritten.
             </p>
+            {sources.length === 0 && (
+              <p className="text-xs text-[var(--muted-foreground)]" role="status">
+                There are no automatic memories available to analyze yet.
+              </p>
+            )}
             <button
               type="button"
               onClick={() => void controller.analyze().catch(() => undefined)}

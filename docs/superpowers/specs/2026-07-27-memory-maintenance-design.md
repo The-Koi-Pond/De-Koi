@@ -364,7 +364,9 @@ startup JS, 1702.5 KiB total JS, 268.0 KiB for the largest lazy route, and
 79.0 KiB CSS after the cleanup hook's unconsumed result state was removed. The
 shared cleanup review chunk is 7.2 KiB gzip. The total-JS guard therefore moves
 from 1700 to 1710 KiB with measured evidence in this PR; the startup, largest
-lazy-route, and CSS guards remain unchanged.
+lazy-route, and CSS guards remain unchanged. The executable limit lives in
+`scripts/check-bundle-budgets.mjs`; future budget changes must update this
+measurement and that script together.
 
 ## Out of Scope
 

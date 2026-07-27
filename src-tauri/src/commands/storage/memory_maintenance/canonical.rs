@@ -479,6 +479,8 @@ pub(crate) fn undo_canonical_cleanup(
                     .to_string();
                 let previous_updated_at = metadata.get("previousUpdatedAt").cloned();
                 let previous_superseded_by = metadata.get("previousSupersededByMemoryId").cloned();
+                // Canonical rows require updatedAt. Legacy rows without a saved
+                // value fall back through durable row/batch time before undo time.
                 let fallback_updated_at = value_string(memory, "createdAt")
                     .or_else(|| {
                         metadata
@@ -501,6 +503,8 @@ pub(crate) fn undo_canonical_cleanup(
                 }
                 match previous_superseded_by {
                     Some(Value::String(value)) => {
+                        // Restore an existing chain link verbatim; null means the
+                        // pre-cleanup row had no valid string link to restore.
                         object.insert("supersededByMemoryId".to_string(), Value::String(value));
                     }
                     _ => {

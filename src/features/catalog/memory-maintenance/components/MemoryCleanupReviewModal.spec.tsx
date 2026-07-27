@@ -117,6 +117,27 @@ describe("MemoryCleanupReviewModal", () => {
     container.remove();
   });
 
+  it("explains why analysis is unavailable when there are no sources", () => {
+    act(() => {
+      root.render(
+        <MemoryCleanupReviewModal
+          open
+          scope={{ kind: "chat", id: "chat-1" }}
+          sources={[]}
+          resolveConnectionId={async () => "connection-1"}
+          onClose={vi.fn()}
+          onChanged={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("There are no automatic memories available to analyze yet.");
+    const analyze = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Analyze memories"),
+    );
+    expect(analyze?.disabled).toBe(true);
+  });
+
   it("shows a write-free before-and-after review before enabling apply", async () => {
     act(() => {
       root.render(
