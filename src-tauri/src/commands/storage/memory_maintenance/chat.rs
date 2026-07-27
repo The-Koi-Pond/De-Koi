@@ -219,6 +219,8 @@ fn build_replacement(
     let mut message_ids = message_ids.into_iter().collect::<Vec<_>>();
     message_ids.sort();
     let replacement_id = new_id();
+    // The replacement is a new record created by cleanup. Source transcript
+    // times and the exact consumed source IDs remain attached as provenance.
     Ok(Some(json!({
         "id": replacement_id,
         "chatId": scope.id,
@@ -296,11 +298,34 @@ fn apply_validated_chat_batch(
                 .as_object_mut()
                 .ok_or_else(|| AppError::invalid_input("Stored chat memory is not an object"))?;
             let previous_updated_at = source.get("updatedAt").cloned().unwrap_or(Value::Null);
+            let previous_superseded_at_present = source.contains_key("supersededAt");
+            let previous_superseded_at = source.get("supersededAt").cloned().unwrap_or(Value::Null);
+            let previous_superseded_by_present = source.contains_key("supersededByMemoryId");
+            let previous_superseded_by = source
+                .get("supersededByMemoryId")
+                .cloned()
+                .unwrap_or(Value::Null);
             source.insert("status".to_string(), json!("superseded"));
             source.insert("supersededAt".to_string(), json!(applied_at));
             source.insert("supersededByMemoryId".to_string(), json!(superseded_by));
             source.insert("cleanupPreviousStatus".to_string(), json!("active"));
             source.insert("cleanupPreviousUpdatedAt".to_string(), previous_updated_at);
+            source.insert(
+                "cleanupPreviousSupersededAtPresent".to_string(),
+                json!(previous_superseded_at_present),
+            );
+            source.insert(
+                "cleanupPreviousSupersededAt".to_string(),
+                previous_superseded_at,
+            );
+            source.insert(
+                "cleanupPreviousSupersededByMemoryIdPresent".to_string(),
+                json!(previous_superseded_by_present),
+            );
+            source.insert(
+                "cleanupPreviousSupersededByMemoryId".to_string(),
+                previous_superseded_by,
+            );
             source.insert("cleanupSupersededByBatchId".to_string(), json!(batch_id));
             source.insert("cleanupAppliedAt".to_string(), json!(applied_at));
             source.insert("updatedAt".to_string(), json!(applied_at));
@@ -476,6 +501,16 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                     .and_then(|value| value.as_str().map(ToOwned::to_owned))
                     .unwrap_or_else(|| "active".to_string());
                 let previous_updated_at = memory.remove("cleanupPreviousUpdatedAt");
+                let previous_superseded_at_present = memory
+                    .remove("cleanupPreviousSupersededAtPresent")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                let previous_superseded_at = memory.remove("cleanupPreviousSupersededAt");
+                let previous_superseded_by_present = memory
+                    .remove("cleanupPreviousSupersededByMemoryIdPresent")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                let previous_superseded_by = memory.remove("cleanupPreviousSupersededByMemoryId");
                 memory.insert("status".to_string(), json!(previous_status));
                 for field in [
                     "supersededAt",
@@ -492,6 +527,18 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                     _ => {
                         memory.remove("updatedAt");
                     }
+                }
+                if previous_superseded_at_present {
+                    memory.insert(
+                        "supersededAt".to_string(),
+                        previous_superseded_at.unwrap_or(Value::Null),
+                    );
+                }
+                if previous_superseded_by_present {
+                    memory.insert(
+                        "supersededByMemoryId".to_string(),
+                        previous_superseded_by.unwrap_or(Value::Null),
+                    );
                 }
             }
             for index in &replacement_indexes {
@@ -650,6 +697,9 @@ mod tests {
     #[tokio::test]
     async fn chat_cleanup_combines_eligible_rows_and_undo_restores_them() {
         let state = test_state("chat-apply-undo");
+        let mut memory_a = automatic_memory("memory-a", "Mira has the brass key.");
+        memory_a["supersededAt"] = json!("2026-06-01T00:00:00.000Z");
+        memory_a["supersededByMemoryId"] = json!("prior-replacement");
         state
             .storage
             .create(
@@ -658,7 +708,7 @@ mod tests {
                     "id": "chat-1",
                     "name": "Memory chat",
                     "memories": [
-                        automatic_memory("memory-a", "Mira has the brass key."),
+                        memory_a,
                         automatic_memory("memory-b", "Mira keeps the brass key."),
                         {
                             "id": "manual",
@@ -710,6 +760,27 @@ mod tests {
                 "memory-a".to_string(),
                 "memory-b".to_string(),
             ]
+        );
+        let restored_chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should work")
+            .expect("chat should exist");
+        let restored_memory_a = restored_chat["memories"]
+            .as_array()
+            .and_then(|memories| {
+                memories
+                    .iter()
+                    .find(|memory| memory["id"] == json!("memory-a"))
+            })
+            .expect("memory-a should be restored");
+        assert_eq!(
+            restored_memory_a["supersededAt"],
+            json!("2026-06-01T00:00:00.000Z")
+        );
+        assert_eq!(
+            restored_memory_a["supersededByMemoryId"],
+            json!("prior-replacement")
         );
     }
 }

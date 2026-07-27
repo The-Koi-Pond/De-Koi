@@ -217,6 +217,9 @@ fn build_replacement(
     let mut source_chat_ids = source_chat_ids.into_iter().collect::<Vec<_>>();
     source_chat_ids.sort();
     let source_chat_id = source_chat_ids.first().cloned();
+    // Cleanup creates a new canonical record at apply time. The source chat
+    // provenance remains separate so its historical timestamps are not forged
+    // into the replacement's lifecycle timestamps.
     Ok(Some(json!({
         "id": new_id(),
         "kind": kind,
@@ -476,6 +479,14 @@ pub(crate) fn undo_canonical_cleanup(
                     .to_string();
                 let previous_updated_at = metadata.get("previousUpdatedAt").cloned();
                 let previous_superseded_by = metadata.get("previousSupersededByMemoryId").cloned();
+                let fallback_updated_at = value_string(memory, "createdAt")
+                    .or_else(|| {
+                        metadata
+                            .get("appliedAt")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned)
+                    })
+                    .unwrap_or_else(|| undo_at.clone());
                 let object = memory.as_object_mut().ok_or_else(|| {
                     AppError::invalid_input("Stored canonical memory is not an object")
                 })?;
@@ -485,7 +496,7 @@ pub(crate) fn undo_canonical_cleanup(
                         object.insert("updatedAt".to_string(), Value::String(value));
                     }
                     _ => {
-                        object.remove("updatedAt");
+                        object.insert("updatedAt".to_string(), json!(fallback_updated_at));
                     }
                 }
                 match previous_superseded_by {
@@ -631,8 +642,31 @@ mod tests {
     #[test]
     fn character_cleanup_updates_canonical_rows_and_indexes_and_can_undo() {
         let state = test_state("apply-undo");
-        let memory_a = automatic_character_memory(&state, "memory-a", "Mira has the brass key.");
-        let memory_b = automatic_character_memory(&state, "memory-b", "Mira keeps the brass key.");
+        automatic_character_memory(&state, "memory-a", "Mira has the brass key.");
+        automatic_character_memory(&state, "memory-b", "Mira keeps the brass key.");
+        state
+            .storage
+            .update_collections_atomically(vec!["canonical-memories"], |collections| {
+                let memories = collections[0].rows_mut();
+                memory_by_id_mut(memories, "memory-a")?["supersededByMemoryId"] =
+                    json!("prior-replacement");
+                memory_by_id_mut(memories, "memory-b")?
+                    .as_object_mut()
+                    .expect("canonical memory should be an object")
+                    .remove("updatedAt");
+                Ok(())
+            })
+            .expect("legacy state should seed");
+        let memory_a = state
+            .storage
+            .get("canonical-memories", "memory-a")
+            .expect("memory-a should read")
+            .expect("memory-a should exist");
+        let memory_b = state
+            .storage
+            .get("canonical-memories", "memory-b")
+            .expect("memory-b should read")
+            .expect("memory-b should exist");
         let request = ApplyCleanupRequest {
             version: 1,
             scope: CleanupScope {
@@ -696,5 +730,20 @@ mod tests {
                 .len(),
             2
         );
+        let restored_a = state
+            .storage
+            .get("canonical-memories", "memory-a")
+            .expect("memory-a should read")
+            .expect("memory-a should exist");
+        let restored_b = state
+            .storage
+            .get("canonical-memories", "memory-b")
+            .expect("memory-b should read")
+            .expect("memory-b should exist");
+        assert_eq!(
+            restored_a["supersededByMemoryId"],
+            json!("prior-replacement")
+        );
+        assert_eq!(restored_b["updatedAt"], memory_b["createdAt"]);
     }
 }

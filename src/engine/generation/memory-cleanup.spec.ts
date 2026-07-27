@@ -129,4 +129,36 @@ describe("analyzeMemoryCleanup", () => {
       }),
     ]);
   });
+
+  it("keeps protected exact duplicates as winners and never supersedes them", async () => {
+    const complete = vi.fn<LlmGateway["complete"]>();
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources: [
+        source({ id: "automatic", confidence: 0.99 }),
+        source({
+          id: "edited",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          userEdited: true,
+        }),
+        source({
+          id: "imported",
+          createdAt: "2026-07-01T00:00:00.000Z",
+          origin: "imported",
+        }),
+      ],
+      connectionId: "connection-1",
+      llm: gateway(complete),
+    });
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(preview.protectedCount).toBe(2);
+    expect(preview.proposals).toEqual([
+      expect.objectContaining({
+        type: "keep_one",
+        winnerId: "edited",
+        sourceIds: ["automatic"],
+      }),
+    ]);
+  });
 });

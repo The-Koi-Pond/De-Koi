@@ -603,6 +603,7 @@ export function MemoryRecallMemoriesModal({
                 onClick={() => setCleanupOpen(true)}
                 disabled={localMemories.length === 0}
                 className="ml-1 inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--primary)]/35 px-2.5 text-[0.6875rem] font-semibold text-[var(--foreground)] transition hover:bg-[var(--primary)]/10 disabled:pointer-events-none disabled:opacity-45"
+                title={localMemories.length === 0 ? "No local memories to tidy yet" : "Review cleanup suggestions"}
               >
                 <Wand2 size="0.8rem" aria-hidden="true" />
                 Tidy memories
@@ -619,6 +620,11 @@ export function MemoryRecallMemoriesModal({
               </button>
             </div>
           </div>
+          {localMemories.length === 0 && (
+            <p className="text-[0.6875rem] text-[var(--muted-foreground)]" role="status">
+              Add or import a local memory to enable export, clear, and cleanup.
+            </p>
+          )}
 
           {newMemoryOpen && (
             <div id={newMemoryComposerId} className="rounded-md border border-[var(--primary)]/35 bg-[var(--card)] p-3">

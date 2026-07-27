@@ -273,6 +273,22 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
     expect(hookMocks.repairMemories.mutateAsync).toHaveBeenCalledOnce();
   });
 
+  it("explains why cleanup and export are unavailable without local memories", () => {
+    hookMocks.memories = [];
+    act(() => {
+      root?.render(<MemoryRecallMemoriesModal chatId="chat-1" open onClose={vi.fn()} />);
+    });
+
+    expect(container!.textContent).toContain("Add or import a local memory to enable export, clear, and cleanup.");
+    expect(container!.querySelector('button[aria-label="Export local memories"]')?.getAttribute("title")).toBe(
+      "Export local memories",
+    );
+    const tidy = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Tidy memories",
+    );
+    expect(tidy?.getAttribute("title")).toBe("No local memories to tidy yet");
+  });
+
   it("opens labeled cleanup with only editable local sources", () => {
     const tidy = Array.from(container!.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Tidy memories",
