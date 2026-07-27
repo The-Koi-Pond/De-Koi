@@ -41,21 +41,6 @@ fn is_automatic(memory: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn is_imported(memory: &Value) -> bool {
-    has_tag(memory, "imported")
-        || payload(memory)
-            .and_then(|payload| payload.get("importedFromMemoryId"))
-            .and_then(Value::as_str)
-            .is_some_and(|id| !id.trim().is_empty())
-}
-
-fn has_tag(memory: &Value, expected: &str) -> bool {
-    memory
-        .get("tags")
-        .and_then(Value::as_array)
-        .is_some_and(|tags| tags.iter().any(|tag| tag.as_str() == Some(expected)))
-}
-
 fn canonical_memory_belongs_to_scope(memory: &Value, scope: &CleanupScope) -> bool {
     memory
         .get("scope")
@@ -68,11 +53,14 @@ fn canonical_memory_belongs_to_scope(memory: &Value, scope: &CleanupScope) -> bo
 
 fn canonical_memory_is_cleanup_eligible(memory: &Value, scope: &CleanupScope) -> bool {
     canonical_memory_belongs_to_scope(memory, scope)
-        && memory.get("status").and_then(Value::as_str) == Some("active")
-        && (is_automatic(memory) || is_cleanup_replacement(memory))
-        && !canonical_user_edited(memory)
-        && !has_tag(memory, "manual")
-        && !is_imported(memory)
+        && matches!(
+            memory.get("status").and_then(Value::as_str),
+            Some("active" | "pinned")
+        )
+}
+
+fn canonical_memory_is_pinned(memory: &Value) -> bool {
+    memory.get("status").and_then(Value::as_str) == Some("pinned")
 }
 
 fn canonical_user_edited(memory: &Value) -> bool {
@@ -114,7 +102,7 @@ fn validate_referenced_memories(
         let source = memory_by_id(memories, source_id)?;
         if !canonical_memory_is_cleanup_eligible(source, scope) {
             return Err(AppError::invalid_input(format!(
-                "Canonical memory {source_id} is protected or outside this cleanup scope"
+                "Canonical memory {source_id} is inactive or outside this cleanup scope"
             )));
         }
         if !proposal
@@ -129,7 +117,7 @@ fn validate_referenced_memories(
     }
     if let Some(winner_id) = proposal.winner_id.as_deref() {
         let winner = memory_by_id(memories, winner_id)?;
-        if !canonical_memory_belongs_to_scope(winner, scope)
+        if !canonical_memory_is_cleanup_eligible(winner, scope)
             || !proposal
                 .expected
                 .get(winner_id)
@@ -137,6 +125,20 @@ fn validate_referenced_memories(
         {
             return Err(AppError::invalid_input(
                 "Cleanup winner changed or is outside this character",
+            ));
+        }
+        if proposal.proposal_type == ProposalType::KeepOne
+            && proposal
+                .source_ids
+                .iter()
+                .map(|source_id| memory_by_id(memories, source_id))
+                .collect::<AppResult<Vec<_>>>()?
+                .into_iter()
+                .any(canonical_memory_is_pinned)
+            && !canonical_memory_is_pinned(winner)
+        {
+            return Err(AppError::invalid_input(
+                "Keep-one cleanup must retain a pinned winner",
             ));
         }
     }
@@ -165,10 +167,7 @@ fn build_replacement(
     batch_id: &str,
     applied_at: &str,
 ) -> AppResult<Option<Value>> {
-    if !matches!(
-        proposal.proposal_type,
-        ProposalType::Combine | ProposalType::Shorten
-    ) {
+    if proposal.proposal_type != ProposalType::Combine {
         return Ok(None);
     }
     let replacement = proposal
@@ -193,6 +192,7 @@ fn build_replacement(
         .iter()
         .filter_map(|memory| memory.get("confidence").and_then(Value::as_f64))
         .fold(0.0_f64, f64::max);
+    let pinned = sources.iter().copied().any(canonical_memory_is_pinned);
     let mut message_ids = HashSet::new();
     let mut source_chat_ids = HashSet::new();
     for source in &sources {
@@ -223,7 +223,7 @@ fn build_replacement(
     Ok(Some(json!({
         "id": new_id(),
         "kind": kind,
-        "status": "active",
+        "status": if pinned { "pinned" } else { "active" },
         "scope": { "kind": "character", "id": scope.id },
         "content": replacement.content.trim(),
         "confidence": confidence,
@@ -312,7 +312,6 @@ pub(crate) fn apply_canonical_cleanup(
                 })
                 .collect::<AppResult<Vec<_>>>()?;
             let mut combined = 0usize;
-            let mut shortened = 0usize;
             let mut superseded = 0usize;
             let mut created = 0usize;
             for proposal in selected {
@@ -369,14 +368,12 @@ pub(crate) fn apply_canonical_cleanup(
                 }
                 match proposal.proposal_type {
                     ProposalType::Combine => combined += 1,
-                    ProposalType::Shorten => shortened += 1,
                     ProposalType::KeepOne | ProposalType::Conflict => {}
                 }
             }
             Ok(json!({
                 "batchId": batch_id_for_write,
                 "combined": combined,
-                "shortened": shortened,
                 "superseded": superseded,
                 "created": created
             }))
@@ -455,11 +452,13 @@ pub(crate) fn undo_canonical_cleanup(
                     .and_then(Value::as_str)
                     != Some("superseded")
             }) || replacement_ids.iter().any(|id| {
-                memory_by_id(memories, id)
-                    .ok()
-                    .and_then(|memory| memory.get("status"))
-                    .and_then(Value::as_str)
-                    != Some("active")
+                !matches!(
+                    memory_by_id(memories, id)
+                        .ok()
+                        .and_then(|memory| memory.get("status"))
+                        .and_then(Value::as_str),
+                    Some("active" | "pinned")
+                )
             }) {
                 return Err(AppError::invalid_input(
                     "Memory cleanup cannot be undone because its records changed",
@@ -568,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_eligibility_protects_imported_automatic_records() {
+    fn cleanup_eligibility_accepts_all_active_origins_and_rejects_inactive_or_foreign_rows() {
         let scope = CleanupScope {
             kind: "character".to_string(),
             id: "mira".to_string(),
@@ -587,11 +586,24 @@ mod tests {
             }
         });
 
-        assert!(!canonical_memory_is_cleanup_eligible(&imported, &scope));
+        assert!(canonical_memory_is_cleanup_eligible(&imported, &scope));
 
-        let mut edited = imported;
+        let mut edited = imported.clone();
         edited["payload"] = json!({ "automatic": true, "userEdited": true });
-        assert!(!canonical_memory_is_cleanup_eligible(&edited, &scope));
+        assert!(canonical_memory_is_cleanup_eligible(&edited, &scope));
+        let mut manual = imported.clone();
+        manual["tags"] = json!(["manual"]);
+        manual["payload"] = json!({ "automatic": false });
+        assert!(canonical_memory_is_cleanup_eligible(&manual, &scope));
+        let mut pinned = imported.clone();
+        pinned["status"] = json!("pinned");
+        assert!(canonical_memory_is_cleanup_eligible(&pinned, &scope));
+        let mut wrong = imported.clone();
+        wrong["status"] = json!("wrong");
+        assert!(!canonical_memory_is_cleanup_eligible(&wrong, &scope));
+        let mut foreign = imported;
+        foreign["scope"] = json!({ "kind": "character", "id": "someone-else" });
+        assert!(!canonical_memory_is_cleanup_eligible(&foreign, &scope));
     }
 
     fn automatic_character_memory(state: &AppState, id: &str, content: &str) -> Value {
@@ -622,8 +634,8 @@ mod tests {
             content: memory["content"].as_str().unwrap().to_string(),
             status: memory["status"].as_str().unwrap().to_string(),
             updated_at: memory["updatedAt"].as_str().map(ToOwned::to_owned),
-            pinned: false,
-            user_edited: false,
+            pinned: memory["status"] == json!("pinned"),
+            user_edited: canonical_user_edited(memory),
         }
     }
 
@@ -635,12 +647,59 @@ mod tests {
             .into_iter()
             .filter(|memory| {
                 memory["scope"] == json!({ "kind": "character", "id": "mira" })
-                    && memory["status"] == json!("active")
+                    && matches!(memory["status"].as_str(), Some("active" | "pinned"))
             })
             .filter_map(|memory| memory["id"].as_str().map(ToOwned::to_owned))
             .collect::<Vec<_>>();
         ids.sort();
         ids
+    }
+
+    #[test]
+    fn keep_one_cleanup_rejects_unpinned_winner_for_pinned_source() {
+        let scope = CleanupScope {
+            kind: "character".to_string(),
+            id: "mira".to_string(),
+        };
+        let pinned = json!({
+            "id": "pinned",
+            "kind": "fact",
+            "status": "pinned",
+            "scope": { "kind": "character", "id": "mira" },
+            "content": "Mira keeps the brass key.",
+            "updatedAt": "2026-07-01T00:00:00.000Z",
+            "tags": ["automatic"],
+            "payload": { "automatic": true }
+        });
+        let winner = json!({
+            "id": "winner",
+            "kind": "fact",
+            "status": "active",
+            "scope": { "kind": "character", "id": "mira" },
+            "content": "Mira keeps the brass key.",
+            "updatedAt": "2026-07-01T00:00:00.000Z",
+            "tags": ["automatic"],
+            "payload": { "automatic": true }
+        });
+        let proposal = CleanupProposal {
+            id: "proposal-keep-one".to_string(),
+            proposal_type: ProposalType::KeepOne,
+            source_ids: vec!["pinned".to_string()],
+            expected: HashMap::from([
+                ("pinned".to_string(), expected(&pinned)),
+                ("winner".to_string(), expected(&winner)),
+            ]),
+            winner_id: Some("winner".to_string()),
+            replacement: None,
+            _reason: Some("Repeated fact".to_string()),
+            selected: true,
+            _estimated_tokens_before: None,
+            _estimated_tokens_after: None,
+        };
+
+        let error = validate_referenced_memories(&[pinned, winner], &scope, &proposal)
+            .expect_err("an unpinned winner must not consume pinned memory");
+        assert!(error.message.contains("pinned winner"));
     }
 
     #[test]
@@ -652,6 +711,7 @@ mod tests {
             .storage
             .update_collections_atomically(vec!["canonical-memories"], |collections| {
                 let memories = collections[0].rows_mut();
+                memory_by_id_mut(memories, "memory-a")?["status"] = json!("pinned");
                 memory_by_id_mut(memories, "memory-a")?["supersededByMemoryId"] =
                     json!("prior-replacement");
                 memory_by_id_mut(memories, "memory-b")?
@@ -690,7 +750,7 @@ mod tests {
                     content: "Mira keeps the brass key.".to_string(),
                     kind: "fact".to_string(),
                 }),
-                _reason: Some("Overlapping detail".to_string()),
+                _reason: Some("Overlapping memories".to_string()),
                 selected: true,
                 _estimated_tokens_before: Some(12),
                 _estimated_tokens_after: Some(7),
@@ -701,6 +761,19 @@ mod tests {
             apply_canonical_cleanup(&state, request).expect("canonical cleanup should apply");
         assert_eq!(applied["created"], json!(1));
         assert_eq!(active_character_ids(&state).len(), 1);
+        let replacement = state
+            .storage
+            .list("canonical-memories")
+            .expect("canonical memories should list")
+            .into_iter()
+            .find(|memory| {
+                cleanup_metadata(memory)
+                    .and_then(|metadata| metadata.get("role"))
+                    .and_then(Value::as_str)
+                    == Some("replacement")
+            })
+            .expect("cleanup replacement should exist");
+        assert_eq!(replacement["status"], json!("pinned"));
         assert_eq!(
             state
                 .storage
@@ -748,6 +821,7 @@ mod tests {
             restored_a["supersededByMemoryId"],
             json!("prior-replacement")
         );
+        assert_eq!(restored_a["status"], json!("pinned"));
         assert_eq!(restored_b["updatedAt"], memory_b["createdAt"]);
     }
 }
