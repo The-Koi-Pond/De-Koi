@@ -173,6 +173,13 @@ export interface ChatMemoryChunk {
   firstMessageAt: string;
   lastMessageAt: string;
   createdAt: string;
+  updatedAt?: string | null;
+  cleanupBatchId?: string | null;
+  cleanupSourceIds?: string[];
+  cleanupAppliedAt?: string | null;
+  cleanupPreviousStatus?: ChatMemoryStatus | null;
+  cleanupPreviousUpdatedAt?: string | null;
+  cleanupSupersededByBatchId?: string | null;
   /** Non-transcript source marker, such as connected command memory. */
   source?: string;
   /** Original chat for imported recall rows or command memories. */

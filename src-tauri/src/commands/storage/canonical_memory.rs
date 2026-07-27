@@ -704,7 +704,10 @@ fn lexical_index_row(memory: &Value) -> AppResult<Value> {
     }))
 }
 
-fn replace_memory_lexical_index(index_rows: &mut Vec<Value>, memory: &Value) -> AppResult<()> {
+pub(crate) fn replace_memory_lexical_index(
+    index_rows: &mut Vec<Value>,
+    memory: &Value,
+) -> AppResult<()> {
     let memory_id = read_string(memory.get("id"));
     index_rows.retain(|row| read_string(row.get("memoryId")) != memory_id);
     if memory_is_lexically_indexed(memory) {

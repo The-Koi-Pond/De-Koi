@@ -88,6 +88,7 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src/features/catalog/sprites`: Shared catalog sprite query keys, types, and React Query hooks used by character and persona sprite editors plus runtime sprite consumers.
 - `src/features/catalog/library-folders`: Shared durable library-folder hooks for organizing lorebooks and prompt presets.
 - `src/features/catalog/regex-scripts`: Neutral catalog owner for regex script listing, editor routes, storage hooks, scoped filtering, and chat/game runtime application hooks.
+- `src/features/catalog/memory-maintenance`: Shared cleanup review UI, catalog-edge LLM/API binding, chat and canonical memory adapters, and preview/apply/undo workflow used by the chat Memory Console and Character Memories tab.
 - `src/shared/api`: Embedded Tauri and hostable runtime wrappers. Feature code should call these wrappers instead of raw Tauri or raw remote-runtime fetch.
 - `src-tauri`: Rust command facades, hostable runtime dispatch, storage, LLM/provider transport, assets, imports, integrations, and other privileged capabilities.
 - `src-tauri/src/commands/storage/sidecar.rs`: Thin Tauri/AppState adapter for Local Model sidecar commands and constants.

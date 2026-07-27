@@ -80,6 +80,9 @@ describe("discovery showcase registry", () => {
     expect(entry?.where).toContain("Character Editor > Memories");
     expect(summary).toContain("speaker-labeled exchanges");
     expect(summary).toContain("rank");
+    expect(summary).toContain("tidy memories");
+    expect(summary).toContain("repair from chat history");
+    expect(entry?.where).toContain("Character Editor > Memories");
     expect(summary).not.toMatch(/embeddings? (?:create|summarize|write)/);
   });
 

@@ -7,10 +7,7 @@ import type {
 } from "../../../../engine/contracts/types/memory";
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import {
-  characterMemoryImportPatch,
-  createManualCharacterMemoryInput,
-} from "../lib/character-memory-model";
+import { characterMemoryImportPatch, createManualCharacterMemoryInput } from "../lib/character-memory-model";
 
 export const characterMemoryKeys = {
   detail: (characterId: string) => ["character-memories", characterId] as const,
@@ -59,13 +56,13 @@ export function useChatMemoryRows(chatId: string | null) {
   });
 }
 
-function useInvalidateCharacterMemories(characterId: string) {
+export function useInvalidateCharacterMemoryScope(characterId: string) {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: characterMemoryKeys.detail(characterId) });
 }
 
 export function useUpdateCharacterMemory(characterId: string) {
-  const invalidate = useInvalidateCharacterMemories(characterId);
+  const invalidate = useInvalidateCharacterMemoryScope(characterId);
   return useMutation({
     mutationFn: ({ memoryId, patch }: { memoryId: string; patch: CanonicalMemoryPatch }) =>
       canonicalMemoryApi.update(memoryId, patch),
@@ -74,12 +71,10 @@ export function useUpdateCharacterMemory(characterId: string) {
 }
 
 export function useCreateCharacterMemory(characterId: string) {
-  const invalidate = useInvalidateCharacterMemories(characterId);
+  const invalidate = useInvalidateCharacterMemoryScope(characterId);
   return useMutation({
     mutationFn: async (content: string) => {
-      const memory = await canonicalMemoryApi.create(
-        createManualCharacterMemoryInput(characterId, content),
-      );
+      const memory = await canonicalMemoryApi.create(createManualCharacterMemoryInput(characterId, content));
       let indexRefreshFailed = false;
       try {
         await canonicalMemoryApi.index.rebuildLexical({
@@ -104,7 +99,7 @@ export function useRebuildCharacterMemoryIndex(characterId: string) {
 }
 
 export function useImportCharacterMemories(characterId: string) {
-  const invalidate = useInvalidateCharacterMemories(characterId);
+  const invalidate = useInvalidateCharacterMemoryScope(characterId);
   return useMutation({
     mutationFn: async (inputs: Array<CanonicalMemoryInput & { id: string }>) => {
       const existing = await canonicalMemoryApi.query({

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CharacterMemoriesTab } from "./CharacterMemoriesTab";
 
 const hookMocks = vi.hoisted(() => ({
+  memories: [] as Array<Record<string, unknown>>,
   createMemory: {
     mutateAsync: vi.fn(async () => ({
       memory: { id: "memory-new" },
@@ -16,16 +17,41 @@ const hookMocks = vi.hoisted(() => ({
     mutateAsync: vi.fn(async () => ({ rebuilt: 1 })),
     isPending: false,
   },
+  updateMemory: {
+    mutateAsync: vi.fn(async () => undefined),
+  },
+  invalidateMemories: vi.fn(async () => undefined),
+  cleanupModalProps: null as Record<string, unknown> | null,
+  resolveDefaultTextConnectionId: vi.fn(async () => "connection-1"),
 }));
 
 vi.mock("../hooks/use-character-memories", () => ({
-  useCharacterMemories: () => ({ data: [], isLoading: false }),
+  useCharacterMemories: () => ({ data: hookMocks.memories, isLoading: false }),
   useCreateCharacterMemory: () => hookMocks.createMemory,
   useRebuildCharacterMemoryIndex: () => hookMocks.rebuildMemoryIndex,
-  useUpdateCharacterMemory: () => ({ mutateAsync: vi.fn() }),
+  useUpdateCharacterMemory: () => hookMocks.updateMemory,
   useImportCharacterMemories: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCharacterMemorySourceChats: () => ({ data: [] }),
   useChatMemoryRows: () => ({ data: [], isLoading: false }),
+  useInvalidateCharacterMemoryScope: () => hookMocks.invalidateMemories,
+}));
+
+vi.mock("../../memory-maintenance", () => ({
+  canonicalMemoryCleanupSource: (memory: Record<string, unknown>) => ({
+    id: memory.id,
+    scope: memory.scope,
+    content: memory.content,
+  }),
+  MemoryCleanupReviewModal: (props: Record<string, unknown>) => {
+    hookMocks.cleanupModalProps = props;
+    return props.open ? <div data-testid="character-memory-cleanup" /> : null;
+  },
+}));
+
+vi.mock("../../../../shared/api/connection-catalog-api", () => ({
+  connectionCatalogApi: {
+    resolveDefaultTextConnectionId: hookMocks.resolveDefaultTextConnectionId,
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -50,6 +76,25 @@ describe("CharacterMemoriesTab manual entry", () => {
       indexRefreshFailed: false,
     }));
     hookMocks.rebuildMemoryIndex.mutateAsync.mockClear();
+    hookMocks.updateMemory.mutateAsync.mockClear();
+    hookMocks.invalidateMemories.mockClear();
+    hookMocks.resolveDefaultTextConnectionId.mockClear();
+    hookMocks.memories = [
+      {
+        id: "mira-memory",
+        kind: "fact",
+        status: "active",
+        scope: { kind: "character", id: "char-1" },
+        content: "Mira keeps the brass key.",
+        confidence: 0.9,
+        provenance: { messageIds: ["message-1"], characterId: "char-1" },
+        tags: ["automatic"],
+        payload: { automatic: true },
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+      },
+    ];
+    hookMocks.cleanupModalProps = null;
   });
 
   afterEach(() => {
@@ -121,6 +166,30 @@ describe("CharacterMemoriesTab manual entry", () => {
     expect(hookMocks.createMemory.mutateAsync).not.toHaveBeenCalled();
   });
 
+  it("marks edited automatic memories so cleanup keeps them protected", async () => {
+    renderTab();
+    const edit = container!.querySelector<HTMLButtonElement>('button[aria-label="Edit memory"]');
+    act(() => edit?.click());
+    const textarea = container!.querySelector<HTMLTextAreaElement>("article textarea");
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        textarea,
+        "Mira keeps the brass key in her coat.",
+      );
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = container!.querySelector<HTMLButtonElement>('button[aria-label="Save memory"]');
+    await act(async () => save?.click());
+
+    expect(hookMocks.updateMemory.mutateAsync).toHaveBeenCalledWith({
+      memoryId: "mira-memory",
+      patch: {
+        content: "Mira keeps the brass key in her coat.",
+        payload: { automatic: true, userEdited: true },
+      },
+    });
+  });
+
   it("keeps a durable recovery action visible until recall indexing succeeds", async () => {
     hookMocks.createMemory.mutateAsync.mockResolvedValueOnce({
       memory: { id: "memory-new" },
@@ -176,9 +245,9 @@ describe("CharacterMemoriesTab manual entry", () => {
     );
     expect(nextNewMemory?.getAttribute("aria-expanded")).toBe("false");
     act(() => nextNewMemory?.click());
-    expect(
-      container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]')?.value,
-    ).toBe("");
+    expect(container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]')?.value).toBe(
+      "",
+    );
   });
 
   it("does not apply a completed save to a character opened while the request was pending", async () => {
@@ -223,8 +292,29 @@ describe("CharacterMemoriesTab manual entry", () => {
     await act(async () => finishSave({ memory: { id: "memory-new" }, indexRefreshFailed: true }));
 
     expect(nextNewMemory?.getAttribute("aria-expanded")).toBe("true");
-    expect(container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]')?.value)
-      .toBe("Nia's separate draft.");
+    expect(container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="New character memory"]')?.value).toBe(
+      "Nia's separate draft.",
+    );
     expect(container!.textContent).not.toContain("not ready for recall");
+  });
+
+  it("opens cleanup for only the current character and uses the default text connection", async () => {
+    renderTab();
+    const tidy = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Tidy memories",
+    );
+    expect(tidy).toBeTruthy();
+    act(() => tidy?.click());
+
+    expect(hookMocks.cleanupModalProps?.scope).toEqual({
+      kind: "character",
+      id: "char-1",
+    });
+    expect((hookMocks.cleanupModalProps?.sources as Array<{ id: string }>).map((source) => source.id)).toEqual([
+      "mira-memory",
+    ]);
+    await (hookMocks.cleanupModalProps?.resolveConnectionId as () => Promise<string>)();
+    expect(hookMocks.resolveDefaultTextConnectionId).toHaveBeenCalledOnce();
+    expect(container!.querySelector('[data-testid="character-memory-cleanup"]')).toBeTruthy();
   });
 });

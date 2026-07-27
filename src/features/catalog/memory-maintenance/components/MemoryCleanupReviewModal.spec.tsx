@@ -1,0 +1,179 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { MemoryCleanupPreview, MemoryCleanupSource } from "../../../../engine/contracts/types/memory-maintenance";
+import { MemoryCleanupReviewModal } from "./MemoryCleanupReviewModal";
+
+const mocks = vi.hoisted(() => ({
+  analyze: vi.fn(),
+  apply: vi.fn(),
+  undo: vi.fn(),
+}));
+
+vi.mock("../../../../engine/generation/memory-cleanup", () => ({
+  analyzeMemoryCleanup: mocks.analyze,
+}));
+
+vi.mock("../../../../shared/api/memory-maintenance-api", () => ({
+  memoryMaintenanceApi: {
+    apply: mocks.apply,
+    undo: mocks.undo,
+  },
+}));
+
+vi.mock("../../../../shared/api/llm-api", () => ({
+  llmApi: {},
+}));
+
+vi.mock("../../../../shared/components/ui/Modal", () => ({
+  Modal: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
+    open ? <div role="dialog">{children}</div> : null,
+}));
+
+const sources: MemoryCleanupSource[] = [
+  {
+    id: "memory-a",
+    scope: { kind: "chat", id: "chat-1" },
+    content: "Mira has the brass key.",
+    kind: "fact",
+    status: "active",
+    origin: "automatic",
+    confidence: 0.8,
+    messageIds: [],
+    sourceChatIds: [],
+    createdAt: null,
+    updatedAt: null,
+    pinned: false,
+    userEdited: false,
+  },
+  {
+    id: "memory-b",
+    scope: { kind: "chat", id: "chat-1" },
+    content: "Mira keeps the brass key.",
+    kind: "fact",
+    status: "active",
+    origin: "automatic",
+    confidence: 0.9,
+    messageIds: [],
+    sourceChatIds: [],
+    createdAt: null,
+    updatedAt: null,
+    pinned: false,
+    userEdited: false,
+  },
+];
+
+function cleanupPreview(): MemoryCleanupPreview {
+  return {
+    version: 1,
+    scope: { kind: "chat", id: "chat-1" },
+    proposals: [
+      {
+        id: "proposal-1",
+        type: "combine",
+        sourceIds: ["memory-a", "memory-b"],
+        expected: {},
+        replacement: { content: "Mira keeps the brass key.", kind: "fact" },
+        reason: "Overlapping detail",
+        selected: true,
+        estimatedTokensBefore: 12,
+        estimatedTokensAfter: 7,
+      },
+    ],
+    beforeCount: 24,
+    afterCount: 13,
+    estimatedTokensBefore: 1200,
+    estimatedTokensAfter: 700,
+    protectedCount: 2,
+    deferredCandidateCount: 0,
+  };
+}
+
+describe("MemoryCleanupReviewModal", () => {
+  let root: Root;
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    mocks.analyze.mockReset();
+    mocks.apply.mockReset();
+    mocks.undo.mockReset();
+    mocks.analyze.mockResolvedValue(cleanupPreview());
+    mocks.apply.mockResolvedValue({
+      batchId: "cleanup-batch-1",
+      combined: 1,
+      shortened: 0,
+      superseded: 2,
+      created: 1,
+    });
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("shows a write-free before-and-after review before enabling apply", async () => {
+    act(() => {
+      root.render(
+        <MemoryCleanupReviewModal
+          open
+          scope={{ kind: "chat", id: "chat-1" }}
+          sources={sources}
+          resolveConnectionId={async () => "connection-1"}
+          onClose={vi.fn()}
+          onChanged={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("You review every change before anything is saved.");
+    const analyze = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Analyze memories"),
+    );
+    await act(async () => analyze?.click());
+
+    expect(container.textContent).toContain("24 memories");
+    expect(container.textContent).toContain("13 memories");
+    expect(container.textContent).toContain("Mira has the brass key.");
+    expect(container.textContent).toContain("Mira keeps the brass key.");
+    expect(container.textContent).toContain(
+      "Pinned, manually written, edited, imported, corrected, and tool-created memories will not be rewritten.",
+    );
+    const apply = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Apply cleanup",
+    );
+    expect(apply?.disabled).toBe(false);
+    expect(mocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("offers undo only after a successful apply", async () => {
+    act(() => {
+      root.render(
+        <MemoryCleanupReviewModal
+          open
+          scope={{ kind: "chat", id: "chat-1" }}
+          sources={sources}
+          resolveConnectionId={async () => "connection-1"}
+          onClose={vi.fn()}
+          onChanged={vi.fn()}
+        />,
+      );
+    });
+    const analyze = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Analyze memories"),
+    );
+    await act(async () => analyze?.click());
+    const apply = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Apply cleanup",
+    );
+    await act(async () => apply?.click());
+
+    expect(container.textContent).toContain("Undo cleanup");
+    expect(mocks.apply).toHaveBeenCalledOnce();
+  });
+});

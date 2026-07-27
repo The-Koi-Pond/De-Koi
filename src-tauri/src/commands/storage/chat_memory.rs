@@ -250,7 +250,7 @@ fn lexical_memory_embedding(text: &str) -> Vec<f64> {
     vector
 }
 
-struct MemoryEmbeddingContext {
+pub(crate) struct MemoryEmbeddingContext {
     connection_id: String,
     connection: Value,
     model: String,
@@ -320,7 +320,7 @@ async fn memory_embedding_context_for_explicit_connection_id(
     memory_embedding_context_from_connection(embedding_connection_id, connection)
 }
 
-async fn memory_embedding_context(
+pub(crate) async fn memory_embedding_context(
     state: &AppState,
     chat: &Value,
 ) -> AppResult<Option<MemoryEmbeddingContext>> {
@@ -471,7 +471,7 @@ fn string_from_object(memory: &Map<String, Value>, key: &str) -> Option<String> 
         .map(ToOwned::to_owned)
 }
 
-async fn embed_chat_memory_object(
+pub(crate) async fn embed_chat_memory_object(
     memory: &mut Map<String, Value>,
     embedding_context: Option<&MemoryEmbeddingContext>,
 ) -> AppResult<()> {

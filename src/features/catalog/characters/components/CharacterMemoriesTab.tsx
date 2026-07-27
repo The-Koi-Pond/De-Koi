@@ -11,12 +11,14 @@ import {
   Search,
   Trash2,
   Upload,
+  Wand2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { CharacterMemoryPersistence } from "../../../../engine/contracts/types/character";
 import type { CanonicalMemoryRecord, MemoryStatus } from "../../../../engine/contracts/types/memory";
+import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { triggerDownload } from "../../../../shared/api/download-payload";
 import { showAlertDialog, showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
@@ -27,8 +29,10 @@ import {
   useCreateCharacterMemory,
   useRebuildCharacterMemoryIndex,
   useImportCharacterMemories,
+  useInvalidateCharacterMemoryScope,
   useUpdateCharacterMemory,
 } from "../hooks/use-character-memories";
+import { canonicalMemoryCleanupSource, MemoryCleanupReviewModal } from "../../memory-maintenance";
 import {
   characterMemoryStatusLabel,
   createCharacterMemoryExport,
@@ -56,7 +60,12 @@ function sourceLabel(memory: CanonicalMemoryRecord): string {
 }
 
 function safeFilename(value: string): string {
-  return value.trim().replaceAll(/[^a-zA-Z0-9._-]+/g, "-").replaceAll(/^-+|-+$/g, "") || "character";
+  return (
+    value
+      .trim()
+      .replaceAll(/[^a-zA-Z0-9._-]+/g, "-")
+      .replaceAll(/^-+|-+$/g, "") || "character"
+  );
 }
 
 export function CharacterMemoriesTab({
@@ -72,6 +81,7 @@ export function CharacterMemoriesTab({
   const rebuildMemoryIndex = useRebuildCharacterMemoryIndex(characterId);
   const updateMemory = useUpdateCharacterMemory(characterId);
   const importMemories = useImportCharacterMemories(characterId);
+  const invalidateCharacterMemories = useInvalidateCharacterMemoryScope(characterId);
   const sourceChats = useCharacterMemorySourceChats(characterId);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
@@ -81,6 +91,7 @@ export function CharacterMemoriesTab({
   const [newMemoryOpen, setNewMemoryOpen] = useState(false);
   const [newMemoryContent, setNewMemoryContent] = useState("");
   const [newMemoryNeedsIndex, setNewMemoryNeedsIndex] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const newMemoryComposerId = useId();
   const newMemoryHelpId = `${newMemoryComposerId}-help`;
   const [copyOpen, setCopyOpen] = useState(false);
@@ -92,6 +103,7 @@ export function CharacterMemoriesTab({
     setNewMemoryOpen(false);
     setNewMemoryContent("");
     setNewMemoryNeedsIndex(false);
+    setCleanupOpen(false);
   }, [characterId]);
 
   const memories = useMemo(() => {
@@ -112,10 +124,16 @@ export function CharacterMemoriesTab({
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }, [filter, memoriesQuery.data, search]);
 
-  const saveEdit = async (memoryId: string) => {
+  const saveEdit = async (memory: CanonicalMemoryRecord) => {
     const content = editingContent.trim();
     if (!content) return;
-    await updateMemory.mutateAsync({ memoryId, patch: { content } });
+    await updateMemory.mutateAsync({
+      memoryId: memory.id,
+      patch: {
+        content,
+        payload: { ...memory.payload, userEdited: true },
+      },
+    });
     setEditingId(null);
     toast.success("Memory updated");
   };
@@ -237,10 +255,12 @@ export function CharacterMemoriesTab({
           </div>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {([
-            ["character", "Across chats", "Recommended. This character remembers you in other chats and roleplays."],
-            ["chat", "This chat only", "New automatic memories stay inside the chat where they happened."],
-          ] as const).map(([value, label, description]) => (
+          {(
+            [
+              ["character", "Across chats", "Recommended. This character remembers you in other chats and roleplays."],
+              ["chat", "This chat only", "New automatic memories stay inside the chat where they happened."],
+            ] as const
+          ).map(([value, label, description]) => (
             <label
               key={value}
               className={cn(
@@ -294,6 +314,15 @@ export function CharacterMemoriesTab({
         </select>
         <button
           type="button"
+          onClick={() => setCleanupOpen(true)}
+          disabled={(memoriesQuery.data ?? []).length === 0}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--primary)]/35 px-3 py-2 text-sm font-semibold hover:bg-[var(--primary)]/10 disabled:pointer-events-none disabled:opacity-40"
+        >
+          <Wand2 size="0.9rem" aria-hidden="true" />
+          Tidy memories
+        </button>
+        <button
+          type="button"
           onClick={() => setNewMemoryOpen((open) => !open)}
           aria-expanded={newMemoryOpen}
           aria-controls={newMemoryComposerId}
@@ -326,9 +355,7 @@ export function CharacterMemoriesTab({
 
       {newMemoryOpen && (
         <div id={newMemoryComposerId} className="rounded-2xl border border-[var(--primary)]/35 bg-[var(--card)] p-4">
-          <label className="text-sm font-semibold text-[var(--foreground)]">
-            New memory for {characterName}
-          </label>
+          <label className="text-sm font-semibold text-[var(--foreground)]">New memory for {characterName}</label>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             This durable memory can follow the character into other chats.
           </p>
@@ -390,9 +417,7 @@ export function CharacterMemoriesTab({
       )}
 
       <div className="space-y-2">
-        {memoriesQuery.isLoading && (
-          <div className="shimmer h-28 rounded-2xl" />
-        )}
+        {memoriesQuery.isLoading && <div className="shimmer h-28 rounded-2xl" />}
         {!memoriesQuery.isLoading && memories.length === 0 && (
           <div className="rounded-2xl border border-dashed border-[var(--border)] px-5 py-10 text-center">
             <Brain className="mx-auto text-[var(--muted-foreground)]" size="1.5rem" />
@@ -410,7 +435,9 @@ export function CharacterMemoriesTab({
                   <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-[0.68rem] font-semibold uppercase tracking-wide">
                     {characterMemoryStatusLabel(memory.status)}
                   </span>
-                  <span className="text-[0.7rem] text-[var(--muted-foreground)]">{memory.kind.replaceAll("_", " ")}</span>
+                  <span className="text-[0.7rem] text-[var(--muted-foreground)]">
+                    {memory.kind.replaceAll("_", " ")}
+                  </span>
                 </div>
                 {editingId === memory.id ? (
                   <textarea
@@ -420,7 +447,9 @@ export function CharacterMemoriesTab({
                     className="w-full rounded-xl border border-[var(--primary)]/50 bg-[var(--background)] p-3 text-sm outline-none"
                   />
                 ) : (
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--foreground)]">{memory.content}</p>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--foreground)]">
+                    {memory.content}
+                  </p>
                 )}
                 <p className="mt-2 text-xs text-[var(--muted-foreground)]">
                   {sourceLabel(memory)}
@@ -430,10 +459,20 @@ export function CharacterMemoriesTab({
               <div className="flex shrink-0 items-center gap-1">
                 {editingId === memory.id ? (
                   <>
-                    <button type="button" aria-label="Save memory" onClick={() => void saveEdit(memory.id)} className="rounded-lg p-2 hover:bg-[var(--accent)]">
+                    <button
+                      type="button"
+                      aria-label="Save memory"
+                      onClick={() => void saveEdit(memory)}
+                      className="rounded-lg p-2 hover:bg-[var(--accent)]"
+                    >
                       <Check size="0.9rem" />
                     </button>
-                    <button type="button" aria-label="Cancel editing" onClick={() => setEditingId(null)} className="rounded-lg p-2 hover:bg-[var(--accent)]">
+                    <button
+                      type="button"
+                      aria-label="Cancel editing"
+                      onClick={() => setEditingId(null)}
+                      className="rounded-lg p-2 hover:bg-[var(--accent)]"
+                    >
                       <X size="0.9rem" />
                     </button>
                   </>
@@ -460,13 +499,22 @@ export function CharacterMemoriesTab({
                         >
                           <Pin size="0.9rem" className={memory.status === "pinned" ? "fill-current" : ""} />
                         </button>
-                        <button type="button" aria-label="Delete memory" onClick={() => void changeStatus(memory, "deleted")} className="rounded-lg p-2 text-red-400 hover:bg-red-500/10">
+                        <button
+                          type="button"
+                          aria-label="Delete memory"
+                          onClick={() => void changeStatus(memory, "deleted")}
+                          className="rounded-lg p-2 text-red-400 hover:bg-red-500/10"
+                        >
                           <Trash2 size="0.9rem" />
                         </button>
                       </>
                     )}
                     {memory.status === "deleted" && (
-                      <button type="button" onClick={() => void changeStatus(memory, "active")} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs hover:bg-[var(--accent)]">
+                      <button
+                        type="button"
+                        onClick={() => void changeStatus(memory, "active")}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs hover:bg-[var(--accent)]"
+                      >
                         <RotateCcw size="0.85rem" /> Restore
                       </button>
                     )}
@@ -479,10 +527,18 @@ export function CharacterMemoriesTab({
       </div>
 
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <button type="button" onClick={() => setCopyOpen((open) => !open)} className="flex w-full items-center justify-between text-left">
+        <button
+          type="button"
+          onClick={() => setCopyOpen((open) => !open)}
+          className="flex w-full items-center justify-between text-left"
+        >
           <span>
-            <span className="flex items-center gap-2 text-sm font-semibold"><Copy size="0.95rem" /> Copy memories from a chat</span>
-            <span className="mt-1 block text-xs text-[var(--muted-foreground)]">Choose exact rows. Nothing is moved or copied automatically.</span>
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <Copy size="0.95rem" /> Copy memories from a chat
+            </span>
+            <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
+              Choose exact rows. Nothing is moved or copied automatically.
+            </span>
           </span>
           <span className="text-xs text-[var(--muted-foreground)]">{copyOpen ? "Close" : "Open"}</span>
         </button>
@@ -498,32 +554,42 @@ export function CharacterMemoriesTab({
             >
               <option value="">Choose a chat containing {characterName}</option>
               {(sourceChats.data ?? []).map((chat) => (
-                <option key={chat.id} value={chat.id}>{chat.name?.trim() || `Untitled ${chat.mode ?? "chat"}`}</option>
+                <option key={chat.id} value={chat.id}>
+                  {chat.name?.trim() || `Untitled ${chat.mode ?? "chat"}`}
+                </option>
               ))}
             </select>
-            {sourceChatId && (sourceRows.data ?? []).map((row) => {
-              const id = String(row.id ?? "");
-              const content = String(row.content ?? "").trim();
-              if (!id || !content) return null;
-              return (
-                <label key={id} className="flex cursor-pointer gap-3 rounded-xl border border-[var(--border)] p-3 hover:bg-[var(--accent)]">
-                  <input
-                    type="checkbox"
-                    checked={selectedChatMemoryIds.has(id)}
-                    onChange={(event) => setSelectedChatMemoryIds((current) => {
-                      const next = new Set(current);
-                      if (event.target.checked) next.add(id);
-                      else next.delete(id);
-                      return next;
-                    })}
-                    className="mt-1 accent-[var(--primary)]"
-                  />
-                  <span className="line-clamp-3 text-sm leading-relaxed">{content}</span>
-                </label>
-              );
-            })}
+            {sourceChatId &&
+              (sourceRows.data ?? []).map((row) => {
+                const id = String(row.id ?? "");
+                const content = String(row.content ?? "").trim();
+                if (!id || !content) return null;
+                return (
+                  <label
+                    key={id}
+                    className="flex cursor-pointer gap-3 rounded-xl border border-[var(--border)] p-3 hover:bg-[var(--accent)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedChatMemoryIds.has(id)}
+                      onChange={(event) =>
+                        setSelectedChatMemoryIds((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(id);
+                          else next.delete(id);
+                          return next;
+                        })
+                      }
+                      className="mt-1 accent-[var(--primary)]"
+                    />
+                    <span className="line-clamp-3 text-sm leading-relaxed">{content}</span>
+                  </label>
+                );
+              })}
             {sourceChatId && !sourceRows.isLoading && (sourceRows.data ?? []).length === 0 && (
-              <p className="text-xs text-[var(--muted-foreground)]">This chat has no local Memory Recall rows to copy.</p>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                This chat has no local Memory Recall rows to copy.
+              </p>
             )}
             <button
               type="button"
@@ -536,6 +602,14 @@ export function CharacterMemoriesTab({
           </div>
         )}
       </div>
+      <MemoryCleanupReviewModal
+        open={cleanupOpen}
+        scope={{ kind: "character", id: characterId }}
+        sources={(memoriesQuery.data ?? []).map(canonicalMemoryCleanupSource)}
+        resolveConnectionId={() => connectionCatalogApi.resolveDefaultTextConnectionId()}
+        onClose={() => setCleanupOpen(false)}
+        onChanged={invalidateCharacterMemories}
+      />
     </section>
   );
 }

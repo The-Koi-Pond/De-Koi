@@ -4,8 +4,8 @@ use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, canonical_memory, characters,
     chat_memory, chats, connection_secrets, custom_tools, customization, deki, entity_images,
     exports, fonts, game_assets, generation, http, images, imports, integrations, knowledge, llm,
-    lorebook_images, managed_thumbnails, personas, profile, prompts, shared, sidecar, sprites,
-    translation, updates, web_research,
+    lorebook_images, managed_thumbnails, memory_maintenance, personas, profile, prompts, shared,
+    sidecar, sprites, translation, updates, web_research,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -1053,6 +1053,15 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             })
             .await
         }
+        "memory_cleanup_apply" => {
+            memory_maintenance::apply_memory_cleanup(state, optional_value(&args, "body")).await
+        }
+        "memory_cleanup_undo" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_maintenance::undo_memory_cleanup(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "memory_index_upsert" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::upsert_memory_index_row(state, optional_value(args, "row"))
@@ -1815,6 +1824,7 @@ mod tests {
         "lorebook_entries_list_by_lorebook_ids",
         "lorebook_entry_reorder",
         "memory_create",
+        "memory_cleanup_undo",
         "memory_delete",
         "memory_get",
         "memory_index_delete_for_memory",

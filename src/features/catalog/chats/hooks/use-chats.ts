@@ -474,13 +474,16 @@ export function useClearChatMemories(chatId: string | null) {
   });
 }
 
-export function useRefreshChatMemories(chatId: string | null) {
+export type RepairChatMemoriesResult = {
+  rebuilt: number;
+  reused: number;
+};
+
+export function useRepairChatMemories(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => chatCommandApi.memoriesRefresh<{ rebuilt: number }>(chatId),
-    onSuccess: () => {
-      if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
-    },
+    mutationFn: () => chatCommandApi.memoriesRefresh<RepairChatMemoriesResult>(chatId),
+    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
   });
 }
 

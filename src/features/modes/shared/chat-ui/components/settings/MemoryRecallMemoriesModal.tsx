@@ -4,14 +4,16 @@ import {
   Download,
   Edit3,
   Loader2,
+  MoreHorizontal,
   Pin,
   PinOff,
   Plus,
-  RefreshCw,
   RotateCcw,
   Search,
   Trash2,
   Upload,
+  Wand2,
+  Wrench,
   X,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -21,6 +23,7 @@ import { showConfirmDialog } from "../../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../../shared/lib/utils";
 import type { ChatMemoryChunk, ChatMemoryKind } from "../../../../../../engine/contracts/types/chat";
 import type { CanonicalMemoryRecord } from "../../../../../../engine/contracts/types/memory";
+import { resolveGenerationConnection } from "../../../../../../engine/generation/context";
 import {
   useChatMemories,
   useClearChatMemories,
@@ -30,11 +33,13 @@ import {
   useImportChatMemories,
   useInheritedCharacterMemories,
   usePinChatMemory,
-  useRefreshChatMemories,
+  useRepairChatMemories,
   useRestoreChatMemory,
   useSoftDeleteChatMemory,
   useUpdateChatMemory,
 } from "../../../../../catalog/chats/index";
+import { chatMemoryCleanupInput, MemoryCleanupReviewModal } from "../../../../../catalog/memory-maintenance";
+import { storageApi } from "../../../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../../../shared/stores/ui.store";
 import { MEMORY_RECALL_CONSOLE_DESCRIPTION } from "../../lib/memory-recall-copy";
 
@@ -89,7 +94,12 @@ export function displayInheritedMemory(
     memoryKind: memory.kind === "episode" ? "character" : memory.kind === "summary" ? "summary" : "character",
     scopeType: "character",
     scopeId: character.id,
-    status: memory.status === "deleted" ? "deleted" : memory.status === "active" || memory.status === "pinned" ? "active" : "wrong",
+    status:
+      memory.status === "deleted"
+        ? "deleted"
+        : memory.status === "active" || memory.status === "pinned"
+          ? "active"
+          : "wrong",
     pinned: memory.status === "pinned",
     confidence: memory.confidence,
     creationReason: "Inherited character memory",
@@ -149,7 +159,8 @@ function memoryEmbeddingLabel(memory: ChatMemoryChunk): string {
   if (memoryStatus(memory) !== "active") return "Index inactive";
   if (source === "provider") return memory.embeddingModel ? `Semantic: ${memory.embeddingModel}` : "Semantic";
   if (source === "lexical") return "Lexical";
-  if (!memory.hasEmbedding && (memory.embeddingStatus === "missing" || memory.embeddingStatus === "unavailable")) return "No index";
+  if (!memory.hasEmbedding && (memory.embeddingStatus === "missing" || memory.embeddingStatus === "unavailable"))
+    return "No index";
   if (!memory.hasEmbedding) return "Pending index";
   return "Indexed";
 }
@@ -168,8 +179,12 @@ function memoryEmbeddingTitle(memory: ChatMemoryChunk): string {
 
 function memoryEmbeddingSummary(memories: ChatMemoryChunk[]): string {
   const active = memories.filter((memory) => memoryStatus(memory) === "active");
-  const providerCount = active.filter((memory) => String(memory.embeddingSource ?? "").toLowerCase() === "provider").length;
-  const lexicalCount = active.filter((memory) => String(memory.embeddingSource ?? "").toLowerCase() === "lexical").length;
+  const providerCount = active.filter(
+    (memory) => String(memory.embeddingSource ?? "").toLowerCase() === "provider",
+  ).length;
+  const lexicalCount = active.filter(
+    (memory) => String(memory.embeddingSource ?? "").toLowerCase() === "lexical",
+  ).length;
   const inactiveCount = memories.length - active.length;
   const parts = [
     providerCount > 0 ? `${providerCount} semantic` : "",
@@ -237,11 +252,20 @@ function iconButtonClass(active = false, destructive = false) {
   return cn(
     "inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-45",
     active && "border-amber-400/50 bg-amber-400/10 text-amber-700 dark:text-amber-300",
-    destructive && "hover:border-[var(--destructive)]/40 hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]",
+    destructive &&
+      "hover:border-[var(--destructive)]/40 hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]",
   );
 }
 
-export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: string; open: boolean; onClose: () => void }) {
+export function MemoryRecallMemoriesModal({
+  chatId,
+  open,
+  onClose,
+}: {
+  chatId: string;
+  open: boolean;
+  onClose: () => void;
+}) {
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
   const memoriesQuery = useChatMemories(chatId, open);
@@ -254,7 +278,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   const pinMemory = usePinChatMemory(chatId);
   const correctMemory = useCorrectChatMemory(chatId);
   const clearMemories = useClearChatMemories(chatId);
-  const refreshMemories = useRefreshChatMemories(chatId);
+  const repairMemories = useRepairChatMemories(chatId);
   const exportMemories = useExportChatMemories(chatId);
   const importMemories = useImportChatMemories(chatId);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -283,8 +307,14 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   const [replacementDraft, setReplacementDraft] = useState("");
   const [newMemoryOpen, setNewMemoryOpen] = useState(false);
   const [newMemoryContent, setNewMemoryContent] = useState("");
+  const [maintenanceMenuOpen, setMaintenanceMenuOpen] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const cleanupInput = useMemo(() => chatMemoryCleanupInput(localMemories, chatId), [chatId, localMemories]);
 
-  const filtered = useMemo(() => filterMemories(memories, { query, status, type, scope }), [memories, query, status, type, scope]);
+  const filtered = useMemo(
+    () => filterMemories(memories, { query, status, type, scope }),
+    [memories, query, status, type, scope],
+  );
   const selected = useMemo(
     () => filtered.find((memory) => memory.id === selectedId) ?? filtered[0] ?? null,
     [filtered, selectedId],
@@ -299,7 +329,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
     pinMemory.isPending ||
     correctMemory.isPending ||
     createMemory.isPending ||
-    refreshMemories.isPending ||
+    repairMemories.isPending ||
     importMemories.isPending;
 
   useEffect(() => {
@@ -314,7 +344,20 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   useEffect(() => {
     setNewMemoryOpen(false);
     setNewMemoryContent("");
+    setMaintenanceMenuOpen(false);
+    setCleanupOpen(false);
   }, [chatId]);
+
+  const resolveCleanupConnectionId = async () => {
+    const chat = await storageApi.get<Record<string, unknown>>("chats", chatId, {
+      fields: ["id", "connectionId"],
+    });
+    if (!chat) throw new Error("Chat was not found.");
+    const connection = await resolveGenerationConnection(storageApi, chat, {});
+    const connectionId = typeof connection.id === "string" ? connection.id.trim() : "";
+    if (!connectionId) throw new Error("AI cleanup needs a configured text connection.");
+    return connectionId;
+  };
 
   const handleExport = async () => {
     if (localMemories.length === 0) {
@@ -350,7 +393,8 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
     if (!file) return;
     try {
       const result = await importMemories.mutateAsync(file);
-      if (result.imported > 0) toast.success(`Imported ${result.imported} memor${result.imported === 1 ? "y" : "ies"}.`);
+      if (result.imported > 0)
+        toast.success(`Imported ${result.imported} memor${result.imported === 1 ? "y" : "ies"}.`);
       else toast.info("No new recall memories were imported.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to import Memory Recall.");
@@ -363,7 +407,12 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
     if (!selected || selected.readOnly) return;
     const selectedStatusAtSave = memoryStatus(selected);
     const currentMemory = memories.find((memory) => memory.id === selected.id);
-    if (selectedStatusAtSave !== "active" || !currentMemory || draft.memoryId !== currentMemory.id || memoryStatus(currentMemory) !== "active") {
+    if (
+      selectedStatusAtSave !== "active" ||
+      !currentMemory ||
+      draft.memoryId !== currentMemory.id ||
+      memoryStatus(currentMemory) !== "active"
+    ) {
       toast.error("Only active memories can be edited.");
       return;
     }
@@ -420,7 +469,10 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
   const handleCorrect = async () => {
     if (!selected || selected.readOnly) return;
     try {
-      await correctMemory.mutateAsync({ memoryId: selected.id, replacementContent: replacementDraft.trim() || undefined });
+      await correctMemory.mutateAsync({
+        memoryId: selected.id,
+        replacementContent: replacementDraft.trim() || undefined,
+      });
       toast.success(replacementDraft.trim() ? "Correction saved and indexed." : "Memory marked wrong.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to correct memory.");
@@ -438,311 +490,556 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
     if (ok) clearMemories.mutate();
   };
 
+  const handleRepair = async () => {
+    const confirmed = await showConfirmDialog({
+      title: "Repair memories from chat history?",
+      message:
+        "De-Koi will recreate automatic transcript memories from saved messages and remove obsolete overlaps. This does not summarize memories or use AI. Manually written, imported, edited, pinned, command, and character-wide memories stay unchanged.",
+      confirmLabel: "Repair memories",
+    });
+    if (!confirmed) return;
+    try {
+      await repairMemories.mutateAsync();
+      toast.success("Memory repair complete.");
+      setMaintenanceMenuOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Memory repair failed.");
+    }
+  };
+
   const selectedStatus = selected ? memoryStatus(selected) : "active";
   const selectedCharacterId = selected?.owner.kind === "character" ? selected.owner.characterId : null;
-  const draftContent = draft.memoryId === selected?.id ? draft.content : selected?.content ?? "";
+  const draftContent = draft.memoryId === selected?.id ? draft.content : (selected?.content ?? "");
 
   return (
-    <Modal open={open} onClose={onClose} title="Memory Console" width="max-w-6xl">
-      <div className="space-y-3">
-        <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-          {MEMORY_RECALL_CONSOLE_DESCRIPTION}
-        </p>
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-[var(--secondary)]/70 px-3 py-2 ring-1 ring-[var(--border)]">
-          <div className="text-[0.6875rem] text-[var(--muted-foreground)]" aria-live="polite">
-            <span className="font-semibold text-[var(--foreground)]">{memories.length}</span> memories
-            {memories.length > 0 && <span className="tabular-nums"> / ~{totalTokens.toLocaleString()} tokens</span>}
-            {embeddingSummary && <span> / {embeddingSummary}</span>}
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-1">
-            <input
-              ref={importInputRef}
-              type="file"
-              accept="application/json,.json,.marinara"
-              className="hidden"
-              onChange={(event) => void handleImportFile(event.currentTarget.files?.[0])}
-            />
-            <button type="button" onClick={() => void handleExport()} disabled={localMemories.length === 0 || exportMemories.isPending} className={iconButtonClass()} title="Export local memories" aria-label="Export local memories">
-              <Upload size="0.875rem" />
-            </button>
-            <button type="button" onClick={() => importInputRef.current?.click()} disabled={importMemories.isPending} className={iconButtonClass()} title="Import memories" aria-label="Import memories">
-              {importMemories.isPending ? <Loader2 size="0.875rem" className="animate-spin" /> : <Download size="0.875rem" />}
-            </button>
-            <button type="button" onClick={() => refreshMemories.mutate()} disabled={memoriesQuery.isFetching || refreshMemories.isPending || importMemories.isPending} className={iconButtonClass()} title="Rebuild memories" aria-label="Rebuild memories">
-              <RefreshCw size="0.875rem" className={cn((memoriesQuery.isFetching || refreshMemories.isPending) && "animate-spin")} />
-            </button>
-            <button type="button" onClick={handleClear} disabled={localMemories.length === 0 || clearMemories.isPending} className={iconButtonClass(false, true)} title="Clear local memories" aria-label="Clear local memories">
-              <Trash2 size="0.875rem" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setNewMemoryOpen((value) => !value)}
-              disabled={createMemory.isPending}
-              aria-expanded={newMemoryOpen}
-              aria-controls={newMemoryComposerId}
-              className="ml-1 inline-flex min-h-8 items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 disabled:opacity-45"
-            >
-              <Plus size="0.8rem" /> New memory
-            </button>
-          </div>
-        </div>
-
-        {newMemoryOpen && (
-          <div id={newMemoryComposerId} className="rounded-md border border-[var(--primary)]/35 bg-[var(--card)] p-3">
-            <label className="text-xs font-semibold text-[var(--foreground)]">New chat memory</label>
-            <p className="mt-1 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
-              This memory stays with the current chat. Add character-wide memories from the character panel.
-            </p>
-            <textarea
-              aria-label="New chat memory"
-              aria-describedby={newMemoryHelpId}
-              value={newMemoryContent}
-              onChange={(event) => setNewMemoryContent(event.target.value)}
-              rows={3}
-              autoFocus
-              placeholder="What should this chat remember?"
-              className="mt-2 w-full resize-y rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)] outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/25"
-            />
-            <p id={newMemoryHelpId} className="mt-1.5 text-[0.6875rem] text-[var(--muted-foreground)]">
-              Enter a memory before saving.
-            </p>
-            <div className="mt-2 flex justify-end gap-2">
+    <>
+      <Modal open={open} onClose={onClose} title="Memory Console" width="max-w-6xl">
+        <div className="space-y-3">
+          <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">{MEMORY_RECALL_CONSOLE_DESCRIPTION}</p>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-[var(--secondary)]/70 px-3 py-2 ring-1 ring-[var(--border)]">
+            <div className="text-[0.6875rem] text-[var(--muted-foreground)]" aria-live="polite">
+              <span className="font-semibold text-[var(--foreground)]">{memories.length}</span> memories
+              {memories.length > 0 && <span className="tabular-nums"> / ~{totalTokens.toLocaleString()} tokens</span>}
+              {embeddingSummary && <span> / {embeddingSummary}</span>}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-1">
+              <input
+                ref={importInputRef}
+                type="file"
+                accept="application/json,.json,.marinara"
+                className="hidden"
+                onChange={(event) => void handleImportFile(event.currentTarget.files?.[0])}
+              />
               <button
                 type="button"
-                onClick={() => {
-                  setNewMemoryContent("");
-                  setNewMemoryOpen(false);
-                }}
-                disabled={createMemory.isPending}
-                className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[0.6875rem] font-medium hover:bg-[var(--accent)] disabled:opacity-45"
+                onClick={() => void handleExport()}
+                disabled={localMemories.length === 0 || exportMemories.isPending}
+                className={iconButtonClass()}
+                title="Export local memories"
+                aria-label="Export local memories"
               >
-                Cancel
+                <Upload size="0.875rem" />
               </button>
               <button
                 type="button"
-                onClick={() => void handleCreate()}
-                disabled={!newMemoryContent.trim() || createMemory.isPending}
-                aria-describedby={newMemoryHelpId}
-                className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 py-1.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] disabled:opacity-45"
+                onClick={() => importInputRef.current?.click()}
+                disabled={importMemories.isPending}
+                className={iconButtonClass()}
+                title="Import memories"
+                aria-label="Import memories"
               >
-                {createMemory.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Check size="0.75rem" />}
-                {createMemory.isPending ? "Saving…" : "Save memory"}
+                {importMemories.isPending ? (
+                  <Loader2 size="0.875rem" className="animate-spin" />
+                ) : (
+                  <Download size="0.875rem" />
+                )}
               </button>
-            </div>
-          </div>
-        )}
-
-        {inheritedScopeNotice && (
-          <div
-            className="flex items-start gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)]/45 px-3 py-2 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]"
-            role="note"
-          >
-            <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" />
-            <span>{inheritedScopeNotice}</span>
-          </div>
-        )}
-
-        <div className="grid gap-3 lg:grid-cols-[minmax(20rem,0.9fr)_minmax(0,1.35fr)]">
-          <section className="min-h-[28rem] rounded-md border border-[var(--border)] bg-[var(--card)]" aria-label="Memory list">
-            <div className="border-b border-[var(--border)] p-3">
-              <label htmlFor={searchId} className="sr-only">Search memories</label>
-              <div className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5">
-                <Search size="0.875rem" className="text-[var(--muted-foreground)]" />
-                <input
-                  id={searchId}
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search content, source, target"
-                  className="min-w-0 flex-1 bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-                />
-              </div>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                <label className="text-[0.625rem] text-[var(--muted-foreground)]">
-                  Scope
-                  <select value={scope} onChange={(event) => setScope(event.target.value as MemoryScopeFilter)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)]">
-                    <option value="all">All</option>
-                    <option value="current">Current</option>
-                    <option value="imported">Imported</option>
-                    <option value="targeted">Targeted</option>
-                  </select>
-                </label>
-                <label className="text-[0.625rem] text-[var(--muted-foreground)]">
-                  Type
-                  <select value={type} onChange={(event) => setType(event.target.value as MemoryTypeFilter)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)]">
-                    <option value="all">All</option>
-                    <option value="transcript">Transcript</option>
-                    <option value="manual">Manual</option>
-                    <option value="imported">Imported</option>
-                    <option value="command">Command</option>
-                    <option value="character">Character</option>
-                    <option value="scene_summary">Scene</option>
-                    <option value="summary">Summary</option>
-                    <option value="correction">Correction</option>
-                  </select>
-                </label>
-                <label className="text-[0.625rem] text-[var(--muted-foreground)]">
-                  Status
-                  <select value={status} onChange={(event) => setStatus(event.target.value as MemoryStatusFilter)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)]">
-                    <option value="all">All</option>
-                    <option value="active">Active</option>
-                    <option value="deleted">Deleted</option>
-                    <option value="wrong">Wrong</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-
-            {(memoriesQuery.isLoading || inheritedMemoriesQuery.isLoading) && (
-              <div className="flex min-h-80 items-center justify-center gap-2 text-xs text-[var(--muted-foreground)]">
-                <Loader2 size="1rem" className="animate-spin" /> Loading memories...
-              </div>
-            )}
-            {(memoriesQuery.error || inheritedMemoriesQuery.error) && (
-              <div className="m-3 rounded-md bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)] ring-1 ring-[var(--destructive)]/25" role="alert">
-                Failed to load memories.
-              </div>
-            )}
-            {!memoriesQuery.isLoading && !memoriesQuery.error && memories.length === 0 && (
-              <div className="flex min-h-80 items-center justify-center px-8 text-center text-xs text-[var(--muted-foreground)]">
-                No recall memories have been created for this chat yet.
-              </div>
-            )}
-            {!memoriesQuery.isLoading && !memoriesQuery.error && memories.length > 0 && filtered.length === 0 && (
-              <div className="flex min-h-80 items-center justify-center px-8 text-center text-xs text-[var(--muted-foreground)]">
-                No memories match these filters.
-              </div>
-            )}
-            {filtered.length > 0 && (
-              <div className="max-h-[33rem] overflow-y-auto p-2" role="listbox" aria-label="Filtered memories">
-                {filtered.map((memory) => {
-                  const itemStatus = memoryStatus(memory);
-                  const selectedItem = selected?.id === memory.id;
-                  return (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMaintenanceMenuOpen((value) => !value)}
+                  disabled={memoriesQuery.isFetching || repairMemories.isPending || importMemories.isPending}
+                  className={iconButtonClass(maintenanceMenuOpen)}
+                  title="Memory maintenance actions"
+                  aria-label="Memory maintenance actions"
+                  aria-expanded={maintenanceMenuOpen}
+                >
+                  {repairMemories.isPending ? (
+                    <Loader2 size="0.875rem" className="animate-spin" />
+                  ) : (
+                    <MoreHorizontal size="0.875rem" />
+                  )}
+                </button>
+                {maintenanceMenuOpen && (
+                  <div className="absolute right-0 top-9 z-20 w-72 rounded-md border border-[var(--border)] bg-[var(--popover)] p-1 shadow-lg">
                     <button
-                      key={memory.id}
                       type="button"
-                      role="option"
-                      aria-selected={selectedItem}
-                      onClick={() => setSelectedId(memory.id)}
-                      className={cn(
-                        "mb-1 w-full rounded-md border px-3 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-[var(--ring)]/30",
-                        selectedItem ? "border-[var(--ring)] bg-[var(--accent)]" : "border-transparent hover:border-[var(--border)] hover:bg-[var(--secondary)]/60",
-                      )}
+                      onClick={() => void handleRepair()}
+                      className="flex w-full items-start gap-2 rounded px-2 py-2 text-left transition hover:bg-[var(--accent)]"
                     >
-                      <div className="flex items-center gap-2">
-                        {memory.pinned && <Pin size="0.75rem" className="text-amber-500" aria-label="Pinned" />}
-                        <span className={cn("rounded px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase", statusClass(itemStatus))}>{itemStatus}</span>
-                        <span className="text-[0.625rem] uppercase tracking-wide text-[var(--muted-foreground)]">{memoryType(memory)}</span>
-                      </div>
-                      <div className="mt-1 line-clamp-2 text-xs leading-snug text-[var(--foreground)]">{memory.content}</div>
-                      <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                        <span>{memory.owner.label}</span>
-                        <span>{memory.messageCount || 1} msg</span>
-                        <span title={memoryEmbeddingTitle(memory)}>{memoryEmbeddingLabel(memory)}</span>
-                        <span>{formatMemoryDate(memory.lastMessageAt || memory.createdAt)}</span>
-                      </div>
+                      <Wrench size="0.875rem" className="mt-0.5 shrink-0" />
+                      <span>
+                        <span className="block font-semibold">Repair from chat history</span>
+                        <span className="block text-[0.625rem] text-[var(--muted-foreground)]">
+                          Rebuild automatic transcript memories. This does not summarize memories or use AI.
+                        </span>
+                      </span>
                     </button>
-                  );
-                })}
+                  </div>
+                )}
               </div>
-            )}
-          </section>
+              <button
+                type="button"
+                onClick={handleClear}
+                disabled={localMemories.length === 0 || clearMemories.isPending}
+                className={iconButtonClass(false, true)}
+                title="Clear local memories"
+                aria-label="Clear local memories"
+              >
+                <Trash2 size="0.875rem" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCleanupOpen(true)}
+                disabled={localMemories.length === 0}
+                className="ml-1 inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--primary)]/35 px-2.5 text-[0.6875rem] font-semibold text-[var(--foreground)] transition hover:bg-[var(--primary)]/10 disabled:pointer-events-none disabled:opacity-45"
+              >
+                <Wand2 size="0.8rem" aria-hidden="true" />
+                Tidy memories
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewMemoryOpen((value) => !value)}
+                disabled={createMemory.isPending}
+                aria-expanded={newMemoryOpen}
+                aria-controls={newMemoryComposerId}
+                className="ml-1 inline-flex min-h-8 items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 disabled:opacity-45"
+              >
+                <Plus size="0.8rem" /> New memory
+              </button>
+            </div>
+          </div>
 
-          <section className="min-h-[28rem] rounded-md border border-[var(--border)] bg-[var(--card)]" aria-label="Memory detail">
-            {!selected ? (
-              <div className="flex h-full min-h-80 items-center justify-center text-xs text-[var(--muted-foreground)]">Select a memory.</div>
-            ) : (
-              <div className="space-y-3 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[var(--border)] pb-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={cn("rounded px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase", statusClass(selectedStatus))}>{selectedStatus}</span>
-                      <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase text-[var(--muted-foreground)]">{memoryType(selected)}</span>
-                      <span title={memoryEmbeddingTitle(selected)} className="rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.625rem] font-semibold text-[var(--muted-foreground)]">{memoryEmbeddingLabel(selected)}</span>
-                    </div>
-                    <div className="mt-1 truncate text-[0.6875rem] text-[var(--muted-foreground)]" title={selected.id}>{selected.id}</div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {selected.readOnly && selectedCharacterId ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          openCharacterDetail(selectedCharacterId, "memories");
-                        }}
-                        className="rounded-md border border-[var(--border)] px-2 py-1 text-[0.6875rem] font-medium hover:bg-[var(--accent)]"
-                      >
-                        Open character memories
-                      </button>
-                    ) : (
-                      <>
-                        <button type="button" onClick={handlePin} disabled={busy || selectedStatus !== "active"} className={iconButtonClass(!!selected.pinned)} title={selected.pinned ? "Unpin memory" : "Pin memory"} aria-label={selected.pinned ? "Unpin memory" : "Pin memory"}>
-                          {selected.pinned ? <PinOff size="0.875rem" /> : <Pin size="0.875rem" />}
-                        </button>
-                        {selectedStatus === "active" ? (
-                          <button type="button" onClick={() => void handleSoftDelete()} disabled={busy} className={iconButtonClass(false, true)} title="Delete memory" aria-label="Delete memory">
-                            <Trash2 size="0.875rem" />
-                          </button>
-                        ) : (
-                          <button type="button" onClick={() => void handleRestore()} disabled={busy} className={iconButtonClass()} title="Restore memory" aria-label="Restore memory">
-                            <RotateCcw size="0.875rem" />
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
+          {newMemoryOpen && (
+            <div id={newMemoryComposerId} className="rounded-md border border-[var(--primary)]/35 bg-[var(--card)] p-3">
+              <label className="text-xs font-semibold text-[var(--foreground)]">New chat memory</label>
+              <p className="mt-1 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+                This memory stays with the current chat. Add character-wide memories from the character panel.
+              </p>
+              <textarea
+                aria-label="New chat memory"
+                aria-describedby={newMemoryHelpId}
+                value={newMemoryContent}
+                onChange={(event) => setNewMemoryContent(event.target.value)}
+                rows={3}
+                autoFocus
+                placeholder="What should this chat remember?"
+                className="mt-2 w-full resize-y rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)] outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/25"
+              />
+              <p id={newMemoryHelpId} className="mt-1.5 text-[0.6875rem] text-[var(--muted-foreground)]">
+                Enter a memory before saving.
+              </p>
+              <div className="mt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewMemoryContent("");
+                    setNewMemoryOpen(false);
+                  }}
+                  disabled={createMemory.isPending}
+                  className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-[0.6875rem] font-medium hover:bg-[var(--accent)] disabled:opacity-45"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCreate()}
+                  disabled={!newMemoryContent.trim() || createMemory.isPending}
+                  aria-describedby={newMemoryHelpId}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 py-1.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] disabled:opacity-45"
+                >
+                  {createMemory.isPending ? (
+                    <Loader2 size="0.75rem" className="animate-spin" />
+                  ) : (
+                    <Check size="0.75rem" />
+                  )}
+                  {createMemory.isPending ? "Saving…" : "Save memory"}
+                </button>
+              </div>
+            </div>
+          )}
 
-                <dl className="rounded-md bg-[var(--secondary)]/40 px-3 py-1 ring-1 ring-[var(--border)]/70">
-                  <DetailRow label="Created" value={formatMemoryDate(selected.createdAt)} />
-                  <DetailRow label="Owner" value={selected.owner.label} />
-                  <DetailRow label="Range" value={`${formatMemoryDate(selected.firstMessageAt)} - ${formatMemoryDate(selected.lastMessageAt)}`} />
-                  <DetailRow label="Provenance" value={selected.sourceChatId && selected.sourceChatId !== selected.chatId ? `Imported from ${selected.sourceChatId}` : selected.source || "Current transcript"} />
-                  <DetailRow label="Reason" value={selected.creationReason || (memoryType(selected) === "correction" ? "User correction" : "Automatic recall chunk")} />
-                  <DetailRow label="Confidence" value={typeof selected.confidence === "number" ? `${Math.round(selected.confidence * 100)}%` : "Not recorded"} />
-                  <DetailRow label="Usage" value={selected.lastRecalledAt || selected.lastUsedAt ? `${selected.recallCount ?? 1} recalls, last ${formatMemoryDate(selected.lastRecalledAt || selected.lastUsedAt)}` : "Not recorded"} />
-                  <DetailRow label="Target" value={selected.targetCharacterName || selected.target || selected.targetCharacterId || "None"} />
-                  <DetailRow label="Edited" value={selected.userEdited ? "User edited" : "Original"} />
-                </dl>
+          {inheritedScopeNotice && (
+            <div
+              className="flex items-start gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)]/45 px-3 py-2 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]"
+              role="note"
+            >
+              <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" />
+              <span>{inheritedScopeNotice}</span>
+            </div>
+          )}
 
-                <div>
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <label htmlFor={editId} className="text-[0.6875rem] font-semibold text-[var(--foreground)]">Memory Text</label>
-                    {!selected.readOnly && <button type="button" onClick={() => void handleSave()} disabled={busy || selectedStatus !== "active" || draft.memoryId !== selected.id || draftContent.trim() === selected.content.trim()} className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] transition hover:bg-[var(--accent)] disabled:pointer-events-none disabled:opacity-45">
-                      {updateMemory.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Check size="0.75rem" />}
-                      Save
-                    </button>}
-                  </div>
-                  <textarea id={editId} value={draftContent} onChange={(event) => {
-                    if (!selected.readOnly && selectedStatus === "active" && selected) setDraft({ memoryId: selected.id, content: event.target.value });
-                  }} disabled={selected.readOnly || selectedStatus !== "active"} className={MEMORY_CONTENT_CLASS} />
-                </div>
-
-                {!selected.readOnly && <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3">
-                  <div className="mb-2 flex items-center gap-2 text-[0.6875rem] font-semibold text-amber-700 dark:text-amber-300">
-                    <AlertTriangle size="0.875rem" /> Correction
-                  </div>
-                  <label htmlFor={replacementId} className="sr-only">Replacement memory</label>
-                  <textarea
-                    id={replacementId}
-                    value={replacementDraft}
-                    onChange={(event) => setReplacementDraft(event.target.value)}
-                    placeholder="Optional replacement memory"
-                    disabled={selectedStatus !== "active"}
-                    className="min-h-20 w-full resize-y rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--foreground)] outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/25 disabled:opacity-60"
+          <div className="grid gap-3 lg:grid-cols-[minmax(20rem,0.9fr)_minmax(0,1.35fr)]">
+            <section
+              className="min-h-[28rem] rounded-md border border-[var(--border)] bg-[var(--card)]"
+              aria-label="Memory list"
+            >
+              <div className="border-b border-[var(--border)] p-3">
+                <label htmlFor={searchId} className="sr-only">
+                  Search memories
+                </label>
+                <div className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5">
+                  <Search size="0.875rem" className="text-[var(--muted-foreground)]" />
+                  <input
+                    id={searchId}
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search content, source, target"
+                    className="min-w-0 flex-1 bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
                   />
-                  <div className="mt-2 flex justify-end">
-                    <button type="button" onClick={() => void handleCorrect()} disabled={busy || selectedStatus !== "active"} className="inline-flex items-center gap-1 rounded-md border border-amber-400/40 px-2 py-1 text-[0.6875rem] font-medium text-amber-700 transition hover:bg-amber-400/10 disabled:pointer-events-none disabled:opacity-45 dark:text-amber-300">
-                      {correctMemory.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : replacementDraft.trim() ? <Edit3 size="0.75rem" /> : <X size="0.75rem" />}
-                      {replacementDraft.trim() ? "Correct" : "Mark wrong"}
-                    </button>
-                  </div>
-                </div>}
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <label className="text-[0.625rem] text-[var(--muted-foreground)]">
+                    Scope
+                    <select
+                      value={scope}
+                      onChange={(event) => setScope(event.target.value as MemoryScopeFilter)}
+                      className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)]"
+                    >
+                      <option value="all">All</option>
+                      <option value="current">Current</option>
+                      <option value="imported">Imported</option>
+                      <option value="targeted">Targeted</option>
+                    </select>
+                  </label>
+                  <label className="text-[0.625rem] text-[var(--muted-foreground)]">
+                    Type
+                    <select
+                      value={type}
+                      onChange={(event) => setType(event.target.value as MemoryTypeFilter)}
+                      className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)]"
+                    >
+                      <option value="all">All</option>
+                      <option value="transcript">Transcript</option>
+                      <option value="manual">Manual</option>
+                      <option value="imported">Imported</option>
+                      <option value="command">Command</option>
+                      <option value="character">Character</option>
+                      <option value="scene_summary">Scene</option>
+                      <option value="summary">Summary</option>
+                      <option value="correction">Correction</option>
+                    </select>
+                  </label>
+                  <label className="text-[0.625rem] text-[var(--muted-foreground)]">
+                    Status
+                    <select
+                      value={status}
+                      onChange={(event) => setStatus(event.target.value as MemoryStatusFilter)}
+                      className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)]"
+                    >
+                      <option value="all">All</option>
+                      <option value="active">Active</option>
+                      <option value="deleted">Deleted</option>
+                      <option value="wrong">Wrong</option>
+                    </select>
+                  </label>
+                </div>
               </div>
-            )}
-          </section>
+
+              {(memoriesQuery.isLoading || inheritedMemoriesQuery.isLoading) && (
+                <div className="flex min-h-80 items-center justify-center gap-2 text-xs text-[var(--muted-foreground)]">
+                  <Loader2 size="1rem" className="animate-spin" /> Loading memories...
+                </div>
+              )}
+              {(memoriesQuery.error || inheritedMemoriesQuery.error) && (
+                <div
+                  className="m-3 rounded-md bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)] ring-1 ring-[var(--destructive)]/25"
+                  role="alert"
+                >
+                  Failed to load memories.
+                </div>
+              )}
+              {!memoriesQuery.isLoading && !memoriesQuery.error && memories.length === 0 && (
+                <div className="flex min-h-80 items-center justify-center px-8 text-center text-xs text-[var(--muted-foreground)]">
+                  No recall memories have been created for this chat yet.
+                </div>
+              )}
+              {!memoriesQuery.isLoading && !memoriesQuery.error && memories.length > 0 && filtered.length === 0 && (
+                <div className="flex min-h-80 items-center justify-center px-8 text-center text-xs text-[var(--muted-foreground)]">
+                  No memories match these filters.
+                </div>
+              )}
+              {filtered.length > 0 && (
+                <div className="max-h-[33rem] overflow-y-auto p-2" role="listbox" aria-label="Filtered memories">
+                  {filtered.map((memory) => {
+                    const itemStatus = memoryStatus(memory);
+                    const selectedItem = selected?.id === memory.id;
+                    return (
+                      <button
+                        key={memory.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selectedItem}
+                        onClick={() => setSelectedId(memory.id)}
+                        className={cn(
+                          "mb-1 w-full rounded-md border px-3 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-[var(--ring)]/30",
+                          selectedItem
+                            ? "border-[var(--ring)] bg-[var(--accent)]"
+                            : "border-transparent hover:border-[var(--border)] hover:bg-[var(--secondary)]/60",
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          {memory.pinned && <Pin size="0.75rem" className="text-amber-500" aria-label="Pinned" />}
+                          <span
+                            className={cn(
+                              "rounded px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase",
+                              statusClass(itemStatus),
+                            )}
+                          >
+                            {itemStatus}
+                          </span>
+                          <span className="text-[0.625rem] uppercase tracking-wide text-[var(--muted-foreground)]">
+                            {memoryType(memory)}
+                          </span>
+                        </div>
+                        <div className="mt-1 line-clamp-2 text-xs leading-snug text-[var(--foreground)]">
+                          {memory.content}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
+                          <span>{memory.owner.label}</span>
+                          <span>{memory.messageCount || 1} msg</span>
+                          <span title={memoryEmbeddingTitle(memory)}>{memoryEmbeddingLabel(memory)}</span>
+                          <span>{formatMemoryDate(memory.lastMessageAt || memory.createdAt)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section
+              className="min-h-[28rem] rounded-md border border-[var(--border)] bg-[var(--card)]"
+              aria-label="Memory detail"
+            >
+              {!selected ? (
+                <div className="flex h-full min-h-80 items-center justify-center text-xs text-[var(--muted-foreground)]">
+                  Select a memory.
+                </div>
+              ) : (
+                <div className="space-y-3 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[var(--border)] pb-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={cn(
+                            "rounded px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase",
+                            statusClass(selectedStatus),
+                          )}
+                        >
+                          {selectedStatus}
+                        </span>
+                        <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase text-[var(--muted-foreground)]">
+                          {memoryType(selected)}
+                        </span>
+                        <span
+                          title={memoryEmbeddingTitle(selected)}
+                          className="rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.625rem] font-semibold text-[var(--muted-foreground)]"
+                        >
+                          {memoryEmbeddingLabel(selected)}
+                        </span>
+                      </div>
+                      <div
+                        className="mt-1 truncate text-[0.6875rem] text-[var(--muted-foreground)]"
+                        title={selected.id}
+                      >
+                        {selected.id}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {selected.readOnly && selectedCharacterId ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            openCharacterDetail(selectedCharacterId, "memories");
+                          }}
+                          className="rounded-md border border-[var(--border)] px-2 py-1 text-[0.6875rem] font-medium hover:bg-[var(--accent)]"
+                        >
+                          Open character memories
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handlePin}
+                            disabled={busy || selectedStatus !== "active"}
+                            className={iconButtonClass(!!selected.pinned)}
+                            title={selected.pinned ? "Unpin memory" : "Pin memory"}
+                            aria-label={selected.pinned ? "Unpin memory" : "Pin memory"}
+                          >
+                            {selected.pinned ? <PinOff size="0.875rem" /> : <Pin size="0.875rem" />}
+                          </button>
+                          {selectedStatus === "active" ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleSoftDelete()}
+                              disabled={busy}
+                              className={iconButtonClass(false, true)}
+                              title="Delete memory"
+                              aria-label="Delete memory"
+                            >
+                              <Trash2 size="0.875rem" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void handleRestore()}
+                              disabled={busy}
+                              className={iconButtonClass()}
+                              title="Restore memory"
+                              aria-label="Restore memory"
+                            >
+                              <RotateCcw size="0.875rem" />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <dl className="rounded-md bg-[var(--secondary)]/40 px-3 py-1 ring-1 ring-[var(--border)]/70">
+                    <DetailRow label="Created" value={formatMemoryDate(selected.createdAt)} />
+                    <DetailRow label="Owner" value={selected.owner.label} />
+                    <DetailRow
+                      label="Range"
+                      value={`${formatMemoryDate(selected.firstMessageAt)} - ${formatMemoryDate(selected.lastMessageAt)}`}
+                    />
+                    <DetailRow
+                      label="Provenance"
+                      value={
+                        selected.sourceChatId && selected.sourceChatId !== selected.chatId
+                          ? `Imported from ${selected.sourceChatId}`
+                          : selected.source || "Current transcript"
+                      }
+                    />
+                    <DetailRow
+                      label="Reason"
+                      value={
+                        selected.creationReason ||
+                        (memoryType(selected) === "correction" ? "User correction" : "Automatic recall chunk")
+                      }
+                    />
+                    <DetailRow
+                      label="Confidence"
+                      value={
+                        typeof selected.confidence === "number"
+                          ? `${Math.round(selected.confidence * 100)}%`
+                          : "Not recorded"
+                      }
+                    />
+                    <DetailRow
+                      label="Usage"
+                      value={
+                        selected.lastRecalledAt || selected.lastUsedAt
+                          ? `${selected.recallCount ?? 1} recalls, last ${formatMemoryDate(selected.lastRecalledAt || selected.lastUsedAt)}`
+                          : "Not recorded"
+                      }
+                    />
+                    <DetailRow
+                      label="Target"
+                      value={selected.targetCharacterName || selected.target || selected.targetCharacterId || "None"}
+                    />
+                    <DetailRow label="Edited" value={selected.userEdited ? "User edited" : "Original"} />
+                  </dl>
+
+                  <div>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <label htmlFor={editId} className="text-[0.6875rem] font-semibold text-[var(--foreground)]">
+                        Memory Text
+                      </label>
+                      {!selected.readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => void handleSave()}
+                          disabled={
+                            busy ||
+                            selectedStatus !== "active" ||
+                            draft.memoryId !== selected.id ||
+                            draftContent.trim() === selected.content.trim()
+                          }
+                          className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] transition hover:bg-[var(--accent)] disabled:pointer-events-none disabled:opacity-45"
+                        >
+                          {updateMemory.isPending ? (
+                            <Loader2 size="0.75rem" className="animate-spin" />
+                          ) : (
+                            <Check size="0.75rem" />
+                          )}
+                          Save
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      id={editId}
+                      value={draftContent}
+                      onChange={(event) => {
+                        if (!selected.readOnly && selectedStatus === "active" && selected)
+                          setDraft({ memoryId: selected.id, content: event.target.value });
+                      }}
+                      disabled={selected.readOnly || selectedStatus !== "active"}
+                      className={MEMORY_CONTENT_CLASS}
+                    />
+                  </div>
+
+                  {!selected.readOnly && (
+                    <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3">
+                      <div className="mb-2 flex items-center gap-2 text-[0.6875rem] font-semibold text-amber-700 dark:text-amber-300">
+                        <AlertTriangle size="0.875rem" /> Correction
+                      </div>
+                      <label htmlFor={replacementId} className="sr-only">
+                        Replacement memory
+                      </label>
+                      <textarea
+                        id={replacementId}
+                        value={replacementDraft}
+                        onChange={(event) => setReplacementDraft(event.target.value)}
+                        placeholder="Optional replacement memory"
+                        disabled={selectedStatus !== "active"}
+                        className="min-h-20 w-full resize-y rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--foreground)] outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/25 disabled:opacity-60"
+                      />
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => void handleCorrect()}
+                          disabled={busy || selectedStatus !== "active"}
+                          className="inline-flex items-center gap-1 rounded-md border border-amber-400/40 px-2 py-1 text-[0.6875rem] font-medium text-amber-700 transition hover:bg-amber-400/10 disabled:pointer-events-none disabled:opacity-45 dark:text-amber-300"
+                        >
+                          {correctMemory.isPending ? (
+                            <Loader2 size="0.75rem" className="animate-spin" />
+                          ) : replacementDraft.trim() ? (
+                            <Edit3 size="0.75rem" />
+                          ) : (
+                            <X size="0.75rem" />
+                          )}
+                          {replacementDraft.trim() ? "Correct" : "Mark wrong"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
         </div>
-      </div>
-    </Modal>
+      </Modal>
+      <MemoryCleanupReviewModal
+        open={cleanupOpen}
+        scope={cleanupInput.scope}
+        sources={cleanupInput.sources}
+        resolveConnectionId={resolveCleanupConnectionId}
+        onClose={() => setCleanupOpen(false)}
+        onChanged={() => memoriesQuery.refetch()}
+      />
+    </>
   );
 }
