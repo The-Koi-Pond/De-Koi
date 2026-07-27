@@ -275,7 +275,7 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
       "No local memories yet. Add or import one to enable export, clear, and cleanup.",
     );
     expect(container!.querySelector('button[aria-label="Export local memories"]')?.getAttribute("title")).toBe(
-      "No local memories to export yet",
+      "Export local memories",
     );
     expect(container!.querySelector('button[aria-label="Clear local memories"]')?.getAttribute("title")).toBe(
       "No local memories to clear yet",

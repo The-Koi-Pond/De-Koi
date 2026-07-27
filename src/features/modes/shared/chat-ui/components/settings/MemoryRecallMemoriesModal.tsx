@@ -538,7 +538,7 @@ export function MemoryRecallMemoriesModal({
                 onClick={() => void handleExport()}
                 disabled={localMemories.length === 0 || exportMemories.isPending}
                 className={iconButtonClass()}
-                title={localMemories.length === 0 ? "No local memories to export yet" : "Export local memories"}
+                title="Export local memories"
                 aria-label="Export local memories"
               >
                 <Upload size="0.875rem" />
