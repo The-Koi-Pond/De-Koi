@@ -138,10 +138,7 @@ function boundedGroup(sources: MemoryCleanupSource[], sequence: number): MemoryC
   };
 }
 
-function exactDuplicateGroup(
-  sources: MemoryCleanupSource[],
-  sequence: number,
-): MemoryCleanupCandidateGroup | null {
+function exactDuplicateGroup(sources: MemoryCleanupSource[], sequence: number): MemoryCleanupCandidateGroup | null {
   const selected = sources.slice(0, MEMORY_CLEANUP_MAX_GROUP_RECORDS);
   if (selected.length < 2) return null;
   return {
@@ -202,8 +199,7 @@ export function prepareMemoryCleanupCandidates(sources: MemoryCleanupSource[]): 
   return {
     eligible,
     groups: built.groups.slice(0, MEMORY_CLEANUP_MAX_GROUPS),
-    deferredCandidateCount:
-      built.deferredCandidateCount + Math.max(0, built.groups.length - MEMORY_CLEANUP_MAX_GROUPS),
+    deferredCandidateCount: built.deferredCandidateCount + Math.max(0, built.groups.length - MEMORY_CLEANUP_MAX_GROUPS),
   };
 }
 
