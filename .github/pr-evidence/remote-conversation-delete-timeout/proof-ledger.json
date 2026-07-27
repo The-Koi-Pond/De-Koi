@@ -5,7 +5,7 @@
     "title": "Stop remote conversation deletion from flushing unrelated storage",
     "source": "Live Raspberry Pi user report",
     "classification": "remote runtime storage transaction performance and user-data deletion",
-    "status": "local_verification_passed"
+    "status": "ci_passed"
   },
   "coreClaim": "Deleting a conversation through the remote runtime completes without forcing unrelated dirty collections to disk, while atomic message and swipe deletion and fail-closed journal validation remain intact.",
   "rootCause": "FileStorage::update_collections_atomically used shutdown-style global dirty flushing before reading targets, before committing targets, and again through replace_all_many_locked. A chat delete therefore serialized unrelated large dirty collections such as character-versions while holding the global write gate, causing the browser's 30-second deadline to expire and later refreshes to restore the optimistic chat row.",
@@ -175,8 +175,8 @@
   "checks": {
     "baselineCommand": "pnpm check",
     "baselineStatus": "pass",
-    "ciStatus": "pending",
-    "bunnyReviewStatus": "pass",
+    "ciStatus": "pass",
+    "bunnyReviewStatus": "rerun_pending",
     "prHealthStatus": "pending"
   },
   "pr": {
@@ -185,8 +185,8 @@
     "headRefName": "fix/remote-conversation-delete-timeout",
     "baseRefName": "main",
     "healthStatus": "pending",
-    "bunnyReviewStatus": "pending",
-    "checksStatus": "pending",
+    "bunnyReviewStatus": "rerun_pending",
+    "checksStatus": "pass",
     "merged": false,
     "mergeCommit": ""
   },
