@@ -22,6 +22,7 @@ const SYSTEM_PROMPT = [
   "Length alone is never a cleanup reason.",
   "Preserve facts, qualifiers, time references, relationships, promises, and attribution.",
   "Do not combine merely related memories.",
+  "For keep_one, if any referenced source is pinned, winnerId must name a pinned source.",
   "Return conflicts as conflict proposals and never decide which side is true.",
   "Use only supplied source IDs.",
   'Return JSON only: {"proposals":[...]}.',

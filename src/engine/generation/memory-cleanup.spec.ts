@@ -76,6 +76,7 @@ describe("analyzeMemoryCleanup", () => {
     expect(JSON.stringify(requests)).not.toContain("unrelated-chat-message");
     expect(JSON.stringify(requests)).toContain("two or more");
     expect(JSON.stringify(requests)).toContain("Length alone");
+    expect(JSON.stringify(requests)).toContain("winnerId must name a pinned source");
     const prompt = JSON.parse(String(requests[0]?.messages[1]?.content)) as {
       allowedTypes: string[];
       sources: Array<{ id: string; pinned: boolean }>;
@@ -218,6 +219,67 @@ describe("analyzeMemoryCleanup", () => {
         sourceIds: expect.arrayContaining(["automatic", "edited"]),
       }),
     ]);
+  });
+
+  it("counts every eligible origin with the same rules used to prepare candidates", async () => {
+    const complete = vi.fn<LlmGateway["complete"]>();
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources: [
+        source({ id: "automatic" }),
+        source({ id: "manual", origin: "manual", userEdited: true }),
+        source({ id: "imported", origin: "imported" }),
+        source({ id: "corrected", origin: "correction" }),
+        source({ id: "tool-created", origin: "command" }),
+        source({ id: "pinned", status: "pinned", pinned: true }),
+        source({ id: "inactive", status: "superseded" }),
+      ],
+      connectionId: "connection-1",
+      llm: gateway(complete),
+    });
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(preview.beforeCount).toBe(6);
+    expect(preview.afterCount).toBe(1);
+    expect(preview.proposals).toEqual([
+      expect.objectContaining({
+        type: "keep_one",
+        winnerId: "pinned",
+        sourceIds: expect.arrayContaining(["automatic", "manual", "imported", "corrected", "tool-created"]),
+      }),
+    ]);
+  });
+
+  it("rejects a model keep-one proposal that would discard a pinned source", async () => {
+    const llm = gateway(async () =>
+      JSON.stringify({
+        proposals: [
+          {
+            type: "keep_one",
+            sourceIds: ["pinned"],
+            winnerId: "automatic",
+            reason: "Repeated fact",
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      analyzeMemoryCleanup({
+        scope: { kind: "character", id: "mira" },
+        sources: [
+          source({ id: "automatic", content: "Mira keeps the old brass key." }),
+          source({
+            id: "pinned",
+            content: "Mira keeps her old brass key.",
+            status: "pinned",
+            pinned: true,
+          }),
+        ],
+        connectionId: "connection-1",
+        llm,
+      }),
+    ).rejects.toThrow("No valid cleanup proposals");
   });
 
   it("does not ask the model to rewrite one long memory", async () => {
