@@ -1172,7 +1172,10 @@ mod tests {
         }
     }
 
-    fn materialized_message_shape(state: &AppState, message_id: &str) -> Value {
+    fn normalized_materialized_generated_message(
+        state: &AppState,
+        message_id: &str,
+    ) -> Value {
         let mut message = state
             .storage
             .get("messages", message_id)
@@ -2067,7 +2070,7 @@ mod tests {
     }
 
     #[test]
-    fn fast_append_and_dirty_cache_fallback_materialize_same_generated_message_shape() {
+    fn generated_message_fast_append_and_dirty_fallback_materialize_identically() {
         let input = json!({
             "chatId": "chat-shape",
             "role": "assistant",
@@ -2113,8 +2116,8 @@ mod tests {
         let dirty_id = value_id(&dirty_created);
 
         assert_eq!(
-            materialized_message_shape(&fast_state, &fast_id),
-            materialized_message_shape(&dirty_state, &dirty_id)
+            normalized_materialized_generated_message(&fast_state, &fast_id),
+            normalized_materialized_generated_message(&dirty_state, &dirty_id)
         );
     }
 

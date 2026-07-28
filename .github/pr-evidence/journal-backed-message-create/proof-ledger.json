@@ -79,7 +79,7 @@
       },
       {
         "claim": "The fallback preserves the same materialized response contract as the clean append path.",
-        "evidence": "fast_append_and_dirty_cache_fallback_materialize_same_generated_message_shape passed."
+        "evidence": "generated_message_fast_append_and_dirty_fallback_materialize_identically passed."
       }
     ],
     "contradictionRows": [
@@ -112,11 +112,16 @@
       "sourceType": "measured",
       "evidence": "Pi performance diagnostics separated storage.operation create spans from provider and editor spans."
     },
-    {
-      "description": "append_many_uncached intentionally refuses a dirty cached collection, and the previous fallback called update_collections_atomically for messages and message-swipes.",
-      "sourceType": "derived",
-      "evidence": "Derived from append_created_message_and_swipes_if_uncached, append_many_uncached, and persist_created_message_with_swipes."
-    }
+      {
+        "description": "append_many_uncached intentionally refuses a dirty cached collection, and the previous fallback called update_collections_atomically for messages and message-swipes.",
+        "sourceType": "derived",
+        "evidence": "Derived from append_created_message_and_swipes_if_uncached, append_many_uncached, and persist_created_message_with_swipes."
+      },
+      {
+        "description": "The fallback journal does not accumulate without a cleanup path: FileStorage schedules a deferred flush after every journal mutation, compacts on age, entry, or byte thresholds, and forces compaction on shutdown while foreground generation grace prevents the compaction from reentering the latency-sensitive turn.",
+        "sourceType": "derived",
+        "evidence": "Derived from write_collection, schedule_dirty_flush, flush_dirty_collections_matching, and collection_journal_needs_compaction."
+      }
   ],
   "userActionCopy": [
     {
@@ -173,7 +178,7 @@
     "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1179",
     "evidencePublished": true,
     "checks": "Focused and full local validation passed; GitHub validation is pending.",
-    "automatedReview": "Local pre-PR and post-push exact-head Bunny passed with zero findings and zero nitpicks; hosted current-head Bunny is pending."
+    "automatedReview": "Local exact-head Bunny passed. Hosted Bunny on 3a35c3f9 reported zero findings and one helper/test naming nitpick; that naming-only follow-up and the journal-compaction answer are included in the current pending head."
   },
   "finalGate": {
     "coreClaimProven": true
