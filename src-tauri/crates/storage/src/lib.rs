@@ -1456,6 +1456,12 @@ impl FileStorage {
         let compact = dirty_collections
             .into_iter()
             .filter(|collection| should_flush(collection))
+            .filter(|collection| {
+                // Hot message histories stay journal-backed while the app is running.
+                // Shutdown and explicit replacement paths still materialize them.
+                matches!(flush_kind, FlushKind::Shutdown)
+                    || !matches!(collection.as_str(), "messages" | "message-swipes")
+            })
             .filter_map(|collection| {
                 let force = matches!(flush_kind, FlushKind::Shutdown);
                 let should_compact = collection_journal_needs_compaction(
@@ -3704,16 +3710,15 @@ mod tests {
         );
         storage
             .replace_all(
-                "messages",
+                "personas",
                 vec![json!({
-                    "id": "message-1",
-                    "chatId": "chat-1",
-                    "content": "Before"
+                    "id": "persona-1",
+                    "name": "Before"
                 })],
             )
             .unwrap();
         storage
-            .patch("messages", "message-1", json!({ "content": "After" }))
+            .patch("personas", "persona-1", json!({ "name": "After" }))
             .unwrap();
 
         let (clone_started_tx, clone_started_rx) = mpsc::sync_channel(1);
@@ -3721,7 +3726,7 @@ mod tests {
         let observed_root = root.clone();
         *DIRTY_FLUSH_CLONE_TEST_HOOK.lock().unwrap() =
             Some(Box::new(move |storage_root, collection| {
-                if storage_root == observed_root && collection == "messages" {
+                if storage_root == observed_root && collection == "personas" {
                     clone_started_tx.send(()).unwrap();
                     release_clone_rx.recv().unwrap();
                 }
@@ -3737,7 +3742,7 @@ mod tests {
         let read_storage = storage.clone();
         let read = std::thread::spawn(move || {
             read_tx
-                .send(read_storage.get("messages", "message-1"))
+                .send(read_storage.get("personas", "persona-1"))
                 .unwrap();
         });
         let early_read = read_rx.recv_timeout(Duration::from_millis(250));
@@ -3759,7 +3764,7 @@ mod tests {
             "deferred disk compaction must not hold the global storage lock"
         );
         assert_eq!(
-            read_result.unwrap().unwrap()["content"],
+            read_result.unwrap().unwrap()["name"],
             "After",
             "reads during compaction must use the authoritative dirty cache"
         );
@@ -3782,16 +3787,15 @@ mod tests {
         );
         storage
             .replace_all(
-                "messages",
+                "personas",
                 vec![json!({
-                    "id": "message-1",
-                    "chatId": "chat-1",
-                    "content": "Before"
+                    "id": "persona-1",
+                    "name": "Before"
                 })],
             )
             .unwrap();
         storage
-            .patch("messages", "message-1", json!({ "content": "After" }))
+            .patch("personas", "persona-1", json!({ "name": "After" }))
             .unwrap();
 
         let (clone_started_tx, clone_started_rx) = mpsc::sync_channel(1);
@@ -3799,7 +3803,7 @@ mod tests {
         let observed_root = root.clone();
         *DIRTY_FLUSH_CLONE_TEST_HOOK.lock().unwrap() =
             Some(Box::new(move |storage_root, collection| {
-                if storage_root == observed_root && collection == "messages" {
+                if storage_root == observed_root && collection == "personas" {
                     clone_started_tx.send(()).unwrap();
                     release_clone_rx.recv().unwrap();
                 }
@@ -5127,8 +5131,94 @@ mod tests {
     }
 
     #[test]
-    fn deferred_flush_checkpoints_pending_appends_before_writing_tracked_collection() {
-        let root = temp_storage_root("deferred-flush-tracked-collection");
+    fn deferred_flush_keeps_message_collections_journal_backed_until_shutdown() {
+        let root = temp_storage_root("deferred-flush-keeps-message-journals");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let message_swipes = collections.join("message-swipes.json");
+        let characters = collections.join("characters.json");
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::ZERO, usize::MAX, u64::MAX),
+            SystemTime::now() + Duration::from_secs(1),
+        );
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "content": "Before" })],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "message-swipes",
+                vec![json!({ "id": "swipe-1", "content": "Before" })],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let original_messages = fs::read(&messages).unwrap();
+        let original_message_swipes = fs::read(&message_swipes).unwrap();
+
+        storage
+            .patch("messages", "message-1", json!({ "content": "After" }))
+            .unwrap();
+        storage
+            .patch(
+                "message-swipes",
+                "swipe-1",
+                json!({ "content": "After" }),
+            )
+            .unwrap();
+        storage
+            .patch("characters", "character-1", json!({ "name": "After" }))
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert_eq!(fs::read(&messages).unwrap(), original_messages);
+        assert_eq!(
+            fs::read(&message_swipes).unwrap(),
+            original_message_swipes
+        );
+        assert!(collections.join("messages.pending.jsonl").exists());
+        assert!(
+            collections
+                .join("message-swipes.pending.jsonl")
+                .exists()
+        );
+        assert!(
+            !collections.join("characters.pending.jsonl").exists(),
+            "ordinary collections must retain bounded deferred compaction"
+        );
+        assert_eq!(
+            parse_collection_file("characters", &characters).unwrap()[0]["name"],
+            "After"
+        );
+
+        storage.flush().unwrap();
+        assert!(!collections.join("messages.pending.jsonl").exists());
+        assert!(
+            !collections
+                .join("message-swipes.pending.jsonl")
+                .exists()
+        );
+        assert_eq!(
+            parse_collection_file("messages", &messages).unwrap()[0]["content"],
+            "After"
+        );
+        assert_eq!(
+            parse_collection_file("message-swipes", &message_swipes).unwrap()[0]["content"],
+            "After"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shutdown_flush_checkpoints_pending_appends_before_writing_tracked_collection() {
+        let root = temp_storage_root("shutdown-flush-tracked-collection");
         let collections = root.join("collections");
         write_test_collection(
             &collections.join("messages.json"),
@@ -5153,7 +5243,7 @@ mod tests {
         storage
             .patch("messages", "pending-message", json!({ "content": "after" }))
             .unwrap();
-        storage.flush_deferred_writes().unwrap();
+        storage.flush().unwrap();
 
         assert!(!journal.exists());
         drop(storage);
