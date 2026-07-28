@@ -41,4 +41,3 @@ export * from "./lib/save-moment";
 export * from "./lib/transcript-render-window";
 export * from "./lib/transcript-scroll-geometry";
 export * from "./lib/custom-quick-replies";
-export * from "./lib/conversation-status-display";

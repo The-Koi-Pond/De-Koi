@@ -32,10 +32,7 @@ import {
   resolveConversationRegenerationDisplay,
   shouldShowConversationTypingIndicator,
 } from "../lib/conversation-streaming-draft";
-import {
-  getConversationCharacterStatusDetail,
-  getConversationCharacterStatusTitle,
-} from "../lib/conversation-status-display";
+import { getConversationCharacterStatusDetail, getConversationCharacterStatusTitle } from "../status-display";
 import {
   ChatBranchSelector,
   type ChatBranchSelectorHandle,

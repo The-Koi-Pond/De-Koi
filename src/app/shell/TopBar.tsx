@@ -11,8 +11,8 @@ import {
   parseChatMetadata,
 } from "../../shared/lib/chat-display";
 import { useChatSurfaceCharacterSummariesByIds, CharacterAvatarImage } from "../../features/catalog/characters/index";
-import { getConversationCharacterStatusDetail } from "../../features/modes/conversation";
-import { resolveConversationStatusDisplay } from "../../features/modes/shared/chat-ui";
+import { getConversationCharacterStatusDetail } from "../../features/modes/conversation/status-display";
+import { resolveConversationStatusDisplay } from "../../features/modes/shared/chat-ui/status-display";
 import { conversationSettingsApi, conversationSettingsKeys } from "../../shared/api/conversation-settings-api";
 import { useTopBarActions } from "../../shared/components/mobile-shell-actions";
 import { cn } from "../../shared/lib/utils";

@@ -12,7 +12,7 @@ import {
 import { parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
 import { normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { conversationSettingsApi, conversationSettingsKeys } from "../../../../../shared/api/conversation-settings-api";
-import { resolveConversationStatusDisplay } from "../lib/conversation-status-display";
+import { resolveConversationStatusDisplay } from "../status-display";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import type { CharacterMap, MessageWithSwipes, PersonaInfo } from "../types";
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveConversationStatusDisplay } from "./conversation-status-display";
+import { resolveConversationStatusDisplay } from "./status-display";
 
 describe("resolveConversationStatusDisplay", () => {
   it("hides stored generated status blurbs and legacy activity when the chat opt-in is off", () => {

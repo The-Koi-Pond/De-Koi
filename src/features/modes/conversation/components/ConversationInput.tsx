@@ -60,10 +60,7 @@ import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickReplyIcon";
 import { blobToDataUrl, loadUrlBlob } from "../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../shared/lib/chat-attachment-images";
-import {
-  getDraftTranslationActionState,
-  useDraftTranslation,
-} from "../../../../shared/hooks/use-draft-translation";
+import { getDraftTranslationActionState, useDraftTranslation } from "../../../../shared/hooks/use-draft-translation";
 import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
 import {
   CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
@@ -85,10 +82,7 @@ import { SpeechToTextButton } from "../../../../shared/components/ui/SpeechToTex
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { buildGuidedGenerationInstructionMessage } from "../../../../engine/shared/text/generation-guide";
 import type { PeekPromptOptions } from "../../shared/chat-ui";
-import {
-  getConversationCharacterStatusDetail,
-  getConversationCharacterStatusTitle,
-} from "../lib/conversation-status-display";
+import { getConversationCharacterStatusDetail, getConversationCharacterStatusTitle } from "../status-display";
 
 interface Attachment {
   type: string;
@@ -1830,9 +1824,7 @@ export function ConversationInput({
             <button
               type="button"
               onClick={() =>
-                draftTranslationAction.action === "cancel"
-                  ? cancelDraftTranslation()
-                  : void handleTranslateDraft()
+                draftTranslationAction.action === "cancel" ? cancelDraftTranslation() : void handleTranslateDraft()
               }
               disabled={draftTranslationAction.disabled}
               className={cn(

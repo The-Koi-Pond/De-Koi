@@ -4,7 +4,7 @@ import {
   getConversationCharacterStatusDetail,
   getConversationCharacterStatusLabel,
   getConversationCharacterStatusTitle,
-} from "./conversation-status-display";
+} from "./status-display";
 
 describe("conversation status display", () => {
   it("hides no-schedule availability placeholders from fake Discord status titles", () => {
