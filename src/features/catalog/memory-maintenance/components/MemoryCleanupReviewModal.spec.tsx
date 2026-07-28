@@ -75,7 +75,7 @@ function cleanupPreview(): MemoryCleanupPreview {
         sourceIds: ["memory-a", "memory-b"],
         expected: {},
         replacement: { content: "Mira keeps the brass key.", kind: "fact" },
-        reason: "Overlapping detail",
+        reason: "Overlapping memories",
         selected: true,
         estimatedTokensBefore: 12,
         estimatedTokensAfter: 7,
@@ -85,7 +85,6 @@ function cleanupPreview(): MemoryCleanupPreview {
     afterCount: 13,
     estimatedTokensBefore: 1200,
     estimatedTokensAfter: 700,
-    protectedCount: 2,
     deferredCandidateCount: 0,
   };
 }
@@ -106,7 +105,6 @@ describe("MemoryCleanupReviewModal", () => {
     mocks.apply.mockResolvedValue({
       batchId: "cleanup-batch-1",
       combined: 1,
-      shortened: 0,
       superseded: 2,
       created: 1,
     });
@@ -131,7 +129,7 @@ describe("MemoryCleanupReviewModal", () => {
       );
     });
 
-    expect(container.textContent).toContain("There are no automatic memories available to analyze yet.");
+    expect(container.textContent).toContain("There are no active memories available to analyze yet.");
     const analyze = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Analyze memories"),
     );
@@ -153,6 +151,10 @@ describe("MemoryCleanupReviewModal", () => {
     });
 
     expect(container.textContent).toContain("You review every change before anything is saved.");
+    expect(container.textContent).toContain(
+      "Find memories that can be combined into fewer, clearer memories without losing details.",
+    );
+    expect(container.textContent).not.toContain("overly wordy");
     const analyze = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Analyze memories"),
     );
@@ -162,14 +164,45 @@ describe("MemoryCleanupReviewModal", () => {
     expect(container.textContent).toContain("13 memories");
     expect(container.textContent).toContain("Mira has the brass key.");
     expect(container.textContent).toContain("Mira keeps the brass key.");
-    expect(container.textContent).toContain(
-      "Pinned, manually written, edited, imported, corrected, and tool-created memories will not be rewritten.",
-    );
+    expect(container.textContent).not.toContain("protected memories");
+    expect(container.textContent).not.toContain("will not be rewritten");
     const apply = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Apply cleanup",
     );
     expect(apply?.disabled).toBe(false);
     expect(mocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("reports when active memories have no consolidation opportunity", async () => {
+    mocks.analyze.mockResolvedValue({
+      ...cleanupPreview(),
+      proposals: [],
+      beforeCount: 2,
+      afterCount: 2,
+      estimatedTokensBefore: 12,
+      estimatedTokensAfter: 12,
+    });
+    act(() => {
+      root.render(
+        <MemoryCleanupReviewModal
+          open
+          scope={{ kind: "chat", id: "chat-1" }}
+          sources={sources}
+          resolveConnectionId={async () => "connection-1"}
+          onClose={vi.fn()}
+          onChanged={vi.fn()}
+        />,
+      );
+    });
+
+    const analyze = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Analyze memories"),
+    );
+    await act(async () => analyze?.click());
+
+    expect(container.textContent).toContain(
+      "No consolidation opportunities found. Your memories are already distinct.",
+    );
   });
 
   it("offers undo only after a successful apply", async () => {

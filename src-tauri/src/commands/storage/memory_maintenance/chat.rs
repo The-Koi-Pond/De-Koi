@@ -48,45 +48,16 @@ fn memory_belongs_to_scope(memory: &Value, scope: &CleanupScope) -> bool {
 }
 
 fn chat_memory_is_cleanup_eligible(memory: &Value, scope: &CleanupScope) -> bool {
-    if !memory_belongs_to_scope(memory, scope) || memory_status(memory) != "active" {
-        return false;
-    }
-    let origin = memory
-        .get("source")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or("");
-    let imported = memory
-        .get("sourceChatId")
-        .and_then(Value::as_str)
-        .is_some_and(|value| {
-            let source_chat_id = value.trim();
-            !source_chat_id.is_empty() && source_chat_id != scope.id
-        });
-    let has_message_ids = memory
-        .get("messageIds")
-        .and_then(Value::as_array)
-        .is_some_and(|ids| {
-            ids.iter()
-                .any(|id| id.as_str().is_some_and(|id| !id.trim().is_empty()))
-        });
-    !memory
-        .get("pinned")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        && !memory
-            .get("userEdited")
+    memory_belongs_to_scope(memory, scope)
+        && matches!(memory_status(memory), "active" | "pinned")
+}
+
+fn chat_memory_is_pinned(memory: &Value) -> bool {
+    memory_status(memory) == "pinned"
+        || memory
+            .get("pinned")
             .and_then(Value::as_bool)
             .unwrap_or(false)
-        && !matches!(
-            origin,
-            "manual" | "imported" | "correction" | "connected_command"
-        )
-        && !imported
-        && value_string(memory, "commandMemoryKey").is_none()
-        && value_string(memory, "correctionOfMemoryId").is_none()
-        && value_string(memory, "correctedByMemoryId").is_none()
-        && (has_message_ids || origin == "memory_cleanup")
 }
 
 fn expected_state_matches(memory: &Value, expected: &ExpectedState) -> bool {
@@ -128,7 +99,7 @@ fn validate_referenced_memories(
         let memory = memory_by_id(memories, source_id)?;
         if !chat_memory_is_cleanup_eligible(memory, scope) {
             return Err(AppError::invalid_input(format!(
-                "Chat memory {source_id} is protected or outside this cleanup scope"
+                "Chat memory {source_id} is inactive or outside this cleanup scope"
             )));
         }
         let expected = proposal
@@ -143,9 +114,9 @@ fn validate_referenced_memories(
     }
     if let Some(winner_id) = proposal.winner_id.as_deref() {
         let winner = memory_by_id(memories, winner_id)?;
-        if !memory_belongs_to_scope(winner, scope) {
+        if !chat_memory_is_cleanup_eligible(winner, scope) {
             return Err(AppError::invalid_input(
-                "Cleanup winner is outside this scope",
+                "Cleanup winner is inactive or outside this scope",
             ));
         }
         let expected = proposal
@@ -155,6 +126,20 @@ fn validate_referenced_memories(
         if !expected_state_matches(winner, expected) {
             return Err(AppError::invalid_input(
                 "Some memories changed after this cleanup preview was created",
+            ));
+        }
+        if proposal.proposal_type == ProposalType::KeepOne
+            && proposal
+                .source_ids
+                .iter()
+                .map(|source_id| memory_by_id(memories, source_id))
+                .collect::<AppResult<Vec<_>>>()?
+                .into_iter()
+                .any(chat_memory_is_pinned)
+            && !chat_memory_is_pinned(winner)
+        {
+            return Err(AppError::invalid_input(
+                "Keep-one cleanup must retain a pinned winner",
             ));
         }
     }
@@ -183,10 +168,7 @@ fn build_replacement(
     batch_id: &str,
     applied_at: &str,
 ) -> AppResult<Option<Value>> {
-    if !matches!(
-        proposal.proposal_type,
-        ProposalType::Combine | ProposalType::Shorten
-    ) {
+    if proposal.proposal_type != ProposalType::Combine {
         return Ok(None);
     }
     let replacement = proposal
@@ -196,8 +178,10 @@ fn build_replacement(
     let mut message_ids = HashSet::new();
     let mut first_message_at: Option<String> = None;
     let mut last_message_at: Option<String> = None;
+    let mut pinned = false;
     for source_id in &proposal.source_ids {
         let source = memory_by_id(memories, source_id)?;
+        pinned |= chat_memory_is_pinned(source);
         message_ids.extend(memory_ids(source, "messageIds"));
         if let Some(timestamp) = value_string(source, "firstMessageAt") {
             if first_message_at
@@ -231,6 +215,7 @@ fn build_replacement(
         "scopeType": scope.kind,
         "scopeId": scope.id,
         "status": "active",
+        "pinned": pinned,
         "source": "memory_cleanup",
         "creationReason": "AI memory cleanup",
         "userEdited": false,
@@ -279,7 +264,6 @@ fn apply_validated_chat_batch(
         .map(|replacement| (replacement.proposal_id.as_str(), replacement.value.clone()))
         .collect::<HashMap<_, _>>();
     let mut combined = 0usize;
-    let mut shortened = 0usize;
     let mut superseded = 0usize;
     let mut created = 0usize;
     for proposal in selected {
@@ -295,6 +279,7 @@ fn apply_validated_chat_batch(
             .to_string();
         for source_id in &proposal.source_ids {
             let source = memory_by_id_mut(memories, source_id)?;
+            let previous_status = memory_status(source).to_string();
             let source = source
                 .as_object_mut()
                 .ok_or_else(|| AppError::invalid_input("Stored chat memory is not an object"))?;
@@ -309,7 +294,7 @@ fn apply_validated_chat_batch(
             source.insert("status".to_string(), json!("superseded"));
             source.insert("supersededAt".to_string(), json!(applied_at));
             source.insert("supersededByMemoryId".to_string(), json!(superseded_by));
-            source.insert("cleanupPreviousStatus".to_string(), json!("active"));
+            source.insert("cleanupPreviousStatus".to_string(), json!(previous_status));
             source.insert("cleanupPreviousUpdatedAt".to_string(), previous_updated_at);
             source.insert(
                 "cleanupPreviousSupersededAtPresent".to_string(),
@@ -338,14 +323,12 @@ fn apply_validated_chat_batch(
         }
         match proposal.proposal_type {
             ProposalType::Combine => combined += 1,
-            ProposalType::Shorten => shortened += 1,
             ProposalType::KeepOne | ProposalType::Conflict => {}
         }
     }
     Ok(json!({
         "batchId": batch_id,
         "combined": combined,
-        "shortened": shortened,
         "superseded": superseded,
         "created": created
     }))
@@ -634,7 +617,16 @@ mod tests {
                 proposal_type: ProposalType::Combine,
                 source_ids: vec!["memory-a".to_string(), "memory-b".to_string()],
                 expected: HashMap::from([
-                    ("memory-a".to_string(), expected("Mira has the brass key.")),
+                    (
+                        "memory-a".to_string(),
+                        ExpectedState {
+                            content: "Mira has the brass key.".to_string(),
+                            status: "pinned".to_string(),
+                            updated_at: None,
+                            pinned: true,
+                            user_edited: true,
+                        },
+                    ),
                     (
                         "memory-b".to_string(),
                         expected("Mira keeps the brass key."),
@@ -645,7 +637,7 @@ mod tests {
                     content: "Mira keeps the brass key.".to_string(),
                     kind: "fact".to_string(),
                 }),
-                _reason: Some("Overlapping detail".to_string()),
+                _reason: Some("Overlapping memories".to_string()),
                 selected: true,
                 _estimated_tokens_before: Some(12),
                 _estimated_tokens_after: Some(7),
@@ -664,11 +656,13 @@ mod tests {
             .expect("memories should be an array")
             .iter()
             .filter(|memory| {
-                memory
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .unwrap_or("active")
-                    == "active"
+                matches!(
+                    memory
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .unwrap_or("active"),
+                    "active" | "pinned"
+                )
             })
             .filter_map(|memory| {
                 memory
@@ -682,7 +676,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_eligibility_treats_same_chat_provenance_and_null_markers_as_automatic() {
+    fn cleanup_eligibility_accepts_all_active_origins_and_rejects_inactive_or_foreign_rows() {
         let scope = CleanupScope {
             kind: "chat".to_string(),
             id: "chat-1".to_string(),
@@ -702,15 +696,87 @@ mod tests {
         });
         let mut imported = same_chat.clone();
         imported["sourceChatId"] = json!("other-chat");
+        imported["source"] = json!("imported");
+        let mut manual = same_chat.clone();
+        manual["source"] = json!("manual");
+        manual["userEdited"] = json!(true);
+        manual["messageIds"] = json!([]);
+        let mut correction = same_chat.clone();
+        correction["source"] = json!("correction");
+        correction["correctionOfMemoryId"] = json!("memory-old");
+        let mut command = same_chat.clone();
+        command["source"] = json!("connected_command");
+        command["commandMemoryKey"] = json!("relationship-status");
+        let mut pinned = same_chat.clone();
+        pinned["status"] = json!("pinned");
+        pinned["pinned"] = json!(true);
+        let mut wrong = same_chat.clone();
+        wrong["status"] = json!("wrong");
+        let mut foreign = same_chat.clone();
+        foreign["chatId"] = json!("chat-2");
+        foreign["scopeId"] = json!("chat-2");
 
         assert!(chat_memory_is_cleanup_eligible(&same_chat, &scope));
-        assert!(!chat_memory_is_cleanup_eligible(&imported, &scope));
+        assert!(chat_memory_is_cleanup_eligible(&imported, &scope));
+        assert!(chat_memory_is_cleanup_eligible(&manual, &scope));
+        assert!(chat_memory_is_cleanup_eligible(&correction, &scope));
+        assert!(chat_memory_is_cleanup_eligible(&command, &scope));
+        assert!(chat_memory_is_cleanup_eligible(&pinned, &scope));
+        assert!(!chat_memory_is_cleanup_eligible(&wrong, &scope));
+        assert!(!chat_memory_is_cleanup_eligible(&foreign, &scope));
+    }
+
+    #[test]
+    fn keep_one_cleanup_rejects_unpinned_winner_for_pinned_source() {
+        let scope = CleanupScope {
+            kind: "chat".to_string(),
+            id: "chat-1".to_string(),
+        };
+        let mut pinned = automatic_memory("pinned", "Mira keeps the brass key.");
+        pinned["status"] = json!("pinned");
+        pinned["pinned"] = json!(true);
+        let winner = automatic_memory("winner", "Mira keeps the brass key.");
+        let proposal = CleanupProposal {
+            id: "proposal-keep-one".to_string(),
+            proposal_type: ProposalType::KeepOne,
+            source_ids: vec!["pinned".to_string()],
+            expected: HashMap::from([
+                (
+                    "pinned".to_string(),
+                    ExpectedState {
+                        content: "Mira keeps the brass key.".to_string(),
+                        status: "pinned".to_string(),
+                        updated_at: None,
+                        pinned: true,
+                        user_edited: false,
+                    },
+                ),
+                (
+                    "winner".to_string(),
+                    expected("Mira keeps the brass key."),
+                ),
+            ]),
+            winner_id: Some("winner".to_string()),
+            replacement: None,
+            _reason: Some("Repeated fact".to_string()),
+            selected: true,
+            _estimated_tokens_before: None,
+            _estimated_tokens_after: None,
+        };
+
+        let error = validate_referenced_memories(&[pinned, winner], &scope, &proposal)
+            .expect_err("an unpinned winner must not consume pinned memory");
+        assert!(error.message.contains("pinned winner"));
     }
 
     #[tokio::test]
     async fn chat_cleanup_combines_eligible_rows_and_undo_restores_them() {
         let state = test_state("chat-apply-undo");
         let mut memory_a = automatic_memory("memory-a", "Mira has the brass key.");
+        memory_a["status"] = json!("pinned");
+        memory_a["pinned"] = json!(true);
+        memory_a["source"] = json!("manual");
+        memory_a["userEdited"] = json!(true);
         memory_a["supersededAt"] = json!("2026-06-01T00:00:00.000Z");
         memory_a["supersededByMemoryId"] = json!("prior-replacement");
         state
@@ -750,6 +816,20 @@ mod tests {
         let active_after_apply = active_memory_ids(&state);
         assert_eq!(active_after_apply.len(), 2);
         assert!(active_after_apply.contains(&"manual".to_string()));
+        let applied_chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should work")
+            .expect("chat should exist");
+        let replacement = applied_chat["memories"]
+            .as_array()
+            .and_then(|memories| {
+                memories
+                    .iter()
+                    .find(|memory| memory.get("cleanupBatchId").is_some())
+            })
+            .expect("cleanup replacement should exist");
+        assert_eq!(replacement["pinned"], json!(true));
 
         undo_chat_cleanup(
             &state,
@@ -795,6 +875,8 @@ mod tests {
             restored_memory_a["supersededByMemoryId"],
             json!("prior-replacement")
         );
+        assert_eq!(restored_memory_a["status"], json!("pinned"));
+        assert_eq!(restored_memory_a["pinned"], json!(true));
         assert!(
             restored_memory_a.get("updatedAt").is_none(),
             "undo must preserve the exact absence of optional chat updatedAt"

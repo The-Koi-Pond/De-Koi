@@ -29,7 +29,6 @@ pub(crate) struct ExpectedState {
 pub(crate) enum ProposalType {
     KeepOne,
     Combine,
-    Shorten,
     Conflict,
 }
 
@@ -141,13 +140,6 @@ fn validate_proposal_shape(proposal: &CleanupProposal) -> AppResult<()> {
                 ));
             }
         }
-        ProposalType::Shorten => {
-            if proposal.source_ids.len() != 1 {
-                return Err(AppError::invalid_input(
-                    "Shorten cleanup requires exactly one source",
-                ));
-            }
-        }
         ProposalType::Conflict => {
             if proposal.selected {
                 return Err(AppError::invalid_input(
@@ -158,10 +150,7 @@ fn validate_proposal_shape(proposal: &CleanupProposal) -> AppResult<()> {
         }
     }
 
-    if matches!(
-        proposal.proposal_type,
-        ProposalType::Combine | ProposalType::Shorten
-    ) {
+    if proposal.proposal_type == ProposalType::Combine {
         let replacement = proposal.replacement.as_ref().ok_or_else(|| {
             AppError::invalid_input("Cleanup replacement content and kind are required")
         })?;
@@ -257,6 +246,32 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn apply_contract_rejects_single_memory_shorten() {
+        let shorten = parse_apply_request(json!({
+            "version": 1,
+            "scope": { "kind": "chat", "id": "chat-1" },
+            "proposals": [{
+                "id": "proposal-1",
+                "type": "shorten",
+                "sourceIds": ["memory-1"],
+                "expected": {
+                    "memory-1": {
+                        "content": "Long memory",
+                        "status": "active",
+                        "updatedAt": null,
+                        "pinned": false,
+                        "userEdited": false
+                    }
+                },
+                "replacement": { "content": "Short memory", "kind": "summary" },
+                "selected": true
+            }]
+        }));
+
+        assert!(shorten.is_err());
+    }
+
+    #[test]
     fn apply_contract_rejects_duplicate_consumption_and_selected_conflicts() {
         let empty = parse_apply_request(json!({
             "version": 1,
@@ -271,8 +286,8 @@ mod tests {
             "proposals": [
                 {
                     "id": "proposal-1",
-                    "type": "shorten",
-                    "sourceIds": ["memory-1"],
+                    "type": "combine",
+                    "sourceIds": ["memory-1", "memory-3"],
                     "expected": {
                         "memory-1": {
                             "content": "Long memory",
@@ -280,9 +295,16 @@ mod tests {
                             "updatedAt": null,
                             "pinned": false,
                             "userEdited": false
+                        },
+                        "memory-3": {
+                            "content": "Related memory",
+                            "status": "active",
+                            "updatedAt": null,
+                            "pinned": false,
+                            "userEdited": false
                         }
                     },
-                    "replacement": { "content": "Short memory", "kind": "summary" },
+                    "replacement": { "content": "Combined memory", "kind": "summary" },
                     "selected": true
                 },
                 {

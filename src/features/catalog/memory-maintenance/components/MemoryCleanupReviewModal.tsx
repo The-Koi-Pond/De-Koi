@@ -58,21 +58,19 @@ export function MemoryCleanupReviewModal({
             AI-assisted cleanup with review
           </div>
           <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
-            Find repeated or overly wordy automatic memories. You review every change before anything is saved.
+            Find memories that can be combined into fewer, clearer memories without losing details. You review every
+            change before anything is saved.
           </p>
         </div>
 
         {!controller.preview && (
           <div className="space-y-3">
-            <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-              Pinned, manually written, edited, imported, corrected, and tool-created memories will not be rewritten.
-            </p>
             {sources.length === 0 && (
               <p
                 className="rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
                 role="status"
               >
-                There are no automatic memories available to analyze yet.
+                There are no active memories available to analyze yet.
               </p>
             )}
             <button
@@ -127,16 +125,9 @@ export function MemoryCleanupReviewModal({
               </span>
             </div>
 
-            <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-              Pinned, manually written, edited, imported, corrected, and tool-created memories will not be rewritten.
-              {controller.preview.protectedCount > 0
-                ? ` ${controller.preview.protectedCount} protected memories are unchanged.`
-                : ""}
-            </p>
-
             {controller.preview.proposals.length === 0 ? (
               <div className="rounded-md border border-[var(--border)] p-4 text-sm">
-                These memories already look tidy. Nothing needs to change.
+                No consolidation opportunities found. Your memories are already distinct.
               </div>
             ) : (
               <div className="space-y-3">
