@@ -146,7 +146,7 @@
     "baselinePassed": true
   },
   "pr": {
-    "url": null,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1176",
     "evidencePublished": true,
     "checks": "Focused regressions, all 77 http_server tests, Rust workspace check, typecheck, architecture checks, and full pnpm check passed.",
     "automatedReview": "Local Bunny pass has no blocking findings; hosted current-head Bunny pending."
