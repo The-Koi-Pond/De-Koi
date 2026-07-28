@@ -17,7 +17,7 @@ use base64::{engine::general_purpose, Engine as _};
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::env;
 use std::io::ErrorKind;
@@ -37,6 +37,7 @@ const MAX_API_BODY_BYTES: usize = 256 * 1024 * 1024;
 const MAX_PROFILE_UPLOAD_BYTES: usize = 1024 * 1024 * 1024;
 const MAX_PROFILE_UPLOAD_BODY_BYTES: usize = MAX_PROFILE_UPLOAD_BYTES + 1024 * 1024;
 const SSE_EVENT_CHANNEL_CAPACITY: usize = 256;
+const MAX_LLM_SSE_BACKLOG_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_API_RATE_LIMIT: u32 = 600;
 const INVOKE_PRE_EXTRACTION_API_RATE_LIMIT: u32 = DEFAULT_API_RATE_LIMIT * 10;
 const DEFAULT_API_RATE_WINDOW: Duration = Duration::from_secs(60);
@@ -1544,20 +1545,29 @@ async fn llm_stream(
         let stream_id = body.stream_id.clone();
         let started = Instant::now();
         request_log(format!("llm_stream {stream_id} started"));
+        let mut backlog = LlmSseBacklog::new(tx);
         let result = llm::llm_stream_events(&state.app, body.stream_id, body.request, |event| {
-            let data = serde_json::to_string(&event)?;
-            tx.try_send(Ok(Event::default().data(data)))
-                .map_err(|error| AppError::new("sse_stream_error", error.to_string()))
+            backlog.enqueue(event)
         })
         .await;
 
         match result {
-            Ok(()) => {
-                request_log(format!(
-                    "llm_stream {stream_id} ok in {}ms",
-                    started.elapsed().as_millis()
-                ));
-            }
+            Ok(()) => match backlog.flush().await {
+                Ok(()) => {
+                    request_log(format!(
+                        "llm_stream {stream_id} ok in {}ms",
+                        started.elapsed().as_millis()
+                    ));
+                }
+                Err(error) => {
+                    request_log(format!(
+                        "llm_stream {stream_id} error code={} message={} in {}ms",
+                        error.code,
+                        error.message,
+                        started.elapsed().as_millis()
+                    ));
+                }
+            },
             Err(error) => {
                 request_log(format!(
                     "llm_stream {stream_id} error code={} message={} in {}ms",
@@ -1571,14 +1581,108 @@ async fn llm_stream(
                     "message": error.message,
                     "data": error.details,
                 });
-                let _ = tx
-                    .send(Ok(Event::default().data(payload.to_string())))
-                    .await;
+                if backlog.flush().await.is_ok() {
+                    let _ = backlog.send(payload).await;
+                }
             }
         }
     });
 
     Ok(Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
+}
+
+struct LlmSseBacklog {
+    sender: mpsc::Sender<Result<Event, Infallible>>,
+    pending: VecDeque<String>,
+    pending_bytes: usize,
+}
+
+impl LlmSseBacklog {
+    fn new(sender: mpsc::Sender<Result<Event, Infallible>>) -> Self {
+        Self {
+            sender,
+            pending: VecDeque::new(),
+            pending_bytes: 0,
+        }
+    }
+
+    fn enqueue(&mut self, event: Value) -> AppResult<()> {
+        self.flush_ready()?;
+        let data = serde_json::to_string(&event)?;
+        if !self.pending.is_empty() {
+            return self.buffer(data);
+        }
+
+        match self
+            .sender
+            .try_send(Ok(Event::default().data(data.clone())))
+        {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => self.buffer(data),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(AppError::new(
+                "sse_stream_error",
+                "Remote LLM stream reader disconnected",
+            )),
+        }
+    }
+
+    fn flush_ready(&mut self) -> AppResult<()> {
+        while let Some(data) = self.pending.pop_front() {
+            self.pending_bytes = self.pending_bytes.saturating_sub(data.len());
+            match self
+                .sender
+                .try_send(Ok(Event::default().data(data.clone())))
+            {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    self.pending_bytes += data.len();
+                    self.pending.push_front(data);
+                    break;
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    return Err(AppError::new(
+                        "sse_stream_error",
+                        "Remote LLM stream reader disconnected",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn buffer(&mut self, data: String) -> AppResult<()> {
+        let next_bytes = self.pending_bytes.saturating_add(data.len());
+        if next_bytes > MAX_LLM_SSE_BACKLOG_BYTES {
+            return Err(AppError::new(
+                "sse_stream_backlog_overflow",
+                "Remote LLM stream reader remained stalled beyond the safe backlog limit",
+            ));
+        }
+        self.pending_bytes = next_bytes;
+        self.pending.push_back(data);
+        Ok(())
+    }
+
+    async fn flush(&mut self) -> AppResult<()> {
+        while let Some(data) = self.pending.pop_front() {
+            self.pending_bytes = self.pending_bytes.saturating_sub(data.len());
+            self.sender
+                .send(Ok(Event::default().data(data)))
+                .await
+                .map_err(|_| {
+                    AppError::new("sse_stream_error", "Remote LLM stream reader disconnected")
+                })?;
+        }
+        Ok(())
+    }
+
+    async fn send(&self, event: Value) -> AppResult<()> {
+        let data = serde_json::to_string(&event)?;
+        self.sender
+            .send(Ok(Event::default().data(data)))
+            .await
+            .map_err(|_| AppError::new("sse_stream_error", "Remote LLM stream reader disconnected"))
+    }
 }
 
 async fn llm_stream_cancel(
@@ -2745,6 +2849,75 @@ mod tests {
             require_auth_for_docker_proxy: true,
             csrf_trusted_origins: Vec::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn llm_sse_backlog_preserves_events_while_receiver_is_stalled() {
+        let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(1);
+        let mut backlog = LlmSseBacklog::new(tx);
+
+        backlog
+            .enqueue(json!({ "type": "start" }))
+            .expect("first event should enter the bounded channel");
+        backlog
+            .enqueue(json!({ "type": "token", "text": "one" }))
+            .expect("a full channel should buffer instead of aborting generation");
+        backlog
+            .enqueue(json!({ "type": "token", "text": "two" }))
+            .expect("subsequent events should remain buffered");
+        backlog
+            .enqueue(json!({ "type": "done" }))
+            .expect("the terminal event should remain buffered");
+
+        let response = Sse::new(ReceiverStream::new(rx)).into_response();
+        let drain = tokio::spawn(async move {
+            axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("every buffered event should eventually be delivered")
+        });
+
+        backlog
+            .flush()
+            .await
+            .expect("resuming the reader should flush the backlog");
+        drop(backlog);
+
+        let body = drain.await.expect("drain task should finish");
+        let events = String::from_utf8(body.to_vec())
+            .expect("SSE output should be UTF-8")
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .map(|data| {
+                serde_json::from_str::<Value>(data).expect("SSE data should stay valid JSON")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            events,
+            vec![
+                json!({ "type": "start" }),
+                json!({ "type": "token", "text": "one" }),
+                json!({ "type": "token", "text": "two" }),
+                json!({ "type": "done" }),
+            ]
+        );
+    }
+
+    #[test]
+    fn llm_sse_backlog_keeps_stalled_reader_memory_bounded() {
+        let (tx, _rx) = mpsc::channel::<Result<Event, Infallible>>(1);
+        let mut backlog = LlmSseBacklog::new(tx);
+        backlog
+            .enqueue(json!({ "type": "start" }))
+            .expect("first event should enter the bounded channel");
+
+        let error = backlog
+            .enqueue(json!({
+                "type": "token",
+                "text": "x".repeat(MAX_LLM_SSE_BACKLOG_BYTES),
+            }))
+            .expect_err("an unsafe stalled-reader backlog should stop the stream");
+
+        assert_eq!(error.code, "sse_stream_backlog_overflow");
     }
 
     fn request(method: Method, path: &str, ip: IpAddr, headers: &[(&str, &str)]) -> Request<Body> {
