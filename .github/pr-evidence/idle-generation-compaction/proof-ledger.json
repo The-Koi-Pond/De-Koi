@@ -159,10 +159,10 @@
     "baselinePassed": true
   },
   "pr": {
-    "url": "",
-    "evidencePublished": false,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1174",
+    "evidencePublished": true,
     "checks": "Local focused regressions, all 141 storage tests, cargo check, architecture checks, and pnpm check passed; hosted checks pending.",
-    "automatedReview": "Local Bunny review pending; hosted current-head Bunny pending."
+    "automatedReview": "Local Bunny-style review passed with no remaining findings or nitpicks; hosted current-head Bunny pending."
   },
   "finalGate": {
     "coreClaimProven": true
