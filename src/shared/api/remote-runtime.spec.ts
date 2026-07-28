@@ -287,6 +287,47 @@ describe("invokeRemote", () => {
 
     await rejection;
   });
+
+  it("allows caller-cancelled invokes to opt out of the internal request deadline", async () => {
+    vi.useFakeTimers();
+    useUIStore.setState({ remoteRuntimeUrl: "http://127.0.0.1:8787" });
+    const caller = new AbortController();
+    const abortError = new DOMException("Cancelled by the caller.", "AbortError");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        });
+      }),
+    );
+
+    const pending = invokeRemote(
+      "storage_create",
+      { entity: "chats", value: { id: "chat-1" } },
+      { signal: caller.signal, timeoutMs: null },
+    );
+    let settled = false;
+    const outcome = pending.then(
+      (value) => {
+        settled = true;
+        return { status: "resolved" as const, value };
+      },
+      (error: unknown) => {
+        settled = true;
+        return { status: "rejected" as const, error };
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(REMOTE_FINITE_REQUEST_TIMEOUT_MS);
+    const settledAfterDefaultDeadline = settled;
+
+    caller.abort(abortError);
+    const result = await outcome;
+
+    expect(settledAfterDefaultDeadline).toBe(false);
+    expect(result).toEqual({ status: "rejected", error: abortError });
+  });
 });
 
 describe("streamRemoteLlm", () => {
