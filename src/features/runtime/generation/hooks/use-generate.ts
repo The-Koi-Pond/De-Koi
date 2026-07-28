@@ -287,9 +287,10 @@ async function assertChatCanGenerate(queryClient: QueryClient, chatId: string) {
   }
 }
 
-function insertOptimisticUserMessage(queryClient: QueryClient, args: GenerateArgs) {
+async function insertOptimisticUserMessage(queryClient: QueryClient, args: GenerateArgs) {
   const optimistic = optimisticUserMessage(queryClient, args);
   if (!optimistic) return;
+  await queryClient.cancelQueries({ queryKey: chatKeys.messages(args.chatId), exact: true });
   queryClient.setQueryData<InfiniteData<Message[]>>(chatKeys.messages(args.chatId), (old) => {
     if (!old?.pages?.length) return old;
     const pages = [...old.pages];
@@ -1767,7 +1768,7 @@ export async function runGenerationWithUi(
   }
 
   try {
-    insertOptimisticUserMessage(queryClient, args);
+    await insertOptimisticUserMessage(queryClient, args);
     await options.beforeStart?.(streamArgs, controller.signal);
     if (controller.signal.aborted) throw new DOMException("The operation was aborted.", "AbortError");
     for await (const event of streamFactory(streamArgs, controller.signal)) {
