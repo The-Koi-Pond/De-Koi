@@ -72,6 +72,7 @@ const nginx = read("docker/nginx/pi-web.conf");
 const serverEntry = read("src-tauri/src/bin/de-koi-server.rs");
 const appState = read("src-tauri/src/state.rs");
 const piImageGuard = read("scripts/pi-image-guard.mjs");
+const piImageCleanup = read("scripts/pi-image-cleanup.mjs");
 const piUpdateScript = read("scripts/pi-update.sh");
 const piBareMetalPackageScript = read("scripts/pi-bare-metal-package.sh");
 const piBareMetalUpdateScript = read("scripts/pi-bare-metal-update.sh");
@@ -136,6 +137,32 @@ assertBefore(
 assertContains("scripts/pi-update.sh", piUpdateScript, 'docker compose "$@" pull');
 assertContains("scripts/pi-update.sh", piUpdateScript, "node scripts/pi-image-guard.mjs");
 assertContains("scripts/pi-update.sh", piUpdateScript, 'docker compose "$@" up -d');
+assertContains(
+  "scripts/pi-update.sh",
+  piUpdateScript,
+  'previous_pi_image_ids="$(node scripts/pi-image-cleanup.mjs capture)"',
+);
+assertContains(
+  "scripts/pi-update.sh",
+  piUpdateScript,
+  'node scripts/pi-image-cleanup.mjs cleanup "$previous_pi_image_ids"',
+);
+assertBefore(
+  "scripts/pi-update.sh",
+  piUpdateScript,
+  'previous_pi_image_ids="$(node scripts/pi-image-cleanup.mjs capture)"',
+  'docker compose "$@" pull',
+);
+assertBefore(
+  "scripts/pi-update.sh",
+  piUpdateScript,
+  'curl -fsSI "$url" >/dev/null',
+  'node scripts/pi-image-cleanup.mjs cleanup "$previous_pi_image_ids"',
+);
+assertContains("scripts/pi-update.sh", piUpdateScript, "Previous Pi images were retained");
+assertContains("scripts/pi-image-cleanup.mjs", piImageCleanup, '"image", "rm", imageId');
+assertNotContains("scripts/pi-image-cleanup.mjs", piImageCleanup, "image prune");
+assertNotContains("scripts/pi-image-cleanup.mjs", piImageCleanup, "--force");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "bin/de-koi-server");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "$web_dir/index.html");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "$package_root/app");
@@ -180,6 +207,8 @@ assertNotContains("scripts/pi-image-guard.mjs", piImageGuard, "rev-parse", "orig
 assertContains("docs/pi.md", piDocs, "newest successful cooked batch");
 assertContains("docs/pi.md", piDocs, "DE_KOI_PI_EXTRA_COMPOSE_FILES");
 assertContains("docs/pi.md", piDocs, "does not repair mixed running containers");
+assertContains("docs/pi.md", piDocs, "exact previous server and web");
+assertContains("docs/pi.md", piDocs, "does not run a global");
 assertContains("docs/pi.md", piDocs, "/etc/de-koi/pi-update.env");
 assertContains("docs/pi.md", piDocs, "ChatGPT And Image Generation Through Local Codex Login");
 assertContains("docs/pi.md", piDocs, "Codex Subscription");
