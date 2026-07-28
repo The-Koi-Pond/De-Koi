@@ -231,30 +231,49 @@ fn strip_snapshot_from_extra(extra: Option<&Value>) -> Option<Value> {
     changed.then_some(Value::Object(next))
 }
 
-/// Build a minimal patch that clears prompt snapshots from a raw message record
-/// and from each of its embedded swipes. Returns `None` when the message holds
-/// no snapshot to evict.
-fn strip_prompt_snapshot_patch(message: &Value) -> Option<Value> {
-    let mut patch = Map::new();
+/// Build targeted patches that clear prompt snapshots from a message and its
+/// swipes. Legacy embedded swipes stay on the message row; migrated swipes are
+/// patched directly in the sidecar collection.
+fn strip_prompt_snapshot_patches(
+    message: &Value,
+    has_embedded_swipes: bool,
+) -> (Option<Value>, Vec<(String, Value)>) {
+    let mut message_patch = Map::new();
     if let Some(next_extra) = strip_snapshot_from_extra(message.get("extra")) {
-        patch.insert("extra".to_string(), next_extra);
+        message_patch.insert("extra".to_string(), next_extra);
     }
+    let mut sidecar_patches = Vec::new();
     if let Some(swipes) = message.get("swipes").and_then(Value::as_array) {
-        let mut next_swipes = swipes.clone();
-        let mut swipes_changed = false;
-        for swipe in next_swipes.iter_mut() {
-            if let Some(next_extra) = strip_snapshot_from_extra(swipe.get("extra")) {
-                if let Some(object) = swipe.as_object_mut() {
-                    object.insert("extra".to_string(), next_extra);
-                    swipes_changed = true;
+        if has_embedded_swipes {
+            let mut next_swipes = swipes.clone();
+            let mut swipes_changed = false;
+            for swipe in next_swipes.iter_mut() {
+                if let Some(next_extra) = strip_snapshot_from_extra(swipe.get("extra")) {
+                    if let Some(object) = swipe.as_object_mut() {
+                        object.insert("extra".to_string(), next_extra);
+                        swipes_changed = true;
+                    }
                 }
             }
-        }
-        if swipes_changed {
-            patch.insert("swipes".to_string(), Value::Array(next_swipes));
+            if swipes_changed {
+                message_patch.insert("swipes".to_string(), Value::Array(next_swipes));
+            }
+        } else {
+            for swipe in swipes {
+                let Some(next_extra) = strip_snapshot_from_extra(swipe.get("extra")) else {
+                    continue;
+                };
+                let Some(id) = swipe.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                sidecar_patches.push((id.to_string(), json!({ "extra": next_extra })));
+            }
         }
     }
-    (!patch.is_empty()).then_some(Value::Object(patch))
+    (
+        (!message_patch.is_empty()).then_some(Value::Object(message_patch)),
+        sidecar_patches,
+    )
 }
 
 /// Evict saved prompt snapshots from older assistant messages, retaining only
@@ -264,15 +283,25 @@ fn strip_prompt_snapshot_patch(message: &Value) -> Option<Value> {
 /// eviction, so native chats accumulate a full snapshot per message/swipe.
 ///
 /// Non-destructive to every other field, including legacy `cachedPrompt` (so
-/// imported v1.6.1 chats keep inspector fidelity via synthesis). Operates on raw
-/// message records (with embedded swipes), patching only messages that actually
-/// carry a snapshot.
+/// imported v1.6.1 chats keep inspector fidelity via synthesis). Patches only
+/// stale message rows and their swipe sidecars; it does not run a global swipe
+/// migration or rewrite unrelated chat data.
 pub(crate) fn evict_prompt_snapshots(
     state: &AppState,
     chat_id: &str,
     keep_last: usize,
 ) -> AppResult<Value> {
     let mut messages = state.storage.list_messages_for_chat(chat_id)?;
+    let embedded_swipe_messages = messages
+        .iter()
+        .filter(|message| message.get("swipes").and_then(Value::as_array).is_some())
+        .filter_map(|message| {
+            message
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<HashSet<_>>();
     message_swipe_storage::materialize_messages(state, &mut messages, true)?;
     messages.sort_by(|a, b| {
         let a_time = a.get("createdAt").and_then(Value::as_str).unwrap_or("");
@@ -298,6 +327,8 @@ pub(crate) fn evict_prompt_snapshots(
         .iter()
         .map(String::as_str)
         .collect();
+    let mut message_patches = Vec::new();
+    let mut sidecar_patches = Vec::new();
     let mut evicted: u64 = 0;
     for message in &messages {
         let Some(id) = message.get("id").and_then(Value::as_str) else {
@@ -306,13 +337,23 @@ pub(crate) fn evict_prompt_snapshots(
         if !stale.contains(id) {
             continue;
         }
-        if let Some(patch) = strip_prompt_snapshot_patch(message) {
-            state.storage.patch("messages", id, patch)?;
+        let (message_patch, mut message_sidecar_patches) =
+            strip_prompt_snapshot_patches(message, embedded_swipe_messages.contains(id));
+        if message_patch.is_some() || !message_sidecar_patches.is_empty() {
             evicted += 1;
         }
+        if let Some(patch) = message_patch {
+            message_patches.push((id.to_string(), patch));
+        }
+        sidecar_patches.append(&mut message_sidecar_patches);
     }
-    if evicted > 0 {
-        message_swipe_storage::migrate_nested_message_swipes(&state.storage)?;
+    if !sidecar_patches.is_empty() {
+        state
+            .storage
+            .patch_many(message_swipe_storage::COLLECTION, sidecar_patches)?;
+    }
+    if !message_patches.is_empty() {
+        state.storage.patch_many("messages", message_patches)?;
     }
     Ok(json!({ "evicted": evicted }))
 }
@@ -3963,21 +4004,27 @@ mod tests {
                 }),
             ),
             (
+                "assistant-sidecar-old",
+                "assistant",
+                "2024-01-01T00:00:01.000Z",
+                json!({ "generationPromptSnapshot": snap() }),
+            ),
+            (
                 "user-1",
                 "user",
-                "2024-01-01T00:00:01.000Z",
+                "2024-01-01T00:00:02.000Z",
                 json!({ "cachedPrompt": [{ "role": "user", "content": "hi" }] }),
             ),
             (
                 "assistant-mid",
                 "assistant",
-                "2024-01-01T00:00:02.000Z",
+                "2024-01-01T00:00:03.000Z",
                 json!({ "generationPromptSnapshot": snap() }),
             ),
             (
                 "assistant-new",
                 "assistant",
-                "2024-01-01T00:00:03.000Z",
+                "2024-01-01T00:00:04.000Z",
                 json!({ "generationPromptSnapshot": snap() }),
             ),
         ] {
@@ -4009,9 +4056,40 @@ mod tests {
                 }),
             )
             .expect("swipe should be added");
+        state
+            .storage
+            .create(
+                message_swipe_storage::COLLECTION,
+                json!({
+                    "id": "assistant-sidecar-old::swipe::0",
+                    "messageId": "assistant-sidecar-old",
+                    "chatId": "chat-1",
+                    "index": 0,
+                    "content": "x",
+                    "extra": {
+                        "generationPromptSnapshot": snap(),
+                        "sentinel": true,
+                    },
+                }),
+            )
+            .expect("message sidecar should be created");
+        state
+            .storage
+            .create(
+                message_swipe_storage::COLLECTION,
+                json!({
+                    "id": "unrelated-sidecar",
+                    "messageId": "missing-message",
+                    "chatId": "chat-2",
+                    "index": 0,
+                    "content": "unrelated",
+                    "extra": { "sentinel": true },
+                }),
+            )
+            .expect("unrelated sidecar should be created");
 
         let result = evict_prompt_snapshots(&state, "chat-1", 2).expect("eviction should succeed");
-        assert_eq!(result["evicted"], json!(1));
+        assert_eq!(result["evicted"], json!(2));
 
         let get = |id: &str| {
             state
@@ -4030,6 +4108,16 @@ mod tests {
         assert!(old["swipes"][0]["extra"]
             .get("generationPromptSnapshot")
             .is_none());
+        let sidecar_swipes =
+            message_swipe_storage::swipes_for_message(&state, "assistant-sidecar-old")
+                .expect("message sidecar swipes should read");
+        assert!(get("assistant-sidecar-old")["extra"]
+            .get("sentinel")
+            .is_none());
+        assert!(sidecar_swipes[0]["extra"]
+            .get("generationPromptSnapshot")
+            .is_none());
+        assert_eq!(sidecar_swipes[0]["extra"]["sentinel"], json!(true));
 
         // The two most recent assistant messages keep their snapshots.
         assert!(get("assistant-mid")["extra"]
@@ -4044,6 +4132,15 @@ mod tests {
             get("user-1")["extra"]["cachedPrompt"][0]["content"],
             json!("hi")
         );
+
+        // Evicting snapshots in one chat must not run a global swipe migration
+        // that rewrites or removes unrelated sidecar rows.
+        let unrelated_sidecar = state
+            .storage
+            .get(message_swipe_storage::COLLECTION, "unrelated-sidecar")
+            .expect("unrelated sidecar lookup should succeed")
+            .expect("unrelated sidecar should remain");
+        assert_eq!(unrelated_sidecar["extra"]["sentinel"], json!(true));
     }
 
     #[test]
