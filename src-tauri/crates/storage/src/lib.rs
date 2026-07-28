@@ -135,6 +135,7 @@ fn evict_oldest_clean_cache_entry(cache: &mut StorageCache) -> bool {
 pub struct AtomicCollectionRows {
     collection: String,
     rows: Vec<Value>,
+    write_requested: bool,
 }
 
 struct CollectionRowsVisitor<'a> {
@@ -187,6 +188,7 @@ impl AtomicCollectionRows {
     }
 
     pub fn rows_mut(&mut self) -> &mut Vec<Value> {
+        self.write_requested = true;
         &mut self.rows
     }
 }
@@ -1024,6 +1026,7 @@ impl FileStorage {
                 loaded.push(AtomicCollectionRows {
                     collection: collection.to_string(),
                     rows: self.read_collection_no_recovery(collection)?,
+                    write_requested: false,
                 });
                 original_stamps.push((collection.to_string(), collection_content_stamp(&path)?));
             }
@@ -1031,6 +1034,9 @@ impl FileStorage {
         };
 
         let output = update(&mut entries)?;
+        if !entries.iter().any(|entry| entry.write_requested) {
+            return Ok(output);
+        }
 
         let _guard = self
             .lock
@@ -1048,6 +1054,7 @@ impl FileStorage {
         }
         let replacements = entries
             .iter()
+            .filter(|entry| entry.write_requested)
             .map(|entry| (entry.collection.as_str(), entry.rows.clone()))
             .collect::<Vec<_>>();
         self.replace_all_many_locked(replacements, || Ok(()))?;
@@ -5387,6 +5394,28 @@ mod tests {
         assert_eq!(storage.list("messages").unwrap().len(), 2);
         assert_eq!(storage.list("message-swipes").unwrap().len(), 2);
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn update_collections_atomically_skips_replacement_when_rows_are_only_read() {
+        let root = temp_storage_root("update-collections-read-only");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all("messages", vec![json!({ "id": "message-1" })])
+            .unwrap();
+        let path = root.join("collections").join("messages.json");
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+
+        let row_count = storage
+            .update_collections_atomically(vec!["messages"], |collections| {
+                Ok(collections[0].rows().len())
+            })
+            .unwrap();
+
+        assert_eq!(row_count, 1);
+        assert_eq!(fs::metadata(path).unwrap().modified().unwrap(), modified);
         fs::remove_dir_all(root).unwrap();
     }
 

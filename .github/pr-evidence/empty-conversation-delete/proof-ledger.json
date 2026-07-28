@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Make empty remote conversations delete reliably",
+    "source": "Live Raspberry Pi user report and browser reproduction",
+    "classification": "remote runtime, storage performance, optimistic cache reconciliation, and user-data deletion",
+    "status": "local_verification_passed"
+  },
+  "coreClaim": "Deleting an empty conversation does not rewrite unrelated message and swipe collections, and an ambiguous remote-runtime timeout cannot restore conversation rows that storage already deleted.",
+  "rootCause": "Empty chat cleanup always entered a full atomic messages and message-swipes replacement even when neither collection contained a row for the chat. Separately, useDeleteChat treated the browser's 30-second remote-runtime deadline as a definite server failure and restored complete pre-delete React Query snapshots, resurrecting stale rows after the server completed or had already deleted them.",
+  "scope": {
+    "inScope": [
+      "Empty-chat message and swipe cleanup fast path",
+      "Remote-runtime timeout reconciliation for the conversation delete mutation",
+      "Focused storage and React Query regressions",
+      "Live Pi cleanup and post-merge deletion verification"
+    ],
+    "outOfScope": [
+      "Changing the browser's 30-second remote request deadline",
+      "Changing conversation deletion confirmation or memory-cleanup choices",
+      "Changing storage formats, migrations, or import/export behavior",
+      "Changing optimistic rollback for definite server failures"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/lib.rs",
+      "src-tauri/src/commands/storage/message_swipes.rs",
+      "src/features/catalog/chats/hooks/use-chat-lifecycle.ts",
+      "src/features/catalog/chats/hooks/use-chat-lifecycle.spec.ts",
+      "docs/superpowers/specs/2026-07-27-empty-conversation-delete-design.md",
+      "docs/superpowers/plans/2026-07-27-empty-conversation-delete.md",
+      ".github/pr-evidence/empty-conversation-delete/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src-tauri/crates/storage/src/lib.rs",
+      "src-tauri/src/commands/storage/message_swipes.rs",
+      "src/features/catalog/chats/hooks/use-chat-lifecycle.ts",
+      "src/features/catalog/chats/hooks/use-chat-lifecycle.spec.ts",
+      "docs/superpowers/specs/2026-07-27-empty-conversation-delete-design.md",
+      "docs/superpowers/plans/2026-07-27-empty-conversation-delete.md",
+      ".github/pr-evidence/empty-conversation-delete/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "storage transactions",
+      "user-data deletion",
+      "remote runtime",
+      "optimistic cache state",
+      "conversation roleplay and game shared cleanup"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "A chat with no owned messages or swipe sidecars skips the expensive atomic rewrite, while an ambiguous browser deadline keeps the optimistic removal until authoritative queries reconcile.",
+    "riskType": "storage deletion, transaction latency, and stale client-state resurrection",
+    "entrypoints": [
+      "Conversation sidebar delete action",
+      "useDeleteChat React Query mutation",
+      "storage_delete remote invoke",
+      "delete_chat_with_messages",
+      "delete_message_rows_for_chats_with_swipes"
+    ],
+    "currentPathsOrFormats": [
+      "data/collections/chats.json",
+      "data/collections/messages.json",
+      "data/collections/message-swipes.json",
+      "React Query chats list, summaries, and group caches"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing chats in conversation, roleplay, game, and legacy visual-novel modes use the same storage cleanup path.",
+      "Existing swipe sidecars with a matching chatId but no parent message remain cleanup candidates."
+    ],
+    "outOfScopeClaims": [
+      "This change does not promise every storage operation finishes within a fixed deadline.",
+      "This change does not hide definite delete failures.",
+      "This change does not alter message, swipe, chat, or memory schemas."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "An empty chat delete performed a multi-collection replacement with no changed rows, while an ambiguous transport deadline was treated as authoritative rollback evidence.",
+    "producer": "Rust chat-owned message cleanup and remote-runtime ApiError",
+    "consumer": "Conversation sidebar useDeleteChat mutation",
+    "impliedContract": "Empty deletes avoid unrelated write work, and client state reconciles ambiguous destructive requests from storage rather than stale snapshots.",
+    "actualEnforcement": "The Rust owner inspects chat ownership inside the atomic boundary without requesting mutable rows on a no-op; FileStorage skips replacement when every AtomicCollectionRows entry remains read-only. The catalog owner skips snapshot restoration only for ApiError details code remote_runtime_timeout; onSettled invalidations remain authoritative.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src-tauri decides whether message and swipe mutation is needed; src/features owns the catalog mutation's optimistic rollback semantics.",
+    "consumerOnlyLanes": [
+      "src/shared/api"
+    ],
+    "wrongLaneFixToAvoid": "Do not only increase the timeout, suppress all delete errors, or remove atomic cleanup for chats that own messages or stale sidecars.",
+    "regressionProof": [
+      "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-storage tests::update_collections_atomically_skips_replacement_when_rows_are_only_read -- --exact --nocapture",
+      "cargo test --manifest-path src-tauri/Cargo.toml delete_empty_chat -- --nocapture",
+      "cargo test --manifest-path src-tauri/Cargo.toml delete_message_rows_for_chats_with_swipes_removes_sidecars_by_deleted_message_id -- --nocapture",
+      "pnpm vitest run src/features/catalog/chats/hooks/use-chat-lifecycle.spec.ts"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A read-only atomic transaction does not replace its target collection.",
+        "evidence": "The storage-owner modification-time regression passes, and the 138-test marinara-storage suite is green."
+      },
+      {
+        "claim": "An empty chat with no messages or sidecars does not replace either large collection.",
+        "evidence": "The focused modification-time regression failed before the fast path and passes after it."
+      },
+      {
+        "claim": "An ambiguous remote timeout does not resurrect a removed conversation row.",
+        "evidence": "The focused QueryClient regression failed before timeout classification and passes after it for both list and summary caches."
+      },
+      {
+        "claim": "Authoritative reconciliation remains scheduled.",
+        "evidence": "The existing useDeleteChat onSettled invalidations are unchanged for list, summary, and optional group queries."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "A stale sidecar for an otherwise empty chat must still be deleted.",
+        "evidence": "delete_empty_chat_still_removes_matching_stale_sidecars passes and retains only an unrelated sidecar."
+      },
+      {
+        "claim": "A chat with messages must retain atomic message and sidecar cleanup.",
+        "evidence": "delete_message_rows_for_chats_with_swipes_removes_sidecars_by_deleted_message_id passes, including a stale sidecar chatId removed by its deleted parent message ID."
+      },
+      {
+        "claim": "A definite server failure must still restore prior client state.",
+        "evidence": "The companion hook regression passes for a storage_error ApiError and restores both list and summary snapshots."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Conversation, roleplay, and game storage cleanup semantics remain shared.",
+        "evidence": "No mode branch, collection format, command signature, or delete response changed."
+      },
+      {
+        "claim": "Existing remote and desktop API callers remain compatible.",
+        "evidence": "No storageApi signature, HTTP dispatch, Rust command input, or response shape changed."
+      }
+    ],
+    "untestedRows": [
+      "Final production-image timing and a real disposable empty-conversation delete will be verified after the merged revision is deployed to the Pi."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Four New Conversation rows were visible in the live Pi sidebar while only one existed in the server chat inventory.",
+      "sourceType": "measured",
+      "evidence": "Browser data-chat-id inspection found four IDs; remote storage inventory found only b09fe85d-d930-4b81-a599-b56e30efda02."
+    },
+    {
+      "description": "The remaining persisted empty chat had zero messages and zero characters.",
+      "sourceType": "measured",
+      "evidence": "The remote chat and message inventory reported no message rows for the chat."
+    },
+    {
+      "description": "Repeated storage_delete requests produced heavy block writes and mostly lacked completion logs.",
+      "sourceType": "measured",
+      "evidence": "Live container logs showed many starts, one 8133 ms completion, and container block I/O increasing beyond 1.3 GB while messages.json and message-swipes.json totaled about 25 MB."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Conversation deletion remains destructive. Export any conversation that must be retained before confirming deletion.",
+      "source": "Open the conversation and use its export action.",
+      "destination": "A user-selected folder outside De-Koi's application data directory.",
+      "files": [
+        "<conversation-name>.json"
+      ],
+      "action": "Verify the exported JSON exists at the destination before confirming conversation deletion.",
+      "detectedLayouts": [
+        "Current De-Koi conversation export JSON"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge live Pi delete timing and browser persistence",
+      "blockingCoreClaim": false,
+      "status": "post-merge-verification",
+      "reason": "Local regressions prove both owner contracts. Exact target-device timing and the 30-second reload result require the merged production images."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check passed. pnpm test passed 2366 tests with 1 skipped. The final Rust workspace run passed 1370 tests including every changed-path regression; one unrelated parallel sprite timeout test failed and passed immediately in an exact single-thread rerun. The full 138-test marinara-storage suite passed."
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pass",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1168,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1168",
+    "headRefName": "fix/empty-conversation-delete",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": true,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "The live browser ghosts were already absent from storage, so no additional user conversations were deleted during diagnosis.",
+    "The Pi currently runs main revision 3ab18e3774c74159f1cccb0c2f10dcf016f83810; post-merge deployment will advance it to the exact merge revision.",
+    "An earlier pre-final Rust run's health_writable_probe_is_opt_in_and_cached and sprite_sheet_cleanup_obeys_generation_timeout failures were unrelated parallel timing cases; exact single-thread reruns passed 1/1 each. The final run had only the same sprite timeout case, and its exact rerun passed again."
+  ]
+}

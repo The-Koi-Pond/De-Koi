@@ -1029,6 +1029,32 @@ pub(crate) fn delete_message_rows_for_chats_with_swipes(
     state
         .storage
         .update_collections_atomically(vec!["messages", COLLECTION], move |collections| {
+            let mut matching_message_ids = HashSet::new();
+            let mut has_matching_messages = false;
+            for row in collections[0].rows() {
+                if !row
+                    .get("chatId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|chat_id| chat_ids.contains(chat_id))
+                {
+                    continue;
+                }
+                has_matching_messages = true;
+                if let Some(id) = row.get("id").and_then(Value::as_str) {
+                    matching_message_ids.insert(id.to_string());
+                }
+            }
+            let has_matching_sidecars = collections[1].rows().iter().any(|row| {
+                row.get("chatId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|chat_id| chat_ids.contains(chat_id))
+                    || sidecar_message_id(row)
+                        .is_some_and(|message_id| matching_message_ids.contains(message_id))
+            });
+            if !has_matching_messages && !has_matching_sidecars {
+                return Ok(0);
+            }
+
             let messages = collections[0].rows_mut();
             let original_message_count = messages.len();
             let mut deleted_message_ids = HashSet::new();
@@ -1440,6 +1466,121 @@ mod tests {
             .expect("message swipes should list");
         assert_eq!(sidecars.len(), 1);
         assert_eq!(sidecars[0]["messageId"], "message-2");
+    }
+
+    #[test]
+    fn delete_empty_chat_does_not_rewrite_unrelated_message_collections() {
+        let root = temp_root("delete-empty-chat");
+        let state =
+            AppState::from_data_dir(&root, Vec::new()).expect("test app state should initialize");
+        state
+            .storage
+            .replace_all(
+                "messages",
+                vec![json!({
+                    "id": "message-1",
+                    "chatId": "other-chat",
+                    "content": "keep me"
+                })],
+            )
+            .expect("messages should seed");
+        state
+            .storage
+            .replace_all(
+                COLLECTION,
+                vec![json!({
+                    "id": "message-1::swipe::0",
+                    "chatId": "other-chat",
+                    "messageId": "message-1",
+                    "index": 0,
+                    "content": "keep sidecar"
+                })],
+            )
+            .expect("sidecars should seed");
+        let messages_path = root.join("data").join("collections").join("messages.json");
+        let sidecars_path = root
+            .join("data")
+            .join("collections")
+            .join("message-swipes.json");
+        let messages_modified = std::fs::metadata(&messages_path)
+            .expect("messages metadata should exist")
+            .modified()
+            .expect("messages modified time should exist");
+        let sidecars_modified = std::fs::metadata(&sidecars_path)
+            .expect("sidecars metadata should exist")
+            .modified()
+            .expect("sidecars modified time should exist");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let chat_ids = HashSet::from(["empty-chat".to_string()]);
+
+        let deleted = delete_message_rows_for_chats_with_swipes(&state, &chat_ids)
+            .expect("empty chat cleanup should succeed");
+
+        assert_eq!(deleted, 0);
+        assert_eq!(
+            std::fs::metadata(messages_path)
+                .expect("messages metadata should remain")
+                .modified()
+                .expect("messages modified time should remain"),
+            messages_modified
+        );
+        assert_eq!(
+            std::fs::metadata(sidecars_path)
+                .expect("sidecars metadata should remain")
+                .modified()
+                .expect("sidecars modified time should remain"),
+            sidecars_modified
+        );
+    }
+
+    #[test]
+    fn delete_empty_chat_still_removes_matching_stale_sidecars() {
+        let state = test_state("delete-empty-chat-stale-sidecar");
+        state
+            .storage
+            .replace_all(
+                "messages",
+                vec![json!({
+                    "id": "message-1",
+                    "chatId": "other-chat",
+                    "content": "keep me"
+                })],
+            )
+            .expect("messages should seed");
+        state
+            .storage
+            .replace_all(
+                COLLECTION,
+                vec![
+                    json!({
+                        "id": "stale-message::swipe::0",
+                        "chatId": "empty-chat",
+                        "messageId": "stale-message",
+                        "index": 0,
+                        "content": "delete stale sidecar"
+                    }),
+                    json!({
+                        "id": "message-1::swipe::0",
+                        "chatId": "other-chat",
+                        "messageId": "message-1",
+                        "index": 0,
+                        "content": "keep sidecar"
+                    }),
+                ],
+            )
+            .expect("sidecars should seed");
+        let chat_ids = HashSet::from(["empty-chat".to_string()]);
+
+        let deleted = delete_message_rows_for_chats_with_swipes(&state, &chat_ids)
+            .expect("stale sidecar cleanup should succeed");
+
+        assert_eq!(deleted, 0);
+        let sidecars = state
+            .storage
+            .list(COLLECTION)
+            .expect("sidecars should list");
+        assert_eq!(sidecars.len(), 1);
+        assert_eq!(sidecars[0]["messageId"], "message-1");
     }
 
     #[test]
