@@ -2746,6 +2746,110 @@ mod tests {
     }
 
     #[test]
+    fn generic_message_metadata_update_stays_journal_backed_without_rewriting_swipes() {
+        let state = test_state("generic-message-metadata-journal");
+        storage_create_inner(
+            &state,
+            "chats".to_string(),
+            json!({ "id": "chat-1", "name": "Metadata chat" }),
+        )
+        .expect("chat should seed");
+        let prompt_snapshot = json!({
+            "messages": [{ "role": "user", "content": "hello" }],
+            "parameters": {},
+            "generationInfo": {}
+        });
+        storage_create_inner(
+            &state,
+            "messages".to_string(),
+            json!({
+                "id": "message-1",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "visible text",
+                "createdAt": "2026-06-01T10:00:00.000Z",
+                "activeSwipeIndex": 0,
+                "swipes": [{
+                    "content": "visible text",
+                    "extra": { "generationPromptSnapshot": prompt_snapshot.clone() }
+                }]
+            }),
+        )
+        .expect("message should seed");
+        let collections = state.storage.root().join("collections");
+        let messages_path = collections.join("messages.json");
+        let swipes_path = collections.join("message-swipes.json");
+        let messages_before = std::fs::read(&messages_path).expect("messages should be readable");
+        let swipes_before = std::fs::read(&swipes_path).expect("swipes should be readable");
+
+        let updated = storage_update_inner(
+            &state,
+            "messages".to_string(),
+            "message-1".to_string(),
+            json!({
+                "extra": {
+                    "generationPromptSnapshot": prompt_snapshot.clone(),
+                    "memoryCapture": { "status": "completed" }
+                }
+            }),
+        )
+        .expect("metadata-only message update should succeed");
+        let mut stored = state
+            .storage
+            .get("messages", "message-1")
+            .expect("message should read")
+            .expect("message should exist");
+        message_swipes::materialize_message(&state, &mut stored, true)
+            .expect("message swipes should materialize");
+
+        assert_eq!(updated["extra"]["generationPromptSnapshot"], prompt_snapshot);
+        assert_eq!(
+            stored["extra"]["memoryCapture"]["status"],
+            json!("completed")
+        );
+        assert_eq!(
+            std::fs::read(&messages_path).expect("messages should remain readable"),
+            messages_before,
+            "metadata-only updates must not rewrite the large messages primary"
+        );
+        assert_eq!(
+            std::fs::read(&swipes_path).expect("swipes should remain readable"),
+            swipes_before,
+            "unchanged swipe-owned metadata must not rewrite sidecars"
+        );
+        assert!(
+            collections.join("messages.pending.jsonl").is_file(),
+            "the acknowledged metadata patch should remain durable in the collection journal"
+        );
+
+        let changed_prompt_snapshot = json!({
+            "messages": [{ "role": "user", "content": "changed prompt" }],
+            "parameters": {},
+            "generationInfo": {}
+        });
+        let changed = storage_update_inner(
+            &state,
+            "messages".to_string(),
+            "message-1".to_string(),
+            json!({
+                "extra": {
+                    "generationPromptSnapshot": changed_prompt_snapshot.clone(),
+                    "memoryCapture": { "status": "completed" }
+                }
+            }),
+        )
+        .expect("changed swipe-owned metadata should use the atomic path");
+        assert_eq!(
+            changed["extra"]["generationPromptSnapshot"],
+            changed_prompt_snapshot
+        );
+        assert!(
+            !collections.join("messages.pending.jsonl").exists(),
+            "the atomic swipe update should materialize the earlier parent journal"
+        );
+    }
+
+    #[test]
     fn generic_message_content_update_malformed_memories_fail_before_message_write() {
         let state = test_state("generic-message-edit-malformed-preflight");
         state

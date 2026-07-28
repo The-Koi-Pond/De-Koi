@@ -741,6 +741,75 @@ pub(crate) fn update_message_content_if_unchanged(
     Ok(json!({ "updated": true, "message": message }))
 }
 
+fn message_patch_requires_swipe_transaction(patch: &Map<String, Value>) -> bool {
+    [
+        "id",
+        "chatId",
+        "role",
+        "content",
+        "characterId",
+        "activeSwipeIndex",
+        "swipes",
+        "swipeCount",
+        "swipePreviews",
+    ]
+        .into_iter()
+        .any(|field| patch.contains_key(field))
+}
+
+fn message_extra_patch_changes_active_swipe(
+    message: &Value,
+    patch: &Map<String, Value>,
+) -> bool {
+    let patch_extra = patch
+        .get("extra")
+        .and_then(|extra| json_object_value(Some(extra)));
+    if patch_extra
+        .as_ref()
+        .is_some_and(|extra| extra.get("generationPromptSnapshotsBySwipe").is_some())
+    {
+        return true;
+    }
+    let Some(Value::Object(patched_extra)) = swipe_scoped_extra(patch_extra.as_ref())
+    else {
+        return false;
+    };
+    let active_index = message
+        .get("activeSwipeIndex")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let active_extra = message
+        .get("swipes")
+        .and_then(Value::as_array)
+        .and_then(|swipes| swipes.get(active_index.min(swipes.len().saturating_sub(1))))
+        .and_then(|swipe| json_object_value(swipe.get("extra")))
+        .unwrap_or(Value::Null);
+    patched_extra
+        .iter()
+        .any(|(key, value)| active_extra.get(key) != Some(value))
+}
+
+fn journal_backed_message_patch(
+    state: &AppState,
+    message_id: &str,
+    mut patch: Map<String, Value>,
+    materialized_message: &Value,
+) -> AppResult<Value> {
+    let has_swipes = materialized_message
+        .get("swipes")
+        .and_then(Value::as_array)
+        .is_some_and(|swipes| !swipes.is_empty());
+    if has_swipes && patch.contains_key("extra") {
+        let base_extra = clear_swipe_scoped_extra(patch.get("extra"));
+        patch.insert("extra".to_string(), base_extra);
+    }
+    let mut updated = state
+        .storage
+        .patch("messages", message_id, Value::Object(patch))?;
+    message_swipe_storage::materialize_message(state, &mut updated, true)?;
+    Ok(updated)
+}
+
 pub(crate) fn patch_message_update_with_memory_prune(
     state: &AppState,
     message_id: &str,
@@ -750,6 +819,11 @@ pub(crate) fn patch_message_update_with_memory_prune(
     let patch_object = normalized.as_object().cloned().unwrap_or_default();
     let mut message = get_required(state, "messages", message_id)?;
     message_swipe_storage::materialize_message(state, &mut message, true)?;
+    if !message_patch_requires_swipe_transaction(&patch_object)
+        && !message_extra_patch_changes_active_swipe(&message, &patch_object)
+    {
+        return journal_backed_message_patch(state, message_id, patch_object, &message);
+    }
     let previous_visible_content = message
         .get("content")
         .and_then(Value::as_str)
