@@ -12,6 +12,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Cursor, ErrorKind, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 #[cfg(test)]
@@ -39,7 +40,7 @@ pub(crate) struct StorageCache {
 }
 
 pub(crate) struct CachedCollection {
-    pub(crate) rows: Vec<Value>,
+    pub(crate) rows: Arc<Vec<Value>>,
     pub(crate) row_indices_by_id: HashMap<String, usize>,
     pub(crate) dirty: bool,
     pub(crate) approx_bytes: usize,

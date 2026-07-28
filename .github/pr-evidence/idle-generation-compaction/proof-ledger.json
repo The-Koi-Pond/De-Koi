@@ -1,0 +1,170 @@
+{
+  "coreClaim": "Fresh durable message journals remain responsive during active Conversation and Roleplay turns, and deferred compaction snapshots do not block unrelated cache reads.",
+  "scope": {
+    "inScope": [
+      "Default generic journal compaction age",
+      "Checkpoint-tracked message and swipe deferred compaction",
+      "Immutable cached-row snapshots",
+      "Conversation and Roleplay generation completion"
+    ],
+    "outOfScope": [
+      "Provider response latency",
+      "Automatic memory-capture retention policy",
+      "Synchronous shutdown and atomic-update flushes",
+      "Persisted collection and journal formats"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/cache.rs",
+      "src-tauri/crates/storage/src/journal.rs",
+      "src-tauri/crates/storage/src/lib.rs",
+      ".github/pr-evidence/idle-generation-compaction/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent storage",
+      "storage concurrency",
+      "generation completion latency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "A fresh acknowledged message mutation remains journal-backed through the active-generation window, while reads use the authoritative dirty cache and cache-index population remains available during later compaction.",
+    "riskType": "persistent storage concurrency",
+    "entrypoints": [
+      "FileStorage deferred flush after a user message",
+      "Conversation reply persistence",
+      "Roleplay reply persistence",
+      "Cold storage reads during deferred compaction"
+    ],
+    "currentPathsOrFormats": [
+      "messages.json and messages.pending.jsonl",
+      "message-swipes.json and message-swipes.pending.jsonl",
+      "dirty in-memory collection caches"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing JSON collection primaries and pending JSONL journals"
+    ],
+    "outOfScopeClaims": [
+      "This change does not permit concurrent mutations during disk compaction.",
+      "The 64-entry and 256 KiB compaction bounds remain unchanged.",
+      "Shutdown still forces all dirty collections to disk."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Checkpoint-tracked message collections ignored the journal age policy and began a large primary rewrite 750 ms after each message, causing reply and memory-capture writes to queue behind Pi disk work.",
+    "producer": "src-tauri/crates/storage deferred flush scheduler and journal compaction policy",
+    "consumer": "Conversation and Roleplay generation completion plus unrelated cold cache reads",
+    "impliedContract": "An acknowledged journal is the durable boundary during an active turn; primary-file compaction is background maintenance and must wait for idle or a bounded threshold.",
+    "actualEnforcement": "Deferred flush honors the same age, entry, and byte policy for tracked collections, defaults the idle age to 60 seconds, and takes an Arc cached-row snapshot before releasing the cache lock.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "The storage crate owns journal durability, compaction scheduling, cache authority, and cache locking.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not hide the pause in UI pending state, skip durable writes, or weaken startup recovery.",
+    "regressionProof": [
+      "The active-generation test failed before implementation because a fresh tracked message journal immediately rewrote messages.json.",
+      "The cold-cache test failed before implementation because the compaction snapshot held the cache lock.",
+      "Both focused tests and all 141 storage tests pass after the storage-owner changes."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A message journal that is ten seconds old remains journal-backed under the default active-generation window.",
+        "evidence": "active_generation_window_defers_fresh_tracked_collection_compaction passes and the primary bytes remain unchanged."
+      },
+      {
+        "claim": "A cold character read completes while a message compaction snapshot is deliberately paused.",
+        "evidence": "cold_cache_reads_continue_while_deferred_compaction_snapshots_dirty_rows passes before the pause is released."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Deferring primary rewrite must not lose an acknowledged message mutation.",
+        "evidence": "The active-generation test drops storage, restarts it, and observes the patched value through journal recovery."
+      },
+      {
+        "claim": "A due tracked compaction must still checkpoint pending multi-collection appends safely.",
+        "evidence": "deferred_flush_checkpoints_pending_appends_before_writing_tracked_collection passes with a deterministic due policy."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing collection and pending-journal files require no migration.",
+        "evidence": "No schema or serialization format changed, and startup replay is exercised by the regression suite."
+      }
+    ],
+    "untestedRows": [
+      "Post-merge target-device Conversation and Roleplay timing is measured after the matching Pi image is deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The first post-merge Pi Conversation outlier included an llm_stream of 41588 ms plus storage writes waiting between roughly 12 and 35 seconds.",
+      "sourceType": "measured",
+      "evidence": "Live performance diagnostics on merge 8342732f recorded the provider and storage spans separately."
+    },
+    {
+      "description": "Fresh tracked collections were forced to compact independently of JournalCompactionPolicy.",
+      "sourceType": "derived",
+      "evidence": "The deferred flush force condition included append_journal::checkpoint_tracks before this change."
+    },
+    {
+      "description": "The pending journal is already the acknowledged durability boundary and startup replays append state before generic collection journals.",
+      "sourceType": "derived",
+      "evidence": "FileStorage startup recovery and the focused restart regression preserve the patched message."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or cleanup is required. Optional rollback protection is a stopped-app copy of the existing collection primaries and pending journals.",
+      "source": "The current De-Koi application data collections directory",
+      "destination": "A user-controlled backup folder outside the De-Koi application data directory",
+      "files": [
+        "collections/*.json",
+        "collections/*.pending.jsonl"
+      ],
+      "action": "Stop De-Koi, copy the listed files, verify the copies exist, then start the update. Do not delete or move the source files."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi Conversation and Roleplay samples",
+      "blockingCoreClaim": false,
+      "reason": "The durability and concurrency contracts are deterministic locally; target-device latency requires the merged ARM64 image."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Fresh checkpoint-tracked message journal",
+      "Due tracked compaction with pending append checkpoint",
+      "Dirty-cache read",
+      "Unrelated cold-cache read"
+    ],
+    "negativeRowsTested": [
+      "Fresh primary is not rewritten during the active-generation window",
+      "Restart does not lose the deferred mutation",
+      "Cold read does not wait for the paused snapshot",
+      "Shutdown and due compaction remain available"
+    ],
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/crates/storage/Cargo.toml",
+      "cargo check --manifest-path src-tauri/Cargo.toml",
+      "pnpm check:architecture",
+      "pnpm check",
+      "node .agents/automation/scripts/proof-health.mjs .github/pr-evidence/idle-generation-compaction/proof-ledger.json --json"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "",
+    "evidencePublished": false,
+    "checks": "Local focused regressions, all 141 storage tests, cargo check, architecture checks, and pnpm check passed; hosted checks pending.",
+    "automatedReview": "Local Bunny review pending; hosted current-head Bunny pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
