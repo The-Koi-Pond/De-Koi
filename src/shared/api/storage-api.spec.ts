@@ -50,13 +50,18 @@ describe("storageApi chat message writes", () => {
     });
     await storageApi.addChatMessageSwipe("chat-1", "message-blank", "Alt 1\n\n\nAlt 2", { extra: {} });
 
-    expect(invokeTauriMock).toHaveBeenNthCalledWith(1, "storage_create", {
-      entity: "messages",
-      value: expect.objectContaining({
-        content: "Line 1\n\n\nLine 2",
-        swipes: [expect.objectContaining({ content: "Line 1\n\n\nLine 2" })],
-      }),
-    });
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(
+      1,
+      "storage_create",
+      {
+        entity: "messages",
+        value: expect.objectContaining({
+          content: "Line 1\n\n\nLine 2",
+          swipes: [expect.objectContaining({ content: "Line 1\n\n\nLine 2" })],
+        }),
+      },
+      { timeoutMs: null },
+    );
     expect(invokeTauriMock).toHaveBeenNthCalledWith(2, "chat_message_add_swipe", {
       chatId: "chat-1",
       messageId: "message-blank",
@@ -64,6 +69,58 @@ describe("storageApi chat message writes", () => {
     });
   });
 });
+
+describe("storageApi remote request deadlines", () => {
+  it("opts durable mutations out while leaving reads on the default deadline", async () => {
+    invokeTauriMock.mockResolvedValue({});
+    const { storageApi } = await import("./storage-api");
+
+    await storageApi.create("chats", { id: "chat-1", name: "Scene" });
+    await storageApi.update("chats", "chat-1", { name: "Updated scene" });
+    await storageApi.delete("chats", "chat-1");
+    await storageApi.list("chats");
+    await storageApi.get("chats", "chat-1");
+
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(
+      1,
+      "storage_create",
+      {
+        entity: "chats",
+        value: { id: "chat-1", name: "Scene" },
+      },
+      { timeoutMs: null },
+    );
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(
+      2,
+      "storage_update",
+      {
+        entity: "chats",
+        id: "chat-1",
+        patch: { name: "Updated scene" },
+      },
+      { timeoutMs: null },
+    );
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(
+      3,
+      "storage_delete",
+      {
+        entity: "chats",
+        id: "chat-1",
+      },
+      { timeoutMs: null },
+    );
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(4, "storage_list", {
+      entity: "chats",
+      options: null,
+    });
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(5, "storage_get", {
+      entity: "chats",
+      id: "chat-1",
+      options: null,
+    });
+  });
+});
+
 describe("storageApi deletes", () => {
   it("forwards force deletes to the storage runtime", async () => {
     invokeTauriMock.mockResolvedValueOnce({ deleted: true });
@@ -74,11 +131,15 @@ describe("storageApi deletes", () => {
       deleted: true,
     });
 
-    expect(invokeTauriMock).toHaveBeenCalledWith("storage_delete", {
-      entity: "connections",
-      id: "connection-1",
-      force: true,
-    });
+    expect(invokeTauriMock).toHaveBeenCalledWith(
+      "storage_delete",
+      {
+        entity: "connections",
+        id: "connection-1",
+        force: true,
+      },
+      { timeoutMs: null },
+    );
   });
 
   it("forwards an explicit chat memory deletion policy and otherwise omits it", async () => {
@@ -88,14 +149,24 @@ describe("storageApi deletes", () => {
     await storageApi.delete("chats", "chat-1", { deleteMemories: true });
     await storageApi.delete("chats", "chat-2");
 
-    expect(invokeTauriMock).toHaveBeenNthCalledWith(1, "storage_delete", {
-      entity: "chats",
-      id: "chat-1",
-      deleteMemories: true,
-    });
-    expect(invokeTauriMock).toHaveBeenNthCalledWith(2, "storage_delete", {
-      entity: "chats",
-      id: "chat-2",
-    });
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(
+      1,
+      "storage_delete",
+      {
+        entity: "chats",
+        id: "chat-1",
+        deleteMemories: true,
+      },
+      { timeoutMs: null },
+    );
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(
+      2,
+      "storage_delete",
+      {
+        entity: "chats",
+        id: "chat-2",
+      },
+      { timeoutMs: null },
+    );
   });
 });

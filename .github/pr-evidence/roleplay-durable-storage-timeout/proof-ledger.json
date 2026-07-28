@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Prevent false roleplay creation timeouts during durable storage writes",
+    "source": "Live Raspberry Pi user report",
+    "classification": "remote runtime storage persistence and cross-entrypoint reliability",
+    "status": "local_verification_passed"
+  },
+  "coreClaim": "Roleplay creation can wait for slow remote chat and message persistence without the browser falsely reporting failure after 30 seconds, while ordinary finite remote calls remain bounded and explicit caller cancellation remains available.",
+  "rootCause": "The remote runtime applied one 30-second client deadline to every JSON invoke. Roleplay creation performs several sequential, non-idempotent storage_create and storage_update calls. A live Pi storage_create completed successfully after roughly 54 seconds, but the browser aborted at 30 seconds and reported failure while the server continued, leaving an empty scene chat that a retry could duplicate.",
+  "scope": {
+    "inScope": [
+      "An explicit no-client-deadline option for remote JSON invokes",
+      "No-client-deadline behavior for generic storage create, update, and delete wrappers",
+      "Caller cancellation and existing finite timeout preservation",
+      "Focused roleplay, remote-runtime, Tauri bridge, and storage-wrapper regression coverage"
+    ],
+    "outOfScope": [
+      "Changing roleplay scene orchestration or retry behavior",
+      "Changing Rust storage persistence, HTTP dispatch, or command payloads",
+      "Removing existing empty or duplicate roleplay chats",
+      "Exempting specialized storage commands that are not used by roleplay creation",
+      "Guaranteeing a maximum completion time for genuine server-side storage stalls"
+    ],
+    "intendedFiles": [
+      "src/shared/api/remote-runtime.ts",
+      "src/shared/api/remote-runtime.spec.ts",
+      "src/shared/api/tauri-client.ts",
+      "src/shared/api/tauri-client.spec.ts",
+      "src/shared/api/storage-api.ts",
+      "src/shared/api/storage-api.spec.ts",
+      "docs/superpowers/plans/2026-07-28-roleplay-durable-storage-timeout.md",
+      ".github/pr-evidence/roleplay-durable-storage-timeout/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src/shared/api/remote-runtime.ts",
+      "src/shared/api/remote-runtime.spec.ts",
+      "src/shared/api/tauri-client.ts",
+      "src/shared/api/tauri-client.spec.ts",
+      "src/shared/api/storage-api.ts",
+      "src/shared/api/storage-api.spec.ts",
+      "docs/superpowers/plans/2026-07-28-roleplay-durable-storage-timeout.md",
+      ".github/pr-evidence/roleplay-durable-storage-timeout/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent storage",
+      "remote runtime",
+      "cross-entrypoint behavior",
+      "non-idempotent mutations",
+      "roleplay creation"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Generic durable storage mutations may explicitly opt out of the browser's internal request deadline without disabling caller cancellation or changing the default timeout for reads and ordinary commands.",
+    "riskType": "remote-runtime persistence completion, false failure reporting, and duplicate user data",
+    "entrypoints": [
+      "Roleplay scene creation through createRoleplayScene",
+      "StorageGateway generic create, update, and createChatMessage calls",
+      "src/shared/api storage_create, storage_update, and storage_delete wrappers",
+      "tauri-client remote invoke bridge",
+      "remote-runtime /api/invoke fetch"
+    ],
+    "currentPathsOrFormats": [
+      "Remote web shell using the hostable De-Koi runtime",
+      "Embedded Tauri shell using the same typed storage wrappers",
+      "Existing storage_create, storage_update, storage_delete, storage_list, and storage_get command payloads"
+    ],
+    "legacyPathsOrFormats": [
+      "Embedded Tauri IPC continues to ignore remote request options and uses its existing invoke behavior.",
+      "Existing remote reads, health checks, and ordinary JSON commands retain the 30-second default deadline."
+    ],
+    "outOfScopeClaims": [
+      "This change does not make every specialized storage command unbounded.",
+      "This change does not make slow storage faster.",
+      "This change does not make multi-step roleplay creation atomic.",
+      "This change does not delete or repair pre-existing empty scene chats."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A client-side deadline treated an unfinished non-idempotent mutation as failed even though the server-side write continued and could succeed.",
+    "producer": "src/shared/api/remote-runtime.ts createRemoteRequestDeadline",
+    "consumer": "src/shared/api/storage-api.ts generic mutation wrappers used by createRoleplayScene",
+    "impliedContract": "A durable storage mutation must not report a timeout merely because the server needs longer than an arbitrary browser deadline when that timeout cannot roll back the write.",
+    "actualEnforcement": "Remote request options accept timeoutMs: null, which omits the internal timer but retains the forwarding AbortController. Generic storage create, update, and delete pass that option; list/get and ordinary commands do not.",
+    "primaryOwnerLane": "src/shared/api",
+    "primaryOwnerDetail": "The shared API runtime adapter owns embedded-versus-remote transport deadlines, while the typed storage wrapper owns which operations are durable mutations.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features",
+      "src-tauri"
+    ],
+    "wrongLaneFixToAvoid": "Do not retry or clean up from the roleplay UI after a timeout: the original server-side mutation may still complete, so retries can create duplicates and cleanup can race a successful write.",
+    "regressionProof": [
+      "pnpm exec vitest run src/shared/api/remote-runtime.spec.ts src/shared/api/tauri-client.spec.ts src/shared/api/storage-api.spec.ts src/engine/modes/roleplay/scene/scene-service.spec.ts",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A remote mutation with timeoutMs: null remains pending beyond the former 30-second deadline.",
+        "evidence": "The new invokeRemote fake-timer regression advances through REMOTE_FINITE_REQUEST_TIMEOUT_MS and observes that the promise is still unsettled."
+      },
+      {
+        "claim": "Generic storage mutations opt out of the client deadline while reads remain bounded by default.",
+        "evidence": "The storage wrapper test proves storage_create, storage_update, and storage_delete receive { timeoutMs: null }, while storage_list and storage_get omit request options."
+      },
+      {
+        "claim": "The roleplay creation sequence still uses the covered generic storage gateway calls.",
+        "evidence": "createRoleplayScene continues to create the scene chat, update chat pointers, and create the opening message through StorageGateway; its complete focused suite passed with the shared API regression suites."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Ordinary remote JSON commands must not lose the 30-second safety deadline.",
+        "evidence": "The existing invokeRemote finite-deadline regression still passes and asserts a 504 remote_runtime_timeout for a hanging ordinary command."
+      },
+      {
+        "claim": "No-deadline requests must remain explicitly cancellable.",
+        "evidence": "The new regression aborts the caller signal after the former deadline and proves the exact caller AbortError is returned."
+      },
+      {
+        "claim": "The change must not alter embedded Tauri IPC behavior or remote command payloads.",
+        "evidence": "invokeTauri forwards the option only to invokeRemote; embedded invoke still receives only command and args, and no Rust or HTTP dispatch file changed."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Health checks and reads retain current deadline behavior.",
+        "evidence": "No health or storage read caller passes timeoutMs: null; their existing timeout and routing tests pass."
+      },
+      {
+        "claim": "Existing timeout error details remain stable.",
+        "evidence": "remoteTimeoutError still emits status 504 with code remote_runtime_timeout and the effective numeric timeout for finite requests."
+      }
+    ],
+    "untestedRows": [
+      "The merged prealpha image must be deployed before repeating a real slow roleplay creation against the live Pi data volume."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The deployed Pi reproduced a storage_create lasting about 54 seconds while the browser used a 30-second remote request deadline.",
+      "sourceType": "measured",
+      "evidence": "Live de-koi-server logs showed storage_create beginning at 17:38:03 UTC and completing at 17:38:56 UTC; the browser logged remote_runtime_timeout after 30 seconds."
+    },
+    {
+      "description": "The failed attempts left scene chat records with no opening messages.",
+      "sourceType": "measured",
+      "evidence": "Read-only live storage queries found duplicate roleplay scene chats with complete scene metadata and zero messages."
+    },
+    {
+      "description": "Roleplay creation performs multiple sequential generic storage mutations after planning.",
+      "sourceType": "derived",
+      "evidence": "createRoleplayScene creates the scene chat, patches origin metadata, updates chat linkage, and creates the opening message through StorageGateway."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "This fix does not remove existing empty scene chats. Before manually deleting any duplicate roleplay that must be recoverable, create and download a full De-Koi backup.",
+      "source": "Open Settings, use the Backups section to create a backup, then download that backup.",
+      "destination": "A user-selected folder outside De-Koi's application data directory.",
+      "files": [
+        "The downloaded De-Koi backup archive containing chats, messages, message swipes, and their companion profile data"
+      ],
+      "action": "Confirm the downloaded backup archive exists in the selected folder before deleting any duplicate roleplay chat.",
+      "detectedLayouts": [
+        "Current De-Koi profile backup archive",
+        "Existing Pi data volume at /home/chai/de-koi-data remains untouched by this change"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge live Pi roleplay creation",
+      "blockingCoreClaim": false,
+      "status": "post-merge-verification",
+      "reason": "The focused red/green regression proves the client contract. Exact live completion requires the merged arm64 prealpha image to publish and be deployed to the Pi."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "The pre-fix tests failed because timeoutMs: null still armed the 30-second deadline and storage mutations omitted the opt-out. After the fix, four focused files passed 59 tests; pnpm typecheck, pnpm check:architecture, formatting, diff checks, and full pnpm check passed on current origin/main."
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pass",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 0,
+    "url": "",
+    "headRefName": "fix/roleplay-durable-storage-timeout",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "The user explicitly authorized PR creation, merge to main, and Pi deployment.",
+    "Existing empty roleplay chats were intentionally left untouched."
+  ]
+}

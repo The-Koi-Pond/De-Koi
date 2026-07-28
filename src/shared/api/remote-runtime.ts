@@ -462,12 +462,13 @@ function isAbortError(error: unknown): boolean {
 
 type RemoteFiniteRequestOptions = {
   signal?: AbortSignal;
-  timeoutMs?: number;
+  timeoutMs?: number | null;
 };
 
 function createRemoteRequestDeadline(options: RemoteFiniteRequestOptions = {}) {
   const controller = new AbortController();
-  const timeoutMs = Math.max(1, options.timeoutMs ?? REMOTE_FINITE_REQUEST_TIMEOUT_MS);
+  const timeoutMs =
+    options.timeoutMs === null ? null : Math.max(1, options.timeoutMs ?? REMOTE_FINITE_REQUEST_TIMEOUT_MS);
   let timedOut = false;
   const abortFromCaller = () => controller.abort(options.signal?.reason);
   if (options.signal?.aborted) {
@@ -475,17 +476,20 @@ function createRemoteRequestDeadline(options: RemoteFiniteRequestOptions = {}) {
   } else {
     options.signal?.addEventListener("abort", abortFromCaller, { once: true });
   }
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    controller.abort(new DOMException("Remote runtime request timed out.", "TimeoutError"));
-  }, timeoutMs);
+  const timeout =
+    timeoutMs === null
+      ? undefined
+      : setTimeout(() => {
+          timedOut = true;
+          controller.abort(new DOMException("Remote runtime request timed out.", "TimeoutError"));
+        }, timeoutMs);
   return {
     signal: controller.signal,
-    timeoutMs,
     didTimeOut: () => timedOut,
+    timedOutAfterMs: () => (timedOut ? timeoutMs : null),
     didCallerAbort: () => options.signal?.aborted === true && !timedOut,
     dispose: () => {
-      clearTimeout(timeout);
+      if (timeout !== undefined) clearTimeout(timeout);
       options.signal?.removeEventListener("abort", abortFromCaller);
     },
   };
@@ -602,7 +606,8 @@ export async function checkRemoteRuntimeHealth(
       health: body,
     };
   } catch (error) {
-    if (deadline.didTimeOut()) throw remoteTimeoutError(deadline.timeoutMs);
+    const timedOutAfterMs = deadline.timedOutAfterMs();
+    if (timedOutAfterMs !== null) throw remoteTimeoutError(timedOutAfterMs);
     if (deadline.didCallerAbort() || isAbortError(error)) throw error;
     return { status: "unreachable", message: "Remote runtime is unreachable." };
   } finally {
@@ -700,7 +705,8 @@ export async function invokeRemote<T>(
     if (!response.ok) throw await readRemoteError(response);
     return (await response.json()) as T;
   } catch (error) {
-    if (deadline.didTimeOut()) throw remoteTimeoutError(deadline.timeoutMs);
+    const timedOutAfterMs = deadline.timedOutAfterMs();
+    if (timedOutAfterMs !== null) throw remoteTimeoutError(timedOutAfterMs);
     if (deadline.didCallerAbort() || isAbortError(error)) throw error;
     throw remoteNetworkError(error);
   } finally {
