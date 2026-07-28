@@ -1,0 +1,179 @@
+{
+  "coreClaim": "Conversation and Roleplay provider streams keep journal compaction off the foreground persistence path, including journals that have crossed normal byte or entry thresholds.",
+  "scope": {
+    "inScope": [
+      "LLM stream lifecycle registration",
+      "Deferred storage compaction scheduling",
+      "Message-write and post-stream persistence grace",
+      "Conversation and Roleplay reply persistence"
+    ],
+    "outOfScope": [
+      "Provider response latency",
+      "Concurrent mutation during an already-running compaction",
+      "Automatic memory-capture retention policy",
+      "Persisted collection and journal formats"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/lib.rs",
+      "src-tauri/src/state.rs",
+      "src-tauri/src/commands/storage/llm.rs",
+      ".github/pr-evidence/foreground-generation-compaction/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent storage",
+      "storage concurrency",
+      "provider stream lifecycle",
+      "generation completion latency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Once a message write begins a turn and while its LLM stream is registered, normal deferred compaction cannot acquire the global storage write permit; acknowledged mutations remain journal-backed and shutdown still materializes them.",
+    "riskType": "persistent storage and foreground generation concurrency",
+    "entrypoints": [
+      "FileStorage message and message-swipe mutation",
+      "AppState LLM stream registration and unregistration",
+      "Conversation reply persistence",
+      "Roleplay reply persistence"
+    ],
+    "currentPathsOrFormats": [
+      "Existing collection JSON primaries",
+      "Existing pending JSONL collection journals",
+      "Existing LLM stream cancellation registry"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing data directories require no migration"
+    ],
+    "outOfScopeClaims": [
+      "This change does not interrupt a compaction that started before foreground activity.",
+      "Normal age, entry, and byte thresholds resume after foreground activity and its 30-second persistence grace.",
+      "Shutdown and explicit atomic boundaries still force durable materialization."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A large prompt-snapshot mutation crossed the 256 KiB journal threshold immediately, or a long provider response outlived the 60-second journal age, so deferred compaction still held the global write permit when the reply and memory-capture writes arrived.",
+    "producer": "src-tauri AppState LLM stream lifecycle and storage deferred compaction scheduler",
+    "consumer": "Conversation and Roleplay reply, swipe, character-state, and memory-capture persistence",
+    "impliedContract": "Primary-file compaction is background maintenance and must not outrank an active model response or the writes that immediately persist its result.",
+    "actualEnforcement": "Message writes arm a 30-second registration grace, registered LLM streams increment a shared foreground activity count, deferred flush checks that state before and after acquiring the write permit, and stream teardown adds a 30-second reply-persistence grace.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "AppState owns provider stream registration and FileStorage owns journal durability, deferred scheduling, and write serialization.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not hide the pause in UI pending state, skip durable writes, or discard journal size safeguards.",
+    "regressionProof": [
+      "The foreground size-threshold test failed before implementation because FileStorage had no foreground activity contract.",
+      "A production-policy message test proves the pre-registration grace covers a 300 KiB mutation.",
+      "An AppState integration test proves a registered LLM stream defers unrelated threshold compaction.",
+      "Existing LLM cancellation and failure tests prove the drop guard unregisters every completed or failed stream."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A journal above its configured byte threshold remains journal-backed while foreground activity is registered.",
+        "evidence": "foreground_generation_defers_size_threshold_compaction_until_reply_persistence passes with a one-byte threshold."
+      },
+      {
+        "claim": "A production message write cannot start threshold compaction in the gap before the provider stream registers.",
+        "evidence": "message_write_arms_grace_before_foreground_stream_registration preserves the primary and pending journal after a 300 KiB patch."
+      },
+      {
+        "claim": "A registered provider stream defers compaction from an unrelated collection that could otherwise block message persistence through the global write gate.",
+        "evidence": "registered_llm_stream_defers_unrelated_threshold_compaction preserves the character primary past the deferred-flush debounce."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Foreground deferral must not weaken shutdown durability.",
+        "evidence": "Both new storage tests force shutdown materialization and observe the journal removed with the mutation readable."
+      },
+      {
+        "claim": "Failed, cancelled, or abandoned provider streams must not leave compaction paused.",
+        "evidence": "LlmStreamRegistration unregisters on Drop and all eight llm_stream cleanup tests pass."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "No stored row, collection, journal, or cancellation payload changes shape.",
+        "evidence": "The change adds only in-memory scheduling state and lifecycle calls."
+      }
+    ],
+    "untestedRows": [
+      "Post-merge target-device Conversation and Roleplay timing is measured after the matching Pi image is deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "On merge 93bb4d8313, Conversation samples had provider times from 5.9 seconds to at least 48 seconds while message writes still waited between roughly 5 and 43 seconds behind compaction.",
+      "sourceType": "measured",
+      "evidence": "Live Pi performance diagnostics separated llm_stream spans from storage.operation spans."
+    },
+    {
+      "description": "Journal age alone cannot protect a turn because large prompt snapshots cross the byte threshold and provider responses can outlive the age threshold.",
+      "sourceType": "derived",
+      "evidence": "JournalCompactionPolicy checks byte, age, and entry thresholds independently."
+    },
+    {
+      "description": "The pending journal remains the acknowledged durability boundary while foreground compaction is deferred.",
+      "sourceType": "derived",
+      "evidence": "Focused tests preserve the primary, retain the journal, and force successful shutdown materialization."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or cleanup is required. Optional rollback protection is a stopped-app copy of the existing collection primaries and pending journals.",
+      "source": "The current De-Koi application data collections directory",
+      "destination": "A user-controlled backup folder outside the De-Koi application data directory",
+      "files": [
+        "collections/*.json",
+        "collections/*.pending.jsonl"
+      ],
+      "action": "Stop De-Koi, copy the listed files, verify the copies exist, then start the update. Do not delete or move the source files."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi Conversation and Roleplay samples",
+      "blockingCoreClaim": false,
+      "reason": "The scheduling and durability contracts are deterministic locally; target-device latency requires the merged ARM64 image."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Oversized message mutation before stream registration",
+      "Oversized mutation during foreground activity",
+      "Unrelated collection threshold during an LLM stream",
+      "Cancelled and failed stream teardown",
+      "Shutdown materialization"
+    ],
+    "negativeRowsTested": [
+      "Size threshold does not start foreground compaction",
+      "Long-running provider stream does not release foreground ownership early",
+      "Drop and error paths do not leak foreground activity",
+      "Shutdown still removes the recovered journal"
+    ],
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/crates/storage/Cargo.toml",
+      "cargo test --manifest-path src-tauri/Cargo.toml llm_stream_",
+      "cargo check --manifest-path src-tauri/Cargo.toml --workspace",
+      "cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings -A dead_code",
+      "pnpm check:architecture",
+      "pnpm check",
+      "node .agents/automation/scripts/proof-health.mjs .github/pr-evidence/foreground-generation-compaction/proof-ledger.json --json"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1177",
+    "evidencePublished": true,
+    "checks": "Local focused regressions, all 143 storage tests, eight LLM stream tests, cargo check, strict Clippy, architecture checks, and pnpm check passed; hosted checks pending.",
+    "automatedReview": "Local concurrency and simplification review passed after closing the stream-register/unregister race; hosted current-head Bunny pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}

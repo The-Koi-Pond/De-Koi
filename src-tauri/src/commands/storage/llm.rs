@@ -306,6 +306,17 @@ pub(crate) async fn llm_stream_channel(
     .await
 }
 
+struct LlmStreamRegistration<'a> {
+    state: &'a AppState,
+    stream_id: &'a str,
+}
+
+impl Drop for LlmStreamRegistration<'_> {
+    fn drop(&mut self) {
+        self.state.unregister_llm_stream(self.stream_id);
+    }
+}
+
 pub(crate) async fn llm_stream_events(
     state: &AppState,
     stream_id: String,
@@ -313,15 +324,17 @@ pub(crate) async fn llm_stream_events(
     mut emit: impl FnMut(Value) -> AppResult<()> + Send,
 ) -> AppResult<()> {
     let mut cancellation = state.register_llm_stream(&stream_id)?;
+    let _registration = LlmStreamRegistration {
+        state,
+        stream_id: &stream_id,
+    };
     if *cancellation.borrow() {
-        state.unregister_llm_stream(&stream_id);
         return Ok(());
     }
     let _sidecar_lease = if llm_body_uses_sidecar_connection(&body) {
         match sidecar::begin_inference_request(state, true).await {
             Ok(lease) => Some(lease),
             Err(error) => {
-                state.unregister_llm_stream(&stream_id);
                 return Err(error);
             }
         }
@@ -333,25 +346,17 @@ pub(crate) async fn llm_stream_events(
         _ = cancellation.changed() => Ok(None),
     };
     let request = match request_result {
-        Ok(None) => {
-            state.unregister_llm_stream(&stream_id);
-            return Ok(());
-        }
-        Err(error) => {
-            state.unregister_llm_stream(&stream_id);
-            return Err(error);
-        }
+        Ok(None) => return Ok(()),
+        Err(error) => return Err(error),
         Ok(Some(request)) => request,
     };
     if *cancellation.borrow() {
-        state.unregister_llm_stream(&stream_id);
         return Ok(());
     }
     let result = tokio::select! {
         result = marinara_llm::stream_events(request, &mut emit) => result,
         _ = cancellation.changed() => Ok(()),
     };
-    state.unregister_llm_stream(&stream_id);
     result
 }
 

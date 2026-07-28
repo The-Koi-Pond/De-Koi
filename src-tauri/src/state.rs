@@ -299,14 +299,27 @@ impl AppState {
         prune_expired_llm_stream_cancellations(&mut cancellations);
         let starts_cancelled = cancellations.pending.remove(stream_id).is_some();
         let (tx, rx) = watch::channel(starts_cancelled);
-        cancellations.active.insert(stream_id.to_string(), tx);
+        let newly_active = cancellations
+            .active
+            .insert(stream_id.to_string(), tx)
+            .is_none();
+        if newly_active {
+            self.storage.begin_foreground_activity();
+        }
+        drop(cancellations);
         Ok(rx)
     }
 
     pub fn unregister_llm_stream(&self, stream_id: &str) {
-        if let Ok(mut cancellations) = self.llm_stream_cancellations.lock() {
-            cancellations.active.remove(stream_id);
+        let removed_active = if let Ok(mut cancellations) = self.llm_stream_cancellations.lock() {
+            let removed = cancellations.active.remove(stream_id).is_some();
             cancellations.pending.remove(stream_id);
+            removed
+        } else {
+            false
+        };
+        if removed_active {
+            self.storage.end_foreground_activity();
         }
     }
 
@@ -1532,6 +1545,49 @@ mod tests {
 
         assert!(*cancellation.borrow());
         state.unregister_llm_stream("stream-1");
+    }
+
+    #[test]
+    fn registered_llm_stream_defers_unrelated_threshold_compaction() {
+        let root = temp_root("llm-stream-defers-storage-compaction");
+        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
+        let primary = root.0.join("data/collections/characters.json");
+        let journal = root.0.join("data/collections/characters.pending.jsonl");
+        state
+            .storage
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "name": "Before" })],
+            )
+            .unwrap();
+        let primary_before = fs::read(&primary).unwrap();
+
+        let _cancellation = state
+            .register_llm_stream("stream-1")
+            .expect("stream should register");
+        state
+            .storage
+            .patch(
+                "characters",
+                "character-1",
+                json!({ "description": "x".repeat(512 * 1024) }),
+            )
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(1_500));
+
+        assert_eq!(
+            fs::read(&primary).unwrap(),
+            primary_before,
+            "a provider stream must keep unrelated deferred compaction off the foreground write path"
+        );
+        assert!(
+            journal.exists(),
+            "the generic collection mutation remains durable in its journal"
+        );
+
+        state.unregister_llm_stream("stream-1");
+        state.storage.flush().unwrap();
+        assert!(!journal.exists(), "shutdown still compacts the journal");
     }
 
     #[test]
