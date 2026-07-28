@@ -154,10 +154,10 @@
     "baselinePassed": true
   },
   "pr": {
-    "url": "",
-    "evidencePublished": false,
-    "checks": "Focused Rust regressions, message-swipe suite, cargo check, architecture checks, and pnpm check passed.",
-    "automatedReview": "Local and hosted current-head Bunny pending."
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1178",
+    "evidencePublished": true,
+    "checks": "Focused Rust regressions, message-swipe suite, cargo check, architecture checks, pnpm check, and hosted Required Validation passed.",
+    "automatedReview": "Local current-head Bunny passed with zero findings and zero nitpicks; hosted current-head Bunny is pending."
   },
   "finalGate": {
     "coreClaimProven": true
