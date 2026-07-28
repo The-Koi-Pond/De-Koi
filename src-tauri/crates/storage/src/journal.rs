@@ -69,7 +69,7 @@ impl JournalCompactionPolicy {
 
 impl Default for JournalCompactionPolicy {
     fn default() -> Self {
-        Self::new(Duration::from_secs(5), 64, 256 * 1024)
+        Self::new(Duration::from_secs(60), 64, 256 * 1024)
     }
 }
 

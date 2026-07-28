@@ -57,15 +57,15 @@ enum FlushKind {
 fn clone_dirty_collection_rows(
     _storage_root: &Path,
     _collection: &str,
-    rows: &[Value],
-) -> Vec<Value> {
+    rows: &Arc<Vec<Value>>,
+) -> Arc<Vec<Value>> {
     #[cfg(test)]
     if let Ok(mut hook) = DIRTY_FLUSH_CLONE_TEST_HOOK.lock() {
         if let Some(hook) = hook.as_mut() {
             hook(_storage_root, _collection);
         }
     }
-    rows.to_vec()
+    Arc::clone(rows)
 }
 
 fn next_cache_access(cache: &mut StorageCache) -> u64 {
@@ -371,17 +371,21 @@ impl FileStorage {
             .read()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
         self.write_gate.ensure_available()?;
-        {
+        let cached_rows = {
             let cache = self
                 .cache
                 .read()
                 .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
-            if let Some(cached) = cache.collections.get(collection) {
-                for row in &cached.rows {
-                    visit(row)?;
-                }
-                return Ok(());
+            cache
+                .collections
+                .get(collection)
+                .map(|cached| Arc::clone(&cached.rows))
+        };
+        if let Some(rows) = cached_rows {
+            for row in rows.iter() {
+                visit(row)?;
             }
+            return Ok(());
         }
         let path = self.collection_path(collection)?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
@@ -1102,15 +1106,18 @@ impl FileStorage {
 
     fn cached_rows(&self, collection: &str) -> AppResult<Option<Vec<Value>>> {
         validate_collection_name(collection)?;
-        let mut cache = self
-            .cache
-            .write()
-            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
-        let access = next_cache_access(&mut cache);
-        Ok(cache.collections.get_mut(collection).map(|cached| {
-            cached.last_access = access;
-            cached.rows.clone()
-        }))
+        let rows = {
+            let mut cache = self
+                .cache
+                .write()
+                .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+            let access = next_cache_access(&mut cache);
+            cache.collections.get_mut(collection).map(|cached| {
+                cached.last_access = access;
+                Arc::clone(&cached.rows)
+            })
+        };
+        Ok(rows.map(|rows| rows.as_ref().clone()))
     }
 
     fn cached_row_by_id(&self, collection: &str, id: &str) -> AppResult<Option<Option<Value>>> {
@@ -1153,15 +1160,18 @@ impl FileStorage {
 
     fn cached_dirty_rows(&self, collection: &str) -> AppResult<Option<Vec<Value>>> {
         validate_collection_name(collection)?;
-        let cache = self
-            .cache
-            .read()
-            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
-        Ok(cache
-            .collections
-            .get(collection)
-            .filter(|cached| cached.dirty)
-            .map(|cached| cached.rows.clone()))
+        let rows = {
+            let cache = self
+                .cache
+                .read()
+                .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+            cache
+                .collections
+                .get(collection)
+                .filter(|cached| cached.dirty)
+                .map(|cached| Arc::clone(&cached.rows))
+        };
+        Ok(rows.map(|rows| rows.as_ref().clone()))
     }
 
     fn is_collection_cached(&self, collection: &str) -> AppResult<bool> {
@@ -1176,6 +1186,8 @@ impl FileStorage {
     fn cache_collection(&self, collection: &str, rows: &[Value], dirty: bool) -> AppResult<()> {
         validate_collection_name(collection)?;
         let approx_bytes = rows.iter().map(approximate_json_bytes).sum::<usize>();
+        let prepared = (dirty || approx_bytes <= MAX_CLEAN_COLLECTION_CACHE_BYTES)
+            .then(|| (Arc::new(rows.to_vec()), row_indices_by_id(rows)));
         let mut cache = self
             .cache
             .write()
@@ -1199,11 +1211,13 @@ impl FileStorage {
             }
         }
         let last_access = next_cache_access(&mut cache);
+        let (cached_rows, row_indices_by_id) =
+            prepared.expect("cache rows must be prepared before insertion");
         cache.collections.insert(
             collection.to_string(),
             CachedCollection {
-                rows: rows.to_vec(),
-                row_indices_by_id: row_indices_by_id(rows),
+                rows: cached_rows,
+                row_indices_by_id,
                 dirty,
                 approx_bytes,
                 last_access,
@@ -1260,7 +1274,7 @@ impl FileStorage {
                 cached.approx_bytes = cached
                     .approx_bytes
                     .saturating_add(rows.iter().map(approximate_json_bytes).sum::<usize>());
-                cached.rows.extend(rows.iter().cloned());
+                Arc::make_mut(&mut cached.rows).extend(rows.iter().cloned());
                 for (offset, row) in rows.iter().enumerate() {
                     let Some(id) = row.get("id").and_then(Value::as_str) else {
                         continue;
@@ -1348,8 +1362,7 @@ impl FileStorage {
             .into_iter()
             .filter(|collection| should_flush(collection))
             .filter_map(|collection| {
-                let force = matches!(flush_kind, FlushKind::Shutdown)
-                    || append_journal::checkpoint_tracks(&collection);
+                let force = matches!(flush_kind, FlushKind::Shutdown);
                 let should_compact = collection_journal_needs_compaction(
                     &collections_dir,
                     &collection,
@@ -1371,7 +1384,7 @@ impl FileStorage {
             append_journal::recover(&collections_dir)?;
         }
         for collection in compact {
-            let rows = {
+            let cached_rows = {
                 let cache = self
                     .cache
                     .read()
@@ -1382,17 +1395,22 @@ impl FileStorage {
                         format!("Dirty collection disappeared during flush: {collection}"),
                     )
                 })?;
-                clone_dirty_collection_rows(&self.root, &collection, &cached.rows)
+                Arc::clone(&cached.rows)
             };
+            let rows = clone_dirty_collection_rows(&self.root, &collection, &cached_rows);
             #[cfg(feature = "journal-compaction-bench")]
             if let Some(counter) = &self.journal_compaction_counter {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
-            self.write_collection_file(&collection, &rows)?;
+            self.write_collection_file(&collection, rows.as_ref())?;
             if collection == "chats" {
                 let path = self.collection_path(&collection)?;
                 let source_stamp = chat_summary_source_stamp(&path)?;
-                rebuild_chat_summary_read_model(&self.root, source_stamp.as_deref(), &rows)?;
+                rebuild_chat_summary_read_model(
+                    &self.root,
+                    source_stamp.as_deref(),
+                    rows.as_ref(),
+                )?;
             }
             let mut cache = self
                 .cache
@@ -3580,7 +3598,11 @@ mod tests {
     fn reads_continue_while_deferred_compaction_clones_dirty_rows() {
         let _serial = DIRTY_FLUSH_CLONE_TEST_SERIAL.lock().unwrap();
         let root = temp_storage_root("deferred-flush-readable-during-compaction");
-        let storage = FileStorage::new(&root).unwrap();
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::ZERO, usize::MAX, u64::MAX),
+            SystemTime::now() + Duration::from_secs(1),
+        );
         storage
             .replace_all(
                 "messages",
@@ -3641,6 +3663,84 @@ mod tests {
             read_result.unwrap().unwrap()["content"],
             "After",
             "reads during compaction must use the authoritative dirty cache"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cold_cache_reads_continue_while_deferred_compaction_snapshots_dirty_rows() {
+        let _serial = DIRTY_FLUSH_CLONE_TEST_SERIAL.lock().unwrap();
+        let root = temp_storage_root("deferred-flush-cold-cache-readable");
+        let collections = root.join("collections");
+        write_test_collection(
+            &collections.join("characters.json"),
+            vec![json!({ "id": "character-1", "name": "Cold cache" })],
+        );
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::ZERO, usize::MAX, u64::MAX),
+            SystemTime::now() + Duration::from_secs(1),
+        );
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "content": "Before"
+                })],
+            )
+            .unwrap();
+        storage
+            .patch("messages", "message-1", json!({ "content": "After" }))
+            .unwrap();
+
+        let (clone_started_tx, clone_started_rx) = mpsc::sync_channel(1);
+        let (release_clone_tx, release_clone_rx) = mpsc::sync_channel(1);
+        let observed_root = root.clone();
+        *DIRTY_FLUSH_CLONE_TEST_HOOK.lock().unwrap() =
+            Some(Box::new(move |storage_root, collection| {
+                if storage_root == observed_root && collection == "messages" {
+                    clone_started_tx.send(()).unwrap();
+                    release_clone_rx.recv().unwrap();
+                }
+            }));
+
+        let flush_storage = storage.clone();
+        let flush = std::thread::spawn(move || flush_storage.flush_deferred_writes());
+        clone_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("deferred compaction must reach the dirty row snapshot");
+
+        let (read_tx, read_rx) = mpsc::sync_channel(1);
+        let read_storage = storage.clone();
+        let read = std::thread::spawn(move || {
+            read_tx
+                .send(read_storage.get("characters", "character-1"))
+                .unwrap();
+        });
+        let early_read = read_rx.recv_timeout(Duration::from_millis(250));
+        let read_completed_while_compaction_paused = early_read.is_ok();
+
+        release_clone_tx.send(()).unwrap();
+        flush.join().unwrap().unwrap();
+        *DIRTY_FLUSH_CLONE_TEST_HOOK.lock().unwrap() = None;
+        let read_result = match early_read {
+            Ok(result) => result,
+            Err(_) => read_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("cold-cache read must finish after compaction resumes"),
+        };
+        read.join().unwrap();
+
+        assert!(
+            read_completed_while_compaction_paused,
+            "deferred compaction must not hold the cache lock while snapshotting rows"
+        );
+        assert_eq!(
+            read_result.unwrap().unwrap()["name"],
+            "Cold cache",
+            "a concurrent cold-cache read must preserve its indexed result"
         );
         fs::remove_dir_all(root).unwrap();
     }
@@ -4776,6 +4876,64 @@ mod tests {
     }
 
     #[test]
+    fn active_generation_window_defers_fresh_tracked_collection_compaction() {
+        let root = temp_storage_root("active-generation-defers-tracked-compaction");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        write_test_collection(
+            &messages,
+            vec![json!({ "id": "baseline-message", "content": "before" })],
+        );
+        write_test_collection(&collections.join("message-swipes.json"), Vec::new());
+        let original_messages = fs::read(&messages).unwrap();
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::default(),
+            SystemTime::now() + Duration::from_secs(10),
+        );
+
+        storage
+            .patch(
+                "messages",
+                "baseline-message",
+                json!({ "content": "during generation" }),
+            )
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert_eq!(
+            fs::read(&messages).unwrap(),
+            original_messages,
+            "a fresh message journal should not rewrite the large primary during generation"
+        );
+        assert!(
+            collections.join("messages.pending.jsonl").exists(),
+            "the durable message journal should remain until the idle threshold"
+        );
+        assert_eq!(
+            storage
+                .get("messages", "baseline-message")
+                .unwrap()
+                .unwrap()["content"],
+            "during generation",
+            "reads should continue from the authoritative dirty cache"
+        );
+
+        drop(storage);
+        let restarted = FileStorage::new(&root).unwrap();
+        assert_eq!(
+            restarted
+                .get("messages", "baseline-message")
+                .unwrap()
+                .unwrap()["content"],
+            "during generation",
+            "startup recovery should replay a deferred message journal"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn deferred_flush_checkpoints_pending_appends_before_writing_tracked_collection() {
         let root = temp_storage_root("deferred-flush-tracked-collection");
         let collections = root.join("collections");
@@ -4784,7 +4942,11 @@ mod tests {
             vec![json!({ "id": "baseline-message" })],
         );
         write_test_collection(&collections.join("message-swipes.json"), Vec::new());
-        let storage = FileStorage::new(&root).unwrap();
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::ZERO, usize::MAX, u64::MAX),
+            SystemTime::now() + Duration::from_secs(1),
+        );
 
         assert!(storage
             .append_many_uncached(vec![(
