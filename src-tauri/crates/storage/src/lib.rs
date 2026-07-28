@@ -303,18 +303,17 @@ impl FileStorage {
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
         append_journal::recover(&self.root.join("collections"))?;
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)
+        self.flush_dirty_collections(FlushKind::Shutdown)
     }
 
     fn flush_deferred_writes(&self) -> AppResult<()> {
         let _write_permit = self.write_gate.begin_write()?;
-        let _guard = self
-            .lock
-            .write()
-            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        // The write permit keeps the dirty cache stable while compaction runs.
+        // Reads can continue from that authoritative cache instead of waiting
+        // for the slower backup, serialization, sync, and atomic file swap.
         // Avoid checkpointing unrelated pending appends. The dirty flush recovers
         // once up front if its write set contains a checkpoint-tracked collection.
-        self.flush_dirty_collections_locked(FlushKind::Deferred)
+        self.flush_dirty_collections(FlushKind::Deferred)
     }
 
     pub fn list(&self, collection: &str) -> AppResult<Vec<Value>> {
@@ -1011,7 +1010,7 @@ impl FileStorage {
                 .lock
                 .write()
                 .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-            self.flush_dirty_collections_locked_for(FlushKind::Shutdown, &target_collections)?;
+            self.flush_dirty_collections_for(FlushKind::Shutdown, &target_collections)?;
 
             let mut loaded = Vec::with_capacity(collections.len());
             let mut original_stamps = Vec::with_capacity(collections.len());
@@ -1042,7 +1041,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked_for(FlushKind::Shutdown, &target_collections)?;
+        self.flush_dirty_collections_for(FlushKind::Shutdown, &target_collections)?;
         for (collection, original_stamp) in &original_stamps {
             let path = self.collection_path(collection)?;
             if collection_content_stamp(&path)? != *original_stamp {
@@ -1074,7 +1073,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
+        self.flush_dirty_collections(FlushKind::Shutdown)?;
         self.replace_all_many_locked(replacements, after_install)
     }
 
@@ -1310,21 +1309,21 @@ impl FileStorage {
         (self.deferred_flush_scheduler)(self.clone());
     }
 
-    fn flush_dirty_collections_locked(&self, flush_kind: FlushKind) -> AppResult<()> {
-        self.flush_dirty_collections_locked_matching(flush_kind, |_| true)
+    fn flush_dirty_collections(&self, flush_kind: FlushKind) -> AppResult<()> {
+        self.flush_dirty_collections_matching(flush_kind, |_| true)
     }
 
-    fn flush_dirty_collections_locked_for(
+    fn flush_dirty_collections_for(
         &self,
         flush_kind: FlushKind,
         collections: &HashSet<String>,
     ) -> AppResult<()> {
-        self.flush_dirty_collections_locked_matching(flush_kind, |collection| {
+        self.flush_dirty_collections_matching(flush_kind, |collection| {
             collections.contains(collection)
         })
     }
 
-    fn flush_dirty_collections_locked_matching(
+    fn flush_dirty_collections_matching(
         &self,
         flush_kind: FlushKind,
         should_flush: impl Fn(&str) -> bool,
@@ -3074,9 +3073,11 @@ mod tests {
     use super::*;
     use std::sync::{
         atomic::{AtomicUsize, Ordering as AtomicOrdering},
-        Arc as TestArc, Mutex as TestMutex,
+        mpsc, Arc as TestArc, Mutex as TestMutex,
     };
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    static DIRTY_FLUSH_CLONE_TEST_SERIAL: TestMutex<()> = TestMutex::new(());
 
     fn temp_storage_root(test_name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -3516,6 +3517,7 @@ mod tests {
 
     #[test]
     fn deferred_flush_clones_only_collections_selected_for_compaction() {
+        let _serial = DIRTY_FLUSH_CLONE_TEST_SERIAL.lock().unwrap();
         let root = temp_storage_root("deferred-flush-selected-clones");
         let storage = storage_with_journal_compaction_policy(
             &root,
@@ -3570,6 +3572,75 @@ mod tests {
                 .join("personas.pending.jsonl")
                 .exists(),
             "the below-threshold collection must remain dirty"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reads_continue_while_deferred_compaction_clones_dirty_rows() {
+        let _serial = DIRTY_FLUSH_CLONE_TEST_SERIAL.lock().unwrap();
+        let root = temp_storage_root("deferred-flush-readable-during-compaction");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "content": "Before"
+                })],
+            )
+            .unwrap();
+        storage
+            .patch("messages", "message-1", json!({ "content": "After" }))
+            .unwrap();
+
+        let (clone_started_tx, clone_started_rx) = mpsc::sync_channel(1);
+        let (release_clone_tx, release_clone_rx) = mpsc::sync_channel(1);
+        let observed_root = root.clone();
+        *DIRTY_FLUSH_CLONE_TEST_HOOK.lock().unwrap() =
+            Some(Box::new(move |storage_root, collection| {
+                if storage_root == observed_root && collection == "messages" {
+                    clone_started_tx.send(()).unwrap();
+                    release_clone_rx.recv().unwrap();
+                }
+            }));
+
+        let flush_storage = storage.clone();
+        let flush = std::thread::spawn(move || flush_storage.flush_deferred_writes());
+        clone_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("deferred compaction must reach the dirty row snapshot");
+
+        let (read_tx, read_rx) = mpsc::sync_channel(1);
+        let read_storage = storage.clone();
+        let read = std::thread::spawn(move || {
+            read_tx
+                .send(read_storage.get("messages", "message-1"))
+                .unwrap();
+        });
+        let early_read = read_rx.recv_timeout(Duration::from_millis(250));
+        let read_completed_while_compaction_paused = early_read.is_ok();
+
+        release_clone_tx.send(()).unwrap();
+        flush.join().unwrap().unwrap();
+        *DIRTY_FLUSH_CLONE_TEST_HOOK.lock().unwrap() = None;
+        let read_result = match early_read {
+            Ok(result) => result,
+            Err(_) => read_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("read must finish after deferred compaction resumes"),
+        };
+        read.join().unwrap();
+
+        assert!(
+            read_completed_while_compaction_paused,
+            "deferred disk compaction must not hold the global storage lock"
+        );
+        assert_eq!(
+            read_result.unwrap().unwrap()["content"],
+            "After",
+            "reads during compaction must use the authoritative dirty cache"
         );
         fs::remove_dir_all(root).unwrap();
     }

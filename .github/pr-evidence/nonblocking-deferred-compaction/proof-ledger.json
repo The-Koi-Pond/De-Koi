@@ -1,0 +1,168 @@
+{
+  "coreClaim": "Deferred storage compaction no longer blocks Conversation or Roleplay reads while large dirty message collections are serialized to disk.",
+  "scope": {
+    "inScope": [
+      "Deferred FileStorage compaction",
+      "Reads served from authoritative dirty collection caches",
+      "Write serialization during compaction",
+      "Focused storage concurrency regression proof"
+    ],
+    "outOfScope": [
+      "Synchronous shutdown and atomic-update flushes",
+      "Automatic memory-capture retention policy",
+      "Prompt assembly and repetition checks",
+      "Provider response latency"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/lib.rs",
+      "src-tauri/crates/storage/src/streaming.rs",
+      ".github/pr-evidence/nonblocking-deferred-compaction/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent storage",
+      "storage concurrency",
+      "generation completion latency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "A read may complete from a dirty collection cache while deferred compaction owns the write permit and performs slow disk work.",
+    "riskType": "persistent storage concurrency",
+    "entrypoints": [
+      "FileStorage deferred flush after message mutation",
+      "Conversation generation completion",
+      "Roleplay generation completion"
+    ],
+    "currentPathsOrFormats": [
+      "messages.json and messages.pending.jsonl",
+      "message-swipes.json and message-swipes.pending.jsonl",
+      "dirty in-memory collection caches"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing collection JSON arrays and pending JSONL journals created before this change"
+    ],
+    "outOfScopeClaims": [
+      "This PR does not make concurrent writes legal during compaction.",
+      "This PR does not change the journal, backup, sync, or atomic swap durability sequence.",
+      "Post-merge Raspberry Pi latency is measured after the matching image is deployed."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A background durability task held the global storage write lock through collection cloning, backup refresh, JSON serialization, sync, and atomic swap, so unrelated reads froze behind slow Pi disk work.",
+    "producer": "src-tauri/crates/storage/src/lib.rs deferred flush scheduler",
+    "consumer": "all storage reads issued during Conversation and Roleplay reply completion",
+    "impliedContract": "Deferred persistence may serialize mutations but must not make authoritative cached reads wait for disk compaction.",
+    "actualEnforcement": "Deferred flush keeps the existing write permit to serialize mutations, releases the global read/write lock, and serves reads from dirty caches until compaction marks them clean.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "The storage crate owns cache authority, write serialization, journals, backups, and deferred compaction.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not hide the pause in Conversation or Roleplay UI state and do not skip durable message writes.",
+    "regressionProof": [
+      "The focused Rust test pauses deferred compaction at its dirty-row snapshot and requires a public get call to complete before compaction resumes.",
+      "The test failed before the implementation because deferred flush still held the global storage lock.",
+      "The same read returns the patched dirty-cache value, proving it does not fall back to stale disk bytes."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A read completes while deferred compaction is deliberately paused.",
+        "evidence": "cargo test --manifest-path src-tauri/crates/storage/Cargo.toml reads_continue_while_deferred_compaction_clones_dirty_rows passed."
+      },
+      {
+        "claim": "The concurrent read observes the acknowledged patched value.",
+        "evidence": "The focused regression test reads content After from the dirty messages cache before the compaction pause is released."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Deferred compaction must not allow a stale disk read while the dirty cache is authoritative.",
+        "evidence": "The regression assertion compares the concurrent public get result with the patched cache value."
+      },
+      {
+        "claim": "Removing the global lock must not weaken existing storage behavior.",
+        "evidence": "All 139 storage crate tests and the full Tauri cargo check pass."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Shutdown and atomic-update flushes retain their existing lock behavior.",
+        "evidence": "Only flush_deferred_writes stopped taking the global write lock; synchronous callers still acquire it before the shared flush implementation."
+      }
+    ],
+    "untestedRows": [
+      "Target-device end-to-end generation timing is verified after the merged Raspberry Pi image is deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The deployed Pi showed storage reads pausing together for roughly 20 to 21 seconds after a generated reply while deferred message and swipe compaction ran.",
+      "sourceType": "measured",
+      "evidence": "Performance diagnostics for the live Conversation sample recorded chats list at 20754 ms, memory-capture-jobs list at 20836 ms, chat gets near 20869 ms, and projected messages list at 21096 ms."
+    },
+    {
+      "description": "Memory recall and prompt preparation were not the source of that pause.",
+      "sourceType": "measured",
+      "evidence": "The same live sample recorded memory_index_query_batch at 294 ms, memory_query_batch at 31 ms, and projected prompt messages at 392 ms before generation."
+    },
+    {
+      "description": "The write permit already serializes ordinary writes independently of the global read/write lock.",
+      "sourceType": "derived",
+      "evidence": "Derived from src-tauri/crates/storage/src/write_gate.rs and every public FileStorage mutation acquiring begin_write before the storage lock."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or cleanup is required. For optional rollback protection before updating De-Koi, copy the existing application data collections while De-Koi is stopped.",
+      "source": "The current De-Koi application data collections directory",
+      "destination": "A user-controlled backup folder outside the De-Koi application data directory",
+      "files": [
+        "collections/*.json",
+        "collections/*.pending.jsonl"
+      ],
+      "action": "Stop De-Koi, copy the listed collection files to the destination, verify the copies exist, and then start the update. Do not delete or move the source files."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi Conversation and Roleplay samples",
+      "blockingCoreClaim": false,
+      "reason": "The concurrency contract is deterministic locally; target-device latency requires the merged container image."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Checkpoint-tracked messages collection",
+      "Dirty cached row during deferred compaction",
+      "Concurrent public read"
+    ],
+    "negativeRowsTested": [
+      "Read does not wait for the paused compaction",
+      "Read does not return the pre-patch disk value",
+      "Synchronous flush behavior is unchanged"
+    ],
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/crates/storage/Cargo.toml reads_continue_while_deferred_compaction_clones_dirty_rows",
+      "cargo test --manifest-path src-tauri/crates/storage/Cargo.toml",
+      "cargo check --manifest-path src-tauri/Cargo.toml",
+      "pnpm check:architecture",
+      "pnpm check",
+      "node .agents/automation/scripts/proof-health.mjs .github/pr-evidence/nonblocking-deferred-compaction/proof-ledger.json --json",
+      "node .agents/automation/scripts/workflow-health.mjs --repo The-Koi-Pond/De-Koi --json"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1173",
+    "evidencePublished": true,
+    "checks": "Local focused tests, all 139 storage tests, cargo check, architecture checks, and pnpm check passed; hosted checks pending.",
+    "automatedReview": "Local Bunny passed; hosted current-head Bunny pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
