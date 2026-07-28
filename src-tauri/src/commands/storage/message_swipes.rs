@@ -455,6 +455,22 @@ fn append_created_message_and_swipes_if_uncached(
     Ok(Some(materialized))
 }
 
+fn journal_created_message_with_embedded_swipes(
+    state: &AppState,
+    mut message: Value,
+    swipes: Vec<Value>,
+) -> AppResult<Value> {
+    let embedded_swipes = public_swipes_from_rows(&swipe_rows_for_message(&message, &swipes)?);
+    let object = message
+        .as_object_mut()
+        .ok_or_else(|| AppError::invalid_input("Message is not an object"))?;
+    object.insert("swipes".to_string(), Value::Array(embedded_swipes));
+    let mut created = state.storage.create("messages", message)?;
+    preserve_embedded_parent_active_extra(&mut created);
+    materialize_message_swipe_fields(&mut created);
+    Ok(created)
+}
+
 fn persist_created_message_with_swipes(
     state: &AppState,
     mut message: Value,
@@ -468,6 +484,7 @@ fn persist_created_message_with_swipes(
         {
             return Ok(updated);
         }
+        return journal_created_message_with_embedded_swipes(state, message, swipes);
     }
 
     let mut updated = write_message_and_swipes(state, message, swipes, false)?;
@@ -1155,30 +1172,20 @@ mod tests {
         }
     }
 
-    fn persisted_message_shape(state: &AppState, message_id: &str) -> Value {
+    fn materialized_message_shape(state: &AppState, message_id: &str) -> Value {
         let mut message = state
             .storage
             .get("messages", message_id)
             .expect("message lookup should not fail")
             .expect("message should exist");
+        materialize_message(state, &mut message, true).expect("message should materialize");
         strip_generated_shape_fields(&mut message);
-
-        let mut sidecars = state
-            .storage
-            .list(COLLECTION)
-            .expect("sidecars should list")
-            .into_iter()
-            .filter(|row| sidecar_matches_message_id(row, message_id))
-            .collect::<Vec<_>>();
-        sort_sidecar_rows(&mut sidecars);
-        for sidecar in &mut sidecars {
-            strip_generated_shape_fields(sidecar);
+        if let Some(swipes) = message.get_mut("swipes").and_then(Value::as_array_mut) {
+            for swipe in swipes {
+                strip_generated_shape_fields(swipe);
+            }
         }
-
-        json!({
-            "message": message,
-            "sidecars": sidecars
-        })
+        message
     }
 
     #[test]
@@ -2060,7 +2067,7 @@ mod tests {
     }
 
     #[test]
-    fn fast_append_and_dirty_cache_fallback_persist_same_generated_message_shape() {
+    fn fast_append_and_dirty_cache_fallback_materialize_same_generated_message_shape() {
         let input = json!({
             "chatId": "chat-shape",
             "role": "assistant",
@@ -2106,8 +2113,127 @@ mod tests {
         let dirty_id = value_id(&dirty_created);
 
         assert_eq!(
-            persisted_message_shape(&fast_state, &fast_id),
-            persisted_message_shape(&dirty_state, &dirty_id)
+            materialized_message_shape(&fast_state, &fast_id),
+            materialized_message_shape(&dirty_state, &dirty_id)
+        );
+    }
+
+    #[test]
+    fn generated_message_create_with_dirty_cache_stays_journal_backed() {
+        let state = test_state("create-dirty-cache-journal");
+        let data_dir = state.data_dir.clone();
+        state
+            .storage
+            .replace_all(
+                "messages",
+                vec![json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "existing",
+                    "activeSwipeIndex": 0
+                })],
+            )
+            .expect("messages should seed");
+        state
+            .storage
+            .replace_all(
+                COLLECTION,
+                vec![json!({
+                    "id": "message-1::swipe::0",
+                    "messageId": "message-1",
+                    "chatId": "chat-1",
+                    "index": 0,
+                    "content": "existing"
+                })],
+            )
+            .expect("sidecars should seed");
+        state
+            .storage
+            .patch(
+                "messages",
+                "message-1",
+                json!({ "extra": { "memoryCapture": { "status": "completed" } } }),
+            )
+            .expect("metadata patch should dirty the messages cache");
+
+        let collections = state.storage.root().join("collections");
+        let messages_path = collections.join("messages.json");
+        let swipes_path = collections.join("message-swipes.json");
+        let messages_before = std::fs::read(&messages_path).expect("messages should be readable");
+        let swipes_before = std::fs::read(&swipes_path).expect("swipes should be readable");
+
+        let created = create_message(
+            &state,
+            json!({
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "new reply",
+                "extra": { "generationInfo": { "model": "test-model" } }
+            }),
+        )
+        .expect("generated-id message should create");
+        let created_id = value_id(&created);
+
+        assert_eq!(created["content"], json!("new reply"));
+        assert_eq!(created["swipes"][0]["content"], json!("new reply"));
+        assert_eq!(
+            std::fs::read(&messages_path).expect("messages should remain readable"),
+            messages_before,
+            "a dirty cache must not force a full messages-primary rewrite"
+        );
+        assert_eq!(
+            std::fs::read(&swipes_path).expect("sidecars should remain readable"),
+            swipes_before,
+            "a generated message create must not rewrite unrelated sidecars"
+        );
+        assert!(
+            collections.join("messages.pending.jsonl").is_file(),
+            "the generated message and earlier metadata patch should remain durable in the journal"
+        );
+
+        let mut stored = state
+            .storage
+            .get("messages", &created_id)
+            .expect("created message lookup should not fail")
+            .expect("created message should exist");
+        materialize_message(&state, &mut stored, true).expect("created message should materialize");
+        assert_eq!(stored["swipeCount"], json!(1));
+        assert_eq!(stored["swipes"][0]["content"], json!("new reply"));
+        assert_eq!(
+            state
+                .storage
+                .list(COLLECTION)
+                .expect("sidecars should list")
+                .len(),
+            1,
+            "the journal fallback should not create a partial sidecar"
+        );
+
+        drop(state);
+        let reopened =
+            AppState::from_data_dir(data_dir, Vec::new()).expect("app state should reopen");
+        let mut reopened_message = reopened
+            .storage
+            .get("messages", &created_id)
+            .expect("reopened message lookup should not fail")
+            .expect("journal-backed message should survive restart");
+        materialize_message(&reopened, &mut reopened_message, true)
+            .expect("reopened message should materialize");
+        assert_eq!(reopened_message["content"], json!("new reply"));
+        assert_eq!(reopened_message["swipes"][0]["content"], json!("new reply"));
+        assert_eq!(
+            reopened_message["extra"]["generationInfo"]["model"],
+            json!("test-model")
+        );
+        assert_eq!(
+            reopened
+                .storage
+                .get("messages", "message-1")
+                .expect("seed message lookup should not fail")
+                .expect("seed message should survive restart")["extra"]["memoryCapture"]["status"],
+            json!("completed"),
+            "the earlier metadata journal entry must survive alongside the generated create"
         );
     }
 
