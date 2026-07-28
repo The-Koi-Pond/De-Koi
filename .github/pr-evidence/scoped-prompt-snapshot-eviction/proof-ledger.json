@@ -137,10 +137,10 @@
     "baselinePassed": true
   },
   "pr": {
-    "url": "pending",
-    "evidencePublished": false,
-    "checks": "Local pnpm check passed after rebasing onto origin/main.",
-    "automatedReview": "Local Bunny passed; hosted current-head review pending."
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1172",
+    "evidencePublished": true,
+    "checks": "Local pnpm check passed after rebasing onto origin/main; hosted checks pending.",
+    "automatedReview": "Local Bunny passed; hosted current-head Bunny pending."
   },
   "finalGate": {
     "coreClaimProven": true
