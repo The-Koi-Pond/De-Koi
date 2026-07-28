@@ -34,9 +34,7 @@ function statusFallbackLabel(status: ConversationStatus | undefined): string | n
   }
 }
 
-export function getConversationCharacterStatusDetail(
-  character: ConversationCharacterStatusDisplay,
-): string | null {
+export function getConversationCharacterStatusDetail(character: ConversationCharacterStatusDisplay): string | null {
   const statusMessage = normalizeDetail(character.conversationStatusMessage);
   if (statusMessage && !isNoSchedulePlaceholder(statusMessage)) return statusMessage;
 

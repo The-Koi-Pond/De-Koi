@@ -1,4 +1,4 @@
-import { resolveConversationStatusMessagesEnabled } from "../../../../../engine/modes/chat/status/conversation-status-settings";
+import { resolveConversationStatusMessagesEnabled } from "../../../../engine/modes/chat/status/conversation-status-settings";
 
 function readString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
