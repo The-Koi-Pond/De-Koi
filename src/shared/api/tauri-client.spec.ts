@@ -81,10 +81,21 @@ describe("invokeTauri performance diagnostics", () => {
     const { invokeTauri } = await import("./tauri-client");
     await invokeTauri("llm_complete", { request: {} }, { timeoutMs: 300_000 });
 
+    expect(mocks.invokeRemote).toHaveBeenCalledWith("llm_complete", { request: {} }, { timeoutMs: 300_000 });
+  });
+
+  it("forwards an explicit request deadline opt-out", async () => {
+    mocks.remoteRuntimeTarget.mockReturnValue({ baseUrl: "http://127.0.0.1:3080" });
+    mocks.isRemoteCommand.mockReturnValue(true);
+    mocks.invokeRemote.mockResolvedValue({ ok: true });
+
+    const { invokeTauri } = await import("./tauri-client");
+    await invokeTauri("storage_create", { entity: "chats", value: {} }, { timeoutMs: null });
+
     expect(mocks.invokeRemote).toHaveBeenCalledWith(
-      "llm_complete",
-      { request: {} },
-      { timeoutMs: 300_000 },
+      "storage_create",
+      { entity: "chats", value: {} },
+      { timeoutMs: null },
     );
   });
 });
