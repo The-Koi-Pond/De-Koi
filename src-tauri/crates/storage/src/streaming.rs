@@ -259,7 +259,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
+        self.flush_dirty_collections(FlushKind::Shutdown)?;
         let path = self.collection_path(collection)?;
         if !path.exists() {
             return Ok(0);
@@ -280,7 +280,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
+        self.flush_dirty_collections(FlushKind::Shutdown)?;
         let path = self.collection_path(collection)?;
         if !path.exists() {
             return Ok((0, None));
@@ -344,7 +344,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
+        self.flush_dirty_collections(FlushKind::Shutdown)?;
 
         let path = self.collection_path(collection)?;
         if !path.exists() {
@@ -497,7 +497,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_locked(FlushKind::Shutdown)?;
+        self.flush_dirty_collections(FlushKind::Shutdown)?;
 
         let path = self.collection_path(collection)?;
         if !path.exists() {
