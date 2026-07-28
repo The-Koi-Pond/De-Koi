@@ -26,20 +26,91 @@ use std::io::{BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, RwLock,
+    Arc, Mutex, RwLock,
 };
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 pub use streaming::{StreamingFilterReport, StreamingTransformReport};
 use transaction::*;
 use write_gate::WriteGate;
 
 const STORAGE_SAVE_DEBOUNCE_MS: u64 = 750;
+const FOREGROUND_COMPACTION_GRACE: Duration = Duration::from_secs(30);
 const MAX_CLEAN_COLLECTION_CACHE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PROJECTED_LIST_CACHE_SHAPES: usize = 32;
 
 type JournalClock = Arc<dyn Fn() -> SystemTime + Send + Sync>;
 type DeferredFlushScheduler = Arc<dyn Fn(FileStorage) + Send + Sync>;
+
+struct CompactionActivityState {
+    active_foreground_operations: usize,
+    deferred_until: Instant,
+}
+
+struct CompactionActivity {
+    state: Mutex<CompactionActivityState>,
+    grace: Duration,
+}
+
+impl CompactionActivity {
+    fn new(grace: Duration) -> Self {
+        Self {
+            state: Mutex::new(CompactionActivityState {
+                active_foreground_operations: 0,
+                deferred_until: Instant::now(),
+            }),
+            grace,
+        }
+    }
+
+    fn begin(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.active_foreground_operations = state.active_foreground_operations.saturating_add(1);
+    }
+
+    fn end(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.active_foreground_operations == 0 {
+            return;
+        }
+        state.active_foreground_operations -= 1;
+        Self::defer_locked(&mut state, self.grace);
+    }
+
+    fn defer_for(&self, duration: Duration) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Self::defer_locked(&mut state, duration);
+    }
+
+    fn defer_locked(state: &mut CompactionActivityState, duration: Duration) {
+        let deadline = Instant::now()
+            .checked_add(duration)
+            .unwrap_or_else(Instant::now);
+        if deadline > state.deferred_until {
+            state.deferred_until = deadline;
+        }
+    }
+
+    fn is_deferred(&self) -> bool {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.active_foreground_operations > 0 {
+            return true;
+        }
+        Instant::now() < state.deferred_until
+    }
+}
 
 #[cfg(test)]
 type DirtyFlushCloneTestHook = Box<dyn FnMut(&Path, &str) + Send + 'static>;
@@ -199,6 +270,7 @@ pub struct FileStorage {
     lock: Arc<RwLock<()>>,
     cache: Arc<RwLock<StorageCache>>,
     flush_scheduled: Arc<AtomicBool>,
+    compaction_activity: Arc<CompactionActivity>,
     write_gate: Arc<WriteGate>,
     journal_compaction_policy: JournalCompactionPolicy,
     journal_clock: JournalClock,
@@ -222,13 +294,18 @@ fn spawn_deferred_flush(storage: FileStorage) {
 
 impl FileStorage {
     pub fn new(root: impl Into<PathBuf>) -> AppResult<Self> {
-        Self::new_with_journal_compaction_policy(
+        Self::new_with_journal_compaction_policy_and_scheduler(
             root.into(),
             JournalCompactionPolicy::default(),
             Arc::new(SystemTime::now),
+            FOREGROUND_COMPACTION_GRACE,
+            Arc::new(spawn_deferred_flush),
+            #[cfg(feature = "journal-compaction-bench")]
+            None,
         )
     }
 
+    #[cfg(test)]
     fn new_with_journal_compaction_policy(
         root: PathBuf,
         journal_compaction_policy: JournalCompactionPolicy,
@@ -238,6 +315,7 @@ impl FileStorage {
             root,
             journal_compaction_policy,
             journal_clock,
+            Duration::ZERO,
             Arc::new(spawn_deferred_flush),
             #[cfg(feature = "journal-compaction-bench")]
             None,
@@ -248,6 +326,7 @@ impl FileStorage {
         root: PathBuf,
         journal_compaction_policy: JournalCompactionPolicy,
         journal_clock: JournalClock,
+        foreground_compaction_grace: Duration,
         deferred_flush_scheduler: DeferredFlushScheduler,
         #[cfg(feature = "journal-compaction-bench")] journal_compaction_counter: Option<
             Arc<std::sync::atomic::AtomicUsize>,
@@ -260,6 +339,7 @@ impl FileStorage {
             lock: Arc::new(RwLock::new(())),
             cache: Arc::new(RwLock::new(StorageCache::default())),
             flush_scheduled: Arc::new(AtomicBool::new(false)),
+            compaction_activity: Arc::new(CompactionActivity::new(foreground_compaction_grace)),
             write_gate: Arc::new(WriteGate::default()),
             journal_compaction_policy,
             journal_clock,
@@ -287,6 +367,7 @@ impl FileStorage {
             root.into(),
             JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, u64::MAX),
             Arc::new(SystemTime::now),
+            Duration::ZERO,
             Arc::new(|_| {}),
             Some(journal_compaction_counter),
         )
@@ -306,8 +387,22 @@ impl FileStorage {
         self.flush_dirty_collections(FlushKind::Shutdown)
     }
 
+    pub fn begin_foreground_activity(&self) {
+        self.compaction_activity.begin();
+    }
+
+    pub fn end_foreground_activity(&self) {
+        self.compaction_activity.end();
+    }
+
     fn flush_deferred_writes(&self) -> AppResult<()> {
+        if self.compaction_activity.is_deferred() {
+            return Ok(());
+        }
         let _write_permit = self.write_gate.begin_write()?;
+        if self.compaction_activity.is_deferred() {
+            return Ok(());
+        }
         // The write permit keeps the dirty cache stable while compaction runs.
         // Reads can continue from that authoritative cache instead of waiting
         // for the slower backup, serialization, sync, and atomic file swap.
@@ -2638,6 +2733,10 @@ impl FileStorage {
             remove_chat_summary_read_model(&self.root)?;
         }
         append_collection_mutation(&self.root.join("collections"), collection, &mutation)?;
+        if matches!(collection, "messages" | "message-swipes") {
+            self.compaction_activity
+                .defer_for(self.compaction_activity.grace);
+        }
         self.cache_collection(collection, rows, true)?;
         self.schedule_dirty_flush();
         Ok(())
@@ -4930,6 +5029,100 @@ mod tests {
             "startup recovery should replay a deferred message journal"
         );
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn foreground_generation_defers_size_threshold_compaction_until_reply_persistence() {
+        let root = temp_storage_root("foreground-generation-defers-size-compaction");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        write_test_collection(
+            &messages,
+            vec![json!({ "id": "baseline-message", "content": "before" })],
+        );
+        write_test_collection(&collections.join("message-swipes.json"), Vec::new());
+        let original_messages = fs::read(&messages).unwrap();
+        let storage = storage_with_journal_compaction_policy(
+            &root,
+            JournalCompactionPolicy::new(Duration::from_secs(60), usize::MAX, 1),
+            SystemTime::now(),
+        );
+
+        storage.begin_foreground_activity();
+        storage
+            .patch(
+                "messages",
+                "baseline-message",
+                json!({ "generationPromptSnapshot": "x".repeat(1024) }),
+            )
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert_eq!(
+            fs::read(&messages).unwrap(),
+            original_messages,
+            "a size-threshold journal must not start a primary rewrite while the model is streaming"
+        );
+        assert!(
+            collections.join("messages.pending.jsonl").exists(),
+            "the acknowledged journal remains the durability boundary during generation"
+        );
+
+        storage.end_foreground_activity();
+        storage.flush().unwrap();
+        assert!(
+            !collections.join("messages.pending.jsonl").exists(),
+            "shutdown must still materialize a deferred foreground mutation"
+        );
+        assert_eq!(
+            storage
+                .get("messages", "baseline-message")
+                .unwrap()
+                .unwrap()["generationPromptSnapshot"]
+                .as_str()
+                .unwrap()
+                .len(),
+            1024
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn message_write_arms_grace_before_foreground_stream_registration() {
+        let root = temp_storage_root("message-write-arms-foreground-grace");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "baseline-message", "content": "before" })],
+            )
+            .unwrap();
+        let original_messages = fs::read(&messages).unwrap();
+
+        storage
+            .patch(
+                "messages",
+                "baseline-message",
+                json!({ "generationPromptSnapshot": "x".repeat(300 * 1024) }),
+            )
+            .unwrap();
+        storage.flush_deferred_writes().unwrap();
+
+        assert_eq!(
+            fs::read(&messages).unwrap(),
+            original_messages,
+            "the user-message write must cover the gap before the LLM stream registers"
+        );
+        assert!(
+            collections.join("messages.pending.jsonl").exists(),
+            "the pre-stream mutation remains durable in its journal"
+        );
+
+        storage.flush().unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
