@@ -1,13 +1,50 @@
 // Mobile app top bar
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, HelpCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useChat } from "../../features/catalog/chats/index";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
-import { getConnectedChatDisplayName, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
+import {
+  getConnectedChatDisplayName,
+  normalizeChatCharacterIds,
+  parseChatMetadata,
+} from "../../shared/lib/chat-display";
 import { useChatSurfaceCharacterSummariesByIds, CharacterAvatarImage } from "../../features/catalog/characters/index";
+import { getConversationCharacterStatusDetail } from "../../features/modes/conversation";
+import { resolveConversationStatusDisplay } from "../../features/modes/shared/chat-ui";
+import { conversationSettingsApi, conversationSettingsKeys } from "../../shared/api/conversation-settings-api";
 import { useTopBarActions } from "../../shared/components/mobile-shell-actions";
 import { cn } from "../../shared/lib/utils";
+
+type ConversationStatus = "online" | "idle" | "dnd" | "offline";
+
+function readConversationStatus(extensions: Record<string, unknown>): ConversationStatus | undefined {
+  const status = extensions.conversationStatus;
+  return status === "online" || status === "idle" || status === "dnd" || status === "offline" ? status : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function getMobileConversationStatusDetail(
+  character: { data?: { name?: string; extensions?: unknown } },
+  chatMeta: Record<string, unknown>,
+  statusMessagesEnabledByDefault: boolean,
+): string {
+  const extensions = (character.data?.extensions ?? {}) as Record<string, unknown>;
+  const statusDisplay = resolveConversationStatusDisplay(extensions, chatMeta, statusMessagesEnabledByDefault);
+  return (
+    getConversationCharacterStatusDetail({
+      name: character.data?.name ?? "Character",
+      conversationStatus: readConversationStatus(extensions),
+      conversationStatusMessage: statusDisplay.conversationStatusMessage,
+      conversationActivity: statusDisplay.conversationActivity,
+      conversationAvailabilityExplanation: readString(extensions.conversationAvailabilityExplanation),
+    }) ?? ""
+  );
+}
 
 export function TopBar({
   dekiOpen: _dekiOpen = false,
@@ -40,16 +77,20 @@ export function TopBar({
   const { rightSlot } = useTopBarActions();
   const chatName = getConnectedChatDisplayName(chat);
   const showStatus = chat?.mode === "conversation";
+  const chatMeta = useMemo(() => parseChatMetadata(chat?.metadata), [chat?.metadata]);
+  const conversationSettingsQuery = useQuery({
+    queryKey: conversationSettingsKeys.settings,
+    queryFn: conversationSettingsApi.settings.get,
+    enabled: showStatus,
+  });
+  const statusMessagesEnabledByDefault = conversationSettingsQuery.data?.statusMessagesEnabledByDefault === true;
 
   const extensions = (firstChar?.data?.extensions ?? {}) as Record<string, unknown>;
-  const rawStatus = typeof extensions.conversationStatus === "string" ? extensions.conversationStatus : "";
-  const status: "online" | "idle" | "dnd" | "offline" | undefined = showStatus
-    ? rawStatus === "online" || rawStatus === "idle" || rawStatus === "dnd" || rawStatus === "offline"
-      ? rawStatus
-      : undefined
-    : undefined;
+  const status = showStatus ? readConversationStatus(extensions) : undefined;
   const activity =
-    showStatus && typeof extensions.conversationActivity === "string" ? extensions.conversationActivity : "";
+    showStatus && firstChar
+      ? getMobileConversationStatusDetail(firstChar, chatMeta, statusMessagesEnabledByDefault)
+      : "";
 
   const statusColor =
     status === "online"
@@ -130,8 +171,9 @@ export function TopBar({
             {characters.slice(0, 3).map((c, i) => {
               const ext = (c.data?.extensions ?? {}) as Record<string, unknown>;
               const dotColor = charStatusColor(ext);
-              const cActivity =
-                showStatus && typeof ext.conversationActivity === "string" ? ext.conversationActivity : "";
+              const cActivity = showStatus
+                ? getMobileConversationStatusDetail(c, chatMeta, statusMessagesEnabledByDefault)
+                : "";
               const isOpen = charPopup === i;
               return (
                 <div key={c.id ?? i} className="absolute top-0" style={{ left: i * 20, zIndex: isOpen ? 10 : 3 - i }}>
