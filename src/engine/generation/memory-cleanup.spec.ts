@@ -90,6 +90,46 @@ describe("analyzeMemoryCleanup", () => {
     expect(preview.afterCount).toBe(2);
   });
 
+  it("accepts valid cleanup JSON from a fenced model response with trailing text", async () => {
+    const llm = gateway(async () =>
+      [
+        "```json",
+        JSON.stringify({
+          proposals: [
+            {
+              type: "combine",
+              sourceIds: ["memory-a", "memory-b"],
+              replacement: {
+                content: "Mira keeps the brass key in her pocket.\n```markdown\nPocket inventory\n```",
+                kind: "fact",
+              },
+              reason: "Overlapping memories",
+            },
+          ],
+        }),
+        "```",
+        "The cleanup proposal is ready.",
+      ].join("\n"),
+    );
+
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources: [
+        source({ id: "memory-a", content: "Mira has and keeps the brass key." }),
+        source({ id: "memory-b", content: "Mira keeps the brass key in her pocket." }),
+      ],
+      connectionId: "connection-1",
+      llm,
+    });
+
+    expect(preview.proposals).toEqual([
+      expect.objectContaining({
+        type: "combine",
+        sourceIds: ["memory-a", "memory-b"],
+      }),
+    ]);
+  });
+
   it("rejects a model attempt to merge a conflict", async () => {
     const llm = gateway(async () =>
       JSON.stringify({
