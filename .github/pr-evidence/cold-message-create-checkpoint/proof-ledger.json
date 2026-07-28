@@ -1,0 +1,173 @@
+{
+  "coreClaim": "A cold-cache generated message create reuses the bounded append checkpoint instead of synchronously recovering and rewriting both large message primaries.",
+  "scope": {
+    "inScope": [
+      "Cold-cache messages create fast path",
+      "Atomic messages and message-swipes append checkpoint",
+      "Conversation foreground persistence latency",
+      "Startup checkpoint recovery"
+    ],
+    "outOfScope": [
+      "Provider and editor generation latency",
+      "Memory and repetition checks",
+      "Cached message mutations",
+      "Explicit replacement and import paths"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/lib.rs",
+      ".github/pr-evidence/cold-message-create-checkpoint/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent message storage",
+      "append checkpoint recovery",
+      "generation latency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "An uncached id-less messages create joins the existing append checkpoint lifecycle and appends bounded bytes without materializing messages.json or message-swipes.json.",
+    "riskType": "persistent message and swipe storage",
+    "entrypoints": [
+      "Conversation generated-message persistence",
+      "FileStorage create",
+      "FileStorage uncached append"
+    ],
+    "currentPathsOrFormats": [
+      "messages.json",
+      "message-swipes.json",
+      ".collection-append-journal.jsonl"
+    ],
+    "legacyPathsOrFormats": [
+      "Startup append-checkpoint recovery",
+      "Cold-cache chat append",
+      "Non-appendable collection fallback"
+    ],
+    "outOfScopeClaims": [
+      "No journal format or replay semantics change.",
+      "Chats retain their existing cold append path.",
+      "A non-appendable messages primary still uses the validated recovery fallback."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "After an atomic messages and message-swipes append left a durable checkpoint, the next cold-cache id-less message create called single-collection append recovery. That recovery materialized both large primaries in the foreground before appending the new message.",
+    "producer": "marinara-storage cold-cache create fast path",
+    "consumer": "Conversation generated-message persistence",
+    "impliedContract": "A bounded append fast path must not turn an already-applied checkpoint into a full-primary rewrite during foreground generation.",
+    "actualEnforcement": "Cold uncached messages creates first use append_many_uncached_locked for a one-collection append. The existing checkpoint remains durable and startup-replayable while both primary file identities stay unchanged.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "FileStorage owns create routing, atomic append checkpoints, in-place append application, and startup recovery.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not suppress persistence, weaken file sync, hide the wait in UI state, or duplicate checkpoint logic in the Conversation engine.",
+    "regressionProof": [
+      "Create an initial atomic messages and message-swipes append so the checkpoint is non-empty.",
+      "Record both primary file identities.",
+      "Create an id-less message while the messages collection remains uncached.",
+      "Both primary identities remain unchanged and the checkpoint remains non-empty.",
+      "A fresh FileStorage instance recovers the checkpoint and can read the created message."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Cold message create reuses the pending append checkpoint without rewriting either primary.",
+        "evidence": "cold_message_create_reuses_pending_append_checkpoint_without_rewriting_primaries passed."
+      },
+      {
+        "claim": "The created message survives checkpoint recovery.",
+        "evidence": "The same regression reopens FileStorage and reads the generated id after recovery."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The optimization must not discard or prematurely clear checkpoint evidence.",
+        "evidence": "The regression asserts the checkpoint remains non-empty until a fresh instance performs recovery."
+      },
+      {
+        "claim": "Existing atomic multi-collection append behavior must remain intact.",
+        "evidence": "The full marinara-storage suite passes all atomic append, partial apply, corruption, and recovery tests."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Cold chat creates and non-appendable message files retain their existing fallback behavior.",
+        "evidence": "The original append_collection_row fallback remains after the messages checkpoint fast path."
+      }
+    ],
+    "untestedRows": [
+      "Post-merge Raspberry Pi Conversation timing and primary-file identity are verified after the matching ARM64 image is deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "On exact Pi merge f1c87dcb, Conversation completed in 21.873 seconds and its measured message creates each completed in under 0.2 seconds.",
+      "sourceType": "measured",
+      "evidence": "Browser elapsed timing and DE_KOI_PERFORMANCE_DIAGNOSTICS storage.operation spans."
+    },
+    {
+      "description": "During that Conversation turn, messages.json and message-swipes.json were both replaced at 23:17:27 UTC by a cold-cache message create that began at 23:17:27.515 UTC.",
+      "sourceType": "measured",
+      "evidence": "Pi file identities and mtimes matched the 102.761 ms messages create span."
+    },
+    {
+      "description": "The cold single-row append calls append_journal::recover for checkpoint-tracked collections, while append_many_uncached_locked extends the existing checkpoint and applies only bounded in-place appends.",
+      "sourceType": "derived",
+      "evidence": "Derived from create_locked, append_collection_row, append_many_uncached_locked, and append_journal::append_transaction."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or cleanup is required. The append checkpoint is existing durable recovery state.",
+      "source": "The De-Koi data collections directory",
+      "destination": "No user action required",
+      "files": [
+        "collections/messages.json",
+        "collections/message-swipes.json",
+        "collections/.collection-append-journal.jsonl"
+      ],
+      "action": "Leave these files in place. Do not delete checkpoint or backup files."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi Conversation timing and primary-file identity",
+      "blockingCoreClaim": false,
+      "reason": "The append checkpoint contract is deterministic locally; target-device timing requires the merged ARM64 image."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Non-empty append checkpoint",
+      "Cold messages cache",
+      "Generated id",
+      "Startup checkpoint recovery"
+    ],
+    "negativeRowsTested": [
+      "messages primary identity remains unchanged",
+      "message-swipes primary identity remains unchanged",
+      "Checkpoint evidence remains durable"
+    ],
+    "afterEvidence": [
+      "cargo test -p marinara-storage (145 passed)",
+      "cargo check --manifest-path src-tauri/Cargo.toml (passed)",
+      "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings (passed)",
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib (1374 passed; two unrelated parallel-only tests failed, then both passed exact isolated reruns)",
+      "pnpm check:architecture (passed)",
+      "pnpm check (passed with the repository's non-blocking knip report)",
+      "git diff --check (passed)"
+    ],
+    "baselineCommand": "cargo test -p marinara-storage",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1181",
+    "evidencePublished": true,
+    "checks": "Focused red-green proof, storage suite, Rust check and clippy, architecture check, pnpm check, diff check, and exact isolated reruns for two unrelated parallel-only full-suite failures passed. GitHub validation is pending.",
+    "automatedReview": "Local pre-PR Bunny pass with no blocking findings; hosted exact-head Bunny review is pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}

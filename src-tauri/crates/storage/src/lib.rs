@@ -743,6 +743,17 @@ impl FileStorage {
             .or_insert_with(|| Value::String(now));
         let record = Value::Object(object);
         if !write_immediately
+            && collection == "messages"
+            && !had_id
+            && !self.is_collection_cached(collection)?
+            && self.append_many_uncached_locked(vec![(
+                collection,
+                vec![record.clone()],
+            )])?
+        {
+            return Ok(record);
+        }
+        if !write_immediately
             && matches!(collection, "messages" | "chats")
             && !had_id
             && !self.is_collection_cached(collection)?
@@ -4901,6 +4912,66 @@ mod tests {
             journal_bytes < 16 * 1024,
             "two tiny appends should not journal historical collection bytes"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cold_message_create_reuses_pending_append_checkpoint_without_rewriting_primaries() {
+        let root = temp_storage_root("cold-message-create-reuses-append-checkpoint");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let swipes = collections.join("message-swipes.json");
+        write_test_collection(
+            &messages,
+            vec![json!({ "id": "historical-message", "chatId": "chat-1" })],
+        );
+        write_test_collection(
+            &swipes,
+            vec![json!({
+                "id": "historical-message::swipe::0",
+                "messageId": "historical-message",
+            })],
+        );
+        let storage = FileStorage::new(&root).unwrap();
+        assert!(storage
+            .append_many_uncached(vec![
+                (
+                    "messages",
+                    vec![json!({ "id": "generated-message", "chatId": "chat-1" })],
+                ),
+                (
+                    "message-swipes",
+                    vec![json!({
+                        "id": "generated-message::swipe::0",
+                        "messageId": "generated-message",
+                    })],
+                ),
+            ])
+            .unwrap());
+        let checkpoint = collections.join(".collection-append-journal.jsonl");
+        assert!(fs::metadata(&checkpoint).unwrap().len() > 0);
+        let message_identity = file_identity(&messages);
+        let swipe_identity = file_identity(&swipes);
+
+        let created = storage
+            .create(
+                "messages",
+                json!({ "chatId": "chat-1", "content": "follow-up" }),
+            )
+            .unwrap();
+
+        assert_eq!(file_identity(&messages), message_identity);
+        assert_eq!(file_identity(&swipes), swipe_identity);
+        assert!(fs::metadata(&checkpoint).unwrap().len() > 0);
+        drop(storage);
+
+        let recovered = FileStorage::new(&root).unwrap();
+        assert!(recovered
+            .get("messages", created["id"].as_str().unwrap())
+            .unwrap()
+            .is_some());
+        assert_eq!(fs::metadata(checkpoint).unwrap().len(), 0);
+        drop(recovered);
         fs::remove_dir_all(root).unwrap();
     }
 
