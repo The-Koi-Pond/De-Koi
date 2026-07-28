@@ -1,0 +1,148 @@
+{
+  "coreClaim": "Completing a generated reply evicts old prompt snapshots without running the global message-swipe migration or rewriting unrelated rows.",
+  "scope": {
+    "inScope": [
+      "Prompt snapshot eviction after saved assistant replies",
+      "Current message-swipe sidecars",
+      "Legacy embedded message swipes",
+      "Focused persistent-data regression proof"
+    ],
+    "outOfScope": [
+      "Prompt assembly and memory-recall behavior",
+      "Provider response latency",
+      "Background memory-index scheduling",
+      "User-facing UI changes"
+    ],
+    "intendedFiles": [
+      "src-tauri/src/commands/storage/chats.rs",
+      ".github/pr-evidence/scoped-prompt-snapshot-eviction/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent message metadata",
+      "generation completion latency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Old prompt snapshots are removed only from stale assistant messages in the active chat and their associated swipes.",
+    "riskType": "persistent message metadata performance",
+    "entrypoints": [
+      "chat_evict_prompt_snapshots after conversation generation",
+      "chat_evict_prompt_snapshots after roleplay generation"
+    ],
+    "currentPathsOrFormats": [
+      "messages rows with generationPromptSnapshot or generationPromptSnapshotsBySwipe",
+      "message-swipes rows keyed by messageId"
+    ],
+    "legacyPathsOrFormats": [
+      "messages rows containing embedded swipes",
+      "legacy cachedPrompt metadata that must remain untouched"
+    ],
+    "outOfScopeClaims": [
+      "This PR does not change memory recall, repetition checks, prompt construction, or provider calls.",
+      "Target-device latency is measured after the merged image is deployed."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Per-chat prompt snapshot retention invoked a global normalization and replacement of every message and swipe collection after nearly every saved assistant reply.",
+    "producer": "src-tauri/src/commands/storage/chats.rs evict_prompt_snapshots",
+    "consumer": "conversation and roleplay generation completion through chat_evict_prompt_snapshots",
+    "impliedContract": "Retaining the two newest assistant prompt snapshots may mutate only stale assistant rows in the requested chat and their swipes.",
+    "actualEnforcement": "The Rust owner builds message and sidecar patches for stale assistant IDs, applies each collection as one targeted patch_many operation, and leaves global migration to explicit migration entrypoints.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "src-tauri owns persistent row mutation and current-versus-legacy swipe representation.",
+    "consumerOnlyLanes": [
+      "src/engine"
+    ],
+    "wrongLaneFixToAvoid": "Do not hide the delay in the TypeScript generation caller or skip eviction; the expensive mutation mechanics belong at the Rust persistence boundary.",
+    "regressionProof": [
+      "The focused Rust test covers current sidecars, legacy embedded swipes, retained recent snapshots, preserved cachedPrompt, and an unrelated sidecar negative control.",
+      "The same test failed before the implementation because global migration removed the unrelated sidecar."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Stale root and swipe prompt snapshots are removed while the two newest assistant snapshots remain.",
+        "evidence": "cargo test --manifest-path src-tauri/Cargo.toml evict_prompt_snapshots_keeps_last_two_assistant_messages_and_spares_legacy_and_user_data -- --nocapture passed."
+      },
+      {
+        "claim": "Current sidecar rows are patched without dropping non-snapshot metadata.",
+        "evidence": "The focused Rust test proves generationPromptSnapshot is removed while the sidecar sentinel remains true."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Eviction for chat-1 must not normalize or delete an unrelated sidecar for chat-2.",
+        "evidence": "The negative-control sidecar remains after eviction; this assertion failed against the previous global migration path."
+      },
+      {
+        "claim": "Snapshot retention must not delete legacy cachedPrompt user metadata.",
+        "evidence": "The focused Rust test verifies the user row and cachedPrompt content remain unchanged."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Legacy embedded swipes remain embedded and lose only prompt snapshot keys.",
+        "evidence": "The focused Rust test exercises an embedded swipe and verifies its generationPromptSnapshot is removed."
+      },
+      {
+        "claim": "The default keep-last-two policy preserves the two newest assistant snapshots.",
+        "evidence": "The focused Rust test verifies assistant-mid and assistant-new retain generationPromptSnapshot."
+      }
+    ],
+    "untestedRows": [
+      "Post-merge Raspberry Pi latency is verified after the matching prealpha image is deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The pre-fix Pi path spent most reply-completion time inside chat_evict_prompt_snapshots rather than prompt recall.",
+      "sourceType": "measured",
+      "evidence": "The pre-fix Pi telemetry sample recorded 67 eviction calls with p50 16392 ms, p90 18763 ms, and 63 calls above one second."
+    },
+    {
+      "description": "The previous eviction path called migrate_nested_message_swipes after any eviction, which lists and normalizes all messages and sidecars before replace_all_many.",
+      "sourceType": "derived",
+      "evidence": "Derived from src-tauri/src/commands/storage/chats.rs and src-tauri/src/commands/storage/message_swipes.rs before this change."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi latency sample",
+      "blockingCoreClaim": false,
+      "reason": "The mutation-scope contract is covered locally; target-device timing requires the merged prealpha image and is the required deployment follow-up."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Current sidecar swipe snapshots",
+      "Legacy embedded swipe snapshots",
+      "More than two assistant messages"
+    ],
+    "negativeRowsTested": [
+      "Unrelated orphan sidecar remains untouched",
+      "Legacy cachedPrompt remains untouched",
+      "Two newest assistant snapshots remain untouched"
+    ],
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/Cargo.toml evict_prompt_snapshots_keeps_last_two_assistant_messages_and_spares_legacy_and_user_data -- --nocapture",
+      "cargo check --manifest-path src-tauri/Cargo.toml",
+      "pnpm check:architecture",
+      "pnpm check",
+      "node .agents/automation/scripts/proof-health.mjs .github/pr-evidence/scoped-prompt-snapshot-eviction/proof-ledger.json --json",
+      "node .agents/automation/scripts/workflow-health.mjs --repo The-Koi-Pond/De-Koi --json"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "pending",
+    "evidencePublished": false,
+    "checks": "Local pnpm check passed after rebasing onto origin/main.",
+    "automatedReview": "Local Bunny passed; hosted current-head review pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
