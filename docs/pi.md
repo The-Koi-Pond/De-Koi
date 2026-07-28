@@ -30,6 +30,12 @@ the same `org.opencontainers.image.revision`, and the candidate batch must not
 be older than the currently deployed image batch when that current revision is
 detectable.
 
+After the replacement containers match the pulled image pair and the health
+check succeeds, the updater removes only the exact previous server and web
+images when they are untagged and no longer running. It does not run a global
+Docker image prune. If that targeted cleanup cannot be proven safe, the update
+stays live and the old images are retained with a warning.
+
 For emergency manual recovery only, set `DE_KOI_PI_ALLOW_REVISION=<sha>` to
 allow a specific matched image batch. This bypasses the freshness comparison for
 that exact candidate revision only; it does not repair mixed running containers

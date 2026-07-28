@@ -62,15 +62,23 @@ DE_KOI_PI_CHECK_CURRENT_ONLY=1 node scripts/pi-image-guard.mjs
 echo "Preflight: validating cached De-Koi Pi image batch before pulling images..."
 DE_KOI_PI_ALLOW_MISSING_IMAGES=1 node scripts/pi-image-guard.mjs
 
+previous_pi_image_ids="$(node scripts/pi-image-cleanup.mjs capture)"
+
 echo "Pulling De-Koi prebuilt Pi images..."
 docker compose "$@" pull
 node scripts/pi-image-guard.mjs
 docker compose "$@" up -d
 docker compose "$@" ps
 
+echo "Post-update: verifying the running De-Koi Pi image batch..."
+DE_KOI_PI_CHECK_CURRENT_ONLY=1 node scripts/pi-image-guard.mjs
+
 if command -v curl >/dev/null 2>&1; then
   curl -fsSI "$url" >/dev/null
   echo "De-Koi is reachable at $url"
+  if ! node scripts/pi-image-cleanup.mjs cleanup "$previous_pi_image_ids"; then
+    echo "WARNING: Previous Pi images were retained because exact cleanup could not be proven safe." >&2
+  fi
 else
-  echo "curl is not installed; open $url to verify De-Koi."
+  echo "curl is not installed; open $url to verify De-Koi. Previous Pi images were retained until health can be proven."
 fi
