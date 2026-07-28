@@ -1163,34 +1163,6 @@ mod tests {
             .to_string()
     }
 
-    fn strip_ids_and_timestamps(value: &mut Value) {
-        let Some(object) = value.as_object_mut() else {
-            return;
-        };
-        for key in ["id", "messageId", "createdAt", "updatedAt"] {
-            object.remove(key);
-        }
-    }
-
-    fn materialized_generated_message_without_ids_and_timestamps(
-        state: &AppState,
-        message_id: &str,
-    ) -> Value {
-        let mut message = state
-            .storage
-            .get("messages", message_id)
-            .expect("message lookup should not fail")
-            .expect("message should exist");
-        materialize_message(state, &mut message, true).expect("message should materialize");
-        strip_ids_and_timestamps(&mut message);
-        if let Some(swipes) = message.get_mut("swipes").and_then(Value::as_array_mut) {
-            for swipe in swipes {
-                strip_ids_and_timestamps(swipe);
-            }
-        }
-        message
-    }
-
     #[test]
     fn migration_moves_nested_swipes_to_sidecar_and_strips_message_rows() {
         let root = temp_root("migrate");
@@ -2070,7 +2042,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_message_fast_and_dirty_paths_have_same_materialized_shape() {
+    fn generated_message_paths_match_after_removing_ids_and_timestamps() {
         let input = json!({
             "chatId": "chat-shape",
             "role": "assistant",
@@ -2115,10 +2087,41 @@ mod tests {
             create_message(&dirty_state, input).expect("dirty fallback should create message");
         let dirty_id = value_id(&dirty_created);
 
-        assert_eq!(
-            materialized_generated_message_without_ids_and_timestamps(&fast_state, &fast_id),
-            materialized_generated_message_without_ids_and_timestamps(&dirty_state, &dirty_id)
-        );
+        let mut fast_stored = fast_state
+            .storage
+            .get("messages", &fast_id)
+            .expect("fast message lookup should not fail")
+            .expect("fast message should exist");
+        materialize_message(&fast_state, &mut fast_stored, true)
+            .expect("fast message should materialize");
+        let mut dirty_stored = dirty_state
+            .storage
+            .get("messages", &dirty_id)
+            .expect("dirty fallback lookup should not fail")
+            .expect("dirty fallback message should exist");
+        materialize_message(&dirty_state, &mut dirty_stored, true)
+            .expect("dirty fallback message should materialize");
+
+        for message in [&mut fast_stored, &mut dirty_stored] {
+            let object = message
+                .as_object_mut()
+                .expect("materialized message should be an object");
+            for key in ["id", "messageId", "createdAt", "updatedAt"] {
+                object.remove(key);
+            }
+            if let Some(swipes) = object.get_mut("swipes").and_then(Value::as_array_mut) {
+                for swipe in swipes {
+                    let swipe = swipe
+                        .as_object_mut()
+                        .expect("materialized swipe should be an object");
+                    for key in ["id", "messageId", "createdAt", "updatedAt"] {
+                        swipe.remove(key);
+                    }
+                }
+            }
+        }
+
+        assert_eq!(fast_stored, dirty_stored);
     }
 
     #[test]
