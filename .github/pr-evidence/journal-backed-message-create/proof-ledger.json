@@ -1,0 +1,186 @@
+{
+  "coreClaim": "Generated Conversation and Roleplay messages no longer rewrite the complete messages and message-swipes collections when an earlier journal-backed metadata update has dirtied the messages cache.",
+  "scope": {
+    "inScope": [
+      "Generated-ID message creation",
+      "Dirty messages-cache fallback",
+      "Embedded swipe compatibility",
+      "Conversation and Roleplay generation persistence"
+    ],
+    "outOfScope": [
+      "Caller-supplied message IDs and replacement imports",
+      "Visible message and swipe edits",
+      "Provider, editor, memory, and repetition-check latency",
+      "A new multi-collection journal transaction format"
+    ],
+    "intendedFiles": [
+      "src-tauri/src/commands/storage/message_swipes.rs",
+      ".github/pr-evidence/journal-backed-message-create/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent message creation",
+      "message swipe consistency",
+      "restart durability",
+      "generation completion latency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "When the existing uncached two-collection append declines a generated-ID message because either cache is dirty, the message and its normalized embedded swipe are durably created in the existing messages collection journal without rewriting either primary.",
+    "riskType": "persistent message and swipe storage",
+    "entrypoints": [
+      "storage_create for generated messages",
+      "Conversation reply persistence",
+      "Roleplay user and assistant message persistence"
+    ],
+    "currentPathsOrFormats": [
+      "messages collection primary and pending JSONL journal",
+      "message-swipes collection primary",
+      "sidecar-backed and embedded message swipes"
+    ],
+    "legacyPathsOrFormats": [
+      "Messages with embedded swipe arrays remain supported by materialization and startup normalization",
+      "Caller-supplied IDs continue through atomic parent and sidecar replacement"
+    ],
+    "outOfScopeClaims": [
+      "The clean-cache fast path continues to append messages and sidecars together.",
+      "Caller-supplied IDs and visible swipe mutations continue through the atomic multi-collection path.",
+      "This change does not alter prompts, provider calls, memory extraction, or repetition checks."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A journal-backed metadata update intentionally dirtied the messages cache, causing the next generated message create to miss the uncached append path and fall back to a full atomic rewrite of both large primaries.",
+    "producer": "src-tauri generated message persistence",
+    "consumer": "Conversation and Roleplay generation completion",
+    "impliedContract": "A generated message must be acknowledged durably without rewriting unrelated historical messages and swipes.",
+    "actualEnforcement": "The generated-ID fallback normalizes the public swipe shape, embeds it in the message, and uses FileStorage create so the existing messages journal durably records the new row. Caller-supplied IDs remain atomic.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "src-tauri owns generated IDs, swipe normalization, message durability, and the choice between append, journal, and atomic replacement.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not skip message persistence, force compaction before every create, weaken durability, or hide the wait behind UI state.",
+    "regressionProof": [
+      "The focused regression first dirties the messages cache with a metadata patch, then creates a generated assistant message.",
+      "It asserts both primary files remain byte-for-byte unchanged, the messages pending journal exists, and no partial sidecar is written.",
+      "It drops and reopens AppState and proves both the earlier metadata patch and the generated message with its swipe survive.",
+      "A compatibility regression proves clean-cache and dirty-cache creates materialize the same generated message shape."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A generated message after a dirty-cache metadata patch stays journal-backed.",
+        "evidence": "generated_message_create_with_dirty_cache_stays_journal_backed passed."
+      },
+      {
+        "claim": "The journal fallback survives restart with message, swipe, generation metadata, and the preceding metadata patch intact.",
+        "evidence": "The focused regression drops and reopens AppState before checking both rows."
+      },
+      {
+        "claim": "The fallback preserves the same materialized response contract as the clean append path.",
+        "evidence": "generated_message_paths_match_after_removing_ids_and_timestamps passed."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The fallback must not rewrite either large primary.",
+        "evidence": "The focused regression compares messages.json and message-swipes.json byte-for-byte."
+      },
+      {
+        "claim": "The fallback must not leave a message-swipes sidecar without an atomically paired parent.",
+        "evidence": "The focused regression requires the sidecar collection to retain only its seeded row."
+      },
+      {
+        "claim": "Caller-supplied IDs and replacement semantics must remain atomic.",
+        "evidence": "All 29 message-swipes tests pass, including caller-ID stale-sidecar replacement and precheck-window replacement."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Embedded swipes remain readable and restart-safe.",
+        "evidence": "The restart regression materializes the fallback row, and the existing embedded-swipe startup and migration tests pass."
+      }
+    ],
+    "untestedRows": [
+      "Post-merge Raspberry Pi Conversation and Roleplay latency is verified after the matching ARM64 images are deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "On the exact prior Pi image, a Roleplay turn recorded generated message creates taking 26.793 seconds and 7.844 seconds while the dirty-cache fallback rewrote both primaries.",
+      "sourceType": "measured",
+      "evidence": "Pi performance diagnostics separated storage.operation create spans from provider and editor spans."
+    },
+      {
+        "description": "append_many_uncached intentionally refuses a dirty cached collection, and the previous fallback called update_collections_atomically for messages and message-swipes.",
+        "sourceType": "derived",
+        "evidence": "Derived from append_created_message_and_swipes_if_uncached, append_many_uncached, and persist_created_message_with_swipes."
+      },
+      {
+        "description": "The fallback journal does not accumulate without a cleanup path: FileStorage schedules a deferred flush after every journal mutation, compacts on age, entry, or byte thresholds, and forces compaction on shutdown while foreground generation grace prevents the compaction from reentering the latency-sensitive turn.",
+        "sourceType": "derived",
+        "evidence": "Derived from write_collection, schedule_dirty_flush, flush_dirty_collections_matching, and collection_journal_needs_compaction."
+      }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or cleanup is required. Optional rollback protection is a stopped-app copy of the message primaries and pending journals.",
+      "source": "The current De-Koi application data collections directory",
+      "destination": "A user-controlled backup folder outside the De-Koi application data directory",
+      "files": [
+        "collections/messages.json",
+        "collections/message-swipes.json",
+        "collections/messages.pending.jsonl",
+        "collections/message-swipes.pending.jsonl"
+      ],
+      "action": "Stop De-Koi, copy each listed file that exists, verify the copies exist, then start the update. Do not delete or move the source files."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi Conversation and Roleplay timing",
+      "blockingCoreClaim": false,
+      "reason": "The persistence and durability contract is deterministic locally; target-device latency requires the merged ARM64 image."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Dirty cache with a preceding metadata journal entry",
+      "Generated assistant message with generation metadata",
+      "Restart and journal compaction",
+      "Clean append versus dirty fallback materialization",
+      "Caller-supplied ID replacement"
+    ],
+    "negativeRowsTested": [
+      "Messages primary remains unchanged",
+      "Message-swipes primary remains unchanged",
+      "No partial sidecar is written",
+      "Caller-supplied IDs retain atomic behavior"
+    ],
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib dirty_cache -- --nocapture",
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib storage_commands::message_swipes::tests:: -- --nocapture",
+      "cargo test --manifest-path src-tauri/crates/storage/Cargo.toml",
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib (1374 passed; two unrelated parallel timing/cleanup tests passed immediately in isolation)",
+      "cargo check --manifest-path src-tauri/Cargo.toml",
+      "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+      "pnpm check:architecture",
+      "pnpm check",
+      "git diff --check",
+      "node .agents/automation/scripts/proof-health.mjs .github/pr-evidence/journal-backed-message-create/proof-ledger.json --json"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1179",
+    "evidencePublished": true,
+    "checks": "Focused and full local validation passed; GitHub validation is pending.",
+    "automatedReview": "Local exact-head Bunny passed. Hosted Bunny on 924fccea reported zero findings but two test-helper naming nitpicks; the current pending head removes both helpers and keeps the IDs-and-timestamps normalization inline in the single regression."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
