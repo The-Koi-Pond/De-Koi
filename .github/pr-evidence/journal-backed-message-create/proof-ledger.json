@@ -170,10 +170,10 @@
     "baselinePassed": true
   },
   "pr": {
-    "url": "",
-    "evidencePublished": false,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1179",
+    "evidencePublished": true,
     "checks": "Focused and full local validation passed; GitHub validation is pending.",
-    "automatedReview": "Local pre-PR Bunny passed with zero findings and zero nitpicks; hosted current-head Bunny is pending."
+    "automatedReview": "Local pre-PR and post-push exact-head Bunny passed with zero findings and zero nitpicks; hosted current-head Bunny is pending."
   },
   "finalGate": {
     "coreClaimProven": true
