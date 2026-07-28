@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Keep sent messages visible during generation",
+    "source": "Live Raspberry Pi mobile-browser user report",
+    "classification": "frontend generation cache lifecycle",
+    "status": "ready_pr_open_ci_pending"
+  },
+  "coreClaim": "A newly sent user message remains continuously visible while its character response generates, even when an older chat-messages query finishes after the send begins.",
+  "rootCause": "runGenerationWithUi inserted an optimistic user row without cancelling an already-running React Query messages request. On a slower mobile connection, the older request could finish afterward and replace the cache with a page captured before the new row existed. Later generation events upserted the saved rows and made the message reappear.",
+  "scope": {
+    "inScope": [
+      "Optimistic outbound user-message cache coordination",
+      "Exact chat-messages query cancellation before optimistic insertion",
+      "Focused stale-query regression coverage",
+      "Post-merge Raspberry Pi deployment and health verification"
+    ],
+    "outOfScope": [
+      "Message persistence or storage formats",
+      "Prompt assembly or provider transport",
+      "Remote-runtime HTTP dispatch",
+      "Mobile layout or transcript rendering redesign"
+    ],
+    "intendedFiles": [
+      ".github/pr-evidence/mobile-pending-message/proof-ledger.json",
+      "docs/superpowers/plans/2026-07-28-mobile-pending-message.md",
+      "docs/superpowers/specs/2026-07-28-mobile-pending-message-design.md",
+      "src/features/runtime/generation/hooks/use-generate.spec.ts",
+      "src/features/runtime/generation/hooks/use-generate.ts"
+    ],
+    "touchedFiles": [
+      ".github/pr-evidence/mobile-pending-message/proof-ledger.json",
+      "docs/superpowers/plans/2026-07-28-mobile-pending-message.md",
+      "docs/superpowers/specs/2026-07-28-mobile-pending-message-design.md",
+      "src/features/runtime/generation/hooks/use-generate.spec.ts",
+      "src/features/runtime/generation/hooks/use-generate.ts"
+    ],
+    "riskFlags": [
+      "shared generation UI lifecycle",
+      "optimistic cache state",
+      "cross-mode send entrypoints"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Only a real outbound user send cancels the exact active chat-messages query before its optimistic row is inserted.",
+    "riskType": "cross-mode frontend async cache lifecycle",
+    "entrypoints": [
+      "Conversation send through runGenerationWithUi",
+      "Roleplay send through runGenerationWithUi",
+      "Game send through runGenerationWithUi"
+    ],
+    "currentPathsOrFormats": [
+      "React Query chatKeys.messages(chatId) InfiniteData cache",
+      "runGenerationWithUi optimistic user-message insertion",
+      "Persisted user_message and assistant_message stream events"
+    ],
+    "legacyPathsOrFormats": [],
+    "outOfScopeClaims": [
+      "This change does not make provider generation faster.",
+      "This change does not alter persisted message records.",
+      "This change does not claim a live mobile-browser pass before the merged image is deployed."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "An older chat-messages request remained able to replace the cache after a newer optimistic outbound row was inserted.",
+    "producer": "src/features/runtime/generation/hooks/use-generate.ts insertOptimisticUserMessage",
+    "consumer": "Conversation, Roleplay, and Game transcript surfaces observing chatKeys.messages(chatId)",
+    "impliedContract": "Once a user send is represented optimistically, an obsolete request started before that send cannot remove it from the visible transcript.",
+    "actualEnforcement": "insertOptimisticUserMessage awaits queryClient.cancelQueries for the exact chat-messages key after confirming an optimistic row exists and before writing that row.",
+    "primaryOwnerLane": "src/features",
+    "primaryOwnerDetail": "The shared frontend generation lifecycle owns coordination between stream state and the React Query transcript cache.",
+    "consumerOnlyLanes": ["src/features"],
+    "wrongLaneFixToAvoid": "Do not add storage fallbacks, mobile CSS guards, a second pending-message store, or mode-specific patches for a shared cache race.",
+    "regressionProof": [
+      "src/features/runtime/generation/hooks/use-generate.spec.ts keeps the optimistic user message when an older messages query finishes",
+      "pnpm exec vitest run src/features/runtime/generation/hooks/use-generate.spec.ts",
+      "pnpm check"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A stale messages query cannot remove the optimistic user row while generation is still blocked.",
+        "evidence": "The focused test failed before the fix with only message-before-send in the cache, then passed after exact-query cancellation."
+      },
+      {
+        "claim": "The shared generation hook remains valid across its frontend dependency boundaries.",
+        "evidence": "pnpm check passed after the final formatted diff, including TypeScript, architecture, docs, Rust workspace, security, storage-contract, and workflow gates."
+      },
+      {
+        "claim": "The complete focused generation-hook suite remains green.",
+        "evidence": "pnpm exec vitest run src/features/runtime/generation/hooks/use-generate.spec.ts passed 19/19 tests."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Regenerate and impersonate must not gain a synthetic outbound user row or unnecessary query cancellation.",
+        "evidence": "optimisticUserMessage returns null for impersonate and regenerateMessageId before insertOptimisticUserMessage reaches cancelQueries."
+      },
+      {
+        "claim": "The fix must not cancel queries for another chat.",
+        "evidence": "cancelQueries uses chatKeys.messages(args.chatId) with exact true."
+      },
+      {
+        "claim": "The fix must not hide a failed persistence operation behind local UI state.",
+        "evidence": "The engine save and user_message event contract is unchanged; runGenerationWithUi retains its existing error and final refresh paths."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Continue, regenerate, and impersonate paths keep their existing non-optimistic behavior.",
+        "evidence": "The cancellation is inside insertOptimisticUserMessage after the null guard rather than unconditionally at generation start."
+      }
+    ],
+    "untestedRows": [
+      "The merged image has not yet been exercised from the physical mobile browser; post-merge Pi deployment and health checks are part of the authorized shipping lane."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The Pi was healthy and running checkout efcad32faf56eb94196b212bcb4dc39ab66e09ac when the bug was diagnosed.",
+      "sourceType": "measured",
+      "evidence": "The Pi checkout, container age, and /health?probe=1 response were inspected before implementation."
+    },
+    {
+      "description": "The user-message persistence event is emitted after saveUserMessage completes.",
+      "sourceType": "derived",
+      "evidence": "src/engine/generation/start-generation.ts awaits saveUserMessage before yielding the user_message event."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Physical mobile-browser send verification",
+      "blockingCoreClaim": false,
+      "status": "post-merge-verification",
+      "reason": "The deterministic public-seam test proves the cache race and fix. The requested Pi deployment must complete before the exact device path can be tried."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "The focused test failed on the stale-query overwrite before the fix. After the fix and formatting, the 19-test use-generate suite, targeted Prettier check, git diff --check, and full pnpm check passed."
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pass",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1171,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1171",
+    "headRefName": "fix/mobile-pending-message",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}

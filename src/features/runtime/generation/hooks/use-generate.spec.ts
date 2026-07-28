@@ -17,7 +17,7 @@ import {
   showAgentWarningToast,
 } from "./use-generate";
 import type { AgentResult } from "../../../../engine/contracts/types/agent";
-import type { Chat, StreamEvent } from "../../../../engine/contracts/types/chat";
+import type { Chat, Message, StreamEvent } from "../../../../engine/contracts/types/chat";
 
 const notificationMocks = vi.hoisted(() => ({
   showLocalChatNotification: vi.fn(async () => true),
@@ -421,6 +421,91 @@ describe("showAgentWarningToast", () => {
   });
 });
 describe("runGenerationWithUi", () => {
+  it("keeps the optimistic user message when an older messages query finishes", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-stale-message-query";
+    const existingMessage = {
+      id: "message-before-send",
+      chatId,
+      role: "assistant",
+      characterId: "char-1",
+      content: "Before",
+      activeSwipeIndex: 0,
+      createdAt: "2026-07-28T12:00:00.000Z",
+      extra: {},
+    } as Message;
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+    queryClient.setQueryData(chatKeys.messages(chatId), {
+      pages: [[existingMessage]],
+      pageParams: [undefined],
+    });
+
+    let markStaleQueryStarted!: () => void;
+    const staleQueryStarted = new Promise<void>((resolve) => {
+      markStaleQueryStarted = resolve;
+    });
+    let releaseStaleQuery!: () => void;
+    const staleQuery = queryClient.fetchInfiniteQuery({
+      queryKey: chatKeys.messages(chatId),
+      initialPageParam: undefined as string | undefined,
+      getNextPageParam: () => undefined,
+      queryFn: async ({ signal }) => {
+        await new Promise<void>((resolve, reject) => {
+          releaseStaleQuery = resolve;
+          signal.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), {
+            once: true,
+          });
+          markStaleQueryStarted();
+        });
+        return [existingMessage];
+      },
+    });
+    await staleQueryStarted;
+
+    let markStreamStarted!: () => void;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    let releaseStream!: () => void;
+    const waitForStream = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      markStreamStarted();
+      await waitForStream;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId, userMessage: "Still here" }, stream);
+    try {
+      await streamStarted;
+
+      const optimisticRows = queryClient.getQueryData<{ pages: Message[][] }>(chatKeys.messages(chatId))?.pages.flat();
+      expect(optimisticRows).toEqual(
+        expect.arrayContaining([expect.objectContaining({ role: "user", content: "Still here" })]),
+      );
+
+      releaseStaleQuery();
+      await staleQuery.catch(() => undefined);
+
+      const rowsAfterStaleQuery = queryClient
+        .getQueryData<{ pages: Message[][] }>(chatKeys.messages(chatId))
+        ?.pages.flat();
+      expect(rowsAfterStaleQuery).toEqual(
+        expect.arrayContaining([expect.objectContaining({ role: "user", content: "Still here" })]),
+      );
+    } finally {
+      releaseStaleQuery();
+      releaseStream();
+      await Promise.allSettled([staleQuery, run]);
+      queryClient.clear();
+    }
+  });
+
   it("clears a completed group responder while the next turn is still being selected", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "conversation-group-turn-gap";
