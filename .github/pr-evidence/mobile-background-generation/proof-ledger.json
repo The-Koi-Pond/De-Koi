@@ -1,0 +1,157 @@
+{
+  "coreClaim": "Conversation and Roleplay LLM generation on the Pi remains intact while a sleeping phone temporarily stops draining the remote SSE response, without restoring unbounded server buffering.",
+  "scope": {
+    "inScope": [
+      "Hostable runtime LLM SSE delivery",
+      "Bounded buffering while an HTTP reader is stalled",
+      "Ordered delivery after the reader resumes",
+      "Conversation and Roleplay callers of the shared remote LLM stream"
+    ],
+    "outOfScope": [
+      "OS-killed browser tabs",
+      "Dropped TCP connections that require resumable server jobs",
+      "Provider latency",
+      "Prompt assembly",
+      "Message persistence formats"
+    ],
+    "intendedFiles": [
+      "src-tauri/src/http_server.rs",
+      ".github/pr-evidence/mobile-background-generation/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "remote runtime",
+      "streaming transport",
+      "cross-mode generation"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "A temporarily stalled remote LLM SSE reader no longer turns bounded-channel backpressure into an upstream generation failure; queued events remain ordered and byte-capped until delivery resumes.",
+    "riskType": "remote runtime streaming transport",
+    "entrypoints": [
+      "POST /api/llm/stream from Conversation",
+      "POST /api/llm/stream from Roleplay"
+    ],
+    "currentPathsOrFormats": [
+      "JSON LLM events encoded as server-sent events",
+      "256-event Tokio channel between the provider task and HTTP response"
+    ],
+    "legacyPathsOrFormats": [
+      "The existing SSE event shapes and terminal done/error events remain unchanged"
+    ],
+    "outOfScopeClaims": [
+      "This change does not make disconnected streams resumable.",
+      "This change does not move generation or persistence orchestration into Rust.",
+      "This change does not alter prompts, providers, chat records, or roleplay records."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The hostable runtime treated a full 256-event SSE channel as sse_stream_error and aborted the upstream provider stream when a sleeping phone stopped reading.",
+    "producer": "src-tauri LLM provider stream",
+    "consumer": "Remote browser Conversation and Roleplay generation",
+    "impliedContract": "Temporary client backpressure may delay event delivery but must not cancel an otherwise healthy generation.",
+    "actualEnforcement": "The HTTP adapter keeps the bounded network channel and stores only overflow events in a 4 MiB byte-capped FIFO backlog, flushing them before the terminal result once the reader resumes.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "src-tauri/src/http_server.rs owns the dedicated /api/llm/stream SSE adapter.",
+    "consumerOnlyLanes": [
+      "src/shared/api",
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not retry or duplicate a user turn in Conversation/Roleplay UI, hide the failure, or restore an unbounded channel.",
+    "regressionProof": [
+      "With the old full-channel error restored, llm_sse_backlog_preserves_events_while_receiver_is_stalled fails on the second event with sse_stream_error: no available capacity.",
+      "With the backlog limit disabled, llm_sse_backlog_keeps_stalled_reader_memory_bounded fails because the unsafe payload is accepted.",
+      "Both focused tests and all 77 http_server tests pass with the final adapter."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A full SSE channel retains start, token, token, and done events until the reader resumes.",
+        "evidence": "llm_sse_backlog_preserves_events_while_receiver_is_stalled uses a one-event channel and asserts the decoded SSE event sequence after flushing."
+      },
+      {
+        "claim": "Conversation and Roleplay share the repaired lower-level transport without mode orchestration changes.",
+        "evidence": "Only the dedicated Rust /api/llm/stream adapter changed; TypeScript mode, generation, prompt, and persistence files are untouched."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Stalled readers must not regain unbounded memory growth.",
+        "evidence": "llm_sse_backlog_keeps_stalled_reader_memory_bounded rejects a backlog beyond 4 MiB with sse_stream_backlog_overflow."
+      },
+      {
+        "claim": "A disconnected reader is not falsely reported as recoverable.",
+        "evidence": "Closed channels still return sse_stream_error; resumable jobs are explicitly outside this PR claim."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Active readers preserve the existing streaming path and event contract.",
+        "evidence": "Events still enter the same 256-event ReceiverStream immediately when capacity is available, and all existing http_server tests pass."
+      }
+    ],
+    "untestedRows": [
+      "A real phone lock/unlock cycle against the exact merged Pi image is completed after deployment.",
+      "An OS-killed tab or dropped TCP connection remains outside scope."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The pre-fix LLM SSE adapter called try_send and mapped a full channel to sse_stream_error.",
+      "sourceType": "derived",
+      "evidence": "The pre-fix src-tauri/src/http_server.rs callback and the deterministic red test both produce no available capacity."
+    },
+    {
+      "description": "The shared SSE channel is bounded at 256 events.",
+      "sourceType": "derived",
+      "evidence": "SSE_EVENT_CHANNEL_CAPACITY in src-tauri/src/http_server.rs."
+    },
+    {
+      "description": "The live Pi was healthy but still running image revision 8342732f4691d9ba7f879b4857896a070936324a before this PR.",
+      "sourceType": "measured",
+      "evidence": "Live /health?probe=1 and Docker image-label inspection before shipping."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Post-merge locked-phone Conversation and Roleplay sample on the matching Pi image",
+      "blockingCoreClaim": false,
+      "reason": "The bounded backpressure contract is deterministic locally; exact device behavior requires the merged ARM64 image."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "One-event channel fills before the second LLM event",
+      "Reader resumes after start, two tokens, and done are queued",
+      "Backlog exceeds its byte cap"
+    ],
+    "negativeRowsTested": [
+      "Old queue-full behavior fails with sse_stream_error",
+      "Disabled byte cap accepts an unsafe backlog and fails the safety test",
+      "Final backlog preserves FIFO event order",
+      "All existing http_server tests remain green"
+    ],
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/Cargo.toml http_server::tests::",
+      "cargo check --manifest-path src-tauri/Cargo.toml --workspace",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check",
+      "node .agents/automation/scripts/proof-health.mjs .github/pr-evidence/mobile-background-generation/proof-ledger.json --json"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": null,
+    "evidencePublished": true,
+    "checks": "Focused regressions, all 77 http_server tests, Rust workspace check, typecheck, architecture checks, and full pnpm check passed.",
+    "automatedReview": "Local Bunny pass has no blocking findings; hosted current-head Bunny pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
