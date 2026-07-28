@@ -5,7 +5,7 @@
     "title": "Prevent false roleplay creation timeouts during durable storage writes",
     "source": "Live Raspberry Pi user report",
     "classification": "remote runtime storage persistence and cross-entrypoint reliability",
-    "status": "local_verification_passed"
+    "status": "pr_open_checks_pending"
   },
   "coreClaim": "Roleplay creation can wait for slow remote chat and message persistence without the browser falsely reporting failure after 30 seconds, while ordinary finite remote calls remain bounded and explicit caller cancellation remains available.",
   "rootCause": "The remote runtime applied one 30-second client deadline to every JSON invoke. Roleplay creation performs several sequential, non-idempotent storage_create and storage_update calls. A live Pi storage_create completed successfully after roughly 54 seconds, but the browser aborted at 30 seconds and reported failure while the server continued, leaving an empty scene chat that a retry could duplicate.",
@@ -197,8 +197,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1175,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1175",
     "headRefName": "fix/roleplay-durable-storage-timeout",
     "baseRefName": "main",
     "healthStatus": "pending",
