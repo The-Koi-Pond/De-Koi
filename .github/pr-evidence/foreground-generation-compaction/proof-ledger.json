@@ -168,8 +168,8 @@
     "baselinePassed": true
   },
   "pr": {
-    "url": "",
-    "evidencePublished": false,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1177",
+    "evidencePublished": true,
     "checks": "Local focused regressions, all 143 storage tests, eight LLM stream tests, cargo check, strict Clippy, architecture checks, and pnpm check passed; hosted checks pending.",
     "automatedReview": "Local concurrency and simplification review passed after closing the stream-register/unregister race; hosted current-head Bunny pending."
   },
