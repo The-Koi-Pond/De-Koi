@@ -1163,7 +1163,7 @@ mod tests {
             .to_string()
     }
 
-    fn strip_generated_shape_fields(value: &mut Value) {
+    fn strip_ids_and_timestamps(value: &mut Value) {
         let Some(object) = value.as_object_mut() else {
             return;
         };
@@ -1172,7 +1172,7 @@ mod tests {
         }
     }
 
-    fn normalized_materialized_generated_message(
+    fn materialized_generated_message_without_ids_and_timestamps(
         state: &AppState,
         message_id: &str,
     ) -> Value {
@@ -1182,10 +1182,10 @@ mod tests {
             .expect("message lookup should not fail")
             .expect("message should exist");
         materialize_message(state, &mut message, true).expect("message should materialize");
-        strip_generated_shape_fields(&mut message);
+        strip_ids_and_timestamps(&mut message);
         if let Some(swipes) = message.get_mut("swipes").and_then(Value::as_array_mut) {
             for swipe in swipes {
-                strip_generated_shape_fields(swipe);
+                strip_ids_and_timestamps(swipe);
             }
         }
         message
@@ -2070,7 +2070,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_message_fast_append_and_dirty_fallback_materialize_identically() {
+    fn generated_message_fast_and_dirty_paths_have_same_materialized_shape() {
         let input = json!({
             "chatId": "chat-shape",
             "role": "assistant",
@@ -2116,8 +2116,8 @@ mod tests {
         let dirty_id = value_id(&dirty_created);
 
         assert_eq!(
-            normalized_materialized_generated_message(&fast_state, &fast_id),
-            normalized_materialized_generated_message(&dirty_state, &dirty_id)
+            materialized_generated_message_without_ids_and_timestamps(&fast_state, &fast_id),
+            materialized_generated_message_without_ids_and_timestamps(&dirty_state, &dirty_id)
         );
     }
 

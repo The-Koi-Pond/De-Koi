@@ -79,7 +79,7 @@
       },
       {
         "claim": "The fallback preserves the same materialized response contract as the clean append path.",
-        "evidence": "generated_message_fast_append_and_dirty_fallback_materialize_identically passed."
+        "evidence": "generated_message_fast_and_dirty_paths_have_same_materialized_shape passed."
       }
     ],
     "contradictionRows": [
@@ -178,7 +178,7 @@
     "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1179",
     "evidencePublished": true,
     "checks": "Focused and full local validation passed; GitHub validation is pending.",
-    "automatedReview": "Local exact-head Bunny passed. Hosted Bunny on 3a35c3f9 reported zero findings and one helper/test naming nitpick; that naming-only follow-up and the journal-compaction answer are included in the current pending head."
+    "automatedReview": "Local exact-head Bunny passed. Hosted Bunny on e3b8ae0e reported zero findings and repeated one helper/test naming nitpick; the current pending head replaces the abstract helper wording with literal IDs-and-timestamps semantics and shortens the test to its exact invariant."
   },
   "finalGate": {
     "coreClaimProven": true
