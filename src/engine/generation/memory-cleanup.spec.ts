@@ -99,7 +99,10 @@ describe("analyzeMemoryCleanup", () => {
             {
               type: "combine",
               sourceIds: ["memory-a", "memory-b"],
-              replacement: { content: "Mira keeps the brass key in her pocket.", kind: "fact" },
+              replacement: {
+                content: "Mira keeps the brass key in her pocket.\n```markdown\nPocket inventory\n```",
+                kind: "fact",
+              },
               reason: "Overlapping memories",
             },
           ],
