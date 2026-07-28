@@ -1,0 +1,180 @@
+{
+  "coreClaim": "Runtime deferred maintenance no longer rewrites the large messages and message-swipes primaries on the foreground write gate between Conversation and Roleplay turns.",
+  "scope": {
+    "inScope": [
+      "Deferred generic collection-journal compaction",
+      "messages and message-swipes runtime durability",
+      "Conversation-to-Roleplay foreground latency",
+      "Shutdown and startup journal materialization"
+    ],
+    "outOfScope": [
+      "Provider and editor generation latency",
+      "Memory and repetition checks",
+      "Explicit replacement, import, and atomic mutation paths",
+      "Generic collection compaction policy"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/lib.rs",
+      ".github/pr-evidence/runtime-message-compaction/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent message storage",
+      "shutdown durability",
+      "startup recovery",
+      "generation latency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Deferred runtime flushes retain messages and message-swipes in their durable pending journals instead of taking the global foreground write gate for a full-primary rewrite.",
+    "riskType": "persistent message and swipe storage",
+    "entrypoints": [
+      "Conversation message persistence",
+      "Roleplay user and assistant message persistence",
+      "FileStorage deferred flush",
+      "FileStorage shutdown flush"
+    ],
+    "currentPathsOrFormats": [
+      "messages.json and messages.pending.jsonl",
+      "message-swipes.json and message-swipes.pending.jsonl"
+    ],
+    "legacyPathsOrFormats": [
+      "Startup journal recovery",
+      "Forced shutdown flush",
+      "Explicit replacement and import boundaries"
+    ],
+    "outOfScopeClaims": [
+      "Ordinary collections continue using bounded age, entry, and byte compaction.",
+      "This change does not alter prompt assembly, provider calls, editor passes, memory, or repetition checks.",
+      "No journal format or replay semantics change."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "After the generated-message fallback became journal-backed, the 60-second deferred maintenance policy could still rewrite both large message primaries while holding the global write gate. A new Roleplay user-message create then waited for that maintenance to finish.",
+    "producer": "marinara-storage deferred collection-journal flush",
+    "consumer": "Conversation and Roleplay message persistence",
+    "impliedContract": "Background maintenance must not block foreground message acknowledgement for tens of seconds.",
+    "actualEnforcement": "FlushKind::Deferred excludes messages and message-swipes. FlushKind::Shutdown and every explicit replacement path continue through the existing validated materialization boundary.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "FileStorage owns journal acknowledgement, deferred compaction selection, shutdown flush, and startup recovery.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not hide the delay in UI state, skip durable writes, weaken journal sync, or change provider and memory behavior.",
+    "regressionProof": [
+      "The focused test forces every journal over the deferred threshold.",
+      "messages and message-swipes primaries remain byte-identical and both journals remain present.",
+      "A normal characters journal still compacts during the same deferred flush.",
+      "A forced shutdown flush removes both hot journals and materializes their updated rows."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Runtime deferred flush leaves both hot message collections journal-backed.",
+        "evidence": "deferred_flush_keeps_message_collections_journal_backed_until_shutdown passed."
+      },
+      {
+        "claim": "Ordinary collections retain bounded runtime compaction.",
+        "evidence": "The same regression compacts and verifies the characters primary."
+      },
+      {
+        "claim": "Controlled shutdown still materializes message and swipe journals.",
+        "evidence": "The same regression forces shutdown flush, removes both journals, and verifies both updated primaries."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The latency fix must not disable generic deferred compaction.",
+        "evidence": "All age, entry-count, byte-size, corrupt-journal, and concurrent-read compaction tests pass on ordinary collections."
+      },
+      {
+        "claim": "Tracked append checkpoints must still be consumed before forced message replacement.",
+        "evidence": "shutdown_flush_checkpoints_pending_appends_before_writing_tracked_collection passed."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "A restart continues to replay acknowledged pending message journals.",
+        "evidence": "Existing startup_replays_acknowledged_collection_journal and startup recovery tests pass."
+      }
+    ],
+    "untestedRows": [
+      "Post-merge Raspberry Pi Conversation and Roleplay timing is verified after the matching ARM64 image is deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "On merge f13c0f0a, a live Pi Roleplay turn took 51.282 seconds and its first messages create occupied 21.836 seconds before provider generation began.",
+      "sourceType": "measured",
+      "evidence": "Browser elapsed timing and DE_KOI_PERFORMANCE_DIAGNOSTICS storage.operation spans on the exact cooked image."
+    },
+    {
+      "description": "Both messages.json and message-swipes.json were rewritten at 18:17 during that live turn.",
+      "sourceType": "measured",
+      "evidence": "Pi filesystem metadata matched the foreground stall window and both new primary backups were present."
+    },
+    {
+      "description": "Deferred flush acquires the global WriteGate before backup, serialization, sync, and atomic replacement, and foreground activity cannot preempt a flush that already owns the permit.",
+      "sourceType": "derived",
+      "evidence": "Derived from flush_deferred_writes, flush_dirty_collections_matching, write_collection_file, and WriteGate::begin_write."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or cleanup is required. Pending message journals are normal durable runtime state and are materialized on controlled shutdown or restart recovery.",
+      "source": "The De-Koi data collections directory",
+      "destination": "No user action required",
+      "files": [
+        "collections/messages.json",
+        "collections/message-swipes.json",
+        "collections/messages.pending.jsonl",
+        "collections/message-swipes.pending.jsonl"
+      ],
+      "action": "Leave these files in place. Do not delete pending journals."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi Conversation and Roleplay timing",
+      "blockingCoreClaim": false,
+      "reason": "The compaction-selection and durability contract is deterministic locally; target-device latency requires the merged ARM64 image."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Both hot collections over the deferred compaction threshold",
+      "Ordinary collection over the same threshold",
+      "Forced shutdown materialization",
+      "Tracked append checkpoint consumption",
+      "Concurrent reads during ordinary compaction"
+    ],
+    "negativeRowsTested": [
+      "Messages primary remains byte-identical",
+      "Message-swipes primary remains byte-identical",
+      "Both pending journals remain durable",
+      "Generic compaction is not disabled"
+    ],
+    "afterEvidence": [
+      "cargo test -p marinara-storage (144 passed)",
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib (1373 passed; three unrelated parallel temp/setup tests passed immediately in isolation)",
+      "cargo check --manifest-path src-tauri/Cargo.toml",
+      "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+      "pnpm check:architecture",
+      "pnpm check",
+      "git diff --check"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1180",
+    "evidencePublished": true,
+    "checks": "Focused and full local validation passed; GitHub validation is pending.",
+    "automatedReview": "Pending exact-head Bunny review."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
