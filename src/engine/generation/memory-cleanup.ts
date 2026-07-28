@@ -81,7 +81,7 @@ function cleanupGroupPrompt(scope: MemoryCleanupScope, sources: MemoryCleanupSou
 
 function parseJsonObject(raw: string): Record<string, unknown> {
   const trimmed = raw.trim();
-  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  const fenced = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(trimmed);
   const parsed: unknown = JSON.parse(fenced?.[1] ?? trimmed);
   if (!isRecord(parsed)) throw new Error("Memory cleanup response must be a JSON object.");
   return parsed;
