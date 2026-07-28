@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { createChatSchema } from "../../../../engine/contracts/schemas/chat.schema";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import { clearChatActivity } from "../../../../engine/modes/chat/autonomous/autonomous.service";
+import { ApiError } from "../../../../shared/api/api-errors";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -67,6 +68,11 @@ function handleMemoryCleanupResult(qc: ReturnType<typeof useQueryClient>, result
 
 function uniqueIds(ids: Array<string | null | undefined>) {
   return Array.from(new Set(ids.filter((id): id is string => typeof id === "string" && id.length > 0)));
+}
+
+function isRemoteRuntimeTimeout(error: unknown): boolean {
+  if (!(error instanceof ApiError) || !error.details || typeof error.details !== "object") return false;
+  return (error.details as { code?: unknown }).code === "remote_runtime_timeout";
 }
 
 function patchAffectsActiveLorebooks(patch: Record<string, unknown>): boolean {
@@ -142,7 +148,8 @@ export function useDeleteChat() {
         clearChatActivity(chatId);
       }
     },
-    onError: (_err, _id, context) => {
+    onError: (error, _id, context) => {
+      if (isRemoteRuntimeTimeout(error)) return;
       if (context?.previous) {
         qc.setQueryData(chatKeys.list(), context.previous);
       } else {
