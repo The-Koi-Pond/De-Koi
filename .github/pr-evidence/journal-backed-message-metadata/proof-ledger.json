@@ -1,0 +1,165 @@
+{
+  "coreClaim": "Conversation and Roleplay metadata updates no longer rewrite the complete messages and message-swipes collections when swipe-owned state is unchanged.",
+  "scope": {
+    "inScope": [
+      "Generic message metadata updates",
+      "Swipe-backed message storage",
+      "Prompt snapshot and automatic memory-capture metadata",
+      "Conversation and Roleplay post-generation persistence"
+    ],
+    "outOfScope": [
+      "Visible content edits and swipe selection",
+      "Provider response latency",
+      "Memory extraction and repetition-check behavior",
+      "Persisted collection and journal formats"
+    ],
+    "intendedFiles": [
+      "src-tauri/src/commands/storage/chats.rs",
+      "src-tauri/src/commands/storage/commands/entities.rs",
+      ".github/pr-evidence/journal-backed-message-metadata/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent message metadata",
+      "message swipe consistency",
+      "generation completion latency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "A normalized message patch uses the collection journal when it does not change message identity, visible content, character ownership, swipe selection, or semantic swipe-scoped metadata.",
+    "riskType": "persistent message and swipe storage",
+    "entrypoints": [
+      "storage_update for messages",
+      "patchChatMessageExtra after generated replies",
+      "automatic memory-capture status updates"
+    ],
+    "currentPathsOrFormats": [
+      "messages collection primary and pending JSONL journal",
+      "message-swipes collection primary",
+      "string-encoded and object-form swipe extra metadata"
+    ],
+    "legacyPathsOrFormats": [
+      "Messages without sidecar swipes retain their metadata on the parent row"
+    ],
+    "outOfScopeClaims": [
+      "Visible content, role, character, identity, and swipe mutations continue through the atomic multi-collection path.",
+      "This change does not alter provider calls, prompt assembly, memory extraction, or repetition checks."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Every generic message update materialized swipes and called update_collections_atomically, rewriting the full messages and message-swipes primaries even when only memory status or other parent metadata changed.",
+    "producer": "src-tauri message storage update boundary",
+    "consumer": "Conversation and Roleplay generation, prompt-snapshot retention, and automatic memory capture",
+    "impliedContract": "Metadata-only updates must remain durable without paying the cost of replacing unrelated message and swipe rows.",
+    "actualEnforcement": "The Rust owner rejects all identity, content, character, and swipe fields from the fast path, semantically compares string-encoded or object-form active swipe metadata, strips unchanged swipe-owned keys from the parent patch, and records the remaining mutation in the existing collection journal.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "src-tauri owns message normalization, swipe sidecars, atomic content edits, and journal durability.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not skip memory status or prompt metadata writes, weaken durability, or hide the wait with UI state.",
+    "regressionProof": [
+      "The focused test asserts that a full projected extra patch containing an unchanged prompt snapshot plus new memory status leaves both primary files byte-for-byte unchanged.",
+      "The same test asserts that the new parent metadata is readable, the prompt snapshot still materializes from its sidecar, and the messages pending journal exists.",
+      "Existing content-edit and message-swipe suites prove swipe-owned mutations remain atomic."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Unchanged swipe-owned prompt data plus new parent memory metadata uses the durable journal.",
+        "evidence": "generic_message_metadata_update_stays_journal_backed_without_rewriting_swipes passed."
+      },
+      {
+        "claim": "The projected response still contains the active prompt snapshot and stored reads contain the new memory status.",
+        "evidence": "The focused regression materializes the updated row and checks both values."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Metadata updates must not rewrite the messages or message-swipes primary.",
+        "evidence": "The focused regression compares both files byte-for-byte and requires messages.pending.jsonl."
+      },
+      {
+        "claim": "Content changes must not take the metadata fast path.",
+        "evidence": "All five generic message tests and 46 message-swipe tests pass, including memory pruning and atomic rollback cases."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "String-encoded swipe extra compares by semantic JSON value.",
+        "evidence": "The focused regression seeds storage-normalized sidecar extra and supplies the equivalent object-form projected patch."
+      }
+    ],
+    "untestedRows": [
+      "Post-merge Raspberry Pi Conversation and Roleplay latency is verified after the matching image is deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The exact deployed previous merge recorded message updates between 5.2 and 28.6 seconds while memory and repetition queries remained in the millisecond range.",
+      "sourceType": "measured",
+      "evidence": "Pi performance diagnostics separated storage.operation update spans from memory query and provider spans."
+    },
+    {
+      "description": "The slow generic message update always entered the swipe-aware atomic replacement path, including patches that changed only extra memory metadata.",
+      "sourceType": "derived",
+      "evidence": "Derived from storage_update_inner, patch_message_update_with_memory_prune, and replace_message_with_swipes."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or cleanup is required. Optional rollback protection is a stopped-app copy of the existing message primaries and pending journals.",
+      "source": "The current De-Koi application data collections directory",
+      "destination": "A user-controlled backup folder outside the De-Koi application data directory",
+      "files": [
+        "collections/messages.json",
+        "collections/message-swipes.json",
+        "collections/messages.pending.jsonl",
+        "collections/message-swipes.pending.jsonl"
+      ],
+      "action": "Stop De-Koi, copy each listed file that exists, verify the copies exist, then start the update. Do not delete or move the source files."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi Conversation and Roleplay timing",
+      "blockingCoreClaim": false,
+      "reason": "The mutation boundary and durability contract are deterministic locally; target-device latency requires the merged ARM64 image."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Swipe-backed message with string-encoded extra",
+      "Unchanged large prompt snapshot plus new memory metadata",
+      "Visible content edit and memory pruning",
+      "Atomic rollback and malformed memory failure"
+    ],
+    "negativeRowsTested": [
+      "Messages primary remains unchanged",
+      "Message-swipes primary remains unchanged",
+      "Content edits retain atomic behavior"
+    ],
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib generic_message_ -- --nocapture",
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib message_swipe -- --nocapture",
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib",
+      "cargo check --manifest-path src-tauri/Cargo.toml",
+      "pnpm check:architecture",
+      "pnpm check",
+      "node .agents/automation/scripts/proof-health.mjs .github/pr-evidence/journal-backed-message-metadata/proof-ledger.json --json"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1178",
+    "evidencePublished": true,
+    "checks": "Focused Rust regressions, message-swipe suite, cargo check, architecture checks, pnpm check, and hosted Required Validation passed.",
+    "automatedReview": "Local current-head Bunny passed with zero findings and zero nitpicks; hosted current-head Bunny is pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
