@@ -424,6 +424,8 @@ async function resolveImageAttachmentDataUrl(attachment: StorageImageAttachmentR
   return null;
 }
 
+const DURABLE_STORAGE_REQUEST_OPTIONS = { timeoutMs: null } as const;
+
 export const storageApi: StorageGateway = {
   createMemory: (body) => canonicalMemoryApi.create(body),
   updateMemory: (memoryId, patch) => canonicalMemoryApi.update(memoryId, patch),
@@ -451,33 +453,45 @@ export const storageApi: StorageGateway = {
     ) as never,
   create: async (entity: StorageEntity, value: Record<string, unknown>) => {
     const result = await invalidateRemoteManagedAssetObjectUrlsAfter(
-      invokeTauri("storage_create", {
-        entity,
-        value: normalizeStorageWrite(entity, value),
-      }),
+      invokeTauri(
+        "storage_create",
+        {
+          entity,
+          value: normalizeStorageWrite(entity, value),
+        },
+        DURABLE_STORAGE_REQUEST_OPTIONS,
+      ),
       storageWriteInvalidationKinds(entity, value),
     );
     return normalizeStorageReadResult(entity, result) as never;
   },
   update: async (entity: StorageEntity, id: string, patch: Record<string, unknown>) => {
     const result = await invalidateRemoteManagedAssetObjectUrlsAfter(
-      invokeTauri("storage_update", {
-        entity,
-        id,
-        patch: normalizeStorageWrite(entity, patch),
-      }),
+      invokeTauri(
+        "storage_update",
+        {
+          entity,
+          id,
+          patch: normalizeStorageWrite(entity, patch),
+        },
+        DURABLE_STORAGE_REQUEST_OPTIONS,
+      ),
       storageWriteInvalidationKinds(entity, patch),
     );
     return normalizeStorageReadResult(entity, result) as never;
   },
   delete: (entity: StorageEntity, id: string, options?: StorageDeleteOptions) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(
-      invokeTauri("storage_delete", {
-        entity,
-        id,
-        ...(options?.force === undefined ? {} : { force: options.force }),
-        ...(options?.deleteMemories === undefined ? {} : { deleteMemories: options.deleteMemories }),
-      }),
+      invokeTauri(
+        "storage_delete",
+        {
+          entity,
+          id,
+          ...(options?.force === undefined ? {} : { force: options.force }),
+          ...(options?.deleteMemories === undefined ? {} : { deleteMemories: options.deleteMemories }),
+        },
+        DURABLE_STORAGE_REQUEST_OPTIONS,
+      ),
       storageDeleteInvalidationKinds(entity),
     ),
   listChatMessages: (chatId, options) => {
