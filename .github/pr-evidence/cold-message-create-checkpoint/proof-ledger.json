@@ -162,8 +162,8 @@
     "baselinePassed": true
   },
   "pr": {
-    "url": "pending",
-    "evidencePublished": false,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1181",
+    "evidencePublished": true,
     "checks": "Focused red-green proof, storage suite, Rust check and clippy, architecture check, pnpm check, diff check, and exact isolated reruns for two unrelated parallel-only full-suite failures passed. GitHub validation is pending.",
     "automatedReview": "Local pre-PR Bunny pass with no blocking findings; hosted exact-head Bunny review is pending."
   },
