@@ -5,7 +5,7 @@
     "title": "Aggressive Tidy Memories with reviewed low-value removal",
     "source": "Direct user request after Tidy Memories retained junk singleton memories.",
     "classification": "memory cleanup prompt, review consent, and recoverable storage lifecycle",
-    "status": "ready_for_pr"
+    "status": "waiting_on_ci"
   },
   "coreClaim": "Tidy Memories reviews every eligible in-scope memory for consolidation and low-value junk, starts every removal unchecked, and applies a selected removal as an atomic recoverable status transition with exact undo.",
   "rootCause": "The prior cleanup lane only analyzed similarity neighborhoods containing two or more records, so a low-value singleton such as a captured generic statement could never become a cleanup proposal.",
@@ -264,8 +264,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1193,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1193",
     "headRefName": "fix/aggressive-memory-cleanup",
     "baseRefName": "main",
     "healthStatus": "pending",
