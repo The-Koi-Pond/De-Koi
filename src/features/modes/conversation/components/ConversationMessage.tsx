@@ -47,6 +47,8 @@ function areConversationMessagePropsEqual(prev: ConversationMessageProps, next: 
     prev.noHoverGroup === next.noHoverGroup &&
     prev.plainUserMessages === next.plainUserMessages &&
     prev.forceShowActions === next.forceShowActions &&
+    prev.actionsActive === next.actionsActive &&
+    prev.onActiveActionMessageChange === next.onActiveActionMessageChange &&
     prev.forceCanRegenerate === next.forceCanRegenerate &&
     prev.regenerateButtonTitle === next.regenerateButtonTitle &&
     prev.onDelete === next.onDelete &&
@@ -90,6 +92,8 @@ export const ConversationMessage = memo(function ConversationMessage({
   noHoverGroup,
   plainUserMessages,
   forceShowActions,
+  actionsActive,
+  onActiveActionMessageChange,
   forceCanRegenerate,
   regenerateButtonTitle,
   onDelete,
@@ -125,7 +129,8 @@ export const ConversationMessage = memo(function ConversationMessage({
   const [editValue, setEditValue] = useState(message.content);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [showActions, setShowActions] = useState(false);
+  const [localShowActions, setLocalShowActions] = useState(false);
+  const showActions = actionsActive ?? localShowActions;
   const [copied, setCopied] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
   const [showGenerationReplay, setShowGenerationReplay] = useState(false);
@@ -416,6 +421,12 @@ export const ConversationMessage = memo(function ConversationMessage({
     [startEditingFromMessageGesture],
   );
 
+  const toggleActions = useCallback(() => {
+    const next = !showActions;
+    if (actionsActive === undefined) setLocalShowActions(next);
+    onActiveActionMessageChange?.(next ? message.id : null);
+  }, [actionsActive, message.id, onActiveActionMessageChange, showActions]);
+
   const handleMessageClick = useCallback(
     (event: React.MouseEvent) => {
       if (multiSelectMode) {
@@ -439,9 +450,17 @@ export const ConversationMessage = memo(function ConversationMessage({
         if (isDoubleTap && startEditingFromMessageGesture(event)) return;
       }
 
-      setShowActions((v) => !v);
+      toggleActions();
     },
-    [isSelected, message.id, messageOrderIndex, multiSelectMode, onToggleSelect, startEditingFromMessageGesture],
+    [
+      isSelected,
+      message.id,
+      messageOrderIndex,
+      multiSelectMode,
+      onToggleSelect,
+      startEditingFromMessageGesture,
+      toggleActions,
+    ],
   );
 
   const handleMessageKeyDown = useCallback(
@@ -459,9 +478,9 @@ export const ConversationMessage = memo(function ConversationMessage({
         });
         return;
       }
-      setShowActions((v) => !v);
+      toggleActions();
     },
-    [isSelected, message.id, messageOrderIndex, multiSelectMode, onToggleSelect],
+    [isSelected, message.id, messageOrderIndex, multiSelectMode, onToggleSelect, toggleActions],
   );
 
   useEffect(() => {

@@ -51,6 +51,8 @@ export interface ConversationMessageProps {
   noHoverGroup?: boolean;
   plainUserMessages?: boolean;
   forceShowActions?: boolean;
+  actionsActive?: boolean;
+  onActiveActionMessageChange?: (messageId: string | null) => void;
   forceCanRegenerate?: boolean;
   regenerateButtonTitle?: string;
   onDelete?: (messageId: string) => void;
