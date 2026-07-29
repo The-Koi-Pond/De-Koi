@@ -266,7 +266,7 @@ describe("analyzeMemoryCleanup", () => {
     ).rejects.toThrow("No valid cleanup proposals");
   });
 
-  it("rejects conflict and actionable proposals that overlap the same sources", async () => {
+  it("keeps a visible conflict instead of an overlapping actionable proposal", async () => {
     const llm = gateway(async () =>
       JSON.stringify({
         proposals: [
@@ -285,25 +285,141 @@ describe("analyzeMemoryCleanup", () => {
       }),
     );
 
-    await expect(
-      analyzeMemoryCleanup({
-        scope: { kind: "chat", id: "chat-1" },
-        sources: [
-          source({
-            id: "alive",
-            scope: { kind: "chat", id: "chat-1" },
-            content: "The captain is alive aboard the ship.",
-          }),
-          source({
-            id: "dead",
-            scope: { kind: "chat", id: "chat-1" },
-            content: "The captain is dead aboard the ship.",
-          }),
-        ],
-        connectionId: "connection-1",
-        llm,
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "chat", id: "chat-1" },
+      sources: [
+        source({
+          id: "alive",
+          scope: { kind: "chat", id: "chat-1" },
+          content: "The captain is alive aboard the ship.",
+        }),
+        source({
+          id: "dead",
+          scope: { kind: "chat", id: "chat-1" },
+          content: "The captain is dead aboard the ship.",
+        }),
+      ],
+      connectionId: "connection-1",
+      llm,
+    });
+
+    expect(preview.proposals).toEqual([
+      expect.objectContaining({
+        type: "conflict",
+        sourceIds: ["alive", "dead"],
+        selected: false,
       }),
-    ).rejects.toThrow("more than once");
+    ]);
+  });
+
+  it("keeps a global exact-duplicate proposal ahead of an overlapping semantic proposal", async () => {
+    const llm = gateway(async () =>
+      JSON.stringify({
+        proposals: [
+          {
+            type: "combine",
+            sourceIds: ["duplicate-a", "related"],
+            replacement: { content: "Mira keeps the brass key in her coat.", kind: "fact" },
+            reason: "Overlapping memories",
+          },
+        ],
+      }),
+    );
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources: [
+        source({ id: "duplicate-a", content: "Mira keeps the brass key.", confidence: 0.7 }),
+        source({ id: "duplicate-b", content: "Mira keeps the brass key.", confidence: 0.9 }),
+        source({ id: "related", content: "Mira stores the brass key in her coat." }),
+      ],
+      connectionId: "connection-1",
+      llm,
+    });
+
+    expect(preview.proposals).toEqual([
+      expect.objectContaining({
+        type: "keep_one",
+        sourceIds: expect.arrayContaining(["duplicate-a"]),
+        winnerId: "duplicate-b",
+      }),
+    ]);
+  });
+
+  it("keeps the non-overlapping actionable set with the greatest memory-count reduction", async () => {
+    const llm = gateway(async () =>
+      JSON.stringify({
+        proposals: [
+          {
+            type: "combine",
+            sourceIds: ["memory-a", "memory-b"],
+            replacement: { content: "Two-source replacement.", kind: "fact" },
+            reason: "Overlapping memories",
+          },
+          {
+            type: "combine",
+            sourceIds: ["memory-a", "memory-b", "memory-c"],
+            replacement: { content: "Three-source replacement preserving every detail.", kind: "fact" },
+            reason: "Overlapping memories",
+          },
+        ],
+      }),
+    );
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources: [
+        source({ id: "memory-a", content: "Mira keeps the brass key." }),
+        source({ id: "memory-b", content: "The brass key remains with Mira." }),
+        source({ id: "memory-c", content: "Mira stores the brass key in her coat." }),
+      ],
+      connectionId: "connection-1",
+      llm,
+    });
+
+    expect(preview.proposals).toEqual([
+      expect.objectContaining({
+        type: "combine",
+        sourceIds: ["memory-a", "memory-b", "memory-c"],
+      }),
+    ]);
+    expect(preview.afterCount).toBe(1);
+  });
+
+  it("coalesces duplicate model proposals for the same referenced source set", async () => {
+    const llm = gateway(async () =>
+      JSON.stringify({
+        proposals: [
+          {
+            type: "combine",
+            sourceIds: ["memory-a", "memory-b"],
+            replacement: { content: "First valid replacement.", kind: "fact" },
+            reason: "Overlapping memories",
+          },
+          {
+            type: "combine",
+            sourceIds: ["memory-b", "memory-a"],
+            replacement: { content: "Second valid replacement.", kind: "fact" },
+            reason: "Overlapping memories",
+          },
+        ],
+      }),
+    );
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources: [
+        source({ id: "memory-a", content: "Mira keeps the brass key." }),
+        source({ id: "memory-b", content: "The brass key remains with Mira." }),
+      ],
+      connectionId: "connection-1",
+      llm,
+    });
+
+    expect(preview.proposals).toHaveLength(1);
+    expect(preview.proposals[0]).toEqual(
+      expect.objectContaining({
+        type: "combine",
+        sourceIds: expect.arrayContaining(["memory-a", "memory-b"]),
+      }),
+    );
   });
 
   it("creates exact-duplicate keep-one proposals without an LLM call", async () => {

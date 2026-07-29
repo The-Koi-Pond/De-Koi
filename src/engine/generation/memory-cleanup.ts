@@ -10,10 +10,12 @@ import type {
   MemoryCleanupSource,
 } from "../contracts/types/memory-maintenance";
 import {
+  compareMemoryCleanupEvidence,
   isMemoryCleanupEligible,
   memoryCleanupExpectedState,
   prepareMemoryCleanupCandidates,
   validateCleanupProposal,
+  type MemoryCleanupCandidateEvidence,
 } from "../entities/memory-maintenance";
 import { generateStructured } from "./structured-generation";
 
@@ -115,35 +117,48 @@ function expectedStates(
   );
 }
 
-function deterministicDuplicateProposal(
-  groupSources: MemoryCleanupSource[],
+interface RankedCleanupProposal {
+  proposal: MemoryCleanupProposal;
+  evidence?: MemoryCleanupCandidateEvidence;
+  groupId: string;
+  exact: boolean;
+}
+
+function deterministicDuplicateProposals(
+  sources: MemoryCleanupSource[],
   sourcesById: ReadonlyMap<string, MemoryCleanupSource>,
-): MemoryCleanupProposal | null {
-  if (groupSources.length < 2) return null;
-  const normalized = normalizedContent(groupSources[0]?.content ?? "");
-  if (!groupSources.every((source) => normalizedContent(source.content) === normalized)) {
-    return null;
+): RankedCleanupProposal[] {
+  const byContent = new Map<string, MemoryCleanupSource[]>();
+  for (const source of sources.filter(isMemoryCleanupEligible)) {
+    const key = normalizedContent(source.content);
+    byContent.set(key, [...(byContent.get(key) ?? []), source]);
   }
-  const winner = chooseExactDuplicateWinner(groupSources);
-  const sourceIds = groupSources.filter((source) => source.id !== winner.id).map((source) => source.id);
-  if (sourceIds.length === 0) return null;
-  const proposal: MemoryCleanupProposal = {
-    id: `cleanup-exact-${stableHash(
-      groupSources
-        .map((source) => source.id)
-        .sort()
-        .join(":"),
-    )}`,
-    type: "keep_one",
-    sourceIds,
-    expected: expectedStates(sourceIds, winner.id, sourcesById),
-    winnerId: winner.id,
-    reason: "Repeated fact",
-    selected: true,
-    estimatedTokensBefore: groupSources.reduce((total, source) => total + estimateTokens(source.content), 0),
-    estimatedTokensAfter: estimateTokens(winner.content),
-  };
-  return validateCleanupProposal(proposal, sourcesById);
+  return [...byContent.values()]
+    .filter((group) => group.length >= 2)
+    .map((group) => {
+      const ordered = [...group].sort((left, right) => left.id.localeCompare(right.id));
+      const winner = chooseExactDuplicateWinner(ordered);
+      const sourceIds = ordered.filter((source) => source.id !== winner.id).map((source) => source.id);
+      const proposal = validateCleanupProposal(
+        {
+          id: `cleanup-exact-${stableHash(ordered.map((source) => source.id).join(":"))}`,
+          type: "keep_one",
+          sourceIds,
+          expected: expectedStates(sourceIds, winner.id, sourcesById),
+          winnerId: winner.id,
+          reason: "Repeated fact",
+          selected: true,
+          estimatedTokensBefore: ordered.reduce((total, source) => total + estimateTokens(source.content), 0),
+          estimatedTokensAfter: estimateTokens(winner.content),
+        },
+        sourcesById,
+      );
+      return {
+        proposal,
+        groupId: `exact:${stableHash(normalizedContent(winner.content))}`,
+        exact: true,
+      };
+    });
 }
 
 function normalizeModelProposal(
@@ -208,16 +223,64 @@ function normalizeModelProposal(
   return validateCleanupProposal(proposal, sourcesById);
 }
 
-function assertNoOverlappingProposals(proposals: MemoryCleanupProposal[]): void {
-  const claimed = new Set<string>();
-  for (const proposal of proposals) {
-    for (const sourceId of proposal.sourceIds) {
-      if (claimed.has(sourceId)) {
-        throw new Error(`Memory cleanup source ${sourceId} was proposed more than once.`);
-      }
-      claimed.add(sourceId);
-    }
+function referencedIds(proposal: MemoryCleanupProposal): string[] {
+  return [...new Set([...proposal.sourceIds, ...(proposal.winnerId ? [proposal.winnerId] : [])])].sort();
+}
+
+function reduction(proposal: MemoryCleanupProposal): number {
+  if (proposal.type === "conflict") return 0;
+  return proposal.sourceIds.length - (proposal.type === "combine" ? 1 : 0);
+}
+
+function compareRankedProposals(left: RankedCleanupProposal, right: RankedCleanupProposal): number {
+  if (left.exact !== right.exact) return left.exact ? -1 : 1;
+  const countReduction = reduction(right.proposal) - reduction(left.proposal);
+  if (countReduction !== 0) return countReduction;
+  if (left.evidence && right.evidence) {
+    const evidence = compareMemoryCleanupEvidence(left.evidence, right.evidence);
+    if (evidence !== 0) return evidence;
+  } else if (left.evidence || right.evidence) {
+    return left.evidence ? -1 : 1;
   }
+  const sourceCount = referencedIds(right.proposal).length - referencedIds(left.proposal).length;
+  if (sourceCount !== 0) return sourceCount;
+  return left.groupId.localeCompare(right.groupId) || left.proposal.id.localeCompare(right.proposal.id);
+}
+
+function coalesceRankedProposals(proposals: RankedCleanupProposal[]): RankedCleanupProposal[] {
+  const byShape = new Map<string, RankedCleanupProposal>();
+  for (const candidate of [...proposals].sort(compareRankedProposals)) {
+    const key = `${candidate.proposal.type}:${referencedIds(candidate.proposal).join("\u0000")}`;
+    if (!byShape.has(key)) byShape.set(key, candidate);
+  }
+  return [...byShape.values()];
+}
+
+function resolveCleanupProposals(proposals: RankedCleanupProposal[]): MemoryCleanupProposal[] {
+  const coalesced = coalesceRankedProposals(proposals);
+  const accepted: RankedCleanupProposal[] = [];
+  const claimed = new Set<string>();
+  const acceptAvailable = (candidate: RankedCleanupProposal) => {
+    const ids = referencedIds(candidate.proposal);
+    if (ids.some((id) => claimed.has(id))) return;
+    accepted.push(candidate);
+    ids.forEach((id) => claimed.add(id));
+  };
+
+  coalesced
+    .filter((candidate) => candidate.exact)
+    .sort(compareRankedProposals)
+    .forEach(acceptAvailable);
+  coalesced
+    .filter((candidate) => !candidate.exact && candidate.proposal.type === "conflict")
+    .sort(compareRankedProposals)
+    .forEach(acceptAvailable);
+  coalesced
+    .filter((candidate) => !candidate.exact && candidate.proposal.type !== "conflict")
+    .sort(compareRankedProposals)
+    .forEach(acceptAvailable);
+
+  return accepted.map((candidate) => candidate.proposal);
 }
 
 function previewTotals(
@@ -265,20 +328,17 @@ export async function analyzeMemoryCleanup(input: {
   const scopedSources = input.sources.filter((source) => scopeKey(source.scope) === scopeKey(input.scope));
   const sourcesById = new Map(scopedSources.map((source) => [source.id, source]));
   const prepared = prepareMemoryCleanupCandidates(scopedSources);
-  const proposals: MemoryCleanupProposal[] = [];
+  const rankedProposals = deterministicDuplicateProposals(scopedSources, sourcesById);
+  const exactClaimedIds = new Set(rankedProposals.flatMap((candidate) => referencedIds(candidate.proposal)));
   let modelProposalCount = 0;
   let invalidModelProposalCount = 0;
 
   for (const group of prepared.groups) {
     throwIfAborted(input.signal);
+    if (group.sourceIds.every((id) => exactClaimedIds.has(id))) continue;
     const groupSources = group.sourceIds
       .map((id) => sourcesById.get(id))
       .filter((source): source is MemoryCleanupSource => Boolean(source));
-    const exact = deterministicDuplicateProposal(groupSources, sourcesById);
-    if (exact) {
-      proposals.push(exact);
-      continue;
-    }
 
     const result = await generateStructured(
       { llm: input.llm },
@@ -314,7 +374,12 @@ export async function analyzeMemoryCleanup(input: {
     const groupIds = new Set(group.sourceIds);
     for (const [index, rawProposal] of parsed.proposals.entries()) {
       try {
-        proposals.push(normalizeModelProposal(rawProposal, groupIds, sourcesById, proposals.length + index));
+        rankedProposals.push({
+          proposal: normalizeModelProposal(rawProposal, groupIds, sourcesById, rankedProposals.length + index),
+          evidence: group.evidence,
+          groupId: group.id,
+          exact: false,
+        });
       } catch {
         invalidModelProposalCount += 1;
       }
@@ -324,10 +389,7 @@ export async function analyzeMemoryCleanup(input: {
   if (modelProposalCount > 0 && invalidModelProposalCount === modelProposalCount) {
     throw new Error("No valid cleanup proposals were returned.");
   }
-  // Conflicts are visible, non-applying proposals, but they still claim their
-  // sources for this preview. The model may not also offer an actionable edit
-  // for the same memory and quietly undermine the conflict warning.
-  assertNoOverlappingProposals(proposals);
+  const proposals = resolveCleanupProposals(rankedProposals);
   const totals = previewTotals(scopedSources, proposals);
   return {
     version: 1,
