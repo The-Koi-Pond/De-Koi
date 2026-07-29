@@ -37,4 +37,20 @@ describe("chatCommandApi", () => {
       deleteMemories: true,
     });
   });
+
+  it("opts durable message deletion out of the finite remote deadline", async () => {
+    mocks.invokeTauri.mockResolvedValueOnce({ deleted: 1 });
+    const { chatCommandApi } = await import("./chat-command-api");
+
+    await expect(chatCommandApi.bulkDeleteMessages("chat-1", ["message-1"])).resolves.toEqual({ deleted: 1 });
+
+    expect(mocks.invokeTauri).toHaveBeenCalledWith(
+      "chat_messages_bulk_delete",
+      {
+        chatId: "chat-1",
+        messageIds: ["message-1"],
+      },
+      { timeoutMs: null },
+    );
+  });
 });

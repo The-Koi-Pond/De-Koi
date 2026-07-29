@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Keep remote message deletion pending until durable storage completes",
+    "source": "Live Raspberry Pi user report",
+    "classification": "remote runtime storage persistence and user-data deletion",
+    "status": "pr_open_checks_pending"
+  },
+  "coreClaim": "Deleting a message through the remote web runtime no longer reports a false failure at the browser's 30-second deadline while the server-side deletion is still running.",
+  "rootCause": "The specialized chat_messages_bulk_delete wrapper used the default finite remote request deadline even though it starts a durable, non-idempotent deletion. Slow Pi storage could continue the server transaction after the browser aborted at 30 seconds, causing the UI to report failure and roll back its optimistic cache state.",
+  "scope": {
+    "inScope": [
+      "No-client-deadline behavior for chat_messages_bulk_delete",
+      "Single-message, bulk-message, and game or scene cleanup callers that share the wrapper",
+      "Focused wrapper regression coverage",
+      "Live Pi diagnosis and exact-image post-merge deployment proof"
+    ],
+    "outOfScope": [
+      "Changing Rust deletion semantics or storage persistence",
+      "Making slow storage operations faster",
+      "Changing confirmation prompts or message regeneration behavior",
+      "Removing the default finite deadline from reads or ordinary commands",
+      "Deleting or repairing existing user data"
+    ],
+    "intendedFiles": [
+      "src/shared/api/chat-command-api.ts",
+      "src/shared/api/chat-command-api.spec.ts",
+      ".github/pr-evidence/message-delete-durable-request/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src/shared/api/chat-command-api.ts",
+      "src/shared/api/chat-command-api.spec.ts",
+      ".github/pr-evidence/message-delete-durable-request/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent storage",
+      "remote runtime",
+      "user-data deletion",
+      "non-idempotent mutation",
+      "cross-entrypoint behavior"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The specialized durable message-deletion command may explicitly opt out of the browser's internal request deadline without changing its command name, payload, or embedded behavior.",
+    "riskType": "remote-runtime deletion completion, false failure reporting, and cache consistency",
+    "entrypoints": [
+      "Message delete action",
+      "Bulk message deletion",
+      "Game rollback message cleanup",
+      "src/shared/api chat_messages_bulk_delete wrapper",
+      "tauri-client remote invoke bridge",
+      "remote-runtime /api/invoke fetch"
+    ],
+    "currentPathsOrFormats": [
+      "Remote web shell using the hostable De-Koi runtime",
+      "Embedded Tauri shell using the same typed chat command wrapper",
+      "Existing chat_messages_bulk_delete payload with chatId and messageIds"
+    ],
+    "legacyPathsOrFormats": [
+      "Embedded Tauri IPC continues to use its existing invoke behavior.",
+      "Remote reads and ordinary commands retain the default finite deadline."
+    ],
+    "outOfScopeClaims": [
+      "This change does not guarantee deletion completes within a fixed duration.",
+      "This change does not accelerate slow disk or storage transactions.",
+      "This change does not retry deletion or claim success before the server responds.",
+      "This change does not alter which messages are selected for deletion."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A client deadline treated an unfinished durable deletion as failed even though the server transaction continued and could still commit.",
+    "producer": "src/shared/api/chat-command-api.ts bulkDeleteMessages",
+    "consumer": "Single-message deletion, bulk deletion, and game or scene cleanup flows",
+    "impliedContract": "A durable, non-idempotent deletion must remain pending until the runtime reports its real result when aborting the browser request cannot roll back the server-side transaction.",
+    "actualEnforcement": "bulkDeleteMessages passes { timeoutMs: null } to invokeTauri, reusing the existing remote request option that omits the internal timer while still waiting for the runtime's real success or error response.",
+    "primaryOwnerLane": "src/shared/api",
+    "primaryOwnerDetail": "The focused shared API wrapper owns the transport policy for this specialized durable command across embedded and remote runtimes.",
+    "consumerOnlyLanes": [
+      "src/features",
+      "src/engine",
+      "src-tauri"
+    ],
+    "wrongLaneFixToAvoid": "Do not suppress the UI error, add an automatic retry, or fake success: the original transaction may still commit, so retrying can race the same destructive operation.",
+    "regressionProof": [
+      "pnpm exec vitest run src/shared/api/chat-command-api.spec.ts src/shared/api/storage-api.spec.ts",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The specialized bulk message deletion command opts out of the internal remote deadline.",
+        "evidence": "The focused wrapper regression asserts the exact chat_messages_bulk_delete command, payload, and { timeoutMs: null } request option."
+      },
+      {
+        "claim": "The exact UI error reported on the Pi comes from a single-message deletion that uses the specialized wrapper.",
+        "evidence": "The timeline action shows \"Could not delete the message.\" only when useDeleteMessage rejects, and useDeleteMessage delegates to chatCommandApi.bulkDeleteMessages."
+      },
+      {
+        "claim": "Existing generic durable storage mutations retain their no-deadline policy.",
+        "evidence": "The focused storage-api regression suite passes alongside the specialized wrapper test."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The wrapper must not claim success before the server returns.",
+        "evidence": "The implementation still awaits and returns invokeTauri directly; it changes only the request deadline option."
+      },
+      {
+        "claim": "The deletion payload and Rust command contract must remain unchanged.",
+        "evidence": "The regression asserts the existing chatId and messageIds payload, and no Rust or HTTP dispatch file changed."
+      },
+      {
+        "claim": "The change must not remove finite deadlines globally.",
+        "evidence": "Only the specialized bulkDeleteMessages call supplies timeoutMs: null; existing generic read/default deadline coverage remains unchanged."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Embedded Tauri behavior remains compatible.",
+        "evidence": "The existing invokeTauri bridge ignores remote request options for embedded IPC and the command payload is unchanged."
+      },
+      {
+        "claim": "All existing callers keep the same typed API.",
+        "evidence": "bulkDeleteMessages retains its chatId and messageIds signature and return type."
+      }
+    ],
+    "untestedRows": [
+      "A real destructive message deletion was not repeated after deployment because verification must not modify the user's existing conversations."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The Pi was running matching server and web images for main commit b555cf9ab594cdb10582b405ceee1f874977ef85 when the failure was diagnosed.",
+      "sourceType": "measured",
+      "evidence": "The Pi checkout HEAD and both Docker OCI revision labels matched."
+    },
+    {
+      "description": "Live Pi logs showed chat_messages_bulk_delete starting without a completion while subsequent storage operations took roughly 29 to 35 seconds.",
+      "sourceType": "measured",
+      "evidence": "Read-only de-koi-server log inspection captured the stalled command starts and nearby slow completed storage calls."
+    },
+    {
+      "description": "The generic storage mutation wrappers already opt out of the browser deadline, but the specialized chat command wrapper did not.",
+      "sourceType": "derived",
+      "evidence": "Direct comparison of storage-api.ts and chat-command-api.ts on the deployed revision showed the missing request option."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Message deletion remains destructive. Export any conversation that must be recoverable before deleting its messages.",
+      "source": "Use the conversation export action before confirming deletion.",
+      "destination": "A user-selected folder outside De-Koi's application data directory.",
+      "files": [
+        "<conversation-name>.json"
+      ],
+      "action": "Confirm the exported conversation file exists at the selected destination before deleting irreplaceable messages.",
+      "detectedLayouts": [
+        "Current De-Koi conversation export JSON"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge destructive message deletion on the live Pi",
+      "blockingCoreClaim": false,
+      "status": "not_run_to_preserve_user_data",
+      "reason": "The focused regression proves the transport contract, and exact merged image, health, container, and mount state can be verified without deleting a real user message."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "The new focused test failed before the wrapper supplied a request option. After the one-line fix, the chat-command and generic storage wrapper suites passed 8 tests; typecheck, architecture checks, formatting, and the full repository check passed."
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pass",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1188,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1188",
+    "headRefName": "fix/message-delete-durable-request",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "The user explicitly authorized PR creation, merge to main, and Pi deployment.",
+    "No live user messages will be deleted as part of deployment verification."
+  ]
+}
