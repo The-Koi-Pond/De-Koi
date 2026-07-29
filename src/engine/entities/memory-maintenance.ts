@@ -5,9 +5,9 @@ import type {
   MemoryCleanupSource,
 } from "../contracts/types/memory-maintenance";
 
-const MEMORY_CLEANUP_MAX_GROUPS = 20;
 const MEMORY_CLEANUP_MAX_GROUP_RECORDS = 8;
 const MEMORY_CLEANUP_MAX_GROUP_CHARS = 12_000;
+const MEMORY_CLEANUP_MAX_NEIGHBORS = 4;
 
 const CONTAINMENT_THRESHOLD = 0.35;
 const JACCARD_THRESHOLD = 0.3;
@@ -54,14 +54,10 @@ const STOP_WORDS = new Set([
   "with",
 ]);
 
-interface MemoryCleanupCandidateGroup {
+export interface MemoryCleanupCandidateGroup {
   id: string;
   sourceIds: string[];
-}
-
-interface BuiltMemoryCleanupCandidateGroups {
-  groups: MemoryCleanupCandidateGroup[];
-  deferredCandidateCount: number;
+  evidence: MemoryCleanupCandidateEvidence;
 }
 
 export interface PreparedMemoryCleanupCandidates {
@@ -180,95 +176,122 @@ export function compareMemoryCleanupEvidence(
   return left.pair.join("\u0000").localeCompare(right.pair.join("\u0000"));
 }
 
-function shouldGroup(left: MemoryCleanupSource, right: MemoryCleanupSource): boolean {
-  // Cleanup is reviewed and applied atomically for one owner scope. Identical
-  // content in another scope is intentionally a separate review, never a
-  // cross-owner deletion candidate.
-  return candidateEvidence(left, right) !== null;
-}
-
 export function isMemoryCleanupEligible(source: MemoryCleanupSource): boolean {
   return source.status === "active" || source.status === "pinned";
 }
 
-function boundedGroup(sources: MemoryCleanupSource[], sequence: number): MemoryCleanupCandidateGroup | null {
-  const selected: MemoryCleanupSource[] = [];
-  let characters = 0;
-  for (const source of sources) {
-    if (selected.length >= MEMORY_CLEANUP_MAX_GROUP_RECORDS) break;
-    if (selected.length > 0 && characters + source.content.length > MEMORY_CLEANUP_MAX_GROUP_CHARS) break;
-    selected.push(source);
-    characters += source.content.length;
-  }
-  if (selected.length < 2) return null;
-  return {
-    id: `cleanup-group-${sequence + 1}`,
-    sourceIds: selected.map((source) => source.id),
-  };
+interface MemoryCleanupCandidateEdge {
+  key: string;
+  leftId: string;
+  rightId: string;
+  evidence: MemoryCleanupCandidateEvidence;
 }
 
-function exactDuplicateGroup(sources: MemoryCleanupSource[], sequence: number): MemoryCleanupCandidateGroup | null {
-  const selected = sources.slice(0, MEMORY_CLEANUP_MAX_GROUP_RECORDS);
-  if (selected.length < 2) return null;
-  return {
-    id: `cleanup-group-${sequence + 1}`,
-    sourceIds: selected.map((source) => source.id),
-  };
+function edgeKey(leftId: string, rightId: string): string {
+  return orderedPair(leftId, rightId).join("\u0000");
 }
 
-function buildBoundedCandidateGroups(eligible: MemoryCleanupSource[]): BuiltMemoryCleanupCandidateGroups {
-  const adjacency = new Map(eligible.map((source) => [source.id, new Set<string>()]));
+function compareCandidateEdges(left: MemoryCleanupCandidateEdge, right: MemoryCleanupCandidateEdge): number {
+  return compareMemoryCleanupEvidence(left.evidence, right.evidence) || left.key.localeCompare(right.key);
+}
 
-  for (let leftIndex = 0; leftIndex < eligible.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < eligible.length; rightIndex += 1) {
-      const left = eligible[leftIndex];
-      const right = eligible[rightIndex];
-      if (!left || !right || !shouldGroup(left, right)) continue;
-      adjacency.get(left.id)?.add(right.id);
-      adjacency.get(right.id)?.add(left.id);
+function allCandidateEdges(eligible: MemoryCleanupSource[]): MemoryCleanupCandidateEdge[] {
+  const ordered = [...eligible].sort((left, right) => left.id.localeCompare(right.id));
+  const edges: MemoryCleanupCandidateEdge[] = [];
+  for (let leftIndex = 0; leftIndex < ordered.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < ordered.length; rightIndex += 1) {
+      const left = ordered[leftIndex];
+      const right = ordered[rightIndex];
+      if (!left || !right) continue;
+      const evidence = candidateEvidence(left, right);
+      if (!evidence) continue;
+      edges.push({
+        key: edgeKey(left.id, right.id),
+        leftId: left.id,
+        rightId: right.id,
+        evidence,
+      });
     }
   }
+  return edges.sort(compareCandidateEdges);
+}
 
-  const byId = new Map(eligible.map((source) => [source.id, source]));
-  const visited = new Set<string>();
+function retainStrongestNeighbors(edges: MemoryCleanupCandidateEdge[]): MemoryCleanupCandidateEdge[] {
+  const bySource = new Map<string, MemoryCleanupCandidateEdge[]>();
+  for (const edge of edges) {
+    for (const id of [edge.leftId, edge.rightId]) {
+      const current = bySource.get(id) ?? [];
+      current.push(edge);
+      bySource.set(id, current);
+    }
+  }
+  const retainedKeys = new Set<string>();
+  for (const sourceEdges of bySource.values()) {
+    for (const edge of sourceEdges.sort(compareCandidateEdges).slice(0, MEMORY_CLEANUP_MAX_NEIGHBORS)) {
+      retainedKeys.add(edge.key);
+    }
+  }
+  return edges.filter((edge) => retainedKeys.has(edge.key)).sort(compareCandidateEdges);
+}
+
+function buildEdgeCoveringGroups(
+  eligible: MemoryCleanupSource[],
+  retainedEdges: MemoryCleanupCandidateEdge[],
+): MemoryCleanupCandidateGroup[] {
+  const sourcesById = new Map(eligible.map((source) => [source.id, source]));
+  const uncovered = new Map(retainedEdges.map((edge) => [edge.key, edge]));
   const groups: MemoryCleanupCandidateGroup[] = [];
-  let deferredCandidateCount = 0;
 
-  for (const source of eligible) {
-    if (visited.has(source.id) || (adjacency.get(source.id)?.size ?? 0) === 0) continue;
-    const component: MemoryCleanupSource[] = [];
-    const pending = [source.id];
-    while (pending.length > 0) {
-      const id = pending.pop();
-      if (!id || visited.has(id)) continue;
-      visited.add(id);
-      const member = byId.get(id);
-      if (member) component.push(member);
-      for (const adjacent of adjacency.get(id) ?? []) {
-        if (!visited.has(adjacent)) pending.push(adjacent);
-      }
+  while (uncovered.size > 0) {
+    const seed = [...uncovered.values()].sort(compareCandidateEdges)[0];
+    if (!seed) break;
+    const selected = new Set([seed.leftId, seed.rightId]);
+    let characters =
+      (sourcesById.get(seed.leftId)?.content.length ?? 0) +
+      (sourcesById.get(seed.rightId)?.content.length ?? 0);
+
+    while (selected.size < MEMORY_CLEANUP_MAX_GROUP_RECORDS) {
+      const next = retainedEdges
+        .filter(
+          (edge) =>
+            (selected.has(edge.leftId) && !selected.has(edge.rightId)) ||
+            (selected.has(edge.rightId) && !selected.has(edge.leftId)),
+        )
+        .sort(compareCandidateEdges)
+        .map((edge) => (selected.has(edge.leftId) ? edge.rightId : edge.leftId))
+        .find((id) => {
+          const source = sourcesById.get(id);
+          return source && characters + source.content.length <= MEMORY_CLEANUP_MAX_GROUP_CHARS;
+        });
+      if (!next) break;
+      selected.add(next);
+      characters += sourcesById.get(next)?.content.length ?? 0;
     }
-    const normalized = normalizedContent(component[0]?.content ?? "");
-    const exactDuplicates = component.every((member) => normalizedContent(member.content) === normalized);
-    const group = exactDuplicates
-      ? exactDuplicateGroup(component, groups.length)
-      : boundedGroup(component, groups.length);
-    if (group) groups.push(group);
-    if (!group || group.sourceIds.length < component.length) {
-      deferredCandidateCount += 1;
+
+    const sourceIds = [...selected].sort();
+    groups.push({
+      id: `cleanup-group-${groups.length + 1}`,
+      sourceIds,
+      evidence: seed.evidence,
+    });
+    for (const edge of retainedEdges) {
+      if (selected.has(edge.leftId) && selected.has(edge.rightId)) uncovered.delete(edge.key);
     }
   }
 
-  return { groups, deferredCandidateCount };
+  return groups;
+}
+
+function buildBoundedCandidateGroups(eligible: MemoryCleanupSource[]): MemoryCleanupCandidateGroup[] {
+  return buildEdgeCoveringGroups(eligible, retainStrongestNeighbors(allCandidateEdges(eligible)));
 }
 
 export function prepareMemoryCleanupCandidates(sources: MemoryCleanupSource[]): PreparedMemoryCleanupCandidates {
   const eligible = sources.filter(isMemoryCleanupEligible);
-  const built = buildBoundedCandidateGroups(eligible);
   return {
     eligible,
-    groups: built.groups.slice(0, MEMORY_CLEANUP_MAX_GROUPS),
-    deferredCandidateCount: built.deferredCandidateCount + Math.max(0, built.groups.length - MEMORY_CLEANUP_MAX_GROUPS),
+    groups: buildBoundedCandidateGroups(eligible),
+    deferredCandidateCount: 0,
   };
 }
 

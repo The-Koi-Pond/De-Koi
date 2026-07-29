@@ -129,7 +129,7 @@ describe("memory cleanup preparation", () => {
     expect(prepared.groups).toEqual([]);
   });
 
-  it("caps model-facing groups and reports deferred candidates", () => {
+  it("returns more than twenty independent candidate groups without deferring any", () => {
     const prepared = prepareMemoryCleanupCandidates(
       Array.from({ length: 22 }, (_, index) => [
         source({ id: `pair-${index}-a`, content: `unique-${index}` }),
@@ -137,8 +137,57 @@ describe("memory cleanup preparation", () => {
       ]).flat(),
     );
 
-    expect(prepared.groups).toHaveLength(20);
-    expect(prepared.deferredCandidateCount).toBe(2);
+    expect(prepared.groups).toHaveLength(22);
+    expect(prepared.deferredCandidateCount).toBe(0);
+  });
+
+  it("covers every edge in a component larger than one model group", () => {
+    const chain = Array.from({ length: 12 }, (_, index) =>
+      source({
+        id: `chain-${index.toString().padStart(2, "0")}`,
+        content: `Distinct memory ${index}.`,
+        messageIds: [`edge-${index - 1}`, `edge-${index}`],
+      }),
+    );
+    const prepared = prepareMemoryCleanupCandidates(chain);
+
+    expect(prepared.groups.every((group) => group.sourceIds.length <= 8)).toBe(true);
+    for (let index = 0; index < chain.length - 1; index += 1) {
+      expect(
+        prepared.groups.some((group) =>
+          containsEverySource(group, [
+            `chain-${index.toString().padStart(2, "0")}`,
+            `chain-${(index + 1).toString().padStart(2, "0")}`,
+          ]),
+        ),
+      ).toBe(true);
+    }
+    expect(prepared.deferredCandidateCount).toBe(0);
+  });
+
+  it("keeps an oversized qualifying seed pair instead of dropping it", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "large-a", content: "a".repeat(7_000), messageIds: ["shared"] }),
+      source({ id: "large-b", content: "b".repeat(7_000), messageIds: ["shared"] }),
+      source({ id: "extra", content: "c".repeat(2_000), messageIds: ["shared"] }),
+    ]);
+
+    expect(prepared.groups.some((group) => containsEverySource(group, ["large-a", "large-b"]))).toBe(true);
+    expect(
+      prepared.groups.find((group) => containsEverySource(group, ["large-a", "large-b"]))?.sourceIds,
+    ).toHaveLength(2);
+  });
+
+  it("builds the same groups regardless of source input order", () => {
+    const sources = [
+      source({ id: "a", content: "Mira keeps the brass key." }),
+      source({ id: "b", content: "The brass key remains with Mira." }),
+      source({ id: "c", content: "Mira stores the brass key in her coat." }),
+    ];
+
+    expect(prepareMemoryCleanupCandidates(sources).groups).toEqual(
+      prepareMemoryCleanupCandidates([...sources].reverse()).groups,
+    );
   });
 
   it("does not treat one oversized memory as a deferred consolidation candidate", () => {
@@ -156,10 +205,10 @@ describe("memory cleanup preparation", () => {
     ]);
 
     expect(prepared.groups).toEqual([
-      {
+      expect.objectContaining({
         id: "cleanup-group-1",
         sourceIds: ["oversized-a", "oversized-b"],
-      },
+      }),
     ]);
     expect(prepared.deferredCandidateCount).toBe(0);
   });
