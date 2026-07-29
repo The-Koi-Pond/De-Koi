@@ -22,6 +22,10 @@ function source(overrides: Partial<MemoryCleanupSource> = {}): MemoryCleanupSour
   };
 }
 
+function containsEverySource(group: { sourceIds: string[] }, ids: string[]): boolean {
+  return ids.every((id) => group.sourceIds.includes(id));
+}
+
 function proposal(overrides: Partial<MemoryCleanupProposal> = {}): MemoryCleanupProposal {
   return {
     id: "proposal-1",
@@ -71,11 +75,33 @@ describe("memory cleanup preparation", () => {
       source({ id: "embedding-b", content: "Another unrelated phrase.", embedding: [0.9, 0.1] }),
     ]);
 
-    const groups = prepared.groups.map((group) => [...group.sourceIds].sort().join(","));
-    expect(groups).toContain("exact-a,exact-b");
-    expect(groups).toContain("provenance,same-message");
-    expect(groups).toContain("lexical-a,lexical-b");
-    expect(groups).toContain("embedding-a,embedding-b");
+    expect(prepared.groups.some((group) => containsEverySource(group, ["exact-a", "exact-b"]))).toBe(true);
+    expect(prepared.groups.some((group) => containsEverySource(group, ["provenance", "same-message"]))).toBe(true);
+    expect(prepared.groups.some((group) => containsEverySource(group, ["lexical-a", "lexical-b"]))).toBe(true);
+    expect(prepared.groups.some((group) => containsEverySource(group, ["embedding-a", "embedding-b"]))).toBe(true);
+  });
+
+  it("finds a short fact inside a longer elaboration with two shared meaningful tokens", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "short", content: "The brass key remains." }),
+      source({
+        id: "elaboration",
+        content: "Mira hid the old brass key beneath the loose floorboard yesterday.",
+      }),
+    ]);
+
+    expect(prepared.groups.some((group) => containsEverySource(group, ["short", "elaboration"]))).toBe(true);
+  });
+
+  it("accepts useful 0.80 embedding similarity without grouping unrelated vectors", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "near-a", content: "North window.", embedding: [1, 0] }),
+      source({ id: "near-b", content: "Unrelated wording.", embedding: [0.8, 0.6] }),
+      source({ id: "far", content: "Different wording.", embedding: [0, 1] }),
+    ]);
+
+    expect(prepared.groups.some((group) => containsEverySource(group, ["near-a", "near-b"]))).toBe(true);
+    expect(prepared.groups.some((group) => containsEverySource(group, ["near-a", "far"]))).toBe(false);
   });
 
   it("does not create a singleton candidate because a memory is long", () => {

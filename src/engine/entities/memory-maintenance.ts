@@ -9,9 +9,28 @@ const MEMORY_CLEANUP_MAX_GROUPS = 20;
 const MEMORY_CLEANUP_MAX_GROUP_RECORDS = 8;
 const MEMORY_CLEANUP_MAX_GROUP_CHARS = 12_000;
 
-const LEXICAL_SIMILARITY_THRESHOLD = 0.6;
-const EMBEDDING_SIMILARITY_THRESHOLD = 0.88;
-const MIN_SHARED_LEXICAL_TOKENS = 3;
+const CONTAINMENT_THRESHOLD = 0.35;
+const JACCARD_THRESHOLD = 0.3;
+const EMBEDDING_THRESHOLD = 0.78;
+const MIN_CONTAINMENT_SHARED_TOKENS = 2;
+const MIN_JACCARD_SHARED_TOKENS = 3;
+
+export type MemoryCleanupEvidenceKind = "exact" | "provenance" | "embedding" | "containment" | "jaccard";
+
+export interface MemoryCleanupCandidateEvidence {
+  kind: MemoryCleanupEvidenceKind;
+  similarity: number;
+  sharedTokenCount: number;
+  pair: [string, string];
+}
+
+const EVIDENCE_PRIORITY: Record<MemoryCleanupEvidenceKind, number> = {
+  exact: 5,
+  provenance: 4,
+  embedding: 3,
+  containment: 2,
+  jaccard: 1,
+};
 const STOP_WORDS = new Set([
   "a",
   "an",
@@ -73,13 +92,17 @@ function hasSharedMessageId(left: MemoryCleanupSource, right: MemoryCleanupSourc
   return left.messageIds.some((id) => id.length > 0 && rightIds.has(id));
 }
 
-function lexicalSimilarity(left: MemoryCleanupSource, right: MemoryCleanupSource): boolean {
+function lexicalMetrics(left: MemoryCleanupSource, right: MemoryCleanupSource) {
   const leftTokens = meaningfulTokens(left.content);
   const rightTokens = meaningfulTokens(right.content);
-  const shared = [...leftTokens].filter((token) => rightTokens.has(token)).length;
-  if (shared < MIN_SHARED_LEXICAL_TOKENS) return false;
+  const sharedTokenCount = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  const smaller = Math.min(leftTokens.size, rightTokens.size);
   const union = new Set([...leftTokens, ...rightTokens]).size;
-  return union > 0 && shared / union >= LEXICAL_SIMILARITY_THRESHOLD;
+  return {
+    sharedTokenCount,
+    containment: smaller > 0 ? sharedTokenCount / smaller : 0,
+    jaccard: union > 0 ? sharedTokenCount / union : 0,
+  };
 }
 
 function cosineSimilarity(left: number[], right: number[]): number | null {
@@ -99,23 +122,69 @@ function cosineSimilarity(left: number[], right: number[]): number | null {
   return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
 }
 
-function embeddingSimilarity(left: MemoryCleanupSource, right: MemoryCleanupSource): boolean {
-  if (!left.embedding || !right.embedding) return false;
-  const similarity = cosineSimilarity(left.embedding, right.embedding);
-  return similarity !== null && similarity >= EMBEDDING_SIMILARITY_THRESHOLD;
+function orderedPair(leftId: string, rightId: string): [string, string] {
+  return leftId.localeCompare(rightId) <= 0 ? [leftId, rightId] : [rightId, leftId];
+}
+
+function candidateEvidence(
+  left: MemoryCleanupSource,
+  right: MemoryCleanupSource,
+): MemoryCleanupCandidateEvidence | null {
+  if (scopeKey(left.scope) !== scopeKey(right.scope)) return null;
+  const pair = orderedPair(left.id, right.id);
+  const lexical = lexicalMetrics(left, right);
+  if (normalizedContent(left.content) === normalizedContent(right.content)) {
+    return { kind: "exact", similarity: 1, sharedTokenCount: lexical.sharedTokenCount, pair };
+  }
+  if (hasSharedMessageId(left, right)) {
+    return { kind: "provenance", similarity: 1, sharedTokenCount: lexical.sharedTokenCount, pair };
+  }
+  if (left.embedding && right.embedding) {
+    const similarity = cosineSimilarity(left.embedding, right.embedding);
+    if (similarity !== null && similarity >= EMBEDDING_THRESHOLD) {
+      return { kind: "embedding", similarity, sharedTokenCount: lexical.sharedTokenCount, pair };
+    }
+  }
+  if (
+    lexical.sharedTokenCount >= MIN_CONTAINMENT_SHARED_TOKENS &&
+    lexical.containment >= CONTAINMENT_THRESHOLD
+  ) {
+    return {
+      kind: "containment",
+      similarity: lexical.containment,
+      sharedTokenCount: lexical.sharedTokenCount,
+      pair,
+    };
+  }
+  if (lexical.sharedTokenCount >= MIN_JACCARD_SHARED_TOKENS && lexical.jaccard >= JACCARD_THRESHOLD) {
+    return {
+      kind: "jaccard",
+      similarity: lexical.jaccard,
+      sharedTokenCount: lexical.sharedTokenCount,
+      pair,
+    };
+  }
+  return null;
+}
+
+export function compareMemoryCleanupEvidence(
+  left: MemoryCleanupCandidateEvidence,
+  right: MemoryCleanupCandidateEvidence,
+): number {
+  const priority = EVIDENCE_PRIORITY[right.kind] - EVIDENCE_PRIORITY[left.kind];
+  if (priority !== 0) return priority;
+  const similarity = right.similarity - left.similarity;
+  if (similarity !== 0) return similarity;
+  const shared = right.sharedTokenCount - left.sharedTokenCount;
+  if (shared !== 0) return shared;
+  return left.pair.join("\u0000").localeCompare(right.pair.join("\u0000"));
 }
 
 function shouldGroup(left: MemoryCleanupSource, right: MemoryCleanupSource): boolean {
   // Cleanup is reviewed and applied atomically for one owner scope. Identical
   // content in another scope is intentionally a separate review, never a
   // cross-owner deletion candidate.
-  if (scopeKey(left.scope) !== scopeKey(right.scope)) return false;
-  return (
-    normalizedContent(left.content) === normalizedContent(right.content) ||
-    hasSharedMessageId(left, right) ||
-    lexicalSimilarity(left, right) ||
-    embeddingSimilarity(left, right)
-  );
+  return candidateEvidence(left, right) !== null;
 }
 
 export function isMemoryCleanupEligible(source: MemoryCleanupSource): boolean {
