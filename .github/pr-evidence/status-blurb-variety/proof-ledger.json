@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Make Conversation character statuses feel less repetitive",
+    "source": "User report and deterministic status-generation regression harness",
+    "classification": "Conversation status prompt assembly, repetition detection, and refresh persistence",
+    "status": "verified"
+  },
+  "coreClaim": "Conversation character statuses rotate through distinct real-user-like angles, use the character's current routine when available, and do not replace a visible status with a recent near-duplicate.",
+  "rootCause": "The generator reused one broad prompt shape, over-supplied continuity context, ignored fuzzy character routines, and persisted every provider answer without comparing it to recent statuses.",
+  "scope": {
+    "inScope": [
+      "Conversation status prompt angle rotation",
+      "Current character routine selection",
+      "Bounded recent-status metadata",
+      "Near-duplicate detection and one guarded retry",
+      "Provider-loop throttling when both answers repeat"
+    ],
+    "outOfScope": [
+      "Roleplay and Game status behavior",
+      "Provider, model, temperature, or connection changes",
+      "Shared API, React UI, Rust storage, and remote runtime",
+      "A deterministic guarantee that every model response sounds human"
+    ],
+    "intendedFiles": [
+      "src/engine/modes/chat/status/status-message.service.ts",
+      "src/engine/modes/chat/status/status-message.service.spec.ts",
+      "src/engine/modes/chat/status/status-message-variety.ts",
+      "src/engine/modes/chat/status/status-message-variety.spec.ts",
+      "docs/superpowers/specs/2026-07-29-conversation-status-variety-design.md",
+      "docs/superpowers/plans/2026-07-29-conversation-status-variety.md",
+      ".github/pr-evidence/status-blurb-variety/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "provider retry behavior",
+      "metadata compatibility",
+      "Bunny review"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Only Conversation status refreshes rotate six prompt angles, consult current routines, reject recent exact or near-duplicate answers, and throttle a double-rejection without erasing the visible status.",
+    "riskType": "prompt compatibility and provider retry behavior",
+    "entrypoints": [
+      "Conversation character status refresh",
+      "Conversation status refresh with routine-only scheduling data",
+      "Conversation status refresh after a repeated provider answer"
+    ],
+    "currentPathsOrFormats": [
+      "Chat metadata with conversationStatusMessages and optional conversationStatusMessageMeta",
+      "Characters with characterRoutines or legacy schedules",
+      "Provider answers with or without leading emoji"
+    ],
+    "legacyPathsOrFormats": [
+      "Chat metadata without conversationStatusMessageMeta",
+      "Characters with only legacy schedules"
+    ],
+    "outOfScopeClaims": [
+      "No claim that Roleplay or Game status generation changes.",
+      "No claim that every provider answer is subjectively unique.",
+      "No claim that historical chat metadata is migrated."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Conversation status generation had no durable variety state or recent-answer rejection, and its activity lookup did not use the characterRoutines source that current characters expose.",
+    "producer": "src/engine/modes/chat/status/status-message.service.ts assembles status prompts and persists accepted status metadata.",
+    "consumer": "Conversation mode reads conversationStatusMessages as the visible per-character status.",
+    "impliedContract": "The Conversation engine owns both the character context supplied to status generation and the acceptance rules for provider-produced status text.",
+    "actualEnforcement": "The status service chooses a rotating prompt angle, supplies continuity only to its dedicated angle, compares answers against a bounded history, retries once with the next angle, and keeps the prior visible answer after a second rejection.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Conversation status meaning and prompt assembly remain in src/engine/modes/chat/status.",
+    "consumerOnlyLanes": [],
+    "wrongLaneFixToAvoid": "Do not hide repeated text in React, alter shared APIs, or push Conversation prompt semantics into storage, providers, or src-tauri.",
+    "regressionProof": [
+      "status-message-variety.spec.ts proves angle rotation, prompt context limits, and duplicate classification.",
+      "status-message.service.spec.ts proves routine activity, retry acceptance, and double-rejection throttling."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Successive refresh prompts rotate across six distinct status angles and only the continuity angle receives summaries or memories.",
+        "evidence": "status-message-variety.spec.ts passes angle rotation and context-isolation rows."
+      },
+      {
+        "claim": "A current characterRoutines entry can ground the status activity even when no legacy schedule exists.",
+        "evidence": "status-message.service.spec.ts passes the routine-only availability row."
+      },
+      {
+        "claim": "A near-duplicate first answer gets one retry with the next angle and a distinct retry answer is persisted.",
+        "evidence": "status-message.service.spec.ts passes the guarded retry acceptance row."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Exact, containment, token-overlap, short phrase, and emoji-prefixed repeats must not replace the visible status.",
+        "evidence": "status-message-variety.spec.ts passes exact, Jaccard, containment, short status, and emoji normalization rows."
+      },
+      {
+        "claim": "A second repeated provider answer must not trigger a 30-second paid-provider loop or erase the prior visible status.",
+        "evidence": "status-message.service.spec.ts passes the double-rejection throttle row."
+      },
+      {
+        "claim": "Distinct short statuses must not be rejected merely because both are brief.",
+        "evidence": "status-message-variety.spec.ts passes the distinct short-status negative row."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Chats without variety metadata start with the first angle and remain readable without a migration.",
+        "evidence": "status-message.service.spec.ts baseline and refresh rows pass with legacy metadata shapes."
+      },
+      {
+        "claim": "Characters that only have legacy schedules retain their existing availability behavior.",
+        "evidence": "The existing status-message and schedule service suites remain green."
+      }
+    ],
+    "untestedRows": [
+      "No live provider long-run sampling is claimed; subjective prose quality remains provider-dependent.",
+      "The engine change requires a later De-Koi deployment before it affects the Pi runtime."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Status variety history is bounded to six accepted messages per character.",
+      "sourceType": "harness-proven",
+      "evidence": "status-message-variety.spec.ts asserts the bounded history contract."
+    },
+    {
+      "description": "Typing evidence influences style only and is not represented as a factual activity claim.",
+      "sourceType": "harness-proven",
+      "evidence": "status-message-variety.spec.ts asserts the typing cue wording and prompt boundary."
+    },
+    {
+      "description": "A rejected retry advances refresh timing and the next angle while retaining the previous visible status.",
+      "sourceType": "harness-proven",
+      "evidence": "status-message.service.spec.ts asserts visible-status preservation and refresh throttling."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Live provider sampling after deployment",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "Deterministic prompt selection, routine grounding, persistence, retry, and rejection contracts are locally covered; subjective wording remains model-dependent."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check passed TypeScript, architecture, security, storage contracts, docs, discovery, workflow safety, Rust workspace checks, and the repository's warning-only unused-code inventory.",
+    "githubValidationPassed": false,
+    "edgeRowsTested": [
+      "Routine-only activity",
+      "Summary and memory context isolation",
+      "Exact, containment, Jaccard, short phrase, and emoji-prefixed repeats",
+      "Distinct short statuses",
+      "Accepted retry and double-rejection throttle"
+    ],
+    "negativeRowsTested": [
+      "No continuity context outside the continuity angle",
+      "No visible-status replacement after a rejected retry",
+      "No immediate paid-provider retry loop",
+      "No Roleplay or Game path change"
+    ],
+    "afterEvidence": [
+      "pnpm exec vitest run src/engine/modes/chat/status/status-message-variety.spec.ts src/engine/modes/chat/status/status-message.service.spec.ts src/engine/contracts/constants/conversation-prompt.spec.ts src/engine/modes/chat/schedules/schedule.service.spec.ts",
+      "pnpm check",
+      "git diff --check"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "passed locally with no actionable findings",
+    "prHealthStatus": "pending"
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}
