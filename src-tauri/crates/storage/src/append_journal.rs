@@ -8,12 +8,13 @@ use std::path::{Path, PathBuf};
 
 use crate::journal::{apply_collection_mutation, CollectionMutation};
 use crate::transaction::{
-    backup_path_for, parse_collection_file, preserve_corrupt_file, refresh_collection_backup,
-    sync_directory, write_file_atomically,
+    backup_path_for, parse_collection_file, preserve_corrupt_file, sync_directory, sync_file,
+    unique_sibling_path, write_file_atomically,
 };
 use crate::validate_collection_name;
 
-const APPEND_JOURNAL_VERSION: u8 = 1;
+const LEGACY_APPEND_JOURNAL_VERSION: u8 = 1;
+const APPEND_JOURNAL_VERSION: u8 = 2;
 const APPEND_JOURNAL_FILE: &str = ".collection-append-journal.jsonl";
 const APPEND_CHECKPOINT_COLLECTIONS: [&str; 2] = ["messages", "message-swipes"];
 
@@ -108,15 +109,39 @@ fn apply_append_rows_idempotently(rows: &mut Vec<Value>, records: Vec<Value>) ->
     Ok(())
 }
 
-fn refresh_checkpoint_backup(primary: &Path) -> AppResult<()> {
-    let backup = backup_path_for(primary)?;
+pub(crate) fn checkpoint_backup_path(collections_dir: &Path, collection: &str) -> PathBuf {
+    collections_dir.join(format!("{collection}.append-checkpoint.bak"))
+}
+
+fn checkpoint_backup_for_recovery(
+    collections_dir: &Path,
+    collection: &str,
+    primary: &Path,
+    allow_legacy_backup: bool,
+) -> AppResult<PathBuf> {
+    let checkpoint = checkpoint_backup_path(collections_dir, collection);
+    if checkpoint.exists() || !allow_legacy_backup {
+        Ok(checkpoint)
+    } else {
+        backup_path_for(primary)
+    }
+}
+
+fn refresh_checkpoint_backup(
+    collections_dir: &Path,
+    collection: &str,
+    primary: &Path,
+) -> AppResult<()> {
+    let backup = checkpoint_backup_path(collections_dir, collection);
     match fs::symlink_metadata(primary) {
         Ok(metadata) if metadata.file_type().is_file() && metadata.len() > 0 => {
-            refresh_collection_backup(primary)
+            let backup_tmp = unique_sibling_path(&backup, "tmp")?;
+            fs::copy(primary, &backup_tmp)?;
+            sync_file(&backup_tmp)?;
+            fs::rename(backup_tmp, backup)?;
+            Ok(())
         }
-        Ok(metadata) if metadata.file_type().is_file() => {
-            write_file_atomically(&backup, b"[]")
-        }
+        Ok(metadata) if metadata.file_type().is_file() => write_file_atomically(&backup, b"[]"),
         Ok(_) => Err(AppError::io(std::io::Error::other(format!(
             "Collection path is not a regular file: {}",
             primary.display()
@@ -147,16 +172,21 @@ fn existing_checkpoint_is_usable(
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error.into()),
     };
+    let allow_legacy_backup = if journal_metadata.len() == 0 {
+        false
+    } else {
+        read_entries(journal)?
+            .iter()
+            .all(|entry| entry.version == LEGACY_APPEND_JOURNAL_VERSION)
+    };
     let mut refreshed_missing_backup = false;
     for collection in APPEND_CHECKPOINT_COLLECTIONS {
         let primary = collections_dir.join(format!("{collection}.json"));
-        let backup = backup_path_for(&primary)?;
+        let backup = checkpoint_backup_path(collections_dir, collection);
         match fs::symlink_metadata(&backup) {
             Ok(metadata) if metadata.file_type().is_file() && metadata.len() > 0 => {}
-            Ok(metadata)
-                if metadata.file_type().is_file() && journal_metadata.len() == 0 =>
-            {
-                refresh_checkpoint_backup(&primary)?;
+            Ok(metadata) if metadata.file_type().is_file() && journal_metadata.len() == 0 => {
+                refresh_checkpoint_backup(collections_dir, collection, &primary)?;
                 refreshed_missing_backup = true;
             }
             Ok(metadata) if metadata.file_type().is_file() => {
@@ -172,14 +202,38 @@ fn existing_checkpoint_is_usable(
                 ));
             }
             Err(error) if error.kind() == ErrorKind::NotFound && journal_metadata.len() == 0 => {
-                refresh_checkpoint_backup(&primary)?;
+                refresh_checkpoint_backup(collections_dir, collection, &primary)?;
                 refreshed_missing_backup = true;
             }
             Err(error) if error.kind() == ErrorKind::NotFound => {
-                return Err(recovery_error(
-                    journal,
-                    format!("{collection} checkpoint backup is missing while appends are pending"),
-                ));
+                if !allow_legacy_backup {
+                    return Err(recovery_error(
+                        journal,
+                        format!("{collection} checkpoint backup is missing while appends are pending"),
+                    ));
+                }
+                let legacy_backup = backup_path_for(&primary)?;
+                let legacy_metadata = fs::symlink_metadata(&legacy_backup).map_err(|legacy_error| {
+                    recovery_error(
+                        journal,
+                        format!(
+                            "{collection} checkpoint backup is missing while appends are pending: {legacy_error}"
+                        ),
+                    )
+                })?;
+                if !legacy_metadata.file_type().is_file() || legacy_metadata.len() == 0 {
+                    return Err(recovery_error(
+                        journal,
+                        format!(
+                            "{collection} legacy checkpoint backup is not a non-empty regular file"
+                        ),
+                    ));
+                }
+                let backup_tmp = unique_sibling_path(&backup, "tmp")?;
+                fs::copy(&legacy_backup, &backup_tmp)?;
+                sync_file(&backup_tmp)?;
+                fs::rename(backup_tmp, &backup)?;
+                refreshed_missing_backup = true;
             }
             Err(error) => return Err(error.into()),
         }
@@ -196,7 +250,7 @@ fn initialize_checkpoint(collections_dir: &Path, journal: &Path) -> AppResult<()
     }
     for collection in APPEND_CHECKPOINT_COLLECTIONS {
         let primary = collections_dir.join(format!("{collection}.json"));
-        refresh_checkpoint_backup(&primary)?;
+        refresh_checkpoint_backup(collections_dir, collection, &primary)?;
     }
     let file = fs::OpenOptions::new()
         .create_new(true)
@@ -213,7 +267,7 @@ pub(crate) fn prepare_known_checkpoint(collections_dir: &Path) -> AppResult<()> 
     }
     for collection in APPEND_CHECKPOINT_COLLECTIONS {
         let primary = collections_dir.join(format!("{collection}.json"));
-        refresh_checkpoint_backup(&primary)?;
+        refresh_checkpoint_backup(collections_dir, collection, &primary)?;
     }
     let file = fs::OpenOptions::new()
         .create_new(true)
@@ -264,7 +318,10 @@ fn read_entries(journal: &Path) -> AppResult<Vec<AppendJournalEntry>> {
         let entry: AppendJournalEntry = serde_json::from_str(line).map_err(|error| {
             recovery_error(journal, format!("entry {} is invalid: {error}", index + 1))
         })?;
-        if entry.version != APPEND_JOURNAL_VERSION {
+        if !matches!(
+            entry.version,
+            LEGACY_APPEND_JOURNAL_VERSION | APPEND_JOURNAL_VERSION
+        ) {
             return Err(recovery_error(
                 journal,
                 format!(
@@ -285,10 +342,20 @@ fn read_entries(journal: &Path) -> AppResult<Vec<AppendJournalEntry>> {
     Ok(entries)
 }
 
-fn base_rows(collections_dir: &Path, collection: &str, journal: &Path) -> AppResult<Vec<Value>> {
+fn base_rows(
+    collections_dir: &Path,
+    collection: &str,
+    journal: &Path,
+    allow_legacy_backup: bool,
+) -> AppResult<Vec<Value>> {
     let primary = collections_dir.join(format!("{collection}.json"));
     if !primary.exists() {
-        let backup = backup_path_for(&primary)?;
+        let backup = checkpoint_backup_for_recovery(
+            collections_dir,
+            collection,
+            &primary,
+            allow_legacy_backup,
+        )?;
         let metadata = fs::symlink_metadata(&backup).map_err(|backup_error| {
             recovery_error(
                 journal,
@@ -319,7 +386,12 @@ fn base_rows(collections_dir: &Path, collection: &str, journal: &Path) -> AppRes
     match parse_collection_file(collection, &primary) {
         Ok(rows) => Ok(rows),
         Err(primary_error) => {
-            let backup = backup_path_for(&primary)?;
+            let backup = checkpoint_backup_for_recovery(
+                collections_dir,
+                collection,
+                &primary,
+                allow_legacy_backup,
+            )?;
             let metadata = fs::symlink_metadata(&backup).map_err(|backup_error| {
                 recovery_error(
                     journal,
@@ -362,6 +434,9 @@ pub(crate) fn recover(collections_dir: &Path) -> AppResult<()> {
     if entries.is_empty() {
         return Ok(());
     }
+    let allow_legacy_backup = entries
+        .iter()
+        .all(|entry| entry.version == LEGACY_APPEND_JOURNAL_VERSION);
 
     #[cfg(test)]
     APPEND_RECOVERY_TEST_HOOK.with(|hook| {
@@ -386,7 +461,12 @@ pub(crate) fn recover(collections_dir: &Path) -> AppResult<()> {
     }
 
     for collection in &order {
-        let mut rows = base_rows(collections_dir, collection, &journal)?;
+        let mut rows = base_rows(
+            collections_dir,
+            collection,
+            &journal,
+            allow_legacy_backup,
+        )?;
         for records in mutations.remove(collection).unwrap_or_default() {
             apply_append_rows_idempotently(&mut rows, records)?;
         }
@@ -395,7 +475,11 @@ pub(crate) fn recover(collections_dir: &Path) -> AppResult<()> {
     }
     sync_directory(collections_dir)?;
     for collection in &order {
-        refresh_collection_backup(&collections_dir.join(format!("{collection}.json")))?;
+        refresh_checkpoint_backup(
+            collections_dir,
+            collection,
+            &collections_dir.join(format!("{collection}.json")),
+        )?;
     }
     sync_directory(collections_dir)?;
     let file = fs::OpenOptions::new()
