@@ -125,6 +125,7 @@ describe("useMemoryCleanup", () => {
       batchId: "cleanup-batch-1",
       combined: 1,
       superseded: 2,
+      discarded: 0,
       created: 1,
     });
     mocks.undo.mockResolvedValue({
@@ -181,8 +182,70 @@ describe("useMemoryCleanup", () => {
     expect(current.lastBatchId).toBeNull();
   });
 
+  it("never preselects discard and applies it only after explicit selection", async () => {
+    mocks.analyze.mockResolvedValue({
+      ...preview({ kind: "chat", id: "chat-1" }),
+      proposals: [
+        {
+          id: "discard-1",
+          type: "discard",
+          sourceIds: ["memory-1"],
+          expected: {},
+          reason: "Low-value memory",
+          selected: true,
+          estimatedTokensBefore: 8,
+          estimatedTokensAfter: 0,
+        },
+      ],
+    });
+    render();
+
+    await act(async () => current.analyze());
+    expect(current.selected["discard-1"]).toBe(false);
+    act(() => current.toggleProposal("discard-1", true));
+    await act(async () => current.apply());
+
+    expect(mocks.apply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposals: [expect.objectContaining({ id: "discard-1", selected: true })],
+      }),
+    );
+  });
+
+  it("reports the selected-proposal limit before calling storage", async () => {
+    mocks.analyze.mockResolvedValue({
+      ...preview({ kind: "chat", id: "chat-1" }),
+      proposals: Array.from({ length: 1_001 }, (_, index) => ({
+        id: `discard-${index}`,
+        type: "discard",
+        sourceIds: [`memory-${index}`],
+        expected: {},
+        reason: "Low-value memory",
+        selected: false,
+        estimatedTokensBefore: 1,
+        estimatedTokensAfter: 0,
+      })),
+    });
+    render();
+
+    await act(async () => current.analyze());
+    act(() => {
+      for (let index = 0; index < 1_001; index += 1) {
+        current.toggleProposal(`discard-${index}`, true);
+      }
+    });
+    await expect(current.apply()).rejects.toThrow("at most 1,000");
+    expect(mocks.apply).not.toHaveBeenCalled();
+  });
+
   it("does not report a successful old-owner apply as an error after navigation", async () => {
-    let finishApply!: (value: { batchId: string; combined: number; superseded: number; created: number }) => void;
+    let finishApply!: (value: {
+      batchId: string;
+      combined: number;
+      superseded: number;
+      discarded: number;
+      created: number;
+    }) => void;
     mocks.apply.mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -210,6 +273,7 @@ describe("useMemoryCleanup", () => {
         batchId: "cleanup-batch-old-owner",
         combined: 1,
         superseded: 2,
+        discarded: 0,
         created: 1,
       });
       await applyPromise;
