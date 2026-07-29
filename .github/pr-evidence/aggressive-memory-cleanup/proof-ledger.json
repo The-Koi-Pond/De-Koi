@@ -256,7 +256,7 @@
   },
   "checks": {
     "baselineCommand": "pnpm check",
-    "baselineStatus": "pending",
+    "baselineStatus": "passed",
     "versionCheckStatus": "not_applicable",
     "dbPushStatus": "not_applicable",
     "ciStatus": "pending",
