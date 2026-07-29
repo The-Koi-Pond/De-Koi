@@ -104,6 +104,10 @@ export function TopBar({
             : "";
 
   const [charPopup, setCharPopup] = useState<number | null>(null);
+  const [statusPopupOpen, setStatusPopupOpen] = useState(false);
+  const firstCharacterName = firstChar?.data?.name ?? chatName ?? "Character";
+  const statusPopupId = "mobile-character-status-popover";
+  const showSingleCharacterStatus = Boolean(activity) && (!characters || characters.length <= 1);
 
   const charStatusColor = (ext: Record<string, unknown>) => {
     if (!showStatus) return "";
@@ -120,20 +124,28 @@ export function TopBar({
   };
 
   useEffect(() => {
-    if (charPopup === null) return;
+    if (charPopup === null && !statusPopupOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setCharPopup(null);
+      if (e.key !== "Escape") return;
+      setCharPopup(null);
+      setStatusPopupOpen(false);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [charPopup]);
+  }, [charPopup, statusPopupOpen]);
 
   useEffect(() => {
     setCharPopup(null);
+    setStatusPopupOpen(false);
   }, [activeChatId]);
+
+  useEffect(() => {
+    if (!showSingleCharacterStatus) setStatusPopupOpen(false);
+  }, [showSingleCharacterStatus]);
 
   const backFromChat = () => {
     setCharPopup(null);
+    setStatusPopupOpen(false);
     setActiveChatId(null);
     closeAllDetails();
     closeRightPanel();
@@ -159,7 +171,16 @@ export function TopBar({
         <ArrowLeft size="1.15rem" aria-hidden />
       </button>
 
-      {charPopup !== null && <div className="fixed inset-0 z-40" onClick={() => setCharPopup(null)} aria-hidden />}
+      {(charPopup !== null || statusPopupOpen) && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => {
+            setCharPopup(null);
+            setStatusPopupOpen(false);
+          }}
+          aria-hidden
+        />
+      )}
 
       {chat?.mode !== "game" &&
         (characters && characters.length > 1 ? (
@@ -265,10 +286,32 @@ export function TopBar({
           </div>
         ))}
 
-      <div className="min-w-0 flex-1 truncate">
-        <span className="block text-sm font-semibold text-[var(--foreground)] leading-tight">{chatName || "Chat"}</span>
-        {activity && (!characters || characters.length <= 1) && (
-          <span className="block text-[0.65rem] text-[var(--muted-foreground)]/60 leading-tight">{activity}</span>
+      <div className={cn("relative min-w-0 flex-1", statusPopupOpen && "z-50")}>
+        <span className="block truncate text-sm font-semibold leading-tight text-[var(--foreground)]">
+          {chatName || "Chat"}
+        </span>
+        {showSingleCharacterStatus && (
+          <button
+            type="button"
+            className="block max-w-full truncate text-left text-[0.65rem] leading-tight text-[var(--muted-foreground)]/60"
+            onClick={() => setStatusPopupOpen((open) => !open)}
+            aria-label={`Show full status for ${firstCharacterName}`}
+            aria-expanded={statusPopupOpen}
+            aria-haspopup="dialog"
+            aria-controls={statusPopupId}
+          >
+            {activity}
+          </button>
+        )}
+        {statusPopupOpen && (
+          <div
+            id={statusPopupId}
+            role="dialog"
+            aria-label={`Full status for ${firstCharacterName}`}
+            className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-[40dvh] overflow-y-auto rounded-xl border border-[var(--border)]/60 bg-[var(--card)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)] shadow-lg [overflow-wrap:anywhere]"
+          >
+            {activity}
+          </div>
         )}
       </div>
 

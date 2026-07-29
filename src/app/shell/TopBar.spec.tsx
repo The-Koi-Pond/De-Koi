@@ -18,7 +18,8 @@ const fixtures = vi.hoisted(() => ({
         name: "Harlequin",
         extensions: {
           conversationStatus: "online",
-          conversationStatusMessage: "thinking about what you said. still.",
+          conversationStatusMessage:
+            "thinking about what you said. still. and wondering how to answer without making everything worse.",
           conversationActivity: "unknown (no schedule)",
           conversationAvailabilityExplanation: "Available: unknown (no schedule).",
         },
@@ -141,5 +142,38 @@ describe("TopBar conversation status", () => {
 
     expect(container.textContent).toContain("thinking about what you said. still.");
     expect(container.textContent).not.toContain("unknown (no schedule)");
+  });
+
+  it("opens the full status message on tap and dismisses it with Escape", async () => {
+    const fullStatus = fixtures.characters[0].data.extensions.conversationStatusMessage;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TopBar />
+        </QueryClientProvider>,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Show full status for Harlequin"]');
+
+    expect(trigger).toBeTruthy();
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector('[role="dialog"][aria-label="Full status for Harlequin"]')).toBeNull();
+
+    act(() => {
+      trigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector('[role="dialog"][aria-label="Full status for Harlequin"]')?.textContent).toContain(
+      fullStatus,
+    );
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+
+    expect(container.querySelector('[role="dialog"][aria-label="Full status for Harlequin"]')).toBeNull();
   });
 });
