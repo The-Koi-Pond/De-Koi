@@ -169,6 +169,11 @@ groups and no longer drops the tail of a large connected component. Analysis
 runs groups sequentially so a wide scan does not create a burst of concurrent
 model requests. Cancellation is checked between groups.
 
+The seed edge's two endpoints are mandatory even when their combined content
+already exceeds 12,000 characters. The character budget limits additional
+neighbors; it never turns a qualifying pair into a deferred or dropped
+candidate.
+
 `deferredCandidateCount` remains in the version 1 preview contract for
 compatibility, but the completed scan returns zero. A nonzero value is reserved
 for an explicit future user-visible analysis budget, not an internal hidden
