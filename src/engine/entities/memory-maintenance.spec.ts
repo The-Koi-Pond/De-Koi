@@ -173,9 +173,9 @@ describe("memory cleanup preparation", () => {
     ]);
 
     expect(prepared.groups.some((group) => containsEverySource(group, ["large-a", "large-b"]))).toBe(true);
-    expect(
-      prepared.groups.find((group) => containsEverySource(group, ["large-a", "large-b"]))?.sourceIds,
-    ).toHaveLength(2);
+    expect(prepared.groups.find((group) => containsEverySource(group, ["large-a", "large-b"]))?.sourceIds).toHaveLength(
+      2,
+    );
   });
 
   it("builds the same groups regardless of source input order", () => {
@@ -402,9 +402,9 @@ describe("memory cleanup proposal validation", () => {
     expect(() => validateCleanupProposal(proposal({ ...base, sourceIds: ["one", "two"] }), sources)).toThrow(
       "exactly one",
     );
-    expect(() =>
-      validateCleanupProposal(proposal({ ...base, sourceIds: ["one"], winnerId: "two" }), sources),
-    ).toThrow("winner");
+    expect(() => validateCleanupProposal(proposal({ ...base, sourceIds: ["one"], winnerId: "two" }), sources)).toThrow(
+      "winner",
+    );
     expect(() =>
       validateCleanupProposal(
         proposal({

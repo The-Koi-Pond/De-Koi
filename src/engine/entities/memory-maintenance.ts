@@ -147,10 +147,7 @@ function candidateEvidence(
       return { kind: "embedding", similarity, sharedTokenCount: lexical.sharedTokenCount, pair };
     }
   }
-  if (
-    lexical.sharedTokenCount >= MIN_CONTAINMENT_SHARED_TOKENS &&
-    lexical.containment >= CONTAINMENT_THRESHOLD
-  ) {
+  if (lexical.sharedTokenCount >= MIN_CONTAINMENT_SHARED_TOKENS && lexical.containment >= CONTAINMENT_THRESHOLD) {
     return {
       kind: "containment",
       similarity: lexical.containment,
@@ -253,8 +250,7 @@ function buildEdgeCoveringGroups(
     if (!seed) break;
     const selected = new Set([seed.leftId, seed.rightId]);
     let characters =
-      (sourcesById.get(seed.leftId)?.content.length ?? 0) +
-      (sourcesById.get(seed.rightId)?.content.length ?? 0);
+      (sourcesById.get(seed.leftId)?.content.length ?? 0) + (sourcesById.get(seed.rightId)?.content.length ?? 0);
 
     while (selected.size < MEMORY_CLEANUP_MAX_GROUP_RECORDS) {
       const next = retainedEdges
