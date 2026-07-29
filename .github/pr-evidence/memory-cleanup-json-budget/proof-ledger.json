@@ -2,22 +2,22 @@
   "schemaVersion": 1,
   "task": {
     "type": "bugfix",
-    "title": "Memory cleanup returns complete, contract-valid JSON on LinkAPI Gemini connections",
-    "source": "Direct user report and live Harlequin reproduction on the Raspberry Pi.",
-    "classification": "memory cleanup prompt and provider compatibility",
+    "title": "Memory cleanup repairs intermittent malformed structured output",
+    "source": "Direct user report plus repeated live Harlequin reproductions on the Raspberry Pi.",
+    "classification": "memory cleanup structured generation compatibility",
     "status": "waiting_on_ci"
   },
-  "coreClaim": "Memory cleanup gives structured-output providers enough completion budget and an explicit proposal schema so analysis does not fail on truncated or contract-invalid JSON.",
-  "rootCause": "The cleanup request capped the entire Gemini completion at 1,200 tokens while the selected LinkAPI connection spent nearly all of that budget on reasoning. The surviving response ended mid-JSON. The prompt also named proposal types without specifying their exact field and reason contracts.",
+  "coreClaim": "Memory cleanup uses the shared bounded structured-generation repair path when a provider declares malformed JSON complete, while preserving strict proposal validation and review-before-apply behavior.",
+  "rootCause": "After the completion-budget repair, LinkAPI Gemini still intermittently returned syntactically incomplete JSON with finishReason=stop. Memory cleanup was the structured-generation outlier: it parsed the first response once and surfaced the raw JSON error instead of using De-Koi's bounded repair path.",
   "scope": {
     "inScope": [
-      "Memory cleanup LLM request parameters",
-      "Memory cleanup structured proposal prompt contract",
-      "Focused regression coverage for the request and prompt"
+      "Memory cleanup structured response parsing and bounded repair",
+      "Shared structured-generation fenced-response compatibility",
+      "Focused regression coverage for repeated malformed responses"
     ],
     "outOfScope": [
       "Memory persistence or cleanup apply behavior",
-      "Rust provider parsing",
+      "Rust provider transport or parsing",
       "Connection defaults",
       "Chat, roleplay, or game generation prompts",
       "UI layout or navigation"
@@ -25,11 +25,13 @@
     "intendedFiles": [
       "src/engine/generation/memory-cleanup.ts",
       "src/engine/generation/memory-cleanup.spec.ts",
+      "src/engine/generation/structured-generation.ts",
       ".github/pr-evidence/memory-cleanup-json-budget/proof-ledger.json"
     ],
     "touchedFiles": [
       "src/engine/generation/memory-cleanup.ts",
       "src/engine/generation/memory-cleanup.spec.ts",
+      "src/engine/generation/structured-generation.ts",
       ".github/pr-evidence/memory-cleanup-json-budget/proof-ledger.json"
     ],
     "riskFlags": [
@@ -38,7 +40,7 @@
     ]
   },
   "claimBoundary": {
-    "coreClaim": "The previously failing Harlequin cleanup group now returns complete JSON with the exact sourceIds, replacement, and reason fields accepted by the existing validator.",
+    "coreClaim": "An intermittently malformed Harlequin cleanup response gets up to two bounded structured repair attempts, and only a complete proposals object reaches the existing validator.",
     "riskType": "prompt generation provider compatibility",
     "entrypoints": [
       "Character Memories -> Tidy memories -> Analyze memories",
@@ -48,27 +50,32 @@
     "currentPathsOrFormats": [
       "src/engine/generation/memory-cleanup.ts SYSTEM_PROMPT",
       "src/engine/generation/memory-cleanup.ts analyzeMemoryCleanup request parameters",
+      "src/engine/generation/structured-generation.ts generateStructured repair loop",
       "src/shared/api/llm-api.ts complete request boundary"
     ],
     "legacyPathsOrFormats": [
       "Providers that ignore responseFormat still receive the exact JSON proposal schema in prompt text.",
       "Providers that do not support adjustable reasoning still receive the larger output budget.",
-      "Existing fenced JSON parsing and proposal validation remain unchanged."
+      "Valid fenced JSON with trailing provider text remains accepted.",
+      "Proposal validation and review-before-apply behavior remain unchanged."
     ],
     "positiveRowsTested": [
       "Existing valid unfenced JSON proposal",
-      "Existing valid fenced JSON proposal",
-      "Live LinkAPI Gemini response for the exact previously truncated Harlequin candidate group"
+      "Existing valid fenced JSON proposal with trailing text",
+      "Two malformed responses followed by a valid bounded repair response",
+      "Two complete live ten-group Harlequin cleanup previews"
     ],
     "negativeRowsTested": [
       "Unknown source IDs",
       "Pinned-source keep-one violation",
       "Unsupported single-memory shortening proposal",
-      "Unrelated memories excluded from the model request"
+      "Unrelated memories excluded from the model request",
+      "Malformed JSON never reaches proposal normalization"
     ],
     "groundTruthFacts": [
       "The failing live response had finishReason=length, 1,148 thought tokens, and 48 candidate tokens under the 1,200-token cap.",
-      "The repaired live replay had finishReason=stop and parsed into the existing proposal contract."
+      "A post-deploy live response had finishReason=stop but ended mid-object at character 874.",
+      "Two patched full replays analyzed all ten live groups and produced review previews without applying proposals."
     ],
     "userActionCopy": "No new user action or copy is introduced.",
     "manualBlockers": [],
@@ -79,33 +86,33 @@
     ]
   },
   "contractLaneGate": {
-    "brokenContract": "A structured memory-cleanup request could exhaust its completion budget on hidden reasoning and did not tell the model the exact accepted proposal shape.",
+    "brokenContract": "A provider could declare a syntactically incomplete memory-cleanup object complete, and the one-shot parser exposed a raw JSON error instead of using bounded structured repair.",
     "producer": "src/engine/generation/memory-cleanup.ts analyzeMemoryCleanup",
     "consumer": "Configured LLM provider followed by normalizeModelProposal",
-    "impliedContract": "The producer must request enough structured output and state the exact schema that the consumer validates.",
-    "actualEnforcement": "The request now uses JSON-object mode, cross-provider no-reasoning controls, a 4,096-token cap, and explicit field and reason shapes.",
+    "impliedContract": "The producer must deliver one complete proposals object to the strict consumer or fail visibly without applying anything.",
+    "actualEnforcement": "Memory cleanup now uses generateStructured with the proposals-array schema and at most two repair attempts; only schema-valid JSON proceeds to the existing proposal validator.",
     "primaryOwnerLane": "src/engine",
     "primaryOwnerDetail": "Mode-neutral engine generation owns memory cleanup prompt semantics and request parameters.",
     "consumerOnlyLanes": [
       "src/shared/api",
       "src-tauri"
     ],
-    "wrongLaneFixToAvoid": "Do not loosen JSON parsing, silently accept partial output, or add a UI retry around a broken generation contract.",
+    "wrongLaneFixToAvoid": "Do not infer missing JSON, loosen proposal validation, silently accept partial output, or apply anything before review.",
     "regressionProof": [
-      "src/engine/generation/memory-cleanup.spec.ts asserts the complete parameter set.",
-      "src/engine/generation/memory-cleanup.spec.ts asserts the exact proposal field and reason instructions.",
-      "The exact live Harlequin group returned finishReason=stop with validator-compatible JSON."
+      "src/engine/generation/memory-cleanup.spec.ts proves two malformed responses are rejected before a third valid response is accepted.",
+      "The existing fenced JSON with trailing text regression remains green.",
+      "Two full live Harlequin previews completed across all ten groups without applying proposals."
     ]
   },
   "proofRows": {
     "positiveRows": [
       {
         "claim": "The focused memory cleanup behavior remains correct.",
-        "evidence": "Three focused files passed with 28 tests, including fenced JSON parsing, proposal validation, candidate preparation, and cleanup adapters."
+        "evidence": "The cleanup and structured-generation suites passed 15 tests, including repeated malformed responses, fenced JSON with trailing text, and strict proposal validation."
       },
       {
-        "claim": "The exact live failure now completes with usable JSON.",
-        "evidence": "A sanitized replay of Harlequin model group 1 through the running Pi runtime returned finishReason=stop with sourceIds, replacement content/kind, and the exact Overlapping memories reason."
+        "claim": "The complete live analysis path can produce a safe preview.",
+        "evidence": "Two sanitized full replays analyzed all ten Harlequin groups and returned seven preview proposals each; no apply command was issued."
       },
       {
         "claim": "The TypeScript and architecture boundaries remain valid.",
@@ -115,17 +122,17 @@
     "contradictionRows": [
       {
         "claim": "The fix must not accept incomplete JSON as success.",
-        "evidence": "parseJsonObject and all existing validation remain unchanged; malformed or incomplete JSON still fails visibly."
+        "evidence": "Malformed JSON is rejected by generateStructured, receives at most two repair attempts, and still fails visibly if no complete proposals object is returned."
       },
       {
         "claim": "The fix must not alter memory records during analysis.",
-        "evidence": "Only the analysis request and prompt changed; storage and apply paths are untouched."
+        "evidence": "Only analysis parsing/repair and shared fence extraction changed; storage and apply paths are untouched."
       }
     ],
     "legacyDefaultRows": [
       {
         "claim": "Providers that already returned valid JSON continue through the same parser and validator.",
-        "evidence": "Existing valid JSON and fenced JSON regression tests still pass."
+        "evidence": "Existing valid JSON and fenced JSON with trailing provider text regression tests still pass without a repair request."
       },
       {
         "claim": "Providers that ignore JSON mode still receive a complete textual schema.",
@@ -133,7 +140,7 @@
       }
     ],
     "untestedRows": [
-      "The complete ten-group Harlequin cleanup run will be rechecked after the merged build is deployed to the Pi; no proposal will be applied."
+      "The complete Harlequin browser flow will be rechecked after the follow-up merged build is deployed to the Pi; no proposal will be applied."
     ]
   },
   "ownedFacts": [
@@ -150,7 +157,7 @@
   ],
   "manualBlockers": [],
   "verification": {
-    "originalReproPassed": true,
+    "originalReproPassed": false,
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm check",
@@ -168,9 +175,9 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 1183,
-    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1183",
-    "headRefName": "fix/memory-cleanup-reasoning-budget",
+    "number": 1185,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1185",
+    "headRefName": "fix/memory-cleanup-repair-pass",
     "baseRefName": "main",
     "healthStatus": "pending",
     "bunnyReviewStatus": "pending",
@@ -179,7 +186,7 @@
     "mergeCommit": ""
   },
   "finalGate": {
-    "coreClaimProven": true,
+    "coreClaimProven": false,
     "visualProofPresent": false,
     "visualProofRequired": false,
     "diffFocused": true,
