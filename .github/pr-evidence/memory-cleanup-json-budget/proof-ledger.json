@@ -5,7 +5,7 @@
     "title": "Memory cleanup returns complete, contract-valid JSON on LinkAPI Gemini connections",
     "source": "Direct user report and live Harlequin reproduction on the Raspberry Pi.",
     "classification": "memory cleanup prompt and provider compatibility",
-    "status": "ready_for_pr"
+    "status": "waiting_on_ci"
   },
   "coreClaim": "Memory cleanup gives structured-output providers enough completion budget and an explicit proposal schema so analysis does not fail on truncated or contract-invalid JSON.",
   "rootCause": "The cleanup request capped the entire Gemini completion at 1,200 tokens while the selected LinkAPI connection spent nearly all of that budget on reasoning. The surviving response ended mid-JSON. The prompt also named proposal types without specifying their exact field and reason contracts.",
@@ -168,8 +168,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1183,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1183",
     "headRefName": "fix/memory-cleanup-reasoning-budget",
     "baseRefName": "main",
     "healthStatus": "pending",
