@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Memory cleanup returns complete, contract-valid JSON on LinkAPI Gemini connections",
+    "source": "Direct user report and live Harlequin reproduction on the Raspberry Pi.",
+    "classification": "memory cleanup prompt and provider compatibility",
+    "status": "ready_for_pr"
+  },
+  "coreClaim": "Memory cleanup gives structured-output providers enough completion budget and an explicit proposal schema so analysis does not fail on truncated or contract-invalid JSON.",
+  "rootCause": "The cleanup request capped the entire Gemini completion at 1,200 tokens while the selected LinkAPI connection spent nearly all of that budget on reasoning. The surviving response ended mid-JSON. The prompt also named proposal types without specifying their exact field and reason contracts.",
+  "scope": {
+    "inScope": [
+      "Memory cleanup LLM request parameters",
+      "Memory cleanup structured proposal prompt contract",
+      "Focused regression coverage for the request and prompt"
+    ],
+    "outOfScope": [
+      "Memory persistence or cleanup apply behavior",
+      "Rust provider parsing",
+      "Connection defaults",
+      "Chat, roleplay, or game generation prompts",
+      "UI layout or navigation"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/memory-cleanup.ts",
+      "src/engine/generation/memory-cleanup.spec.ts",
+      ".github/pr-evidence/memory-cleanup-json-budget/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src/engine/generation/memory-cleanup.ts",
+      "src/engine/generation/memory-cleanup.spec.ts",
+      ".github/pr-evidence/memory-cleanup-json-budget/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt-agent-lorebook",
+      "provider compatibility"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The previously failing Harlequin cleanup group now returns complete JSON with the exact sourceIds, replacement, and reason fields accepted by the existing validator.",
+    "riskType": "prompt generation provider compatibility",
+    "entrypoints": [
+      "Character Memories -> Tidy memories -> Analyze memories",
+      "analyzeMemoryCleanup",
+      "LlmGateway.complete"
+    ],
+    "currentPathsOrFormats": [
+      "src/engine/generation/memory-cleanup.ts SYSTEM_PROMPT",
+      "src/engine/generation/memory-cleanup.ts analyzeMemoryCleanup request parameters",
+      "src/shared/api/llm-api.ts complete request boundary"
+    ],
+    "legacyPathsOrFormats": [
+      "Providers that ignore responseFormat still receive the exact JSON proposal schema in prompt text.",
+      "Providers that do not support adjustable reasoning still receive the larger output budget.",
+      "Existing fenced JSON parsing and proposal validation remain unchanged."
+    ],
+    "positiveRowsTested": [
+      "Existing valid unfenced JSON proposal",
+      "Existing valid fenced JSON proposal",
+      "Live LinkAPI Gemini response for the exact previously truncated Harlequin candidate group"
+    ],
+    "negativeRowsTested": [
+      "Unknown source IDs",
+      "Pinned-source keep-one violation",
+      "Unsupported single-memory shortening proposal",
+      "Unrelated memories excluded from the model request"
+    ],
+    "groundTruthFacts": [
+      "The failing live response had finishReason=length, 1,148 thought tokens, and 48 candidate tokens under the 1,200-token cap.",
+      "The repaired live replay had finishReason=stop and parsed into the existing proposal contract."
+    ],
+    "userActionCopy": "No new user action or copy is introduced.",
+    "manualBlockers": [],
+    "outOfScopeClaims": [
+      "This change does not alter which memories are selected as cleanup candidates.",
+      "This change does not bypass validation or apply any proposal automatically.",
+      "This change does not claim every provider will honor no-reasoning parameters."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A structured memory-cleanup request could exhaust its completion budget on hidden reasoning and did not tell the model the exact accepted proposal shape.",
+    "producer": "src/engine/generation/memory-cleanup.ts analyzeMemoryCleanup",
+    "consumer": "Configured LLM provider followed by normalizeModelProposal",
+    "impliedContract": "The producer must request enough structured output and state the exact schema that the consumer validates.",
+    "actualEnforcement": "The request now uses JSON-object mode, cross-provider no-reasoning controls, a 4,096-token cap, and explicit field and reason shapes.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Mode-neutral engine generation owns memory cleanup prompt semantics and request parameters.",
+    "consumerOnlyLanes": [
+      "src/shared/api",
+      "src-tauri"
+    ],
+    "wrongLaneFixToAvoid": "Do not loosen JSON parsing, silently accept partial output, or add a UI retry around a broken generation contract.",
+    "regressionProof": [
+      "src/engine/generation/memory-cleanup.spec.ts asserts the complete parameter set.",
+      "src/engine/generation/memory-cleanup.spec.ts asserts the exact proposal field and reason instructions.",
+      "The exact live Harlequin group returned finishReason=stop with validator-compatible JSON."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The focused memory cleanup behavior remains correct.",
+        "evidence": "Three focused files passed with 28 tests, including fenced JSON parsing, proposal validation, candidate preparation, and cleanup adapters."
+      },
+      {
+        "claim": "The exact live failure now completes with usable JSON.",
+        "evidence": "A sanitized replay of Harlequin model group 1 through the running Pi runtime returned finishReason=stop with sourceIds, replacement content/kind, and the exact Overlapping memories reason."
+      },
+      {
+        "claim": "The TypeScript and architecture boundaries remain valid.",
+        "evidence": "pnpm typecheck and pnpm check:architecture passed in the isolated worktree."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The fix must not accept incomplete JSON as success.",
+        "evidence": "parseJsonObject and all existing validation remain unchanged; malformed or incomplete JSON still fails visibly."
+      },
+      {
+        "claim": "The fix must not alter memory records during analysis.",
+        "evidence": "Only the analysis request and prompt changed; storage and apply paths are untouched."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Providers that already returned valid JSON continue through the same parser and validator.",
+        "evidence": "Existing valid JSON and fenced JSON regression tests still pass."
+      },
+      {
+        "claim": "Providers that ignore JSON mode still receive a complete textual schema.",
+        "evidence": "SYSTEM_PROMPT includes exact keep_one, combine, and conflict object shapes and exact reason strings."
+      }
+    ],
+    "untestedRows": [
+      "The complete ten-group Harlequin cleanup run will be rechecked after the merged build is deployed to the Pi; no proposal will be applied."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Memory cleanup analysis is owned by the TypeScript engine and uses the shared LLM gateway without changing provider transport.",
+      "sourceType": "derived",
+      "evidence": "src/engine/generation/memory-cleanup.ts imports only engine contracts, entities, and the LlmGateway capability."
+    },
+    {
+      "description": "The existing validator requires sourceIds, a replacement object for combine proposals, and enumerated reason strings.",
+      "sourceType": "derived",
+      "evidence": "src/engine/generation/memory-cleanup.ts normalizeModelProposal and src/engine/entities/memory-maintenance.ts validateCleanupProposal."
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "The composite gate passed through check:frontend before the Windows harness stopped displaying the chain. Every remaining stage then passed separately: docs, Pi container distribution, Bunny guidance, PR-aware discovery, agent workflow, launcher safety, main protection, Rust workspace check, and the warning-only unused-code report.",
+    "githubValidationPassed": false,
+    "reviewIterationFastPath": false
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 0,
+    "url": "",
+    "headRefName": "fix/memory-cleanup-reasoning-budget",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": false,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "No user memory content is recorded in this ledger.",
+    "The PR remains unmerged until local checks, hosted CI, current-head Bunny, and PR health are clean."
+  ]
+}

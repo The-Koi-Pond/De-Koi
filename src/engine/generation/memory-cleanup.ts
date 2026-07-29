@@ -25,15 +25,13 @@ const SYSTEM_PROMPT = [
   "For keep_one, if any referenced source is pinned, winnerId must name a pinned source.",
   "Return conflicts as conflict proposals and never decide which side is true.",
   "Use only supplied source IDs.",
+  'Use reason exactly: "Repeated fact", "Overlapping memories", or "Possible conflict". Do not explain the reason.',
+  'Proposal shapes: keep_one = {"type":"keep_one","sourceIds":["id-to-remove"],"winnerId":"id-to-retain","reason":"Repeated fact"}; combine = {"type":"combine","sourceIds":["id-a","id-b"],"replacement":{"content":"combined memory","kind":"fact"},"reason":"Overlapping memories"}; conflict = {"type":"conflict","sourceIds":["id-a","id-b"],"reason":"Possible conflict"}.',
   'Return JSON only: {"proposals":[...]}.',
 ].join("\n");
 
 const PROPOSAL_TYPES = new Set<MemoryCleanupProposalType>(["keep_one", "combine", "conflict"]);
-const REASONS = new Set<MemoryCleanupReason>([
-  "Repeated fact",
-  "Overlapping memories",
-  "Possible conflict",
-]);
+const REASONS = new Set<MemoryCleanupReason>(["Repeated fact", "Overlapping memories", "Possible conflict"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -65,17 +63,19 @@ function cleanupGroupPrompt(scope: MemoryCleanupScope, sources: MemoryCleanupSou
     task: "memory_cleanup_preview",
     scope,
     allowedTypes: ["keep_one", "combine", "conflict"],
-    sources: sources.map(({ id, content, kind, confidence, messageIds, sourceChatIds, createdAt, updatedAt, pinned }) => ({
-      id,
-      content,
-      kind,
-      confidence,
-      messageIds,
-      sourceChatIds,
-      createdAt,
-      updatedAt,
-      pinned,
-    })),
+    sources: sources.map(
+      ({ id, content, kind, confidence, messageIds, sourceChatIds, createdAt, updatedAt, pinned }) => ({
+        id,
+        content,
+        kind,
+        confidence,
+        messageIds,
+        sourceChatIds,
+        createdAt,
+        updatedAt,
+        pinned,
+      }),
+    ),
   });
 }
 
@@ -285,7 +285,17 @@ export async function analyzeMemoryCleanup(input: {
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: cleanupGroupPrompt(input.scope, groupSources) },
         ],
-        parameters: { temperature: 0, maxTokens: 1_200 },
+        parameters: {
+          temperature: 0,
+          maxTokens: 4_096,
+          responseFormat: "json_object",
+          reasoningEffort: "none",
+          reasoning_effort: "none",
+          customParameters: {
+            reasoning_effort: "none",
+            reasoning: { exclude: true },
+          },
+        },
       },
       input.signal,
     );
