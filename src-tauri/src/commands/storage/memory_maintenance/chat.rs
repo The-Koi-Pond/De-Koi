@@ -265,18 +265,28 @@ fn apply_validated_chat_batch(
         .collect::<HashMap<_, _>>();
     let mut combined = 0usize;
     let mut superseded = 0usize;
+    let mut discarded = 0usize;
     let mut created = 0usize;
     for proposal in selected {
+        let discard = proposal.proposal_type == ProposalType::Discard;
         let replacement_id = prepared_by_proposal
             .get(proposal.id.as_str())
             .and_then(|replacement| replacement.get("id"))
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
-        let superseded_by = replacement_id
-            .as_deref()
-            .or(proposal.winner_id.as_deref())
-            .ok_or_else(|| AppError::invalid_input("Cleanup proposal has no retained result"))?
-            .to_string();
+        let superseded_by = if discard {
+            None
+        } else {
+            Some(
+                replacement_id
+                    .as_deref()
+                    .or(proposal.winner_id.as_deref())
+                    .ok_or_else(|| {
+                        AppError::invalid_input("Cleanup proposal has no retained result")
+                    })?
+                    .to_string(),
+            )
+        };
         for source_id in &proposal.source_ids {
             let source = memory_by_id_mut(memories, source_id)?;
             let previous_status = memory_status(source).to_string();
@@ -291,9 +301,21 @@ fn apply_validated_chat_batch(
                 .get("supersededByMemoryId")
                 .cloned()
                 .unwrap_or(Value::Null);
-            source.insert("status".to_string(), json!("superseded"));
-            source.insert("supersededAt".to_string(), json!(applied_at));
-            source.insert("supersededByMemoryId".to_string(), json!(superseded_by));
+            if discard {
+                source.insert("status".to_string(), json!("deleted"));
+                source.remove("supersededAt");
+                source.remove("supersededByMemoryId");
+                source.insert("cleanupOperation".to_string(), json!("discard"));
+                discarded += 1;
+            } else {
+                source.insert("status".to_string(), json!("superseded"));
+                source.insert("supersededAt".to_string(), json!(applied_at));
+                source.insert(
+                    "supersededByMemoryId".to_string(),
+                    json!(superseded_by.as_deref()),
+                );
+                superseded += 1;
+            }
             source.insert("cleanupPreviousStatus".to_string(), json!(previous_status));
             source.insert("cleanupPreviousUpdatedAt".to_string(), previous_updated_at);
             source.insert(
@@ -315,7 +337,6 @@ fn apply_validated_chat_batch(
             source.insert("cleanupSupersededByBatchId".to_string(), json!(batch_id));
             source.insert("cleanupAppliedAt".to_string(), json!(applied_at));
             source.insert("updatedAt".to_string(), json!(applied_at));
-            superseded += 1;
         }
         if let Some(replacement) = prepared_by_proposal.get(proposal.id.as_str()) {
             memories.push(replacement.clone());
@@ -323,18 +344,14 @@ fn apply_validated_chat_batch(
         }
         match proposal.proposal_type {
             ProposalType::Combine => combined += 1,
-            ProposalType::KeepOne | ProposalType::Conflict => {}
-            ProposalType::Discard => {
-                return Err(AppError::invalid_input(
-                    "Discard cleanup execution is not available",
-                ));
-            }
+            ProposalType::KeepOne | ProposalType::Discard | ProposalType::Conflict => {}
         }
     }
     Ok(json!({
         "batchId": batch_id,
         "combined": combined,
         "superseded": superseded,
+        "discarded": discarded,
         "created": created
     }))
 }
@@ -468,12 +485,18 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                     ));
                 }
             }
-            if source_indexes
+            if source_indexes.iter().any(|index| {
+                let memory = &memories[*index];
+                let expected_status =
+                    if memory.get("cleanupOperation").and_then(Value::as_str) == Some("discard") {
+                        "deleted"
+                    } else {
+                        "superseded"
+                    };
+                memory_status(memory) != expected_status
+            }) || replacement_indexes
                 .iter()
-                .any(|index| memory_status(&memories[*index]) != "superseded")
-                || replacement_indexes
-                    .iter()
-                    .any(|index| memory_status(&memories[*index]) != "active")
+                .any(|index| memory_status(&memories[*index]) != "active")
             {
                 return Err(AppError::invalid_input(
                     "Memory cleanup cannot be undone because its records changed",
@@ -516,6 +539,7 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                     "supersededByMemoryId",
                     "cleanupSupersededByBatchId",
                     "cleanupAppliedAt",
+                    "cleanupOperation",
                 ] {
                     memory.remove(field);
                 }
@@ -647,6 +671,32 @@ mod tests {
                 _estimated_tokens_before: Some(12),
                 _estimated_tokens_after: Some(7),
             }],
+        }
+    }
+
+    fn discard_proposal(id: &str, expected_state: ExpectedState) -> CleanupProposal {
+        CleanupProposal {
+            id: format!("discard-{id}"),
+            proposal_type: ProposalType::Discard,
+            source_ids: vec![id.to_string()],
+            expected: HashMap::from([(id.to_string(), expected_state)]),
+            winner_id: None,
+            replacement: None,
+            _reason: Some("Low-value memory".to_string()),
+            selected: true,
+            _estimated_tokens_before: Some(8),
+            _estimated_tokens_after: Some(0),
+        }
+    }
+
+    fn discard_request(proposals: Vec<CleanupProposal>) -> ApplyCleanupRequest {
+        ApplyCleanupRequest {
+            version: 1,
+            scope: CleanupScope {
+                kind: "chat".to_string(),
+                id: "chat-1".to_string(),
+            },
+            proposals,
         }
     }
 
@@ -966,5 +1016,123 @@ mod tests {
             restored_memory_a.get("updatedAt").is_none(),
             "legacy metadata recovery must not invent an optional updatedAt"
         );
+    }
+
+    #[tokio::test]
+    async fn chat_cleanup_discards_a_protected_memory_and_undo_restores_it_exactly() {
+        let state = test_state("chat-discard-undo");
+        let mut junk = automatic_memory("junk", "Chai says heat stroke is serious.");
+        junk["status"] = json!("pinned");
+        junk["pinned"] = json!(true);
+        junk["source"] = json!("manual");
+        junk["userEdited"] = json!(true);
+        junk["updatedAt"] = json!("2026-07-02T00:00:00.000Z");
+        junk["supersededAt"] = json!("2026-06-01T00:00:00.000Z");
+        junk["supersededByMemoryId"] = json!("prior-replacement");
+        let original = junk.clone();
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [junk]
+                }),
+            )
+            .expect("chat should seed");
+
+        let applied = apply_chat_cleanup(
+            &state,
+            discard_request(vec![discard_proposal(
+                "junk",
+                ExpectedState {
+                    content: "Chai says heat stroke is serious.".to_string(),
+                    status: "pinned".to_string(),
+                    updated_at: Some("2026-07-02T00:00:00.000Z".to_string()),
+                    pinned: true,
+                    user_edited: true,
+                },
+            )]),
+        )
+        .await
+        .expect("discard should apply");
+
+        assert_eq!(applied["combined"], json!(0));
+        assert_eq!(applied["superseded"], json!(0));
+        assert_eq!(applied["discarded"], json!(1));
+        assert_eq!(applied["created"], json!(0));
+        assert!(active_memory_ids(&state).is_empty());
+        let applied_chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should work")
+            .expect("chat should exist");
+        let discarded = &applied_chat["memories"][0];
+        assert_eq!(discarded["status"], json!("deleted"));
+        assert_eq!(discarded["cleanupOperation"], json!("discard"));
+        assert!(
+            discarded.get("cleanupBatchId").is_none(),
+            "discard must not create a replacement row"
+        );
+
+        undo_chat_cleanup(
+            &state,
+            UndoCleanupRequest {
+                scope: CleanupScope {
+                    kind: "chat".to_string(),
+                    id: "chat-1".to_string(),
+                },
+                batch_id: applied["batchId"]
+                    .as_str()
+                    .expect("batch id should be returned")
+                    .to_string(),
+            },
+        )
+        .expect("discard should undo");
+
+        let restored_chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should work")
+            .expect("chat should exist");
+        assert_eq!(restored_chat["memories"][0], original);
+    }
+
+    #[tokio::test]
+    async fn chat_cleanup_discard_is_atomic_when_any_selected_source_is_stale() {
+        let state = test_state("chat-discard-stale");
+        let first = automatic_memory("memory-a", "Low-value first memory.");
+        let second = automatic_memory("memory-b", "Low-value second memory.");
+        let original = json!([first.clone(), second.clone()]);
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": original.clone()
+                }),
+            )
+            .expect("chat should seed");
+
+        let error = apply_chat_cleanup(
+            &state,
+            discard_request(vec![
+                discard_proposal("memory-a", expected("Low-value first memory.")),
+                discard_proposal("memory-b", expected("Stale preview content.")),
+            ]),
+        )
+        .await
+        .expect_err("a stale source must reject the whole batch");
+        assert!(error.message.contains("changed after"));
+
+        let unchanged = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should work")
+            .expect("chat should exist");
+        assert_eq!(unchanged["memories"], original);
     }
 }
