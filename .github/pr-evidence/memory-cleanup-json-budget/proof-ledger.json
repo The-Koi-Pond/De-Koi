@@ -5,7 +5,7 @@
     "title": "Memory cleanup accepts one provably missing outer JSON delimiter",
     "source": "Direct user report plus repeated live Harlequin reproductions on the Raspberry Pi.",
     "classification": "memory cleanup structured generation compatibility",
-    "status": "ready_for_pr"
+    "status": "waiting_on_ci"
   },
   "coreClaim": "Structured generation accepts a response only when adding one missing outer JSON delimiter yields valid schema-conforming data, while genuinely cut-off or malformed output still fails or enters bounded repair.",
   "rootCause": "Live LinkAPI Gemini repeatedly returned a complete proposals array but omitted the enclosing object's final brace while reporting finishReason=stop. Re-requesting the same repair reproduced the identical provider formatting defect.",
@@ -178,8 +178,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1187,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1187",
     "headRefName": "fix/memory-cleanup-eof-closure",
     "baseRefName": "main",
     "healthStatus": "pending",
