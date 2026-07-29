@@ -212,6 +212,57 @@ describe("memory cleanup preparation", () => {
     ]);
     expect(prepared.deferredCandidateCount).toBe(0);
   });
+
+  it("covers every eligible source exactly once in deterministic value groups", () => {
+    const sources = Array.from({ length: 19 }, (_, index) =>
+      source({ id: `memory-${index.toString().padStart(2, "0")}`, content: `Fact ${index}` }),
+    );
+
+    const forward = prepareMemoryCleanupCandidates(sources).valueGroups;
+    const reverse = prepareMemoryCleanupCandidates([...sources].reverse()).valueGroups;
+    const ids = forward.flatMap((group) => group.sourceIds);
+
+    expect(forward).toEqual(reverse);
+    expect(forward.every((group) => group.sourceIds.length <= 8)).toBe(true);
+    expect(ids).toEqual(sources.map((memory) => memory.id));
+    expect(new Set(ids).size).toBe(sources.length);
+  });
+
+  it("keeps an oversized source in its own value group", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "oversized", content: "x".repeat(12_001) }),
+      source({ id: "small", content: "Useful preference." }),
+    ]);
+
+    expect(prepared.valueGroups).toEqual([
+      { id: "cleanup-value-group-1", sourceIds: ["oversized"] },
+      { id: "cleanup-value-group-2", sourceIds: ["small"] },
+    ]);
+  });
+
+  it("starts a new value group before adding a source past the character target", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "a", content: "a".repeat(7_000) }),
+      source({ id: "b", content: "b".repeat(6_000) }),
+      source({ id: "c", content: "c".repeat(1_000) }),
+    ]);
+
+    expect(prepared.valueGroups).toEqual([
+      { id: "cleanup-value-group-1", sourceIds: ["a"] },
+      { id: "cleanup-value-group-2", sourceIds: ["b", "c"] },
+    ]);
+  });
+
+  it("includes pinned manual and edited memories but excludes inactive rows from value review", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "pinned", status: "pinned", pinned: true }),
+      source({ id: "manual", origin: "manual" }),
+      source({ id: "edited", userEdited: true }),
+      source({ id: "wrong", status: "wrong" }),
+    ]);
+
+    expect(prepared.valueGroups.flatMap((group) => group.sourceIds)).toEqual(["edited", "manual", "pinned"]);
+  });
 });
 
 describe("memory cleanup proposal validation", () => {
@@ -315,5 +366,54 @@ describe("memory cleanup proposal validation", () => {
     expect(() => validateCleanupProposal(proposal({ type: "combine", sourceIds: ["automatic"] }), sources)).toThrow(
       "at least two",
     );
+  });
+
+  it("accepts one unchecked discard without a winner or replacement", () => {
+    const memory = source({ id: "junk", status: "pinned", pinned: true, origin: "manual" });
+    const discard = proposal({
+      type: "discard",
+      sourceIds: ["junk"],
+      winnerId: undefined,
+      replacement: undefined,
+      reason: "Low-value memory",
+      selected: false,
+      estimatedTokensAfter: 0,
+    });
+
+    expect(validateCleanupProposal(discard, new Map([[memory.id, memory]]))).toEqual(discard);
+  });
+
+  it("rejects discard with zero or multiple sources, a winner, or a replacement", () => {
+    const one = source({ id: "one" });
+    const two = source({ id: "two" });
+    const sources = new Map([
+      [one.id, one],
+      [two.id, two],
+    ]);
+    const base = {
+      type: "discard" as const,
+      reason: "Low-value memory" as const,
+      selected: false,
+      replacement: undefined,
+      winnerId: undefined,
+    };
+
+    expect(() => validateCleanupProposal(proposal({ ...base, sourceIds: [] }), sources)).toThrow("exactly one");
+    expect(() => validateCleanupProposal(proposal({ ...base, sourceIds: ["one", "two"] }), sources)).toThrow(
+      "exactly one",
+    );
+    expect(() =>
+      validateCleanupProposal(proposal({ ...base, sourceIds: ["one"], winnerId: "two" }), sources),
+    ).toThrow("winner");
+    expect(() =>
+      validateCleanupProposal(
+        proposal({
+          ...base,
+          sourceIds: ["one"],
+          replacement: { content: "replacement", kind: "fact" },
+        }),
+        sources,
+      ),
+    ).toThrow("replacement");
   });
 });

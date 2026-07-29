@@ -60,9 +60,15 @@ export interface MemoryCleanupCandidateGroup {
   evidence: MemoryCleanupCandidateEvidence;
 }
 
+export interface MemoryCleanupValueGroup {
+  id: string;
+  sourceIds: string[];
+}
+
 export interface PreparedMemoryCleanupCandidates {
   eligible: MemoryCleanupSource[];
   groups: MemoryCleanupCandidateGroup[];
+  valueGroups: MemoryCleanupValueGroup[];
   deferredCandidateCount: number;
 }
 
@@ -286,11 +292,43 @@ function buildBoundedCandidateGroups(eligible: MemoryCleanupSource[]): MemoryCle
   return buildEdgeCoveringGroups(eligible, retainStrongestNeighbors(allCandidateEdges(eligible)));
 }
 
+function buildValueGroups(eligible: MemoryCleanupSource[]): MemoryCleanupValueGroup[] {
+  const ordered = [...eligible].sort((left, right) => left.id.localeCompare(right.id));
+  const groups: MemoryCleanupValueGroup[] = [];
+  let sourceIds: string[] = [];
+  let characters = 0;
+
+  const flush = () => {
+    if (sourceIds.length === 0) return;
+    groups.push({
+      id: `cleanup-value-group-${groups.length + 1}`,
+      sourceIds,
+    });
+    sourceIds = [];
+    characters = 0;
+  };
+
+  for (const source of ordered) {
+    if (
+      sourceIds.length > 0 &&
+      (sourceIds.length >= MEMORY_CLEANUP_MAX_GROUP_RECORDS ||
+        characters + source.content.length > MEMORY_CLEANUP_MAX_GROUP_CHARS)
+    ) {
+      flush();
+    }
+    sourceIds.push(source.id);
+    characters += source.content.length;
+  }
+  flush();
+  return groups;
+}
+
 export function prepareMemoryCleanupCandidates(sources: MemoryCleanupSource[]): PreparedMemoryCleanupCandidates {
   const eligible = sources.filter(isMemoryCleanupEligible);
   return {
     eligible,
     groups: buildBoundedCandidateGroups(eligible),
+    valueGroups: buildValueGroups(eligible),
     deferredCandidateCount: 0,
   };
 }
@@ -311,6 +349,16 @@ export function validateCleanupProposal(
 ): MemoryCleanupProposal {
   if (proposal.type === "conflict" && proposal.selected) {
     throw new Error("Conflicts cannot be selected.");
+  }
+  if (proposal.type === "discard") {
+    if (proposal.sourceIds.length !== 1) {
+      throw new Error("Discard cleanup requires exactly one source.");
+    }
+    if (proposal.winnerId) throw new Error("Discard cleanup cannot retain a winner.");
+    if (proposal.replacement) throw new Error("Discard cleanup cannot create a replacement.");
+    if (proposal.reason !== "Low-value memory") {
+      throw new Error("Discard cleanup requires the low-value reason.");
+    }
   }
   if (proposal.type !== "conflict" && proposal.sourceIds.length === 0) {
     throw new Error("Cleanup proposals must consume at least one source.");
