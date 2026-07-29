@@ -22,7 +22,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
-use std::io::{BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -207,6 +207,19 @@ pub struct AtomicCollectionRows {
     collection: String,
     rows: Vec<Value>,
     write_requested: bool,
+}
+
+fn take_requested_replacements(entries: Vec<AtomicCollectionRows>) -> Vec<(String, Vec<Value>)> {
+    entries
+        .into_iter()
+        .filter(|entry| entry.write_requested)
+        .map(|entry| (entry.collection, entry.rows))
+        .collect()
+}
+
+fn write_json_rows_pretty<W: Write>(writer: W, rows: &[Value]) -> AppResult<()> {
+    serde_json::to_writer_pretty(writer, rows)?;
+    Ok(())
 }
 
 struct CollectionRowsVisitor<'a> {
@@ -1161,11 +1174,7 @@ impl FileStorage {
                 ));
             }
         }
-        let replacements = entries
-            .iter()
-            .filter(|entry| entry.write_requested)
-            .map(|entry| (entry.collection.as_str(), entry.rows.clone()))
-            .collect::<Vec<_>>();
+        let replacements = take_requested_replacements(entries);
         self.replace_all_many_locked(replacements, || Ok(()))?;
         Ok(output)
     }
@@ -1184,6 +1193,10 @@ impl FileStorage {
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
         self.flush_dirty_collections(FlushKind::Shutdown)?;
+        let replacements = replacements
+            .into_iter()
+            .map(|(collection, rows)| (collection.to_string(), rows))
+            .collect();
         self.replace_all_many_locked(replacements, after_install)
     }
 
@@ -3005,7 +3018,7 @@ impl FileStorage {
 
     fn replace_all_many_locked<F>(
         &self,
-        replacements: Vec<(&str, Vec<Value>)>,
+        replacements: Vec<(String, Vec<Value>)>,
         after_install: F,
     ) -> AppResult<()>
     where
@@ -3060,7 +3073,12 @@ impl FileStorage {
                 let item = pending
                     .last()
                     .expect("pending collection replacement should exist");
-                fs::write(&item.tmp, serde_json::to_vec_pretty(rows)?)?;
+                {
+                    let file = fs::File::create(&item.tmp)?;
+                    let mut writer = BufWriter::new(file);
+                    write_json_rows_pretty(&mut writer, rows)?;
+                    writer.flush()?;
+                }
                 sync_file(&item.tmp)?;
             }
             Ok(())
@@ -3132,12 +3150,12 @@ impl FileStorage {
         }
         for (collection, rows) in replacements {
             if collection == "chats" {
-                let path = self.collection_path(collection)?;
+                let path = self.collection_path(&collection)?;
                 let source_stamp = chat_summary_source_stamp(&path)?;
                 rebuild_chat_summary_read_model(&self.root, source_stamp.as_deref(), &rows)?;
             }
-            self.invalidate_read_indexes_for_collection(collection)?;
-            self.cache_collection(collection, &rows, false)?;
+            self.invalidate_read_indexes_for_collection(&collection)?;
+            self.cache_collection(&collection, &rows, false)?;
         }
         if replaces_append_checkpoint {
             append_journal::prepare_known_checkpoint(&collections_dir)?;
@@ -6114,6 +6132,87 @@ mod tests {
         assert_eq!(storage.list("message-swipes").unwrap().len(), 2);
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn requested_atomic_replacements_take_ownership_of_rows() {
+        let requested_rows = vec![
+            json!({ "id": "message-1", "content": "one" }),
+            json!({ "id": "message-2", "content": "two" }),
+        ];
+        let requested_rows_allocation = requested_rows.as_ptr();
+        let entries = vec![
+            AtomicCollectionRows {
+                collection: "messages".to_string(),
+                rows: requested_rows,
+                write_requested: true,
+            },
+            AtomicCollectionRows {
+                collection: "message-swipes".to_string(),
+                rows: vec![json!({ "id": "message-1::swipe::0" })],
+                write_requested: false,
+            },
+        ];
+
+        let replacements = take_requested_replacements(entries);
+
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].0, "messages");
+        assert_eq!(replacements[0].1.len(), 2);
+        assert_eq!(
+            replacements[0].1.as_ptr(),
+            requested_rows_allocation,
+            "the atomic update must move the row allocation instead of cloning it"
+        );
+    }
+
+    #[test]
+    fn staged_collection_json_is_written_incrementally() {
+        struct RejectLargeWrites {
+            bytes: Vec<u8>,
+            max_write_bytes: usize,
+        }
+
+        impl Write for RejectLargeWrites {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if bytes.len() > self.max_write_bytes {
+                    return Err(std::io::Error::other(format!(
+                        "received a collection-sized write of {} bytes",
+                        bytes.len()
+                    )));
+                }
+                self.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let rows = (0..4_096)
+            .map(|index| {
+                json!({
+                    "id": format!("message-{index}"),
+                    "content": "a small row repeated enough times to make a large collection"
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut writer = RejectLargeWrites {
+            bytes: Vec::new(),
+            max_write_bytes: 4 * 1024,
+        };
+
+        write_json_rows_pretty(&mut writer, &rows).unwrap();
+
+        assert!(
+            writer.bytes.len() > writer.max_write_bytes,
+            "the complete collection must be larger than the accepted write size"
+        );
+        assert_eq!(
+            serde_json::from_slice::<Vec<Value>>(&writer.bytes).unwrap(),
+            rows
+        );
     }
 
     #[test]
