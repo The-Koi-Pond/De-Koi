@@ -74,6 +74,47 @@ function llmReturning(content: string): LlmGateway {
   } as unknown as LlmGateway;
 }
 
+function repetitionSeed() {
+  return {
+    chats: {
+      chat1: {
+        id: "chat1",
+        mode: "conversation",
+        connectionId: "conn1",
+        characterIds: ["char1"],
+        metadata: {
+          conversationStatusMessagesEnabled: true,
+          summary: "Ari and the user talked about yesterday's storm.",
+        },
+      },
+    },
+    connections: {
+      conn1: { id: "conn1", model: "test-model" },
+    },
+    characters: {
+      char1: {
+        id: "char1",
+        data: {
+          name: "Ari",
+          extensions: {
+            conversationStatus: "online",
+            conversationActivity: "free time",
+            conversationStatusMessage: "thinking about yesterday",
+            conversationStatusMessageMeta: {
+              generatedAt: "2026-06-26T10:00:00.000Z",
+              nextRefreshAt: "2026-06-26T11:00:00.000Z",
+              sourceStatus: "online",
+              sourceActivity: "free time",
+              recentMessages: ["thinking about yesterday"],
+              angle: "aside",
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
 describe("status-message refresh gating", () => {
   it("refreshes when there is no generated status message", () => {
     expect(
@@ -411,9 +452,7 @@ describe("maybeRefreshConversationStatusMessages", () => {
     );
 
     expect(result).toEqual({ refreshed: [], skipped: ["char1"] });
-    expect((seed.characters.char1.data.extensions as Row).conversationStatusMessage).toBe(
-      "still on the first draft",
-    );
+    expect((seed.characters.char1.data.extensions as Row).conversationStatusMessage).toBe("still on the first draft");
   });
 
   it("asks for a character-authored custom status in default Conversation style", async () => {
@@ -467,6 +506,235 @@ describe("maybeRefreshConversationStatusMessages", () => {
     expect(systemPrompt).toContain("no *actions*, no narration, no quoted dialogue, no stage directions");
     expect(systemPrompt).toContain("Do not write a schedule label or third-person activity summary");
   });
+
+  it("uses fuzzy routine availability instead of stale stored activity", async () => {
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["char1"],
+          metadata: {
+            conversationStatusMessagesEnabled: true,
+            conversationSchedulesEnabled: true,
+            characterRoutines: {
+              char1: {
+                weekStart: "2026-06-22T00:00:00.000Z",
+                generatedAt: "2026-06-22T12:00:00.000Z",
+                sleep: "Usually sleeps late at night.",
+                busy: [
+                  {
+                    when: "mornings afternoons evenings late night",
+                    summary: "classes",
+                    availability: "busy",
+                  },
+                ],
+                freeish: ["quiet evenings"],
+                replyStyle: "Slow during class.",
+                checkInStyle: "Likes texting at night.",
+                socialEnergy: { level: "medium", reason: "Warm but focused." },
+                inactivityThresholdMinutes: 45,
+                talkativeness: 60,
+              },
+            },
+          },
+        },
+      },
+      connections: {
+        conn1: { id: "conn1", model: "test-model" },
+      },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            extensions: {
+              conversationStatus: "online",
+              conversationActivity: "stale free time",
+            },
+          },
+        },
+      },
+    };
+    let systemPrompt = "";
+
+    await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete(request: Parameters<LlmGateway["complete"]>[0]) {
+            systemPrompt = request.messages.find((message) => message.role === "system")?.content ?? "";
+            return JSON.stringify({ message: "surviving class somehow" });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(systemPrompt).toContain("Availability: dnd");
+    expect(systemPrompt).toContain("Current activity: classes");
+    expect(systemPrompt).not.toContain("Current activity: stale free time");
+  });
+
+  it("rotates status angles and treats recent statuses as forbidden repetition", async () => {
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["char1"],
+          metadata: {
+            conversationStatusMessagesEnabled: true,
+            summary: "Yesterday Ari and the user stayed up late talking about the storm.",
+          },
+        },
+      },
+      connections: {
+        conn1: { id: "conn1", model: "test-model" },
+      },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            extensions: {
+              conversationStatus: "online",
+              conversationActivity: "free time",
+              conversationStatusMessage: "thinking about yesterday",
+              conversationStatusMessageMeta: {
+                generatedAt: "2026-06-26T10:00:00.000Z",
+                nextRefreshAt: "2026-06-26T11:00:00.000Z",
+                sourceStatus: "online",
+                sourceActivity: "free time",
+                recentMessages: ["old one", "old two", "old three", "old four", "old five", "thinking about yesterday"],
+                angle: "continuity",
+              },
+              characterMemories: [{ summary: "Ari remembers yesterday's storm." }],
+            },
+          },
+        },
+      },
+    };
+    let systemPrompt = "";
+
+    await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete(request: Parameters<LlmGateway["complete"]>[0]) {
+            systemPrompt = request.messages.find((message) => message.role === "system")?.content ?? "";
+            return JSON.stringify({ message: "free time is suspicious" });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(systemPrompt).toContain("Assigned status angle: activity");
+    expect(systemPrompt).toContain("Do not repeat their wording, opening, topic, or central idea");
+    expect(systemPrompt).toContain("<recent_statuses>");
+    expect(systemPrompt).toContain("thinking about yesterday");
+    expect(systemPrompt).not.toContain("Recent continuity:");
+    expect(systemPrompt).not.toContain("Yesterday Ari and the user");
+
+    const extensions = seed.characters.char1.data.extensions as Row;
+    expect(extensions.conversationStatusMessageMeta).toMatchObject({
+      angle: "activity",
+      recentMessages: [
+        "old two",
+        "old three",
+        "old four",
+        "old five",
+        "thinking about yesterday",
+        "free time is suspicious",
+      ],
+    });
+  });
+
+  it("retries a near-duplicate once with the next status angle", async () => {
+    const seed = repetitionSeed();
+    const prompts: string[] = [];
+    const replies = ["still thinking about yesterday", "coffee has become structural"];
+
+    const result = await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete(request: Parameters<LlmGateway["complete"]>[0]) {
+            prompts.push(request.messages.find((message) => message.role === "system")?.content ?? "");
+            return JSON.stringify({ message: replies[prompts.length - 1] });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(result).toEqual({ refreshed: ["char1"], skipped: [] });
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toContain("Assigned status angle: interest");
+    expect(prompts[1]).toContain("Assigned status angle: minimal");
+    expect(prompts[1]).toContain("still thinking about yesterday");
+
+    const extensions = seed.characters.char1.data.extensions as Row;
+    expect(extensions.conversationStatusMessage).toBe("coffee has become structural");
+    expect(extensions.conversationStatusMessageMeta).toMatchObject({
+      angle: "minimal",
+      recentMessages: ["thinking about yesterday", "coffee has become structural"],
+    });
+  });
+
+  it("preserves the previous status when the guarded retry also repeats", async () => {
+    const seed = repetitionSeed();
+    const replies = ["still thinking about yesterday", "thinking again about yesterday"];
+    let requests = 0;
+
+    const result = await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete() {
+            const message = replies[requests] ?? replies.at(-1)!;
+            requests += 1;
+            return JSON.stringify({ message });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(requests).toBe(2);
+    expect(result).toEqual({ refreshed: [], skipped: ["char1"] });
+    expect(seed.characters.char1.data.extensions.conversationStatusMessage).toBe("thinking about yesterday");
+    expect(seed.characters.char1.data.extensions.conversationStatusMessageMeta).toMatchObject({
+      generatedAt: "2026-06-26T10:00:00.000Z",
+      sourceStatus: "online",
+      sourceActivity: "free time",
+      recentMessages: ["thinking about yesterday"],
+      angle: "minimal",
+    });
+    expect(
+      Date.parse(seed.characters.char1.data.extensions.conversationStatusMessageMeta.nextRefreshAt),
+    ).toBeGreaterThan(now.getTime());
+
+    const followup = await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete() {
+            requests += 1;
+            return JSON.stringify({ message: "still thinking about yesterday" });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now: new Date(now.getTime() + 30_000) },
+    );
+
+    expect(followup).toEqual({ refreshed: [], skipped: ["char1"] });
+    expect(requests).toBe(2);
+  });
+
   it("includes character Conversation typing quirks and recent replies in the status prompt", async () => {
     const seed = {
       chats: {
