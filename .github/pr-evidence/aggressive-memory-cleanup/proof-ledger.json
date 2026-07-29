@@ -1,0 +1,299 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Aggressive Tidy Memories with reviewed low-value removal",
+    "source": "Direct user request after Tidy Memories retained junk singleton memories.",
+    "classification": "memory cleanup prompt, review consent, and recoverable storage lifecycle",
+    "status": "ready_for_pr"
+  },
+  "coreClaim": "Tidy Memories reviews every eligible in-scope memory for consolidation and low-value junk, starts every removal unchecked, and applies a selected removal as an atomic recoverable status transition with exact undo.",
+  "rootCause": "The prior cleanup lane only analyzed similarity neighborhoods containing two or more records, so a low-value singleton such as a captured generic statement could never become a cleanup proposal.",
+  "scope": {
+    "inScope": [
+      "Deterministic all-memory value-scan batches",
+      "Singleton low-value discard proposals",
+      "Unchecked explicit-removal consent",
+      "Chat and canonical recoverable discard apply and undo",
+      "Canonical lexical-index removal and restoration",
+      "Aggressive lossless consolidation candidate coverage"
+    ],
+    "outOfScope": [
+      "Automatic memory-capture filtering",
+      "Permanent purge of discarded records",
+      "Provider transport or connection configuration",
+      "Automatic application of any discard",
+      "Historical data migration"
+    ],
+    "intendedFiles": [
+      "docs/superpowers/specs/2026-07-29-aggressive-memory-cleanup-design.md",
+      "docs/superpowers/specs/2026-07-29-memory-cleanup-junk-detection-design.md",
+      "docs/superpowers/plans/2026-07-29-aggressive-memory-cleanup.md",
+      "docs/superpowers/plans/2026-07-29-memory-cleanup-junk-detection.md",
+      "src/engine/contracts/types/memory-maintenance.ts",
+      "src/engine/entities/memory-maintenance.ts",
+      "src/engine/entities/memory-maintenance.spec.ts",
+      "src/engine/generation/memory-cleanup.ts",
+      "src/engine/generation/memory-cleanup.spec.ts",
+      "src/features/catalog/memory-maintenance/components/MemoryCleanupReviewModal.tsx",
+      "src/features/catalog/memory-maintenance/components/MemoryCleanupReviewModal.spec.tsx",
+      "src/features/catalog/memory-maintenance/hooks/use-memory-cleanup.ts",
+      "src/features/catalog/memory-maintenance/hooks/use-memory-cleanup.spec.tsx",
+      "src/features/shell/discovery/discovery-entries.json",
+      "src/features/shell/discovery/discovery-registry.spec.ts",
+      "src-tauri/src/commands/storage/memory_maintenance/contracts.rs",
+      "src-tauri/src/commands/storage/memory_maintenance/chat.rs",
+      "src-tauri/src/commands/storage/memory_maintenance/canonical.rs",
+      ".github/pr-evidence/aggressive-memory-cleanup/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt-agent-lorebook",
+      "persistent user data",
+      "storage lifecycle",
+      "compatibility and undo"
+    ]
+  },
+  "riskClaimMatrix": {
+    "coreClaim": "Only an explicitly selected singleton discard removes a memory from active recall, and undo restores the exact prior record and canonical index state.",
+    "riskType": "prompt review plus persistent storage lifecycle compatibility",
+    "entrypoints": [
+      "Memory Console -> Tidy memories -> Analyze memories",
+      "Character Editor -> Memories -> Tidy memories -> Analyze memories",
+      "memory_cleanup_apply",
+      "memory_cleanup_undo"
+    ],
+    "currentPathsOrFormats": [
+      "Chat memory rows embedded in chats with active or pinned status",
+      "Canonical memory rows plus memory-index-rows",
+      "Version 1 cleanup preview and apply request contracts"
+    ],
+    "legacyPathsOrFormats": [
+      "Chat rows with optional updatedAt and pre-existing supersededAt or supersededByMemoryId fields",
+      "Canonical rows with pre-existing supersededByMemoryId links",
+      "Existing keep_one, combine, and conflict proposal batches without an operation marker"
+    ],
+    "positiveRowsTested": [
+      "All eligible memories are placed in deterministic bounded value groups, including an oversized singleton",
+      "A generic heat-stroke statement normalizes to one unchecked discard proposal",
+      "Pinned, manual, and edited discard cards show their source labels",
+      "Chat discard creates no replacement and exact undo restores the original row",
+      "Canonical discard removes the lexical index row and undo restores it"
+    ],
+    "negativeRowsTested": [
+      "Mundane user preferences and character-specific beliefs are protected by prompt controls",
+      "Malformed discard source counts, winners, replacements, reasons, and unknown IDs are rejected",
+      "Discard remains unchecked even if malformed preview data marks it selected",
+      "Stale chat and canonical batches fail without partial mutation",
+      "More than 1,000 selected operations are rejected before storage"
+    ],
+    "groundTruthFacts": [
+      {
+        "description": "Discard is a recoverable status transition to deleted, not a physical purge.",
+        "sourceType": "harness-proven",
+        "evidence": "Focused chat and canonical apply-and-undo tests inspect persisted rows before and after undo."
+      },
+      {
+        "description": "Canonical active recall is backed by memory-index-rows and discard updates that index in the same atomic collection operation.",
+        "sourceType": "harness-proven",
+        "evidence": "The canonical discard test observes index count 1 to 0 on apply and 0 to 1 on undo."
+      }
+    ],
+    "userActionCopy": [
+      {
+        "description": "No backup is required for the normal reviewed action because Undo restores the record. For an optional external copy before applying, export the character with memories from Character Editor to a separate character-backup.json file outside De-Koi's data directory.",
+        "source": "Character Editor memory export",
+        "destination": "A user-selected folder outside the De-Koi data directory",
+        "action": "Export before applying selected cleanup changes",
+        "files": [
+          "character-backup.json"
+        ],
+        "detectedLayouts": [
+          "Current version 1 canonical-memory export"
+        ]
+      }
+    ],
+    "manualBlockers": [
+      "Real configured-provider low-value judgment in a disposable owner scope"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Tidy reviews the whole eligible scope, but a low-value judgment becomes storage mutation only after the user checks that discard card and applies the batch.",
+    "riskType": "prompt review plus persistent storage lifecycle compatibility",
+    "entrypoints": [
+      "Chat-local Tidy Memories",
+      "Character-wide Tidy Memories",
+      "memory_cleanup_apply",
+      "memory_cleanup_undo"
+    ],
+    "currentPathsOrFormats": [
+      "Chat memory rows embedded in chats",
+      "Canonical memory rows and lexical index rows",
+      "Version 1 cleanup proposal JSON"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing consolidation batches with no cleanup operation marker remain undoable as superseded sources",
+      "Optional chat updatedAt absence remains absent after undo",
+      "Prior chat and canonical supersession links are restored"
+    ],
+    "outOfScopeClaims": [
+      "This change does not prevent junk from being captured initially.",
+      "This change does not claim every configured provider will make the same subjective low-value judgment.",
+      "This change does not physically purge discarded history."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Candidate preparation excluded singleton records, while storage only understood operations with a retained winner or replacement.",
+    "producer": "src/engine generation produces reviewed cleanup proposals; src-tauri persists selected proposals.",
+    "consumer": "MemoryCleanupReviewModal, chat memory recall, canonical memory recall, and one-batch undo.",
+    "impliedContract": "Every eligible record may be reviewed for value, but only explicit user consent may remove one from active recall, and both storage owners must restore it atomically.",
+    "actualEnforcement": "The engine creates sequential bounded value groups and strict singleton discard proposals; the hook forces discards unchecked; Rust validates the shape and records recoverable deleted history with stale-state guards and owner-specific undo.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src/engine owns proposal meaning and ranking, src/features owns explicit consent, and src-tauri owns atomic persistence and undo mechanics.",
+    "consumerOnlyLanes": [
+      "src/shared/api"
+    ],
+    "wrongLaneFixToAvoid": "Do not hide junk only in the UI or physically delete rows in src-tauri; proposal semantics belong in src/engine and durable lifecycle mechanics belong in src-tauri.",
+    "regressionProof": [
+      "The generation suite proves whole-scope sequential value scans, low-value normalization, negative controls, and discard-first conflict resolution.",
+      "The hook and modal suites prove unchecked consent, protected-source labels, copy, and the selected-operation cap.",
+      "The Rust memory-maintenance suite proves contract rejection, both storage owners, stale atomicity, index updates, and exact undo."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Every eligible source is presented to the value-review lane in deterministic bounded groups.",
+        "evidence": "Entity and generation suites passed 43 tests covering complete coverage, ordering, size bounds, oversized singleton retention, and sequential model calls."
+      },
+      {
+        "claim": "Low-value removal requires explicit user consent.",
+        "evidence": "Hook and modal tests pass with discard selected false, disabled Apply before selection, and successful apply only after an explicit toggle."
+      },
+      {
+        "claim": "Selected discard is recoverable in both storage owners.",
+        "evidence": "All 15 Rust memory-maintenance tests pass, including exact chat restoration and canonical row plus lexical-index restoration."
+      },
+      {
+        "claim": "The complete repository remains buildable and its architecture boundaries remain valid.",
+        "evidence": "The full frontend suite passed 2,401 tests; production build, typecheck, architecture, docs, storage-contract, discovery, changed-file lint and formatting, and Rust workspace check passed."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Valuable ordinary information must not be treated as generic junk.",
+        "evidence": "Prompt calibration tests require mundane user preferences and character-specific ordinary beliefs to produce no discard."
+      },
+      {
+        "claim": "A model or caller cannot bypass explicit consent or mutate stale data.",
+        "evidence": "The hook overwrites discard preselection to false, Rust validates exact request shape, and stale multi-source batches leave both owners unchanged."
+      },
+      {
+        "claim": "A discard cannot masquerade as consolidation or create a replacement.",
+        "evidence": "TypeScript and Rust contract tests reject winner and replacement fields; persistence tests assert created and superseded counts stay zero."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing combine and keep-one cleanup behavior remains intact.",
+        "evidence": "Existing generation resolution and both storage-owner consolidation apply-and-undo tests pass."
+      },
+      {
+        "claim": "Older cleanup batches without an operation marker remain undoable.",
+        "evidence": "Undo treats only operation=discard as deleted and retains the existing superseded default for prior batches."
+      },
+      {
+        "claim": "Prior optional timestamps and supersession chain fields survive discard undo.",
+        "evidence": "Chat and canonical tests seed protected rows with prior metadata and compare the restored records."
+      }
+    ],
+    "untestedRows": [
+      "A real configured provider has not yet judged the synthetic low-value and valuable controls in a disposable live owner scope."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The previous candidate lane required pairwise similarity evidence and therefore could not review a singleton for junk value.",
+      "sourceType": "derived",
+      "evidence": "The pre-change candidate preparation built only pair-based groups and the original generation path iterated those groups."
+    },
+    {
+      "description": "Discarded canonical memories leave active lexical recall in the same atomic storage transaction.",
+      "sourceType": "harness-proven",
+      "evidence": "The canonical persistence test verifies the memory-index-rows count changes with apply and undo."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "The review card says 'Remove from active memories. Undo can restore it.' Discards begin unchecked. For an optional external copy, export the character with memories to character-backup.json in a user-selected folder outside De-Koi's data directory before applying.",
+      "source": "Character Editor memory export",
+      "destination": "A user-selected folder outside the De-Koi data directory",
+      "action": "Export before applying selected cleanup changes",
+      "files": [
+        "character-backup.json"
+      ],
+      "detectedLayouts": [
+        "Current version 1 canonical-memory export"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Disposable live configured-provider value judgment",
+      "blockingCoreClaim": false,
+      "reason": "Public-path tests prove the scan, normalization, consent, persistence, and undo contracts; subjective provider judgment remains a deployment follow-up.",
+      "status": "not-blocking"
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm test plus matching repository and Rust checks",
+    "baselineEvidence": "449 frontend files passed with 2,401 tests; 15 Rust memory-maintenance tests passed; typecheck, production build, architecture, docs, storage contracts, discovery metadata, changed-file lint and formatting, and cargo check --workspace passed.",
+    "githubValidationPassed": false,
+    "reviewIterationFastPath": false
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pending",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 0,
+    "url": "",
+    "headRefName": "fix/aggressive-memory-cleanup",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "No real user memory content is recorded in this ledger.",
+    "Repository-wide cargo fmt --check has unrelated base-branch drift; every Rust file changed by this PR passes rustfmt --check.",
+    "The PR must not merge until hosted CI, current-head Bunny, review threads, and PR health are clean."
+  ]
+}
