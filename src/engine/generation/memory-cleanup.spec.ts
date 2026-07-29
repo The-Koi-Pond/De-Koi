@@ -72,19 +72,33 @@ describe("analyzeMemoryCleanup", () => {
     expect(preview.proposals).toHaveLength(1);
     expect(requests).toHaveLength(1);
     expect(requests[0]?.connectionId).toBe("connection-1");
-    expect(requests[0]?.parameters).toEqual({ temperature: 0, maxTokens: 1_200 });
+    expect(requests[0]?.parameters).toEqual({
+      temperature: 0,
+      maxTokens: 4_096,
+      responseFormat: "json_object",
+      reasoningEffort: "none",
+      reasoning_effort: "none",
+      customParameters: {
+        reasoning_effort: "none",
+        reasoning: { exclude: true },
+      },
+    });
     expect(JSON.stringify(requests)).not.toContain("unrelated-chat-message");
     expect(JSON.stringify(requests)).toContain("two or more");
     expect(JSON.stringify(requests)).toContain("Length alone");
     expect(JSON.stringify(requests)).toContain("winnerId must name a pinned source");
+    const systemPrompt = requests[0]?.messages[0]?.content ?? "";
+    expect(systemPrompt).toContain('"sourceIds"');
+    expect(systemPrompt).toContain('"replacement":{"content":"combined memory","kind":"fact"}');
+    expect(systemPrompt).toContain(
+      'Use reason exactly: "Repeated fact", "Overlapping memories", or "Possible conflict"',
+    );
     const prompt = JSON.parse(String(requests[0]?.messages[1]?.content)) as {
       allowedTypes: string[];
       sources: Array<{ id: string; pinned: boolean }>;
     };
     expect(prompt.allowedTypes).toEqual(["keep_one", "combine", "conflict"]);
-    expect(prompt.sources).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "memory-b", pinned: true })]),
-    );
+    expect(prompt.sources).toEqual(expect.arrayContaining([expect.objectContaining({ id: "memory-b", pinned: true })]));
     expect(JSON.stringify(requests)).not.toContain("shorten");
     expect(preview.beforeCount).toBe(3);
     expect(preview.afterCount).toBe(2);
