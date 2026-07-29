@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -61,6 +61,7 @@ describe("ConversationMessage memo subscriptions", () => {
   let queryClient: QueryClient | null = null;
 
   beforeEach(() => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
     window.localStorage.clear();
     resetConversationUiState();
     queryClient = new QueryClient();
@@ -81,6 +82,7 @@ describe("ConversationMessage memo subscriptions", () => {
     container = null;
     resetConversationUiState();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("shows an interrupted generation recovery state", () => {
@@ -894,6 +896,53 @@ describe("ConversationMessage memo subscriptions", () => {
       regenerateButton.click();
     });
     expect(onRegenerate).toHaveBeenCalledWith("message-keyboard-actions");
+  });
+
+  it("keeps persistent action toolbars exclusive to the active message", () => {
+    function ControlledTranscript() {
+      const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+      return (
+        <>
+          {["message-actions-first", "message-actions-second"].map((messageId) => (
+            <ConversationMessage
+              key={messageId}
+              message={{
+                ...message,
+                id: messageId,
+                content: messageId,
+              }}
+              characterMap={characterMap}
+              chatCharacterIds={["character-1"]}
+              actionsActive={activeMessageId === messageId}
+              onActiveActionMessageChange={setActiveMessageId}
+            />
+          ))}
+        </>
+      );
+    }
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ControlledTranscript />
+        </QueryClientProvider>,
+      );
+    });
+
+    const firstMessage = container!.querySelector<HTMLElement>('[data-message-id="message-actions-first"]')!;
+    const secondMessage = container!.querySelector<HTMLElement>('[data-message-id="message-actions-second"]')!;
+
+    act(() => {
+      firstMessage.click();
+    });
+    expect(firstMessage.querySelector(".mari-message-actions")?.className).toContain("pointer-events-auto");
+
+    act(() => {
+      secondMessage.click();
+    });
+    expect(firstMessage.querySelector(".mari-message-actions")?.className).toContain("pointer-events-none");
+    expect(secondMessage.querySelector(".mari-message-actions")?.className).toContain("pointer-events-auto");
   });
 
   it("keeps multi-select checkbox keyboard events from double toggling selection", () => {
