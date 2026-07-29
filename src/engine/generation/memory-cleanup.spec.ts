@@ -144,6 +144,51 @@ describe("analyzeMemoryCleanup", () => {
     ]);
   });
 
+  it("retries when the first repair response is also malformed", async () => {
+    const requests: LlmRequest[] = [];
+    const responses = [
+      '{"proposals":[{"type":"combine","sourceIds":["memory-a","memory-b"]',
+      '```json\n{"proposals":[{"type":"combine","sourceIds":["memory-a","memory-b"]',
+      JSON.stringify({
+        proposals: [
+          {
+            type: "combine",
+            sourceIds: ["memory-a", "memory-b"],
+            replacement: { content: "Mira keeps the brass key in her pocket.", kind: "fact" },
+            reason: "Overlapping memories",
+          },
+        ],
+      }),
+    ];
+    const llm = gateway(async (request) => {
+      requests.push(request);
+      const response = responses.shift();
+      if (response === undefined) throw new Error("No queued cleanup response.");
+      return response;
+    });
+
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources: [
+        source({ id: "memory-a", content: "Mira has and keeps the brass key." }),
+        source({ id: "memory-b", content: "Mira keeps the brass key in her pocket." }),
+      ],
+      connectionId: "connection-1",
+      llm,
+    });
+
+    expect(preview.proposals).toEqual([
+      expect.objectContaining({
+        type: "combine",
+        sourceIds: ["memory-a", "memory-b"],
+      }),
+    ]);
+    expect(requests).toHaveLength(3);
+    expect(requests[1]?.messages.at(-1)?.content).toContain("Repair the structured output");
+    expect(requests[2]?.messages.at(-1)?.content).toContain("Repair the structured output");
+    expect(requests[1]?.messages.at(-1)?.content).toContain("proposals");
+  });
+
   it("rejects a model attempt to merge a conflict", async () => {
     const llm = gateway(async () =>
       JSON.stringify({

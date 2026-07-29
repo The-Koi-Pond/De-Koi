@@ -106,7 +106,9 @@ function cleanStructuredText(raw: string): string {
 }
 
 function stripFences(raw: string): string {
-  return raw.replace(/^```(?:json|markdown)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+  const trimmed = raw.trim();
+  const fenced = /^```(?:json|markdown)?\s*([\s\S]*)\s*```(?:\s*[\s\S]*)?$/i.exec(trimmed);
+  return (fenced?.[1] ?? trimmed.replace(/^```(?:json|markdown)?\s*\n?/i, "").replace(/\n?```\s*$/i, "")).trim();
 }
 
 function formatIssue(issue: z.ZodIssue): string {
