@@ -5,7 +5,7 @@
     "title": "Keep remote message deletion pending until durable storage completes",
     "source": "Live Raspberry Pi user report",
     "classification": "remote runtime storage persistence and user-data deletion",
-    "status": "local_verification_passed"
+    "status": "pr_open_checks_pending"
   },
   "coreClaim": "Deleting a message through the remote web runtime no longer reports a false failure at the browser's 30-second deadline while the server-side deletion is still running.",
   "rootCause": "The specialized chat_messages_bulk_delete wrapper used the default finite remote request deadline even though it starts a durable, non-idempotent deletion. Slow Pi storage could continue the server transaction after the browser aborted at 30 seconds, causing the UI to report failure and roll back its optimistic cache state.",
@@ -187,8 +187,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1188,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1188",
     "headRefName": "fix/message-delete-durable-request",
     "baseRefName": "main",
     "healthStatus": "pending",
