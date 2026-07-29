@@ -19,6 +19,7 @@ function llmWithResponses(responses: string[]): LlmGateway & { requests: LlmRequ
 }
 
 const nameSchema = z.object({ name: z.string().min(1) });
+const namesSchema = z.object({ names: z.array(nameSchema) });
 
 describe("generateStructured", () => {
   it("returns typed data from valid JSON without repair", async () => {
@@ -39,6 +40,70 @@ describe("generateStructured", () => {
 
     expect(result).toEqual({ ok: true, data: { name: "Mira" }, raw: '{"name":"Mira"}', attempts: 1 });
     expect(llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes a complete nested value when only the outer JSON delimiter is missing", async () => {
+    const raw = '{"names":[{"name":"Mira"}]';
+    const llm = llmWithResponses([raw]);
+
+    const result = await generateStructured(
+      { llm },
+      {
+        taskName: "test.names",
+        connectionId: "conn-1",
+        messages: [{ role: "user", content: "Return names" }],
+        schema: namesSchema,
+        schemaDescription: '{"names":[{"name":"non-empty string"}]}',
+        maxRepairAttempts: 0,
+        failureMessage: "Name generation failed.",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: { names: [{ name: "Mira" }] },
+      raw,
+      attempts: 1,
+    });
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not infer missing content from a response cut off inside a string", async () => {
+    const llm = llmWithResponses(['{"names":[{"name":"Mir']);
+
+    const result = await generateStructured(
+      { llm },
+      {
+        taskName: "test.names",
+        connectionId: "conn-1",
+        messages: [{ role: "user", content: "Return names" }],
+        schema: namesSchema,
+        schemaDescription: '{"names":[{"name":"non-empty string"}]}',
+        maxRepairAttempts: 0,
+        failureMessage: "Name generation failed.",
+      },
+    );
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("does not close more than one missing JSON delimiter", async () => {
+    const llm = llmWithResponses(['{"names":[{"name":"Mira"}']);
+
+    const result = await generateStructured(
+      { llm },
+      {
+        taskName: "test.names",
+        connectionId: "conn-1",
+        messages: [{ role: "user", content: "Return names" }],
+        schema: namesSchema,
+        schemaDescription: '{"names":[{"name":"non-empty string"}]}',
+        maxRepairAttempts: 0,
+        failureMessage: "Name generation failed.",
+      },
+    );
+
+    expect(result.ok).toBe(false);
   });
 
   it("repairs invalid JSON with schema, validation errors, and the bad response", async () => {

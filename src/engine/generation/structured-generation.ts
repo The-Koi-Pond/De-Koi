@@ -64,15 +64,58 @@ function parseAndValidate<T>(
   schema: z.ZodType<T>,
 ): { ok: true; data: T } | { ok: false; errors: string[] } {
   let parsed: unknown;
+  const cleaned = cleanStructuredText(raw);
   try {
-    parsed = JSON.parse(cleanStructuredText(raw));
+    parsed = JSON.parse(cleaned);
   } catch (error) {
-    return { ok: false, errors: [`parse error: ${errorMessage(error)}`] };
+    const closed = closeSingleMissingOuterDelimiter(cleaned);
+    if (!closed) return { ok: false, errors: [`parse error: ${errorMessage(error)}`] };
+    try {
+      parsed = JSON.parse(closed);
+    } catch {
+      return { ok: false, errors: [`parse error: ${errorMessage(error)}`] };
+    }
   }
 
   const result = schema.safeParse(parsed);
   if (result.success) return { ok: true, data: result.data };
   return { ok: false, errors: result.error.issues.map(formatIssue) };
+}
+
+function closeSingleMissingOuterDelimiter(raw: string): string | null {
+  const trimmed = raw.trim();
+  const lastCharacter = trimmed.at(-1);
+  if (lastCharacter !== "}" && lastCharacter !== "]") return null;
+
+  const open: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const character of trimmed) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inString && character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (character === "{" || character === "[") {
+      open.push(character);
+      continue;
+    }
+    if (character === "}" || character === "]") {
+      const expected = character === "}" ? "{" : "[";
+      if (open.pop() !== expected) return null;
+    }
+  }
+
+  if (inString || escaped || open.length !== 1) return null;
+  return `${trimmed}${open[0] === "{" ? "}" : "]"}`;
 }
 
 function buildRepairMessages<T>(
