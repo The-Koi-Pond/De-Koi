@@ -166,7 +166,7 @@
     "baselinePassed": true
   },
   "pr": {
-    "url": "pending",
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1182",
     "evidencePublished": true,
     "checks": "Focused red-green proof, storage suite, Rust check and clippy, architecture check, pnpm check, diff check, and exact isolated reruns for three unrelated parallel-only full-suite failures passed. GitHub validation is pending.",
     "automatedReview": "Local pre-PR Bunny review found and repaired one journal-version migration edge; the post-repair pass has no blocking findings. Hosted exact-head Bunny review is pending."
