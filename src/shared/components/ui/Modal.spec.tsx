@@ -64,6 +64,15 @@ describe("Modal", () => {
     expect(closeButton.className).toContain("de-koi-icon-target");
   });
 
+  it("renders above the fixed mobile shell navigation", () => {
+    renderModal(true);
+
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+
+    expect(dialog.className).toContain("z-[90]");
+    expect(dialog.className).not.toContain("z-50");
+  });
+
   it("wraps forward and reverse Tab navigation within the modal", () => {
     renderModal(true);
 
