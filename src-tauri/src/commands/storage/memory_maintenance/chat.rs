@@ -48,8 +48,7 @@ fn memory_belongs_to_scope(memory: &Value, scope: &CleanupScope) -> bool {
 }
 
 fn chat_memory_is_cleanup_eligible(memory: &Value, scope: &CleanupScope) -> bool {
-    memory_belongs_to_scope(memory, scope)
-        && matches!(memory_status(memory), "active" | "pinned")
+    memory_belongs_to_scope(memory, scope) && matches!(memory_status(memory), "active" | "pinned")
 }
 
 fn chat_memory_is_pinned(memory: &Value) -> bool {
@@ -806,10 +805,7 @@ mod tests {
                         user_edited: false,
                     },
                 ),
-                (
-                    "winner".to_string(),
-                    expected("Mira keeps the brass key."),
-                ),
+                ("winner".to_string(), expected("Mira keeps the brass key.")),
             ]),
             winner_id: Some("winner".to_string()),
             replacement: None,
