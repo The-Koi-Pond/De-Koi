@@ -88,6 +88,10 @@ describe("analyzeMemoryCleanup", () => {
     expect(JSON.stringify(requests)).toContain("Length alone");
     expect(JSON.stringify(requests)).toContain("winnerId must name a pinned source");
     const systemPrompt = requests[0]?.messages[0]?.content ?? "";
+    expect(systemPrompt).toContain("Compare every supplied source");
+    expect(systemPrompt).toContain("different wording");
+    expect(systemPrompt).toContain("Preserve distinct events");
+    expect(systemPrompt).toContain("return no proposal");
     expect(systemPrompt).toContain('"sourceIds"');
     expect(systemPrompt).toContain('"replacement":{"content":"combined memory","kind":"fact"}');
     expect(systemPrompt).toContain(
@@ -102,6 +106,44 @@ describe("analyzeMemoryCleanup", () => {
     expect(JSON.stringify(requests)).not.toContain("shorten");
     expect(preview.beforeCount).toBe(3);
     expect(preview.afterCount).toBe(2);
+  });
+
+  it("analyzes more than twenty candidate groups sequentially without deferral", async () => {
+    const requests: LlmRequest[] = [];
+    let active = 0;
+    let maxActive = 0;
+    const llm = gateway(async (request) => {
+      requests.push(request);
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active -= 1;
+      return JSON.stringify({ proposals: [] });
+    });
+    const sources = Array.from({ length: 22 }, (_, index) => [
+      source({
+        id: `pair-${index}-a`,
+        content: `Alpha${index}.`,
+        messageIds: [`pair-message-${index}`],
+      }),
+      source({
+        id: `pair-${index}-b`,
+        content: `Beta${index}.`,
+        messageIds: [`pair-message-${index}`],
+      }),
+    ]).flat();
+
+    const preview = await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources,
+      connectionId: "connection-1",
+      llm,
+    });
+
+    expect(requests).toHaveLength(22);
+    expect(maxActive).toBe(1);
+    expect(preview.deferredCandidateCount).toBe(0);
+    expect(preview.proposals).toEqual([]);
   });
 
   it("accepts valid cleanup JSON from a fenced model response with trailing text", async () => {
