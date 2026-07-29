@@ -369,6 +369,11 @@ pub(crate) fn apply_canonical_cleanup(
                 match proposal.proposal_type {
                     ProposalType::Combine => combined += 1,
                     ProposalType::KeepOne | ProposalType::Conflict => {}
+                    ProposalType::Discard => {
+                        return Err(AppError::invalid_input(
+                            "Discard cleanup execution is not available",
+                        ));
+                    }
                 }
             }
             Ok(json!({

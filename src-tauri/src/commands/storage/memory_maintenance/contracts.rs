@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-const MAX_PROPOSALS: usize = 20;
+const MAX_PROPOSALS: usize = 1_000;
 const MAX_SOURCE_IDS: usize = 8;
 const MAX_REPLACEMENT_CHARS: usize = 12_000;
 
@@ -29,6 +29,7 @@ pub(crate) struct ExpectedState {
 pub(crate) enum ProposalType {
     KeepOne,
     Combine,
+    Discard,
     Conflict,
 }
 
@@ -140,6 +141,17 @@ fn validate_proposal_shape(proposal: &CleanupProposal) -> AppResult<()> {
                 ));
             }
         }
+        ProposalType::Discard => {
+            if proposal.source_ids.len() != 1
+                || proposal.winner_id.is_some()
+                || proposal.replacement.is_some()
+                || proposal._reason.as_deref() != Some("Low-value memory")
+            {
+                return Err(AppError::invalid_input(
+                    "Discard cleanup requires one source and the low-value reason",
+                ));
+            }
+        }
         ProposalType::Conflict => {
             if proposal.selected {
                 return Err(AppError::invalid_input(
@@ -244,6 +256,84 @@ pub(crate) fn parse_undo_request(body: Value) -> AppResult<UndoCleanupRequest> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn discard_request_with_count(count: usize) -> Value {
+        let proposals = (0..count)
+            .map(|index| {
+                let source_id = format!("memory-{index}");
+                json!({
+                    "id": format!("discard-{index}"),
+                    "type": "discard",
+                    "sourceIds": [source_id.clone()],
+                    "expected": {
+                        (source_id): {
+                            "content": "Low-value memory",
+                            "status": "active",
+                            "updatedAt": null,
+                            "pinned": false,
+                            "userEdited": false
+                        }
+                    },
+                    "reason": "Low-value memory",
+                    "selected": true
+                })
+            })
+            .collect::<Vec<_>>();
+        json!({
+            "version": 1,
+            "scope": { "kind": "chat", "id": "chat-1" },
+            "proposals": proposals
+        })
+    }
+
+    #[test]
+    fn apply_contract_accepts_single_source_discard() {
+        let request = parse_apply_request(discard_request_with_count(1))
+            .expect("single-source discard should be valid");
+
+        assert_eq!(request.proposals[0].proposal_type, ProposalType::Discard);
+    }
+
+    #[test]
+    fn apply_contract_rejects_invalid_discard_shapes() {
+        let mut no_sources = discard_request_with_count(1);
+        no_sources["proposals"][0]["sourceIds"] = json!([]);
+        no_sources["proposals"][0]["expected"] = json!({});
+        assert!(parse_apply_request(no_sources).is_err());
+
+        let mut multiple_sources = discard_request_with_count(1);
+        multiple_sources["proposals"][0]["sourceIds"] = json!(["memory-0", "memory-1"]);
+        multiple_sources["proposals"][0]["expected"]["memory-1"] = json!({
+            "content": "Another low-value memory",
+            "status": "active",
+            "updatedAt": null,
+            "pinned": false,
+            "userEdited": false
+        });
+        assert!(parse_apply_request(multiple_sources).is_err());
+
+        let mut with_winner = discard_request_with_count(1);
+        with_winner["proposals"][0]["winnerId"] = json!("memory-winner");
+        with_winner["proposals"][0]["expected"]["memory-winner"] = json!({
+            "content": "Winner",
+            "status": "active",
+            "updatedAt": null,
+            "pinned": false,
+            "userEdited": false
+        });
+        assert!(parse_apply_request(with_winner).is_err());
+
+        let mut with_replacement = discard_request_with_count(1);
+        with_replacement["proposals"][0]["replacement"] =
+            json!({ "content": "Replacement", "kind": "fact" });
+        assert!(parse_apply_request(with_replacement).is_err());
+    }
+
+    #[test]
+    fn apply_contract_accepts_large_reviewed_batches_with_a_hard_cap() {
+        assert!(parse_apply_request(discard_request_with_count(21)).is_ok());
+        assert!(parse_apply_request(discard_request_with_count(1_001)).is_err());
+    }
 
     #[test]
     fn apply_contract_rejects_single_memory_shorten() {
