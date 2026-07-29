@@ -4,8 +4,19 @@ import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import { CONVERSATION_STATUS_STYLE_REFERENCE } from "../../../contracts/constants/conversation-prompt";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
-import { getCurrentStatus, getEnabledConversationSchedules } from "../schedules/schedule.service";
+import {
+  getAvailabilityDecision,
+  getEnabledConversationRoutines,
+  getEnabledConversationSchedules,
+} from "../schedules/schedule.service";
 import { resolveStoredConversationStatusMessagesEnabled } from "./conversation-status-settings";
+import {
+  appendAcceptedStatusMessage,
+  isRepeatedStatusMessage,
+  nextStatusAngle,
+  readStatusMessageVarietyState,
+  type ConversationStatusAngle,
+} from "./status-message-variety";
 
 export interface ConversationStatusMessageMeta {
   generatedAt: string;
@@ -43,6 +54,8 @@ interface PendingStatusMessageRefresh {
   extensions: JsonRecord;
   currentStatus: ConversationStatusKind;
   currentActivity: string;
+  recentMessages: string[];
+  angle: ConversationStatusAngle;
 }
 
 export interface ConversationStatusMessageRefreshResult {
@@ -119,12 +132,7 @@ function statusMessageJsonCandidate(raw: string): string {
 const STATUS_MESSAGE_RAW_MAX_LENGTH = 4096;
 
 function looksLikeStructuredStatusOutput(value: string): boolean {
-  return (
-    /^```/i.test(value) ||
-    /^json\b/i.test(value) ||
-    /[{}[\]]/.test(value) ||
-    /["']?message["']?\s*:/i.test(value)
-  );
+  return /^```/i.test(value) || /^json\b/i.test(value) || /[{}[\]]/.test(value) || /["']?message["']?\s*:/i.test(value);
 }
 
 export function parseGeneratedStatusMessage(raw: string): string {
@@ -242,14 +250,24 @@ function buildStatusMessagePrompt(args: {
   currentActivity: string;
   recentContext: string;
   typingStyleContext: string;
+  recentMessages: string[];
+  angle: ConversationStatusAngle;
 }): LlmMessage[] {
+  const recentStatuses =
+    args.recentMessages.length > 0
+      ? `<recent_statuses>\n${args.recentMessages.map((message) => `- ${message}`).join("\n")}\n</recent_statuses>`
+      : "";
   const system = [
     "Generate one short first-person custom status for a fictional chat character.",
     "Write it as if the character typed it themselves as a Discord-style custom status under their own name.",
-    "Use the character's personality, current availability, current activity, recent continuity, and typing style evidence as context only.",
+    "The assigned status angle controls what to foreground. Treat the other supplied context as evidence, not a checklist.",
     "Follow the default Conversation mode style reference: casual DM text, specific, reactive, and natural to the character.",
     "Write with the same typing quirks, spelling, casing, punctuation habits, and perspective the character uses in Conversation mode replies.",
+    "Typing style evidence controls voice and formatting only. Do not copy its topics or events into the status.",
     "If typing style evidence conflicts with generic status grammar, the character's actual Conversation typing style wins.",
+    args.recentMessages.length > 0
+      ? "Do not repeat their wording, opening, topic, or central idea from any recent status below."
+      : "",
     "Do not write a schedule label or third-person activity summary. Do not narrate what the character is doing from outside.",
     "Do not invent a major life event. Do not mention being an AI or mention this instruction.",
     'Return JSON only: {"message":"short status blurb"}.',
@@ -262,6 +280,9 @@ function buildStatusMessagePrompt(args: {
     `Personality: ${args.personality}`,
     `Availability: ${args.currentStatus}`,
     `Current activity: ${args.currentActivity}`,
+    `Assigned status angle: ${args.angle.id}`,
+    `Angle direction: ${args.angle.instruction}`,
+    recentStatuses,
     args.recentContext ? `Recent continuity: ${args.recentContext}` : "",
     args.typingStyleContext ? `<typing_style_evidence>\n${args.typingStyleContext}\n</typing_style_evidence>` : "",
   ]
@@ -394,6 +415,7 @@ export async function maybeRefreshConversationStatusMessages(
   const ids = input.characterIds?.length
     ? input.characterIds
     : parseJsonArray<string>(chat.characterIds).filter(Boolean);
+  const routines = getEnabledConversationRoutines(meta);
   const schedules = getEnabledConversationSchedules(meta);
   if (!enabled || ids.length === 0) return { refreshed: [], skipped: ids };
 
@@ -410,16 +432,27 @@ export async function maybeRefreshConversationStatusMessages(
 
     const data = parseJsonObject(character.data);
     const extensions = parseJsonObject(data.extensions);
-    const scheduled = schedules[characterId] ? getCurrentStatus(schedules[characterId]!, now) : null;
+    const profile = routines[characterId] ?? schedules[characterId];
+    const scheduled = profile ? getAvailabilityDecision(profile, now) : null;
     const currentStatus = scheduled?.status ?? statusFromExtensions(extensions);
     const currentActivity = (scheduled?.activity ?? readString(extensions.conversationActivity)) || "free time";
+    const variety = readStatusMessageVarietyState(extensions);
+    const angle = nextStatusAngle(characterId, variety.previousAngle);
 
     if (!shouldRefreshStatusMessage({ enabled, extensions, currentStatus, currentActivity, now })) {
       skipped.push(characterId);
       continue;
     }
 
-    pending.push({ characterId, data, extensions, currentStatus, currentActivity });
+    pending.push({
+      characterId,
+      data,
+      extensions,
+      currentStatus,
+      currentActivity,
+      recentMessages: variety.recentMessages,
+      angle,
+    });
   }
 
   if (pending.length === 0) return { refreshed: [], skipped };
@@ -440,25 +473,64 @@ export async function maybeRefreshConversationStatusMessages(
 
   const refreshed: string[] = [];
 
-  for (const { characterId, data, extensions, currentStatus, currentActivity } of pending) {
-    const raw = await completeStatusMessage(capabilities.llm, {
-      connectionId,
-      model,
-      name: readString(data.name) || "Character",
-      description: readString(data.description),
-      personality: readString(data.personality),
-      currentStatus,
-      currentActivity,
-      recentContext: recentContinuityFromChat(meta, data),
-      typingStyleContext: typingStyleFromCharacter(
-        data,
-        await recentCharacterReplies(capabilities.storage, input.chatId, characterId),
-      ),
-    });
-    const message = parseGeneratedStatusMessage(raw);
+  for (const { characterId, data, extensions, currentStatus, currentActivity, recentMessages, angle } of pending) {
+    const typingStyleContext = typingStyleFromCharacter(
+      data,
+      await recentCharacterReplies(capabilities.storage, input.chatId, characterId),
+    );
+    const generateForAngle = async (
+      selectedAngle: ConversationStatusAngle,
+      promptRecentMessages: string[],
+    ): Promise<string> =>
+      parseGeneratedStatusMessage(
+        await completeStatusMessage(capabilities.llm, {
+          connectionId,
+          model,
+          name: readString(data.name) || "Character",
+          description: readString(data.description),
+          personality: readString(data.personality),
+          currentStatus,
+          currentActivity,
+          recentContext: selectedAngle.includeContinuity ? recentContinuityFromChat(meta, data) : "",
+          typingStyleContext,
+          recentMessages: promptRecentMessages,
+          angle: selectedAngle,
+        }),
+      );
+
+    let acceptedAngle = angle;
+    let message = await generateForAngle(acceptedAngle, recentMessages);
     if (!message) {
       skipped.push(characterId);
       continue;
+    }
+    if (isRepeatedStatusMessage(message, recentMessages)) {
+      const rejectedMessage = message;
+      acceptedAngle = nextStatusAngle(characterId, acceptedAngle.id);
+      const retryRecentMessages = appendAcceptedStatusMessage(recentMessages, rejectedMessage);
+      message = await generateForAngle(acceptedAngle, retryRecentMessages);
+      if (!message || isRepeatedStatusMessage(message, retryRecentMessages)) {
+        const previousMeta = readRecord(extensions.conversationStatusMessageMeta);
+        await capabilities.storage.update("characters", characterId, {
+          data: {
+            ...data,
+            extensions: {
+              ...extensions,
+              conversationStatusMessageMeta: {
+                ...previousMeta,
+                generatedAt: readString(previousMeta.generatedAt) || now.toISOString(),
+                nextRefreshAt: nextRefreshIso(now, characterId),
+                sourceStatus: currentStatus,
+                sourceActivity: currentActivity,
+                recentMessages,
+                angle: acceptedAngle.id,
+              },
+            },
+          },
+        });
+        skipped.push(characterId);
+        continue;
+      }
     }
 
     await capabilities.storage.update("characters", characterId, {
@@ -472,6 +544,8 @@ export async function maybeRefreshConversationStatusMessages(
             nextRefreshAt: nextRefreshIso(now, characterId),
             sourceStatus: currentStatus,
             sourceActivity: currentActivity,
+            recentMessages: appendAcceptedStatusMessage(recentMessages, message),
+            angle: acceptedAngle.id,
           },
         },
       },
