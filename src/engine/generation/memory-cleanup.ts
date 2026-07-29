@@ -53,7 +53,6 @@ const VALUE_SYSTEM_PROMPT = [
 const RESPONSE_SCHEMA = z.object({ proposals: z.array(z.unknown()) });
 const RESPONSE_SCHEMA_DESCRIPTION = '{"proposals":[cleanup proposal objects]}';
 
-const PROPOSAL_TYPES = new Set<MemoryCleanupProposalType>(["discard", "keep_one", "combine", "conflict"]);
 const VALUE_PROPOSAL_TYPES = new Set<MemoryCleanupProposalType>(["discard"]);
 const CONSOLIDATION_PROPOSAL_TYPES = new Set<MemoryCleanupProposalType>(["keep_one", "combine", "conflict"]);
 const REASONS = new Set<MemoryCleanupReason>([
@@ -208,11 +207,7 @@ function normalizeModelProposal(
   allowedTypes: ReadonlySet<MemoryCleanupProposalType>,
 ): MemoryCleanupProposal {
   if (!isRecord(value)) throw new Error("Cleanup proposal must be an object.");
-  if (
-    typeof value.type !== "string" ||
-    !PROPOSAL_TYPES.has(value.type as MemoryCleanupProposalType) ||
-    !allowedTypes.has(value.type as MemoryCleanupProposalType)
-  ) {
+  if (typeof value.type !== "string" || !allowedTypes.has(value.type as MemoryCleanupProposalType)) {
     throw new Error("Cleanup proposal type is invalid.");
   }
   const type = value.type as MemoryCleanupProposalType;
