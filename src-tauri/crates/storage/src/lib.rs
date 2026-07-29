@@ -2760,14 +2760,18 @@ impl FileStorage {
     }
 
     fn write_collection_immediate(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
-        validate_collection_journal_before_replacement(&self.root.join("collections"), collection)?;
+        let collections_dir = self.root.join("collections");
+        validate_collection_journal_before_replacement(&collections_dir, collection)?;
         self.write_collection_file(collection, rows)?;
         if collection == "chats" {
             let path = self.collection_path(collection)?;
             let source_stamp = chat_summary_source_stamp(&path)?;
             rebuild_chat_summary_read_model(&self.root, source_stamp.as_deref(), rows)?;
         }
-        remove_collection_journal(&self.root.join("collections"), collection)?;
+        remove_collection_journal(&collections_dir, collection)?;
+        if append_journal::checkpoint_tracks(collection) {
+            append_journal::prepare_known_checkpoint(&collections_dir)?;
+        }
         self.invalidate_read_indexes_for_collection(collection)?;
         self.cache_collection(collection, rows, false)?;
         Ok(())
@@ -3134,6 +3138,9 @@ impl FileStorage {
             }
             self.invalidate_read_indexes_for_collection(collection)?;
             self.cache_collection(collection, &rows, false)?;
+        }
+        if replaces_append_checkpoint {
+            append_journal::prepare_known_checkpoint(&collections_dir)?;
         }
         Ok(())
     }
@@ -4883,8 +4890,8 @@ mod tests {
                 ),
             ])
             .unwrap();
-        let message_backup = collections.join("messages.json.bak");
-        let swipe_backup = collections.join("message-swipes.json.bak");
+        let message_backup = append_journal::checkpoint_backup_path(&collections, "messages");
+        let swipe_backup = append_journal::checkpoint_backup_path(&collections, "message-swipes");
         let message_checkpoint = fs::read(&message_backup).unwrap();
         let swipe_checkpoint = fs::read(&swipe_backup).unwrap();
 
@@ -5429,8 +5436,8 @@ mod tests {
         );
 
         let storage = FileStorage::new(&root).unwrap();
-        let message_backup = collections.join("messages.json.bak");
-        let swipe_backup = collections.join("message-swipes.json.bak");
+        let message_backup = append_journal::checkpoint_backup_path(&collections, "messages");
+        let swipe_backup = append_journal::checkpoint_backup_path(&collections, "message-swipes");
         let message_checkpoint = fs::read(&message_backup).unwrap();
         let swipe_checkpoint = fs::read(&swipe_backup).unwrap();
         storage
@@ -5597,12 +5604,70 @@ mod tests {
     }
 
     #[test]
+    fn startup_recovers_a_legacy_pending_checkpoint_backup() {
+        let root = temp_storage_root("legacy-append-checkpoint-backup");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        write_test_collection(&messages, vec![json!({ "id": "message-1" })]);
+        let storage = FileStorage::new(&root).unwrap();
+        drop(storage);
+        append_journal::append_transaction(
+            &collections,
+            &[("messages", vec![json!({ "id": "message-2" })])],
+        )
+        .unwrap();
+        let journal = collections.join(".collection-append-journal.jsonl");
+        let legacy_journal = fs::read_to_string(&journal)
+            .unwrap()
+            .replace("\"version\":2", "\"version\":1");
+        fs::write(&journal, legacy_journal).unwrap();
+        let checkpoint_backup = append_journal::checkpoint_backup_path(&collections, "messages");
+        let legacy_backup = backup_path_for(&messages).unwrap();
+        fs::copy(&checkpoint_backup, &legacy_backup).unwrap();
+        fs::remove_file(checkpoint_backup).unwrap();
+        fs::remove_file(&messages).unwrap();
+
+        let recovered = FileStorage::new(&root).unwrap();
+
+        assert_eq!(recovered.list("messages").unwrap().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn current_checkpoint_does_not_fall_back_to_an_unrelated_collection_backup() {
+        let root = temp_storage_root("current-checkpoint-rejects-legacy-backup");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        write_test_collection(&messages, vec![json!({ "id": "message-1" })]);
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all("messages", vec![json!({ "id": "replacement-message" })])
+            .unwrap();
+        storage
+            .append_many_uncached(vec![("messages", vec![json!({ "id": "message-2" })])])
+            .unwrap();
+        let checkpoint_backup =
+            append_journal::checkpoint_backup_path(&collections, "messages");
+        assert!(backup_path_for(&messages).unwrap().exists());
+        fs::remove_file(checkpoint_backup).unwrap();
+        fs::write(&messages, b"{ damaged primary").unwrap();
+        drop(storage);
+
+        let error = FileStorage::new(&root)
+            .err()
+            .expect("current checkpoints must not trust the normal collection backup");
+
+        assert_eq!(error.code, "storage_append_journal_recovery_required");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn pending_checkpoint_with_missing_tracked_backup_fails_closed_before_new_append() {
         let root = temp_storage_root("pending-checkpoint-missing-backup");
         let collections = root.join("collections");
         let messages = collections.join("messages.json");
         let swipes = collections.join("message-swipes.json");
-        let backup = collections.join("message-swipes.json.bak");
+        let backup = append_journal::checkpoint_backup_path(&collections, "message-swipes");
         write_test_collection(&messages, vec![json!({ "id": "message-1" })]);
         write_test_collection(
             &swipes,
@@ -5643,7 +5708,7 @@ mod tests {
         let root = temp_storage_root("pending-checkpoint-empty-backup");
         let collections = root.join("collections");
         let messages = collections.join("messages.json");
-        let backup = collections.join("messages.json.bak");
+        let backup = append_journal::checkpoint_backup_path(&collections, "messages");
         write_test_collection(&messages, vec![json!({ "id": "message-1" })]);
         let storage = FileStorage::new(&root).unwrap();
         storage
@@ -5682,7 +5747,7 @@ mod tests {
         let root = temp_storage_root("preserve-failed-append-recovery-evidence");
         let collections = root.join("collections");
         let messages = collections.join("messages.json");
-        let backup = collections.join("messages.json.bak");
+        let backup = append_journal::checkpoint_backup_path(&collections, "messages");
         let journal = collections.join(".collection-append-journal.jsonl");
         write_test_collection(&messages, vec![json!({ "id": "checkpoint-message" })]);
         let storage = FileStorage::new(&root).unwrap();
@@ -5809,6 +5874,73 @@ mod tests {
         let recovered = FileStorage::new(&root).unwrap();
         assert_eq!(recovered.list("messages").unwrap().len(), 2);
         assert_eq!(recovered.list("message-swipes").unwrap().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn replacement_prepares_the_next_append_checkpoint_before_foreground_writes() {
+        let root = temp_storage_root("replacement-prepares-next-append-checkpoint");
+        let collections = root.join("collections");
+        let messages = collections.join("messages.json");
+        let message_swipes = collections.join("message-swipes.json");
+        write_test_collection(
+            &messages,
+            vec![json!({ "id": "baseline-message", "chatId": "chat-1" })],
+        );
+        write_test_collection(
+            &message_swipes,
+            vec![json!({
+                "id": "baseline-message::swipe::0",
+                "messageId": "baseline-message",
+            })],
+        );
+        let storage = FileStorage::new(&root).unwrap();
+
+        storage
+            .replace_all_many(vec![
+                (
+                    "messages",
+                    vec![json!({ "id": "replacement-message", "chatId": "chat-1" })],
+                ),
+                (
+                    "message-swipes",
+                    vec![json!({
+                        "id": "replacement-message::swipe::0",
+                        "messageId": "replacement-message",
+                    })],
+                ),
+            ])
+            .unwrap();
+
+        let checkpoint = collections.join(".collection-append-journal.jsonl");
+        assert_eq!(
+            fs::metadata(&checkpoint).unwrap().len(),
+            0,
+            "replacement should leave an empty checkpoint ready for the next append"
+        );
+        let message_backup = append_journal::checkpoint_backup_path(&collections, "messages");
+        let swipe_backup = append_journal::checkpoint_backup_path(&collections, "message-swipes");
+        let message_backup_identity = file_identity(&message_backup);
+        let swipe_backup_identity = file_identity(&swipe_backup);
+
+        assert!(storage
+            .append_many_uncached(vec![
+                (
+                    "messages",
+                    vec![json!({ "id": "appended-message", "chatId": "chat-1" })],
+                ),
+                (
+                    "message-swipes",
+                    vec![json!({
+                        "id": "appended-message::swipe::0",
+                        "messageId": "appended-message",
+                    })],
+                ),
+            ])
+            .unwrap());
+
+        assert_eq!(file_identity(&message_backup), message_backup_identity);
+        assert_eq!(file_identity(&swipe_backup), swipe_backup_identity);
         fs::remove_dir_all(root).unwrap();
     }
 

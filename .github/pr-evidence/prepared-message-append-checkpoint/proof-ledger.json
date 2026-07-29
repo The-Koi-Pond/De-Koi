@@ -1,0 +1,177 @@
+{
+  "coreClaim": "A tracked message replacement prepares the next durable append checkpoint before returning, so the next generated message does not copy both large primary collections in the foreground.",
+  "scope": {
+    "inScope": [
+      "Messages and message-swipes append checkpoint backups",
+      "Tracked single- and multi-collection replacement paths",
+      "Legacy pending checkpoint recovery",
+      "Conversation and Roleplay foreground persistence latency"
+    ],
+    "outOfScope": [
+      "Provider and editor generation latency",
+      "Memory and repetition checks",
+      "Generic collection compaction policy",
+      "Message import behavior beyond checkpoint preparation"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/append_journal.rs",
+      "src-tauri/crates/storage/src/lib.rs",
+      ".github/pr-evidence/prepared-message-append-checkpoint/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent message storage",
+      "checkpoint recovery",
+      "generation latency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Tracked replacements leave an empty checkpoint with dedicated snapshots of the installed messages and message-swipes primaries.",
+    "riskType": "persistent message and swipe storage",
+    "entrypoints": [
+      "FileStorage write_collection_immediate",
+      "FileStorage replace_all_many_locked",
+      "append_journal startup recovery"
+    ],
+    "currentPathsOrFormats": [
+      "messages.json",
+      "message-swipes.json",
+      "messages.append-checkpoint.bak",
+      "message-swipes.append-checkpoint.bak",
+      ".collection-append-journal.jsonl"
+    ],
+    "legacyPathsOrFormats": [
+      "messages.json.bak",
+      "message-swipes.json.bak",
+      "Pending version 1 append journals"
+    ],
+    "outOfScopeClaims": [
+      "The journal entry shape is unchanged; new entries use version 2 while version 1 remains readable.",
+      "Normal collection .bak files retain previous-version corruption recovery semantics.",
+      "Shutdown materialization remains allowed to finish durable journal replay."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "After a full tracked replacement invalidated the append checkpoint, the next generated message synchronously copied the 8 MB messages primary and 13 MB swipe primary before appending.",
+    "producer": "marinara-storage replacement and append checkpoint lifecycle",
+    "consumer": "Conversation and Roleplay generated-message persistence",
+    "impliedContract": "A foreground generated-message append should write bounded journal and row bytes, not prepare full-primary recovery snapshots.",
+    "actualEnforcement": "Tracked replacement paths prepare a dedicated empty append checkpoint after the replacement commits. The next append reuses those snapshots without changing their file identities.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "FileStorage and append_journal own replacement, checkpoint preparation, backup separation, and legacy recovery.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not suppress message persistence, weaken sync, or hide the storage wait in optimistic UI.",
+    "regressionProof": [
+      "Replace messages and message-swipes atomically.",
+      "Assert an empty append journal already exists after replacement.",
+      "Record both dedicated checkpoint backup identities.",
+      "Append a new message and swipe.",
+      "Assert both checkpoint backup identities remain unchanged.",
+      "Remove a dedicated backup from a pending checkpoint and prove startup can recover from the legacy .bak fallback."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Replacement prepares the next checkpoint before a generated append.",
+        "evidence": "replacement_prepares_the_next_append_checkpoint_before_foreground_writes passed."
+      },
+      {
+        "claim": "Deployed legacy pending checkpoints remain recoverable.",
+        "evidence": "startup_recovers_a_legacy_pending_checkpoint_backup passed."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Checkpoint preparation must not overwrite normal corruption-recovery backups.",
+        "evidence": "repeated_writes_refresh_existing_backup and writes_refresh_backup_without_copying_nul_corruption pass in the full storage suite."
+      },
+      {
+        "claim": "Existing append recovery and fail-closed behavior must remain intact.",
+        "evidence": "The full marinara-storage suite passes 148 tests."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "A pending checkpoint created by the previous release can still use messages.json.bak or message-swipes.json.bak if its dedicated snapshot is absent.",
+        "evidence": "checkpoint_backup_for_recovery falls back to backup_path_for and the legacy regression passes."
+      }
+    ],
+    "untestedRows": [
+      "Post-merge Raspberry Pi Conversation and Roleplay timing are verified after the matching ARM64 image is deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "On exact Pi merge a557f895, the first Roleplay user-message create after checkpoint invalidation took 4735.977 ms.",
+      "sourceType": "measured",
+      "evidence": "DE_KOI_PERFORMANCE_DIAGNOSTICS storage.operation span."
+    },
+    {
+      "description": "The filesystem trace showed messages.json.bak and message-swipes.json.bak being copied for about five seconds immediately before the first message append.",
+      "sourceType": "measured",
+      "evidence": "Pi inotify trace from 2026-07-29 00:04:02Z through 00:04:07Z."
+    },
+    {
+      "description": "The next assistant message create took 42.814 ms after the checkpoint already existed.",
+      "sourceType": "measured",
+      "evidence": "DE_KOI_PERFORMANCE_DIAGNOSTICS storage.operation span."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or cleanup is required. Dedicated checkpoint snapshots are storage-managed recovery files.",
+      "source": "Legacy layout: messages.json.bak and message-swipes.json.bak with version 1 pending entries",
+      "destination": "Current layout: dedicated append-checkpoint backups with version 2 entries; migration is automatic",
+      "files": [
+        "collections/messages.append-checkpoint.bak",
+        "collections/message-swipes.append-checkpoint.bak",
+        "collections/.collection-append-journal.jsonl"
+      ],
+      "action": "Leave these files in place."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi timing and primary-file identity",
+      "blockingCoreClaim": false,
+      "reason": "The checkpoint contract is deterministic locally; target-device timing requires the merged ARM64 image."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Atomic tracked replacement",
+      "Single tracked replacement",
+      "Dedicated checkpoint backups",
+      "Legacy pending checkpoint backup fallback"
+    ],
+    "negativeRowsTested": [
+      "Normal .bak previous-version semantics remain intact",
+      "Checkpoint backup identities do not change on the next append",
+      "Pending checkpoint corruption remains fail-closed"
+    ],
+    "afterEvidence": [
+      "cargo test -p marinara-storage (148 passed)",
+      "cargo check --manifest-path src-tauri/Cargo.toml (passed)",
+      "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings (passed)",
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib (1373 passed; three unrelated parallel-only sprite tests failed, then all three passed exact isolated reruns)",
+      "pnpm check:architecture (passed)",
+      "pnpm check (passed with the repository's non-blocking knip report)",
+      "git diff --check (passed)"
+    ],
+    "baselineCommand": "cargo test -p marinara-storage",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1182",
+    "evidencePublished": true,
+    "checks": "Focused red-green proof, storage suite, Rust check and clippy, architecture check, pnpm check, diff check, and exact isolated reruns for three unrelated parallel-only full-suite failures passed. GitHub validation is pending.",
+    "automatedReview": "Local pre-PR Bunny review found and repaired one journal-version migration edge; the post-repair pass has no blocking findings. Hosted exact-head Bunny review is pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
