@@ -550,6 +550,7 @@ export function ConversationView({
   const [mobileWorldInfoOpen, setMobileWorldInfoOpen] = useState(false);
   const [toolsSheetOpen, setToolsSheetOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [activeActionMessageId, setActiveActionMessageId] = useState<string | null>(null);
   const sheetContentRef = useRef<HTMLDivElement>(null);
   const toolsSheetRef = useRef<HTMLDivElement>(null);
   const moreSheetRef = useRef<HTMLDivElement>(null);
@@ -867,7 +868,20 @@ export function ConversationView({
   useEffect(() => {
     setTranscriptWindowStart(null);
     pendingLoadMoreRevealRef.current = null;
+    setActiveActionMessageId(null);
   }, [chatId]);
+
+  useEffect(() => {
+    if (!activeActionMessageId) return;
+    const dismissInactiveMessageActions = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const messageElement = target?.closest<HTMLElement>("[data-message-id]");
+      if (messageElement?.dataset.messageId === activeActionMessageId) return;
+      setActiveActionMessageId(null);
+    };
+    document.addEventListener("pointerdown", dismissInactiveMessageActions);
+    return () => document.removeEventListener("pointerdown", dismissInactiveMessageActions);
+  }, [activeActionMessageId]);
 
   useEffect(() => {
     setRightSlot(
@@ -1591,6 +1605,8 @@ export function ConversationView({
                         chatCharacterIds={chatCharIds}
                         messageIndex={item.index + 1}
                         messageOrderIndex={item.index}
+                        actionsActive={activeActionMessageId === msg.id}
+                        onActiveActionMessageChange={setActiveActionMessageId}
                         multiSelectMode={multiSelectMode}
                         isSelected={selectedMessageIds?.has(msg.id)}
                         onToggleSelect={onToggleSelectMessage}
