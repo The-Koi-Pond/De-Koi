@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type { LlmGateway } from "../capabilities/llm";
 import type {
   MemoryCleanupPreview,
@@ -13,6 +15,7 @@ import {
   prepareMemoryCleanupCandidates,
   validateCleanupProposal,
 } from "../entities/memory-maintenance";
+import { generateStructured } from "./structured-generation";
 
 const SYSTEM_PROMPT = [
   "You propose reversible cleanup for stored De-Koi memories.",
@@ -29,6 +32,8 @@ const SYSTEM_PROMPT = [
   'Proposal shapes: keep_one = {"type":"keep_one","sourceIds":["id-to-remove"],"winnerId":"id-to-retain","reason":"Repeated fact"}; combine = {"type":"combine","sourceIds":["id-a","id-b"],"replacement":{"content":"combined memory","kind":"fact"},"reason":"Overlapping memories"}; conflict = {"type":"conflict","sourceIds":["id-a","id-b"],"reason":"Possible conflict"}.',
   'Return JSON only: {"proposals":[...]}.',
 ].join("\n");
+const RESPONSE_SCHEMA = z.object({ proposals: z.array(z.unknown()) });
+const RESPONSE_SCHEMA_DESCRIPTION = '{"proposals":[cleanup proposal objects]}';
 
 const PROPOSAL_TYPES = new Set<MemoryCleanupProposalType>(["keep_one", "combine", "conflict"]);
 const REASONS = new Set<MemoryCleanupReason>(["Repeated fact", "Overlapping memories", "Possible conflict"]);
@@ -77,14 +82,6 @@ function cleanupGroupPrompt(scope: MemoryCleanupScope, sources: MemoryCleanupSou
       }),
     ),
   });
-}
-
-function parseJsonObject(raw: string): Record<string, unknown> {
-  const trimmed = raw.trim();
-  const fenced = /^```(?:json)?\s*([\s\S]*)\s*```/i.exec(trimmed);
-  const parsed: unknown = JSON.parse(fenced?.[1] ?? trimmed);
-  if (!isRecord(parsed)) throw new Error("Memory cleanup response must be a JSON object.");
-  return parsed;
 }
 
 function chooseExactDuplicateWinner(sources: MemoryCleanupSource[]): MemoryCleanupSource {
@@ -278,8 +275,10 @@ export async function analyzeMemoryCleanup(input: {
       continue;
     }
 
-    const raw = await input.llm.complete(
+    const result = await generateStructured(
+      { llm: input.llm },
       {
+        taskName: "memory cleanup preview",
         connectionId: input.connectionId,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
@@ -296,14 +295,16 @@ export async function analyzeMemoryCleanup(input: {
             reasoning: { exclude: true },
           },
         },
+        schema: RESPONSE_SCHEMA,
+        schemaDescription: RESPONSE_SCHEMA_DESCRIPTION,
+        maxRepairAttempts: 2,
+        failureMessage: "Memory cleanup response was not valid JSON.",
       },
       input.signal,
     );
     throwIfAborted(input.signal);
-    const parsed = parseJsonObject(raw);
-    if (!Array.isArray(parsed.proposals)) {
-      throw new Error("Memory cleanup response must contain a proposals array.");
-    }
+    if (!result.ok) throw new Error(result.failure.message);
+    const parsed = result.data;
     modelProposalCount += parsed.proposals.length;
     const groupIds = new Set(group.sourceIds);
     for (const [index, rawProposal] of parsed.proposals.entries()) {
