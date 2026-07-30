@@ -6,6 +6,8 @@ import type {
 } from "../contracts/types/memory-maintenance";
 
 const MEMORY_CLEANUP_MAX_GROUP_RECORDS = 8;
+const MEMORY_CLEANUP_MAX_VALUE_GROUP_RECORDS = 32;
+const MEMORY_CLEANUP_MAX_CANDIDATE_GROUPS = 12;
 const MEMORY_CLEANUP_MAX_GROUP_CHARS = 12_000;
 const MEMORY_CLEANUP_MAX_NEIGHBORS = 4;
 
@@ -307,7 +309,7 @@ function buildValueGroups(eligible: MemoryCleanupSource[]): MemoryCleanupValueGr
   for (const source of ordered) {
     if (
       sourceIds.length > 0 &&
-      (sourceIds.length >= MEMORY_CLEANUP_MAX_GROUP_RECORDS ||
+      (sourceIds.length >= MEMORY_CLEANUP_MAX_VALUE_GROUP_RECORDS ||
         characters + source.content.length > MEMORY_CLEANUP_MAX_GROUP_CHARS)
     ) {
       flush();
@@ -321,11 +323,12 @@ function buildValueGroups(eligible: MemoryCleanupSource[]): MemoryCleanupValueGr
 
 export function prepareMemoryCleanupCandidates(sources: MemoryCleanupSource[]): PreparedMemoryCleanupCandidates {
   const eligible = sources.filter(isMemoryCleanupEligible);
+  const candidateGroups = buildBoundedCandidateGroups(eligible);
   return {
     eligible,
-    groups: buildBoundedCandidateGroups(eligible),
+    groups: candidateGroups.slice(0, MEMORY_CLEANUP_MAX_CANDIDATE_GROUPS),
     valueGroups: buildValueGroups(eligible),
-    deferredCandidateCount: 0,
+    deferredCandidateCount: Math.max(0, candidateGroups.length - MEMORY_CLEANUP_MAX_CANDIDATE_GROUPS),
   };
 }
 
