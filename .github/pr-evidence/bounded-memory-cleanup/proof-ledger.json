@@ -5,7 +5,7 @@
     "title": "Bound memory cleanup analysis and report real progress",
     "source": "Direct user report reproduced against Harlequin on the Raspberry Pi",
     "classification": "memory cleanup provider-call scaling",
-    "status": "ready_for_pr"
+    "status": "waiting_on_ci"
   },
   "coreClaim": "Tidy Memories still reviews every eligible memory for low-value junk, while one analysis performs at most twelve model-assisted consolidation calls and reports completed work to the user.",
   "rootCause": "Value review used the consolidation batch size and consolidation candidate generation had no per-analysis budget, so Harlequin's 94 eligible memories expanded into an upper bound of 181 sequential provider calls.",
@@ -174,8 +174,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1194,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1194",
     "headRefName": "fix/memory-cleanup-bounded-analysis",
     "baseRefName": "main",
     "healthStatus": "pending",
