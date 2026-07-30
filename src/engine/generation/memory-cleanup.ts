@@ -365,12 +365,18 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
     : new DOMException("Memory cleanup analysis was cancelled.", "AbortError");
 }
 
+export interface MemoryCleanupAnalysisProgress {
+  completedGroups: number;
+  totalGroups: number;
+}
+
 export async function analyzeMemoryCleanup(input: {
   scope: MemoryCleanupScope;
   sources: MemoryCleanupSource[];
   connectionId: string;
   llm: LlmGateway;
   signal?: AbortSignal;
+  onProgress?: (progress: MemoryCleanupAnalysisProgress) => void;
 }): Promise<MemoryCleanupPreview> {
   throwIfAborted(input.signal);
   const scopedSources = input.sources.filter((source) => scopeKey(source.scope) === scopeKey(input.scope));
@@ -378,8 +384,14 @@ export async function analyzeMemoryCleanup(input: {
   const prepared = prepareMemoryCleanupCandidates(scopedSources);
   const rankedProposals = deterministicDuplicateProposals(scopedSources, sourcesById);
   const exactClaimedIds = new Set(rankedProposals.flatMap((candidate) => referencedIds(candidate.proposal)));
+  const consolidationGroups = prepared.groups.filter(
+    (group) => !group.sourceIds.every((id) => exactClaimedIds.has(id)),
+  );
+  const totalGroups = prepared.valueGroups.length + consolidationGroups.length;
+  let completedGroups = 0;
   let modelProposalCount = 0;
   let invalidModelProposalCount = 0;
+  input.onProgress?.({ completedGroups, totalGroups });
 
   for (const group of prepared.valueGroups) {
     throwIfAborted(input.signal);
@@ -415,6 +427,8 @@ export async function analyzeMemoryCleanup(input: {
     );
     throwIfAborted(input.signal);
     if (!result.ok) throw new Error(result.failure.message);
+    completedGroups += 1;
+    input.onProgress?.({ completedGroups, totalGroups });
     const parsed = result.data;
     modelProposalCount += parsed.proposals.length;
     const groupIds = new Set(group.sourceIds);
@@ -437,9 +451,8 @@ export async function analyzeMemoryCleanup(input: {
     }
   }
 
-  for (const group of prepared.groups) {
+  for (const group of consolidationGroups) {
     throwIfAborted(input.signal);
-    if (group.sourceIds.every((id) => exactClaimedIds.has(id))) continue;
     const groupSources = group.sourceIds
       .map((id) => sourcesById.get(id))
       .filter((source): source is MemoryCleanupSource => Boolean(source));
@@ -473,6 +486,8 @@ export async function analyzeMemoryCleanup(input: {
     );
     throwIfAborted(input.signal);
     if (!result.ok) throw new Error(result.failure.message);
+    completedGroups += 1;
+    input.onProgress?.({ completedGroups, totalGroups });
     const parsed = result.data;
     modelProposalCount += parsed.proposals.length;
     const groupIds = new Set(group.sourceIds);

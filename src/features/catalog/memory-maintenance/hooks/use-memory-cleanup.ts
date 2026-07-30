@@ -7,7 +7,10 @@ import type {
   MemoryCleanupSource,
 } from "../../../../engine/contracts/types/memory-maintenance";
 import { MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS } from "../../../../engine/contracts/types/memory-maintenance";
-import { analyzeMemoryCleanup } from "../../../../engine/generation/memory-cleanup";
+import {
+  analyzeMemoryCleanup,
+  type MemoryCleanupAnalysisProgress,
+} from "../../../../engine/generation/memory-cleanup";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { memoryMaintenanceApi } from "../../../../shared/api/memory-maintenance-api";
 
@@ -40,6 +43,7 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
   const [replacementText, setReplacementText] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState<MemoryCleanupAnalysisProgress | null>(null);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -50,6 +54,7 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
     setReplacementText({});
     setError(null);
     setLastBatchId(null);
+    setAnalysisProgress(null);
   }, []);
 
   useEffect(() => {
@@ -71,6 +76,7 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
     setPhase("analyzing");
     setError(null);
     setLastBatchId(null);
+    setAnalysisProgress(null);
     try {
       const connectionId = (await resolveConnectionId()).trim();
       if (!connectionId) throw new Error("AI cleanup needs a configured text connection.");
@@ -80,8 +86,12 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
         connectionId,
         llm: llmApi,
         signal: abort.signal,
+        onProgress: (progress) => {
+          if (keyRef.current === analysisKey && !abort.signal.aborted) setAnalysisProgress(progress);
+        },
       });
       if (keyRef.current !== analysisKey || abort.signal.aborted) return;
+      setAnalysisProgress(null);
       setPreview(nextPreview);
       setSelected(
         Object.fromEntries(
@@ -101,6 +111,7 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
       setPhase("preview");
     } catch (analysisError) {
       if (abort.signal.aborted || keyRef.current !== analysisKey) return;
+      setAnalysisProgress(null);
       setError(errorMessage(analysisError, "Memory cleanup analysis failed."));
       setPhase("error");
       throw analysisError;
@@ -202,6 +213,7 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
   const cancelAnalysis = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
+    setAnalysisProgress(null);
     setPhase(preview ? "preview" : "idle");
   }, [preview]);
 
@@ -212,6 +224,7 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
     replacementText,
     error,
     lastBatchId,
+    analysisProgress,
     analyze,
     apply,
     undo,
