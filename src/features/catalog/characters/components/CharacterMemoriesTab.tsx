@@ -1,24 +1,9 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import {
-  Brain,
-  Check,
-  Copy,
-  Download,
-  Pencil,
-  Pin,
-  Plus,
-  RotateCcw,
-  Search,
-  Trash2,
-  Upload,
-  Wand2,
-  X,
-} from "lucide-react";
+import { Brain, Check, Copy, Download, Pencil, Pin, Plus, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type { CharacterMemoryPersistence } from "../../../../engine/contracts/types/character";
 import type { CanonicalMemoryRecord, MemoryStatus } from "../../../../engine/contracts/types/memory";
-import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { triggerDownload } from "../../../../shared/api/download-payload";
 import { showAlertDialog, showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
@@ -32,7 +17,7 @@ import {
   useInvalidateCharacterMemoryScope,
   useUpdateCharacterMemory,
 } from "../hooks/use-character-memories";
-import { canonicalMemoryCleanupSource, MemoryCleanupReviewModal } from "../../memory-maintenance";
+import { MemoryMaintenanceRecovery } from "../../memory-maintenance";
 import {
   characterMemoryStatusLabel,
   createCharacterMemoryExport,
@@ -91,19 +76,21 @@ export function CharacterMemoriesTab({
   const [newMemoryOpen, setNewMemoryOpen] = useState(false);
   const [newMemoryContent, setNewMemoryContent] = useState("");
   const [newMemoryNeedsIndex, setNewMemoryNeedsIndex] = useState(false);
-  const [cleanupOpen, setCleanupOpen] = useState(false);
   const newMemoryComposerId = useId();
   const newMemoryHelpId = `${newMemoryComposerId}-help`;
   const [copyOpen, setCopyOpen] = useState(false);
   const [sourceChatId, setSourceChatId] = useState<string | null>(null);
   const [selectedChatMemoryIds, setSelectedChatMemoryIds] = useState<Set<string>>(new Set());
   const sourceRows = useChatMemoryRows(copyOpen ? sourceChatId : null);
+  const maintenanceTargets = useMemo(
+    () => [{ store: "canonical" as const, scope: { kind: "character" as const, id: characterId } }],
+    [characterId],
+  );
 
   useEffect(() => {
     setNewMemoryOpen(false);
     setNewMemoryContent("");
     setNewMemoryNeedsIndex(false);
-    setCleanupOpen(false);
   }, [characterId]);
 
   const memories = useMemo(() => {
@@ -312,15 +299,6 @@ export function CharacterMemoriesTab({
           <option value="deleted">Deleted</option>
           <option value="all">All</option>
         </select>
-        <button
-          type="button"
-          onClick={() => setCleanupOpen(true)}
-          disabled={(memoriesQuery.data ?? []).length === 0}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--primary)]/35 px-3 py-2 text-sm font-semibold hover:bg-[var(--primary)]/10 disabled:pointer-events-none disabled:opacity-40"
-        >
-          <Wand2 size="0.9rem" aria-hidden="true" />
-          Tidy memories
-        </button>
         <button
           type="button"
           onClick={() => setNewMemoryOpen((open) => !open)}
@@ -602,14 +580,7 @@ export function CharacterMemoriesTab({
           </div>
         )}
       </div>
-      <MemoryCleanupReviewModal
-        open={cleanupOpen}
-        scope={{ kind: "character", id: characterId }}
-        sources={(memoriesQuery.data ?? []).map(canonicalMemoryCleanupSource)}
-        resolveConnectionId={() => connectionCatalogApi.resolveDefaultTextConnectionId()}
-        onClose={() => setCleanupOpen(false)}
-        onChanged={invalidateCharacterMemories}
-      />
+      <MemoryMaintenanceRecovery targets={maintenanceTargets} onChanged={invalidateCharacterMemories} />
     </section>
   );
 }

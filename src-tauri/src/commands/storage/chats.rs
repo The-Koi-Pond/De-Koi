@@ -25,12 +25,20 @@ const CROSS_CHAT_MAX_SECTIONS: usize = 6;
 const CROSS_CHAT_MAX_MESSAGES_PER_CHAT: usize = 8;
 
 fn chat_string<'a>(value: &'a Value, key: &str) -> &'a str {
-    value.get(key).and_then(Value::as_str).map(str::trim).unwrap_or_default()
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default()
 }
 
 fn conversation_chat(chat: &Value) -> bool {
     let mode = chat_string(chat, "mode");
-    let mode = if mode.is_empty() { chat_string(chat, "chatMode") } else { mode };
+    let mode = if mode.is_empty() {
+        chat_string(chat, "chatMode")
+    } else {
+        mode
+    };
     mode.is_empty() || mode == "conversation"
 }
 
@@ -72,10 +80,16 @@ fn compare_chat_recency(left: &Value, right: &Value) -> std::cmp::Ordering {
 }
 
 fn compare_message_recency(left: &Value, right: &Value) -> std::cmp::Ordering {
-    left.get("createdAt").and_then(Value::as_str).unwrap_or("")
+    left.get("createdAt")
+        .and_then(Value::as_str)
+        .unwrap_or("")
         .cmp(right.get("createdAt").and_then(Value::as_str).unwrap_or(""))
-        .then_with(|| left.get("id").and_then(Value::as_str).unwrap_or("")
-            .cmp(right.get("id").and_then(Value::as_str).unwrap_or("")))
+        .then_with(|| {
+            left.get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .cmp(right.get("id").and_then(Value::as_str).unwrap_or(""))
+        })
 }
 
 /// Retains the most recent rows without ever temporarily growing past `limit`.
@@ -109,9 +123,12 @@ fn bounded_positive(body: &Map<String, Value>, key: &str, maximum: usize) -> App
     let value = body
         .get(key)
         .and_then(Value::as_u64)
-        .ok_or_else(|| AppError::invalid_input(format!("{key} must be a positive integer")))? as usize;
+        .ok_or_else(|| AppError::invalid_input(format!("{key} must be a positive integer")))?
+        as usize;
     if value == 0 || value > maximum {
-        return Err(AppError::invalid_input(format!("{key} must be between 1 and {maximum}")));
+        return Err(AppError::invalid_input(format!(
+            "{key} must be between 1 and {maximum}"
+        )));
     }
     Ok(value)
 }
@@ -145,7 +162,8 @@ fn sibling_conversation_context_with_stats(
     }
     let candidate_limit = bounded_positive(&body, "candidateLimit", CROSS_CHAT_MAX_CANDIDATES)?;
     let max_chats = bounded_positive(&body, "maxChats", CROSS_CHAT_MAX_SECTIONS)?;
-    let messages_per_chat = bounded_positive(&body, "messagesPerChat", CROSS_CHAT_MAX_MESSAGES_PER_CHAT)?;
+    let messages_per_chat =
+        bounded_positive(&body, "messagesPerChat", CROSS_CHAT_MAX_MESSAGES_PER_CHAT)?;
     let mut scan = SiblingContextScanStats::default();
     let mut candidates = Vec::with_capacity(candidate_limit);
     // The JSON collection has no character/recency index, so an uncached read must
@@ -155,11 +173,18 @@ fn sibling_conversation_context_with_stats(
         scan.chat_rows_examined += 1;
         if chat_string(chat, "id") == chat_id
             || !conversation_chat(chat)
-            || !chat_character_ids(chat).iter().any(|id| character_ids.contains(id))
+            || !chat_character_ids(chat)
+                .iter()
+                .any(|id| character_ids.contains(id))
         {
             return Ok(());
         }
-        retain_most_recent(&mut candidates, chat.clone(), candidate_limit, compare_chat_recency);
+        retain_most_recent(
+            &mut candidates,
+            chat.clone(),
+            candidate_limit,
+            compare_chat_recency,
+        );
         scan.retained_candidate_peak = scan.retained_candidate_peak.max(candidates.len());
         Ok(())
     })?;
@@ -170,21 +195,30 @@ fn sibling_conversation_context_with_stats(
         .filter(|id| !id.is_empty())
         .collect::<HashSet<_>>();
     let mut messages_by_chat = HashMap::<String, Vec<Value>>::new();
-    state.storage.visit_collection_rows("messages", &mut |message| {
-        scan.message_rows_examined += 1;
-        let Some(message_chat_id) = message.get("chatId").and_then(Value::as_str) else {
-            return Ok(());
-        };
-        if !candidate_ids.contains(message_chat_id) {
-            return Ok(());
-        }
-        let rows = messages_by_chat.entry(message_chat_id.to_string()).or_default();
-        retain_most_recent(rows, message.clone(), messages_per_chat, compare_message_recency);
-        scan.retained_message_peak = scan.retained_message_peak.max(
-            messages_by_chat.values().map(Vec::len).sum(),
-        );
-        Ok(())
-    })?;
+    state
+        .storage
+        .visit_collection_rows("messages", &mut |message| {
+            scan.message_rows_examined += 1;
+            let Some(message_chat_id) = message.get("chatId").and_then(Value::as_str) else {
+                return Ok(());
+            };
+            if !candidate_ids.contains(message_chat_id) {
+                return Ok(());
+            }
+            let rows = messages_by_chat
+                .entry(message_chat_id.to_string())
+                .or_default();
+            retain_most_recent(
+                rows,
+                message.clone(),
+                messages_per_chat,
+                compare_message_recency,
+            );
+            scan.retained_message_peak = scan
+                .retained_message_peak
+                .max(messages_by_chat.values().map(Vec::len).sum());
+            Ok(())
+        })?;
     let mut messages = messages_by_chat.into_values().flatten().collect::<Vec<_>>();
     message_swipe_storage::materialize_messages(state, &mut messages, true)?;
     let mut messages_by_chat = HashMap::<String, Vec<Value>>::new();
@@ -753,14 +787,11 @@ fn message_patch_requires_swipe_transaction(patch: &Map<String, Value>) -> bool 
         "swipeCount",
         "swipePreviews",
     ]
-        .into_iter()
-        .any(|field| patch.contains_key(field))
+    .into_iter()
+    .any(|field| patch.contains_key(field))
 }
 
-fn message_extra_patch_changes_active_swipe(
-    message: &Value,
-    patch: &Map<String, Value>,
-) -> bool {
+fn message_extra_patch_changes_active_swipe(message: &Value, patch: &Map<String, Value>) -> bool {
     let patch_extra = patch
         .get("extra")
         .and_then(|extra| json_object_value(Some(extra)));
@@ -770,8 +801,7 @@ fn message_extra_patch_changes_active_swipe(
     {
         return true;
     }
-    let Some(Value::Object(patched_extra)) = swipe_scoped_extra(patch_extra.as_ref())
-    else {
+    let Some(Value::Object(patched_extra)) = swipe_scoped_extra(patch_extra.as_ref()) else {
         return false;
     };
     let active_index = message
@@ -1569,8 +1599,7 @@ pub(crate) fn delete_chat_group_with_options(
     deleted_chat_ids.dedup();
     let mut result = json!({ "deleted": deleted, "deletedChatIds": deleted_chat_ids });
     if delete_memories {
-        result["memoryCleanup"] =
-            cleanup_deleted_chat_memories(state, &deleted_chat_ids);
+        result["memoryCleanup"] = cleanup_deleted_chat_memories(state, &deleted_chat_ids);
     }
     Ok(result)
 }
@@ -3247,8 +3276,7 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            delete_chat_group_with_options(&state, "group-1", true).unwrap();
+        let result = delete_chat_group_with_options(&state, "group-1", true).unwrap();
 
         assert_eq!(result["memoryCleanup"]["completed"], true);
         assert_eq!(result["memoryCleanup"]["deleted"], 1);
@@ -5549,11 +5577,42 @@ mod tests {
     fn sibling_conversation_context_is_bounded_and_excludes_unrelated_modes() {
         let state = test_state("sibling-conversation-context");
         for (id, mode, character_ids, updated_at) in [
-            ("chat-current", "conversation", json!(["mira"]), "2026-07-21T09:00:00Z"),
-            ("chat-recent", "conversation", json!(["mira"]), "2026-07-21T12:00:00Z"),
-            ("chat-old", "conversation", json!(["mira"]), "2026-07-21T10:00:00Z"),
-            ("chat-roleplay", "roleplay", json!(["mira"]), "2026-07-21T13:00:00Z"),
-            ("chat-other", "conversation", json!(["other"]), "2026-07-21T14:00:00Z"),
+            (
+                "chat-current",
+                "conversation",
+                json!(["mira"]),
+                "2026-07-21T09:00:00Z",
+            ),
+            (
+                "chat-recent",
+                "conversation",
+                json!(["mira"]),
+                "2026-07-21T12:00:00Z",
+            ),
+            (
+                "chat-old",
+                "conversation",
+                json!(["mira"]),
+                "2026-07-21T10:00:00Z",
+            ),
+            (
+                "chat-empty",
+                "conversation",
+                json!(["mira"]),
+                "2026-07-21T15:00:00Z",
+            ),
+            (
+                "chat-roleplay",
+                "roleplay",
+                json!(["mira"]),
+                "2026-07-21T13:00:00Z",
+            ),
+            (
+                "chat-other",
+                "conversation",
+                json!(["other"]),
+                "2026-07-21T14:00:00Z",
+            ),
         ] {
             state
                 .storage
@@ -5564,9 +5623,24 @@ mod tests {
                 .expect("chat should seed");
         }
         for (id, chat_id, content, created_at) in [
-            ("recent-old", "chat-recent", "old context", "2026-07-21T10:00:00Z"),
-            ("recent-new", "chat-recent", "new context", "2026-07-21T11:00:00Z"),
-            ("old-only", "chat-old", "old sibling context", "2026-07-21T09:00:00Z"),
+            (
+                "recent-old",
+                "chat-recent",
+                "old context",
+                "2026-07-21T10:00:00Z",
+            ),
+            (
+                "recent-new",
+                "chat-recent",
+                "new context",
+                "2026-07-21T11:00:00Z",
+            ),
+            (
+                "old-only",
+                "chat-old",
+                "old sibling context",
+                "2026-07-21T09:00:00Z",
+            ),
         ] {
             state
                 .storage
@@ -5602,9 +5676,15 @@ mod tests {
     #[test]
     fn sibling_conversation_context_treats_legacy_mode_less_chats_as_conversations() {
         let state = test_state("sibling-conversation-legacy-mode");
-        state.storage.create("chats", json!({
-            "id": "chat-current", "mode": "conversation", "characterIds": ["mira"]
-        })).unwrap();
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-current", "mode": "conversation", "characterIds": ["mira"]
+                }),
+            )
+            .unwrap();
         state.storage.create("chats", json!({
             "id": "chat-legacy", "characterIds": ["mira"], "updatedAt": "2026-07-21T12:00:00Z"
         })).unwrap();
@@ -5622,9 +5702,15 @@ mod tests {
     #[test]
     fn sibling_conversation_context_streams_with_bounded_retention() {
         let state = test_state("sibling-conversation-streamed-bounds");
-        state.storage.create("chats", json!({
-            "id": "chat-current", "mode": "conversation", "characterIds": ["mira"]
-        })).unwrap();
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-current", "mode": "conversation", "characterIds": ["mira"]
+                }),
+            )
+            .unwrap();
         for index in 0..12 {
             state.storage.create("chats", json!({
                 "id": format!("chat-match-{index}"), "mode": "conversation", "characterIds": ["mira"], "updatedAt": format!("2026-07-21T12:{index:02}:00Z")
@@ -5658,7 +5744,9 @@ mod tests {
         assert!(scan.retained_message_peak <= 4);
         assert_eq!(result.as_array().unwrap().len(), 2);
         assert!(result.as_array().unwrap().iter().all(|row| {
-            row["messages"].as_array().is_some_and(|messages| messages.len() <= 2)
+            row["messages"]
+                .as_array()
+                .is_some_and(|messages| messages.len() <= 2)
         }));
     }
 

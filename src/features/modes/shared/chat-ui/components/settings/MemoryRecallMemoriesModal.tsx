@@ -12,7 +12,6 @@ import {
   Search,
   Trash2,
   Upload,
-  Wand2,
   Wrench,
   X,
 } from "lucide-react";
@@ -23,7 +22,6 @@ import { showConfirmDialog } from "../../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../../shared/lib/utils";
 import type { ChatMemoryChunk, ChatMemoryKind } from "../../../../../../engine/contracts/types/chat";
 import type { CanonicalMemoryRecord } from "../../../../../../engine/contracts/types/memory";
-import { resolveGenerationConnection } from "../../../../../../engine/generation/context";
 import {
   useChatMemories,
   useClearChatMemories,
@@ -38,8 +36,7 @@ import {
   useSoftDeleteChatMemory,
   useUpdateChatMemory,
 } from "../../../../../catalog/chats/index";
-import { chatMemoryCleanupInput, MemoryCleanupReviewModal } from "../../../../../catalog/memory-maintenance";
-import { storageApi } from "../../../../../../shared/api/storage-api";
+import { MemoryMaintenanceRecovery } from "../../../../../catalog/memory-maintenance";
 import { useUIStore } from "../../../../../../shared/stores/ui.store";
 import { MEMORY_RECALL_CONSOLE_DESCRIPTION } from "../../lib/memory-recall-copy";
 
@@ -308,8 +305,13 @@ export function MemoryRecallMemoriesModal({
   const [newMemoryOpen, setNewMemoryOpen] = useState(false);
   const [newMemoryContent, setNewMemoryContent] = useState("");
   const [maintenanceMenuOpen, setMaintenanceMenuOpen] = useState(false);
-  const [cleanupOpen, setCleanupOpen] = useState(false);
-  const cleanupInput = useMemo(() => chatMemoryCleanupInput(localMemories, chatId), [chatId, localMemories]);
+  const maintenanceTargets = useMemo(
+    () => [
+      { store: "chat" as const, scope: { kind: "chat" as const, id: chatId } },
+      { store: "chat" as const, scope: { kind: "scene" as const, id: chatId } },
+    ],
+    [chatId],
+  );
 
   const filtered = useMemo(
     () => filterMemories(memories, { query, status, type, scope }),
@@ -345,19 +347,7 @@ export function MemoryRecallMemoriesModal({
     setNewMemoryOpen(false);
     setNewMemoryContent("");
     setMaintenanceMenuOpen(false);
-    setCleanupOpen(false);
   }, [chatId]);
-
-  const resolveCleanupConnectionId = async () => {
-    const chat = await storageApi.get<Record<string, unknown>>("chats", chatId, {
-      fields: ["id", "connectionId"],
-    });
-    if (!chat) throw new Error("Chat was not found.");
-    const connection = await resolveGenerationConnection(storageApi, chat, {});
-    const connectionId = typeof connection.id === "string" ? connection.id.trim() : "";
-    if (!connectionId) throw new Error("AI cleanup needs a configured text connection.");
-    return connectionId;
-  };
 
   const handleExport = async () => {
     if (localMemories.length === 0) {
@@ -603,16 +593,6 @@ export function MemoryRecallMemoriesModal({
               </button>
               <button
                 type="button"
-                onClick={() => setCleanupOpen(true)}
-                disabled={localMemories.length === 0}
-                className="ml-1 inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--primary)]/35 px-2.5 text-[0.6875rem] font-semibold text-[var(--foreground)] transition hover:bg-[var(--primary)]/10 disabled:pointer-events-none disabled:opacity-45"
-                title={localMemories.length === 0 ? "No local memories to tidy yet" : "Review cleanup suggestions"}
-              >
-                <Wand2 size="0.8rem" aria-hidden="true" />
-                Tidy memories
-              </button>
-              <button
-                type="button"
                 onClick={() => setNewMemoryOpen((value) => !value)}
                 disabled={createMemory.isPending}
                 aria-expanded={newMemoryOpen}
@@ -628,7 +608,7 @@ export function MemoryRecallMemoriesModal({
               className="rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[0.6875rem] text-amber-800 dark:text-amber-200"
               role="status"
             >
-              No local memories yet. Add or import one to enable export, clear, and cleanup.
+              No local memories yet. Add or import one to enable export and clear.
             </p>
           )}
 
@@ -1044,13 +1024,11 @@ export function MemoryRecallMemoriesModal({
           </div>
         </div>
       </Modal>
-      <MemoryCleanupReviewModal
-        open={cleanupOpen}
-        scope={cleanupInput.scope}
-        sources={cleanupInput.sources}
-        resolveConnectionId={resolveCleanupConnectionId}
-        onClose={() => setCleanupOpen(false)}
-        onChanged={() => memoriesQuery.refetch()}
+      <MemoryMaintenanceRecovery
+        targets={maintenanceTargets}
+        onChanged={async () => {
+          await memoriesQuery.refetch();
+        }}
       />
     </>
   );

@@ -27,6 +27,30 @@ describe("chatCommandApi", () => {
     });
   });
 
+  it("routes automatic memory preview and commit through separate commands", async () => {
+    const { chatCommandApi } = await import("./chat-command-api");
+    const commit = {
+      version: 1 as const,
+      chatId: "chat-1",
+      sourceMessageIds: ["message-1", "message-2"],
+      fingerprint: "fingerprint-1",
+    };
+
+    await chatCommandApi.memoryCapturePreview("chat-1", commit.sourceMessageIds);
+    await chatCommandApi.memoryCaptureCommit(commit);
+
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(1, "chat_memory_capture_preview", {
+      body: {
+        version: 1,
+        chatId: "chat-1",
+        sourceMessageIds: ["message-1", "message-2"],
+      },
+    });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(2, "chat_memory_capture_commit", {
+      body: commit,
+    });
+  });
+
   it("forwards the explicit memory policy for group deletion", async () => {
     const { chatCommandApi } = await import("./chat-command-api");
 

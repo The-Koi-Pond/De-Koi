@@ -548,6 +548,8 @@ export const storageApi: StorageGateway = {
     chatCommandApi.memoriesList<T[]>(chatId, options),
   refreshChatMemories: (chatId, options?: RefreshChatMemoriesOptions) =>
     invokeTauri("chat_memories_refresh", { chatId, sourceMessageIds: options?.sourceMessageIds }),
+  previewChatMemoryCapture: (chatId, sourceMessageIds) => chatCommandApi.memoryCapturePreview(chatId, sourceMessageIds),
+  commitChatMemoryCapture: (body) => chatCommandApi.memoryCaptureCommit(body),
   getWorldState: async (chatId) => {
     const chat = await storageApi.get<Record<string, unknown>>("chats", chatId);
     return (chat?.gameState as never) ?? null;

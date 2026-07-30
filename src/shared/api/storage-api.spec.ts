@@ -70,6 +70,44 @@ describe("storageApi chat message writes", () => {
   });
 });
 
+describe("storageApi automatic memory capture", () => {
+  it("exposes the two-phase preview and commit contract", async () => {
+    invokeTauriMock
+      .mockResolvedValueOnce({
+        version: 1,
+        chatId: "chat-1",
+        sourceMessageIds: ["message-1", "message-2"],
+        fingerprint: "fingerprint-1",
+        candidate: { id: "candidate-1" },
+      })
+      .mockResolvedValueOnce({
+        operation: "created",
+        memory: { id: "candidate-1" },
+      });
+    const { storageApi } = await import("./storage-api");
+    const commit = {
+      version: 1 as const,
+      chatId: "chat-1",
+      sourceMessageIds: ["message-1", "message-2"],
+      fingerprint: "fingerprint-1",
+    };
+
+    await storageApi.previewChatMemoryCapture?.("chat-1", commit.sourceMessageIds);
+    await storageApi.commitChatMemoryCapture?.(commit);
+
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(1, "chat_memory_capture_preview", {
+      body: {
+        version: 1,
+        chatId: "chat-1",
+        sourceMessageIds: ["message-1", "message-2"],
+      },
+    });
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(2, "chat_memory_capture_commit", {
+      body: commit,
+    });
+  });
+});
+
 describe("storageApi remote request deadlines", () => {
   it("opts durable mutations out while leaving reads on the default deadline", async () => {
     invokeTauriMock.mockResolvedValue({});

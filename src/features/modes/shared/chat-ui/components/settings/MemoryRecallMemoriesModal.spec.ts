@@ -11,7 +11,7 @@ import {
   memoryStatus,
   memoryType,
 } from "./MemoryRecallMemoriesModal";
-import { chatMemoryCleanupSource } from "../../../../../catalog/memory-maintenance";
+import { chatMemoryCleanupSource } from "../../../../../../engine/entities/memory-maintenance-sources";
 
 function memory(overrides: Partial<ChatMemoryChunk>): ChatMemoryChunk {
   return {

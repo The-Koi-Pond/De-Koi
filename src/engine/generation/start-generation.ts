@@ -100,10 +100,10 @@ import {
 } from "../shared/attachments/image-attachments";
 import type { GenerationEvent } from "./generation-events";
 import {
-  beginForegroundGeneration,
   enqueueAndScheduleAutomaticMemoryCapture,
   scheduleAutomaticMemoryCaptureQueueProcessing,
 } from "./automatic-memory-capture-queue";
+import { beginForegroundGeneration } from "./background-generation-coordinator";
 import { scheduleSparseCharacterInterpretations } from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
 import {
@@ -2572,7 +2572,13 @@ async function enqueueAutomaticMemoryCaptureSafely(
   savedAssistantMessage: unknown,
   connection: JsonRecord,
 ): Promise<void> {
-  if (!deps.storage.refreshChatMemories || !shouldRefreshMemoryRecall(chat)) return;
+  if (
+    !deps.storage.previewChatMemoryCapture ||
+    !deps.storage.commitChatMemoryCapture ||
+    !shouldRefreshMemoryRecall(chat)
+  ) {
+    return;
+  }
   try {
     await enqueueAndScheduleAutomaticMemoryCapture(deps, {
       chat,

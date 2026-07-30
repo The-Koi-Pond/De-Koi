@@ -154,6 +154,12 @@ const collectionMetadata = {
     notes:
       "Durable automatic memory-capture queue rows keyed by source chat/message evidence. Jobs record source snapshots, retry status, attempts, backoff timestamps, capture version, and terminal stale/completed/failed outcomes.",
   },
+  "memory-maintenance-jobs": {
+    model: "`MemoryMaintenanceJob`",
+    confidence: "Type-backed",
+    notes:
+      "Durable target-scoped automatic memory-hygiene queue and resumable startup sweep rows. Jobs coalesce mutations, bound retries and fixed-point passes, and retain content-free result diagnostics plus the latest undo batch.",
+  },
   "canonical-memories": {
     model: "`CanonicalMemoryRecord`",
     confidence: "Type-backed",

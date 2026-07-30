@@ -1,6 +1,13 @@
 import type { LlmGateway } from "../capabilities/llm";
+import type { ChatMemoryChunk } from "../contracts/types/chat";
 import type { StorageGateway } from "../capabilities/storage";
 import type { CanonicalMemoryInput, CanonicalMemoryRecord, MemoryKind, MemoryScope } from "../contracts/types/memory";
+import {
+  canonicalInputCleanupSource,
+  chatMemoryCleanupSource,
+  cleanupScope,
+} from "../entities/memory-maintenance-sources";
+import { reviewMemoryValues } from "./memory-value-review";
 import { isRecord, parseRecord, readString } from "./runtime-records";
 
 type AutomaticMemoryCandidate = {
@@ -48,6 +55,44 @@ export interface CanonicalConsequenceExtractionResult {
 export interface PersistedCanonicalConsequence {
   operation: "created" | "updated" | "superseded";
   memory: CanonicalMemoryRecord;
+}
+
+export interface AutomaticMemoryValueGateResult {
+  acceptedCanonicalCandidates: CanonicalMemoryInput[];
+  acceptTranscriptCandidate: boolean;
+  rejectedCandidateCount: number;
+}
+
+export async function reviewAutomaticMemoryCandidates(input: {
+  llm: LlmGateway;
+  connectionId: string;
+  jobId: string;
+  scope: MemoryScope;
+  transcriptCandidate: ChatMemoryChunk | null;
+  canonicalCandidates: CanonicalMemoryInput[];
+  signal?: AbortSignal;
+}): Promise<AutomaticMemoryValueGateResult> {
+  const scope = cleanupScope(input.scope);
+  const transcriptSource = input.transcriptCandidate ? chatMemoryCleanupSource(input.transcriptCandidate, scope) : null;
+  const canonicalSources = input.canonicalCandidates.map((candidate, index) =>
+    canonicalInputCleanupSource(`capture-candidate-${input.jobId}-${index}`, { ...candidate, status: "active" }),
+  );
+  const reviewSources = [...(transcriptSource ? [transcriptSource] : []), ...canonicalSources];
+  const review = await reviewMemoryValues({
+    scope,
+    sources: reviewSources,
+    connectionId: input.connectionId,
+    llm: input.llm,
+    signal: input.signal,
+  });
+  const rejectedIds = new Set(review.proposals.flatMap((proposal) => proposal.sourceIds));
+  return {
+    acceptedCanonicalCandidates: input.canonicalCandidates.filter(
+      (_candidate, index) => !rejectedIds.has(`capture-candidate-${input.jobId}-${index}`),
+    ),
+    acceptTranscriptCandidate: input.transcriptCandidate !== null && !rejectedIds.has(input.transcriptCandidate.id),
+    rejectedCandidateCount: rejectedIds.size,
+  };
 }
 
 const CONSEQUENCE_KINDS = new Set<MemoryKind>([
@@ -125,9 +170,7 @@ export function canonicalMemoryEligibleForConsequences(value: unknown): value is
     value.confidence >= 0 &&
     value.confidence <= 1 &&
     Array.isArray(provenance.messageIds) &&
-    provenance.messageIds.every(
-      (messageId) => typeof messageId === "string" && messageId.trim().length > 0,
-    ) &&
+    provenance.messageIds.every((messageId) => typeof messageId === "string" && messageId.trim().length > 0) &&
     Array.isArray(value.tags) &&
     value.tags.every((tag) => typeof tag === "string" && tag.trim().length > 0) &&
     isRecord(value.payload) &&
@@ -186,9 +229,9 @@ export async function persistCanonicalMemoryConsequences(input: {
     const memoryId = `canonical-consequence-${stableHash(semanticIdentity)}`;
     const existing =
       (await input.storage.get<CanonicalMemoryRecord>("canonical-memories", memoryId).catch(() => null)) ??
-      input.eligibleMemories.filter(canonicalMemoryEligibleForConsequences).find(
-        (memory) => readString(parseRecord(memory.payload).semanticIdentity).trim() === semanticIdentity,
-      ) ??
+      input.eligibleMemories
+        .filter(canonicalMemoryEligibleForConsequences)
+        .find((memory) => readString(parseRecord(memory.payload).semanticIdentity).trim() === semanticIdentity) ??
       null;
     const sourceChatIds = Array.from(
       new Set(
@@ -306,10 +349,7 @@ function evidenceTokens(value: string): Set<string> {
   );
 }
 
-function contentSupportedByEvidence(
-  content: string,
-  messages: CanonicalConsequenceSourceMessage[],
-): boolean {
+function contentSupportedByEvidence(content: string, messages: CanonicalConsequenceSourceMessage[]): boolean {
   const contentTokens = evidenceTokens(content);
   const sourceTokens = evidenceTokens(messages.map((message) => message.content).join(" "));
   const overlap = [...contentTokens].filter((token) => sourceTokens.has(token)).length;

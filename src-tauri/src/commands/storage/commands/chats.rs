@@ -109,6 +109,22 @@ pub async fn chat_memories_refresh(
 }
 
 #[tauri::command]
+pub fn chat_memory_capture_preview(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    chat_memory::preview_chat_memory_capture(&state, body)
+}
+
+#[tauri::command]
+pub async fn chat_memory_capture_commit(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    chat_memory::commit_chat_memory_capture(&state, body).await
+}
+
+#[tauri::command]
 pub async fn chat_memories_migrate(
     state: State<'_, AppState>,
     chat_id: String,

@@ -4,6 +4,7 @@ use super::prompts;
 use super::shared::*;
 use super::*;
 use marinara_storage::AtomicCollectionRows;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
 const MEMORY_CHUNK_SIZE: usize = 5;
@@ -950,11 +951,57 @@ pub(crate) fn list_chat_memories_excluding_recent(
     Ok(Value::Array(values))
 }
 
-fn set_chat_memory_values(state: &AppState, chat_id: &str, values: Vec<Value>) -> AppResult<Value> {
+fn set_chat_memory_values_with_trigger(
+    state: &AppState,
+    chat_id: &str,
+    values: Vec<Value>,
+    trigger: super::memory_maintenance::jobs::Trigger,
+) -> AppResult<Value> {
     let values = deduplicate_chat_memory_values(values);
-    state
+    let existing = state
         .storage
-        .patch("chats", chat_id, json!({ "memories": values }))
+        .get("chats", chat_id)?
+        .map(|chat| chat_memory_values_for_mutation(&chat))
+        .transpose()?
+        .unwrap_or_default();
+    let mut scope_kinds = existing
+        .iter()
+        .chain(values.iter())
+        .map(|memory| {
+            if memory.get("scopeType").and_then(Value::as_str) == Some("scene") {
+                "scene"
+            } else {
+                "chat"
+            }
+        })
+        .collect::<HashSet<_>>();
+    if scope_kinds.is_empty() {
+        scope_kinds.insert("chat");
+    }
+    let result = state
+        .storage
+        .patch("chats", chat_id, json!({ "memories": values }))?;
+    for kind in scope_kinds {
+        super::memory_maintenance::jobs::enqueue_memory_maintenance(
+            state,
+            super::memory_maintenance::jobs::target(
+                super::memory_maintenance::contracts::CleanupStore::Chat,
+                kind,
+                chat_id,
+            ),
+            trigger,
+        )?;
+    }
+    Ok(result)
+}
+
+fn set_chat_memory_values(state: &AppState, chat_id: &str, values: Vec<Value>) -> AppResult<Value> {
+    set_chat_memory_values_with_trigger(
+        state,
+        chat_id,
+        values,
+        super::memory_maintenance::jobs::Trigger::Manual,
+    )
 }
 
 pub(crate) fn clear_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
@@ -1174,7 +1221,12 @@ pub(crate) async fn correct_chat_memory(
     if let Some(replacement) = replacement {
         values.push(replacement);
     }
-    set_chat_memory_values(state, chat_id, values)
+    set_chat_memory_values_with_trigger(
+        state,
+        chat_id,
+        values,
+        super::memory_maintenance::jobs::Trigger::Correction,
+    )
 }
 fn capture_memory_content(
     messages: &[Value],
@@ -1307,6 +1359,289 @@ fn push_refresh_memory_capture(
     pending.push((captures.len(), content, memory));
     captures.push(Value::Null);
 }
+
+struct PreparedFocusedCapture {
+    chat_id: String,
+    source_message_ids: Vec<String>,
+    fingerprint: String,
+    memory: Map<String, Value>,
+}
+
+struct CaptureRequest {
+    chat_id: String,
+    source_message_ids: Vec<String>,
+    fingerprint: Option<String>,
+}
+
+fn parse_capture_request(body: &Value, require_fingerprint: bool) -> AppResult<CaptureRequest> {
+    if body.get("version").and_then(Value::as_u64) != Some(1) {
+        return Err(AppError::invalid_input(
+            "Automatic memory capture version must be 1",
+        ));
+    }
+    let chat_id = body
+        .get("chatId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| AppError::invalid_input("Automatic memory capture chatId is required"))?;
+    let source_message_ids = body
+        .get("sourceMessageIds")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            AppError::invalid_input("Automatic memory capture sourceMessageIds are required")
+        })?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| {
+                    AppError::invalid_input(
+                        "Automatic memory capture sourceMessageIds must be non-empty strings",
+                    )
+                })
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    if source_message_ids.is_empty() {
+        return Err(AppError::invalid_input(
+            "Automatic memory capture sourceMessageIds are required",
+        ));
+    }
+    let fingerprint = body
+        .get("fingerprint")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    if require_fingerprint && fingerprint.is_none() {
+        return Err(AppError::invalid_input(
+            "Automatic memory capture fingerprint is required",
+        ));
+    }
+    Ok(CaptureRequest {
+        chat_id,
+        source_message_ids,
+        fingerprint,
+    })
+}
+
+fn focused_capture_fingerprint(chat_id: &str, messages: &[Value]) -> String {
+    let payload = json!({
+        "chatId": chat_id,
+        "messages": messages.iter().map(|message| json!({
+            "id": message.get("id").cloned().unwrap_or(Value::Null),
+            "role": message.get("role").cloned().unwrap_or(Value::Null),
+            "characterId": message.get("characterId").cloned().unwrap_or(Value::Null),
+            "createdAt": message.get("createdAt").cloned().unwrap_or(Value::Null),
+            "content": message.get("content").cloned().unwrap_or(Value::Null),
+        })).collect::<Vec<_>>()
+    });
+    let encoded = serde_json::to_vec(&payload).unwrap_or_default();
+    Sha256::digest(encoded)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn focused_capture_memory(
+    chat_id: &str,
+    messages: &[Value],
+    content: String,
+    fingerprint: &str,
+) -> Map<String, Value> {
+    let message_ids = capture_message_ids(messages);
+    let mut memory = Map::new();
+    memory.insert("id".to_string(), Value::String(new_id()));
+    memory.insert("chatId".to_string(), Value::String(chat_id.to_string()));
+    memory.insert("content".to_string(), Value::String(content));
+    memory.insert("messageCount".to_string(), json!(messages.len()));
+    memory.insert("messageIds".to_string(), json!(message_ids));
+    memory.insert(
+        "firstMessageId".to_string(),
+        messages
+            .first()
+            .and_then(|message| message.get("id"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    memory.insert(
+        "lastMessageId".to_string(),
+        messages
+            .last()
+            .and_then(|message| message.get("id"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    memory.insert(
+        "firstMessageAt".to_string(),
+        messages
+            .first()
+            .and_then(|message| message.get("createdAt"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    memory.insert(
+        "lastMessageAt".to_string(),
+        messages
+            .last()
+            .and_then(|message| message.get("createdAt"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    memory.insert("createdAt".to_string(), Value::String(now_iso()));
+    memory.insert(
+        "captureFingerprint".to_string(),
+        Value::String(fingerprint.to_string()),
+    );
+    memory.insert("hasEmbedding".to_string(), json!(false));
+    memory.insert("embeddingStatus".to_string(), json!("pending"));
+    canonicalize_transcript_capture(&mut memory, chat_id);
+    memory.insert(
+        "creationReason".to_string(),
+        json!("Automatic exchange capture"),
+    );
+    memory
+}
+
+fn prepare_focused_capture(
+    state: &AppState,
+    chat_id: &str,
+    source_message_ids: Vec<String>,
+) -> AppResult<Option<PreparedFocusedCapture>> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let requested = source_message_ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<HashSet<_>>();
+    let messages = chats::messages_for_chat(state, chat_id)?
+        .into_iter()
+        .filter(|message| {
+            !is_hidden_from_ai(message)
+                && !message_content(message).is_empty()
+                && message
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| requested.contains(id.trim()))
+        })
+        .collect::<Vec<_>>();
+    if messages.is_empty()
+        || messages
+            .last()
+            .is_none_or(|message| message_role(message) != "assistant")
+    {
+        return Ok(None);
+    }
+
+    let ordered_ids = capture_message_ids(&messages);
+    let persona_name = chat_persona_name(state, &chat)?;
+    let character_names = chat_character_names(state, &chat)?;
+    let fallback_name = (character_names.len() == 1)
+        .then(|| character_names.values().next())
+        .flatten()
+        .map(String::as_str);
+    let content = capture_memory_content(
+        &messages,
+        persona_name.as_deref(),
+        &character_names,
+        fallback_name,
+    );
+    let fingerprint = focused_capture_fingerprint(chat_id, &messages);
+    let memory = focused_capture_memory(chat_id, &messages, content, &fingerprint);
+    Ok(Some(PreparedFocusedCapture {
+        chat_id: chat_id.to_string(),
+        source_message_ids: ordered_ids,
+        fingerprint,
+        memory,
+    }))
+}
+
+pub(crate) fn preview_chat_memory_capture(state: &AppState, body: Value) -> AppResult<Value> {
+    let request = parse_capture_request(&body, false)?;
+    let prepared = prepare_focused_capture(state, &request.chat_id, request.source_message_ids)?;
+    Ok(match prepared {
+        Some(prepared) => json!({
+            "version": 1,
+            "chatId": prepared.chat_id,
+            "sourceMessageIds": prepared.source_message_ids,
+            "fingerprint": prepared.fingerprint,
+            "candidate": Value::Object(prepared.memory),
+        }),
+        None => json!({
+            "version": 1,
+            "chatId": request.chat_id,
+            "sourceMessageIds": [],
+            "fingerprint": "",
+            "candidate": Value::Null,
+        }),
+    })
+}
+
+async fn persist_prepared_focused_capture(
+    state: &AppState,
+    mut prepared: PreparedFocusedCapture,
+) -> AppResult<Value> {
+    let chat = get_required(state, "chats", &prepared.chat_id)?;
+    let embedding_context = memory_embedding_context(state, &chat).await?;
+    let mut memories = chat_memory_values_for_mutation(&chat)?;
+    let expected_key = memory_chunk_key(&prepared.source_message_ids);
+    let existing = memories.iter().find(|memory| {
+        chat_memory_is_automatic_exchange_capture(memory)
+            && memory_chunk_key(&memory_message_ids(memory)) == expected_key
+    });
+    let operation = if let Some(existing) = existing {
+        if let Some(id) = existing.get("id").and_then(Value::as_str) {
+            prepared
+                .memory
+                .insert("id".to_string(), Value::String(id.to_string()));
+            prepared
+                .memory
+                .insert("legacySourceId".to_string(), Value::String(id.to_string()));
+        }
+        if let Some(created_at) = existing.get("createdAt") {
+            prepared
+                .memory
+                .insert("createdAt".to_string(), created_at.clone());
+        }
+        "updated"
+    } else {
+        "created"
+    };
+    embed_chat_memory_object(&mut prepared.memory, embedding_context.as_ref()).await?;
+    memories.retain(|memory| {
+        !(chat_memory_is_automatic_exchange_capture(memory)
+            && memory_chunk_key(&memory_message_ids(memory)) == expected_key)
+    });
+    let memory = Value::Object(prepared.memory);
+    memories.push(memory.clone());
+    set_chat_memory_values_with_trigger(
+        state,
+        &prepared.chat_id,
+        memories,
+        super::memory_maintenance::jobs::Trigger::Capture,
+    )?;
+    Ok(json!({
+        "operation": operation,
+        "memory": memory,
+    }))
+}
+
+pub(crate) async fn commit_chat_memory_capture(state: &AppState, body: Value) -> AppResult<Value> {
+    let request = parse_capture_request(&body, true)?;
+    let current = prepare_focused_capture(state, &request.chat_id, request.source_message_ids)?
+        .ok_or_else(|| AppError::invalid_input("Automatic memory capture is no longer eligible"))?;
+    if Some(current.fingerprint.as_str()) != request.fingerprint.as_deref() {
+        return Err(AppError::invalid_input(
+            "Automatic memory capture preview is stale",
+        ));
+    }
+    persist_prepared_focused_capture(state, current).await
+}
+
 #[cfg(test)]
 async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
     refresh_chat_memories_for_source_messages(state, chat_id, Vec::new()).await
@@ -2201,11 +2536,35 @@ pub(crate) async fn migrate_chat_memories(state: &AppState, chat_id: &str) -> Ap
         created,
         updated,
     );
+    let mut maintenance_scope_kinds = values
+        .iter()
+        .map(|memory| {
+            if memory.get("scopeType").and_then(Value::as_str) == Some("scene") {
+                "scene"
+            } else {
+                "chat"
+            }
+        })
+        .collect::<HashSet<_>>();
+    if maintenance_scope_kinds.is_empty() {
+        maintenance_scope_kinds.insert("chat");
+    }
     state.storage.patch(
         "chats",
         chat_id,
         json!({ "memories": values, "metadata": metadata }),
     )?;
+    for kind in maintenance_scope_kinds {
+        super::memory_maintenance::jobs::enqueue_memory_maintenance(
+            state,
+            super::memory_maintenance::jobs::target(
+                super::memory_maintenance::contracts::CleanupStore::Chat,
+                kind,
+                chat_id,
+            ),
+            super::memory_maintenance::jobs::Trigger::Import,
+        )?;
+    }
     Ok(json!({ "created": created, "updated": updated, "version": 1 }))
 }
 pub(crate) async fn import_chat_memories(
@@ -2260,7 +2619,12 @@ pub(crate) async fn import_chat_memories(
             "Memory Recall replace import must contain at least one importable chunk",
         ));
     }
-    set_chat_memory_values(state, chat_id, memories)?;
+    set_chat_memory_values_with_trigger(
+        state,
+        chat_id,
+        memories,
+        super::memory_maintenance::jobs::Trigger::Import,
+    )?;
     if replace {
         canonical_memory::delete_memory_index_rows_for_chat(state, chat_id)?;
     }
@@ -2370,6 +2734,43 @@ mod tests {
             content_lines.push(format!("{speaker}: visible memory {index}"));
         }
         (message_ids, content_lines.join("\n"))
+    }
+
+    fn seed_complete_exchange(state: &AppState, chat_id: &str) -> Vec<String> {
+        state
+            .storage
+            .create("chats", json!({ "id": chat_id, "name": "Memory chat" }))
+            .expect("chat should seed");
+        let source_ids = vec!["message-user".to_string(), "message-assistant".to_string()];
+        for (id, role, content, created_at) in [
+            (
+                "message-user",
+                "user",
+                "My cat's name is Miso.",
+                "2026-06-01T10:00:00.000Z",
+            ),
+            (
+                "message-assistant",
+                "assistant",
+                "I'll remember that.",
+                "2026-06-01T10:01:00.000Z",
+            ),
+        ] {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": id,
+                        "chatId": chat_id,
+                        "role": role,
+                        "content": content,
+                        "createdAt": created_at
+                    }),
+                )
+                .expect("message should seed");
+        }
+        source_ids
     }
 
     #[test]
@@ -2730,13 +3131,9 @@ mod tests {
         );
         assert_eq!(chat["memories"][1], created);
 
-        let rejected = create_chat_memory(
-            &state,
-            "chat-1",
-            json!({ "content": "   " }),
-        )
-        .await
-        .expect_err("empty manual memory should be rejected");
+        let rejected = create_chat_memory(&state, "chat-1", json!({ "content": "   " }))
+            .await
+            .expect_err("empty manual memory should be rejected");
         assert_eq!(rejected.code, "invalid_input");
         let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
         assert_eq!(chat["memories"].as_array().map(Vec::len), Some(2));
@@ -2893,6 +3290,10 @@ mod tests {
         assert_eq!(memories[1]["scopeId"], json!("chat-1"));
         assert_eq!(memories[1]["status"], json!("active"));
         assert_eq!(memories[1]["hasEmbedding"], json!(true));
+        let maintenance_jobs = state.storage.list("memory-maintenance-jobs").unwrap();
+        assert_eq!(maintenance_jobs.len(), 1);
+        assert_eq!(maintenance_jobs[0]["targetKey"], json!("chat:chat:chat-1"));
+        assert_eq!(maintenance_jobs[0]["trigger"], json!("correction"));
     }
     #[test]
     fn clear_chat_memories_removes_all_chunks() {
@@ -2928,6 +3329,54 @@ mod tests {
             .expect("chat should read")
             .expect("chat should exist");
         assert_eq!(memory_ids(&chat["memories"]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn memory_mutations_enqueue_each_prior_and_current_scope_once() {
+        let state = test_state("chat-memory-maintenance-scope-union");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "memories": [
+                        { "id": "chat-memory", "scopeType": "chat", "content": "chat" },
+                        { "id": "scene-memory", "scopeType": "scene", "content": "scene" }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+
+        set_chat_memory_values_with_trigger(
+            &state,
+            "chat-1",
+            vec![json!({ "id": "chat-memory", "scopeType": "chat", "content": "chat" })],
+            super::super::memory_maintenance::jobs::Trigger::Manual,
+        )
+        .expect("removing the scene scope should enqueue both prior and current scopes");
+
+        let mut jobs = state.storage.list("memory-maintenance-jobs").unwrap();
+        jobs.sort_by_key(|job| job["targetKey"].as_str().unwrap_or("").to_string());
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0]["targetKey"], json!("chat:chat:chat-1"));
+        assert_eq!(jobs[1]["targetKey"], json!("chat:scene:chat-1"));
+        assert!(jobs.iter().all(|job| job["trigger"] == json!("manual")));
+
+        set_chat_memory_values_with_trigger(
+            &state,
+            "chat-1",
+            vec![
+                json!({ "id": "chat-memory", "scopeType": "chat", "content": "chat" }),
+                json!({ "id": "new-scene-memory", "scopeType": "scene", "content": "scene" }),
+            ],
+            super::super::memory_maintenance::jobs::Trigger::Capture,
+        )
+        .expect("adding the scene scope should coalesce the same two scope jobs");
+
+        let jobs = state.storage.list("memory-maintenance-jobs").unwrap();
+        assert_eq!(jobs.len(), 2);
+        assert!(jobs.iter().all(|job| job["trigger"] == json!("capture")));
     }
 
     #[test]
@@ -4263,6 +4712,114 @@ mod tests {
             updated["capture"]["memory"]["id"],
             created["capture"]["memory"]["id"]
         );
+    }
+
+    #[tokio::test]
+    async fn capture_preview_does_not_persist_a_chat_memory() {
+        let state = test_state("memory-capture-preview-no-write");
+        let source_ids = seed_complete_exchange(&state, "chat-1");
+
+        let preview = preview_chat_memory_capture(
+            &state,
+            json!({
+                "version": 1,
+                "chatId": "chat-1",
+                "sourceMessageIds": source_ids
+            }),
+        )
+        .expect("preview should succeed");
+
+        assert!(preview["candidate"].is_object());
+        assert!(list_chat_memories(&state, "chat-1", None, None)
+            .expect("memories should list")
+            .as_array()
+            .expect("memories should be an array")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn capture_commit_revalidates_and_is_idempotent() {
+        let state = test_state("memory-capture-commit-idempotent");
+        let source_ids = seed_complete_exchange(&state, "chat-1");
+        let preview = preview_chat_memory_capture(
+            &state,
+            json!({
+                "version": 1,
+                "chatId": "chat-1",
+                "sourceMessageIds": source_ids
+            }),
+        )
+        .expect("preview should succeed");
+        let body = json!({
+            "version": 1,
+            "chatId": preview["chatId"],
+            "sourceMessageIds": preview["sourceMessageIds"],
+            "fingerprint": preview["fingerprint"]
+        });
+
+        let first = commit_chat_memory_capture(&state, body.clone())
+            .await
+            .expect("first commit should succeed");
+        let second = commit_chat_memory_capture(&state, body)
+            .await
+            .expect("second commit should be idempotent");
+
+        assert_eq!(first["memory"]["id"], second["memory"]["id"]);
+        assert_eq!(
+            list_chat_memories(&state, "chat-1", None, None)
+                .expect("memories should list")
+                .as_array()
+                .expect("memories should be an array")
+                .len(),
+            1
+        );
+        let jobs = state.storage.list("memory-maintenance-jobs").unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0]["targetKey"], json!("chat:chat:chat-1"));
+        assert_eq!(jobs[0]["trigger"], json!("capture"));
+    }
+
+    #[tokio::test]
+    async fn capture_commit_rejects_a_stale_preview_without_writing() {
+        let state = test_state("memory-capture-commit-stale");
+        let source_ids = seed_complete_exchange(&state, "chat-1");
+        let preview = preview_chat_memory_capture(
+            &state,
+            json!({
+                "version": 1,
+                "chatId": "chat-1",
+                "sourceMessageIds": source_ids
+            }),
+        )
+        .expect("preview should succeed");
+        state
+            .storage
+            .patch(
+                "messages",
+                "message-assistant",
+                json!({ "content": "Edited after preview" }),
+            )
+            .expect("message edit should succeed");
+
+        let error = commit_chat_memory_capture(
+            &state,
+            json!({
+                "version": 1,
+                "chatId": preview["chatId"],
+                "sourceMessageIds": preview["sourceMessageIds"],
+                "fingerprint": preview["fingerprint"]
+            }),
+        )
+        .await
+        .expect_err("stale preview must fail");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("stale"));
+        assert!(list_chat_memories(&state, "chat-1", None, None)
+            .expect("memories should list")
+            .as_array()
+            .expect("memories should be an array")
+            .is_empty());
     }
 
     #[tokio::test]

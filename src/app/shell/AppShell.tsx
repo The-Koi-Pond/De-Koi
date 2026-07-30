@@ -58,6 +58,7 @@ import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
 import { shouldUseLowPowerShellMode, syncShellRootAttributes } from "./shell-performance";
 import { usePageActivity } from "../../shared/hooks/use-page-activity";
+import { useAutomaticMemoryMaintenance } from "../startup/automatic-memory-maintenance";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -267,6 +268,7 @@ function SidePanelFallback() {
 
 export function AppShell() {
   useLocalNotificationNavigation();
+  useAutomaticMemoryMaintenance();
   // Auto idle detection (10 min inactivity -> idle, activity -> active)
   useIdleDetection();
   const isPageActive = usePageActivity();

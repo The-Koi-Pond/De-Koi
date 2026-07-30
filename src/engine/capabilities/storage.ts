@@ -6,6 +6,7 @@ import type {
   CanonicalMemoryRecord,
   MemoryLexicalRebuildResult,
 } from "../contracts/types/memory";
+import type { ChatMemoryChunk } from "../contracts/types/chat";
 
 export type { StorageEntity } from "./storage-collections";
 
@@ -44,6 +45,26 @@ export interface ListChatMemoriesOptions {
 
 export interface RefreshChatMemoriesOptions {
   sourceMessageIds?: string[];
+}
+
+export interface ChatMemoryCapturePreview {
+  version: 1;
+  chatId: string;
+  sourceMessageIds: string[];
+  fingerprint: string;
+  candidate: ChatMemoryChunk | null;
+}
+
+export interface CommitChatMemoryCaptureInput {
+  version: 1;
+  chatId: string;
+  sourceMessageIds: string[];
+  fingerprint: string;
+}
+
+export interface CommitChatMemoryCaptureResult {
+  operation: "created" | "updated";
+  memory: ChatMemoryChunk;
 }
 
 export interface AddChatMessageSwipeOptions {
@@ -151,6 +172,8 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
   listChatMemories<T = unknown>(chatId: string, options?: ListChatMemoriesOptions): Promise<T[]>;
   refreshChatMemories?<T = unknown>(chatId: string, options?: RefreshChatMemoriesOptions): Promise<T>;
+  previewChatMemoryCapture?(chatId: string, sourceMessageIds: string[]): Promise<ChatMemoryCapturePreview>;
+  commitChatMemoryCapture?(body: CommitChatMemoryCaptureInput): Promise<CommitChatMemoryCaptureResult>;
   getWorldState<T = unknown>(chatId: string): Promise<T | null>;
   saveTrackerSnapshot<T = unknown>(chatId: string, snapshot: Record<string, unknown>): Promise<T>;
   listLorebookEntries<T = unknown>(lorebookId: string): Promise<T[]>;

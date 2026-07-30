@@ -1,0 +1,348 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Automatic memory hygiene",
+    "source": "Direct user request to reject low-value memories before collection and automate all tidying.",
+    "classification": "cross-boundary memory capture, persistent storage, background work, remote runtime, and recovery",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Automatic capture rejects low-value candidates before persistence, durable background maintenance tidies eligible chat and canonical memories without user action, and each applied batch remains atomically undoable.",
+  "rootCause": "Capture previously persisted transcript and canonical candidates before value review, while tidying was a manual UI workflow with no durable background job owner.",
+  "scope": {
+    "inScope": [
+      "Pre-persistence value review for transcript and canonical capture candidates",
+      "Durable coalesced memory-maintenance jobs",
+      "Bounded startup sweep and automatic background processing",
+      "Automatic apply for chat, scene, and character scopes",
+      "Exact newest-first undo for consecutive cleanup batches",
+      "Embedded and remote-runtime command parity",
+      "Quiet optional recovery UI"
+    ],
+    "outOfScope": [
+      "Permanent purge of discarded history",
+      "Automatic cleanup of user, world, or agent canonical scopes",
+      "Provider transport or connection configuration",
+      "Changing the user's memory-recall enablement preference"
+    ],
+    "intendedFiles": [
+      "src/engine/generation",
+      "src/engine/entities/memory-maintenance-sources.ts",
+      "src/engine/capabilities",
+      "src/app/startup/automatic-memory-maintenance.ts",
+      "src/features/catalog/memory-maintenance",
+      "src/features/catalog/characters/components/CharacterMemoriesTab.tsx",
+      "src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.tsx",
+      "src/shared/api",
+      "src-tauri/src/commands/storage/memory_maintenance",
+      "src-tauri/src/commands/storage/canonical_memory.rs",
+      "src-tauri/src/commands/storage/chat_memory.rs",
+      "src-tauri/src/http_dispatch.rs",
+      "src/features/shell/discovery",
+      "docs/database-schema.md",
+      ".github/pr-evidence/automatic-memory-hygiene/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent user data",
+      "automatic mutation",
+      "prompt and model judgment",
+      "background concurrency",
+      "legacy compatibility",
+      "remote runtime",
+      "undo and recovery"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Only active in-scope automatic candidates and stored memories are reviewed; low-value capture candidates never reach storage, and stored cleanup uses recoverable status transitions with exact batch history.",
+    "riskType": "automatic model-assisted persistent storage lifecycle",
+    "entrypoints": [
+      "Saved assistant generation completion",
+      "App startup memory-maintenance sweep",
+      "Material chat and canonical memory writes",
+      "memory_cleanup_apply",
+      "memory_cleanup_undo",
+      "Remote /api/invoke dispatch"
+    ],
+    "currentPathsOrFormats": [
+      "Version 2 memory-capture jobs with two-phase transcript preview and commit",
+      "memory-maintenance-jobs coalesced by store and scope",
+      "Version 1 and version 2 cleanup apply contracts",
+      "Chat memories embedded in chat rows",
+      "Canonical memories plus lexical memory-index-rows"
+    ],
+    "legacyPathsOrFormats": [
+      "Valid user, world, and agent canonical memories remain writable but do not enqueue unsupported maintenance",
+      "Existing cleanup batches remain undoable",
+      "Optional chat cleanup fields restore to their exact prior presence or absence",
+      "Manual, imported, corrected, command-created, and pinned status is not low-value evidence by itself"
+    ],
+    "outOfScopeClaims": [
+      "No provider is claimed to make infallible subjective value judgments.",
+      "Deleted cleanup rows are not physically purged.",
+      "Unsupported canonical scopes are preserved without automatic maintenance."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The old capture path wrote before value review and the old cleanup path required a human to analyze, select, and apply.",
+    "producer": "Engine generation creates capture candidates and cleanup proposals; Rust storage creates durable maintenance jobs at material write boundaries.",
+    "consumer": "Chat and canonical recall, startup background workers, embedded Tauri, and the hostable HTTP runtime.",
+    "impliedContract": "Low-value automatic candidates should never become durable memory, while already stored eligible memories should converge automatically without blocking foreground generation or losing recoverability.",
+    "actualEnforcement": "Two-phase capture previews before model review and commits only accepted transcript candidates; accepted canonical candidates persist after the same gate; storage mutations enqueue coalesced jobs; foreground generation defers workers; bounded workers apply selected proposals and preserve exact undo snapshots.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src/engine owns value policy and worker orchestration, src-tauri owns durable jobs and atomic persistence, src/shared/api owns typed embedded and remote adapters, and React only mounts startup and optional recovery surfaces.",
+    "consumerOnlyLanes": [
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not hide low-value rows only in React, run durable storage mutation directly from components, or bypass the typed remote dispatch boundary.",
+    "regressionProof": [
+      "Capture tests prove rejected candidates are never committed or created and accepted candidates retain idempotent retry behavior.",
+      "Maintenance queue tests prove startup bounds, coalescing, foreground priority, retry, fixed-point convergence, and automatic apply.",
+      "Rust tests prove both storage owners, stale atomicity, durable jobs, exact newest-first undo, and lexical-index restoration.",
+      "Remote-runtime tests and the isolated ARM64 Pi /api/invoke harness prove hostable command parity."
+    ]
+  },
+  "riskClaimMatrix": {
+    "coreClaim": "Automatic rejection and tidying never require a user click, and recoverable cleanup remains exact.",
+    "riskType": "automatic persistent mutation with model-assisted selection",
+    "entrypoints": [
+      "Generation completion",
+      "Startup sweep",
+      "Storage write enqueue",
+      "Background queue",
+      "Embedded and remote cleanup commands"
+    ],
+    "currentPathsOrFormats": [
+      "Two-phase transcript capture",
+      "Canonical consequence candidates",
+      "Durable maintenance jobs",
+      "Chat and canonical cleanup histories"
+    ],
+    "legacyPathsOrFormats": [
+      "Prior cleanup history",
+      "Valid non-maintained canonical scopes",
+      "Rows with optional cleanup metadata"
+    ],
+    "positiveRowsTested": [
+      "Accepted transcript candidate commits after value review",
+      "Accepted canonical consequence persists after value review",
+      "Startup and material writes converge through automatic apply",
+      "Consecutive chat and canonical batches undo newest first",
+      "Remote ARM64 chat and canonical apply and undo succeed"
+    ],
+    "negativeRowsTested": [
+      "Rejected transcript candidate is never committed",
+      "Rejected canonical consequence is never created",
+      "Foreground generation prevents background model work",
+      "Stale batches cause no partial mutation",
+      "User, world, and agent scopes remain valid without unsupported jobs"
+    ],
+    "groundTruthFacts": [
+      {
+        "description": "A rejected automatic candidate has no durable memory row.",
+        "sourceType": "harness-proven",
+        "evidence": "Focused capture queue tests assert no transcript commit and no canonical create for rejected candidates."
+      },
+      {
+        "description": "Cleanup undo restores the immediately previous row state, including pre-existing cleanup metadata.",
+        "sourceType": "harness-proven",
+        "evidence": "Chat and canonical consecutive-batch tests undo newest first and compare restored owner records."
+      }
+    ],
+    "manualBlockers": []
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The complete frontend behavior remains green.",
+        "evidence": "pnpm test passed 453 files plus one skipped file, with 2,443 tests passed and one skipped."
+      },
+      {
+        "claim": "The complete Rust storage/runtime behavior remains green.",
+        "evidence": "cargo test -- --test-threads=1 passed all 1,397 tests; the default parallel run passed 1,396 and exposed one unrelated shared-temp permission race that passed in isolation and serialized."
+      },
+      {
+        "claim": "Architecture, security, storage contracts, docs, discovery, Rust workspace checks, and production compilation remain valid.",
+        "evidence": "pnpm check and pnpm build passed; changed-file Prettier, cargo fmt, and git diff --check passed."
+      },
+      {
+        "claim": "The hostable ARM64 runtime executes both cleanup owners correctly.",
+        "evidence": "An isolated exact-source ARM64 Pi server image passed synthetic two-batch apply and undo through /api/invoke for chat and canonical stores without touching production data."
+      },
+      {
+        "claim": "Startup discovery covers colliding and missing timestamps without cursor gaps.",
+        "evidence": "The sweep now orders and pages by immutable unique ids; a page-size-one regression creates all eight chat and canonical jobs across duplicate and absent updatedAt values."
+      },
+      {
+        "claim": "Chat mutations preserve every prior and current scope lane exactly once.",
+        "evidence": "Focused Rust tests remove and re-add a scene scope, prove exactly one coalesced chat and scene job, and verify manual and capture triggers."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Low-value candidates must not be briefly stored and removed later.",
+        "evidence": "Two-phase capture tests inspect commit/create calls and prove rejection occurs before either storage write."
+      },
+      {
+        "claim": "Background tidying must not compete with a foreground response.",
+        "evidence": "Shared foreground coordinator tests and both automatic queues prove deferral and wake-up behavior."
+      },
+      {
+        "claim": "Automatic cleanup must not make valid non-maintained canonical scopes unwritable.",
+        "evidence": "scoped_query_filters_all_supported_scopes passes for user, character, chat, scene, world, and agent."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing cleanup histories remain recoverable.",
+        "evidence": "Legacy/default operation paths and exact prior metadata restoration pass in both storage owners."
+      },
+      {
+        "claim": "Chat expunge clears the new durable job collection.",
+        "evidence": "Admin expunge scope and complete receipt tests include memory-maintenance-jobs."
+      }
+    ],
+    "untestedRows": [
+      "Production deployment is intentionally pending until this exact revision merges and its Pi images are published."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The two-phase storage capability, not the retired one-phase refresh method, is the automatic-capture availability boundary.",
+      "sourceType": "harness-proven",
+      "evidence": "Group-generation tests pass with previewChatMemoryCapture and commitChatMemoryCapture and no refreshChatMemories implementation."
+    },
+    {
+      "description": "Only chat, scene, and character scopes receive automatic maintenance jobs.",
+      "sourceType": "harness-proven",
+      "evidence": "Rust job and canonical scope tests preserve all supported canonical scopes while enqueueing only maintained scopes."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Automatic cleanup is recoverable through its retained undo history, so no backup is required for normal operation. For an optional external copy before enabling this version, export a full profile backup.",
+      "source": "Settings > Privacy & Data > Export backup",
+      "destination": "A user-selected folder outside De-Koi's application data directory",
+      "action": "Save the exported backup before updating De-Koi if an independent copy is desired.",
+      "files": [
+        "de-koi-backup-*.zip"
+      ],
+      "detectedLayouts": [
+        "Current managed profile backup archive"
+      ]
+    }
+  ],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny found startup sweep paging could lose rows when timestamps collide or are missing.",
+      "disposition": "fixed",
+      "fix": "Changed discovery to paginate by immutable unique ids and added a page-size-one regression covering duplicate and absent timestamps in both collections.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny said mixed chat and scene memory scopes could duplicate or miss maintenance jobs.",
+      "disposition": "proven-and-clarified",
+      "fix": "The existing old-plus-new HashSet already deduplicates both scope lanes; a focused Rust regression now removes and re-adds scene scope and proves exactly two coalesced jobs.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found the remote runtime contract was not explicit in the implementation plan.",
+      "disposition": "fixed",
+      "fix": "Documented all four command names, v1 and v2 request bodies, responses, shared adapters, allowlist, HTTP dispatch, and Tauri registration parity.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found the cleanup transaction and rollback contract was underspecified.",
+      "disposition": "fixed",
+      "fix": "Documented inside-transaction stale checks, all-or-nothing source, replacement, index, and journal writes, plus newest-first atomic undo behavior.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found fixed-point oscillation and pass-limit behavior was underspecified.",
+      "disposition": "fixed",
+      "fix": "Documented six-fingerprint repeat detection, A-B-A oscillation, three passes per drain, twelve total passes, terminal diagnostic codes, and reset conditions.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny said capture could drift into the manual maintenance trigger lane.",
+      "disposition": "proven-and-clarified",
+      "fix": "The capture owner already passes Trigger::Capture explicitly; the idempotent commit regression now asserts the coalesced job target and capture trigger.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny said sibling context could emit a parent chat with no message children.",
+      "disposition": "proven-and-clarified",
+      "fix": "The owner already continues past empty message sets; the bounded-context regression now seeds the newest eligible sibling with zero messages and proves a populated sibling is returned instead.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm test; cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1; pnpm check; pnpm build",
+    "baselineEvidence": "2,443 frontend tests, 1,397 Rust tests, deterministic repository checks, Rust workspace check, production build, changed-file formatting, rustfmt, and diff whitespace all passed.",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Rejected transcript and canonical candidates",
+      "Stale atomic batches",
+      "Foreground-generation deferral",
+      "Unsupported maintenance scopes",
+      "Malformed cleanup and job contracts"
+    ],
+    "afterEvidence": [
+      "pnpm test",
+      "cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1",
+      "pnpm check",
+      "pnpm build",
+      "changed-file pnpm exec prettier --check --ignore-unknown",
+      "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
+      "git diff --check"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1196,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1196",
+    "headRefName": "feature/automatic-memory-hygiene",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "No real user memory content is included in this ledger.",
+    "The ARM64 Pi proof used synthetic isolated storage and removed its temporary container, volume, image, and worktree afterward.",
+    "Production Pi data was not modified during pre-merge validation.",
+    "Repository-wide Prettier reports 305 baseline files; every file changed by this branch passes Prettier.",
+    "The first hosted Bunny pass found one real sweep-pagination defect and six additional proof or documentation gaps; all are repaired or proven on the current local head and await hosted rereview.",
+    "The simplification audit found no confirmed behavior-preserving reductions: the new capability, entity adapters, durable job model, and startup worker each have concrete cross-boundary consumers."
+  ]
+}

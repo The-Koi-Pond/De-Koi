@@ -34,6 +34,11 @@ describe("memory maintenance remote routing", () => {
     expect(isRemoteCommand("memory_cleanup_apply")).toBe(true);
     expect(isRemoteCommand("memory_cleanup_undo")).toBe(true);
   });
+
+  it("explicitly allows automatic memory capture preview and commit", () => {
+    expect(isRemoteCommand("chat_memory_capture_preview")).toBe(true);
+    expect(isRemoteCommand("chat_memory_capture_commit")).toBe(true);
+  });
 });
 
 function stubFetch(responses: Response[]) {

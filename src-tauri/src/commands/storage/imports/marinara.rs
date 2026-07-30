@@ -214,12 +214,8 @@ fn import_marinara_character(state: &AppState, data: Value) -> AppResult<Value> 
         return result.map_err(|error| {
             let mut rollback_errors = Vec::new();
             for memory_id in created_memory_ids.iter().rev() {
-                if let Err(rollback_error) =
-                    canonical_memory::purge_memory(state, memory_id)
-                {
-                    rollback_errors.push(format!(
-                        "canonical memory {memory_id}: {rollback_error}"
-                    ));
+                if let Err(rollback_error) = canonical_memory::purge_memory(state, memory_id) {
+                    rollback_errors.push(format!("canonical memory {memory_id}: {rollback_error}"));
                 }
             }
             if let Some(character_id) = created_character_id.as_deref() {

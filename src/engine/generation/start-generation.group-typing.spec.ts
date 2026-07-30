@@ -512,10 +512,25 @@ describe("startGeneration group typing", () => {
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-a", "char-b"]);
   });
 
-  it("queues automatic memory refresh after saving a conversation assistant message", async () => {
+  it("queues automatic memory capture after saving a conversation assistant message", async () => {
     const { storage } = groupTypingStorage({}, { characterIds: ["char-a"] });
     const jobs = new Map<string, Record<string, unknown>>();
-    const refreshChatMemories = vi.fn(async () => ({ rebuilt: 1 }));
+    const commitChatMemoryCapture = vi.fn(async (body: { chatId: string; sourceMessageIds: string[] }) => ({
+      operation: "created" as const,
+      memory: {
+        id: "memory-1",
+        chatId: body.chatId,
+        content: "The user greeted Aki.",
+        memoryKind: "transcript",
+        status: "active",
+        messageCount: body.sourceMessageIds.length,
+        messageIds: body.sourceMessageIds,
+        firstMessageAt: "2026-01-01T00:01:00.000Z",
+        lastMessageAt: "2026-01-01T00:02:00.000Z",
+        createdAt: "2026-01-01T00:03:00.000Z",
+        hasEmbedding: true,
+      },
+    }));
     const originalList = storage.list.bind(storage);
     const originalGet = storage.get.bind(storage);
     const originalCreate = storage.create.bind(storage);
@@ -545,14 +560,44 @@ describe("startGeneration group typing", () => {
         }
         return originalUpdate<T>(entity, id, patch);
       },
-      refreshChatMemories,
+      async previewChatMemoryCapture(chatId: string, sourceMessageIds: string[]) {
+        return {
+          version: 1 as const,
+          chatId,
+          sourceMessageIds,
+          fingerprint: "capture-fingerprint",
+          candidate: {
+            id: "transcript-candidate",
+            chatId,
+            content: "The user greeted Aki.",
+            canonicalMemoryVersion: 1 as const,
+            memoryKind: "transcript" as const,
+            scopeType: "chat" as const,
+            scopeId: chatId,
+            status: "active" as const,
+            messageCount: sourceMessageIds.length,
+            messageIds: sourceMessageIds,
+            firstMessageAt: "2026-01-01T00:01:00.000Z",
+            lastMessageAt: "2026-01-01T00:02:00.000Z",
+            createdAt: "2026-01-01T00:03:00.000Z",
+            hasEmbedding: false,
+          },
+        };
+      },
+      commitChatMemoryCapture,
     });
 
+    const llm = groupTypingLlm();
+    llm.complete = vi.fn(async (request: LlmRequest) =>
+      request.messages.some((message) => message.content.includes("memory_cleanup_value_review"))
+        ? '{"proposals":[]}'
+        : '{"memories":[]}',
+    );
     await collectEvents(
       startGeneration(
         {
           storage,
-          llm: groupTypingLlm(JSON.stringify({ characterIds: ["char-a"], reason: "test" })),
+          llm,
           integrations: {} as IntegrationGateway,
         },
         {
@@ -563,23 +608,24 @@ describe("startGeneration group typing", () => {
         },
       ),
     );
-    for (
-      let index = 0;
-      index < 20 && !Array.from(jobs.values()).some((job) => job.status === "completed");
-      index += 1
-    ) {
-      await Promise.resolve();
-    }
-
-    expect(refreshChatMemories).toHaveBeenCalledWith("chat-1", { sourceMessageIds: ["message-1", "message-2"] });
-    expect(Array.from(jobs.values())).toEqual([
-      expect.objectContaining({
-        status: "completed",
+    await vi.waitFor(() =>
+      expect(commitChatMemoryCapture).toHaveBeenCalledWith({
+        version: 1,
+        chatId: "chat-1",
         sourceMessageIds: ["message-1", "message-2"],
-        userMessageId: "message-1",
-        assistantMessageId: "message-2",
+        fingerprint: "capture-fingerprint",
       }),
-    ]);
+    );
+    await vi.waitFor(() =>
+      expect(Array.from(jobs.values())).toEqual([
+        expect.objectContaining({
+          status: "completed",
+          sourceMessageIds: ["message-1", "message-2"],
+          userMessageId: "message-1",
+          assistantMessageId: "message-2",
+        }),
+      ]),
+    );
   });
 
   it("preserves saved user evidence until deferred group memory extraction runs", async () => {
@@ -615,8 +661,47 @@ describe("startGeneration group typing", () => {
         }
         return originalUpdate<T>(entity, id, patch);
       },
-      async refreshChatMemories() {
-        return { rebuilt: 1 };
+      async previewChatMemoryCapture(chatId: string, sourceMessageIds: string[]) {
+        return {
+          version: 1 as const,
+          chatId,
+          sourceMessageIds,
+          fingerprint: `capture-${sourceMessageIds.join("-")}`,
+          candidate: {
+            id: `transcript-${sourceMessageIds.join("-")}`,
+            chatId,
+            content: "The saved group exchange.",
+            canonicalMemoryVersion: 1 as const,
+            memoryKind: "transcript" as const,
+            scopeType: "chat" as const,
+            scopeId: chatId,
+            status: "active" as const,
+            messageCount: sourceMessageIds.length,
+            messageIds: sourceMessageIds,
+            firstMessageAt: "2026-01-01T00:01:00.000Z",
+            lastMessageAt: "2026-01-01T00:02:00.000Z",
+            createdAt: "2026-01-01T00:03:00.000Z",
+            hasEmbedding: false,
+          },
+        };
+      },
+      async commitChatMemoryCapture(body: { chatId: string; sourceMessageIds: string[] }) {
+        return {
+          operation: "created" as const,
+          memory: {
+            id: `memory-${body.sourceMessageIds.join("-")}`,
+            chatId: body.chatId,
+            content: "The saved group exchange.",
+            memoryKind: "transcript",
+            status: "active",
+            messageCount: body.sourceMessageIds.length,
+            messageIds: body.sourceMessageIds,
+            firstMessageAt: "2026-01-01T00:01:00.000Z",
+            lastMessageAt: "2026-01-01T00:02:00.000Z",
+            createdAt: "2026-01-01T00:03:00.000Z",
+            hasEmbedding: true,
+          },
+        };
       },
       async queryMemories() {
         return [];
@@ -625,9 +710,11 @@ describe("startGeneration group typing", () => {
 
     let streamCount = 0;
     const llm: LlmGateway = {
-      complete: vi.fn(async () => {
+      complete: vi.fn(async (request: LlmRequest) => {
         order.push("memory");
-        return '{"memories":[]}';
+        return request.messages.some((message) => message.content.includes("memory_cleanup_value_review"))
+          ? '{"proposals":[]}'
+          : '{"memories":[]}';
       }),
       async *stream() {
         streamCount += 1;

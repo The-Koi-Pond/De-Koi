@@ -3,26 +3,29 @@ mod canonical;
 #[path = "memory_maintenance/chat.rs"]
 mod chat;
 #[path = "memory_maintenance/contracts.rs"]
-mod contracts;
+pub(crate) mod contracts;
+#[path = "memory_maintenance/jobs.rs"]
+pub(crate) mod jobs;
 
 use crate::state::AppState;
-use marinara_core::{AppError, AppResult};
+use marinara_core::AppResult;
 use serde_json::Value;
 
 pub(crate) async fn apply_memory_cleanup(state: &AppState, body: Value) -> AppResult<Value> {
     let request = contracts::parse_apply_request(body)?;
-    match request.scope.kind.as_str() {
-        "chat" | "scene" => chat::apply_chat_cleanup(state, request).await,
-        "character" => canonical::apply_canonical_cleanup(state, request),
-        _ => Err(AppError::invalid_input("Unsupported memory cleanup scope")),
+    match request.store {
+        contracts::CleanupStore::Chat => chat::apply_chat_cleanup(state, request).await,
+        contracts::CleanupStore::Canonical => canonical::apply_canonical_cleanup(state, request),
     }
 }
 
 pub(crate) fn undo_memory_cleanup(state: &AppState, body: Value) -> AppResult<Value> {
     let request = contracts::parse_undo_request(body)?;
-    match request.scope.kind.as_str() {
-        "chat" | "scene" => chat::undo_chat_cleanup(state, request),
-        "character" => canonical::undo_canonical_cleanup(state, request),
-        _ => Err(AppError::invalid_input("Unsupported memory cleanup scope")),
-    }
+    let target = jobs::target(request.store, &request.scope.kind, &request.scope.id);
+    let result = match request.store {
+        contracts::CleanupStore::Chat => chat::undo_chat_cleanup(state, request),
+        contracts::CleanupStore::Canonical => canonical::undo_canonical_cleanup(state, request),
+    }?;
+    jobs::enqueue_memory_maintenance(state, target, jobs::Trigger::Undo)?;
+    Ok(result)
 }

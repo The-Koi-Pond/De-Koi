@@ -65,7 +65,10 @@ pub fn memory_index_query(state: State<'_, AppState>, body: Value) -> Result<Val
 }
 
 #[tauri::command]
-pub fn memory_index_query_batch(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+pub fn memory_index_query_batch(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
     canonical_memory::query_memory_index_batch(&state, body)
 }
 
@@ -78,9 +81,6 @@ pub async fn memory_cleanup_apply(
 }
 
 #[tauri::command]
-pub fn memory_cleanup_undo(
-    state: State<'_, AppState>,
-    body: Value,
-) -> Result<Value, AppError> {
+pub fn memory_cleanup_undo(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
     memory_maintenance::undo_memory_cleanup(&state, body)
 }

@@ -240,7 +240,9 @@ fn batch_queries(body: Value) -> AppResult<Vec<Value>> {
             if query.is_object() {
                 Ok(query)
             } else {
-                Err(AppError::invalid_input("memory batch query entries must be objects"))
+                Err(AppError::invalid_input(
+                    "memory batch query entries must be objects",
+                ))
             }
         })
         .collect()
@@ -261,7 +263,7 @@ pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
         .or_insert_with(|| Value::String(now));
     let record = Value::Object(record);
 
-    state.storage.update_collections_atomically(
+    let created = state.storage.update_collections_atomically(
         vec![MEMORY_COLLECTION, INDEX_COLLECTION],
         move |collections| {
             let memories = collections[0].rows_mut();
@@ -277,7 +279,9 @@ pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
             replace_memory_lexical_index(collections[1].rows_mut(), &record)?;
             Ok(record)
         },
-    )
+    )?;
+    enqueue_canonical_memory_maintenance(state, &created)?;
+    Ok(created)
 }
 
 pub(crate) fn get_memory(state: &AppState, memory_id: &str) -> AppResult<Value> {
@@ -291,7 +295,7 @@ pub(crate) fn update_memory(state: &AppState, memory_id: &str, patch: Value) -> 
     let patch_object = marinara_core::ensure_object(patch)?;
     let memory_id = memory_id.to_string();
 
-    state.storage.update_collections_atomically(
+    let updated = state.storage.update_collections_atomically(
         vec![MEMORY_COLLECTION, INDEX_COLLECTION],
         move |collections| {
             let memories = collections[0].rows_mut();
@@ -316,7 +320,41 @@ pub(crate) fn update_memory(state: &AppState, memory_id: &str, patch: Value) -> 
             replace_memory_lexical_index(collections[1].rows_mut(), &updated)?;
             Ok(updated)
         },
-    )
+    )?;
+    enqueue_canonical_memory_maintenance(state, &updated)?;
+    Ok(updated)
+}
+
+fn enqueue_canonical_memory_maintenance(state: &AppState, memory: &Value) -> AppResult<()> {
+    let scope = memory
+        .get("scope")
+        .and_then(Value::as_object)
+        .ok_or_else(|| AppError::invalid_input("Canonical memory scope is required"))?;
+    let kind = scope
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("Canonical memory scope kind is required"))?;
+    if !matches!(kind, "chat" | "scene" | "character") {
+        return Ok(());
+    }
+    let id = scope
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("Canonical memory scope id is required"))?;
+    super::memory_maintenance::jobs::enqueue_memory_maintenance(
+        state,
+        super::memory_maintenance::jobs::target(
+            super::memory_maintenance::contracts::CleanupStore::Canonical,
+            kind,
+            id,
+        ),
+        super::memory_maintenance::jobs::Trigger::Manual,
+    )?;
+    Ok(())
 }
 
 pub(crate) fn delete_memory(state: &AppState, memory_id: &str) -> AppResult<Value> {
@@ -433,9 +471,8 @@ pub(crate) fn delete_memories_learned_only_from_chats(
                     continue;
                 }
 
-                if let Some(provenance) = memory
-                    .get_mut("provenance")
-                    .and_then(Value::as_object_mut)
+                if let Some(provenance) =
+                    memory.get_mut("provenance").and_then(Value::as_object_mut)
                 {
                     let current_source = read_string(provenance.get("sourceChatId"));
                     if current_source.is_empty() || chat_ids.contains(&current_source) {
@@ -467,9 +504,8 @@ pub(crate) fn delete_memories_learned_only_from_chats(
             }
 
             *memories = retained_memories;
-            index_rows.retain(|row| {
-                !deleted_memory_ids.contains(&read_string(row.get("memoryId")))
-            });
+            index_rows
+                .retain(|row| !deleted_memory_ids.contains(&read_string(row.get("memoryId"))));
             for memory in &updated_memories {
                 replace_memory_lexical_index(index_rows, memory)?;
             }
@@ -910,12 +946,24 @@ mod tests {
             get_memory(&state, "memory-active").unwrap()["status"],
             json!("deleted")
         );
+        let maintenance_jobs = state.storage.list("memory-maintenance-jobs").unwrap();
+        assert_eq!(maintenance_jobs.len(), 1);
+        assert_eq!(
+            maintenance_jobs[0]["targetKey"],
+            json!("canonical:chat:chat-1")
+        );
     }
 
     #[test]
     fn creating_active_memory_builds_its_lexical_index() {
         let state = test_state("atomic-create-index");
-        seed_memory(&state, "memory-active", "character", "character-1", "active");
+        seed_memory(
+            &state,
+            "memory-active",
+            "character",
+            "character-1",
+            "active",
+        );
         seed_memory(&state, "memory-stale", "character", "character-1", "stale");
 
         let indexed = query_memory_index(
@@ -962,7 +1010,13 @@ mod tests {
     fn batch_queries_return_the_union_of_requested_scopes_once() {
         let state = test_state("batch-query-scopes");
         seed_memory(&state, "memory-chat", "chat", "chat-1", "active");
-        seed_memory(&state, "memory-character", "character", "character-1", "active");
+        seed_memory(
+            &state,
+            "memory-character",
+            "character",
+            "character-1",
+            "active",
+        );
         seed_memory(&state, "memory-other", "chat", "chat-2", "active");
 
         let rows = query_memories_batch(
@@ -982,7 +1036,13 @@ mod tests {
     #[test]
     fn batch_queries_preserve_requested_scope_ordinal_over_storage_order() {
         let state = test_state("batch-query-scope-ordinal");
-        seed_memory(&state, "memory-character", "character", "character-1", "active");
+        seed_memory(
+            &state,
+            "memory-character",
+            "character",
+            "character-1",
+            "active",
+        );
         seed_memory(&state, "memory-chat", "chat", "chat-1", "active");
 
         let rows = query_memories_batch(
@@ -1104,8 +1164,20 @@ mod tests {
     #[test]
     fn delete_memories_learned_only_from_chats_removes_exclusive_sources_and_indexes() {
         let state = test_state("delete-exclusive-chat-sources");
-        seed_memory(&state, "memory-active", "character", "character-1", "active");
-        seed_memory(&state, "memory-pinned", "character", "character-1", "pinned");
+        seed_memory(
+            &state,
+            "memory-active",
+            "character",
+            "character-1",
+            "active",
+        );
+        seed_memory(
+            &state,
+            "memory-pinned",
+            "character",
+            "character-1",
+            "pinned",
+        );
         create_memory(
             &state,
             json!({
@@ -1120,11 +1192,9 @@ mod tests {
         )
         .unwrap();
 
-        let result = delete_memories_learned_only_from_chats(
-            &state,
-            &HashSet::from(["chat-1".to_string()]),
-        )
-        .unwrap();
+        let result =
+            delete_memories_learned_only_from_chats(&state, &HashSet::from(["chat-1".to_string()]))
+                .unwrap();
 
         assert_eq!(
             result,
@@ -1135,7 +1205,10 @@ mod tests {
         );
         assert!(get_memory(&state, "memory-active").is_err());
         assert!(get_memory(&state, "memory-pinned").is_err());
-        assert_eq!(get_memory(&state, "memory-manual").unwrap()["status"], "active");
+        assert_eq!(
+            get_memory(&state, "memory-manual").unwrap()["status"],
+            "active"
+        );
         let indexed_ids = state
             .storage
             .list(INDEX_COLLECTION)
@@ -1183,11 +1256,9 @@ mod tests {
         )
         .unwrap();
 
-        let result = delete_memories_learned_only_from_chats(
-            &state,
-            &HashSet::from(["chat-1".to_string()]),
-        )
-        .unwrap();
+        let result =
+            delete_memories_learned_only_from_chats(&state, &HashSet::from(["chat-1".to_string()]))
+                .unwrap();
 
         assert_eq!(
             result,

@@ -19,7 +19,7 @@ const hookMocks = vi.hoisted(() => ({
     isPending: false,
   },
   showConfirmDialog: vi.fn(async () => true),
-  cleanupModalProps: null as Record<string, unknown> | null,
+  recoveryProps: null as Record<string, unknown> | null,
 }));
 
 function mutation() {
@@ -45,16 +45,12 @@ vi.mock("../../../../../catalog/chats/index", () => ({
   useImportChatMemories: mutation,
 }));
 
-vi.mock("../../../../../catalog/memory-maintenance", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../../catalog/memory-maintenance")>();
-  return {
-    ...actual,
-    MemoryCleanupReviewModal: (props: Record<string, unknown>) => {
-      hookMocks.cleanupModalProps = props;
-      return props.open ? <div data-testid="memory-cleanup-review" /> : null;
-    },
-  };
-});
+vi.mock("../../../../../catalog/memory-maintenance", () => ({
+  MemoryMaintenanceRecovery: (props: Record<string, unknown>) => {
+    hookMocks.recoveryProps = props;
+    return null;
+  },
+}));
 
 vi.mock("../../../../../../shared/lib/app-dialogs", () => ({
   showConfirmDialog: hookMocks.showConfirmDialog,
@@ -106,7 +102,7 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
         hasEmbedding: true,
       },
     ];
-    hookMocks.cleanupModalProps = null;
+    hookMocks.recoveryProps = null;
     act(() => {
       root = createRoot(container!);
       root.render(<MemoryRecallMemoriesModal chatId="chat-1" open onClose={vi.fn()} />);
@@ -265,43 +261,29 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
     expect(hookMocks.repairMemories.mutateAsync).toHaveBeenCalledOnce();
   });
 
-  it("explains why cleanup and export are unavailable without local memories", () => {
+  it("explains why export is unavailable without local memories", () => {
     hookMocks.memories = [];
     act(() => {
       root?.render(<MemoryRecallMemoriesModal chatId="chat-1" open onClose={vi.fn()} />);
     });
 
-    expect(container!.textContent).toContain(
-      "No local memories yet. Add or import one to enable export, clear, and cleanup.",
-    );
+    expect(container!.textContent).toContain("No local memories yet. Add or import one to enable export and clear.");
     expect(container!.querySelector('button[aria-label="Export local memories"]')?.getAttribute("title")).toBe(
       "Export local memories",
     );
     expect(container!.querySelector('button[aria-label="Clear local memories"]')?.getAttribute("title")).toBe(
       "No local memories to clear yet",
     );
-    const tidy = Array.from(container!.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Tidy memories",
-    );
-    expect(tidy?.getAttribute("title")).toBe("No local memories to tidy yet");
+    expect(container!.textContent).not.toContain("Tidy memories");
   });
 
-  it("opens labeled cleanup with real adapter-normalized local sources", () => {
-    const tidy = Array.from(container!.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Tidy memories",
-    );
-    expect(tidy).toBeTruthy();
-    act(() => tidy?.click());
-
-    expect(hookMocks.cleanupModalProps?.scope).toEqual({
-      kind: "chat",
-      id: "chat-1",
-    });
-    expect((hookMocks.cleanupModalProps?.sources as Array<{ id: string }>).map((source) => source.id)).toEqual([
-      "local-memory",
+  it("does not expose manual cleanup and scopes optional recovery to both local lanes", () => {
+    expect(container!.textContent).not.toContain("Tidy memories");
+    expect(container!.textContent).not.toContain("Analyze memories");
+    expect(container!.textContent).not.toContain("Apply cleanup");
+    expect(hookMocks.recoveryProps?.targets).toEqual([
+      { store: "chat", scope: { kind: "chat", id: "chat-1" } },
+      { store: "chat", scope: { kind: "scene", id: "chat-1" } },
     ]);
-    const cleanupReview = container!.querySelector('[data-testid="memory-cleanup-review"]');
-    expect(cleanupReview).toBeTruthy();
-    expect(cleanupReview?.closest('[role="dialog"]')).toBeNull();
   });
 });

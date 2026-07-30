@@ -80,12 +80,14 @@ describe("discovery showcase registry", () => {
     expect(entry?.where).toContain("Character Editor > Memories");
     expect(summary).toContain("speaker-labeled exchanges");
     expect(summary).toContain("rank");
-    expect(summary).toContain("tidy memories");
-    expect(summary).toContain("all active");
+    expect(summary).toContain("automatic memory hygiene");
+    expect(summary).toContain("automatically rejects");
     expect(summary).toContain("pinned");
-    expect(summary).toContain("two or more");
+    expect(summary).toContain("quietly combines or removes");
     expect(summary).toContain("low-value");
-    expect(summary).toContain("start unchecked");
+    expect(summary).toContain("undo the latest");
+    expect(summary).not.toContain("apply cleanup");
+    expect(summary).not.toContain("removal review");
     expect(summary).toContain("repair from chat history");
     expect(entry?.where).toContain("Character Editor > Memories");
     expect(summary).not.toMatch(/embeddings? (?:create|summarize|write)/);
