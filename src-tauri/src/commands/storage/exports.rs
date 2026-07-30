@@ -99,14 +99,7 @@ pub(crate) fn export_records(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     if matches!(collection, "characters" | "personas" | "prompts") {
-        return export_named_records(
-            state,
-            kind,
-            collection,
-            ids,
-            format,
-            include_memories,
-        );
+        return export_named_records(state, kind, collection, ids, format, include_memories);
     }
 
     let mut items = Vec::new();
@@ -498,9 +491,7 @@ fn native_record_export(
     include_memories: bool,
 ) -> AppResult<Value> {
     match collection {
-        "characters" => {
-            character_export_envelope_with_options(state, record, include_memories)
-        }
+        "characters" => character_export_envelope_with_options(state, record, include_memories),
         "personas" => persona_export_envelope(state, record),
         "prompts" => preset_export_envelope(state, record),
         _ => Ok(json!({
@@ -586,10 +577,13 @@ fn portable_character_memories(state: &AppState, character_id: &str) -> AppResul
         .list("canonical-memories")?
         .into_iter()
         .filter(|memory| {
-            memory.get("scope").and_then(Value::as_object).is_some_and(|scope| {
-                scope.get("kind").and_then(Value::as_str) == Some("character")
-                    && scope.get("id").and_then(Value::as_str) == Some(character_id)
-            })
+            memory
+                .get("scope")
+                .and_then(Value::as_object)
+                .is_some_and(|scope| {
+                    scope.get("kind").and_then(Value::as_str) == Some("character")
+                        && scope.get("id").and_then(Value::as_str) == Some(character_id)
+                })
         })
         .collect::<Vec<_>>();
     memories.sort_by(|left, right| {
@@ -628,10 +622,7 @@ fn portable_character_memories(state: &AppState, character_id: &str) -> AppResul
             ] {
                 if let Some(linked_id) = memory.get(source_field).and_then(Value::as_str) {
                     if let Some(export_id) = export_ids.get(linked_id) {
-                        portable.insert(
-                            export_field.to_string(),
-                            Value::String(export_id.clone()),
-                        );
+                        portable.insert(export_field.to_string(), Value::String(export_id.clone()));
                     }
                 }
             }
@@ -1653,7 +1644,10 @@ mod tests {
 
         let with = character_export_envelope_with_options(&state, &character, true).unwrap();
         let memory = &with["data"]["memories"][0];
-        assert_eq!(memory["content"], "Mira keeps the silver key under the clock.");
+        assert_eq!(
+            memory["content"],
+            "Mira keeps the silver key under the clock."
+        );
         assert_eq!(memory["kind"], "fact");
         assert!(memory.get("provenance").is_none());
         assert!(memory.get("payload").is_none());
@@ -1662,7 +1656,9 @@ mod tests {
         assert!(!with.to_string().contains("private-message"));
         assert!(!with.to_string().contains("private-provider"));
 
-        assert!(compatible_character_export(&character).get("memories").is_none());
+        assert!(compatible_character_export(&character)
+            .get("memories")
+            .is_none());
     }
 
     #[test]

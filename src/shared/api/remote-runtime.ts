@@ -153,6 +153,8 @@ const REMOTE_COMMANDS = new Set([
   "chat_memory_correct",
   "chat_memories_clear",
   "chat_memories_refresh",
+  "chat_memory_capture_preview",
+  "chat_memory_capture_commit",
   "chat_memories_migrate",
   "chat_memory_indexes_rebuild",
   "chat_memories_export",

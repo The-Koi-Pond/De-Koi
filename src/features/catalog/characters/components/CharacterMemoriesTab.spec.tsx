@@ -21,8 +21,7 @@ const hookMocks = vi.hoisted(() => ({
     mutateAsync: vi.fn(async () => undefined),
   },
   invalidateMemories: vi.fn(async () => undefined),
-  cleanupModalProps: null as Record<string, unknown> | null,
-  resolveDefaultTextConnectionId: vi.fn(async () => "connection-1"),
+  recoveryProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock("../hooks/use-character-memories", () => ({
@@ -37,20 +36,9 @@ vi.mock("../hooks/use-character-memories", () => ({
 }));
 
 vi.mock("../../memory-maintenance", () => ({
-  canonicalMemoryCleanupSource: (memory: Record<string, unknown>) => ({
-    id: memory.id,
-    scope: memory.scope,
-    content: memory.content,
-  }),
-  MemoryCleanupReviewModal: (props: Record<string, unknown>) => {
-    hookMocks.cleanupModalProps = props;
-    return props.open ? <div data-testid="character-memory-cleanup" /> : null;
-  },
-}));
-
-vi.mock("../../../../shared/api/connection-catalog-api", () => ({
-  connectionCatalogApi: {
-    resolveDefaultTextConnectionId: hookMocks.resolveDefaultTextConnectionId,
+  MemoryMaintenanceRecovery: (props: Record<string, unknown>) => {
+    hookMocks.recoveryProps = props;
+    return null;
   },
 }));
 
@@ -78,7 +66,6 @@ describe("CharacterMemoriesTab manual entry", () => {
     hookMocks.rebuildMemoryIndex.mutateAsync.mockClear();
     hookMocks.updateMemory.mutateAsync.mockClear();
     hookMocks.invalidateMemories.mockClear();
-    hookMocks.resolveDefaultTextConnectionId.mockClear();
     hookMocks.memories = [
       {
         id: "mira-memory",
@@ -94,7 +81,7 @@ describe("CharacterMemoriesTab manual entry", () => {
         updatedAt: "2026-07-01T00:00:00.000Z",
       },
     ];
-    hookMocks.cleanupModalProps = null;
+    hookMocks.recoveryProps = null;
   });
 
   afterEach(() => {
@@ -298,23 +285,13 @@ describe("CharacterMemoriesTab manual entry", () => {
     expect(container!.textContent).not.toContain("not ready for recall");
   });
 
-  it("opens cleanup for only the current character and uses the default text connection", async () => {
+  it("does not expose manual tidy controls and scopes optional recovery to the current character", () => {
     renderTab();
-    const tidy = Array.from(container!.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Tidy memories",
-    );
-    expect(tidy).toBeTruthy();
-    act(() => tidy?.click());
-
-    expect(hookMocks.cleanupModalProps?.scope).toEqual({
-      kind: "character",
-      id: "char-1",
-    });
-    expect((hookMocks.cleanupModalProps?.sources as Array<{ id: string }>).map((source) => source.id)).toEqual([
-      "mira-memory",
+    expect(container!.textContent).not.toContain("Tidy memories");
+    expect(container!.textContent).not.toContain("Analyze memories");
+    expect(container!.textContent).not.toContain("Apply cleanup");
+    expect(hookMocks.recoveryProps?.targets).toEqual([
+      { store: "canonical", scope: { kind: "character", id: "char-1" } },
     ]);
-    await (hookMocks.cleanupModalProps?.resolveConnectionId as () => Promise<string>)();
-    expect(hookMocks.resolveDefaultTextConnectionId).toHaveBeenCalledOnce();
-    expect(container!.querySelector('[data-testid="character-memory-cleanup"]')).toBeTruthy();
   });
 });

@@ -40,11 +40,7 @@ fn memory_belongs_to_scope(memory: &Value, scope: &CleanupScope) -> bool {
         .get("scopeType")
         .and_then(Value::as_str)
         .unwrap_or("chat");
-    let scope_id = memory
-        .get("scopeId")
-        .and_then(Value::as_str)
-        .unwrap_or(scope.id.as_str());
-    scope_type == scope.kind && scope_id == scope.id
+    scope_type == scope.kind
 }
 
 fn chat_memory_is_cleanup_eligible(memory: &Value, scope: &CleanupScope) -> bool {
@@ -292,6 +288,11 @@ fn apply_validated_chat_batch(
             let source = source
                 .as_object_mut()
                 .ok_or_else(|| AppError::invalid_input("Stored chat memory is not an object"))?;
+            let previous_cleanup_metadata = source
+                .iter()
+                .filter(|(key, _)| key.starts_with("cleanup"))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Map<String, Value>>();
             let previous_updated_at = source.get("updatedAt").cloned().unwrap_or(Value::Null);
             let previous_superseded_at_present = source.contains_key("supersededAt");
             let previous_superseded_at = source.get("supersededAt").cloned().unwrap_or(Value::Null);
@@ -332,6 +333,10 @@ fn apply_validated_chat_batch(
             source.insert(
                 "cleanupPreviousSupersededByMemoryId".to_string(),
                 previous_superseded_by,
+            );
+            source.insert(
+                "cleanupPreviousMetadata".to_string(),
+                Value::Object(previous_cleanup_metadata),
             );
             source.insert("cleanupSupersededByBatchId".to_string(), json!(batch_id));
             source.insert("cleanupAppliedAt".to_string(), json!(applied_at));
@@ -507,6 +512,10 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                 let memory = memories[*index].as_object_mut().ok_or_else(|| {
                     AppError::invalid_input("Stored chat memory is not an object")
                 })?;
+                let previous_cleanup_metadata = memory
+                    .remove("cleanupPreviousMetadata")
+                    .and_then(|value| value.as_object().cloned())
+                    .unwrap_or_default();
                 let previous_status = memory
                     .remove("cleanupPreviousStatus")
                     .and_then(|value| value.as_str().map(ToOwned::to_owned))
@@ -563,6 +572,12 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
                         "supersededByMemoryId".to_string(),
                         previous_superseded_by.unwrap_or(Value::Null),
                     );
+                }
+                // A cleanup result may become a source in the next automatic
+                // pass. Reveal its exact prior cleanup layer so older batches
+                // remain independently undoable.
+                for (field, value) in previous_cleanup_metadata {
+                    memory.insert(field, value);
                 }
             }
             for index in &replacement_indexes {
@@ -633,9 +648,66 @@ mod tests {
         }
     }
 
+    fn expected_memory(memory: &Value) -> ExpectedState {
+        ExpectedState {
+            content: memory["content"]
+                .as_str()
+                .expect("chat memory content should be a string")
+                .to_string(),
+            status: memory_status(memory).to_string(),
+            updated_at: value_string(memory, "updatedAt"),
+            pinned: chat_memory_is_pinned(memory),
+            user_edited: memory
+                .get("userEdited")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }
+    }
+
+    fn combine_proposal(
+        id: &str,
+        sources: &[&Value],
+        replacement_content: &str,
+    ) -> CleanupProposal {
+        CleanupProposal {
+            id: id.to_string(),
+            proposal_type: ProposalType::Combine,
+            source_ids: sources
+                .iter()
+                .map(|memory| {
+                    memory["id"]
+                        .as_str()
+                        .expect("chat memory id should be a string")
+                        .to_string()
+                })
+                .collect(),
+            expected: sources
+                .iter()
+                .map(|memory| {
+                    (
+                        memory["id"]
+                            .as_str()
+                            .expect("chat memory id should be a string")
+                            .to_string(),
+                        expected_memory(memory),
+                    )
+                })
+                .collect(),
+            winner_id: None,
+            replacement: Some(CleanupReplacement {
+                content: replacement_content.to_string(),
+                kind: "fact".to_string(),
+            }),
+            _reason: Some("Overlapping memories".to_string()),
+            selected: true,
+            _estimated_tokens_before: None,
+            _estimated_tokens_after: None,
+        }
+    }
+
     fn apply_request() -> ApplyCleanupRequest {
         ApplyCleanupRequest {
-            version: 1,
+            store: super::super::contracts::CleanupStore::Chat,
             scope: CleanupScope {
                 kind: "chat".to_string(),
                 id: "chat-1".to_string(),
@@ -690,7 +762,7 @@ mod tests {
 
     fn discard_request(proposals: Vec<CleanupProposal>) -> ApplyCleanupRequest {
         ApplyCleanupRequest {
-            version: 1,
+            store: super::super::contracts::CleanupStore::Chat,
             scope: CleanupScope {
                 kind: "chat".to_string(),
                 id: "chat-1".to_string(),
@@ -769,6 +841,13 @@ mod tests {
         let mut foreign = same_chat.clone();
         foreign["chatId"] = json!("chat-2");
         foreign["scopeId"] = json!("chat-2");
+        let mut scene = same_chat.clone();
+        scene["scopeType"] = json!("scene");
+        scene["scopeId"] = json!("scene-1");
+        let scene_target = CleanupScope {
+            kind: "scene".to_string(),
+            id: "chat-1".to_string(),
+        };
 
         assert!(chat_memory_is_cleanup_eligible(&same_chat, &scope));
         assert!(chat_memory_is_cleanup_eligible(&imported, &scope));
@@ -778,6 +857,8 @@ mod tests {
         assert!(chat_memory_is_cleanup_eligible(&pinned, &scope));
         assert!(!chat_memory_is_cleanup_eligible(&wrong, &scope));
         assert!(!chat_memory_is_cleanup_eligible(&foreign, &scope));
+        assert!(!chat_memory_is_cleanup_eligible(&scene, &scope));
+        assert!(chat_memory_is_cleanup_eligible(&scene, &scene_target));
     }
 
     #[test]
@@ -885,6 +966,7 @@ mod tests {
         undo_chat_cleanup(
             &state,
             UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Chat,
                 scope: CleanupScope {
                     kind: "chat".to_string(),
                     id: "chat-1".to_string(),
@@ -975,6 +1057,7 @@ mod tests {
         undo_chat_cleanup(
             &state,
             UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Chat,
                 scope: CleanupScope {
                     kind: "chat".to_string(),
                     id: "chat-1".to_string(),
@@ -1075,6 +1158,7 @@ mod tests {
         undo_chat_cleanup(
             &state,
             UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Chat,
                 scope: CleanupScope {
                     kind: "chat".to_string(),
                     id: "chat-1".to_string(),
@@ -1130,5 +1214,126 @@ mod tests {
             .expect("chat read should work")
             .expect("chat should exist");
         assert_eq!(unchanged["memories"], original);
+    }
+
+    #[tokio::test]
+    async fn chat_cleanup_undoes_consecutive_combine_batches_newest_first() {
+        let state = test_state("chat-consecutive-batch-undo");
+        let memory_a = automatic_memory("memory-a", "Mira has the brass key.");
+        let memory_b = automatic_memory("memory-b", "Mira keeps the brass key.");
+        let memory_c = automatic_memory("memory-c", "The brass key opens the north door.");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [memory_a.clone(), memory_b.clone(), memory_c.clone()]
+                }),
+            )
+            .expect("chat should seed");
+
+        let first = apply_chat_cleanup(
+            &state,
+            discard_request(vec![combine_proposal(
+                "combine-first",
+                &[&memory_a, &memory_b],
+                "Mira keeps the brass key.",
+            )]),
+        )
+        .await
+        .expect("first cleanup should apply");
+        let first_batch_id = first["batchId"]
+            .as_str()
+            .expect("first batch id should be returned")
+            .to_string();
+        let after_first = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should work")
+            .expect("chat should exist");
+        let first_replacement = after_first["memories"]
+            .as_array()
+            .expect("memories should be an array")
+            .iter()
+            .find(|memory| memory["cleanupBatchId"] == json!(first_batch_id))
+            .expect("first replacement should exist")
+            .clone();
+        let current_c = after_first["memories"]
+            .as_array()
+            .expect("memories should be an array")
+            .iter()
+            .find(|memory| memory["id"] == json!("memory-c"))
+            .expect("third memory should exist")
+            .clone();
+
+        let second = apply_chat_cleanup(
+            &state,
+            discard_request(vec![combine_proposal(
+                "combine-second",
+                &[&first_replacement, &current_c],
+                "Mira keeps the brass key that opens the north door.",
+            )]),
+        )
+        .await
+        .expect("second cleanup should apply");
+        undo_chat_cleanup(
+            &state,
+            UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Chat,
+                scope: CleanupScope {
+                    kind: "chat".to_string(),
+                    id: "chat-1".to_string(),
+                },
+                batch_id: second["batchId"]
+                    .as_str()
+                    .expect("second batch id should be returned")
+                    .to_string(),
+            },
+        )
+        .expect("newest cleanup should undo");
+
+        let after_second_undo = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should work")
+            .expect("chat should exist");
+        let restored_first_replacement = after_second_undo["memories"]
+            .as_array()
+            .expect("memories should be an array")
+            .iter()
+            .find(|memory| memory["id"] == first_replacement["id"])
+            .expect("first replacement should remain");
+        assert_eq!(
+            restored_first_replacement["cleanupBatchId"],
+            json!(first_batch_id)
+        );
+        assert_eq!(
+            restored_first_replacement["cleanupAppliedAt"],
+            restored_first_replacement["updatedAt"]
+        );
+
+        undo_chat_cleanup(
+            &state,
+            UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Chat,
+                scope: CleanupScope {
+                    kind: "chat".to_string(),
+                    id: "chat-1".to_string(),
+                },
+                batch_id: first_batch_id,
+            },
+        )
+        .expect("oldest cleanup should undo after newest");
+
+        assert_eq!(
+            active_memory_ids(&state),
+            vec![
+                "memory-a".to_string(),
+                "memory-b".to_string(),
+                "memory-c".to_string(),
+            ]
+        );
     }
 }

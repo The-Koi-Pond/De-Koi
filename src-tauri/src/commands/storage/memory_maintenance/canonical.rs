@@ -46,7 +46,7 @@ fn canonical_memory_belongs_to_scope(memory: &Value, scope: &CleanupScope) -> bo
         .get("scope")
         .and_then(Value::as_object)
         .is_some_and(|memory_scope| {
-            memory_scope.get("kind").and_then(Value::as_str) == Some("character")
+            memory_scope.get("kind").and_then(Value::as_str) == Some(scope.kind.as_str())
                 && memory_scope.get("id").and_then(Value::as_str) == Some(scope.id.as_str())
         })
 }
@@ -217,6 +217,7 @@ fn build_replacement(
     let mut source_chat_ids = source_chat_ids.into_iter().collect::<Vec<_>>();
     source_chat_ids.sort();
     let source_chat_id = source_chat_ids.first().cloned();
+    let character_id = (scope.kind == "character").then(|| scope.id.clone());
     // Cleanup creates a new canonical record at apply time. The source chat
     // provenance remains separate so its historical timestamps are not forged
     // into the replacement's lifecycle timestamps.
@@ -224,13 +225,13 @@ fn build_replacement(
         "id": new_id(),
         "kind": kind,
         "status": if pinned { "pinned" } else { "active" },
-        "scope": { "kind": "character", "id": scope.id },
+        "scope": { "kind": scope.kind, "id": scope.id },
         "content": replacement.content.trim(),
         "confidence": confidence,
         "provenance": {
             "sourceChatId": source_chat_id,
             "messageIds": message_ids,
-            "characterId": scope.id,
+            "characterId": character_id,
             "timestamp": applied_at
         },
         "title": null,
@@ -259,7 +260,9 @@ fn source_cleanup_metadata(
     previous_status: &str,
     previous_updated_at: Option<String>,
     previous_superseded_by: Option<String>,
+    previous_memory_cleanup: Option<Value>,
 ) -> Value {
+    let previous_memory_cleanup_present = previous_memory_cleanup.is_some();
     json!({
         "batchId": batch_id,
         "role": "source",
@@ -267,7 +270,9 @@ fn source_cleanup_metadata(
         "appliedAt": applied_at,
         "previousStatus": previous_status,
         "previousUpdatedAt": previous_updated_at,
-        "previousSupersededByMemoryId": previous_superseded_by
+        "previousSupersededByMemoryId": previous_superseded_by,
+        "previousMemoryCleanupPresent": previous_memory_cleanup_present,
+        "previousMemoryCleanup": previous_memory_cleanup.unwrap_or(Value::Null)
     })
 }
 
@@ -275,9 +280,9 @@ pub(crate) fn apply_canonical_cleanup(
     state: &AppState,
     request: ApplyCleanupRequest,
 ) -> AppResult<Value> {
-    if request.scope.kind != "character" {
+    if !matches!(request.scope.kind.as_str(), "chat" | "scene" | "character") {
         return Err(AppError::invalid_input(
-            "Canonical cleanup requires a character scope",
+            "Canonical cleanup requires a chat, scene, or character scope",
         ));
     }
     let batch_id = new_id();
@@ -344,6 +349,11 @@ pub(crate) fn apply_canonical_cleanup(
                         value_string(source, "status").unwrap_or_else(|| "active".to_string());
                     let previous_updated_at = value_string(source, "updatedAt");
                     let previous_superseded_by = value_string(source, "supersededByMemoryId");
+                    let previous_memory_cleanup = source
+                        .get("payload")
+                        .and_then(Value::as_object)
+                        .and_then(|payload| payload.get("memoryCleanup"))
+                        .cloned();
                     let source_object = source.as_object_mut().ok_or_else(|| {
                         AppError::invalid_input("Stored canonical memory is not an object")
                     })?;
@@ -363,6 +373,7 @@ pub(crate) fn apply_canonical_cleanup(
                             &previous_status,
                             previous_updated_at,
                             previous_superseded_by,
+                            previous_memory_cleanup,
                         ),
                     );
                     if discard {
@@ -406,9 +417,9 @@ pub(crate) fn undo_canonical_cleanup(
     state: &AppState,
     request: UndoCleanupRequest,
 ) -> AppResult<Value> {
-    if request.scope.kind != "character" {
+    if !matches!(request.scope.kind.as_str(), "chat" | "scene" | "character") {
         return Err(AppError::invalid_input(
-            "Canonical cleanup undo requires a character scope",
+            "Canonical cleanup undo requires a chat, scene, or character scope",
         ));
     }
     let batch_id = request.batch_id.clone();
@@ -506,6 +517,15 @@ pub(crate) fn undo_canonical_cleanup(
                     .to_string();
                 let previous_updated_at = metadata.get("previousUpdatedAt").cloned();
                 let previous_superseded_by = metadata.get("previousSupersededByMemoryId").cloned();
+                let previous_memory_cleanup = metadata
+                    .get("previousMemoryCleanup")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let previous_memory_cleanup_present = metadata
+                    .get("previousMemoryCleanupPresent")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    || !previous_memory_cleanup.is_null();
                 // Canonical rows require updatedAt. Legacy rows without a saved
                 // value fall back through durable row/batch time before undo time.
                 let fallback_updated_at = value_string(memory, "createdAt")
@@ -539,7 +559,11 @@ pub(crate) fn undo_canonical_cleanup(
                     }
                 }
                 if let Some(payload) = object.get_mut("payload").and_then(Value::as_object_mut) {
-                    payload.remove("memoryCleanup");
+                    if previous_memory_cleanup_present {
+                        payload.insert("memoryCleanup".to_string(), previous_memory_cleanup);
+                    } else {
+                        payload.remove("memoryCleanup");
+                    }
                 }
                 let changed = Value::Object(object.clone());
                 canonical_memory::replace_memory_lexical_index(index_rows, &changed)?;
@@ -687,12 +711,53 @@ mod tests {
 
     fn discard_request(proposals: Vec<CleanupProposal>) -> ApplyCleanupRequest {
         ApplyCleanupRequest {
-            version: 1,
+            store: super::super::contracts::CleanupStore::Canonical,
             scope: CleanupScope {
                 kind: "character".to_string(),
                 id: "mira".to_string(),
             },
             proposals,
+        }
+    }
+
+    fn combine_proposal(
+        id: &str,
+        sources: &[&Value],
+        replacement_content: &str,
+    ) -> CleanupProposal {
+        CleanupProposal {
+            id: id.to_string(),
+            proposal_type: ProposalType::Combine,
+            source_ids: sources
+                .iter()
+                .map(|memory| {
+                    memory["id"]
+                        .as_str()
+                        .expect("canonical memory id should be a string")
+                        .to_string()
+                })
+                .collect(),
+            expected: sources
+                .iter()
+                .map(|memory| {
+                    (
+                        memory["id"]
+                            .as_str()
+                            .expect("canonical memory id should be a string")
+                            .to_string(),
+                        expected(memory),
+                    )
+                })
+                .collect(),
+            winner_id: None,
+            replacement: Some(CleanupReplacement {
+                content: replacement_content.to_string(),
+                kind: "fact".to_string(),
+            }),
+            _reason: Some("Overlapping memories".to_string()),
+            selected: true,
+            _estimated_tokens_before: None,
+            _estimated_tokens_after: None,
         }
     }
 
@@ -789,7 +854,7 @@ mod tests {
             .expect("memory-b should read")
             .expect("memory-b should exist");
         let request = ApplyCleanupRequest {
-            version: 1,
+            store: super::super::contracts::CleanupStore::Canonical,
             scope: CleanupScope {
                 kind: "character".to_string(),
                 id: "mira".to_string(),
@@ -843,6 +908,7 @@ mod tests {
         undo_canonical_cleanup(
             &state,
             UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Canonical,
                 scope: CleanupScope {
                     kind: "character".to_string(),
                     id: "mira".to_string(),
@@ -949,6 +1015,7 @@ mod tests {
         undo_canonical_cleanup(
             &state,
             UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Canonical,
                 scope: CleanupScope {
                     kind: "character".to_string(),
                     id: "mira".to_string(),
@@ -1011,6 +1078,184 @@ mod tests {
                 .expect("index rows should list")
                 .len(),
             2
+        );
+    }
+
+    #[test]
+    fn canonical_scene_cleanup_applies_and_undoes_in_canonical_storage() {
+        let state = test_state("scene-apply-undo");
+        let memory = canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "scene-junk",
+                "kind": "scene_event",
+                "status": "active",
+                "scope": { "kind": "scene", "id": "scene-1" },
+                "content": "A contextless reaction.",
+                "confidence": 0.8,
+                "provenance": {
+                    "sourceChatId": "chat-1",
+                    "messageIds": ["message-1"],
+                    "timestamp": "2026-07-01T00:00:00.000Z"
+                },
+                "tags": ["automatic"],
+                "payload": { "automatic": true }
+            }),
+        )
+        .expect("scene memory should seed");
+        let scope = CleanupScope {
+            kind: "scene".to_string(),
+            id: "scene-1".to_string(),
+        };
+        let applied = apply_canonical_cleanup(
+            &state,
+            ApplyCleanupRequest {
+                store: super::super::contracts::CleanupStore::Canonical,
+                scope: scope.clone(),
+                proposals: vec![discard_proposal(&memory)],
+            },
+        )
+        .expect("scene cleanup should apply");
+
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "scene-junk")
+                .expect("scene memory should read")
+                .expect("scene memory should exist")["status"],
+            json!("deleted")
+        );
+
+        undo_canonical_cleanup(
+            &state,
+            UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Canonical,
+                scope,
+                batch_id: applied["batchId"].as_str().unwrap().to_string(),
+            },
+        )
+        .expect("scene cleanup should undo");
+
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "scene-junk")
+                .expect("scene memory should read")
+                .expect("scene memory should exist")["status"],
+            json!("active")
+        );
+    }
+
+    #[test]
+    fn canonical_cleanup_undoes_consecutive_combine_batches_newest_first() {
+        let state = test_state("canonical-consecutive-batch-undo");
+        let memory_a = automatic_character_memory(&state, "memory-a", "Mira has the brass key.");
+        let memory_b = automatic_character_memory(&state, "memory-b", "Mira keeps the brass key.");
+        let _memory_c =
+            automatic_character_memory(&state, "memory-c", "The brass key opens the north door.");
+
+        let first = apply_canonical_cleanup(
+            &state,
+            discard_request(vec![combine_proposal(
+                "combine-first",
+                &[&memory_a, &memory_b],
+                "Mira keeps the brass key.",
+            )]),
+        )
+        .expect("first cleanup should apply");
+        let first_batch_id = first["batchId"]
+            .as_str()
+            .expect("first batch id should be returned")
+            .to_string();
+        let first_replacement = state
+            .storage
+            .list("canonical-memories")
+            .expect("canonical memories should list")
+            .into_iter()
+            .find(|memory| {
+                cleanup_metadata(memory)
+                    .and_then(|metadata| metadata.get("batchId"))
+                    .and_then(Value::as_str)
+                    == Some(first_batch_id.as_str())
+                    && cleanup_metadata(memory)
+                        .and_then(|metadata| metadata.get("role"))
+                        .and_then(Value::as_str)
+                        == Some("replacement")
+            })
+            .expect("first replacement should exist");
+        let current_c = state
+            .storage
+            .get("canonical-memories", "memory-c")
+            .expect("third memory should read")
+            .expect("third memory should exist");
+
+        let second = apply_canonical_cleanup(
+            &state,
+            discard_request(vec![combine_proposal(
+                "combine-second",
+                &[&first_replacement, &current_c],
+                "Mira keeps the brass key that opens the north door.",
+            )]),
+        )
+        .expect("second cleanup should apply");
+        undo_canonical_cleanup(
+            &state,
+            UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Canonical,
+                scope: CleanupScope {
+                    kind: "character".to_string(),
+                    id: "mira".to_string(),
+                },
+                batch_id: second["batchId"]
+                    .as_str()
+                    .expect("second batch id should be returned")
+                    .to_string(),
+            },
+        )
+        .expect("newest cleanup should undo");
+
+        let restored_first_replacement = state
+            .storage
+            .get(
+                "canonical-memories",
+                first_replacement["id"]
+                    .as_str()
+                    .expect("first replacement id should be a string"),
+            )
+            .expect("first replacement should read")
+            .expect("first replacement should remain");
+        assert_eq!(
+            cleanup_metadata(&restored_first_replacement)
+                .and_then(|metadata| metadata.get("batchId"))
+                .and_then(Value::as_str),
+            Some(first_batch_id.as_str())
+        );
+        assert_eq!(
+            cleanup_metadata(&restored_first_replacement)
+                .and_then(|metadata| metadata.get("appliedAt")),
+            restored_first_replacement.get("updatedAt")
+        );
+
+        undo_canonical_cleanup(
+            &state,
+            UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Canonical,
+                scope: CleanupScope {
+                    kind: "character".to_string(),
+                    id: "mira".to_string(),
+                },
+                batch_id: first_batch_id,
+            },
+        )
+        .expect("oldest cleanup should undo after newest");
+
+        assert_eq!(
+            active_character_ids(&state),
+            vec![
+                "memory-a".to_string(),
+                "memory-b".to_string(),
+                "memory-c".to_string(),
+            ]
         );
     }
 }

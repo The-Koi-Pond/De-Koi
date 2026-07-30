@@ -63,11 +63,26 @@ export interface MemoryCleanupPreview {
   deferredCandidateCount: number;
 }
 
-export interface MemoryCleanupApplyRequest {
+export type MemoryCleanupStore = "chat" | "canonical";
+
+export interface MemoryCleanupTarget {
+  store: MemoryCleanupStore;
+  scope: MemoryCleanupScope;
+}
+
+export interface MemoryCleanupApplyRequestV1 {
   version: 1;
   scope: MemoryCleanupScope;
   proposals: MemoryCleanupProposal[];
 }
+
+export interface MemoryCleanupApplyRequestV2 {
+  version: 2;
+  target: MemoryCleanupTarget;
+  proposals: MemoryCleanupProposal[];
+}
+
+export type MemoryCleanupApplyRequest = MemoryCleanupApplyRequestV1 | MemoryCleanupApplyRequestV2;
 
 export interface MemoryCleanupApplyResult {
   batchId: string;
@@ -77,10 +92,18 @@ export interface MemoryCleanupApplyResult {
   created: number;
 }
 
-export interface MemoryCleanupUndoRequest {
+export interface MemoryCleanupUndoRequestV1 {
   scope: MemoryCleanupScope;
   batchId: string;
 }
+
+export interface MemoryCleanupUndoRequestV2 {
+  version: 2;
+  target: MemoryCleanupTarget;
+  batchId: string;
+}
+
+export type MemoryCleanupUndoRequest = MemoryCleanupUndoRequestV1 | MemoryCleanupUndoRequestV2;
 
 export interface MemoryCleanupUndoResult {
   batchId: string;

@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { LlmGateway } from "../capabilities/llm";
-import type { RefreshChatMemoriesOptions, StorageEntity, StorageGateway } from "../capabilities/storage";
+import type {
+  ChatMemoryCapturePreview,
+  CommitChatMemoryCaptureInput,
+  RefreshChatMemoriesOptions,
+  StorageEntity,
+  StorageGateway,
+} from "../capabilities/storage";
 import type { JsonRecord } from "./runtime-records";
 import {
   beginForegroundGeneration,
@@ -25,6 +31,27 @@ function message(id: string, role: string, content: string): JsonRecord {
   };
 }
 
+function isValueReviewRequest(request: { messages: Array<{ content: string }> }): boolean {
+  return request.messages.some((entry) => entry.content.includes("memory_cleanup_value_review"));
+}
+
+function passingValueReviewLlm(
+  extraction: LlmGateway["complete"] = async () => JSON.stringify({ memories: [] }),
+): LlmGateway {
+  return {
+    async complete(request, signal) {
+      if (isValueReviewRequest(request)) return JSON.stringify({ proposals: [] });
+      return extraction(request, signal);
+    },
+    async *stream() {
+      yield { type: "done" };
+    },
+    async listModels() {
+      return [];
+    },
+  };
+}
+
 function queueStorage(
   options: {
     refreshFailures?: number;
@@ -39,6 +66,8 @@ function queueStorage(
     ["assistant-1", message("assistant-1", "assistant", "Oh, that's interesting. I don't have pets.")],
   ]);
   const refreshCalls: Array<{ chatId: string; options?: RefreshChatMemoriesOptions }> = [];
+  const previewCalls: Array<{ chatId: string; sourceMessageIds: string[] }> = [];
+  const commitCalls: CommitChatMemoryCaptureInput[] = [];
   let refreshFailures = options.refreshFailures ?? 0;
 
   const storage: StorageGateway = {
@@ -118,6 +147,54 @@ function queueStorage(
         },
       } as T;
     },
+    async previewChatMemoryCapture(chatId, sourceMessageIds): Promise<ChatMemoryCapturePreview> {
+      previewCalls.push({ chatId, sourceMessageIds });
+      return {
+        version: 1,
+        chatId,
+        sourceMessageIds,
+        fingerprint: "capture-fingerprint",
+        candidate: {
+          id: "transcript-candidate",
+          chatId,
+          content: "Celia's cat is named Miso.",
+          canonicalMemoryVersion: 1,
+          memoryKind: "transcript",
+          scopeType: "chat",
+          scopeId: chatId,
+          status: "active",
+          messageCount: sourceMessageIds.length,
+          messageIds: sourceMessageIds,
+          firstMessageAt: "2026-01-01T00:01:00.000Z",
+          lastMessageAt: "2026-01-01T00:02:00.000Z",
+          createdAt: "2026-01-01T00:03:00.000Z",
+          hasEmbedding: false,
+        },
+      };
+    },
+    async commitChatMemoryCapture(body) {
+      commitCalls.push(body);
+      if (refreshFailures > 0) {
+        refreshFailures -= 1;
+        throw new Error("provider unavailable");
+      }
+      return {
+        operation: "created",
+        memory: {
+          id: "memory-1",
+          chatId: body.chatId,
+          content: "Celia's cat is named Miso.",
+          memoryKind: "transcript",
+          status: "active",
+          messageCount: body.sourceMessageIds.length,
+          messageIds: body.sourceMessageIds,
+          firstMessageAt: "2026-01-01T00:01:00.000Z",
+          lastMessageAt: "2026-01-01T00:02:00.000Z",
+          createdAt: "2026-01-01T00:03:00.000Z",
+          hasEmbedding: true,
+        },
+      };
+    },
     async getWorldState<T = unknown>(): Promise<T | null> {
       return null;
     },
@@ -175,20 +252,44 @@ function queueStorage(
         characters: options.characters ?? [{ id: "char-1" }],
         savedUserMessage: messages.get("user-1"),
         savedAssistantMessage: messages.get("assistant-1"),
+        connectionId: "connection-1",
       },
       "2026-01-01T00:03:00.000Z",
     );
   }
 
-  return { storage, jobs, canonicalMemories, messages, refreshCalls, enqueue };
+  const llm = passingValueReviewLlm();
+  return {
+    storage,
+    dependencies: { storage, llm },
+    jobs,
+    canonicalMemories,
+    messages,
+    refreshCalls,
+    previewCalls,
+    commitCalls,
+    enqueue,
+  };
 }
 
 describe("automatic memory capture queue", () => {
-  it("persists a typed consequence from the complete queued exchange and records its exact ID", async () => {
+  it("persists only candidates that pass the shared value review", async () => {
     const harness = queueStorage();
-    const job = await harness.enqueue();
+    await harness.enqueue();
     const llm: LlmGateway = {
-      async complete() {
+      async complete(request) {
+        const prompt = request.messages.map((entry) => entry.content).join("\n");
+        if (prompt.includes("memory_cleanup_value_review")) {
+          return JSON.stringify({
+            proposals: [
+              {
+                type: "discard",
+                sourceIds: ["transcript-candidate"],
+                reason: "Low-value memory",
+              },
+            ],
+          });
+        }
         return JSON.stringify({
           memories: [
             {
@@ -208,6 +309,121 @@ describe("automatic memory capture queue", () => {
         return [];
       },
     };
+
+    const result = await processAutomaticMemoryCaptureQueue(
+      { storage: harness.storage, llm },
+      { now: "2026-01-01T00:03:00.000Z" },
+    );
+
+    expect(result.completed).toBe(1);
+    expect(harness.previewCalls).toHaveLength(1);
+    expect(harness.refreshCalls).toHaveLength(0);
+    expect(harness.commitCalls).toHaveLength(0);
+    expect(Array.from(harness.canonicalMemories.values())).toEqual([
+      expect.objectContaining({ content: "The user's cat is named Miso." }),
+    ]);
+  });
+
+  it("fails closed against an older runtime without two-phase capture", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    harness.storage.previewChatMemoryCapture = undefined;
+    harness.storage.commitChatMemoryCapture = undefined;
+    const llm: LlmGateway = {
+      async complete() {
+        return JSON.stringify({ memories: [] });
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    const result = await processAutomaticMemoryCaptureQueue(
+      { storage: harness.storage, llm },
+      { now: "2026-01-01T00:03:00.000Z" },
+    );
+
+    expect(result.retryable).toBe(1);
+    expect(harness.refreshCalls).toHaveLength(0);
+    expect(harness.canonicalMemories.size).toBe(0);
+  });
+
+  it("fails closed and retries when value review fails", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    const llm: LlmGateway = {
+      async complete(request) {
+        if (isValueReviewRequest(request)) throw new Error("invalid structured response");
+        return JSON.stringify({ memories: [] });
+      },
+      async *stream() {
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    const result = await processAutomaticMemoryCaptureQueue(
+      { storage: harness.storage, llm },
+      { now: "2026-01-01T00:03:00.000Z" },
+    );
+
+    expect(result.retryable).toBe(1);
+    expect(harness.commitCalls).toHaveLength(0);
+    expect(harness.canonicalMemories.size).toBe(0);
+  });
+
+  it("does not duplicate canonical survivors after a partial retry", async () => {
+    const harness = queueStorage({ refreshFailures: 1 });
+    const job = await harness.enqueue();
+    const llm = passingValueReviewLlm(async () =>
+      JSON.stringify({
+        memories: [
+          {
+            kind: "fact",
+            content: "The user's cat is named Miso.",
+            confidence: 0.97,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["user-1"],
+          },
+        ],
+      }),
+    );
+    const dependencies = { storage: harness.storage, llm };
+
+    const first = await processAutomaticMemoryCaptureQueue(dependencies, {
+      now: "2026-01-01T00:03:00.000Z",
+    });
+    const retryAt = String(harness.jobs.get(String(job?.id))?.nextAttemptAt);
+    const second = await processAutomaticMemoryCaptureQueue(dependencies, { now: retryAt });
+
+    expect(first.retryable).toBe(1);
+    expect(second.completed).toBe(1);
+    expect(harness.canonicalMemories.size).toBe(1);
+    expect([...harness.canonicalMemories.keys()]).toEqual([expect.stringMatching(/^canonical-consequence-/)]);
+    expect(harness.commitCalls).toHaveLength(2);
+  });
+
+  it("persists a typed consequence from the complete queued exchange and records its exact ID", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    const llm = passingValueReviewLlm(async () =>
+      JSON.stringify({
+        memories: [
+          {
+            kind: "fact",
+            content: "The user's cat is named Miso.",
+            confidence: 0.97,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["user-1"],
+          },
+        ],
+      }),
+    );
     const notices: unknown[] = [];
     const unsubscribe = subscribeAutomaticMemoryCaptureCompletions((notice) => notices.push(notice));
 
@@ -255,12 +471,12 @@ describe("automatic memory capture queue", () => {
     const harness = queueStorage();
     const job = await harness.enqueue();
 
-    const result = await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    const result = await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
 
     expect(result).toEqual({ processed: 1, completed: 1, retryable: 0, failed: 0, stale: 0 });
-    expect(harness.refreshCalls).toEqual([
-      { chatId: "chat-1", options: { sourceMessageIds: ["user-1", "assistant-1"] } },
-    ]);
+    expect(harness.previewCalls).toEqual([{ chatId: "chat-1", sourceMessageIds: ["user-1", "assistant-1"] }]);
+    expect(harness.commitCalls).toHaveLength(1);
+    expect(harness.refreshCalls).toHaveLength(0);
     expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed", attempts: 1 }));
   });
 
@@ -276,38 +492,36 @@ describe("automatic memory capture queue", () => {
         characters: [{ id: "char-1" }],
         savedUserMessage: harness.messages.get("user-2"),
         savedAssistantMessage: harness.messages.get("assistant-2"),
+        connectionId: "connection-1",
       },
       "2026-01-01T00:04:00.000Z",
     );
 
-    let releaseFirstRefresh: () => void = () => {};
-    const firstRefreshReleased = new Promise<void>((resolve) => {
-      releaseFirstRefresh = resolve;
+    let releaseFirstCommit: () => void = () => {};
+    const firstCommitReleased = new Promise<void>((resolve) => {
+      releaseFirstCommit = resolve;
     });
-    let markFirstRefreshStarted: () => void = () => {};
-    const firstRefreshStarted = new Promise<void>((resolve) => {
-      markFirstRefreshStarted = resolve;
+    let markFirstCommitStarted: () => void = () => {};
+    const firstCommitStarted = new Promise<void>((resolve) => {
+      markFirstCommitStarted = resolve;
     });
-    const originalRefresh = harness.storage.refreshChatMemories!.bind(harness.storage);
-    let refreshCount = 0;
-    harness.storage.refreshChatMemories = async <T = unknown>(
-      chatId: string,
-      options?: RefreshChatMemoriesOptions,
-    ): Promise<T> => {
-      refreshCount += 1;
-      if (refreshCount === 1) {
-        markFirstRefreshStarted();
-        await firstRefreshReleased;
+    const originalCommit = harness.storage.commitChatMemoryCapture!.bind(harness.storage);
+    let commitCount = 0;
+    harness.storage.commitChatMemoryCapture = async (body) => {
+      commitCount += 1;
+      if (commitCount === 1) {
+        markFirstCommitStarted();
+        await firstCommitReleased;
       }
-      return originalRefresh<T>(chatId, options);
+      return originalCommit(body);
     };
 
-    const processing = processAutomaticMemoryCaptureQueue(harness.storage, {
+    const processing = processAutomaticMemoryCaptureQueue(harness.dependencies, {
       now: "2026-01-01T00:05:00.000Z",
     });
-    await firstRefreshStarted;
+    await firstCommitStarted;
     const releaseForegroundGeneration = beginForegroundGeneration(harness.storage);
-    releaseFirstRefresh();
+    releaseFirstCommit();
 
     const result = await processing;
     expect(result.processed).toBe(1);
@@ -321,7 +535,7 @@ describe("automatic memory capture queue", () => {
     const harness = queueStorage();
     const job = await harness.enqueue();
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
 
     expect(harness.messages.get("assistant-1")?.extra).toEqual({
       memoryCapture: {
@@ -333,15 +547,20 @@ describe("automatic memory capture queue", () => {
           operation: "created",
           memory: { id: "memory-1", content: "Celia's cat is named Miso." },
         },
+        valueReview: {
+          status: "completed",
+          reviewed: 1,
+          rejected: 0,
+          accepted: 1,
+        },
         consequences: {
-          status: "skipped",
-          skipReason: "llm_gateway_unavailable",
+          status: "completed",
           affected: [],
         },
       },
     });
     expect(harness.jobs.get(String(job?.id))).toEqual(
-      expect.objectContaining({ consequenceStatus: "skipped", consequenceSkipReason: "llm_gateway_unavailable" }),
+      expect.objectContaining({ consequenceStatus: "completed", consequenceSkipReason: null }),
     );
   });
 
@@ -370,29 +589,21 @@ describe("automatic memory capture queue", () => {
     });
     const job = await harness.enqueue();
     const prompts: string[] = [];
-    const llm: LlmGateway = {
-      async complete(request) {
-        prompts.push(request.messages.map((entry) => entry.content).join("\n"));
-        return JSON.stringify({
-          memories: [
-            {
-              kind: "fact",
-              content: "The user's cat is named Miso.",
-              confidence: 0.97,
-              evidence: "direct_user_assertion",
-              sourceMessageIds: ["user-1"],
-              supersedesMemoryId: "malformed-memory",
-            },
-          ],
-        });
-      },
-      async *stream() {
-        yield { type: "done" };
-      },
-      async listModels() {
-        return [];
-      },
-    };
+    const llm = passingValueReviewLlm(async (request) => {
+      prompts.push(request.messages.map((entry) => entry.content).join("\n"));
+      return JSON.stringify({
+        memories: [
+          {
+            kind: "fact",
+            content: "The user's cat is named Miso.",
+            confidence: 0.97,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["user-1"],
+            supersedesMemoryId: "malformed-memory",
+          },
+        ],
+      });
+    });
 
     await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
 
@@ -409,7 +620,7 @@ describe("automatic memory capture queue", () => {
     const notices: unknown[] = [];
     const unsubscribe = subscribeAutomaticMemoryCaptureCompletions((notice) => notices.push(notice));
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
     unsubscribe();
 
     expect(notices).toEqual([]);
@@ -421,7 +632,7 @@ describe("automatic memory capture queue", () => {
     const statuses: unknown[] = [];
     const unsubscribe = subscribeAutomaticMemoryCaptureStatuses((status) => statuses.push(status));
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
     unsubscribe();
     expect(harness.jobs.get(String(job?.id))).toEqual(
       expect.objectContaining({ status: "retryable", attempts: 1, lastError: "provider unavailable" }),
@@ -441,21 +652,22 @@ describe("automatic memory capture queue", () => {
     ]);
 
     const retryAt = String(harness.jobs.get(String(job?.id))?.nextAttemptAt);
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: retryAt });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: retryAt });
 
     expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed", attempts: 2 }));
-    expect(harness.refreshCalls).toHaveLength(2);
+    expect(harness.commitCalls).toHaveLength(2);
+    expect(harness.refreshCalls).toHaveLength(0);
   });
 
   it("marks a terminal capture failure without exposing its provider error on the message", async () => {
     const harness = queueStorage({ refreshFailures: 3 });
     const job = await harness.enqueue();
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
-    await processAutomaticMemoryCaptureQueue(harness.storage, {
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, {
       now: String(harness.jobs.get(String(job?.id))?.nextAttemptAt),
     });
-    await processAutomaticMemoryCaptureQueue(harness.storage, {
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, {
       now: String(harness.jobs.get(String(job?.id))?.nextAttemptAt),
     });
 
@@ -478,7 +690,7 @@ describe("automatic memory capture queue", () => {
       const harness = queueStorage({ refreshFailures: 1 });
       const job = await harness.enqueue();
 
-      scheduleAutomaticMemoryCaptureQueueProcessing(harness.storage);
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
       await vi.advanceTimersByTimeAsync(0);
       expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "retryable", attempts: 1 }));
 
@@ -507,11 +719,12 @@ describe("automatic memory capture queue", () => {
         } as JsonRecord);
       }
 
-      scheduleAutomaticMemoryCaptureQueueProcessing(harness.storage);
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
       await vi.runAllTimersAsync();
 
       expect(Array.from(harness.jobs.values()).filter((job) => job.status === "completed")).toHaveLength(11);
-      expect(harness.refreshCalls).toHaveLength(11);
+      expect(harness.commitCalls).toHaveLength(11);
+      expect(harness.refreshCalls).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
@@ -521,29 +734,21 @@ describe("automatic memory capture queue", () => {
     const harness = queueStorage();
     const job = await harness.enqueue();
     let attempts = 0;
-    const llm: LlmGateway = {
-      async complete() {
-        attempts += 1;
-        if (attempts === 1) throw new Error("extractor unavailable");
-        return JSON.stringify({
-          memories: [
-            {
-              kind: "fact",
-              content: "The user's cat is named Miso.",
-              confidence: 0.97,
-              evidence: "direct_user_assertion",
-              sourceMessageIds: ["user-1"],
-            },
-          ],
-        });
-      },
-      async *stream() {
-        yield { type: "done" };
-      },
-      async listModels() {
-        return [];
-      },
-    };
+    const llm = passingValueReviewLlm(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("extractor unavailable");
+      return JSON.stringify({
+        memories: [
+          {
+            kind: "fact",
+            content: "The user's cat is named Miso.",
+            confidence: 0.97,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["user-1"],
+          },
+        ],
+      });
+    });
     const dependencies = { storage: harness.storage, llm };
 
     await processAutomaticMemoryCaptureQueue(dependencies, { now: "2026-01-01T00:03:00.000Z" });
@@ -564,7 +769,7 @@ describe("automatic memory capture queue", () => {
 
     for (let index = 0; index < 3; index += 1) {
       const now = String(harness.jobs.get(String(job?.id))?.nextAttemptAt || "2026-01-01T00:03:00.000Z");
-      await processAutomaticMemoryCaptureQueue(harness.storage, { now });
+      await processAutomaticMemoryCaptureQueue(harness.dependencies, { now });
     }
 
     expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "failed", attempts: 3 }));
@@ -575,7 +780,7 @@ describe("automatic memory capture queue", () => {
     const job = await harness.enqueue();
     await harness.storage.update("memory-capture-jobs", String(job?.id), { status: "processing" });
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:04:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:04:00.000Z" });
 
     expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed" }));
   });
@@ -585,8 +790,9 @@ describe("automatic memory capture queue", () => {
     const job = await harness.enqueue();
     await harness.storage.updateChatMessage("user-1", { content: "My cat's name changed." });
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:04:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:04:00.000Z" });
 
+    expect(harness.previewCalls).toHaveLength(0);
     expect(harness.refreshCalls).toHaveLength(0);
     expect(harness.jobs.get(String(job?.id))).toEqual(
       expect.objectContaining({ status: "stale", staleReason: "source_content_changed" }),
@@ -598,8 +804,9 @@ describe("automatic memory capture queue", () => {
     const job = await harness.enqueue();
     await harness.storage.deleteChatMessage("user-1");
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:04:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:04:00.000Z" });
 
+    expect(harness.previewCalls).toHaveLength(0);
     expect(harness.refreshCalls).toHaveLength(0);
     expect(harness.jobs.get(String(job?.id))).toEqual(
       expect.objectContaining({ status: "stale", staleReason: "source_message_deleted" }),
@@ -614,10 +821,11 @@ describe("automatic memory capture queue", () => {
     expect(first?.id).toBe(second?.id);
     expect(harness.jobs.size).toBe(1);
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:04:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:04:00.000Z" });
 
-    expect(harness.refreshCalls).toHaveLength(1);
+    expect(harness.commitCalls).toHaveLength(1);
+    expect(harness.refreshCalls).toHaveLength(0);
   });
 
   it("persists attributed characters in character scope by default", async () => {
@@ -639,7 +847,7 @@ describe("automatic memory capture queue", () => {
     const harness = queueStorage({ characters: [{ id: "char-1", memoryPersistence: "chat" }] });
 
     const job = await harness.enqueue();
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
 
     expect(job).toEqual(
       expect.objectContaining({
@@ -658,7 +866,7 @@ describe("automatic memory capture queue", () => {
     });
 
     const job = await harness.enqueue();
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
 
     expect(job).toEqual(
       expect.objectContaining({
@@ -675,7 +883,7 @@ describe("automatic memory capture queue", () => {
     const harness = queueStorage();
     await harness.enqueue();
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
 
     expect(harness.canonicalMemories.size).toBe(0);
   });
@@ -683,10 +891,10 @@ describe("automatic memory capture queue", () => {
   it("does not promote raw capture when a completed job is resumed", async () => {
     const harness = queueStorage();
     const job = await harness.enqueue();
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
     await harness.storage.update("memory-capture-jobs", String(job?.id), { status: "processing" });
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:04:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:04:00.000Z" });
 
     expect(harness.canonicalMemories.size).toBe(0);
   });
@@ -702,7 +910,7 @@ describe("automatic memory capture queue", () => {
     legacyJob.scopeId = "chat-1";
     harness.jobs.set(jobId, legacyJob);
 
-    await processAutomaticMemoryCaptureQueue(harness.storage, { now: "2026-01-01T00:03:00.000Z" });
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
 
     expect(harness.canonicalMemories.size).toBe(0);
   });
@@ -710,27 +918,19 @@ describe("automatic memory capture queue", () => {
   it("recalls an extracted Conversation consequence for the same character in a later Roleplay", async () => {
     const harness = queueStorage();
     await harness.enqueue();
-    const llm: LlmGateway = {
-      async complete() {
-        return JSON.stringify({
-          memories: [
-            {
-              kind: "fact",
-              content: "The user's cat is named Miso.",
-              confidence: 0.97,
-              evidence: "direct_user_assertion",
-              sourceMessageIds: ["user-1"],
-            },
-          ],
-        });
-      },
-      async *stream() {
-        yield { type: "done" };
-      },
-      async listModels() {
-        return [];
-      },
-    };
+    const llm = passingValueReviewLlm(async () =>
+      JSON.stringify({
+        memories: [
+          {
+            kind: "fact",
+            content: "The user's cat is named Miso.",
+            confidence: 0.97,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["user-1"],
+          },
+        ],
+      }),
+    );
     await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
     const consequence = Array.from(harness.canonicalMemories.values()).find((memory) => memory.kind === "fact");
 

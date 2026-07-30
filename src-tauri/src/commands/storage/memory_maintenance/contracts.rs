@@ -1,5 +1,5 @@
 use marinara_core::{AppError, AppResult};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -7,7 +7,7 @@ const MAX_PROPOSALS: usize = 1_000;
 const MAX_SOURCE_IDS: usize = 8;
 const MAX_REPLACEMENT_CHARS: usize = 12_000;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CleanupScope {
     pub kind: String,
@@ -24,7 +24,7 @@ pub(crate) struct ExpectedState {
     pub user_edited: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ProposalType {
     KeepOne,
@@ -33,7 +33,7 @@ pub(crate) enum ProposalType {
     Conflict,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CleanupReplacement {
     pub content: String,
@@ -61,15 +61,59 @@ pub(crate) struct CleanupProposal {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ApplyCleanupRequest {
+struct ApplyCleanupRequestV1 {
     pub version: u32,
+    pub scope: CleanupScope,
+    pub proposals: Vec<CleanupProposal>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CleanupStore {
+    Chat,
+    Canonical,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CleanupTarget {
+    pub store: CleanupStore,
+    pub scope: CleanupScope,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ApplyCleanupRequestV2 {
+    pub version: u32,
+    pub target: CleanupTarget,
+    pub proposals: Vec<CleanupProposal>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ApplyCleanupRequest {
+    pub store: CleanupStore,
     pub scope: CleanupScope,
     pub proposals: Vec<CleanupProposal>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UndoCleanupRequestV1 {
+    pub scope: CleanupScope,
+    pub batch_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UndoCleanupRequestV2 {
+    pub version: u32,
+    pub target: CleanupTarget,
+    pub batch_id: String,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct UndoCleanupRequest {
+    pub store: CleanupStore,
     pub scope: CleanupScope,
     pub batch_id: String,
 }
@@ -199,14 +243,47 @@ fn validate_proposal_shape(proposal: &CleanupProposal) -> AppResult<()> {
 }
 
 pub(crate) fn parse_apply_request(body: Value) -> AppResult<ApplyCleanupRequest> {
-    let request: ApplyCleanupRequest = serde_json::from_value(body).map_err(|error| {
-        AppError::invalid_input(format!("Invalid memory cleanup request: {error}"))
-    })?;
-    if request.version != 1 {
-        return Err(AppError::invalid_input(
-            "Unsupported memory cleanup request version",
-        ));
-    }
+    let version = body.get("version").and_then(Value::as_u64);
+    let request = match version {
+        Some(1) => {
+            let request: ApplyCleanupRequestV1 = serde_json::from_value(body).map_err(|error| {
+                AppError::invalid_input(format!("Invalid memory cleanup request: {error}"))
+            })?;
+            if request.version != 1 {
+                return Err(AppError::invalid_input(
+                    "Unsupported memory cleanup request version",
+                ));
+            }
+            ApplyCleanupRequest {
+                store: match request.scope.kind.as_str() {
+                    "character" => CleanupStore::Canonical,
+                    _ => CleanupStore::Chat,
+                },
+                scope: request.scope,
+                proposals: request.proposals,
+            }
+        }
+        Some(2) => {
+            let request: ApplyCleanupRequestV2 = serde_json::from_value(body).map_err(|error| {
+                AppError::invalid_input(format!("Invalid memory cleanup request: {error}"))
+            })?;
+            if request.version != 2 {
+                return Err(AppError::invalid_input(
+                    "Unsupported memory cleanup request version",
+                ));
+            }
+            ApplyCleanupRequest {
+                store: request.target.store,
+                scope: request.target.scope,
+                proposals: request.proposals,
+            }
+        }
+        _ => {
+            return Err(AppError::invalid_input(
+                "Unsupported memory cleanup request version",
+            ))
+        }
+    };
     validate_scope(&request.scope)?;
     if request.proposals.len() > MAX_PROPOSALS {
         return Err(AppError::invalid_input(format!(
@@ -240,9 +317,33 @@ pub(crate) fn parse_apply_request(body: Value) -> AppResult<ApplyCleanupRequest>
 }
 
 pub(crate) fn parse_undo_request(body: Value) -> AppResult<UndoCleanupRequest> {
-    let request: UndoCleanupRequest = serde_json::from_value(body).map_err(|error| {
-        AppError::invalid_input(format!("Invalid memory cleanup undo request: {error}"))
-    })?;
+    let request = if body.get("version").and_then(Value::as_u64) == Some(2) {
+        let request: UndoCleanupRequestV2 = serde_json::from_value(body).map_err(|error| {
+            AppError::invalid_input(format!("Invalid memory cleanup undo request: {error}"))
+        })?;
+        if request.version != 2 {
+            return Err(AppError::invalid_input(
+                "Unsupported memory cleanup undo request version",
+            ));
+        }
+        UndoCleanupRequest {
+            store: request.target.store,
+            scope: request.target.scope,
+            batch_id: request.batch_id,
+        }
+    } else {
+        let request: UndoCleanupRequestV1 = serde_json::from_value(body).map_err(|error| {
+            AppError::invalid_input(format!("Invalid memory cleanup undo request: {error}"))
+        })?;
+        UndoCleanupRequest {
+            store: match request.scope.kind.as_str() {
+                "character" => CleanupStore::Canonical,
+                _ => CleanupStore::Chat,
+            },
+            scope: request.scope,
+            batch_id: request.batch_id,
+        }
+    };
     validate_scope(&request.scope)?;
     if request.batch_id.trim().is_empty() {
         return Err(AppError::invalid_input(
@@ -292,6 +393,35 @@ mod tests {
             .expect("single-source discard should be valid");
 
         assert_eq!(request.proposals[0].proposal_type, ProposalType::Discard);
+    }
+
+    #[test]
+    fn version_two_routes_canonical_chat_scope_to_canonical_storage() {
+        let mut body = discard_request_with_count(1);
+        body["version"] = json!(2);
+        let scope = body["scope"].take();
+        body.as_object_mut()
+            .expect("request should be an object")
+            .remove("scope");
+        body["target"] = json!({ "store": "canonical", "scope": scope });
+
+        let request = parse_apply_request(body).expect("version two request should parse");
+
+        assert_eq!(request.store, CleanupStore::Canonical);
+        assert_eq!(request.scope.kind, "chat");
+    }
+
+    #[test]
+    fn version_two_rejects_an_unsupported_store() {
+        let mut body = discard_request_with_count(1);
+        body["version"] = json!(2);
+        let scope = body["scope"].take();
+        body.as_object_mut()
+            .expect("request should be an object")
+            .remove("scope");
+        body["target"] = json!({ "store": "archive", "scope": scope });
+
+        assert!(parse_apply_request(body).is_err());
     }
 
     #[test]

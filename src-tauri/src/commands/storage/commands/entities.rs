@@ -1,7 +1,8 @@
 use super::{
-    agents, avatars, canonical_memory, character_version_media, characters, chats, connection_secrets, contracts,
-    customization, entity_images, game_state_snapshots, integrations, lorebook_images,
-    managed_thumbnails, media_uploads, message_swipes, personas, prompts, shared, sprites,
+    agents, avatars, canonical_memory, character_version_media, characters, chats,
+    connection_secrets, contracts, customization, entity_images, game_state_snapshots,
+    integrations, lorebook_images, managed_thumbnails, media_uploads, memory_maintenance,
+    message_swipes, personas, prompts, shared, sprites,
 };
 use crate::builtins::is_protected_record;
 use crate::performance_diagnostics::{approx_json_bytes, log_span};
@@ -53,8 +54,7 @@ mod support;
 use delete::chat_folder_delete_atomic_rows;
 pub(crate) use delete::{
     connection_folder_reorder_inner, connection_move_inner, delete_entity,
-    delete_entity_with_options,
-    lorebook_entry_reorder_inner, lorebook_folder_reorder_inner,
+    delete_entity_with_options, lorebook_entry_reorder_inner, lorebook_folder_reorder_inner,
 };
 pub(crate) use duplicate::duplicate_entity;
 
@@ -791,6 +791,7 @@ fn storage_update_inner_impl(
     } else {
         false
     };
+    let updates_chat_memories = entity == "chats" && normalized_patch.get("memories").is_some();
     let updated = if entity == "themes" {
         state.storage.patch_with(
             &entity,
@@ -809,6 +810,35 @@ fn storage_update_inner_impl(
     if entity == "connections" {
         clear_other_default_connections(state, &updated)?;
         clear_other_default_agent_connections(state, &updated)?;
+    }
+    if updates_chat_memories {
+        let mut scope_kinds = updated
+            .get("memories")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|memory| {
+                if memory.get("scopeType").and_then(Value::as_str) == Some("scene") {
+                    "scene"
+                } else {
+                    "chat"
+                }
+            })
+            .collect::<HashSet<_>>();
+        if scope_kinds.is_empty() {
+            scope_kinds.insert("chat");
+        }
+        for kind in scope_kinds {
+            memory_maintenance::jobs::enqueue_memory_maintenance(
+                state,
+                memory_maintenance::jobs::target(
+                    memory_maintenance::contracts::CleanupStore::Chat,
+                    kind,
+                    &id,
+                ),
+                memory_maintenance::jobs::Trigger::Command,
+            )?;
+        }
     }
     Ok(updated)
 }
@@ -2802,7 +2832,10 @@ mod tests {
         message_swipes::materialize_message(&state, &mut stored, true)
             .expect("message swipes should materialize");
 
-        assert_eq!(updated["extra"]["generationPromptSnapshot"], prompt_snapshot);
+        assert_eq!(
+            updated["extra"]["generationPromptSnapshot"],
+            prompt_snapshot
+        );
         assert_eq!(
             stored["extra"]["memoryCapture"]["status"],
             json!("completed")
@@ -8699,7 +8732,10 @@ mod tests {
         for chat_id in ["chat-keep", "chat-delete"] {
             state
                 .storage
-                .create("chats", json!({ "id": chat_id, "name": chat_id, "metadata": {} }))
+                .create(
+                    "chats",
+                    json!({ "id": chat_id, "name": chat_id, "metadata": {} }),
+                )
                 .unwrap();
             canonical_memory::create_memory(
                 &state,

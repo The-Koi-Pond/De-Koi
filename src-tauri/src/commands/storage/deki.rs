@@ -3153,9 +3153,7 @@ async fn search_deki_web(
     if results.is_empty() {
         return Err(AppError::new(
             "deki_web_search_no_results",
-            format!(
-                "No web search results inside the approved scope were returned for '{query}'."
-            ),
+            format!("No web search results inside the approved scope were returned for '{query}'."),
         ));
     }
     Ok(json!({
@@ -5500,9 +5498,8 @@ Extra visible text."#;
         assert!(read.contains(&"read_deki_memories"));
         assert!(!read.contains(&"edit_deki_memory"));
 
-        let natural_read = deki_tool_names_for_request(&test_deki_prompt_request(
-            "What does Rina remember?",
-        ));
+        let natural_read =
+            deki_tool_names_for_request(&test_deki_prompt_request("What does Rina remember?"));
         assert!(natural_read.contains(&"read_deki_memories"));
         assert!(!natural_read.contains(&"edit_deki_memory"));
 

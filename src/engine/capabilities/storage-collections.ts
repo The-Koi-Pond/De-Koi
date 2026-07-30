@@ -79,6 +79,14 @@ const STORAGE_COLLECTIONS = {
       { name: "sourceMessages", kind: "array" },
     ],
   },
+  "memory-maintenance-jobs": {
+    genericApi: true,
+    readJsonFields: [
+      { name: "target", kind: "object", fallback: "empty-object" },
+      { name: "recentFingerprints", kind: "array" },
+      { name: "lastResult", kind: "object", fallback: "null" },
+    ],
+  },
   "canonical-memories": {
     genericApi: true,
     readJsonFields: [

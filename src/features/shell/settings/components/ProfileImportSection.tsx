@@ -30,6 +30,7 @@ type ProfileImportStats = {
   "agent-runs"?: number;
   "agent-memory"?: number;
   "memory-capture-jobs"?: number;
+  "memory-maintenance-jobs"?: number;
   themes?: number;
   extensions?: number;
   chats?: number;
@@ -121,6 +122,7 @@ const PROFILE_IMPORT_STAT_LABELS: Array<{ key: string; aliases?: string[]; singu
   { key: "agent-runs", singular: "agent run", plural: "agent runs" },
   { key: "agent-memory", singular: "agent memory row", plural: "agent memory rows" },
   { key: "memory-capture-jobs", singular: "memory capture job", plural: "memory capture jobs" },
+  { key: "memory-maintenance-jobs", singular: "memory maintenance job", plural: "memory maintenance jobs" },
   { key: "themes", singular: "theme", plural: "themes" },
   { key: "extensions", singular: "extension", plural: "extensions" },
   { key: "connections", singular: "connection", plural: "connections" },
@@ -292,8 +294,7 @@ function profileImportStatsFromUnknown(value: unknown): ProfileImportStats | und
 }
 
 export function formatProfileImportConfirmationMessage(preview: ProfileImportResult) {
-  const { imported, warnings, sourceFormat, converted, destructiveScopes } =
-    profileImportMetadataFromResult(preview);
+  const { imported, warnings, sourceFormat, converted, destructiveScopes } = profileImportMetadataFromResult(preview);
   const found = formatProfileImportStats(imported) || "no counted records";
   const source = formatProfileImportSourceFormat(sourceFormat);
   const conversion = converted?.applied

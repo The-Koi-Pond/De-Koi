@@ -367,7 +367,12 @@ fn native_marinara_character_imports_portable_memories_with_rebound_scope() {
     }));
     let first = memories
         .iter()
-        .find(|memory| memory["content"].as_str().unwrap().contains("under the clock"))
+        .find(|memory| {
+            memory["content"]
+                .as_str()
+                .unwrap()
+                .contains("under the clock")
+        })
         .unwrap();
     let second = memories
         .iter()

@@ -1,4 +1,9 @@
-import type { ListChatMemoriesOptions } from "../../engine/capabilities/storage";
+import type {
+  ChatMemoryCapturePreview,
+  CommitChatMemoryCaptureInput,
+  CommitChatMemoryCaptureResult,
+  ListChatMemoriesOptions,
+} from "../../engine/capabilities/storage";
 import { invokeTauri } from "./tauri-client";
 
 function memoryListArgs(chatId: string | null, options?: ListChatMemoriesOptions): Record<string, unknown> {
@@ -54,6 +59,12 @@ export const chatCommandApi = {
     invokeTauri<T>("chat_memory_correct", { chatId, memoryId, body }),
   memoriesClear: (chatId: string | null) => invokeTauri("chat_memories_clear", { chatId }),
   memoriesRefresh: <T = unknown>(chatId: string | null) => invokeTauri<T>("chat_memories_refresh", { chatId }),
+  memoryCapturePreview: (chatId: string, sourceMessageIds: string[]) =>
+    invokeTauri<ChatMemoryCapturePreview>("chat_memory_capture_preview", {
+      body: { version: 1, chatId, sourceMessageIds },
+    }),
+  memoryCaptureCommit: (body: CommitChatMemoryCaptureInput) =>
+    invokeTauri<CommitChatMemoryCaptureResult>("chat_memory_capture_commit", { body }),
   memoriesMigrate: <T = unknown>(chatId: string | null) => invokeTauri<T>("chat_memories_migrate", { chatId }),
   memoryIndexesRebuild: <T = unknown>(chatId: string | null) =>
     invokeTauri<T>("chat_memory_indexes_rebuild", { chatId }),

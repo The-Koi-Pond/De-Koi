@@ -1757,12 +1757,18 @@ mod tests {
 
         materialize_messages(&state, &mut messages, true).unwrap();
 
-        assert_eq!(messages[0]["swipes"], json!([{
-            "id": "selected-1::swipe::0", "messageId": "message-selected-1", "index": 0, "content": "selected first"
-        }]));
-        assert_eq!(messages[1]["swipes"], json!([{
-            "id": "selected-2::swipe::0", "messageId": "message-selected-2", "index": 0, "content": "selected second"
-        }]));
+        assert_eq!(
+            messages[0]["swipes"],
+            json!([{
+                "id": "selected-1::swipe::0", "messageId": "message-selected-1", "index": 0, "content": "selected first"
+            }])
+        );
+        assert_eq!(
+            messages[1]["swipes"],
+            json!([{
+                "id": "selected-2::swipe::0", "messageId": "message-selected-2", "index": 0, "content": "selected second"
+            }])
+        );
         assert_eq!(messages[0]["swipeCount"], json!(1));
         assert_eq!(messages[1]["swipeCount"], json!(1));
     }

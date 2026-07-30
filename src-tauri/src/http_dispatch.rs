@@ -992,6 +992,15 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
+        "chat_memory_capture_preview" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chat_memory::preview_chat_memory_capture(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "chat_memory_capture_commit" => {
+            chat_memory::commit_chat_memory_capture(state, optional_value(&args, "body")).await
+        }
         "chat_memories_migrate" => {
             chat_memory::migrate_chat_memories(state, required_string(&args, "chatId")?).await
         }
@@ -1791,6 +1800,7 @@ mod tests {
         "chat_memories_clear",
         "chat_memories_export",
         "chat_memories_list",
+        "chat_memory_capture_preview",
         "chat_memory_delete",
         "chat_memory_soft_delete",
         "chat_memory_pin",

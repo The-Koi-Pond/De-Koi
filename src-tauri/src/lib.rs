@@ -412,6 +412,8 @@ pub fn run() {
             storage_commands::chat_commands::chat_memory_correct,
             storage_commands::chat_commands::chat_memories_clear,
             storage_commands::chat_commands::chat_memories_refresh,
+            storage_commands::chat_commands::chat_memory_capture_preview,
+            storage_commands::chat_commands::chat_memory_capture_commit,
             storage_commands::chat_commands::chat_memories_migrate,
             storage_commands::chat_commands::chat_memory_indexes_rebuild,
             storage_commands::chat_commands::chat_memories_export,

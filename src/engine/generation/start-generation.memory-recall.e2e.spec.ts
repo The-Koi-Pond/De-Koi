@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
-import type { RefreshChatMemoriesOptions, StorageEntity, StorageGateway } from "../capabilities/storage";
+import type {
+  ChatMemoryCapturePreview,
+  RefreshChatMemoriesOptions,
+  StorageEntity,
+  StorageGateway,
+} from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
 import type { CanonicalMemoryInput, CanonicalMemoryPatch, CanonicalMemoryRecord } from "../contracts/types/memory";
 import { startGeneration } from "./start-generation";
@@ -53,8 +58,7 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
   const memoryCaptureJobs = new Map<string, Record<string, unknown>>();
   const canonicalMemories = new Map<string, CanonicalMemoryRecord>();
   let nextMessageId = 1;
-  let refreshCount = 0;
-  const refreshCalls: Array<{ chatId: string; options?: RefreshChatMemoriesOptions }> = [];
+  const previewCalls: Array<{ chatId: string; sourceMessageIds: string[] }> = [];
 
   function seedLegacyImportedChat(): void {
     chat.memories = [
@@ -196,9 +200,7 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
     async listChatMemories<T = unknown>(chatId: string): Promise<T[]> {
       return (chatId === chat.id ? chat.memories : []) as T[];
     },
-    async refreshChatMemories<T = unknown>(chatId: string, options?: RefreshChatMemoriesOptions): Promise<T> {
-      refreshCount += 1;
-      refreshCalls.push({ chatId, options });
+    async refreshChatMemories<T = unknown>(chatId: string, _options?: RefreshChatMemoriesOptions): Promise<T> {
       const visible = messages.filter((message) => message.chatId === chatId && message.content.trim());
       const hasTranscriptChunk = chat.memories.some(
         (memory) => Array.isArray(memory.messageIds) && memory.memoryKind !== "imported",
@@ -236,6 +238,68 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
       }
       return { rebuilt: chat.memories.length } as T;
     },
+    async previewChatMemoryCapture(chatId, sourceMessageIds): Promise<ChatMemoryCapturePreview> {
+      previewCalls.push({ chatId, sourceMessageIds });
+      const source = sourceMessageIds
+        .map((id) => messages.find((message) => message.id === id))
+        .filter((message): message is StoredMessage => message !== undefined);
+      const eligible = source.length > 0 && source.at(-1)?.role === "assistant";
+      const content = source.map((message) => `${message.role}: ${message.content}`).join("\n");
+      return {
+        version: 1,
+        chatId,
+        sourceMessageIds: source.map((message) => message.id),
+        fingerprint: eligible
+          ? `${chatId}:${source.map((message) => `${message.id}:${message.content}`).join("|")}`
+          : "",
+        candidate: eligible
+          ? {
+              id: `candidate-${source.map((message) => message.id).join("-")}`,
+              chatId,
+              content,
+              canonicalMemoryVersion: 1,
+              memoryKind: "transcript",
+              scopeType: "chat",
+              scopeId: chatId,
+              status: "active",
+              legacySourceLane: "chats.memories",
+              creationReason: "Automatic exchange capture",
+              messageCount: source.length,
+              messageIds: source.map((message) => message.id),
+              firstMessageId: source[0]?.id ?? null,
+              lastMessageId: source.at(-1)?.id ?? null,
+              firstMessageAt: source[0]?.createdAt ?? "",
+              lastMessageAt: source.at(-1)?.createdAt ?? "",
+              createdAt: "2026-01-20T00:00:00.000Z",
+              hasEmbedding: false,
+              embeddingStatus: "pending",
+            }
+          : null,
+      };
+    },
+    async commitChatMemoryCapture(body) {
+      const preview = await storage.previewChatMemoryCapture!(body.chatId, body.sourceMessageIds);
+      if (!preview.candidate || preview.fingerprint !== body.fingerprint) {
+        throw new Error("stale capture preview");
+      }
+      const memory = {
+        ...preview.candidate,
+        id: `memory-${body.sourceMessageIds.join("-")}`,
+        legacySourceId: `memory-${body.sourceMessageIds.join("-")}`,
+        hasEmbedding: true,
+        embedding: tokenVector(preview.candidate.content),
+        embeddingStatus: "vectorized" as const,
+        embeddingSource: "lexical",
+      };
+      const existingIndex = chat.memories.findIndex(
+        (candidate) =>
+          Array.isArray(candidate.messageIds) && candidate.messageIds.join("|") === body.sourceMessageIds.join("|"),
+      );
+      const operation = existingIndex >= 0 ? "updated" : "created";
+      if (existingIndex >= 0) chat.memories.splice(existingIndex, 1, memory);
+      else chat.memories.push(memory);
+      return { operation, memory };
+    },
     async createMemory(input: CanonicalMemoryInput): Promise<CanonicalMemoryRecord> {
       const id = String(input.id);
       const memory = {
@@ -266,8 +330,7 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
     async queryMemories(query): Promise<CanonicalMemoryRecord[]> {
       return [...canonicalMemories.values()].filter(
         (memory) =>
-          (!query?.scope ||
-            (memory.scope.kind === query.scope.kind && memory.scope.id === query.scope.id)) &&
+          (!query?.scope || (memory.scope.kind === query.scope.kind && memory.scope.id === query.scope.id)) &&
           (!query?.statuses || query.statuses.includes(memory.status)),
       );
     },
@@ -299,27 +362,29 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
     messages,
     memoryCaptureJobs,
     canonicalMemories,
-    refreshCalls,
+    previewCalls,
     seedLegacyImportedChat,
     migrateLegacyImportedChat,
-    get refreshCount() {
-      return refreshCount;
-    },
   };
 }
 
 function memoryAwareLlm(calls: LlmRequest[], extractedMemories: Record<string, unknown>[] = []): LlmGateway {
   return {
-    complete: vi.fn(async () => JSON.stringify({ memories: extractedMemories })),
+    complete: vi.fn(async (request: LlmRequest) =>
+      JSON.stringify(
+        request.messages.some((message) => message.content.includes("memory_cleanup_value_review"))
+          ? { proposals: [] }
+          : { memories: extractedMemories },
+      ),
+    ),
     async *stream(request) {
       calls.push(request);
       const promptText = request.messages.map((message) => message.content).join("\n");
       yield {
         type: "token",
-        text:
-          promptText.includes("The user's cat is named Miso.")
-            ? "You told me your cat is named Miso."
-            : promptText.includes("<memories>") && promptText.includes("blue lantern")
+        text: promptText.includes("The user's cat is named Miso.")
+          ? "You told me your cat is named Miso."
+          : promptText.includes("<memories>") && promptText.includes("blue lantern")
             ? "You hid the key under the blue lantern."
             : promptText.includes("<memories>") && promptText.includes("jasmine tea")
               ? "Mira keeps jasmine tea for the user after patrols."
@@ -360,9 +425,9 @@ describe("startGeneration Memory Recall preflight", () => {
       ),
     );
 
-    expect(harness.refreshCalls.at(-1)).toEqual({
+    expect(harness.previewCalls.at(-1)).toEqual({
       chatId: "chat-1",
-      options: { sourceMessageIds: ["message-1", "message-2"] },
+      sourceMessageIds: ["message-1", "message-2"],
     });
     expect(Array.from(harness.memoryCaptureJobs.values())).toEqual([
       expect.objectContaining({
@@ -398,9 +463,9 @@ describe("startGeneration Memory Recall preflight", () => {
       ),
     );
 
-    expect(harness.refreshCalls.at(-1)).toEqual({
+    expect(harness.previewCalls.at(-1)).toEqual({
       chatId: "chat-1",
-      options: { sourceMessageIds: ["message-1", "message-2"] },
+      sourceMessageIds: ["message-1", "message-2"],
     });
   });
 
@@ -449,7 +514,11 @@ describe("startGeneration Memory Recall preflight", () => {
         }),
       );
 
-      const lastPrompt = calls.at(-1)?.messages.map((message) => message.content).join("\n") ?? "";
+      const lastPrompt =
+        calls
+          .at(-1)
+          ?.messages.map((message) => message.content)
+          .join("\n") ?? "";
       expect(lastPrompt).toContain("The user's cat is named Miso.");
       expect(harness.messages.filter((message) => message.role === "assistant").at(-1)?.content).toBe(
         "You told me your cat is named Miso.",
@@ -476,7 +545,13 @@ describe("startGeneration Memory Recall preflight", () => {
       await collectEvents(startGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", userMessage }));
     }
     await vi.waitFor(async () => {
-      expect(await harness.storage.listChatMemories("chat-1")).toHaveLength(1);
+      expect(await harness.storage.listChatMemories<Record<string, unknown>>("chat-1")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            content: expect.stringContaining("I hid the key under the blue lantern."),
+          }),
+        ]),
+      );
     });
 
     await collectEvents(
