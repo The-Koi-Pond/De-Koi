@@ -604,14 +604,15 @@ fn chat_memory_recency_key(memory: &Value) -> &str {
 }
 
 fn chat_memory_values(chat: &Value) -> Vec<Value> {
-    match chat.get("memories") {
+    let values = match chat.get("memories") {
         Some(Value::Array(values)) => values.clone(),
         Some(Value::String(raw)) => serde_json::from_str::<Value>(raw)
             .ok()
             .and_then(|parsed| parsed.as_array().cloned())
             .unwrap_or_default(),
         _ => Vec::new(),
-    }
+    };
+    deduplicate_chat_memory_values(values)
 }
 
 pub(crate) fn chat_memory_values_for_mutation(chat: &Value) -> AppResult<Vec<Value>> {
@@ -631,6 +632,39 @@ pub(crate) fn chat_memory_values_for_mutation(chat: &Value) -> AppResult<Vec<Val
         Some(Value::Null) | None => Ok(Vec::new()),
         _ => Err(AppError::invalid_input("Chat memories must be an array")),
     }
+}
+
+fn deduplicate_chat_memory_values(values: Vec<Value>) -> Vec<Value> {
+    let mut seen_ids = HashSet::new();
+    let mut seen_refresh_chunks = HashSet::new();
+    values
+        .into_iter()
+        .filter(|memory| {
+            let id = memory
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty());
+            let chunk_key = chat_memory_is_refresh_owned(memory).then(|| {
+                let message_ids = memory_message_ids(memory);
+                memory_chunk_key(&message_ids)
+            });
+            if id.is_some_and(|id| seen_ids.contains(id))
+                || chunk_key
+                    .as_ref()
+                    .is_some_and(|key| seen_refresh_chunks.contains(key))
+            {
+                return false;
+            }
+            if let Some(id) = id {
+                seen_ids.insert(id.to_string());
+            }
+            if let Some(key) = chunk_key {
+                seen_refresh_chunks.insert(key);
+            }
+            true
+        })
+        .collect()
 }
 
 fn chat_memory_message_ids(memory: &Value) -> HashSet<String> {
@@ -917,6 +951,7 @@ pub(crate) fn list_chat_memories_excluding_recent(
 }
 
 fn set_chat_memory_values(state: &AppState, chat_id: &str, values: Vec<Value>) -> AppResult<Value> {
+    let values = deduplicate_chat_memory_values(values);
     state
         .storage
         .patch("chats", chat_id, json!({ "memories": values }))
@@ -1435,6 +1470,7 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
             }))
         });
     chunks.extend(preserved_memories);
+    let chunks = deduplicate_chat_memory_values(chunks);
     state
         .storage
         .patch("chats", chat_id, json!({ "memories": chunks }))?;
@@ -3033,6 +3069,57 @@ mod tests {
     }
 
     #[test]
+    fn list_chat_memories_deduplicates_refresh_chunks_before_limit() {
+        let state = test_state("chat-memory-list-deduplicate-before-limit");
+        let memories = serde_json::to_string(&json!([
+            {
+                "id": "transcript-current",
+                "messageIds": ["message-1", "message-2"],
+                "creationReason": "Automatic transcript chunk capture",
+                "lastMessageAt": "2026-01-10T00:00:00.000Z"
+            },
+            {
+                "id": "transcript-stale",
+                "messageIds": ["message-1", "message-2"],
+                "creationReason": "Automatic transcript chunk capture",
+                "lastMessageAt": "2026-01-10T00:00:00.000Z"
+            },
+            {
+                "id": "user-edited",
+                "messageIds": ["message-1", "message-2"],
+                "userEdited": true,
+                "lastMessageAt": "2026-01-09T00:00:00.000Z"
+            },
+            {
+                "id": "older-unique",
+                "messageIds": ["message-3", "message-4"],
+                "creationReason": "Automatic transcript chunk capture",
+                "lastMessageAt": "2026-01-08T00:00:00.000Z"
+            }
+        ]))
+        .expect("legacy memories should serialize");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Duplicated memory chat",
+                    "memories": memories
+                }),
+            )
+            .expect("chat should be created");
+
+        let recent = list_chat_memories(&state, "chat-1", Some(3), Some("recent"))
+            .expect("duplicate refresh chunks should collapse before limiting");
+
+        assert_eq!(
+            memory_ids(&recent),
+            vec!["transcript-current", "user-edited", "older-unique"]
+        );
+    }
+
+    #[test]
     fn chat_memory_timestamp_order_matches_recency_and_pruning() {
         let memory = json!({
             "messageIds": ["message-1"],
@@ -4245,6 +4332,60 @@ mod tests {
             .expect("rebuilt memories should be an array")
             .iter()
             .all(|memory| memory["creationReason"] == json!("Automatic exchange capture")));
+    }
+
+    #[tokio::test]
+    async fn focused_refresh_deduplicates_preserved_transcript_chunks() {
+        let state = test_state("memory-focused-capture-preserved-deduplication");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "name": "Memory chat" }))
+            .expect("chat should seed");
+        for index in 0..10 {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": format!("message-{index}"),
+                        "chatId": "chat-1",
+                        "role": if index % 2 == 0 { "user" } else { "assistant" },
+                        "content": format!("visible memory {index}"),
+                        "createdAt": format!("2026-06-01T10:{index:02}:00.000Z")
+                    }),
+                )
+                .expect("message should seed");
+        }
+
+        let initial = refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect("initial transcript refresh should succeed");
+        assert_eq!(initial["chunks"].as_array().map(Vec::len), Some(2));
+
+        let focused = refresh_chat_memories_for_source_messages(
+            &state,
+            "chat-1",
+            vec!["message-8".to_string(), "message-9".to_string()],
+        )
+        .await
+        .expect("focused refresh should preserve older transcript memory once");
+        let memories = focused["chunks"]
+            .as_array()
+            .expect("memories should be an array");
+        let chunk_keys = memories
+            .iter()
+            .map(|memory| memory_chunk_key(&memory_message_ids(memory)))
+            .collect::<HashSet<_>>();
+
+        assert_eq!(memories.len(), 2);
+        assert_eq!(chunk_keys.len(), 2);
+
+        let stored = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert_eq!(stored["memories"].as_array().map(Vec::len), Some(2));
     }
 
     #[tokio::test]
