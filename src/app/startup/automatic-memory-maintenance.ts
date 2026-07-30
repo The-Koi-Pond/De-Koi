@@ -27,7 +27,8 @@ export interface AutomaticMemoryMaintenanceSeedResult {
 }
 
 function cursor(row: JsonRecord): string {
-  return `${readString(row.updatedAt).trim()}|${readString(row.id).trim()}`;
+  const id = readString(row.id).trim();
+  return `${id}|${id}`;
 }
 
 function canonicalScope(row: JsonRecord): MemoryCleanupScope | null {
@@ -74,10 +75,10 @@ export async function seedAutomaticMemoryMaintenanceJobs(
 
   if (sweep.chatComplete !== true) {
     const chats = await storage.list<JsonRecord>("chats", {
-      orderBy: "updatedAt",
+      orderBy: "id",
       limit: pageSize,
       ...(readString(sweep.chatBefore).trim() ? { before: readString(sweep.chatBefore).trim() } : {}),
-      fields: ["id", "updatedAt", "sceneId", "activeSceneId"],
+      fields: ["id", "sceneId", "activeSceneId"],
     });
     for (const row of chats) {
       const scope = chatScope(row);
@@ -95,10 +96,10 @@ export async function seedAutomaticMemoryMaintenanceJobs(
 
   if (sweep.canonicalComplete !== true) {
     const memories = await storage.list<JsonRecord>("canonical-memories", {
-      orderBy: "updatedAt",
+      orderBy: "id",
       limit: pageSize,
       ...(readString(sweep.canonicalBefore).trim() ? { before: readString(sweep.canonicalBefore).trim() } : {}),
-      fields: ["id", "scope", "updatedAt"],
+      fields: ["id", "scope"],
     });
     const scopes = new Map<string, MemoryCleanupScope>();
     for (const row of memories) {

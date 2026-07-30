@@ -3332,6 +3332,54 @@ mod tests {
     }
 
     #[test]
+    fn memory_mutations_enqueue_each_prior_and_current_scope_once() {
+        let state = test_state("chat-memory-maintenance-scope-union");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "memories": [
+                        { "id": "chat-memory", "scopeType": "chat", "content": "chat" },
+                        { "id": "scene-memory", "scopeType": "scene", "content": "scene" }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+
+        set_chat_memory_values_with_trigger(
+            &state,
+            "chat-1",
+            vec![json!({ "id": "chat-memory", "scopeType": "chat", "content": "chat" })],
+            super::super::memory_maintenance::jobs::Trigger::Manual,
+        )
+        .expect("removing the scene scope should enqueue both prior and current scopes");
+
+        let mut jobs = state.storage.list("memory-maintenance-jobs").unwrap();
+        jobs.sort_by_key(|job| job["targetKey"].as_str().unwrap_or("").to_string());
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0]["targetKey"], json!("chat:chat:chat-1"));
+        assert_eq!(jobs[1]["targetKey"], json!("chat:scene:chat-1"));
+        assert!(jobs.iter().all(|job| job["trigger"] == json!("manual")));
+
+        set_chat_memory_values_with_trigger(
+            &state,
+            "chat-1",
+            vec![
+                json!({ "id": "chat-memory", "scopeType": "chat", "content": "chat" }),
+                json!({ "id": "new-scene-memory", "scopeType": "scene", "content": "scene" }),
+            ],
+            super::super::memory_maintenance::jobs::Trigger::Capture,
+        )
+        .expect("adding the scene scope should coalesce the same two scope jobs");
+
+        let jobs = state.storage.list("memory-maintenance-jobs").unwrap();
+        assert_eq!(jobs.len(), 2);
+        assert!(jobs.iter().all(|job| job["trigger"] == json!("capture")));
+    }
+
+    #[test]
     fn clear_chat_memories_removes_chat_scoped_memory_index_rows() {
         let state = test_state("chat-memory-clear-index-rows");
         state
@@ -4725,6 +4773,10 @@ mod tests {
                 .len(),
             1
         );
+        let jobs = state.storage.list("memory-maintenance-jobs").unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0]["targetKey"], json!("chat:chat:chat-1"));
+        assert_eq!(jobs[0]["trigger"], json!("capture"));
     }
 
     #[tokio::test]

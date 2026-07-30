@@ -5596,6 +5596,12 @@ mod tests {
                 "2026-07-21T10:00:00Z",
             ),
             (
+                "chat-empty",
+                "conversation",
+                json!(["mira"]),
+                "2026-07-21T15:00:00Z",
+            ),
+            (
                 "chat-roleplay",
                 "roleplay",
                 json!(["mira"]),

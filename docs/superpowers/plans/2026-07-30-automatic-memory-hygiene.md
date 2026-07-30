@@ -495,6 +495,17 @@ Keep `refresh_chat_memories_for_source_messages` for the explicit Repair from ch
 
 Add Tauri commands `chat_memory_capture_preview` and `chat_memory_capture_commit`, explicit HTTP dispatch arms, remote allowlist entries, and registrations in `src-tauri/src/lib.rs`. The preview command is blocking/read-only; commit is async.
 
+The embedded and hostable transports use the same `/api/invoke` envelope, command names, and typed bodies:
+
+| Command                       | Request body                                                                              | Response                                                           |
+| ----------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `chat_memory_capture_preview` | `{ version: 1, chatId, sourceMessageIds }`                                                | `{ version: 1, chatId, sourceMessageIds, fingerprint, candidate }` |
+| `chat_memory_capture_commit`  | `{ version: 1, chatId, sourceMessageIds, fingerprint }`                                   | `{ operation: "created" \| "updated", memory }`                    |
+| `memory_cleanup_apply`        | v2 `{ version: 2, target: { store, scope }, proposals }` (v1 scope form remains accepted) | `{ batchId, combined, discarded, superseded, created }`            |
+| `memory_cleanup_undo`         | v2 `{ version: 2, target: { store, scope }, batchId }` (v1 scope form remains accepted)   | `{ batchId, restored, inactivated }`                               |
+
+`src/shared/api/chat-command-api.ts` and `memory-maintenance-api.ts` are the only engine-facing transport adapters. `invokeTauri` chooses embedded invocation or remote `/api/invoke`; engine modules do not call Tauri or `fetch` directly. `src/shared/api/remote-runtime.ts`, `src-tauri/src/http_dispatch.rs`, and `src-tauri/src/lib.rs` must list the same command names.
+
 - [ ] **Step 6: Add typed storage port methods**
 
 Wire the shared API:
@@ -834,6 +845,8 @@ Allow canonical apply/undo for canonical `chat`, `scene`, and `character` scopes
 - [ ] **Step 5: Implement the narrow gateway**
 
 Make `memoryMaintenanceApi` satisfy `MemoryMaintenanceGateway`. Do not import `invokeTauri` from engine code; pass this gateway at the app edge.
+
+The apply/undo contract is transaction atomic per target. Rust rechecks every selected source's content, status, update timestamp, pinned flag, and user-edited flag inside the owner transaction before changing any row. A missing or stale source, invalid replacement, or any later error aborts the closure, so no partial source lifecycle change, replacement, index update, or journal record is committed. The cleanup batch metadata and every changed row are committed together. Undo likewise runs in one owner transaction, requires the requested batch to be the newest eligible layer for the affected rows, restores each saved prior state, and inactivates each replacement from that batch; failure leaves the entire pre-undo state intact.
 
 - [ ] **Step 6: Run focused storage and parity checks**
 
@@ -1534,7 +1547,6 @@ git commit -m "feat: make memory hygiene automatic"
 **Files:**
 
 - Modify only if proof exposes an in-scope defect.
-- Optional shipping evidence is out of scope until explicit PR/shipping authorization.
 
 **Interfaces:**
 

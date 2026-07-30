@@ -9,6 +9,8 @@ Make De-Koi memory maintenance fully automatic:
 - automatic cleanup must include active and pinned memories from every origin, including automatic, manual, imported, corrected, command-created, and cleanup-created records;
 - cleanup must remain atomic, recoverable, bounded, and subordinate to foreground generation.
 
+In this design, **cleanup** is one analyzed and atomically applied proposal batch for one storage target. **Maintenance** is the durable background lifecycle around cleanup: enqueueing, scheduling, reloading current sources, running zero or more cleanup batches, retrying interruptions, and stopping at a fixed point.
+
 “Low value” means low value under De-Koi’s shared semantic policy. Model judgment cannot provide a mathematical guarantee, but capture and maintenance must use the same aggressive policy so the product does not intentionally admit a candidate that its own cleanup would immediately discard.
 
 ## User contract
@@ -173,7 +175,7 @@ Before apply, revalidate every selected proposal against current source fingerpr
 
 Apply all selected proposals for one owner in one atomic storage operation, subject to the existing maximum proposal count. If more actionable proposals exist, apply the bounded batch and requeue the scope until a fixed point is reached.
 
-A fixed point is a successful analysis with no actionable proposals. Detect repeated fingerprints and enforce a maximum number of passes per owner per drain so model oscillation cannot loop forever. A repeated or exhausted scope becomes retryable with diagnostics and no further changes in that drain.
+A fixed point is a successful analysis with no actionable proposals. Before each analysis, hash the current eligible source IDs and their mutable expected-state fields. Keep the six most recent fingerprints: seeing any one again, including an `A -> B -> A` oscillation, stops the job as `failed` with `maintenance_oscillation` and performs no further apply. A drain applies at most three batches before yielding and rescheduling; a job may apply at most twelve batches in total, after which it stops as `failed` with `maintenance_pass_limit`. Those terminal diagnostics require a later material memory mutation or policy-version reset to clear the fingerprint/pass history, so an unchanged oscillating scope cannot spin indefinitely.
 
 ## Recovery and undo
 

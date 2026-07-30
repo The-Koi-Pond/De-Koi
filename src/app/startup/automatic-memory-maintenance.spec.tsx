@@ -16,7 +16,9 @@ function sweepHarness(input: { chats?: Array<Record<string, unknown>>; canonical
       maxListLimit = Math.max(maxListLimit, options?.limit ?? 0);
       let rows = [...(collections.get(entity)?.values() ?? [])].sort((left, right) => {
         const field = options?.orderBy ?? "id";
-        return `${left[field] ?? ""}|${left.id}`.localeCompare(`${right[field] ?? ""}|${right.id}`);
+        const leftKey = `${left[field] ?? ""}|${left.id}`;
+        const rightKey = `${right[field] ?? ""}|${right.id}`;
+        return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
       });
       if (options?.before) {
         rows = rows.filter((row) => `${row[options.orderBy ?? "id"] ?? ""}|${row.id}` > String(options.before));
@@ -92,5 +94,50 @@ describe("automatic memory maintenance startup discovery", () => {
 
     const keys = [...(harness.collections.get("memory-maintenance-jobs")?.values() ?? [])].map((job) => job.targetKey);
     expect(keys.filter((key) => key === "canonical:character:char-1")).toHaveLength(1);
+  });
+
+  it("pages every row once when timestamps collide or are missing", async () => {
+    const harness = sweepHarness({
+      chats: [
+        { id: "chat-a", updatedAt: "2026-07-30T10:00:00.000Z" },
+        { id: "chat-b", updatedAt: "2026-07-30T10:00:00.000Z" },
+        { id: "chat-c" },
+        { id: "chat-d" },
+      ],
+      canonical: [
+        {
+          id: "memory-a",
+          updatedAt: "2026-07-30T11:00:00.000Z",
+          scope: { kind: "character", id: "char-a" },
+        },
+        {
+          id: "memory-b",
+          updatedAt: "2026-07-30T11:00:00.000Z",
+          scope: { kind: "character", id: "char-b" },
+        },
+        { id: "memory-c", scope: { kind: "character", id: "char-c" } },
+        { id: "memory-d", scope: { kind: "character", id: "char-d" } },
+      ],
+    });
+
+    let outcome = await seedAutomaticMemoryMaintenanceJobs(harness.storage, { pageSize: 1 });
+    while (!outcome.complete) {
+      outcome = await seedAutomaticMemoryMaintenanceJobs(harness.storage, { pageSize: 1 });
+    }
+
+    const keys = [...(harness.collections.get("memory-maintenance-jobs")?.values() ?? [])]
+      .filter((job) => job.recordType !== "sweep")
+      .map((job) => String(job.targetKey))
+      .sort();
+    expect(keys).toEqual([
+      "canonical:character:char-a",
+      "canonical:character:char-b",
+      "canonical:character:char-c",
+      "canonical:character:char-d",
+      "chat:chat:chat-a",
+      "chat:chat:chat-b",
+      "chat:chat:chat-c",
+      "chat:chat:chat-d",
+    ]);
   });
 });

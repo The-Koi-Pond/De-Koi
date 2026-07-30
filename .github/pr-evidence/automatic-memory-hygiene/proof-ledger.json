@@ -167,6 +167,14 @@
       {
         "claim": "The hostable ARM64 runtime executes both cleanup owners correctly.",
         "evidence": "An isolated exact-source ARM64 Pi server image passed synthetic two-batch apply and undo through /api/invoke for chat and canonical stores without touching production data."
+      },
+      {
+        "claim": "Startup discovery covers colliding and missing timestamps without cursor gaps.",
+        "evidence": "The sweep now orders and pages by immutable unique ids; a page-size-one regression creates all eight chat and canonical jobs across duplicate and absent updatedAt values."
+      },
+      {
+        "claim": "Chat mutations preserve every prior and current scope lane exactly once.",
+        "evidence": "Focused Rust tests remove and re-add a scene scope, prove exactly one coalesced chat and scene job, and verify manual and capture triggers."
       }
     ],
     "contradictionRows": [
@@ -223,7 +231,50 @@
       ]
     }
   ],
-  "reviewThreadLedger": [],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny found startup sweep paging could lose rows when timestamps collide or are missing.",
+      "disposition": "fixed",
+      "fix": "Changed discovery to paginate by immutable unique ids and added a page-size-one regression covering duplicate and absent timestamps in both collections.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny said mixed chat and scene memory scopes could duplicate or miss maintenance jobs.",
+      "disposition": "proven-and-clarified",
+      "fix": "The existing old-plus-new HashSet already deduplicates both scope lanes; a focused Rust regression now removes and re-adds scene scope and proves exactly two coalesced jobs.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found the remote runtime contract was not explicit in the implementation plan.",
+      "disposition": "fixed",
+      "fix": "Documented all four command names, v1 and v2 request bodies, responses, shared adapters, allowlist, HTTP dispatch, and Tauri registration parity.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found the cleanup transaction and rollback contract was underspecified.",
+      "disposition": "fixed",
+      "fix": "Documented inside-transaction stale checks, all-or-nothing source, replacement, index, and journal writes, plus newest-first atomic undo behavior.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found fixed-point oscillation and pass-limit behavior was underspecified.",
+      "disposition": "fixed",
+      "fix": "Documented six-fingerprint repeat detection, A-B-A oscillation, three passes per drain, twelve total passes, terminal diagnostic codes, and reset conditions.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny said capture could drift into the manual maintenance trigger lane.",
+      "disposition": "proven-and-clarified",
+      "fix": "The capture owner already passes Trigger::Capture explicitly; the idempotent commit regression now asserts the coalesced job target and capture trigger.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny said sibling context could emit a parent chat with no message children.",
+      "disposition": "proven-and-clarified",
+      "fix": "The owner already continues past empty message sets; the bounded-context regression now seeds the newest eligible sibling with zero messages and proves a populated sibling is returned instead.",
+      "humanResolutionRequired": false
+    }
+  ],
   "manualBlockers": [],
   "verification": {
     "originalReproPassed": true,
@@ -255,7 +306,7 @@
     "versionCheckStatus": "not_applicable",
     "dbPushStatus": "not_applicable",
     "ciStatus": "pending",
-    "bunnyReviewStatus": "passed",
+    "bunnyReviewStatus": "pending",
     "prHealthStatus": "pending"
   },
   "pr": {
@@ -264,7 +315,7 @@
     "headRefName": "feature/automatic-memory-hygiene",
     "baseRefName": "main",
     "healthStatus": "pending",
-    "bunnyReviewStatus": "passed",
+    "bunnyReviewStatus": "pending",
     "checksStatus": "pending",
     "merged": false,
     "mergeCommit": ""
@@ -280,7 +331,7 @@
   "finalDoneGate": {
     "bugfixComplete": true,
     "prClean": false,
-    "bunnyReviewClean": true,
+    "bunnyReviewClean": false,
     "requiredChecksPassed": false,
     "readyOrMerged": false,
     "noBlockingManualVerification": true,
@@ -291,7 +342,7 @@
     "The ARM64 Pi proof used synthetic isolated storage and removed its temporary container, volume, image, and worktree afterward.",
     "Production Pi data was not modified during pre-merge validation.",
     "Repository-wide Prettier reports 305 baseline files; every file changed by this branch passes Prettier.",
-    "Bunny reviewed the current diff across capture, storage ownership, startup scheduling, remote dispatch, recovery, and consumer boundaries with no unresolved findings.",
+    "The first hosted Bunny pass found one real sweep-pagination defect and six additional proof or documentation gaps; all are repaired or proven on the current local head and await hosted rereview.",
     "The simplification audit found no confirmed behavior-preserving reductions: the new capability, entity adapters, durable job model, and startup worker each have concrete cross-boundary consumers."
   ]
 }
