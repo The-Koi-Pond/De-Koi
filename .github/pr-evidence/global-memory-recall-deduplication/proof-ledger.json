@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Deduplicate automatic chat-memory recall",
+    "source": "Direct maintainer report reproduced against a long-running conversation on the Raspberry Pi",
+    "classification": "persisted chat-memory capture and recall",
+    "status": "local_verified"
+  },
+  "coreClaim": "All conversations collapse duplicate automatic transcript chunks before recall limits and persist only one automatic memory per source-message chunk.",
+  "rootCause": "Focused automatic capture rebuilt uncovered historical transcript chunks and then appended preserved copies of those same chunks without a final identity check.",
+  "scope": {
+    "inScope": [
+      "Read-time duplicate protection for existing chat memories",
+      "Write-time duplicate protection for chat-memory mutations",
+      "Focused automatic-capture persistence repair",
+      "Current array and legacy string-serialized memory storage"
+    ],
+    "outOfScope": [
+      "Character-specific prompt content",
+      "The conversation history limit",
+      "Model selection or provider behavior",
+      "Roleplay scene memory",
+      "Game memory"
+    ],
+    "intendedFiles": [
+      "src-tauri/src/commands/storage/chat_memory.rs",
+      ".github/pr-evidence/global-memory-recall-deduplication/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persisted user data",
+      "prompt recall",
+      "legacy storage format",
+      "automatic memory capture"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Duplicate automatic transcript chunks cannot consume multiple recall slots and are removed from persisted chat memory on the next memory write or focused capture.",
+    "riskType": "storage integrity and prompt recall diversity",
+    "entrypoints": [
+      "Chat memory listing and recall",
+      "Chat memory create, update, status, import, and cleanup writes",
+      "Automatic focused exchange capture",
+      "Chat-memory export"
+    ],
+    "currentPathsOrFormats": [
+      "Chat memories stored as JSON arrays",
+      "Automatic exchange captures",
+      "Automatic five-message transcript chunk captures"
+    ],
+    "legacyPathsOrFormats": [
+      "Chat memories stored as a serialized JSON array string"
+    ],
+    "outOfScopeClaims": [
+      "This change does not increase the conversation history limit.",
+      "This change does not pin or change generation models.",
+      "This change does not merge user-edited, command, or imported memories merely because they cite the same messages."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "One automatic transcript chunk could be stored repeatedly and occupy several of the limited recall results.",
+    "producer": "src-tauri/src/commands/storage/chat_memory.rs focused refresh",
+    "consumer": "chat-memory recall, export, and subsequent memory mutations",
+    "impliedContract": "One automatic source-message chunk represents one recall candidate while user-owned memory records retain their distinct identity.",
+    "actualEnforcement": "A shared storage-owner helper rejects repeated memory ids and repeated refresh-owned message-id chunk keys on reads, normal writes, and focused refresh results.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "The chat-memory storage owner parses legacy/current values, owns mutation persistence, and builds automatic capture rows.",
+    "consumerOnlyLanes": [
+      "src/engine",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not special-case Harlequin, filter duplicates only in prompt assembly, or delete user-edited memories by content.",
+    "regressionProof": [
+      "A focused refresh after a full transcript refresh keeps one uncovered historical chunk instead of appending a duplicate.",
+      "A legacy string-serialized chat collapses duplicate automatic chunks before applying the recall limit.",
+      "The negative row preserves a user-edited memory that cites the same source messages."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Existing corrupted chats recall distinct automatic chunks before the result limit.",
+        "evidence": "The listing regression stores two automatic rows with one message-id chunk and asserts only the first consumes a recall slot."
+      },
+      {
+        "claim": "Future focused captures persist one row for each automatic message-id chunk.",
+        "evidence": "The focused-refresh regression starts with two transcript chunks, captures the final exchange, and asserts two unique stored chunks rather than three rows."
+      },
+      {
+        "claim": "Normal chat-memory writes also heal duplicates.",
+        "evidence": "All writes through set_chat_memory_values use the same deduplication helper; the complete 51-test chat-memory module passes."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "A user-edited memory must not be merged with an automatic chunk that cites the same messages.",
+        "evidence": "The listing regression retains the userEdited row alongside the surviving automatic row."
+      },
+      {
+        "claim": "A recall limit must not be applied before duplicate removal.",
+        "evidence": "The listing regression requests three rows and receives the older distinct memory instead of the stale duplicate."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Legacy string-serialized chat memories receive the same read protection.",
+        "evidence": "The listing regression seeds the duplicated rows as a serialized JSON array string."
+      },
+      {
+        "claim": "Existing chat-memory operations retain their behavior.",
+        "evidence": "All 51 owner-module tests and the full pnpm check pass."
+      }
+    ],
+    "untestedRows": [
+      "The exact merged container image is verified on the Raspberry Pi after merge.",
+      "No live conversation is mutated solely for deployment verification."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The inspected long conversation contained many repeated Automatic transcript chunk capture rows sharing the same memory ids.",
+      "sourceType": "measured",
+      "evidence": "Read-only inspection of the Raspberry Pi chat collection before implementation."
+    },
+    {
+      "description": "The recall scorer could fill all eight result slots with copies of one duplicated memory.",
+      "sourceType": "measured",
+      "evidence": "The current recall selection algorithm was run read-only against the duplicated stored rows."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or manual cleanup is required. Optional rollback protection is a stopped-app copy of the current chat collection and companion pending journal.",
+      "source": "/home/chai/de-koi-data/data/collections on the Raspberry Pi",
+      "destination": "A user-controlled backup folder outside /home/chai/de-koi-data",
+      "files": [
+        "chats.json",
+        "chats.pending.jsonl when present"
+      ],
+      "action": "Stop De-Koi, copy the listed files, verify the copies exist, then start the update. Do not delete or move the source files."
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "User-edited memory with the same message ids remains distinct",
+      "Legacy string-serialized memories deduplicate",
+      "Recall limit is applied after deduplication",
+      "Focused refresh persists unique chunk keys"
+    ],
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib storage_commands::chat_memory::tests::",
+      "cargo test --manifest-path src-tauri/Cargo.toml --lib deduplicates_",
+      "pnpm check",
+      "git diff --check"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "passed",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 0,
+    "url": "",
+    "headRefName": "fix/global-memory-recall-deduplication",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "passed",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": true,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "No user chat content is included in this ledger.",
+    "Existing stored duplicates become harmless on read and are persisted away on the next chat-memory write."
+  ]
+}
