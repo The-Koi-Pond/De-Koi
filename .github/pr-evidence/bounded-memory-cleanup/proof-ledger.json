@@ -1,0 +1,208 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Bound memory cleanup analysis and report real progress",
+    "source": "Direct user report reproduced against Harlequin on the Raspberry Pi",
+    "classification": "memory cleanup provider-call scaling",
+    "status": "ready_for_bunny"
+  },
+  "coreClaim": "Tidy Memories still reviews every eligible memory for low-value junk, while one analysis performs at most twelve model-assisted consolidation calls and reports completed work to the user.",
+  "rootCause": "Value review used the consolidation batch size and consolidation candidate generation had no per-analysis budget, so Harlequin's 94 eligible memories expanded into an upper bound of 181 sequential provider calls.",
+  "scope": {
+    "inScope": [
+      "Larger exhaustive value-review batches",
+      "A deterministic per-analysis consolidation budget",
+      "Engine-to-modal analysis progress",
+      "Focused scale, progress, sequential-order, and cancellation coverage"
+    ],
+    "outOfScope": [
+      "Memory apply, undo, or persistence behavior",
+      "Provider concurrency",
+      "Candidate similarity thresholds",
+      "Automatic memory capture",
+      "Rust or remote-runtime transport"
+    ],
+    "intendedFiles": [
+      "src/engine/entities/memory-maintenance.ts",
+      "src/engine/entities/memory-maintenance.spec.ts",
+      "src/engine/generation/memory-cleanup.ts",
+      "src/engine/generation/memory-cleanup.spec.ts",
+      "src/features/catalog/memory-maintenance/hooks/use-memory-cleanup.ts",
+      "src/features/catalog/memory-maintenance/hooks/use-memory-cleanup.spec.tsx",
+      "src/features/catalog/memory-maintenance/components/MemoryCleanupReviewModal.tsx",
+      "src/features/catalog/memory-maintenance/components/MemoryCleanupReviewModal.spec.tsx",
+      "docs/superpowers/specs/2026-07-29-bounded-memory-cleanup-analysis-design.md",
+      "docs/superpowers/plans/2026-07-29-bounded-memory-cleanup-analysis.md",
+      ".github/pr-evidence/bounded-memory-cleanup/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt generation",
+      "read-only memory review",
+      "cancellation",
+      "visible progress"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "A Harlequin-scale cleanup reviews all 94 eligible memories in three value-review calls, runs at most twelve consolidation calls, remains sequential and cancellable, and reports completed groups without applying memory changes.",
+    "riskType": "prompt generation read-only analysis",
+    "entrypoints": [
+      "Character Memories -> Tidy memories -> Analyze memories",
+      "analyzeMemoryCleanup",
+      "useMemoryCleanup",
+      "MemoryCleanupReviewModal"
+    ],
+    "currentPathsOrFormats": [
+      "MemoryCleanupSource active and pinned rows",
+      "memory_cleanup_value_review structured requests",
+      "memory_cleanup_preview structured requests",
+      "MemoryCleanupAnalysisProgress completedGroups and totalGroups"
+    ],
+    "legacyPathsOrFormats": [
+      "Exact duplicates remain detected deterministically across all eligible sources.",
+      "Cleanup proposals remain review-only until the user explicitly applies selected changes.",
+      "Analysis remains sequential and AbortSignal cancellation remains authoritative.",
+      "Existing source eligibility and similarity thresholds are unchanged."
+    ],
+    "outOfScopeClaims": [
+      "This change does not make provider latency instantaneous.",
+      "This change does not apply or delete memories automatically.",
+      "This change does not guarantee every possible consolidation appears in one pass."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A read-only cleanup preview could expand a moderate memory set into hundreds of sequential provider calls while the UI displayed only an indefinite spinner.",
+    "producer": "src/engine/entities/memory-maintenance.ts candidate preparation and src/engine/generation/memory-cleanup.ts analysis loop",
+    "consumer": "useMemoryCleanup and MemoryCleanupReviewModal",
+    "impliedContract": "Analyze memories should finish in a bounded amount of provider work, inspect all eligible rows for junk, remain cancellable, and disclose meaningful progress.",
+    "actualEnforcement": "Value review packs up to 32 records within the existing 12000-character limit, candidate preparation returns at most 12 consolidation groups with a deferred count, and the generation loop reports initial and post-call progress.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "The mode-neutral TypeScript engine owns candidate budgeting, sequential provider calls, and progress truth.",
+    "consumerOnlyLanes": [
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not fake timer progress, add provider concurrency, skip low-value review rows, or change storage/apply behavior.",
+    "regressionProof": [
+      "The Harlequin-scale preparation test covers all 94 value-review IDs exactly once in three groups and caps consolidation at twelve groups.",
+      "The generation test proves exact progress from zero through all sequential calls.",
+      "Hook and modal tests prove visible progress and cancellation cleanup."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Every eligible Harlequin-scale source is still reviewed for low value.",
+        "evidence": "The 94-row regression asserts three value groups whose flattened IDs contain all 94 source IDs exactly once."
+      },
+      {
+        "claim": "Provider work is bounded and sequential.",
+        "evidence": "Preparation caps consolidation groups at 12, while generation tests assert the capped request count and max one active provider call."
+      },
+      {
+        "claim": "The displayed counter reflects successful provider calls.",
+        "evidence": "The engine test asserts progress 0/3, 1/3, 2/3, 3/3; hook and modal tests assert propagation and visible copy."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The budget must not skip junk review rows.",
+        "evidence": "Only consolidation candidates are deferred; value groups cover every eligible source exactly once."
+      },
+      {
+        "claim": "Cancellation must not leave stale progress or show a completed preview.",
+        "evidence": "The hook regression cancels an in-flight analysis, asserts null progress and idle phase, then resolves the stale request without changing state."
+      },
+      {
+        "claim": "Analysis must not mutate memory data.",
+        "evidence": "The changed engine path only returns a preview; memory apply, undo, API, and storage files are untouched."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Exact duplicate cleanup remains deterministic and does not require a consolidation model call.",
+        "evidence": "Existing exact-duplicate engine tests pass unchanged."
+      },
+      {
+        "claim": "Smaller analyses preserve existing behavior.",
+        "evidence": "The focused memory preparation, generation, hook, and modal suites pass all 57 tests."
+      }
+    ],
+    "untestedRows": [
+      "The final Pi browser flow will be manually observable after the exact merged image is deployed; no live provider analysis is started automatically."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The live Harlequin scope contained 94 eligible active or pinned memory rows totaling 10803 content characters.",
+      "sourceType": "measured",
+      "evidence": "Read-only Pi inspection before the user cancelled the stalled analysis."
+    },
+    {
+      "description": "The deployed implementation prepared 12 value groups and 169 consolidation groups, for an upper bound of 181 sequential provider calls.",
+      "sourceType": "measured",
+      "evidence": "The deployed candidate preparation was run against the live Harlequin rows without applying changes."
+    },
+    {
+      "description": "No cleanup apply or undo write occurred during the cancelled analysis.",
+      "sourceType": "measured",
+      "evidence": "Pi runtime logs showed structured analysis calls and no memory apply or undo invocation."
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check passed with the supported DISCOVERY_CHECK_ALLOW_MISSING=1 local marker; the PR body records Feature Discoverability N/A for an existing workflow bugfix. Focused suites passed 57 tests.",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Inactive memories remain excluded",
+      "All value-review IDs appear exactly once",
+      "Consolidation groups beyond the budget are deferred",
+      "Provider calls remain sequential",
+      "Cancelled analysis clears and ignores stale progress"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 0,
+    "url": "",
+    "headRefName": "fix/memory-cleanup-bounded-analysis",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "No user memory content is included in this ledger.",
+    "The visible counter is covered at the component boundary; post-deployment interactive browser validation remains a manual observation."
+  ]
+}
