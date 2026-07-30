@@ -129,7 +129,7 @@ describe("memory cleanup preparation", () => {
     expect(prepared.groups).toEqual([]);
   });
 
-  it("returns more than twenty independent candidate groups without deferring any", () => {
+  it("defers independent consolidation groups beyond the per-analysis budget", () => {
     const prepared = prepareMemoryCleanupCandidates(
       Array.from({ length: 22 }, (_, index) => [
         source({ id: `pair-${index}-a`, content: `unique-${index}` }),
@@ -137,8 +137,8 @@ describe("memory cleanup preparation", () => {
       ]).flat(),
     );
 
-    expect(prepared.groups).toHaveLength(22);
-    expect(prepared.deferredCandidateCount).toBe(0);
+    expect(prepared.groups).toHaveLength(12);
+    expect(prepared.deferredCandidateCount).toBe(10);
   });
 
   it("covers every edge in a component larger than one model group", () => {
@@ -223,9 +223,28 @@ describe("memory cleanup preparation", () => {
     const ids = forward.flatMap((group) => group.sourceIds);
 
     expect(forward).toEqual(reverse);
-    expect(forward.every((group) => group.sourceIds.length <= 8)).toBe(true);
+    expect(forward.every((group) => group.sourceIds.length <= 32)).toBe(true);
     expect(ids).toEqual(sources.map((memory) => memory.id));
     expect(new Set(ids).size).toBe(sources.length);
+  });
+
+  it("bounds Harlequin-scale provider work without skipping low-value review", () => {
+    const sources = Array.from({ length: 94 }, (_, index) =>
+      source({
+        id: `harlequin-${index.toString().padStart(2, "0")}`,
+        content: `Harlequin remembers circus detail ${index} with the shared crimson stage lantern.`,
+      }),
+    );
+
+    const prepared = prepareMemoryCleanupCandidates(sources);
+    const valueIds = prepared.valueGroups.flatMap((group) => group.sourceIds);
+
+    expect(prepared.eligible).toHaveLength(94);
+    expect(prepared.valueGroups).toHaveLength(3);
+    expect(valueIds).toEqual(sources.map((memory) => memory.id));
+    expect(new Set(valueIds).size).toBe(94);
+    expect(prepared.groups).toHaveLength(12);
+    expect(prepared.deferredCandidateCount).toBeGreaterThan(0);
   });
 
   it("keeps an oversized source in its own value group", () => {

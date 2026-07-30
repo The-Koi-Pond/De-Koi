@@ -146,7 +146,7 @@ describe("analyzeMemoryCleanup", () => {
 
     await analyzeMemoryCleanup({
       scope: { kind: "character", id: "mira" },
-      sources: Array.from({ length: 9 }, (_, index) =>
+      sources: Array.from({ length: 33 }, (_, index) =>
         source({ id: `memory-${index}`, content: `isolatedtoken${index}` }),
       ),
       connectionId: "connection-1",
@@ -155,6 +155,40 @@ describe("analyzeMemoryCleanup", () => {
 
     expect(requests).toHaveLength(2);
     expect(maxActive).toBe(1);
+  });
+
+  it("reports truthful progress across value review and consolidation calls", async () => {
+    const progress = vi.fn();
+    const requests: LlmRequest[] = [];
+    const llm = gateway(async (request) => {
+      requests.push(request);
+      return JSON.stringify({ proposals: [] });
+    });
+
+    await analyzeMemoryCleanup({
+      scope: { kind: "character", id: "mira" },
+      sources: [
+        source({ id: "memory-00", content: "Mira keeps the brass key in her coat." }),
+        source({ id: "memory-01", content: "Mira stores the brass key inside her coat." }),
+        ...Array.from({ length: 31 }, (_, index) =>
+          source({
+            id: `memory-${(index + 2).toString().padStart(2, "0")}`,
+            content: `isolatedtoken${index}`,
+          }),
+        ),
+      ],
+      connectionId: "connection-1",
+      llm,
+      onProgress: progress,
+    });
+
+    expect(requests).toHaveLength(3);
+    expect(progress.mock.calls.map(([value]) => value)).toEqual([
+      { completedGroups: 0, totalGroups: 3 },
+      { completedGroups: 1, totalGroups: 3 },
+      { completedGroups: 2, totalGroups: 3 },
+      { completedGroups: 3, totalGroups: 3 },
+    ]);
   });
 
   it("rejects invented discard IDs and coalesces repeated discard suggestions", async () => {
@@ -252,7 +286,7 @@ describe("analyzeMemoryCleanup", () => {
     expect(preview.afterCount).toBe(2);
   });
 
-  it("analyzes more than twenty candidate groups sequentially without deferral", async () => {
+  it("bounds candidate groups while keeping analysis sequential", async () => {
     const requests: LlmRequest[] = [];
     let active = 0;
     let maxActive = 0;
@@ -284,13 +318,13 @@ describe("analyzeMemoryCleanup", () => {
       llm,
     });
 
-    expect(requests).toHaveLength(28);
+    expect(requests).toHaveLength(14);
     expect(requests.filter((request) => request.messages[0]?.content.includes("future contextual value"))).toHaveLength(
-      6,
+      2,
     );
-    expect(requests.filter((request) => request.messages[0]?.content.includes("reversible cleanup"))).toHaveLength(22);
+    expect(requests.filter((request) => request.messages[0]?.content.includes("reversible cleanup"))).toHaveLength(12);
     expect(maxActive).toBe(1);
-    expect(preview.deferredCandidateCount).toBe(0);
+    expect(preview.deferredCandidateCount).toBe(10);
     expect(preview.proposals).toEqual([]);
   });
 

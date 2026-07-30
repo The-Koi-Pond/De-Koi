@@ -161,6 +161,40 @@ describe("useMemoryCleanup", () => {
     expect(mocks.apply).not.toHaveBeenCalled();
   });
 
+  it("exposes current analysis progress and clears it after completion or cancellation", async () => {
+    let finishAnalysis!: () => void;
+    let reportProgress!: (value: { completedGroups: number; totalGroups: number }) => void;
+    mocks.analyze.mockImplementation(
+      ({ scope, onProgress }: { scope: MemoryCleanupScope; onProgress: typeof reportProgress }) =>
+        new Promise<MemoryCleanupPreview>((resolve) => {
+          reportProgress = onProgress;
+          finishAnalysis = () => resolve(preview(scope));
+          onProgress({ completedGroups: 0, totalGroups: 3 });
+        }),
+    );
+    render();
+
+    let analysis!: Promise<void>;
+    await act(async () => {
+      analysis = current.analyze();
+      await Promise.resolve();
+    });
+    expect(current.analysisProgress).toEqual({ completedGroups: 0, totalGroups: 3 });
+
+    act(() => reportProgress({ completedGroups: 1, totalGroups: 3 }));
+    expect(current.analysisProgress).toEqual({ completedGroups: 1, totalGroups: 3 });
+
+    act(() => current.cancelAnalysis());
+    expect(current.analysisProgress).toBeNull();
+    expect(current.phase).toBe("idle");
+
+    await act(async () => {
+      finishAnalysis();
+      await analysis;
+    });
+    expect(current.analysisProgress).toBeNull();
+  });
+
   it("applies only selected proposals and exposes one-batch undo", async () => {
     render();
     await act(async () => current.analyze());

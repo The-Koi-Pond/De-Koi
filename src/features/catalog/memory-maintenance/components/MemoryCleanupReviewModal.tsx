@@ -84,7 +84,11 @@ export function MemoryCleanupReviewModal({
               ) : (
                 <Sparkles size="0.875rem" aria-hidden="true" />
               )}
-              {controller.phase === "analyzing" ? "Analyzing memories…" : "Analyze memories"}
+              {controller.phase === "analyzing"
+                ? controller.analysisProgress
+                  ? `Analyzing memories… ${controller.analysisProgress.completedGroups} of ${controller.analysisProgress.totalGroups}`
+                  : "Analyzing memories…"
+                : "Analyze memories"}
             </button>
           </div>
         )}

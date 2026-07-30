@@ -172,6 +172,45 @@ describe("MemoryCleanupReviewModal", () => {
     expect(mocks.apply).not.toHaveBeenCalled();
   });
 
+  it("shows completed analysis groups while the model is working", async () => {
+    let finishAnalysis!: () => void;
+    mocks.analyze.mockImplementation(
+      ({
+        onProgress,
+      }: {
+        onProgress: (value: { completedGroups: number; totalGroups: number }) => void;
+      }) =>
+        new Promise<MemoryCleanupPreview>((resolve) => {
+          onProgress({ completedGroups: 1, totalGroups: 3 });
+          finishAnalysis = () => resolve(cleanupPreview());
+        }),
+    );
+    act(() => {
+      root.render(
+        <MemoryCleanupReviewModal
+          open
+          scope={{ kind: "chat", id: "chat-1" }}
+          sources={sources}
+          resolveConnectionId={async () => "connection-1"}
+          onClose={vi.fn()}
+          onChanged={vi.fn()}
+        />,
+      );
+    });
+
+    const analyze = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Analyze memories"),
+    );
+    await act(async () => {
+      analyze?.click();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Analyzing memories… 1 of 3");
+
+    await act(async () => finishAnalysis());
+  });
+
   it("shows low-value removal as an unchecked recoverable action with source labels", async () => {
     const lowValueSource: MemoryCleanupSource = {
       ...sources[0],
