@@ -22,6 +22,10 @@ function source(overrides: Partial<MemoryCleanupSource> = {}): MemoryCleanupSour
   };
 }
 
+function containsEverySource(group: { sourceIds: string[] }, ids: string[]): boolean {
+  return ids.every((id) => group.sourceIds.includes(id));
+}
+
 function proposal(overrides: Partial<MemoryCleanupProposal> = {}): MemoryCleanupProposal {
   return {
     id: "proposal-1",
@@ -71,11 +75,33 @@ describe("memory cleanup preparation", () => {
       source({ id: "embedding-b", content: "Another unrelated phrase.", embedding: [0.9, 0.1] }),
     ]);
 
-    const groups = prepared.groups.map((group) => [...group.sourceIds].sort().join(","));
-    expect(groups).toContain("exact-a,exact-b");
-    expect(groups).toContain("provenance,same-message");
-    expect(groups).toContain("lexical-a,lexical-b");
-    expect(groups).toContain("embedding-a,embedding-b");
+    expect(prepared.groups.some((group) => containsEverySource(group, ["exact-a", "exact-b"]))).toBe(true);
+    expect(prepared.groups.some((group) => containsEverySource(group, ["provenance", "same-message"]))).toBe(true);
+    expect(prepared.groups.some((group) => containsEverySource(group, ["lexical-a", "lexical-b"]))).toBe(true);
+    expect(prepared.groups.some((group) => containsEverySource(group, ["embedding-a", "embedding-b"]))).toBe(true);
+  });
+
+  it("finds a short fact inside a longer elaboration with two shared meaningful tokens", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "short", content: "The brass key remains." }),
+      source({
+        id: "elaboration",
+        content: "Mira hid the old brass key beneath the loose floorboard yesterday.",
+      }),
+    ]);
+
+    expect(prepared.groups.some((group) => containsEverySource(group, ["short", "elaboration"]))).toBe(true);
+  });
+
+  it("accepts useful 0.80 embedding similarity without grouping unrelated vectors", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "near-a", content: "North window.", embedding: [1, 0] }),
+      source({ id: "near-b", content: "Unrelated wording.", embedding: [0.8, 0.6] }),
+      source({ id: "far", content: "Different wording.", embedding: [0, 1] }),
+    ]);
+
+    expect(prepared.groups.some((group) => containsEverySource(group, ["near-a", "near-b"]))).toBe(true);
+    expect(prepared.groups.some((group) => containsEverySource(group, ["near-a", "far"]))).toBe(false);
   });
 
   it("does not create a singleton candidate because a memory is long", () => {
@@ -103,7 +129,7 @@ describe("memory cleanup preparation", () => {
     expect(prepared.groups).toEqual([]);
   });
 
-  it("caps model-facing groups and reports deferred candidates", () => {
+  it("returns more than twenty independent candidate groups without deferring any", () => {
     const prepared = prepareMemoryCleanupCandidates(
       Array.from({ length: 22 }, (_, index) => [
         source({ id: `pair-${index}-a`, content: `unique-${index}` }),
@@ -111,8 +137,57 @@ describe("memory cleanup preparation", () => {
       ]).flat(),
     );
 
-    expect(prepared.groups).toHaveLength(20);
-    expect(prepared.deferredCandidateCount).toBe(2);
+    expect(prepared.groups).toHaveLength(22);
+    expect(prepared.deferredCandidateCount).toBe(0);
+  });
+
+  it("covers every edge in a component larger than one model group", () => {
+    const chain = Array.from({ length: 12 }, (_, index) =>
+      source({
+        id: `chain-${index.toString().padStart(2, "0")}`,
+        content: `Distinct memory ${index}.`,
+        messageIds: [`edge-${index - 1}`, `edge-${index}`],
+      }),
+    );
+    const prepared = prepareMemoryCleanupCandidates(chain);
+
+    expect(prepared.groups.every((group) => group.sourceIds.length <= 8)).toBe(true);
+    for (let index = 0; index < chain.length - 1; index += 1) {
+      expect(
+        prepared.groups.some((group) =>
+          containsEverySource(group, [
+            `chain-${index.toString().padStart(2, "0")}`,
+            `chain-${(index + 1).toString().padStart(2, "0")}`,
+          ]),
+        ),
+      ).toBe(true);
+    }
+    expect(prepared.deferredCandidateCount).toBe(0);
+  });
+
+  it("keeps an oversized qualifying seed pair instead of dropping it", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "large-a", content: "a".repeat(7_000), messageIds: ["shared"] }),
+      source({ id: "large-b", content: "b".repeat(7_000), messageIds: ["shared"] }),
+      source({ id: "extra", content: "c".repeat(2_000), messageIds: ["shared"] }),
+    ]);
+
+    expect(prepared.groups.some((group) => containsEverySource(group, ["large-a", "large-b"]))).toBe(true);
+    expect(prepared.groups.find((group) => containsEverySource(group, ["large-a", "large-b"]))?.sourceIds).toHaveLength(
+      2,
+    );
+  });
+
+  it("builds the same groups regardless of source input order", () => {
+    const sources = [
+      source({ id: "a", content: "Mira keeps the brass key." }),
+      source({ id: "b", content: "The brass key remains with Mira." }),
+      source({ id: "c", content: "Mira stores the brass key in her coat." }),
+    ];
+
+    expect(prepareMemoryCleanupCandidates(sources).groups).toEqual(
+      prepareMemoryCleanupCandidates([...sources].reverse()).groups,
+    );
   });
 
   it("does not treat one oversized memory as a deferred consolidation candidate", () => {
@@ -130,12 +205,63 @@ describe("memory cleanup preparation", () => {
     ]);
 
     expect(prepared.groups).toEqual([
-      {
+      expect.objectContaining({
         id: "cleanup-group-1",
         sourceIds: ["oversized-a", "oversized-b"],
-      },
+      }),
     ]);
     expect(prepared.deferredCandidateCount).toBe(0);
+  });
+
+  it("covers every eligible source exactly once in deterministic value groups", () => {
+    const sources = Array.from({ length: 19 }, (_, index) =>
+      source({ id: `memory-${index.toString().padStart(2, "0")}`, content: `Fact ${index}` }),
+    );
+
+    const forward = prepareMemoryCleanupCandidates(sources).valueGroups;
+    const reverse = prepareMemoryCleanupCandidates([...sources].reverse()).valueGroups;
+    const ids = forward.flatMap((group) => group.sourceIds);
+
+    expect(forward).toEqual(reverse);
+    expect(forward.every((group) => group.sourceIds.length <= 8)).toBe(true);
+    expect(ids).toEqual(sources.map((memory) => memory.id));
+    expect(new Set(ids).size).toBe(sources.length);
+  });
+
+  it("keeps an oversized source in its own value group", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "oversized", content: "x".repeat(12_001) }),
+      source({ id: "small", content: "Useful preference." }),
+    ]);
+
+    expect(prepared.valueGroups).toEqual([
+      { id: "cleanup-value-group-1", sourceIds: ["oversized"] },
+      { id: "cleanup-value-group-2", sourceIds: ["small"] },
+    ]);
+  });
+
+  it("starts a new value group before adding a source past the character target", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "a", content: "a".repeat(7_000) }),
+      source({ id: "b", content: "b".repeat(6_000) }),
+      source({ id: "c", content: "c".repeat(1_000) }),
+    ]);
+
+    expect(prepared.valueGroups).toEqual([
+      { id: "cleanup-value-group-1", sourceIds: ["a"] },
+      { id: "cleanup-value-group-2", sourceIds: ["b", "c"] },
+    ]);
+  });
+
+  it("includes pinned manual and edited memories but excludes inactive rows from value review", () => {
+    const prepared = prepareMemoryCleanupCandidates([
+      source({ id: "pinned", status: "pinned", pinned: true }),
+      source({ id: "manual", origin: "manual" }),
+      source({ id: "edited", userEdited: true }),
+      source({ id: "wrong", status: "wrong" }),
+    ]);
+
+    expect(prepared.valueGroups.flatMap((group) => group.sourceIds)).toEqual(["edited", "manual", "pinned"]);
   });
 });
 
@@ -240,5 +366,54 @@ describe("memory cleanup proposal validation", () => {
     expect(() => validateCleanupProposal(proposal({ type: "combine", sourceIds: ["automatic"] }), sources)).toThrow(
       "at least two",
     );
+  });
+
+  it("accepts one unchecked discard without a winner or replacement", () => {
+    const memory = source({ id: "junk", status: "pinned", pinned: true, origin: "manual" });
+    const discard = proposal({
+      type: "discard",
+      sourceIds: ["junk"],
+      winnerId: undefined,
+      replacement: undefined,
+      reason: "Low-value memory",
+      selected: false,
+      estimatedTokensAfter: 0,
+    });
+
+    expect(validateCleanupProposal(discard, new Map([[memory.id, memory]]))).toEqual(discard);
+  });
+
+  it("rejects discard with zero or multiple sources, a winner, or a replacement", () => {
+    const one = source({ id: "one" });
+    const two = source({ id: "two" });
+    const sources = new Map([
+      [one.id, one],
+      [two.id, two],
+    ]);
+    const base = {
+      type: "discard" as const,
+      reason: "Low-value memory" as const,
+      selected: false,
+      replacement: undefined,
+      winnerId: undefined,
+    };
+
+    expect(() => validateCleanupProposal(proposal({ ...base, sourceIds: [] }), sources)).toThrow("exactly one");
+    expect(() => validateCleanupProposal(proposal({ ...base, sourceIds: ["one", "two"] }), sources)).toThrow(
+      "exactly one",
+    );
+    expect(() => validateCleanupProposal(proposal({ ...base, sourceIds: ["one"], winnerId: "two" }), sources)).toThrow(
+      "winner",
+    );
+    expect(() =>
+      validateCleanupProposal(
+        proposal({
+          ...base,
+          sourceIds: ["one"],
+          replacement: { content: "replacement", kind: "fact" },
+        }),
+        sources,
+      ),
+    ).toThrow("replacement");
   });
 });

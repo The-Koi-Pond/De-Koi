@@ -6,6 +6,7 @@ import type {
   MemoryCleanupScope,
   MemoryCleanupSource,
 } from "../../../../engine/contracts/types/memory-maintenance";
+import { MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS } from "../../../../engine/contracts/types/memory-maintenance";
 import { analyzeMemoryCleanup } from "../../../../engine/generation/memory-cleanup";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { memoryMaintenanceApi } from "../../../../shared/api/memory-maintenance-api";
@@ -84,7 +85,10 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
       setPreview(nextPreview);
       setSelected(
         Object.fromEntries(
-          nextPreview.proposals.map((proposal) => [proposal.id, proposal.selected && proposal.type !== "conflict"]),
+          nextPreview.proposals.map((proposal) => [
+            proposal.id,
+            proposal.type !== "discard" && proposal.selected && proposal.type !== "conflict",
+          ]),
         ),
       );
       setReplacementText(
@@ -142,6 +146,11 @@ export function useMemoryCleanup(input: UseMemoryCleanupInput) {
     }
     const proposals = selectedProposals();
     if (proposals.length === 0) throw new Error("Select at least one cleanup change.");
+    if (proposals.length > MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS) {
+      throw new Error(
+        `Select at most ${MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS.toLocaleString()} cleanup changes at once.`,
+      );
+    }
     if (proposals.some((proposal) => proposal.replacement && !proposal.replacement.content.trim())) {
       throw new Error("Replacement memories cannot be empty.");
     }

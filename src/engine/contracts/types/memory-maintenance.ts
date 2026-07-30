@@ -32,9 +32,11 @@ export interface MemoryCleanupSource {
   embedding?: number[];
 }
 
-export type MemoryCleanupProposalType = "keep_one" | "combine" | "conflict";
+export const MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS = 1_000;
 
-export type MemoryCleanupReason = "Repeated fact" | "Overlapping memories" | "Possible conflict";
+export type MemoryCleanupProposalType = "discard" | "keep_one" | "combine" | "conflict";
+
+export type MemoryCleanupReason = "Low-value memory" | "Repeated fact" | "Overlapping memories" | "Possible conflict";
 
 export interface MemoryCleanupProposal {
   id: string;
@@ -70,6 +72,7 @@ export interface MemoryCleanupApplyRequest {
 export interface MemoryCleanupApplyResult {
   batchId: string;
   combined: number;
+  discarded: number;
   superseded: number;
   created: number;
 }

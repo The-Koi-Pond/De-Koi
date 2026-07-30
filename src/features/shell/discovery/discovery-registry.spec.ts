@@ -84,6 +84,8 @@ describe("discovery showcase registry", () => {
     expect(summary).toContain("all active");
     expect(summary).toContain("pinned");
     expect(summary).toContain("two or more");
+    expect(summary).toContain("low-value");
+    expect(summary).toContain("start unchecked");
     expect(summary).toContain("repair from chat history");
     expect(entry?.where).toContain("Character Editor > Memories");
     expect(summary).not.toMatch(/embeddings? (?:create|summarize|write)/);

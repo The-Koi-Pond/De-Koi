@@ -106,6 +106,7 @@ describe("MemoryCleanupReviewModal", () => {
       batchId: "cleanup-batch-1",
       combined: 1,
       superseded: 2,
+      discarded: 0,
       created: 1,
     });
   });
@@ -151,9 +152,7 @@ describe("MemoryCleanupReviewModal", () => {
     });
 
     expect(container.textContent).toContain("You review every change before anything is saved.");
-    expect(container.textContent).toContain(
-      "Find memories that can be combined into fewer, clearer memories without losing details.",
-    );
+    expect(container.textContent).toContain("Find memories that can be combined or are not useful to keep.");
     expect(container.textContent).not.toContain("overly wordy");
     const analyze = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Analyze memories"),
@@ -171,6 +170,66 @@ describe("MemoryCleanupReviewModal", () => {
     );
     expect(apply?.disabled).toBe(false);
     expect(mocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("shows low-value removal as an unchecked recoverable action with source labels", async () => {
+    const lowValueSource: MemoryCleanupSource = {
+      ...sources[0],
+      id: "junk",
+      content: "Chai says heat stroke is serious.",
+      status: "pinned",
+      origin: "manual",
+      pinned: true,
+      userEdited: true,
+    };
+    mocks.analyze.mockResolvedValue({
+      ...cleanupPreview(),
+      proposals: [
+        {
+          id: "discard-1",
+          type: "discard",
+          sourceIds: ["junk"],
+          expected: {},
+          reason: "Low-value memory",
+          selected: false,
+          estimatedTokensBefore: 8,
+          estimatedTokensAfter: 0,
+        },
+      ],
+      beforeCount: 1,
+      afterCount: 1,
+      estimatedTokensBefore: 8,
+      estimatedTokensAfter: 8,
+    });
+    act(() => {
+      root.render(
+        <MemoryCleanupReviewModal
+          open
+          scope={{ kind: "chat", id: "chat-1" }}
+          sources={[lowValueSource]}
+          resolveConnectionId={async () => "connection-1"}
+          onClose={vi.fn()}
+          onChanged={vi.fn()}
+        />,
+      );
+    });
+
+    const analyze = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Analyze memories"),
+    );
+    await act(async () => analyze?.click());
+
+    expect(container.textContent).toContain("Low-value memory");
+    expect(container.textContent).toContain("Remove from active memories");
+    expect(container.textContent).toContain("Undo can restore it");
+    expect(container.textContent).toContain("Pinned");
+    expect(container.textContent).toContain("Manual");
+    expect(container.textContent).toContain("Edited");
+    expect((container.querySelector("input[type='checkbox']") as HTMLInputElement | null)?.checked).toBe(false);
+    const apply = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Apply cleanup",
+    );
+    expect(apply?.disabled).toBe(true);
   });
 
   it("reports when active memories have no consolidation opportunity", async () => {
@@ -200,9 +259,7 @@ describe("MemoryCleanupReviewModal", () => {
     );
     await act(async () => analyze?.click());
 
-    expect(container.textContent).toContain(
-      "No consolidation opportunities found. Your memories are already distinct.",
-    );
+    expect(container.textContent).toContain("No cleanup opportunities found. These memories look distinct and useful.");
   });
 
   it("offers undo only after a successful apply", async () => {

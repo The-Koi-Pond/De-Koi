@@ -255,6 +255,7 @@ fn build_replacement(
 fn source_cleanup_metadata(
     batch_id: &str,
     applied_at: &str,
+    operation: &str,
     previous_status: &str,
     previous_updated_at: Option<String>,
     previous_superseded_by: Option<String>,
@@ -262,6 +263,7 @@ fn source_cleanup_metadata(
     json!({
         "batchId": batch_id,
         "role": "source",
+        "operation": operation,
         "appliedAt": applied_at,
         "previousStatus": previous_status,
         "previousUpdatedAt": previous_updated_at,
@@ -313,21 +315,29 @@ pub(crate) fn apply_canonical_cleanup(
                 .collect::<AppResult<Vec<_>>>()?;
             let mut combined = 0usize;
             let mut superseded = 0usize;
+            let mut discarded = 0usize;
             let mut created = 0usize;
             for proposal in selected {
+                let discard = proposal.proposal_type == ProposalType::Discard;
                 let replacement = replacements
                     .iter()
                     .find(|(proposal_id, _)| *proposal_id == proposal.id)
                     .and_then(|(_, replacement)| replacement.clone());
-                let superseded_by = replacement
-                    .as_ref()
-                    .and_then(|memory| memory.get("id"))
-                    .and_then(Value::as_str)
-                    .or(proposal.winner_id.as_deref())
-                    .ok_or_else(|| {
-                        AppError::invalid_input("Cleanup proposal has no retained result")
-                    })?
-                    .to_string();
+                let superseded_by = if discard {
+                    None
+                } else {
+                    Some(
+                        replacement
+                            .as_ref()
+                            .and_then(|memory| memory.get("id"))
+                            .and_then(Value::as_str)
+                            .or(proposal.winner_id.as_deref())
+                            .ok_or_else(|| {
+                                AppError::invalid_input("Cleanup proposal has no retained result")
+                            })?
+                            .to_string(),
+                    )
+                };
                 for source_id in &proposal.source_ids {
                     let source = memory_by_id_mut(memories, source_id)?;
                     let previous_status =
@@ -349,17 +359,27 @@ pub(crate) fn apply_canonical_cleanup(
                         source_cleanup_metadata(
                             &batch_id_for_write,
                             &applied_at_for_write,
+                            if discard { "discard" } else { "consolidate" },
                             &previous_status,
                             previous_updated_at,
                             previous_superseded_by,
                         ),
                     );
-                    source_object.insert("status".to_string(), json!("superseded"));
-                    source_object.insert("supersededByMemoryId".to_string(), json!(superseded_by));
+                    if discard {
+                        source_object.insert("status".to_string(), json!("deleted"));
+                        source_object.insert("supersededByMemoryId".to_string(), Value::Null);
+                        discarded += 1;
+                    } else {
+                        source_object.insert("status".to_string(), json!("superseded"));
+                        source_object.insert(
+                            "supersededByMemoryId".to_string(),
+                            json!(superseded_by.as_deref()),
+                        );
+                        superseded += 1;
+                    }
                     source_object.insert("updatedAt".to_string(), json!(applied_at_for_write));
                     let changed = Value::Object(source_object.clone());
                     canonical_memory::replace_memory_lexical_index(index_rows, &changed)?;
-                    superseded += 1;
                 }
                 if let Some(replacement) = replacement {
                     canonical_memory::replace_memory_lexical_index(index_rows, &replacement)?;
@@ -368,13 +388,14 @@ pub(crate) fn apply_canonical_cleanup(
                 }
                 match proposal.proposal_type {
                     ProposalType::Combine => combined += 1,
-                    ProposalType::KeepOne | ProposalType::Conflict => {}
+                    ProposalType::KeepOne | ProposalType::Discard | ProposalType::Conflict => {}
                 }
             }
             Ok(json!({
                 "batchId": batch_id_for_write,
                 "combined": combined,
                 "superseded": superseded,
+                "discarded": discarded,
                 "created": created
             }))
         },
@@ -446,11 +467,18 @@ pub(crate) fn undo_canonical_cleanup(
                 }
             }
             if source_ids.iter().any(|id| {
-                memory_by_id(memories, id)
-                    .ok()
-                    .and_then(|memory| memory.get("status"))
-                    .and_then(Value::as_str)
-                    != Some("superseded")
+                memory_by_id(memories, id).ok().is_none_or(|memory| {
+                    let expected_status = if cleanup_metadata(memory)
+                        .and_then(|metadata| metadata.get("operation"))
+                        .and_then(Value::as_str)
+                        == Some("discard")
+                    {
+                        "deleted"
+                    } else {
+                        "superseded"
+                    };
+                    memory.get("status").and_then(Value::as_str) != Some(expected_status)
+                })
             }) || replacement_ids.iter().any(|id| {
                 !matches!(
                     memory_by_id(memories, id)
@@ -639,6 +667,35 @@ mod tests {
         }
     }
 
+    fn discard_proposal(memory: &Value) -> CleanupProposal {
+        let id = memory["id"]
+            .as_str()
+            .expect("canonical memory id should be a string");
+        CleanupProposal {
+            id: format!("discard-{id}"),
+            proposal_type: ProposalType::Discard,
+            source_ids: vec![id.to_string()],
+            expected: HashMap::from([(id.to_string(), expected(memory))]),
+            winner_id: None,
+            replacement: None,
+            _reason: Some("Low-value memory".to_string()),
+            selected: true,
+            _estimated_tokens_before: Some(8),
+            _estimated_tokens_after: Some(0),
+        }
+    }
+
+    fn discard_request(proposals: Vec<CleanupProposal>) -> ApplyCleanupRequest {
+        ApplyCleanupRequest {
+            version: 1,
+            scope: CleanupScope {
+                kind: "character".to_string(),
+                id: "mira".to_string(),
+            },
+            proposals,
+        }
+    }
+
     fn active_character_ids(state: &AppState) -> Vec<String> {
         let mut ids = state
             .storage
@@ -823,5 +880,137 @@ mod tests {
         );
         assert_eq!(restored_a["status"], json!("pinned"));
         assert_eq!(restored_b["updatedAt"], memory_b["createdAt"]);
+    }
+
+    #[test]
+    fn character_cleanup_discards_a_protected_memory_and_undo_restores_it_and_its_index() {
+        let state = test_state("discard-undo");
+        automatic_character_memory(&state, "junk", "Chai says heat stroke is serious.");
+        state
+            .storage
+            .update_collections_atomically(vec!["canonical-memories"], |collections| {
+                let memory = memory_by_id_mut(collections[0].rows_mut(), "junk")?;
+                memory["status"] = json!("pinned");
+                memory["tags"] = json!(["manual"]);
+                memory["payload"] = json!({
+                    "automatic": false,
+                    "userEdited": true
+                });
+                memory["supersededByMemoryId"] = json!("prior-replacement");
+                Ok(())
+            })
+            .expect("protected memory state should seed");
+        let original = state
+            .storage
+            .get("canonical-memories", "junk")
+            .expect("memory should read")
+            .expect("memory should exist");
+
+        let applied =
+            apply_canonical_cleanup(&state, discard_request(vec![discard_proposal(&original)]))
+                .expect("discard should apply");
+
+        assert_eq!(applied["combined"], json!(0));
+        assert_eq!(applied["superseded"], json!(0));
+        assert_eq!(applied["discarded"], json!(1));
+        assert_eq!(applied["created"], json!(0));
+        assert!(active_character_ids(&state).is_empty());
+        assert_eq!(
+            state
+                .storage
+                .list("memory-index-rows")
+                .expect("index rows should list")
+                .len(),
+            0
+        );
+        let discarded = state
+            .storage
+            .get("canonical-memories", "junk")
+            .expect("memory should read")
+            .expect("memory should exist");
+        assert_eq!(discarded["status"], json!("deleted"));
+        assert_eq!(discarded["supersededByMemoryId"], Value::Null);
+        assert_eq!(
+            cleanup_metadata(&discarded)
+                .and_then(|metadata| metadata.get("operation"))
+                .and_then(Value::as_str),
+            Some("discard")
+        );
+        assert_eq!(
+            state
+                .storage
+                .list("canonical-memories")
+                .expect("canonical memories should list")
+                .len(),
+            1,
+            "discard must not create a replacement row"
+        );
+
+        undo_canonical_cleanup(
+            &state,
+            UndoCleanupRequest {
+                scope: CleanupScope {
+                    kind: "character".to_string(),
+                    id: "mira".to_string(),
+                },
+                batch_id: applied["batchId"].as_str().unwrap().to_string(),
+            },
+        )
+        .expect("discard should undo");
+
+        let restored = state
+            .storage
+            .get("canonical-memories", "junk")
+            .expect("memory should read")
+            .expect("memory should exist");
+        assert_eq!(restored, original);
+        assert_eq!(
+            state
+                .storage
+                .list("memory-index-rows")
+                .expect("index rows should list")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn character_cleanup_discard_is_atomic_when_any_selected_source_is_stale() {
+        let state = test_state("discard-stale");
+        let first = automatic_character_memory(&state, "memory-a", "Low-value first memory.");
+        let second = automatic_character_memory(&state, "memory-b", "Low-value second memory.");
+        let originals = state
+            .storage
+            .list("canonical-memories")
+            .expect("canonical memories should list");
+        let mut stale_second = discard_proposal(&second);
+        stale_second
+            .expected
+            .get_mut("memory-b")
+            .expect("expected state should exist")
+            .content = "Stale preview content.".to_string();
+
+        let error = apply_canonical_cleanup(
+            &state,
+            discard_request(vec![discard_proposal(&first), stale_second]),
+        )
+        .expect_err("a stale source must reject the whole batch");
+        assert!(error.message.contains("changed after"));
+
+        assert_eq!(
+            state
+                .storage
+                .list("canonical-memories")
+                .expect("canonical memories should list"),
+            originals
+        );
+        assert_eq!(
+            state
+                .storage
+                .list("memory-index-rows")
+                .expect("index rows should list")
+                .len(),
+            2
+        );
     }
 }

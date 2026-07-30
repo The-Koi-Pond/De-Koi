@@ -58,8 +58,8 @@ export function MemoryCleanupReviewModal({
             AI-assisted cleanup with review
           </div>
           <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
-            Find memories that can be combined into fewer, clearer memories without losing details. You review every
-            change before anything is saved.
+            Find memories that can be combined or are not useful to keep. You review every change before anything is
+            saved.
           </p>
         </div>
 
@@ -127,12 +127,14 @@ export function MemoryCleanupReviewModal({
 
             {controller.preview.proposals.length === 0 ? (
               <div className="rounded-md border border-[var(--border)] p-4 text-sm">
-                No consolidation opportunities found. Your memories are already distinct.
+                No cleanup opportunities found. These memories look distinct and useful.
               </div>
             ) : (
               <div className="space-y-3">
                 {controller.preview.proposals.map((proposal) => {
                   const conflict = proposal.type === "conflict";
+                  const discard = proposal.type === "discard";
+                  const discardSource = discard ? sourcesById.get(proposal.sourceIds[0] ?? "") : undefined;
                   const referencedIds = [...proposal.sourceIds, ...(proposal.winnerId ? [proposal.winnerId] : [])];
                   return (
                     <article
@@ -152,6 +154,19 @@ export function MemoryCleanupReviewModal({
                           <span className="block text-[0.6875rem] text-[var(--muted-foreground)]">
                             ~{proposal.estimatedTokensBefore} → ~{proposal.estimatedTokensAfter} tokens
                           </span>
+                          {discard && discardSource ? (
+                            <span className="mt-1 flex flex-wrap gap-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                              {discardSource.pinned ? (
+                                <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">Pinned</span>
+                              ) : null}
+                              {discardSource.origin === "manual" ? (
+                                <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">Manual</span>
+                              ) : null}
+                              {discardSource.userEdited ? (
+                                <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">Edited</span>
+                              ) : null}
+                            </span>
+                          ) : null}
                         </span>
                       </label>
                       <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -174,7 +189,11 @@ export function MemoryCleanupReviewModal({
                           <h4 className="text-[0.6875rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
                             After
                           </h4>
-                          {proposal.replacement ? (
+                          {discard ? (
+                            <p className="mt-1 rounded border border-dashed border-[var(--border)] bg-[var(--muted)]/30 p-2 text-xs text-[var(--muted-foreground)]">
+                              Remove from active memories. Undo can restore it.
+                            </p>
+                          ) : proposal.replacement ? (
                             <textarea
                               aria-label={`Replacement for ${proposal.reason}`}
                               value={controller.replacementText[proposal.id] ?? ""}
