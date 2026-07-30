@@ -156,6 +156,35 @@ fn memory_ids(memory: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn has_automatic_lineage(memory: &Value) -> bool {
+    if memory.get("source").and_then(Value::as_str) == Some("memory_cleanup") {
+        return memory
+            .get("automaticLineage")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    }
+    if memory
+        .get("userEdited")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    if matches!(
+        memory.get("source").and_then(Value::as_str),
+        Some("manual" | "imported" | "correction" | "connected_command")
+    ) {
+        return false;
+    }
+    if value_string(memory, "sourceChatId")
+        .zip(value_string(memory, "chatId"))
+        .is_some_and(|(source_chat_id, chat_id)| source_chat_id != chat_id)
+    {
+        return false;
+    }
+    !memory_ids(memory, "messageIds").is_empty()
+}
+
 fn build_replacement(
     memories: &[Value],
     scope: &CleanupScope,
@@ -174,9 +203,11 @@ fn build_replacement(
     let mut first_message_at: Option<String> = None;
     let mut last_message_at: Option<String> = None;
     let mut pinned = false;
+    let mut automatic_lineage = true;
     for source_id in &proposal.source_ids {
         let source = memory_by_id(memories, source_id)?;
         pinned |= chat_memory_is_pinned(source);
+        automatic_lineage &= has_automatic_lineage(source);
         message_ids.extend(memory_ids(source, "messageIds"));
         if let Some(timestamp) = value_string(source, "firstMessageAt") {
             if first_message_at
@@ -212,6 +243,7 @@ fn build_replacement(
         "status": "active",
         "pinned": pinned,
         "source": "memory_cleanup",
+        "automaticLineage": automatic_lineage,
         "creationReason": "AI memory cleanup",
         "userEdited": false,
         "messageCount": message_ids.len().max(1),
@@ -259,6 +291,7 @@ fn apply_validated_chat_batch(
         .map(|replacement| (replacement.proposal_id.as_str(), replacement.value.clone()))
         .collect::<HashMap<_, _>>();
     let mut combined = 0usize;
+    let clarified = 0usize;
     let mut superseded = 0usize;
     let mut discarded = 0usize;
     let mut created = 0usize;
@@ -348,12 +381,16 @@ fn apply_validated_chat_batch(
         }
         match proposal.proposal_type {
             ProposalType::Combine => combined += 1,
-            ProposalType::KeepOne | ProposalType::Discard | ProposalType::Conflict => {}
+            ProposalType::KeepOne
+            | ProposalType::Clarify
+            | ProposalType::Discard
+            | ProposalType::Conflict => {}
         }
     }
     Ok(json!({
         "batchId": batch_id,
         "combined": combined,
+        "clarified": clarified,
         "superseded": superseded,
         "discarded": discarded,
         "created": created
@@ -367,6 +404,15 @@ pub(crate) async fn apply_chat_cleanup(
     if !matches!(request.scope.kind.as_str(), "chat" | "scene") {
         return Err(AppError::invalid_input(
             "Chat cleanup requires a chat or scene scope",
+        ));
+    }
+    if request
+        .proposals
+        .iter()
+        .any(|proposal| proposal.selected && proposal.proposal_type == ProposalType::Clarify)
+    {
+        return Err(AppError::invalid_input(
+            "Context clarification is supported only for canonical memories",
         ));
     }
     let chat = state
@@ -962,6 +1008,7 @@ mod tests {
             })
             .expect("cleanup replacement should exist");
         assert_eq!(replacement["pinned"], json!(true));
+        assert_eq!(replacement["automaticLineage"], json!(false));
 
         undo_chat_cleanup(
             &state,
@@ -1095,6 +1142,56 @@ mod tests {
             restored_memory_a.get("updatedAt").is_none(),
             "legacy metadata recovery must not invent an optional updatedAt"
         );
+    }
+
+    #[tokio::test]
+    async fn chat_cleanup_rejects_clarify_without_writes() {
+        let state = test_state("chat-reject-clarify");
+        let memory = automatic_memory("memory-vague", "He does not want to talk about it.");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [memory.clone()]
+                }),
+            )
+            .expect("chat should seed");
+        let request = ApplyCleanupRequest {
+            store: super::super::contracts::CleanupStore::Chat,
+            scope: CleanupScope {
+                kind: "chat".to_string(),
+                id: "chat-1".to_string(),
+            },
+            proposals: vec![CleanupProposal {
+                id: "clarify-memory-vague".to_string(),
+                proposal_type: ProposalType::Clarify,
+                source_ids: vec!["memory-vague".to_string()],
+                expected: HashMap::from([("memory-vague".to_string(), expected_memory(&memory))]),
+                winner_id: None,
+                replacement: Some(CleanupReplacement {
+                    content: "Pierrot does not want to discuss the circus accident.".to_string(),
+                    kind: "transcript".to_string(),
+                }),
+                _reason: Some("Context clarification".to_string()),
+                selected: true,
+                _estimated_tokens_before: Some(8),
+                _estimated_tokens_after: Some(8),
+            }],
+        };
+
+        let error = apply_chat_cleanup(&state, request)
+            .await
+            .expect_err("chat cleanup must reject clarify");
+        assert_eq!(error.code, "invalid_input");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert_eq!(chat["memories"], json!([memory]));
     }
 
     #[tokio::test]

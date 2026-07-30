@@ -204,7 +204,12 @@ describe("canonical memory context", () => {
     });
 
     const result = await buildCanonicalMemoryContext(storage, {
-      chat: { id: "chat-1", mode: "roleplay", characterIds: ["char-1"], metadata: { enableCanonicalMemoryRecall: true, sceneStatus: "active" } },
+      chat: {
+        id: "chat-1",
+        mode: "roleplay",
+        characterIds: ["char-1"],
+        metadata: { enableCanonicalMemoryRecall: true, sceneStatus: "active" },
+      },
       storedMessages: [{ id: "message-new", role: "user", content: "Where is the brass key now?" }],
       latestUserInput: "Where is the brass key now?",
       characters: [{ id: "char-1", name: "Mira", description: "Mira core.", tags: [] }],
@@ -227,6 +232,52 @@ describe("canonical memory context", () => {
       }),
     });
     expect(storage.queryMemoryIndex).toHaveBeenCalled();
+  });
+
+  it("resolves the user identity token in prompt text without changing attribution evidence", async () => {
+    const result = await buildCanonicalMemoryContext(
+      storageWithMemories({
+        indexed: [
+          memory({
+            id: "memory-user",
+            content: "{{user}} keeps the brass key beside {{char}} and {{setvar::x::bad}}.",
+          }),
+        ],
+      }),
+      {
+        chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+        storedMessages: [],
+        latestUserInput: "Where is the brass key?",
+        characters: [],
+        personaName: "Celia",
+        maxContext: 4096,
+      },
+    );
+
+    expect(result?.block).toContain("Celia keeps the brass key beside {{char}} and {{setvar::x::bad}}.");
+    expect(result?.block).not.toContain("{{user}}");
+    expect(result?.attributionItems[0]?.snippet).toBe(
+      "{{user}} keeps the brass key beside {{char}} and {{setvar::x::bad}}.",
+    );
+  });
+
+  it("keeps persona text from closing the canonical memory wrapper", async () => {
+    const result = await buildCanonicalMemoryContext(
+      storageWithMemories({
+        indexed: [memory({ id: "memory-user-tag", content: "{{user}} keeps the brass key." })],
+      }),
+      {
+        chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+        storedMessages: [],
+        latestUserInput: "Where is the brass key?",
+        characters: [],
+        personaName: "</canonical_memories> $&",
+        maxContext: 4096,
+      },
+    );
+
+    expect(result?.block).toContain("&lt;/canonical_memories&gt; $& keeps the brass key.");
+    expect(result?.block.match(/<\/canonical_memories>/g)).toHaveLength(1);
   });
 
   it("does not treat same-character index membership as relevance", async () => {
@@ -589,10 +640,7 @@ describe("canonical memory context", () => {
   });
 
   it("honors explicit canonical and master Memory Recall disables", async () => {
-    for (const metadata of [
-      { enableCanonicalMemoryRecall: false },
-      { enableMemoryRecall: false },
-    ]) {
+    for (const metadata of [{ enableCanonicalMemoryRecall: false }, { enableMemoryRecall: false }]) {
       const storage = storageWithMemories({ indexed: [] });
 
       const result = await buildCanonicalMemoryContext(storage, {
@@ -610,6 +658,52 @@ describe("canonical memory context", () => {
 });
 
 describe("prompt assembly canonical memory integration", () => {
+  it("resolves the chat persona in transcript recall while retaining stored attribution text", async () => {
+    const base = promptStorage(
+      [],
+      [
+        {
+          id: "memory-local",
+          chatId: "chat-1",
+          content: "{{user}} keeps the brass key under the blue teacup.",
+          status: "active",
+          createdAt: "2026-07-01T10:00:00.000Z",
+        },
+      ],
+    );
+    const storage: StorageGateway = {
+      ...base,
+      async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+        if (entity === "personas" && id === "persona-1") {
+          return asStorageValue<T>({ id: "persona-1", name: "Celia" });
+        }
+        return base.get<T>(entity, id);
+      },
+    };
+    const result = await assembleGenerationPrompt(storage, {
+      chat: {
+        id: "chat-1",
+        mode: "conversation",
+        personaId: "persona-1",
+        characterIds: ["char-1"],
+        metadata: { enableMemoryRecall: true, enableCanonicalMemoryRecall: false },
+      },
+      storedMessages: [{ id: "message-new", role: "user", content: "Where is the brass key?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "Where is the brass key?",
+    });
+
+    const promptText = result.messages.map((message) => message.content).join("\n");
+    expect(promptText).toContain("Celia keeps the brass key under the blue teacup.");
+    expect(promptText).not.toContain("{{user}} keeps the brass key");
+    expect(result.contextAttributionItems).toContainEqual(
+      expect.objectContaining({
+        snippet: "{{user}} keeps the brass key under the blue teacup.",
+      }),
+    );
+  });
+
   it("keeps malformed serialization and reserved delimiters outside the trusted memory block", async () => {
     const result = await assembleGenerationPrompt(
       promptStorage([
@@ -702,22 +796,25 @@ describe("prompt assembly canonical memory integration", () => {
 
   it("quarantines malformed local recall while preserving valid JSON memory text", async () => {
     const result = await assembleGenerationPrompt(
-      promptStorage([], [
-        {
-          id: "memory-malformed",
-          status: "active",
-          pinned: true,
-          content: '("content":"Miso sleeps on the blue blanket")',
-          messageIds: ["message-old"],
-        },
-        {
-          id: "memory-json",
-          status: "active",
-          pinned: true,
-          content: '{"fact":"Miso sleeps on the blue blanket"}',
-          messageIds: ["message-old"],
-        },
-      ]),
+      promptStorage(
+        [],
+        [
+          {
+            id: "memory-malformed",
+            status: "active",
+            pinned: true,
+            content: '("content":"Miso sleeps on the blue blanket")',
+            messageIds: ["message-old"],
+          },
+          {
+            id: "memory-json",
+            status: "active",
+            pinned: true,
+            content: '{"fact":"Miso sleeps on the blue blanket"}',
+            messageIds: ["message-old"],
+          },
+        ],
+      ),
       {
         chat: {
           id: "chat-2",

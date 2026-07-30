@@ -41,6 +41,45 @@ fn is_automatic(memory: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn has_automatic_lineage(memory: &Value) -> bool {
+    if is_cleanup_replacement(memory) {
+        return cleanup_metadata(memory)
+            .and_then(|metadata| metadata.get("automaticLineage"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    }
+    let tags = memory
+        .get("tags")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<HashSet<_>>();
+    let source_payload = payload(memory);
+    if tags
+        .iter()
+        .any(|tag| matches!(*tag, "manual" | "imported" | "correction" | "command"))
+        || source_payload
+            .and_then(|payload| payload.get("userEdited"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        || source_payload.is_some_and(|payload| {
+            [
+                "importedFromMemoryId",
+                "correctionOfMemoryId",
+                "correctedByMemoryId",
+                "commandMemoryKey",
+                "commandId",
+            ]
+            .iter()
+            .any(|field| payload.contains_key(*field))
+        })
+    {
+        return false;
+    }
+    is_automatic(memory)
+}
+
 fn canonical_memory_belongs_to_scope(memory: &Value, scope: &CleanupScope) -> bool {
     memory
         .get("scope")
@@ -115,6 +154,20 @@ fn validate_referenced_memories(
             ));
         }
     }
+    if proposal.proposal_type == ProposalType::Clarify {
+        let source = memory_by_id(memories, &proposal.source_ids[0])?;
+        let source_kind = value_string(source, "kind").unwrap_or_default();
+        let replacement_kind = proposal
+            .replacement
+            .as_ref()
+            .map(|replacement| replacement.kind.trim())
+            .unwrap_or("");
+        if source_kind != replacement_kind {
+            return Err(AppError::invalid_input(
+                "Clarify cleanup must preserve the source memory kind",
+            ));
+        }
+    }
     if let Some(winner_id) = proposal.winner_id.as_deref() {
         let winner = memory_by_id(memories, winner_id)?;
         if !canonical_memory_is_cleanup_eligible(winner, scope)
@@ -167,7 +220,10 @@ fn build_replacement(
     batch_id: &str,
     applied_at: &str,
 ) -> AppResult<Option<Value>> {
-    if proposal.proposal_type != ProposalType::Combine {
+    if !matches!(
+        proposal.proposal_type,
+        ProposalType::Combine | ProposalType::Clarify
+    ) {
         return Ok(None);
     }
     let replacement = proposal
@@ -179,19 +235,30 @@ fn build_replacement(
         .iter()
         .map(|id| memory_by_id(memories, id))
         .collect::<AppResult<Vec<_>>>()?;
+    let clarify = proposal.proposal_type == ProposalType::Clarify;
+    let automatic_lineage = sources.iter().copied().all(has_automatic_lineage);
     let kinds = sources
         .iter()
         .filter_map(|memory| memory.get("kind").and_then(Value::as_str))
         .collect::<HashSet<_>>();
-    let kind = if kinds.len() == 1 {
-        kinds.into_iter().next().unwrap_or("summary")
+    let kind = if clarify {
+        value_string(sources[0], "kind").unwrap_or_else(|| "summary".to_string())
+    } else if kinds.len() == 1 {
+        kinds.into_iter().next().unwrap_or("summary").to_string()
     } else {
-        "summary"
+        "summary".to_string()
     };
-    let confidence = sources
-        .iter()
-        .filter_map(|memory| memory.get("confidence").and_then(Value::as_f64))
-        .fold(0.0_f64, f64::max);
+    let confidence = if clarify {
+        sources[0]
+            .get("confidence")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    } else {
+        sources
+            .iter()
+            .filter_map(|memory| memory.get("confidence").and_then(Value::as_f64))
+            .fold(0.0_f64, f64::max)
+    };
     let pinned = sources.iter().copied().any(canonical_memory_is_pinned);
     let mut message_ids = HashSet::new();
     let mut source_chat_ids = HashSet::new();
@@ -218,36 +285,85 @@ fn build_replacement(
     source_chat_ids.sort();
     let source_chat_id = source_chat_ids.first().cloned();
     let character_id = (scope.kind == "character").then(|| scope.id.clone());
+    let status = if clarify {
+        value_string(sources[0], "status").unwrap_or_else(|| "active".to_string())
+    } else if pinned {
+        "pinned".to_string()
+    } else {
+        "active".to_string()
+    };
+    let memory_scope = if clarify {
+        sources[0]
+            .get("scope")
+            .cloned()
+            .unwrap_or_else(|| json!({ "kind": scope.kind, "id": scope.id }))
+    } else {
+        json!({ "kind": scope.kind, "id": scope.id })
+    };
+    let provenance = if clarify {
+        sources[0].get("provenance").cloned().unwrap_or_else(|| {
+            json!({
+                "sourceChatId": source_chat_id,
+                "messageIds": message_ids,
+                "characterId": character_id,
+                "timestamp": applied_at
+            })
+        })
+    } else {
+        json!({
+            "sourceChatId": source_chat_id,
+            "messageIds": message_ids,
+            "characterId": character_id,
+            "timestamp": applied_at
+        })
+    };
+    let tags = if clarify {
+        sources[0]
+            .get("tags")
+            .cloned()
+            .unwrap_or_else(|| json!(["automatic", "memory_cleanup"]))
+    } else {
+        json!(["automatic", "memory_cleanup"])
+    };
+    let title = if clarify {
+        sources[0].get("title").cloned().unwrap_or(Value::Null)
+    } else {
+        Value::Null
+    };
+    let mut replacement_payload = if clarify {
+        payload(sources[0]).cloned().unwrap_or_default()
+    } else {
+        Map::new()
+    };
+    replacement_payload.insert("automatic".to_string(), json!(automatic_lineage));
+    replacement_payload.insert("sourceChatIds".to_string(), json!(source_chat_ids));
+    replacement_payload.insert(
+        "memoryCleanup".to_string(),
+        json!({
+            "batchId": batch_id,
+            "role": "replacement",
+            "operation": if clarify { "clarify" } else { "combine" },
+            "sourceIds": proposal.source_ids,
+            "automaticLineage": automatic_lineage,
+            "appliedAt": applied_at
+        }),
+    );
     // Cleanup creates a new canonical record at apply time. The source chat
     // provenance remains separate so its historical timestamps are not forged
     // into the replacement's lifecycle timestamps.
     Ok(Some(json!({
         "id": new_id(),
         "kind": kind,
-        "status": if pinned { "pinned" } else { "active" },
-        "scope": { "kind": scope.kind, "id": scope.id },
+        "status": status,
+        "scope": memory_scope,
         "content": replacement.content.trim(),
         "confidence": confidence,
-        "provenance": {
-            "sourceChatId": source_chat_id,
-            "messageIds": message_ids,
-            "characterId": character_id,
-            "timestamp": applied_at
-        },
-        "title": null,
-        "tags": ["automatic", "memory_cleanup"],
+        "provenance": provenance,
+        "title": title,
+        "tags": tags,
         "supersedesMemoryId": null,
         "supersededByMemoryId": null,
-        "payload": {
-            "automatic": true,
-            "sourceChatIds": source_chat_ids,
-            "memoryCleanup": {
-                "batchId": batch_id,
-                "role": "replacement",
-                "sourceIds": proposal.source_ids,
-                "appliedAt": applied_at
-            }
-        },
+        "payload": replacement_payload,
         "createdAt": applied_at,
         "updatedAt": applied_at
     })))
@@ -319,6 +435,7 @@ pub(crate) fn apply_canonical_cleanup(
                 })
                 .collect::<AppResult<Vec<_>>>()?;
             let mut combined = 0usize;
+            let mut clarified = 0usize;
             let mut superseded = 0usize;
             let mut discarded = 0usize;
             let mut created = 0usize;
@@ -369,7 +486,13 @@ pub(crate) fn apply_canonical_cleanup(
                         source_cleanup_metadata(
                             &batch_id_for_write,
                             &applied_at_for_write,
-                            if discard { "discard" } else { "consolidate" },
+                            if discard {
+                                "discard"
+                            } else if proposal.proposal_type == ProposalType::Clarify {
+                                "clarify"
+                            } else {
+                                "consolidate"
+                            },
                             &previous_status,
                             previous_updated_at,
                             previous_superseded_by,
@@ -399,12 +522,14 @@ pub(crate) fn apply_canonical_cleanup(
                 }
                 match proposal.proposal_type {
                     ProposalType::Combine => combined += 1,
+                    ProposalType::Clarify => clarified += 1,
                     ProposalType::KeepOne | ProposalType::Discard | ProposalType::Conflict => {}
                 }
             }
             Ok(json!({
                 "batchId": batch_id_for_write,
                 "combined": combined,
+                "clarified": clarified,
                 "superseded": superseded,
                 "discarded": discarded,
                 "created": created
@@ -639,14 +764,20 @@ mod tests {
         });
 
         assert!(canonical_memory_is_cleanup_eligible(&imported, &scope));
+        assert!(!has_automatic_lineage(&imported));
 
         let mut edited = imported.clone();
         edited["payload"] = json!({ "automatic": true, "userEdited": true });
         assert!(canonical_memory_is_cleanup_eligible(&edited, &scope));
+        assert!(!has_automatic_lineage(&edited));
         let mut manual = imported.clone();
         manual["tags"] = json!(["manual"]);
         manual["payload"] = json!({ "automatic": false });
         assert!(canonical_memory_is_cleanup_eligible(&manual, &scope));
+        assert!(!has_automatic_lineage(&manual));
+        let mut automatic = imported.clone();
+        automatic["payload"] = json!({ "automatic": true });
+        assert!(has_automatic_lineage(&automatic));
         let mut pinned = imported.clone();
         pinned["status"] = json!("pinned");
         assert!(canonical_memory_is_cleanup_eligible(&pinned, &scope));
@@ -946,6 +1077,118 @@ mod tests {
         );
         assert_eq!(restored_a["status"], json!("pinned"));
         assert_eq!(restored_b["updatedAt"], memory_b["createdAt"]);
+    }
+
+    #[test]
+    fn canonical_cleanup_clarifies_and_undoes_automatic_memory() {
+        let state = test_state("clarify-undo");
+        automatic_character_memory(
+            &state,
+            "memory-vague",
+            "Pierrot said he does not want to talk about it.",
+        );
+        state
+            .storage
+            .update_collections_atomically(vec!["canonical-memories"], |collections| {
+                memory_by_id_mut(collections[0].rows_mut(), "memory-vague")?["status"] =
+                    json!("pinned");
+                Ok(())
+            })
+            .expect("pinned source should seed");
+        let original = state
+            .storage
+            .get("canonical-memories", "memory-vague")
+            .expect("source should read")
+            .expect("source should exist");
+        let request = ApplyCleanupRequest {
+            store: super::super::contracts::CleanupStore::Canonical,
+            scope: CleanupScope {
+                kind: "character".to_string(),
+                id: "mira".to_string(),
+            },
+            proposals: vec![CleanupProposal {
+                id: "clarify-memory-vague".to_string(),
+                proposal_type: ProposalType::Clarify,
+                source_ids: vec!["memory-vague".to_string()],
+                expected: HashMap::from([("memory-vague".to_string(), expected(&original))]),
+                winner_id: None,
+                replacement: Some(CleanupReplacement {
+                    content: "Pierrot does not want to discuss the circus accident.".to_string(),
+                    kind: "fact".to_string(),
+                }),
+                _reason: Some("Context clarification".to_string()),
+                selected: true,
+                _estimated_tokens_before: Some(10),
+                _estimated_tokens_after: Some(10),
+            }],
+        };
+
+        let applied = apply_canonical_cleanup(&state, request).expect("clarify should apply");
+        assert_eq!(applied["clarified"], json!(1));
+        assert_eq!(applied["created"], json!(1));
+        assert_eq!(applied["superseded"], json!(1));
+        let source = state
+            .storage
+            .get("canonical-memories", "memory-vague")
+            .expect("source should read")
+            .expect("source should exist");
+        assert_eq!(source["status"], json!("superseded"));
+        let replacement = state
+            .storage
+            .list("canonical-memories")
+            .expect("canonical memories should list")
+            .into_iter()
+            .find(|memory| memory["id"] != json!("memory-vague"))
+            .expect("clarification replacement should exist");
+        assert_eq!(
+            replacement["content"],
+            json!("Pierrot does not want to discuss the circus accident.")
+        );
+        assert_eq!(replacement["kind"], original["kind"]);
+        assert_eq!(replacement["scope"], original["scope"]);
+        assert_eq!(replacement["confidence"], original["confidence"]);
+        assert_eq!(replacement["status"], original["status"]);
+        assert_eq!(replacement["provenance"], original["provenance"]);
+        assert_eq!(
+            replacement["payload"]["memoryCleanup"]["operation"],
+            json!("clarify")
+        );
+        assert_eq!(
+            replacement["payload"]["memoryCleanup"]["automaticLineage"],
+            json!(true)
+        );
+
+        let undone = undo_canonical_cleanup(
+            &state,
+            UndoCleanupRequest {
+                store: super::super::contracts::CleanupStore::Canonical,
+                scope: CleanupScope {
+                    kind: "character".to_string(),
+                    id: "mira".to_string(),
+                },
+                batch_id: applied["batchId"].as_str().unwrap().to_string(),
+            },
+        )
+        .expect("clarify should undo");
+
+        assert_eq!(undone["restored"], json!(1));
+        assert_eq!(undone["inactivated"], json!(1));
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "memory-vague")
+                .expect("source should read")
+                .expect("source should exist")["status"],
+            json!("pinned")
+        );
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", replacement["id"].as_str().unwrap())
+                .expect("replacement should read")
+                .expect("replacement should exist")["status"],
+            json!("superseded")
+        );
     }
 
     #[test]

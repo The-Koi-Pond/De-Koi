@@ -43,6 +43,27 @@ function canonicalCleanupOrigin(tags: string[], payload: Record<string, unknown>
   return payload.automatic === true ? "automatic" : "manual";
 }
 
+function canonicalAutomaticLineage(origin: MemoryCleanupSource["origin"], payload: Record<string, unknown>): boolean {
+  if (origin === "automatic") return true;
+  if (origin !== "cleanup") return false;
+  const cleanup = payload.memoryCleanup;
+  return (
+    typeof cleanup === "object" &&
+    cleanup !== null &&
+    (cleanup as { automaticLineage?: unknown }).automaticLineage === true
+  );
+}
+
+function canonicalSourceChatIds(payload: Record<string, unknown>, sourceChatId?: string | null): string[] {
+  const payloadIds = Array.isArray(payload.sourceChatIds)
+    ? payload.sourceChatIds
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    : [];
+  return Array.from(new Set([sourceChatId?.trim() ?? "", ...payloadIds].filter(Boolean)));
+}
+
 export function cleanupScope(scope: MemoryScope): MemoryCleanupScope {
   if (scope.kind === "chat" || scope.kind === "scene" || scope.kind === "character") {
     return { kind: scope.kind, id: scope.id };
@@ -55,13 +76,14 @@ export function memoryScope(scope: MemoryCleanupScope): MemoryScope {
 }
 
 export function chatMemoryCleanupSource(memory: ChatMemoryChunk, scope: MemoryCleanupScope): MemoryCleanupSource {
+  const origin = chatMemoryCleanupOrigin(memory);
   return {
     id: memory.id,
     scope,
     content: memory.content,
     kind: memory.memoryKind ?? "transcript",
     status: memory.status ?? "active",
-    origin: chatMemoryCleanupOrigin(memory),
+    origin,
     confidence: memory.confidence ?? null,
     messageIds: [...(memory.messageIds ?? [])],
     sourceChatIds: memory.sourceChatId ? [memory.sourceChatId] : [],
@@ -69,6 +91,7 @@ export function chatMemoryCleanupSource(memory: ChatMemoryChunk, scope: MemoryCl
     updatedAt: memory.updatedAt ?? null,
     pinned: memory.pinned === true,
     userEdited: memory.userEdited === true,
+    automaticLineage: origin === "automatic" || (origin === "cleanup" && memory.automaticLineage === true),
     ...(Array.isArray(memory.embedding) ? { embedding: memory.embedding } : {}),
   };
 }
@@ -98,11 +121,12 @@ export function canonicalMemoryCleanupSource(memory: CanonicalMemoryRecord): Mem
     origin,
     confidence: memory.confidence,
     messageIds: [...memory.provenance.messageIds],
-    sourceChatIds: memory.provenance.sourceChatId ? [memory.provenance.sourceChatId] : [],
+    sourceChatIds: canonicalSourceChatIds(payload, memory.provenance.sourceChatId),
     createdAt: memory.createdAt,
     updatedAt: memory.updatedAt,
     pinned: memory.status === "pinned",
     userEdited: payload.userEdited === true || (origin === "manual" && !isCleanupReplacement(payload)),
+    automaticLineage: canonicalAutomaticLineage(origin, payload),
   };
 }
 
@@ -119,10 +143,11 @@ export function canonicalInputCleanupSource(id: string, input: CanonicalMemoryIn
     origin,
     confidence: input.confidence,
     messageIds: [...input.provenance.messageIds],
-    sourceChatIds: input.provenance.sourceChatId ? [input.provenance.sourceChatId] : [],
+    sourceChatIds: canonicalSourceChatIds(payload, input.provenance.sourceChatId),
     createdAt: input.createdAt ?? null,
     updatedAt: input.updatedAt ?? null,
     pinned: input.status === "pinned",
     userEdited: payload.userEdited === true || (origin === "manual" && !isCleanupReplacement(payload)),
+    automaticLineage: canonicalAutomaticLineage(origin, payload),
   };
 }

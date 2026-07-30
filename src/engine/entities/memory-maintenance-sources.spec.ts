@@ -62,15 +62,22 @@ describe("memory maintenance source adapters", () => {
           payload: { automatic: true, importedFromMemoryId: "source-memory" },
         }),
       ),
-    ).toEqual(expect.objectContaining({ origin: "imported", userEdited: false }));
+    ).toEqual(expect.objectContaining({ origin: "imported", userEdited: false, automaticLineage: false }));
     expect(
       canonicalMemoryCleanupSource(canonicalMemory({ payload: { memoryCleanup: { role: "replacement" } } })),
-    ).toEqual(expect.objectContaining({ origin: "cleanup", userEdited: false }));
+    ).toEqual(expect.objectContaining({ origin: "cleanup", userEdited: false, automaticLineage: false }));
+    expect(
+      canonicalMemoryCleanupSource(
+        canonicalMemory({
+          payload: { memoryCleanup: { role: "replacement", automaticLineage: true } },
+        }),
+      ),
+    ).toEqual(expect.objectContaining({ origin: "cleanup", automaticLineage: true }));
     expect(canonicalMemoryCleanupSource(canonicalMemory())).toEqual(
-      expect.objectContaining({ origin: "automatic", userEdited: false }),
+      expect.objectContaining({ origin: "automatic", userEdited: false, automaticLineage: true }),
     );
     expect(canonicalMemoryCleanupSource(canonicalMemory({ tags: [], payload: {} }))).toEqual(
-      expect.objectContaining({ origin: "manual", userEdited: true }),
+      expect.objectContaining({ origin: "manual", userEdited: true, automaticLineage: false }),
     );
     expect(
       canonicalMemoryCleanupSource(
@@ -100,6 +107,22 @@ describe("memory maintenance source adapters", () => {
     );
   });
 
+  it("preserves every canonical source chat so ambiguous provenance stays visible", () => {
+    expect(
+      canonicalMemoryCleanupSource(
+        canonicalMemory({
+          provenance: {
+            sourceChatId: "chat-1",
+            messageIds: ["message-1"],
+            characterId: "character-1",
+            timestamp: "2026-07-01T00:00:00.000Z",
+          },
+          payload: { automatic: true, sourceChatIds: ["chat-2", "chat-1"] },
+        }),
+      ).sourceChatIds,
+    ).toEqual(["chat-1", "chat-2"]);
+  });
+
   it.each([
     ["manual", { memoryKind: "manual" }, "manual"],
     ["imported", { memoryKind: "imported", sourceChatId: "other-chat" }, "imported"],
@@ -109,7 +132,19 @@ describe("memory maintenance source adapters", () => {
   ] as const)("maps %s chat metadata", (_label, overrides, origin) => {
     expect(
       chatMemoryCleanupSource({ ...baseChatMemory, ...overrides } as ChatMemoryChunk, { kind: "chat", id: "chat-1" }),
-    ).toEqual(expect.objectContaining({ origin }));
+    ).toEqual(expect.objectContaining({ origin, automaticLineage: origin === "automatic" }));
+  });
+
+  it("requires explicit automatic lineage on chat cleanup replacements", () => {
+    expect(
+      chatMemoryCleanupSource({ ...baseChatMemory, source: "memory_cleanup" }, { kind: "chat", id: "chat-1" }),
+    ).toEqual(expect.objectContaining({ origin: "cleanup", automaticLineage: false }));
+    expect(
+      chatMemoryCleanupSource(
+        { ...baseChatMemory, source: "memory_cleanup", automaticLineage: true },
+        { kind: "chat", id: "chat-1" },
+      ),
+    ).toEqual(expect.objectContaining({ origin: "cleanup", automaticLineage: true }));
   });
 
   it("keeps chat and scene rows in separate cleanup inputs", () => {

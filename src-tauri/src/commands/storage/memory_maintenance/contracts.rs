@@ -29,6 +29,7 @@ pub(crate) struct ExpectedState {
 pub(crate) enum ProposalType {
     KeepOne,
     Combine,
+    Clarify,
     Discard,
     Conflict,
 }
@@ -185,6 +186,17 @@ fn validate_proposal_shape(proposal: &CleanupProposal) -> AppResult<()> {
                 ));
             }
         }
+        ProposalType::Clarify => {
+            if proposal.source_ids.len() != 1
+                || proposal.winner_id.is_some()
+                || proposal.replacement.is_none()
+                || proposal._reason.as_deref() != Some("Context clarification")
+            {
+                return Err(AppError::invalid_input(
+                    "Clarify cleanup requires one source and one context-preserving replacement",
+                ));
+            }
+        }
         ProposalType::Discard => {
             if proposal.source_ids.len() != 1
                 || proposal.winner_id.is_some()
@@ -206,7 +218,10 @@ fn validate_proposal_shape(proposal: &CleanupProposal) -> AppResult<()> {
         }
     }
 
-    if proposal.proposal_type == ProposalType::Combine {
+    if matches!(
+        proposal.proposal_type,
+        ProposalType::Combine | ProposalType::Clarify
+    ) {
         let replacement = proposal.replacement.as_ref().ok_or_else(|| {
             AppError::invalid_input("Cleanup replacement content and kind are required")
         })?;
@@ -393,6 +408,80 @@ mod tests {
             .expect("single-source discard should be valid");
 
         assert_eq!(request.proposals[0].proposal_type, ProposalType::Discard);
+    }
+
+    #[test]
+    fn apply_contract_accepts_only_single_source_kind_preserving_clarify() {
+        let valid = json!({
+            "version": 2,
+            "target": {
+                "store": "canonical",
+                "scope": { "kind": "character", "id": "mira" }
+            },
+            "proposals": [{
+                "id": "clarify-memory-1",
+                "type": "clarify",
+                "sourceIds": ["memory-1"],
+                "expected": {
+                    "memory-1": {
+                        "content": "He does not want to talk about it.",
+                        "status": "active",
+                        "updatedAt": "2026-07-01T00:00:00.000Z",
+                        "pinned": false,
+                        "userEdited": false
+                    }
+                },
+                "replacement": {
+                    "content": "Pierrot does not want to discuss the circus accident.",
+                    "kind": "fact"
+                },
+                "reason": "Context clarification",
+                "selected": true,
+                "estimatedTokensBefore": 8,
+                "estimatedTokensAfter": 8
+            }]
+        });
+
+        let request = parse_apply_request(valid.clone()).expect("valid clarify should parse");
+        assert_eq!(request.proposals[0].proposal_type, ProposalType::Clarify);
+
+        for invalid in [
+            {
+                let mut body = valid.clone();
+                body["proposals"][0]["sourceIds"] = json!([]);
+                body["proposals"][0]["expected"] = json!({});
+                body
+            },
+            {
+                let mut body = valid.clone();
+                body["proposals"][0]["sourceIds"] = json!(["memory-1", "memory-2"]);
+                body["proposals"][0]["expected"]["memory-2"] =
+                    body["proposals"][0]["expected"]["memory-1"].clone();
+                body
+            },
+            {
+                let mut body = valid.clone();
+                body["proposals"][0]["winnerId"] = json!("memory-2");
+                body["proposals"][0]["expected"]["memory-2"] =
+                    body["proposals"][0]["expected"]["memory-1"].clone();
+                body
+            },
+            {
+                let mut body = valid.clone();
+                body["proposals"][0]
+                    .as_object_mut()
+                    .expect("proposal should be an object")
+                    .remove("replacement");
+                body
+            },
+            {
+                let mut body = valid.clone();
+                body["proposals"][0]["reason"] = json!("Overlapping memories");
+                body
+            },
+        ] {
+            assert!(parse_apply_request(invalid).is_err());
+        }
     }
 
     #[test]

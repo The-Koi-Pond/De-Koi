@@ -19,6 +19,7 @@ const VALUE_SYSTEM_PROMPT = [
   "Evaluate every supplied source independently.",
   "Flag obvious and questionable low-value memories for automatic removal.",
   "Low-value includes generic or common knowledge without user, character, relationship, or world-specific value; conversational residue; ephemeral reactions; contextless fragments; and accidental captures.",
+  "A memory that depends on missing conversational context, vague pronouns, or an unexplained it, this, or that has no durable future value.",
   "Preserve preferences, routines, possessions, relationships, plans, promises, identity, health needs, boundaries, distinctive events, ongoing situations, and character-specific beliefs.",
   "Do not use age, length, writing quality, uncertainty, or manual, edited, imported, corrected, command-created, or pinned status as low-value evidence by itself.",
   'Use only: {"type":"discard","sourceIds":["one-supplied-id"],"reason":"Low-value memory"}.',

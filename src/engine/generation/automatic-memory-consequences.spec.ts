@@ -51,7 +51,7 @@ describe("automatic canonical-memory consequence extraction", () => {
         memories: [
           {
             kind: "fact",
-            content: "The user's cat is named Miso.",
+            content: "{{user}}'s cat is named Miso.",
             confidence: 0.96,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["user-1"],
@@ -69,6 +69,9 @@ describe("automatic canonical-memory consequence extraction", () => {
         mode: "conversation",
         scope: { kind: "character", id: "char-1" },
         activeCharacterId: "char-1",
+        userLabel: "{{user}}",
+        characterLabels: { "char-1": "Mira" },
+        referenceMessages: [],
         sourceMessages: [
           {
             id: "user-1",
@@ -77,6 +80,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             content: "My cat is named Miso.",
             characterId: null,
             createdAt: "2026-07-19T10:00:00.000Z",
+            speakerLabel: "{{user}}",
           },
           {
             id: "assistant-1",
@@ -85,6 +89,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             content: "I'll remember that.",
             characterId: "char-1",
             createdAt: "2026-07-19T10:00:01.000Z",
+            speakerLabel: "Mira",
           },
         ],
         eligibleMemories: [],
@@ -97,7 +102,7 @@ describe("automatic canonical-memory consequence extraction", () => {
           kind: "fact",
           status: "active",
           scope: { kind: "character", id: "char-1" },
-          content: "The user's cat is named Miso.",
+          content: "{{user}}'s cat is named Miso.",
           confidence: 0.96,
           provenance: expect.objectContaining({
             sourceChatId: "chat-1",
@@ -117,10 +122,10 @@ describe("automatic canonical-memory consequence extraction", () => {
       expect.objectContaining({
         messages: expect.arrayContaining([
           expect.objectContaining({
-            content: expect.stringContaining("user-1 | user | My cat is named Miso."),
+            content: expect.stringContaining("user-1 | user | {{user}} | My cat is named Miso."),
           }),
           expect.objectContaining({
-            content: expect.stringContaining("assistant-1 | assistant | I'll remember that."),
+            content: expect.stringContaining("assistant-1 | assistant | Mira | I'll remember that."),
           }),
         ]),
       }),
@@ -308,6 +313,9 @@ describe("automatic canonical-memory consequence extraction", () => {
         mode: "conversation",
         scope: { kind: "character", id: "char-1" },
         activeCharacterId: "char-1",
+        userLabel: "{{user}}",
+        characterLabels: { "char-1": "Mira" },
+        referenceMessages: [],
         sourceMessages: [
           {
             id: "user-1",
@@ -316,6 +324,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             content: "The station is busy tonight.",
             characterId: null,
             createdAt: "2026-07-19T10:00:00.000Z",
+            speakerLabel: "{{user}}",
           },
           {
             id: "assistant-1",
@@ -324,6 +333,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             content: "You probably dislike crowds.",
             characterId: "char-1",
             createdAt: "2026-07-19T10:00:01.000Z",
+            speakerLabel: "Mira",
           },
         ],
         eligibleMemories: [],
@@ -339,7 +349,7 @@ describe("automatic canonical-memory consequence extraction", () => {
         memories: [
           {
             kind: "preference",
-            content: "The user prefers quiet rooms.",
+            content: "{{user}} prefers quiet rooms.",
             confidence: 0.9,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["user-1"],
@@ -353,7 +363,7 @@ describe("automatic canonical-memory consequence extraction", () => {
           },
           {
             kind: "relationship_state",
-            content: "The user and Mira now trust one another with the key.",
+            content: "{{user}} and Mira now trust one another with the key.",
             confidence: 0.81,
             evidence: "explicit_exchange",
             sourceMessageIds: ["user-1", "assistant-1"],
@@ -374,7 +384,7 @@ describe("automatic canonical-memory consequence extraction", () => {
           },
           {
             kind: "contradiction",
-            content: "The user's cat is named Miso, not Mochi.",
+            content: "{{user}}'s cat is named Miso, not Mochi.",
             confidence: 0.98,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["user-1"],
@@ -409,6 +419,9 @@ describe("automatic canonical-memory consequence extraction", () => {
         mode: "roleplay",
         scope: { kind: "character", id: "char-1" },
         activeCharacterId: "char-1",
+        userLabel: "{{user}}",
+        characterLabels: { "char-1": "Mira" },
+        referenceMessages: [],
         sourceMessages: [
           {
             id: "user-1",
@@ -417,6 +430,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             content: "Miso is my cat, not Mochi. Please keep this room quiet.",
             characterId: null,
             createdAt: "2026-07-19T10:00:00.000Z",
+            speakerLabel: "{{user}}",
           },
           {
             id: "assistant-1",
@@ -425,6 +439,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             content: "I trust you with the key. I promise I'll keep the archive door closed. Mira locks it.",
             characterId: "char-1",
             createdAt: "2026-07-19T10:00:01.000Z",
+            speakerLabel: "Mira",
           },
         ],
         eligibleMemories: [eligibleMemory],
@@ -466,6 +481,9 @@ describe("automatic canonical-memory consequence extraction", () => {
         mode: "roleplay",
         scope: { kind: "character", id: "char-1" },
         activeCharacterId: "char-1",
+        userLabel: "{{user}}",
+        characterLabels: { "char-1": "Mira" },
+        referenceMessages: [],
         sourceMessages: [
           {
             id: "assistant-1",
@@ -474,6 +492,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             content: "We are allies now.",
             characterId: "char-1",
             createdAt: "2026-07-19T10:00:01.000Z",
+            speakerLabel: "Mira",
           },
         ],
         eligibleMemories: [],
@@ -489,7 +508,7 @@ describe("automatic canonical-memory consequence extraction", () => {
         memories: [
           {
             kind: "relationship_state",
-            content: "Mira may distrust the user.",
+            content: "Mira may distrust {{user}}.",
             confidence: 0.52,
             evidence: "explicit_exchange",
             sourceMessageIds: ["user-1", "assistant-1"],
@@ -522,6 +541,9 @@ describe("automatic canonical-memory consequence extraction", () => {
         mode: "conversation",
         scope: { kind: "character", id: "char-1" },
         activeCharacterId: "char-1",
+        userLabel: "{{user}}",
+        characterLabels: { "char-1": "Mira" },
+        referenceMessages: [],
         sourceMessages: [
           {
             id: "user-1",
@@ -530,6 +552,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             content: "Mira, I am not sure whether I trust you yet.",
             characterId: null,
             createdAt: "2026-07-19T10:00:00.000Z",
+            speakerLabel: "{{user}}",
           },
           {
             id: "assistant-1",
@@ -538,6 +561,7 @@ describe("automatic canonical-memory consequence extraction", () => {
             content: "I understand.",
             characterId: "char-1",
             createdAt: "2026-07-19T10:00:01.000Z",
+            speakerLabel: "Mira",
           },
         ],
         eligibleMemories: [],
