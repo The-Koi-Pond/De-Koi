@@ -5,7 +5,7 @@
     "title": "Bound memory cleanup analysis and report real progress",
     "source": "Direct user report reproduced against Harlequin on the Raspberry Pi",
     "classification": "memory cleanup provider-call scaling",
-    "status": "ready_for_bunny"
+    "status": "ready_for_pr"
   },
   "coreClaim": "Tidy Memories still reviews every eligible memory for low-value junk, while one analysis performs at most twelve model-assisted consolidation calls and reports completed work to the user.",
   "rootCause": "Value review used the consolidation batch size and consolidation candidate generation had no per-analysis budget, so Harlequin's 94 eligible memories expanded into an upper bound of 181 sequential provider calls.",
@@ -170,7 +170,7 @@
     "versionCheckStatus": "not_applicable",
     "dbPushStatus": "not_applicable",
     "ciStatus": "pending",
-    "bunnyReviewStatus": "pending",
+    "bunnyReviewStatus": "passed",
     "prHealthStatus": "pending"
   },
   "pr": {
@@ -179,7 +179,7 @@
     "headRefName": "fix/memory-cleanup-bounded-analysis",
     "baseRefName": "main",
     "healthStatus": "pending",
-    "bunnyReviewStatus": "pending",
+    "bunnyReviewStatus": "passed",
     "checksStatus": "pending",
     "merged": false,
     "mergeCommit": ""
@@ -195,7 +195,7 @@
   "finalDoneGate": {
     "bugfixComplete": true,
     "prClean": false,
-    "bunnyReviewClean": false,
+    "bunnyReviewClean": true,
     "requiredChecksPassed": false,
     "readyOrMerged": false,
     "noBlockingManualVerification": true,
