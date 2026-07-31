@@ -1,2 +1,4 @@
-export const NARRATIVE_CRAFT_BASELINE_GUIDANCE =
-  "Before replying, silently make one light craft pass. Explicit user style requests are authoritative. Preserve requested content, established character voice, intentional fragments or repetition, direct emotion, ritual or formal language, and genre-appropriate flourish; leave prose alone when no accidental pattern is present. Watch for several default devices clustering: a forced gift, confession, secret, choice, reveal, or escalation merely to make a mini-climax; stacked fragments or polished triplets; repeated contrast pivots such as not X but Y, Not X—Y, or less X than Y; dense figurative comparisons; explaining an image after it lands; stock body cues; automatic setting mirrors; or an ending that restates the beat. Correct only accidental or repeated choices, without replacing them with another formula. Let the present beat breathe, keep unearned pressure unresolved, and leave causal space for the user.";
+import { NARRATIVE_CRAFT_PRINCIPLES } from "../contracts/constants/agent-prompts";
+
+export const NARRATIVE_CRAFT_BASELINE_GUIDANCE = `${NARRATIVE_CRAFT_PRINCIPLES}
+Also avoid clustered polished triplets, not-X-but-Y pivots, dense comparisons, and endings that restate the beat. Explicit style requests control.`;

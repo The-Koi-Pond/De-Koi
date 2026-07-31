@@ -3,6 +3,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { VisualAssetGateway } from "../capabilities/visual-assets";
+import { NARRATIVE_CRAFT_PRINCIPLES } from "../contracts/constants/agent-prompts";
 import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../contracts/types/sidecar";
 import {
   createGenerationAgentRuntime,
@@ -1066,8 +1067,7 @@ describe("Narrative Craft runtime cadence", () => {
     return input;
   }
 
-  const narrativeCraftBaselineGuidance =
-    "Before replying, silently make one light craft pass. Explicit user style requests are authoritative. Preserve requested content, established character voice, intentional fragments or repetition, direct emotion, ritual or formal language, and genre-appropriate flourish; leave prose alone when no accidental pattern is present. Watch for several default devices clustering: a forced gift, confession, secret, choice, reveal, or escalation merely to make a mini-climax; stacked fragments or polished triplets; repeated contrast pivots such as not X but Y, Not X—Y, or less X than Y; dense figurative comparisons; explaining an image after it lands; stock body cues; automatic setting mirrors; or an ending that restates the beat. Correct only accidental or repeated choices, without replacing them with another formula. Let the present beat breathe, keep unearned pressure unresolved, and leave causal space for the user.";
+  const narrativeCraftBaselineGuidance = `${NARRATIVE_CRAFT_PRINCIPLES}\nAlso avoid clustered polished triplets, not-X-but-Y pivots, dense comparisons, and endings that restate the beat. Explicit style requests control.`;
 
   it("adds the baseline silent shape pass without a provider request", async () => {
     const requests: LlmRequest[] = [];

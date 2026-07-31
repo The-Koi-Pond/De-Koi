@@ -6,7 +6,7 @@ Make new De-Koi roleplay feel less mechanically AI-shaped from its first generat
 
 ## Design
 
-When Narrative Craft is active, the generation runtime always contributes a compact baseline craft directive before the writer call. The directive asks the existing writer model to perform one silent shape pass while preserving requested content, character voice, intentional repetition, direct emotion, and genre-appropriate flourish. It targets the recurring StoryScope-associated defaults observed in the Harlequin opening: stacked fragments or polished triplets, contrast pivots, explanation after an image, stock physiological cues, automatic setting mirrors, and endings that restate the beat. It explicitly forbids replacing those defaults with a new fixed formula.
+When Narrative Craft is active, the generation runtime always contributes a compact baseline craft directive before the writer call. The directive reuses the canonical Narrative Craft principles already shared by scene openings and the background critic: preserve requested genre, character voice, point of view, and user agency; trust the reader; vary emotional representation; and avoid automatic escalation, setting mirrors, and global bans. A short supplement covers polished triplets, contrast pivots, dense comparisons, and endings that restate the beat while keeping explicit style requests authoritative.
 
 The baseline directive is deterministic prompt text. It adds no provider request and no foreground orchestration stage. If a prior Narrative Craft analysis produced story-specific guidance, the runtime combines that guidance with the baseline rather than replacing either one.
 

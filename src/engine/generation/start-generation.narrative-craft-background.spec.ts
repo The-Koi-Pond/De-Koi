@@ -273,7 +273,8 @@ describe("startGeneration Narrative Craft background analysis", () => {
       expect(requests).toHaveLength(1);
       const writerPrompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
       expect(writerPrompt.match(/<narrative_craft>/g)).toHaveLength(1);
-      expect(writerPrompt).toContain("Before replying, silently make one light craft pass");
+      expect(writerPrompt).toContain("Trust the reader");
+      expect(writerPrompt).toContain("Explicit style requests control");
 
       await generation.return(undefined);
       await vi.runOnlyPendingTimersAsync();

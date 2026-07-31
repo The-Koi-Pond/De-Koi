@@ -101,11 +101,11 @@
     "contradictionRows": [
       {
         "claim": "The baseline must not become a universal house style.",
-        "evidence": "The final wording makes explicit user style authoritative, exempts established voice and intentional devices, leaves clean prose alone, and corrects only accidental or repeated clustering."
+        "evidence": "The shared principles preserve requested genre, character voice, point of view, and agency; forbid global bans on literary devices; and make explicit style requests authoritative."
       },
       {
-        "claim": "A single Harlequin sample must not be reported as a detector win when it is not one.",
-        "evidence": "Pinned StoryScope full-arc scoring was effectively tied but slightly favored baseline; the result is recorded as a non-blocking limitation rather than a pass."
+        "claim": "A primary StoryScope win must not be generalized to every detector variant.",
+        "evidence": "The corrected one-injection Harlequin sample improved the pinned full-304 classifier by +0.4039 human probability, while the narrative-without-style ablation slightly favored baseline by -0.0091."
       }
     ],
     "legacyDefaultRows": [
@@ -119,7 +119,7 @@
       }
     ],
     "untestedRows": [
-      "The exact Harlequin full-arc treatment did not beat StoryScope: full delta -0.0044 and narrative-without-style delta -0.0636 in the final scored iteration.",
+      "The final Harlequin comparison is one writer sample, not a multi-sample confidence interval or guarantee for every response.",
       "StoryScope feature extraction is model-assisted and repeated baseline extraction showed variance; it is diagnostic rather than a deterministic release oracle."
     ]
   },
@@ -130,9 +130,14 @@
       "evidence": "Focused tests assert zero provider requests during runtime construction and one writer request before detached analysis."
     },
     {
-      "description": "The exact Harlequin treatment retained reader quality despite its detector result.",
+      "description": "The corrected one-injection Harlequin treatment beat the primary pinned StoryScope classifier and retained reader quality.",
       "sourceType": "measured",
-      "evidence": "Three blind judges preferred treatment two to one."
+      "evidence": "Full-304 human-probability delta was +0.4039; the style-removed ablation delta was -0.0091; three blind judges preferred treatment two to one."
+    },
+    {
+      "description": "The prompt/runtime addition stays within the existing JavaScript bundle budget.",
+      "sourceType": "measured",
+      "evidence": "After reusing canonical Narrative Craft principles, local pnpm perf:size measured 1711.3 KiB gzip against the 1712.0 KiB budget, down from 1711.8 KiB before the fix."
     }
   ],
   "userActionCopy": [],
@@ -154,7 +159,13 @@
     {
       "finding": "The strict baseline could override intentional literary devices.",
       "disposition": "fixed",
-      "fix": "The baseline now makes explicit style authoritative and limits correction to accidental or repeated clusters while preserving established voice and intentional devices.",
+      "fix": "The baseline now reuses principles that preserve requested genre and voice, forbid global bans on literary devices, and make explicit style requests authoritative.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Linux CI exceeded the total JavaScript budget by 0.2 KiB gzip.",
+      "disposition": "fixed",
+      "fix": "The baseline now reuses the already bundled canonical Narrative Craft principles and adds only the missing shape cues; the budget itself was not raised.",
       "humanResolutionRequired": false
     }
   ],
@@ -183,6 +194,7 @@
       "pnpm typecheck",
       "pnpm check:architecture",
       "pnpm check",
+      "pnpm perf:size",
       "git diff --check origin/main...HEAD"
     ]
   },
