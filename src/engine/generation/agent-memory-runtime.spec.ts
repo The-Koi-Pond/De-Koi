@@ -4,8 +4,11 @@ import type { StorageGateway, StorageListOptions } from "../capabilities/storage
 import type { AgentResult } from "../contracts/types/agent";
 import { emptyNarrativeCraftState } from "./narrative-craft-state";
 import {
+  consumeConversationCraftPendingGuidance,
   consumeNarrativeCraftPendingGuidance,
+  loadConversationCraftState,
   loadNarrativeCraftState,
+  persistConversationCraftAgentMemory,
   persistNarrativeCraftAgentMemory,
 } from "./agent-memory-runtime";
 
@@ -242,5 +245,103 @@ describe("Narrative Craft agent memory", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]).toMatchObject({ entity: "agent-memory", id: "state-row" });
     expect(JSON.parse(String(updates[0]?.patch.value))).toMatchObject({ version: 1, pacing: "aftermath" });
+  });
+});
+
+describe("Conversation Craft agent memory", () => {
+  const conversationResult = (data: unknown, overrides: Partial<AgentResult> = {}): AgentResult =>
+    result(data, {
+      agentId: "builtin:conversation-craft",
+      agentType: "conversation-craft",
+      ...overrides,
+    });
+
+  it("stores normalized state and one validated directive", async () => {
+    const { storage, creates } = storageWithRows({ "agent-memory": [] });
+
+    await persistConversationCraftAgentMemory(storage, "chat-1", [
+      conversationResult({
+        text: "Leave more implied in the next reply.",
+        state: {
+          conversationMode: "group",
+          recentPatterns: ["  answers every point  "],
+          recentStrengths: ["distinct slang"],
+        },
+        reason: "The group response was too comprehensive.",
+        intervened: true,
+      }),
+    ]);
+
+    expect(creates).toHaveLength(1);
+    expect(JSON.parse(String(creates[0]?.value.value))).toEqual({
+      version: 1,
+      conversationMode: "group",
+      recentPatterns: ["answers every point"],
+      recentStrengths: ["distinct slang"],
+      pendingGuidance: ["Leave more implied in the next reply."],
+      lastAnalysisReason: "The group response was too comprehensive.",
+    });
+  });
+
+  it("loads and consumes pending guidance once", async () => {
+    const state = {
+      version: 1,
+      conversationMode: "solo",
+      recentPatterns: ["therapy language"],
+      recentStrengths: [],
+      pendingGuidance: ["React without canned validation."],
+      lastAnalysisReason: "Voice drifted.",
+    };
+    const { storage, updates } = storageWithRows({
+      "agent-memory": [
+        {
+          id: "conversation-state",
+          agentConfigId: "builtin:conversation-craft",
+          chatId: "chat-1",
+          key: "state",
+          value: JSON.stringify(state),
+        },
+      ],
+    });
+
+    await expect(loadConversationCraftState(storage, "builtin:conversation-craft", "chat-1")).resolves.toEqual(
+      state,
+    );
+    await expect(
+      consumeConversationCraftPendingGuidance(storage, "builtin:conversation-craft", "chat-1"),
+    ).resolves.toBe("React without canned validation.");
+    await expect(
+      consumeConversationCraftPendingGuidance(storage, "builtin:conversation-craft", "chat-1"),
+    ).resolves.toBeNull();
+    expect(updates).toHaveLength(1);
+  });
+
+  it("finds configured memory and ignores failed or malformed results", async () => {
+    const { storage, creates, updates } = storageWithRows({
+      agents: [{ id: "configured-conversation-craft", type: "conversation-craft" }],
+      "agent-memory": [
+        {
+          id: "configured-state",
+          agentConfigId: "configured-conversation-craft",
+          chatId: "chat-1",
+          key: "state",
+          value: JSON.stringify({
+            version: 1,
+            conversationMode: "group",
+            pendingGuidance: ["Keep the voices distinct."],
+          }),
+        },
+      ],
+    });
+
+    await persistConversationCraftAgentMemory(storage, "chat-1", [
+      conversationResult({ state: {} }, { success: false }),
+      conversationResult({ text: "bad", state: null, intervened: true }),
+    ]);
+    await expect(
+      consumeConversationCraftPendingGuidance(storage, "builtin:conversation-craft", "chat-1"),
+    ).resolves.toBe("Keep the voices distinct.");
+    expect(creates).toHaveLength(0);
+    expect(updates).toEqual([expect.objectContaining({ id: "configured-state" })]);
   });
 });
