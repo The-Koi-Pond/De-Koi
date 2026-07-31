@@ -17,6 +17,7 @@ import {
   deferUntilForegroundGenerationCompletes,
   foregroundGenerationActive,
 } from "./background-generation-coordinator";
+import { analyzeAutomaticMemoryClarity } from "./memory-clarity";
 import { analyzeMemoryCleanup } from "./memory-cleanup";
 import { nowIso, parseArray, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 
@@ -25,7 +26,8 @@ const MAX_MAINTENANCE_ATTEMPTS = 3;
 const MAX_PASSES_PER_DRAIN = 3;
 const MAX_TOTAL_PASSES = 12;
 const HEARTBEAT_MS = 30_000;
-const MAINTENANCE_POLICY_VERSION = 1;
+const MAINTENANCE_POLICY_VERSION = 2;
+const MAX_CLARITY_REVIEWED_FINGERPRINTS = 512;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
 
 export interface AutomaticMemoryMaintenanceDependencies {
@@ -148,6 +150,7 @@ export async function enqueueAutomaticMemoryMaintenanceTarget(
     maxAttempts: MAX_MAINTENANCE_ATTEMPTS,
     totalPasses: 0,
     recentFingerprints: [],
+    clarityReviewedFingerprints: [],
     nextAttemptAt: now,
     lastBatchId: null,
     lastResult: null,
@@ -165,9 +168,21 @@ function sourceFingerprint(sources: MemoryCleanupSource[]): string {
       updatedAt: source.updatedAt,
       pinned: source.pinned,
       userEdited: source.userEdited,
+      automaticLineage: source.automaticLineage,
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
   return stableHash(JSON.stringify(expected));
+}
+
+function boundedClarityFingerprints(existing: string[], additions: string[]): string[] {
+  const ordered = new Map<string, true>();
+  for (const fingerprint of [...existing, ...additions]) {
+    const normalized = fingerprint.trim();
+    if (!normalized) continue;
+    ordered.delete(normalized);
+    ordered.set(normalized, true);
+  }
+  return [...ordered.keys()].slice(-MAX_CLARITY_REVIEWED_FINGERPRINTS);
 }
 
 function eligibleSources(sources: MemoryCleanupSource[]): MemoryCleanupSource[] {
@@ -315,6 +330,10 @@ export async function processAutomaticMemoryMaintenanceQueue(
     let recentFingerprints = parseArray(job.recentFingerprints)
       .map((value) => readString(value).trim())
       .filter(Boolean);
+    let clarityReviewedFingerprints = parseArray(job.clarityReviewedFingerprints)
+      .map((value) => readString(value).trim())
+      .filter(Boolean)
+      .slice(-MAX_CLARITY_REVIEWED_FINGERPRINTS);
     let lastResult: MemoryCleanupApplyResult | null = null;
     let lastBatchId: string | null = readString(job.lastBatchId).trim() || null;
     result.processed += 1;
@@ -353,6 +372,60 @@ export async function processAutomaticMemoryMaintenanceQueue(
           break;
         }
         recentFingerprints = [...recentFingerprints.slice(-5), fingerprint];
+        if (target.store === "canonical") {
+          const clarity = await analyzeAutomaticMemoryClarity({
+            storage: dependencies.storage,
+            llm: dependencies.llm,
+            scope: target.scope,
+            sources,
+            connectionId,
+            alreadyReviewed: new Set(clarityReviewedFingerprints),
+          });
+          if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
+          clarityReviewedFingerprints = boundedClarityFingerprints(
+            clarityReviewedFingerprints,
+            clarity.reviewedFingerprints,
+          );
+          await updateJob(dependencies.storage, id, {
+            status: "processing",
+            clarityReviewedFingerprints,
+            updatedAt: now,
+          });
+          const clarityProposals = clarity.proposals.map((proposal) => ({ ...proposal, selected: true }));
+          if (clarityProposals.length > 0) {
+            lastResult = await dependencies.maintenance.apply({
+              version: 2,
+              target,
+              proposals: clarityProposals,
+            });
+            lastBatchId = lastResult.batchId;
+            result.applied += 1;
+            totalPasses += 1;
+            await updateJob(dependencies.storage, id, {
+              status: "processing",
+              totalPasses,
+              recentFingerprints,
+              clarityReviewedFingerprints,
+              lastBatchId,
+              lastResult,
+              updatedAt: now,
+            });
+            if (totalPasses >= MAX_TOTAL_PASSES) {
+              await updateJob(dependencies.storage, id, {
+                status: "failed",
+                failedAt: now,
+                nextAttemptAt: null,
+                lastError: "Automatic memory maintenance reached its pass limit.",
+                lastErrorCode: "maintenance_pass_limit",
+                updatedAt: now,
+              });
+              result.failed += 1;
+              settled = true;
+              break;
+            }
+            continue;
+          }
+        }
         const analysis = await analyzeMemoryCleanup({
           scope: target.scope,
           sources,
@@ -412,6 +485,7 @@ export async function processAutomaticMemoryMaintenanceQueue(
           attempts: 0,
           totalPasses,
           recentFingerprints,
+          clarityReviewedFingerprints,
           nextAttemptAt: now,
           lastResult,
           lastBatchId,

@@ -29,14 +29,20 @@ export interface MemoryCleanupSource {
   updatedAt: string | null;
   pinned: boolean;
   userEdited: boolean;
+  automaticLineage: boolean;
   embedding?: number[];
 }
 
 export const MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS = 1_000;
 
-export type MemoryCleanupProposalType = "discard" | "keep_one" | "combine" | "conflict";
+export type MemoryCleanupProposalType = "discard" | "keep_one" | "combine" | "clarify" | "conflict";
 
-export type MemoryCleanupReason = "Low-value memory" | "Repeated fact" | "Overlapping memories" | "Possible conflict";
+export type MemoryCleanupReason =
+  | "Low-value memory"
+  | "Repeated fact"
+  | "Overlapping memories"
+  | "Context clarification"
+  | "Possible conflict";
 
 export interface MemoryCleanupProposal {
   id: string;
@@ -87,6 +93,7 @@ export type MemoryCleanupApplyRequest = MemoryCleanupApplyRequestV1 | MemoryClea
 export interface MemoryCleanupApplyResult {
   batchId: string;
   combined: number;
+  clarified: number;
   discarded: number;
   superseded: number;
   created: number;

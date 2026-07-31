@@ -305,7 +305,7 @@ function previewTotals(
 ): Pick<MemoryCleanupPreview, "beforeCount" | "afterCount" | "estimatedTokensBefore" | "estimatedTokensAfter"> {
   const selected = proposals.filter((proposal) => proposal.selected && proposal.type !== "conflict");
   const consumedIds = new Set(selected.flatMap((proposal) => proposal.sourceIds));
-  const created = selected.filter((proposal) => proposal.type === "combine");
+  const created = selected.filter((proposal) => proposal.type === "combine" || proposal.type === "clarify");
   const beforeCount = sources.filter(isMemoryCleanupEligible).length;
   const estimatedTokensBefore = sources
     .filter(isMemoryCleanupEligible)

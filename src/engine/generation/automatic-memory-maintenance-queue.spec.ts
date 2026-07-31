@@ -10,7 +10,9 @@ import type {
 import { beginForegroundGeneration } from "./background-generation-coordinator";
 
 const analyzeMemoryCleanup = vi.hoisted(() => vi.fn());
+const analyzeAutomaticMemoryClarity = vi.hoisted(() => vi.fn());
 vi.mock("./memory-cleanup", () => ({ analyzeMemoryCleanup }));
+vi.mock("./memory-clarity", () => ({ analyzeAutomaticMemoryClarity }));
 
 import {
   enqueueAutomaticMemoryMaintenanceTarget,
@@ -41,6 +43,7 @@ function source(
     updatedAt: "2026-07-30T10:00:00.000Z",
     pinned: false,
     userEdited: true,
+    automaticLineage: false,
   };
 }
 
@@ -143,7 +146,14 @@ function harness(
       ? vi.fn(async () => {
           throw options.applyError;
         })
-      : vi.fn(async () => ({ batchId: "batch-1", combined: 1, discarded: 1, superseded: 2, created: 1 })),
+      : vi.fn(async () => ({
+          batchId: "batch-1",
+          combined: 1,
+          clarified: 0,
+          discarded: 1,
+          superseded: 2,
+          created: 1,
+        })),
     undo: vi.fn(),
   } as unknown as MemoryMaintenanceGateway;
   return {
@@ -160,7 +170,11 @@ function harness(
 }
 
 describe("automatic memory maintenance queue", () => {
-  beforeEach(() => analyzeMemoryCleanup.mockReset());
+  beforeEach(() => {
+    analyzeMemoryCleanup.mockReset();
+    analyzeAutomaticMemoryClarity.mockReset();
+    analyzeAutomaticMemoryClarity.mockResolvedValue({ proposals: [], reviewedFingerprints: [] });
+  });
 
   it("automatically applies every actionable proposal but never a conflict", async () => {
     const test = harness();
@@ -282,8 +296,8 @@ describe("automatic memory maintenance queue", () => {
   it("does not undo user suppression during startup discovery", async () => {
     const test = harness();
     test.jobs.clear();
-    test.jobs.set("memory-maintenance-41f80f86", {
-      id: "memory-maintenance-41f80f86",
+    test.jobs.set("memory-maintenance-a12701b1", {
+      id: "memory-maintenance-a12701b1",
       target,
       targetKey: "chat:chat:chat-1",
       status: "suppressed",
@@ -358,5 +372,128 @@ describe("automatic memory maintenance queue", () => {
     expect(test.maintenance.apply).toHaveBeenCalledWith(
       expect.objectContaining({ version: 2, target: canonicalTarget }),
     );
+  });
+
+  it("applies canonical clarity before ordinary cleanup and never consolidates the clarified source in that pass", async () => {
+    const canonicalTarget: MemoryCleanupTarget = {
+      store: "canonical",
+      scope: { kind: "character", id: "char-1" },
+    };
+    const vague = {
+      id: "vague",
+      kind: "fact",
+      status: "active",
+      scope: canonicalTarget.scope,
+      content: "He does not want to talk about it.",
+      confidence: 0.9,
+      provenance: { sourceChatId: "chat-1", messageIds: ["message-1"], characterId: "char-1" },
+      tags: ["automatic"],
+      payload: { automatic: true },
+      createdAt: "2026-07-30T10:00:00.000Z",
+      updatedAt: "2026-07-30T10:00:00.000Z",
+    };
+    const clear = { ...vague, id: "clear", content: "Pierrot keeps the brass key." };
+    const test = harness({
+      target: canonicalTarget,
+      canonicalSources: [[vague, clear], [clear]],
+    });
+    const clarify = {
+      ...proposal("clarify-vague", "combine", ["vague"]),
+      type: "clarify" as const,
+      expected: {
+        vague: {
+          content: vague.content,
+          status: "active" as const,
+          updatedAt: vague.updatedAt,
+          pinned: false,
+          userEdited: false,
+        },
+      },
+      replacement: { content: "Pierrot avoids discussing the circus accident.", kind: "fact" },
+      reason: "Context clarification" as const,
+      selected: true,
+    };
+    analyzeAutomaticMemoryClarity
+      .mockResolvedValueOnce({ proposals: [clarify], reviewedFingerprints: ["clarity-vague"] })
+      .mockResolvedValue({ proposals: [], reviewedFingerprints: [] });
+    analyzeMemoryCleanup.mockResolvedValue(preview([]));
+
+    await processAutomaticMemoryMaintenanceQueue(test.dependencies);
+
+    expect(test.maintenance.apply).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(test.maintenance.apply).mock.calls[0]?.[0].proposals).toEqual([clarify]);
+    expect(analyzeMemoryCleanup).toHaveBeenCalledTimes(1);
+    expect(analyzeMemoryCleanup.mock.calls[0]?.[0].sources.map((entry: MemoryCleanupSource) => entry.id)).toEqual([
+      "clear",
+    ]);
+  });
+
+  it("keeps bounded clarity fingerprints through completion and unchanged re-enqueue", async () => {
+    const canonicalTarget: MemoryCleanupTarget = {
+      store: "canonical",
+      scope: { kind: "character", id: "char-1" },
+    };
+    const canonicalRow = {
+      id: "vague",
+      kind: "fact",
+      status: "active",
+      scope: canonicalTarget.scope,
+      content: "He does not want to talk about it.",
+      confidence: 0.9,
+      provenance: { sourceChatId: "chat-1", messageIds: ["message-1"], characterId: "char-1" },
+      tags: ["automatic"],
+      payload: { automatic: true },
+      createdAt: "2026-07-30T10:00:00.000Z",
+      updatedAt: "2026-07-30T10:00:00.000Z",
+    };
+    const test = harness({ target: canonicalTarget, canonicalSources: [[canonicalRow]] });
+    const returned = Array.from({ length: 520 }, (_, index) => `clarity-${index}`);
+    analyzeAutomaticMemoryClarity.mockResolvedValue({ proposals: [], reviewedFingerprints: returned });
+    analyzeMemoryCleanup.mockResolvedValue(preview([]));
+
+    await processAutomaticMemoryMaintenanceQueue(test.dependencies);
+    const completed = test.jobs.get("job-1");
+    expect(completed?.status).toBe("completed");
+    expect(completed?.clarityReviewedFingerprints).toEqual(returned.slice(-512));
+
+    test.jobs.clear();
+    const seeded = await enqueueAutomaticMemoryMaintenanceTarget(test.storage, canonicalTarget);
+    test.jobs.set(String(seeded.id), {
+      ...seeded,
+      status: "completed",
+      clarityReviewedFingerprints: returned.slice(-512),
+    });
+    await enqueueAutomaticMemoryMaintenanceTarget(test.storage, canonicalTarget);
+    expect(test.jobs.get(String(seeded.id))?.clarityReviewedFingerprints).toEqual(returned.slice(-512));
+  });
+
+  it("passes existing clarity fingerprints back to analysis and retries provider failures", async () => {
+    const canonicalTarget: MemoryCleanupTarget = {
+      store: "canonical",
+      scope: { kind: "character", id: "char-1" },
+    };
+    const canonicalRow = {
+      id: "vague",
+      kind: "fact",
+      status: "active",
+      scope: canonicalTarget.scope,
+      content: "He does not want to talk about it.",
+      confidence: 0.9,
+      provenance: { sourceChatId: "chat-1", messageIds: ["message-1"], characterId: "char-1" },
+      tags: ["automatic"],
+      payload: { automatic: true },
+      createdAt: "2026-07-30T10:00:00.000Z",
+      updatedAt: "2026-07-30T10:00:00.000Z",
+    };
+    const test = harness({ target: canonicalTarget, canonicalSources: [[canonicalRow]] });
+    test.jobs.get("job-1")!.clarityReviewedFingerprints = ["existing"];
+    analyzeAutomaticMemoryClarity.mockRejectedValue(new Error("clarity provider unavailable"));
+
+    const result = await processAutomaticMemoryMaintenanceQueue(test.dependencies);
+
+    expect(analyzeAutomaticMemoryClarity.mock.calls[0]?.[0].alreadyReviewed).toEqual(new Set(["existing"]));
+    expect(result.retryable).toBe(1);
+    expect(test.maintenance.apply).not.toHaveBeenCalled();
+    expect(test.jobs.get("job-1")?.status).toBe("retryable");
   });
 });

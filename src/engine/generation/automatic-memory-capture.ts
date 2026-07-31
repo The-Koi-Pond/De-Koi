@@ -17,6 +17,7 @@ type AutomaticMemoryCandidate = {
   supersedesMemoryId?: unknown;
   evidence?: unknown;
   sourceMessageIds?: unknown;
+  referenceMessageIds?: unknown;
 };
 
 export type CanonicalConsequenceEvidence =
@@ -32,6 +33,7 @@ export interface CanonicalConsequenceSourceMessage {
   content: string;
   characterId: string | null;
   createdAt: string;
+  speakerLabel: string;
 }
 
 export interface CanonicalConsequenceExtractionRequest {
@@ -41,7 +43,10 @@ export interface CanonicalConsequenceExtractionRequest {
   mode: string;
   scope: MemoryScope;
   activeCharacterId: string | null;
+  userLabel: string;
+  characterLabels: Record<string, string>;
   sourceMessages: CanonicalConsequenceSourceMessage[];
+  referenceMessages: CanonicalConsequenceSourceMessage[];
   eligibleMemories: CanonicalMemoryRecord[];
   connectionId?: string | null;
   model?: string | null;
@@ -61,6 +66,26 @@ export interface AutomaticMemoryValueGateResult {
   acceptedCanonicalCandidates: CanonicalMemoryInput[];
   acceptTranscriptCandidate: boolean;
   rejectedCandidateCount: number;
+}
+
+export type StandaloneMemoryFailure =
+  | "generic_speaker_label"
+  | "unresolved_opening_reference"
+  | "dangling_topic_reference";
+
+export function standaloneMemoryFailure(content: string): StandaloneMemoryFailure | null {
+  const normalized = content.trim();
+  const withoutUserToken = normalized.replace(/\{\{user\}\}|\{\{userName\}\}/gi, "");
+  if (/\b(?:(?:the\s+)?user|character|assistant)(?:'s)?\b/i.test(withoutUserToken)) {
+    return "generic_speaker_label";
+  }
+  if (/^(?:he|she|they|it|this|that|these|those)\b/i.test(normalized)) {
+    return "unresolved_opening_reference";
+  }
+  if (/\b(?:talk|speak|discuss|argue|ask|worry)\w*\s+(?:about\s+)?(?:it|this|that)\b/i.test(normalized)) {
+    return "dangling_topic_reference";
+  }
+  return null;
 }
 
 export async function reviewAutomaticMemoryCandidates(input: {
@@ -179,7 +204,7 @@ export function canonicalMemoryEligibleForConsequences(value: unknown): value is
   );
 }
 
-function stableHash(value: string): string {
+export function stableHash(value: string): string {
   let hash = 2166136261;
   for (const char of value) {
     hash ^= char.codePointAt(0) ?? 0;
@@ -305,17 +330,29 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
           .join("\n")
       : "(none)";
   const exchange = request.sourceMessages
-    .map((message) => `${message.id} | ${message.role} | ${message.content}`)
+    .map((message) => `${message.id} | ${message.role} | ${message.speakerLabel} | ${message.content}`)
     .join("\n");
+  const references =
+    request.referenceMessages.length > 0
+      ? request.referenceMessages
+          .map((message) => `${message.id} | ${message.role} | ${message.speakerLabel} | ${message.content}`)
+          .join("\n")
+      : "(none)";
   return [
     "Extract only compact, durable consequences from this complete saved De-Koi exchange.",
     'Return JSON only: {"memories":[...]}',
+    "Every memory must make sense as an isolated sentence.",
+    `The user identity is ${request.userLabel}; never use User as a person's name.`,
+    "Name a character before using a pronoun for that character.",
+    "Replace it, this, or that with the actual supported subject when the subject matters.",
+    "Older reference messages may resolve names or antecedents but cannot prove a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
+    "Each item may include referenceMessageIds in addition to sourceMessageIds.",
     "Allowed kinds: fact, preference, promise, relationship_state, scene_event, plot_state, contradiction.",
     "Allowed evidence: direct_user_assertion, explicit_promise, explicit_screen_event, explicit_exchange.",
     "Do not turn assistant guesses, decorative prose, tentative interpretations, or unsupported inferences into canon.",
     "A fact or preference about the user must cite a direct user assertion.",
-    "Use only source message IDs shown below.",
+    "Use only source and reference message IDs shown below in their matching fields.",
     "Set supersedesMemoryId only to an eligible memory ID shown below; otherwise omit it.",
     `Mode: ${request.mode}`,
     `Scope: ${request.scope.kind}:${request.scope.id}`,
@@ -323,6 +360,8 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     eligible,
     "Saved exchange:",
     exchange,
+    "Older reference context:",
+    references,
   ].join("\n");
 }
 
@@ -349,9 +388,14 @@ function evidenceTokens(value: string): Set<string> {
   );
 }
 
-function contentSupportedByEvidence(content: string, messages: CanonicalConsequenceSourceMessage[]): boolean {
+export function contentSupportedByEvidence(
+  content: string,
+  messages: CanonicalConsequenceSourceMessage[],
+): boolean {
   const contentTokens = evidenceTokens(content);
-  const sourceTokens = evidenceTokens(messages.map((message) => message.content).join(" "));
+  const sourceTokens = evidenceTokens(
+    messages.map((message) => `${message.speakerLabel} ${message.content}`).join(" "),
+  );
   const overlap = [...contentTokens].filter((token) => sourceTokens.has(token)).length;
   return overlap >= 2;
 }
@@ -403,6 +447,7 @@ export async function extractCanonicalMemoryConsequences(input: {
     ? (parsed.memories.filter(isRecord).slice(0, MAX_CAPTURED_MEMORIES) as AutomaticMemoryCandidate[])
     : [];
   const sourceById = new Map(request.sourceMessages.map((message) => [message.id, message]));
+  const referenceById = new Map(request.referenceMessages.map((message) => [message.id, message]));
   const eligibleIds = new Set(
     request.eligibleMemories
       .filter(canonicalMemoryEligibleForConsequences)
@@ -421,13 +466,19 @@ export async function extractCanonicalMemoryConsequences(input: {
         : Number.NaN;
     const evidence = validConsequenceEvidence(candidate.evidence);
     const evidenceIds = Array.from(new Set(readStringArray(candidate.sourceMessageIds)));
+    const referenceIds = Array.from(new Set(readStringArray(candidate.referenceMessageIds)));
     const evidenceMessages = evidenceIds
       .map((id) => sourceById.get(id))
       .filter((message): message is CanonicalConsequenceSourceMessage => message !== undefined);
+    const referenceMessages = referenceIds
+      .map((id) => referenceById.get(id))
+      .filter((message): message is CanonicalConsequenceSourceMessage => message !== undefined);
+    const provenanceMessageIds = Array.from(new Set([...evidenceIds, ...referenceIds]));
     const supersedesMemoryId = readString(candidate.supersedesMemoryId).trim() || null;
     if (
       !kind ||
       !content ||
+      standaloneMemoryFailure(content) !== null ||
       content.length > MAX_CONSEQUENCE_CONTENT_LENGTH ||
       !Number.isFinite(confidence) ||
       confidence < 0 ||
@@ -435,8 +486,10 @@ export async function extractCanonicalMemoryConsequences(input: {
       !evidence ||
       evidenceIds.length === 0 ||
       evidenceMessages.length !== evidenceIds.length ||
+      referenceMessages.length !== referenceIds.length ||
       !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
       !contentSupportedByEvidence(content, evidenceMessages) ||
+      !contentSupportedByEvidence(content, [...evidenceMessages, ...referenceMessages]) ||
       (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
     ) {
       skippedCount += 1;
@@ -455,7 +508,7 @@ export async function extractCanonicalMemoryConsequences(input: {
       confidence,
       provenance: {
         sourceChatId: request.chatId,
-        messageIds: evidenceIds,
+        messageIds: provenanceMessageIds,
         characterId: request.activeCharacterId,
         timestamp: latestEvidence || null,
       },
@@ -468,6 +521,8 @@ export async function extractCanonicalMemoryConsequences(input: {
         captureJobId: request.jobId,
         evidence,
         mode: request.mode,
+        sourceMessageIds: evidenceIds,
+        referenceMessageIds: referenceIds,
       },
     });
   }

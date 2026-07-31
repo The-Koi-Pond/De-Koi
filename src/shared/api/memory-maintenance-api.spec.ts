@@ -49,7 +49,30 @@ describe("memoryMaintenanceApi", () => {
     const body = {
       version: 2,
       target: { store: "canonical", scope: { kind: "scene", id: "scene-1" } },
-      proposals: [],
+      proposals: [
+        {
+          id: "clarify-memory-1",
+          type: "clarify",
+          sourceIds: ["memory-1"],
+          expected: {
+            "memory-1": {
+              content: "He does not want to talk about it.",
+              status: "active",
+              updatedAt: "2026-07-30T10:00:00.000Z",
+              pinned: false,
+              userEdited: false,
+            },
+          },
+          replacement: {
+            content: "Pierrot does not want to discuss the circus accident.",
+            kind: "fact",
+          },
+          reason: "Context clarification",
+          selected: true,
+          estimatedTokensBefore: 9,
+          estimatedTokensAfter: 10,
+        },
+      ],
     } satisfies MemoryCleanupApplyRequestV2;
 
     await memoryMaintenanceApi.apply(body);

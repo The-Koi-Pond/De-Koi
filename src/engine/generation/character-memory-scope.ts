@@ -2,6 +2,8 @@ import type { CharacterMemoryPersistence } from "../contracts/types/character";
 
 export interface CharacterMemoryScopeCharacter {
   id: string;
+  name?: string;
+  data?: unknown;
   memoryPersistence?: CharacterMemoryPersistence;
 }
 

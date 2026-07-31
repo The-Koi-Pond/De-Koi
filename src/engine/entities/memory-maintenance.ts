@@ -402,6 +402,22 @@ export function validateCleanupProposal(
       throw new Error("Cleanup replacement content and kind are required.");
     }
   }
+  if (proposal.type === "clarify") {
+    if (proposal.sourceIds.length !== 1) {
+      throw new Error("Clarify cleanup requires exactly one source.");
+    }
+    if (proposal.winnerId) throw new Error("Clarify cleanup cannot retain a winner.");
+    if (!proposal.replacement?.content.trim() || !proposal.replacement.kind.trim()) {
+      throw new Error("Clarify cleanup requires a replacement.");
+    }
+    const source = sourcesById.get(proposal.sourceIds[0]!);
+    if (proposal.replacement.kind !== source?.kind) {
+      throw new Error("Clarify cleanup must preserve the source kind.");
+    }
+    if (proposal.reason !== "Context clarification") {
+      throw new Error("Clarify cleanup requires the context clarification reason.");
+    }
+  }
 
   return proposal;
 }

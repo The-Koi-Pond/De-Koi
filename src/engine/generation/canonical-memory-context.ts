@@ -1,25 +1,10 @@
-import {
-  getEffectiveMemoryRecallEnabled,
-  type GenerationContextAttributionItem,
-} from "../contracts/types/chat";
+import { getEffectiveMemoryRecallEnabled, type GenerationContextAttributionItem } from "../contracts/types/chat";
 import type { CharacterMemoryPersistence } from "../contracts/types/character";
 import type { StorageGateway } from "../capabilities/storage";
-import type {
-  CanonicalMemoryQuery,
-  CanonicalMemoryRecord,
-  MemoryKind,
-  MemoryScope,
-} from "../contracts/types/memory";
-import {
-  hiddenFromAi,
-  isRecord,
-  parseRecord,
-  readNumber,
-  readString,
-  type JsonRecord,
-} from "./runtime-records";
+import type { CanonicalMemoryQuery, CanonicalMemoryRecord, MemoryKind, MemoryScope } from "../contracts/types/memory";
+import { hiddenFromAi, isRecord, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 import { effectiveCharacterMemoryPersistence } from "./character-memory-scope";
-import { prepareMemoryPromptContent } from "./memory-prompt-content";
+import { prepareMemoryPromptContent, resolveMemoryUserIdentity } from "./memory-prompt-content";
 
 type MemoryIndexSource = "index" | "lexical";
 
@@ -46,6 +31,7 @@ export interface CanonicalMemoryContextInput {
   storedMessages: JsonRecord[];
   latestUserInput: string;
   characters: CanonicalMemoryCharacterContext[];
+  personaName?: string | null;
   maxContext?: number | null;
 }
 
@@ -191,10 +177,7 @@ function characterMatch(memory: CanonicalMemoryRecord, characters: CanonicalMemo
 
 function chatScopeMatches(memory: CanonicalMemoryRecord, chat: JsonRecord): boolean {
   const chatId = readString(chat.id).trim();
-  return (
-    memory.scope.kind === "chat" && memory.scope.id === chatId ||
-    memory.provenance.sourceChatId === chatId
-  );
+  return (memory.scope.kind === "chat" && memory.scope.id === chatId) || memory.provenance.sourceChatId === chatId;
 }
 
 function sceneScopeMatches(memory: CanonicalMemoryRecord, chat: JsonRecord): boolean {
@@ -204,7 +187,10 @@ function sceneScopeMatches(memory: CanonicalMemoryRecord, chat: JsonRecord): boo
     readString(meta.sceneChatId).trim() ||
     readString(meta.activeSceneChatId).trim() ||
     (readString(meta.sceneStatus).trim() === "active" ? chatId : "");
-  return !!sceneId && (memory.scope.kind === "scene" && memory.scope.id === sceneId || memory.provenance.sceneId === sceneId);
+  return (
+    !!sceneId &&
+    ((memory.scope.kind === "scene" && memory.scope.id === sceneId) || memory.provenance.sceneId === sceneId)
+  );
 }
 
 function scoreCandidate(
@@ -377,7 +363,9 @@ function validMemoryRecord(value: CanonicalMemoryRecord): boolean {
   );
 }
 
-function sectionForKind(kind: MemoryKind): "durable_facts" | "relationship_state" | "scene_continuity" | "other_memory" {
+function sectionForKind(
+  kind: MemoryKind,
+): "durable_facts" | "relationship_state" | "scene_continuity" | "other_memory" {
   if (kind === "fact" || kind === "preference" || kind === "promise" || kind === "lore") return "durable_facts";
   if (kind === "relationship_state") return "relationship_state";
   if (kind === "scene_event" || kind === "plot_state" || kind === "episode" || kind === "summary") {
@@ -392,18 +380,24 @@ function truncateForTokens(text: string, budgetTokens: number): string {
   return `${text.slice(0, Math.max(0, maxChars - 4)).trimEnd()}...`;
 }
 
-function formatMemoryLine(candidate: CanonicalMemoryCandidate, budgetTokens?: number): string | null {
+function formatMemoryLine(
+  candidate: CanonicalMemoryCandidate,
+  budgetTokens?: number,
+  personaName?: string | null,
+): string | null {
   const title = candidate.memory.title?.trim();
   const prefix = title ? `${title}: ` : "";
-  const promptContent = prepareMemoryPromptContent(candidate.memory.content);
+  const promptContent = prepareMemoryPromptContent(resolveMemoryUserIdentity(candidate.memory.content, personaName));
   if (!promptContent) return null;
-  const content = budgetTokens
-    ? truncateForTokens(promptContent, Math.max(1, budgetTokens - 2))
-    : promptContent;
+  const content = budgetTokens ? truncateForTokens(promptContent, Math.max(1, budgetTokens - 2)) : promptContent;
   return `- ${prefix}${content}`;
 }
 
-function packCanonicalMemories(candidates: CanonicalMemoryCandidate[], budgetTokens: number) {
+function packCanonicalMemories(
+  candidates: CanonicalMemoryCandidate[],
+  budgetTokens: number,
+  personaName?: string | null,
+) {
   const sections: Record<ReturnType<typeof sectionForKind>, string[]> = {
     durable_facts: [],
     relationship_state: [],
@@ -416,7 +410,7 @@ function packCanonicalMemories(candidates: CanonicalMemoryCandidate[], budgetTok
     if (retained.length >= MAX_PROMPT_MEMORIES) break;
     const remainingTokens = budgetTokens - estimatedTokens - 4;
     if (remainingTokens < 12) break;
-    const line = formatMemoryLine(candidate, remainingTokens);
+    const line = formatMemoryLine(candidate, remainingTokens, personaName);
     if (!line) continue;
     const lineTokens = estimateTextTokens(line) + 4;
     if (estimatedTokens + lineTokens > budgetTokens) break;
@@ -490,7 +484,7 @@ export async function buildCanonicalMemoryContext(
     .slice(0, MAX_CANDIDATE_MEMORIES);
   if (ranked.length === 0) return null;
 
-  const packed = packCanonicalMemories(ranked, tokenBudget(input.chat, input.maxContext));
+  const packed = packCanonicalMemories(ranked, tokenBudget(input.chat, input.maxContext), input.personaName);
   if (packed.retained.length === 0) return null;
   return {
     block: buildBlock(packed.sections),

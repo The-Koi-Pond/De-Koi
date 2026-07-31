@@ -36,7 +36,7 @@ import {
 } from "../shared/macros/macro-engine";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { cleanPromptText, stripPromptComments } from "../shared/text/prompt-comments";
-import { prepareMemoryPromptContent } from "./memory-prompt-content";
+import { prepareMemoryPromptContent, resolveMemoryUserIdentity } from "./memory-prompt-content";
 import {
   attributionForChatHistory,
   attributionForChatSummary,
@@ -1579,10 +1579,7 @@ function renderCharacters(
             CHARACTER_FIELD_LABELS[fieldName] ?? fieldName,
             characterMarkerFieldValue(character, fieldName, macros, groupScenarioOverride),
           ]),
-          [
-            "Behavioral Interpretation",
-            compactTargetedConversation ? "" : (character.behavioralInterpretation ?? ""),
-          ],
+          ["Behavioral Interpretation", compactTargetedConversation ? "" : (character.behavioralInterpretation ?? "")],
           ...(fields.includes("memories") || (compactTargetedConversation && !isConversationTarget)
             ? []
             : ([["Memories", character.memories?.join("\n") ?? ""]] as Array<[string, string]>)),
@@ -2587,6 +2584,7 @@ function recentMemoryRecallScoringSet(memories: JsonRecord[]): JsonRecord[] {
 interface RecalledMemoryForPrompt {
   id: unknown;
   content: string;
+  sourceContent: string;
   similarity: number;
   lexicalScore: number;
 }
@@ -2641,6 +2639,7 @@ async function buildMemoryRecallBlock(
   embeddingSource?: { embed(texts: string[]): Promise<number[][] | null> } | null,
   characterMemoryLines: string[] = [],
   visibleHistoryMessages: JsonRecord[] = [],
+  personaName?: string | null,
 ): Promise<MemoryRecallPromptContext | null> {
   if (!memoryRecallEnabled(chat) || !latestUserInput.trim()) return null;
   const chatId = readString(chat.id).trim();
@@ -2674,7 +2673,10 @@ async function buildMemoryRecallBlock(
   const recalled = memories
     .filter(memoryRecallRetrievable)
     .map((memory) => {
-      const content = prepareMemoryPromptContent(readString(memory.content));
+      const rawContent = readString(memory.content);
+      const sourceContent = prepareMemoryPromptContent(rawContent);
+      if (!sourceContent) return null;
+      const content = prepareMemoryPromptContent(resolveMemoryUserIdentity(rawContent, personaName));
       if (!content) return null;
       const providerVector = semanticQueryVector ? memoryVector(memory, semanticQueryVector.length) : null;
       const vector = providerVector ?? memoryVector(memory, MEMORY_EMBEDDING_DIMS) ?? lexicalMemoryEmbedding(content);
@@ -2682,7 +2684,7 @@ async function buildMemoryRecallBlock(
       const lexicalScore = memoryRecallLexicalOverlap(queryTokens, memoryRecallTokenSet(content));
       const pinBoost = boolish(memory.pinned, false) ? 0.15 : 0;
       const similarity = cosineSimilarity(baseQueryVector, vector) + Math.min(0.2, lexicalScore * 0.025) + pinBoost;
-      return { id: memory.id, content, similarity, lexicalScore };
+      return { id: memory.id, content, sourceContent, similarity, lexicalScore };
     })
     .filter(
       (memory): memory is RecalledMemoryForPrompt =>
@@ -4381,6 +4383,7 @@ export async function assembleGenerationPrompt(
           embeddingSource,
           characters.flatMap((character) => character.memories ?? []),
           historySelection.sourceMessages,
+          persona?.name ?? null,
         ),
     canReuseSourceSensitiveContext && reusableContext
       ? Promise.resolve({
@@ -4400,6 +4403,7 @@ export async function assembleGenerationPrompt(
             tags: character.tags,
             memoryPersistence: character.memoryPersistence,
           })),
+          personaName: persona?.name ?? null,
           maxContext,
         }),
   ]);

@@ -96,7 +96,7 @@ fn message_speaker_label(
         .filter(|role| !role.is_empty())
         .unwrap_or("message");
     match role {
-        "user" => persona_name.unwrap_or("User").to_string(),
+        "user" => persona_name.unwrap_or("{{user}}").to_string(),
         "assistant" => fallback_character_name.unwrap_or(role).to_string(),
         _ => role.to_string(),
     }
@@ -2730,7 +2730,7 @@ mod tests {
                 )
                 .expect("message should seed");
             message_ids.push(format!("message-{index}"));
-            let speaker = if role == "user" { "User" } else { role };
+            let speaker = if role == "user" { "{{user}}" } else { role };
             content_lines.push(format!("{speaker}: visible memory {index}"));
         }
         (message_ids, content_lines.join("\n"))
@@ -4522,7 +4522,7 @@ mod tests {
         let content = memories[0]["content"]
             .as_str()
             .expect("memory content should be a string");
-        assert!(content.contains("User: visible memory"));
+        assert!(content.contains("{{user}}: visible memory"));
         assert!(content.contains("assistant: visible reply"));
         assert!(!content.contains("hidden memory"));
     }
@@ -4605,6 +4605,57 @@ mod tests {
         assert!(content.contains("Mira Card: fallback reply"));
         assert!(!content.contains("user: first memory"));
         assert!(!content.contains("assistant: named reply"));
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_uses_user_macro_without_persona() {
+        let state = test_state("memory-user-macro");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat"
+                }),
+            )
+            .expect("chat should be created");
+        for (index, role, content) in [
+            ("1", "user", "hello"),
+            ("2", "assistant", "hello back"),
+            ("3", "user", "remember this"),
+            ("4", "assistant", "I will"),
+            ("5", "user", "good"),
+        ] {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": format!("message-{index}"),
+                        "chatId": "chat-1",
+                        "role": role,
+                        "content": content,
+                        "createdAt": format!("2026-06-01T10:0{index}:00.000Z")
+                    }),
+                )
+                .expect("message should be created");
+        }
+
+        refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect("memory refresh should succeed");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat lookup should succeed")
+            .expect("chat should exist");
+        let content = chat["memories"][0]["content"]
+            .as_str()
+            .expect("memory content should be a string");
+
+        assert!(content.contains("{{user}}: hello"));
+        assert!(!content.contains("User: hello"));
     }
 
     #[tokio::test]

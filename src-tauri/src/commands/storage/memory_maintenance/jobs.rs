@@ -4,7 +4,7 @@ use marinara_core::{now_iso, AppError, AppResult};
 use serde_json::{json, Value};
 
 const COLLECTION: &str = "memory-maintenance-jobs";
-const POLICY_VERSION: u32 = 1;
+const POLICY_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Trigger {
@@ -135,6 +135,7 @@ pub(crate) fn enqueue_memory_maintenance(
             "maxAttempts": 3,
             "totalPasses": 0,
             "recentFingerprints": [],
+            "clarityReviewedFingerprints": [],
             "nextAttemptAt": if trigger == Trigger::Undo { Value::Null } else { json!(now) },
             "lastBatchId": null,
             "lastResult": null,
@@ -176,7 +177,7 @@ mod tests {
         let target = target(CleanupStore::Chat, "chat", "chat-1");
         assert_eq!(
             maintenance_job_id(POLICY_VERSION, &target),
-            "memory-maintenance-41f80f86"
+            "memory-maintenance-a12701b1"
         );
     }
 

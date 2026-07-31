@@ -19,6 +19,7 @@ function source(overrides: Partial<MemoryCleanupSource> = {}): MemoryCleanupSour
     updatedAt: "2026-07-01T00:00:00.000Z",
     pinned: false,
     userEdited: false,
+    automaticLineage: true,
     ...overrides,
   };
 }

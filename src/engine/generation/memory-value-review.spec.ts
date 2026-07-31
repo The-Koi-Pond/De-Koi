@@ -19,6 +19,7 @@ function source(overrides: Partial<MemoryCleanupSource> = {}): MemoryCleanupSour
     updatedAt: "2026-07-01T00:00:00.000Z",
     pinned: false,
     userEdited: false,
+    automaticLineage: true,
     ...overrides,
   };
 }
@@ -61,6 +62,7 @@ describe("reviewMemoryValues", () => {
     expect(requests[0]?.messages[0]?.content).toContain(
       "manual, edited, imported, corrected, command-created, or pinned",
     );
+    expect(requests[0]?.messages[0]?.content).toContain("depends on missing conversational context");
   });
 
   it("runs bounded value groups sequentially", async () => {

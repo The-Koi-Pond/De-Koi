@@ -20,7 +20,7 @@ interface LorebookAttributionEntry {
 
 export interface MemoryRecallAttributionInput {
   packedLines: string[];
-  recalled: Array<{ content: string; similarity: number; lexicalScore: number }>;
+  recalled: Array<{ content: string; sourceContent?: string; similarity: number; lexicalScore: number }>;
   consideredCount: number;
 }
 
@@ -139,7 +139,7 @@ export function attributionForMemoryRecall(input: MemoryRecallAttributionInput):
       kind: "memory_recall",
       label: `Memory ${index + 1}`,
       status: "injected",
-      snippet: snippetForText(line),
+      snippet: snippetForText(recalled?.sourceContent ?? line),
       metadata: {
         rank: index + 1,
         consideredCount: input.consideredCount,

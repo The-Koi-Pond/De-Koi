@@ -57,6 +57,7 @@ function queueStorage(
     refreshFailures?: number;
     characters?: CharacterMemoryScopeCharacter[];
     chat?: JsonRecord;
+    persona?: JsonRecord | null;
   } = {},
 ) {
   const jobs = new Map<string, JsonRecord>();
@@ -78,6 +79,7 @@ function queueStorage(
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "memory-capture-jobs") return (jobs.get(id) ?? null) as T | null;
       if (entity === "canonical-memories") return (canonicalMemories.get(id) ?? null) as T | null;
+      if (entity === "personas" && id === "persona-1") return (options.persona ?? null) as T | null;
       return null;
     },
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
@@ -273,6 +275,66 @@ function queueStorage(
 }
 
 describe("automatic memory capture queue", () => {
+  it("snapshots named source and bounded reference context", async () => {
+    const harness = queueStorage({
+      chat: { id: "chat-1", mode: "conversation", personaId: "persona-1" },
+      persona: { id: "persona-1", name: "Celia" },
+      characters: [{ id: "char-1", name: "Pierrot" }],
+    });
+    harness.messages.set("prior-1", {
+      id: "prior-1",
+      chatId: "chat-1",
+      role: "user",
+      content: "I meant the circus accident.",
+      characterId: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const job = await harness.enqueue();
+
+    expect(job).toEqual(
+      expect.objectContaining({
+        userLabel: "Celia",
+        characterLabels: { "char-1": "Pierrot" },
+        sourceMessageIds: ["user-1", "assistant-1"],
+        referenceMessageIds: ["prior-1"],
+        sourceMessages: [
+          expect.objectContaining({ id: "user-1", speakerLabel: "Celia" }),
+          expect.objectContaining({ id: "assistant-1", speakerLabel: "Pierrot" }),
+        ],
+        referenceMessages: [expect.objectContaining({ id: "prior-1", speakerLabel: "Celia" })],
+      }),
+    );
+  });
+
+  it("marks edited reference context stale instead of writing memory", async () => {
+    const harness = queueStorage({
+      chat: { id: "chat-1", mode: "conversation", personaId: "persona-1" },
+      persona: { id: "persona-1", name: "Celia" },
+      characters: [{ id: "char-1", name: "Pierrot" }],
+    });
+    harness.messages.set("prior-1", {
+      id: "prior-1",
+      chatId: "chat-1",
+      role: "user",
+      content: "I meant the circus accident.",
+      characterId: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const job = await harness.enqueue();
+    await harness.storage.updateChatMessage("prior-1", { content: "I meant a different accident." });
+
+    const result = await processAutomaticMemoryCaptureQueue(harness.dependencies, {
+      now: "2026-01-01T00:03:00.000Z",
+    });
+
+    expect(result.stale).toBe(1);
+    expect(harness.jobs.get(String(job?.id))).toEqual(
+      expect.objectContaining({ status: "stale", staleReason: "source_content_changed" }),
+    );
+    expect(Array.from(harness.canonicalMemories.values())).toHaveLength(0);
+  });
+
   it("persists only candidates that pass the shared value review", async () => {
     const harness = queueStorage();
     await harness.enqueue();
@@ -294,7 +356,7 @@ describe("automatic memory capture queue", () => {
           memories: [
             {
               kind: "fact",
-              content: "The user's cat is named Miso.",
+              content: "{{user}}'s cat is named Miso.",
               confidence: 0.97,
               evidence: "direct_user_assertion",
               sourceMessageIds: ["user-1"],
@@ -320,7 +382,7 @@ describe("automatic memory capture queue", () => {
     expect(harness.refreshCalls).toHaveLength(0);
     expect(harness.commitCalls).toHaveLength(0);
     expect(Array.from(harness.canonicalMemories.values())).toEqual([
-      expect.objectContaining({ content: "The user's cat is named Miso." }),
+      expect.objectContaining({ content: "{{user}}'s cat is named Miso." }),
     ]);
   });
 
@@ -385,7 +447,7 @@ describe("automatic memory capture queue", () => {
         memories: [
           {
             kind: "fact",
-            content: "The user's cat is named Miso.",
+            content: "{{user}}'s cat is named Miso.",
             confidence: 0.97,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["user-1"],
@@ -416,7 +478,7 @@ describe("automatic memory capture queue", () => {
         memories: [
           {
             kind: "fact",
-            content: "The user's cat is named Miso.",
+            content: "{{user}}'s cat is named Miso.",
             confidence: 0.97,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["user-1"],
@@ -435,7 +497,7 @@ describe("automatic memory capture queue", () => {
       expect.objectContaining({
         status: "active",
         scope: { kind: "character", id: "char-1" },
-        content: "The user's cat is named Miso.",
+        content: "{{user}}'s cat is named Miso.",
         provenance: expect.objectContaining({ messageIds: ["user-1"] }),
       }),
     );
@@ -445,7 +507,7 @@ describe("automatic memory capture queue", () => {
         chatId: "chat-1",
         assistantMessageId: "assistant-1",
         operation: "created",
-        memory: { id: consequence?.id, content: "The user's cat is named Miso." },
+        memory: { id: consequence?.id, content: "{{user}}'s cat is named Miso." },
       },
     ]);
     expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).toEqual(
@@ -595,7 +657,7 @@ describe("automatic memory capture queue", () => {
         memories: [
           {
             kind: "fact",
-            content: "The user's cat is named Miso.",
+            content: "{{user}}'s cat is named Miso.",
             confidence: 0.97,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["user-1"],
@@ -741,7 +803,7 @@ describe("automatic memory capture queue", () => {
         memories: [
           {
             kind: "fact",
-            content: "The user's cat is named Miso.",
+            content: "{{user}}'s cat is named Miso.",
             confidence: 0.97,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["user-1"],
@@ -923,7 +985,7 @@ describe("automatic memory capture queue", () => {
         memories: [
           {
             kind: "fact",
-            content: "The user's cat is named Miso.",
+            content: "{{user}}'s cat is named Miso.",
             confidence: 0.97,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["user-1"],
@@ -942,7 +1004,7 @@ describe("automatic memory capture queue", () => {
       maxContext: 4096,
     });
 
-    expect(recalled?.block).toContain("The user's cat is named Miso.");
+    expect(recalled?.block).toContain("{{user}}'s cat is named Miso.");
     expect(recalled?.attributionItems).toContainEqual(
       expect.objectContaining({ sourceId: consequence?.id, sourceCollection: "canonical-memories" }),
     );
