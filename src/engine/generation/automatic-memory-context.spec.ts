@@ -123,6 +123,32 @@ describe("automatic memory capture context", () => {
     expect([...(context?.referenceMessages ?? []), ...(context?.sourceMessages ?? [])]).toHaveLength(8);
   });
 
+  it("excludes reference messages that cannot be proven to precede the source exchange", async () => {
+    const validPrior = savedMessage("valid-prior", "user", "The circus accident?", "2026-01-01T00:09:00.000Z");
+    const missingTimestamp = savedMessage("missing-time", "user", "Unknown order.", "");
+    const sameTimestamp = savedMessage("same-time", "user", "Not earlier.", "2026-01-01T00:10:00.000Z");
+    const futureTimestamp = savedMessage("future-time", "user", "From the future.", "2026-01-01T00:11:00.000Z");
+    const user = savedMessage("user-current", "user", "What happened?", "2026-01-01T00:10:00.000Z");
+    const assistant = savedMessage(
+      "assistant-current",
+      "assistant",
+      "I do not want to talk about it.",
+      "2026-01-01T00:10:30.000Z",
+    );
+
+    const context = await buildAutomaticMemoryCaptureContext(
+      storageForContext([missingTimestamp, validPrior, sameTimestamp, user, assistant, futureTimestamp]),
+      {
+        chat: { id: "chat-1", personaId: "persona-1" },
+        characters: [{ id: "pierrot", name: "Pierrot" }],
+        savedUserMessage: user,
+        savedAssistantMessage: assistant,
+      },
+    );
+
+    expect(context?.referenceMessages.map((message) => message.id)).toEqual(["valid-prior"]);
+  });
+
   it("labels an unknown assistant explicitly instead of inventing a name", async () => {
     const assistant = savedMessage("assistant-current", "assistant", "Someone left.", "2026-01-01T00:08:00.000Z", {
       characterId: "missing-character",

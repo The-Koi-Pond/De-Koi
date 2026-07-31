@@ -132,7 +132,7 @@ export async function buildAutomaticMemoryCaptureContext(
     .filter((message) => !hiddenFromAi(message))
     .map((message) => automaticMemorySourceSnapshot(message, speakerContext))
     .filter((message): message is AutomaticMemorySourceMessage => message !== null)
-    .filter((message) => !firstSourceAt || !message.createdAt || message.createdAt < firstSourceAt)
+    .filter((message) => Boolean(firstSourceAt && message.createdAt && message.createdAt < firstSourceAt))
     .sort(chronological)
     .slice(-MAX_REFERENCE_MESSAGES);
 

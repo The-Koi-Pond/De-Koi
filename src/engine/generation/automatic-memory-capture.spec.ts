@@ -99,8 +99,11 @@ describe("automatic memory consequence extraction", () => {
 
   it("classifies the reported context-dependent wording", () => {
     expect(standaloneMemoryFailure("User's cat is named Miso.")).toBe("generic_speaker_label");
+    expect(standaloneMemoryFailure("The assistant promised to return.")).toBe("generic_speaker_label");
     expect(standaloneMemoryFailure("He said he would return.")).toBe("unresolved_opening_reference");
     expect(standaloneMemoryFailure("Pierrot said he does not want to talk about it.")).toBe("dangling_topic_reference");
+    expect(standaloneMemoryFailure("{{user}}'s cat is named Miso.")).toBeNull();
+    expect(standaloneMemoryFailure("{{UserName}} prefers tea.")).toBeNull();
     expect(standaloneMemoryFailure("Pierrot told Celia that he would return.")).toBeNull();
     expect(standaloneMemoryFailure("Pierrot does not want to discuss the circus accident.")).toBeNull();
   });

@@ -1,7 +1,7 @@
 const SERIALIZED_MEMORY_FIELD = /["']?(?:message|content|memory|summary)["']?\s*:/i;
 const RESERVED_MEMORY_TAG =
   /<\/?(?:memories|canonical_memories|durable_facts|relationship_state|scene_continuity|other_memory)\b[^>]*>/gi;
-const USER_IDENTITY_TOKEN = /\{\{user(?:Name)?\}\}/gi;
+const USER_IDENTITY_TOKEN = /\{\{user\}\}|\{\{userName\}\}/gi;
 
 function isFencedCode(value: string): boolean {
   return /^```[\s\S]*```$/.test(value);

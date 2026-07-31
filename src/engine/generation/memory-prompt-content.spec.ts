@@ -29,5 +29,8 @@ describe("prepareMemoryPromptContent", () => {
     expect(resolveMemoryUserIdentity("{{user}} likes tea.", null)).toBe("{{user}} likes tea.");
     expect(resolveMemoryUserIdentity("{{user}} likes tea.", "$&")).toBe("$& likes tea.");
     expect(resolveMemoryUserIdentity("{{setvar::x::bad}} {{char}}", "Celia")).toBe("{{setvar::x::bad}} {{char}}");
+    expect(resolveMemoryUserIdentity("{{usernameExtra}} {{setvar::x::user}}", "Celia")).toBe(
+      "{{usernameExtra}} {{setvar::x::user}}",
+    );
   });
 });

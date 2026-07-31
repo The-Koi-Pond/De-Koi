@@ -75,7 +75,7 @@ export type StandaloneMemoryFailure =
 
 export function standaloneMemoryFailure(content: string): StandaloneMemoryFailure | null {
   const normalized = content.trim();
-  const withoutUserToken = normalized.replace(/\{\{user(?:Name)?\}\}/gi, "");
+  const withoutUserToken = normalized.replace(/\{\{user\}\}|\{\{userName\}\}/gi, "");
   if (/\b(?:(?:the\s+)?user|character|assistant)(?:'s)?\b/i.test(withoutUserToken)) {
     return "generic_speaker_label";
   }
