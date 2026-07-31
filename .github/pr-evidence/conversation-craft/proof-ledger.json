@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Bring zero-foreground-latency craft guidance to Conversation mode",
+    "source": "User request for Narrative-Craft-level solo and group Conversation quality without setup or added reply latency",
+    "classification": "engine prompt policy, detached Agent analysis, cadence, memory, and background scheduling",
+    "status": "verified"
+  },
+  "coreClaim": "Every solo and group Conversation writer receives a compact first-reply craft guide in its existing provider call; when Agents are enabled, a configured-model critic analyzes saved replies after visible completion and stores one validated correction for a later reply without competing with foreground generation.",
+  "rootCause": "Conversation mode had strong general texting rules but no final compact anti-assistant guide, no evidence-gated adaptive critic, and no shared detached lifecycle across ordinary, group-child, and direct-message generation.",
+  "scope": {
+    "inScope": [
+      "First-reply solo and group Conversation guidance",
+      "Automatic hidden Conversation Craft built-in",
+      "Configured default Agent connection and model resolution",
+      "First eligible reply then four-assistant-message cadence",
+      "Exact assistant-evidence validation and deterministic directives",
+      "Consume-once adaptive guidance",
+      "Shared latest-job-wins craft queue and foreground cancellation",
+      "Normal, group-child, direct-message, preview, and dry-run prompt parity"
+    ],
+    "outOfScope": [
+      "A synchronous rewrite or second foreground provider call",
+      "A universal guarantee for every stochastic provider sample",
+      "StoryScope as a release oracle for casual texting",
+      "A new setting, schema, UI, or required user action",
+      "Changing the configured writer or Agent model"
+    ],
+    "intendedFiles": [
+      "src/engine/contracts/constants/conversation-craft.ts",
+      "src/engine/contracts/constants/conversation-craft.spec.ts",
+      "src/engine/contracts/constants/agent-prompts.ts",
+      "src/engine/contracts/constants/agent-prompts.spec.ts",
+      "src/engine/contracts/types/agent.ts",
+      "src/engine/contracts/types/agent.spec.ts",
+      "src/engine/agents-runtime/executor/agent-executor.ts",
+      "src/engine/agents-runtime/executor/agent-executor.conversation-craft.spec.ts",
+      "src/engine/generation/agent-memory-runtime.ts",
+      "src/engine/generation/agent-memory-runtime.spec.ts",
+      "src/engine/generation/agent-runner.ts",
+      "src/engine/generation/agent-runner.test.ts",
+      "src/engine/generation/craft-analysis-background.ts",
+      "src/engine/generation/craft-analysis-background.spec.ts",
+      "src/engine/generation/narrative-craft-background.ts",
+      "src/engine/generation/start-generation.ts",
+      "src/engine/generation/start-generation.conversation-craft-background.spec.ts",
+      "src/engine/shared/text/generation-guide.ts",
+      "src/engine/shared/text/generation-guide.spec.ts",
+      "src/shared/lib/performance-diagnostics.ts",
+      "docs/superpowers/specs/2026-07-31-conversation-craft-design.md",
+      "docs/superpowers/plans/2026-07-31-conversation-craft.md",
+      ".github/pr-evidence/conversation-craft/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "provider and model selection",
+      "background concurrency",
+      "model-produced guidance",
+      "group response behavior",
+      "bundle budget"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The writer receives one final advisory block inside its existing request; only exact excerpts from assistant messages can select one engine-owned next-turn directive, and new foreground generation cancels pending or running craft analysis.",
+    "riskType": "prompt, provider, persistence, cadence, async ordering, and cross-entrypoint compatibility",
+    "entrypoints": [
+      "Solo Conversation generation",
+      "Sequential or selected group child generation",
+      "Direct messages input",
+      "Regeneration and replay overrides",
+      "Dry-run and prompt preview"
+    ],
+    "currentPathsOrFormats": [
+      "conversation-craft built-in Agent",
+      "Version 1 bounded Conversation Craft state",
+      "Flat exact-evidence excerpts",
+      "Consume-once context injection"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing Conversation chats with no Conversation Craft active ID",
+      "Existing explicit agentInjectionOverrides",
+      "Existing enableAgents false metadata"
+    ],
+    "outOfScopeClaims": [
+      "No claim that every reply will be preferred by every reader.",
+      "No claim that detached analysis has zero token or quota cost.",
+      "No claim that StoryScope's fiction classifier measures conversational naturalness.",
+      "No claim that sampled provider wall-clock timing predicts future latency."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Conversation quality guidance was diffuse and static, while Narrative Craft's evidence-gated adaptive loop was roleplay-only.",
+    "producer": "The Conversation writer produces and saves an assistant message.",
+    "consumer": "The final writer guide and the next eligible Conversation prompt consume baseline or one-shot guidance.",
+    "impliedContract": "Quality guidance must apply from the first reply, use the configured Agent model for later analysis, remain grounded in written assistant text, and stay outside foreground latency.",
+    "actualEnforcement": "The generation guide owns the first-reply baseline; agent-runner owns automatic configured-model resolution and cadence; the executor owns exact-evidence validation; agent memory owns one-shot state; the shared scheduler owns detachment, coalescing, and foreground cancellation.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "The engine owns prompt construction, provider resolution, generated output, persistence, and background lifecycle.",
+    "consumerOnlyLanes": ["src/features"],
+    "wrongLaneFixToAvoid": "Do not rewrite visible text in React, add a synchronous critic call, trust model-authored directives, mutate chat activation metadata, or use StoryScope to score texting.",
+    "regressionProof": [
+      "Focused prompt tests prove one final Conversation Craft wrapper in solo and group modes and none outside Conversation.",
+      "Executor tests reject invented evidence, group-only issues in solo, and arbitrary model-authored advice.",
+      "Runtime tests prove automatic activation, configured provider resolution, four-message cadence, Agent-disabled behavior, replay preservation, and direct-run isolation.",
+      "Lifecycle tests prove visible done precedes the critic for normal, direct, and group generation, while shared queue tests prove coalescing and cancellation."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The final Conversation Craft wording directionally improves the measured Conversation-quality gate.",
+        "evidence": "Across 10 paired GLM writer cases and 21 usable randomized blind judgments, treatment won 13, baseline won 7, and 1 tied; solo was 8-4 and group was 5-3-1."
+      },
+      {
+        "claim": "The critic adds no foreground provider round trip.",
+        "evidence": "Runtime construction makes zero provider requests; normal, direct, and group lifecycle tests reach done after writer calls and before the critic starts."
+      },
+      {
+        "claim": "Group behavior improves without forcing a universal omnireply.",
+        "evidence": "The final blind group subset favored treatment 5-3-1; the guide preserves relevant open questions while rejecting other participants' direct mentions and allowing silence or a minimal reaction."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Model-produced instructions must not enter the next prompt.",
+        "evidence": "The hostile-output test supplies a prompt-injection string as model text and proves the executor replaces it with the engine-owned directive selected by grounded issue code."
+      },
+      {
+        "claim": "A solo conversation must not accept group-only diagnoses.",
+        "evidence": "The executor rejects group-omnireply in solo mode, while group-voice-collapse requires two distinct exact assistant excerpts."
+      },
+      {
+        "claim": "A new foreground request must not wait for prior analysis.",
+        "evidence": "The shared scheduler aborts running analyses and discards pending jobs across chats when a foreground lease begins."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing Conversation chats receive the feature without metadata migration or setup.",
+        "evidence": "Automatic runtime tests begin with activeAgentIds empty and still resolve Conversation Craft; the engine never writes the active ID to chat metadata."
+      },
+      {
+        "claim": "Agents-disabled chats keep baseline quality but spend no adaptive Agent call.",
+        "evidence": "The lifecycle test sees the Conversation Craft writer guide and exactly one writer request, then proves no critic starts."
+      }
+    ],
+    "untestedRows": [
+      "Spark produced malformed JSON for 9 of 10 final judge requests after three attempts; all failures are retained in the scratch artifact and excluded rather than silently repaired.",
+      "The final live evaluation is a 10-pair synthetic sample, not a production confidence interval or guarantee for every model and character.",
+      "No StoryScope score is claimed because its fiction-trained dimensions are not a valid oracle for casual chat replies."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Conversation Craft uses its configured connection and model, then the default Agent connection, then the current writer connection.",
+      "sourceType": "harness-proven",
+      "evidence": "Agent resolution tests and existing connection fallback tests exercise the shared agent-runner path; no Conversation-specific provider bypass exists."
+    },
+    {
+      "description": "Only one validated directive can be pending and it is consumed once.",
+      "sourceType": "harness-proven",
+      "evidence": "State normalization bounds pendingGuidance to one item and memory runtime tests consume it once while preserving the diagnostic state."
+    },
+    {
+      "description": "The final live sample did not show added writer latency.",
+      "sourceType": "measured",
+      "evidence": "Mean provider wall clock was 3277 ms for treatment and 4435 ms for the reused baseline, but this is reported only as a noisy sample; deterministic tests own the one-call latency claim."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Spark judge JSON reliability",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "GLM and Terra completed all 20 required judgments, Spark completed one, and every unavailable result is recorded; no writer model judged its own output alone."
+    }
+  ],
+  "reviewThreadLedger": [
+    {
+      "finding": "The first evaluation wording could over-compress caring replies and ignore relevant group-open questions.",
+      "disposition": "fixed",
+      "fix": "The final guide says brevity is not itself a goal, preserves character-appropriate care and useful specifics, keeps relevant open questions, and explicitly permits silence when nothing belongs to the character.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm vitest run <Conversation Craft focused suites> && pnpm typecheck",
+    "baselineEvidence": "The combined focused suite passed 84 tests before final wording refinement; final wording-specific and full repository verification run in the release gate.",
+    "githubValidationPassed": false,
+    "edgeRowsTested": [
+      "Solo and group first reply",
+      "Direct messages input",
+      "Agents disabled",
+      "First eligible and fourth assistant cadence",
+      "Replay override",
+      "Configured-memory fallback",
+      "Latest-job-wins group scheduling"
+    ],
+    "negativeRowsTested": [
+      "No pre-writer critic call",
+      "No critic when Agents are disabled",
+      "No arbitrary model directive",
+      "No absent or duplicate evidence",
+      "No group-only diagnosis in solo",
+      "No critic surviving foreground cancellation"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run src/engine/shared/text/conversation-craft.spec.ts src/engine/shared/text/generation-guide.spec.ts src/engine/contracts/constants/agent-prompts.spec.ts src/engine/agents-runtime/executor/agent-executor.conversation-craft.spec.ts src/engine/generation/agent-memory-runtime.spec.ts src/engine/generation/agent-runner.test.ts src/engine/generation/craft-analysis-background.spec.ts src/engine/generation/narrative-craft-background.spec.ts src/engine/generation/start-generation.conversation-craft-background.spec.ts src/engine/generation/start-generation.narrative-craft-background.spec.ts",
+      "python D:/tmp/user-temp/de-koi-conversation-craft-20260731/run_eval.py",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm perf:size",
+      "pnpm check",
+      "git diff --check origin/main...HEAD"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pending final run",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "evaluation": {
+    "artifactPath": "D:/tmp/user-temp/de-koi-conversation-craft-20260731-v3",
+    "writer": "glm configured Pi connection",
+    "caseCount": 10,
+    "usableJudgmentCount": 21,
+    "result": { "treatment": 13, "baseline": 7, "tie": 1 },
+    "soloResult": { "treatment": 8, "baseline": 4, "tie": 0 },
+    "groupResult": { "treatment": 5, "baseline": 3, "tie": 1 },
+    "meanWriterLatencyMs": { "treatment": 3277, "baseline": 4435 },
+    "judgeAvailability": { "glm": 10, "terra": 10, "spark": 1, "sparkMalformed": 9 }
+  }
+}

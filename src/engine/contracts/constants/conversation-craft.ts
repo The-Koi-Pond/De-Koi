@@ -26,10 +26,10 @@ export interface ConversationCraftState {
   lastAnalysisReason: string;
 }
 
-export const CONVERSATION_CRAFT_BASELINE_GUIDANCE = `Do not paraphrase the user's message before reacting. Avoid assistant framing, canned validation, therapy language, polished triplets, not-X-but-Y pivots, recap endings, and a forced closing question. Use only the amount of text this character and moment warrant; preserve their specific voice rather than adding generic messiness. Explicit style requests control.`;
+export const CONVERSATION_CRAFT_BASELINE_GUIDANCE = `Do not paraphrase the user's message before reacting. Stay in the character's established wording, casing, humor, and level of care. Avoid assistant framing, canned validation, therapy language, polished triplets, not-X-but-Y pivots, recap endings, and a forced closing question. Avoiding canned validation does not mean withholding character-appropriate care or useful specifics. Do not invent missing context just to sound specific. Let length fit the moment; brevity is not itself a goal. Output no speaker label. Explicit style requests control.`;
 
 export const CONVERSATION_CRAFT_GROUP_GUIDANCE =
-  "In a group, answer only what this character would notice or choose to engage with, and keep their voice distinct from the other participants.";
+  "In a group, respond to what this character naturally cares about, including relevant open questions, but do not answer every point or another person's direct mention. If nothing is theirs, silence or a minimal reaction is valid; never impersonate the addressee. Keep their voice distinct from the other participants.";
 
 const ISSUE_DIRECTIVES: Record<ConversationCraftIssue, string> = {
   "assistant-framing": "React as the character, without helper framing, service language, or an automatic offer to help.",

@@ -196,7 +196,7 @@ describe("startGeneration Conversation Craft background analysis", () => {
       expect(requests).toHaveLength(2);
       for (const request of requests) {
         const writerPrompt = request.messages.map((message) => message.content).join("\n");
-        expect(writerPrompt).toContain("In a group, answer only what this character would notice");
+        expect(writerPrompt).toContain("In a group, respond to what this character naturally cares about");
         expect(writerPrompt.match(/<conversation_craft>/g)).toHaveLength(1);
       }
 

@@ -100,7 +100,7 @@ describe("buildGenerationGuideMessages", () => {
 
     expect(messages).toHaveLength(2);
     expect(messages.at(-1)?.content.match(/<conversation_craft>/g)).toHaveLength(1);
-    expect(messages.at(-1)?.content).toContain("answer only what this character would notice");
+    expect(messages.at(-1)?.content).toContain("respond to what this character naturally cares about");
     expect(messages.at(-1)?.content).toContain("Leave more unsaid in the next reply.");
   });
 
