@@ -5,7 +5,7 @@
     "title": "Replace overlapping story agents with Narrative Craft",
     "source": "Direct request to reduce recurring AI-shaped fiction without slowing replies",
     "classification": "engine generation, prompt policy, background work, agent compatibility, and roleplay UI",
-    "status": "ready_for_pr"
+    "status": "pr_open_checks_pending"
   },
   "coreClaim": "Narrative Craft analyzes completed roleplay replies only when a cheap recurrence trigger matches, stores exact-evidence guidance for one later reply, and never delays or competes with foreground generation.",
   "rootCause": "Prose Guardian, Director, and Secret Plot split overlapping story-shaping concerns across blocking or independently stateful agents without a selective, measured next-turn correction contract.",
@@ -274,8 +274,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1198,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1198",
     "headRefName": "feature/narrative-craft",
     "baseRefName": "main",
     "healthStatus": "pending",
