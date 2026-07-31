@@ -10,6 +10,7 @@ import {
   type AgentConnectionWarning,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
+import { loadNarrativeCraftState, persistNarrativeCraftAgentMemory } from "./agent-memory-runtime";
 import { LOREBOOK_WRITE_TOOL_NAME } from "./tools-runtime";
 import type { JsonRecord } from "./runtime-records";
 
@@ -1203,6 +1204,79 @@ describe("Narrative Craft runtime cadence", () => {
 
     await expect(runtime.runNarrativeCraftAnalysis("The loose wire clicks into place.")).resolves.toEqual([]);
     expect(requests).toHaveLength(0);
+  });
+
+  it("persists a first no-candidate analysis so the next no-candidate response stays cadence-gated", async () => {
+    const requests: LlmRequest[] = [];
+    const storage = storageForNarrativeCraft({});
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            text: "",
+            evidence: [],
+            issue: "",
+            intervened: false,
+            reason: "The opening establishes a quiet scene without a repeated shape.",
+            state: {
+              version: 1,
+              pacing: "quiet",
+              threads: [{ id: "radio", summary: "A damaged radio needs repair.", kind: "main", status: "active" }],
+              openQuestions: [],
+              withheldInformation: [],
+              unresolvedConsequences: [],
+              recentShapeChoices: [],
+              lastGuidance: [],
+            },
+          }),
+        };
+        yield { type: "done" };
+      },
+    };
+    const first = await createGenerationAgentRuntime(
+      { storage, llm, integrations: noopIntegrations },
+      narrativeInput([
+        { id: "assistant-1", role: "assistant", content: "Mara repairs the radio in silence." },
+        { id: "user-1", role: "user", content: "I hold the flashlight." },
+      ]),
+    );
+
+    const firstResults = await first.runNarrativeCraftAnalysis("The loose wire clicks into place.");
+    expect(firstResults).toEqual([
+      expect.objectContaining({
+        agentType: "narrative-craft",
+        success: true,
+        data: expect.objectContaining({ intervened: false }),
+      }),
+    ]);
+    expect(requests).toHaveLength(1);
+
+    await persistNarrativeCraftAgentMemory(storage, "chat-1", firstResults);
+    await expect(loadNarrativeCraftState(storage, "builtin:narrative-craft", "chat-1")).resolves.toMatchObject({
+      pacing: "quiet",
+      threads: [expect.objectContaining({ id: "radio" })],
+    });
+
+    const next = await createGenerationAgentRuntime(
+      { storage, llm, integrations: noopIntegrations },
+      narrativeInput([
+        { id: "assistant-1", role: "assistant", content: "Mara repairs the radio in silence." },
+        { id: "user-1", role: "user", content: "I hold the flashlight." },
+        { id: "assistant-2", role: "assistant", content: "The loose wire clicks into place." },
+        { id: "user-2", role: "user", content: "I wait for the sound." },
+      ]),
+    );
+
+    await expect(next.runNarrativeCraftAnalysis("The radio hums once, then falls quiet.")).resolves.toEqual([]);
+    expect(requests).toHaveLength(1);
   });
 
   it("skips between cadence boundaries and runs on the fourth pending assistant turn", async () => {
