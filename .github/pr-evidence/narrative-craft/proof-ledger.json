@@ -1,0 +1,357 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Replace overlapping story agents with Narrative Craft",
+    "source": "Direct request to reduce recurring AI-shaped fiction without slowing replies",
+    "classification": "engine generation, prompt policy, background work, agent compatibility, and roleplay UI",
+    "status": "pr_open_checks_pending"
+  },
+  "coreClaim": "Narrative Craft analyzes completed roleplay replies only when a cheap recurrence trigger matches, stores exact-evidence guidance for one later reply, and never delays or competes with foreground generation.",
+  "rootCause": "Prose Guardian, Director, and Secret Plot split overlapping story-shaping concerns across blocking or independently stateful agents without a selective, measured next-turn correction contract.",
+  "scope": {
+    "inScope": [
+      "One Narrative Craft built-in replacing the three legacy story agents",
+      "Cheap recurring-shape trigger and detached critic execution",
+      "Exact-evidence validation and consume-once next-turn guidance",
+      "Bounded per-chat story state and legacy Secret Plot conversion",
+      "Foreground priority through the shared background-generation coordinator",
+      "New-roleplay-chat default activation",
+      "Narrative Craft inspector and agent settings",
+      "Synthetic StoryScope and blind-quality evaluation"
+    ],
+    "outOfScope": [
+      "Rewriting the reply that was already shown",
+      "Detector evasion promises or production StoryScope scoring",
+      "Changing Conversation or Game defaults",
+      "Migrating or deleting legacy agent records",
+      "Retaining user prose as telemetry"
+    ],
+    "intendedFiles": [
+      "src/engine/agents-runtime",
+      "src/engine/contracts",
+      "src/engine/generation",
+      "src/engine/modes/roleplay",
+      "src/features/catalog/agents",
+      "src/features/modes/roleplay",
+      "src/features/modes/shared/chat-ui",
+      "src/features/runtime/generation",
+      "src/features/shell/discovery",
+      "src/shared/lib",
+      "scripts/narrative-craft-eval",
+      "docs/narrative-craft-evaluation.md",
+      "docs/REFACTOR_PARITY_PIPELINE.md",
+      "docs/database-schema.md",
+      ".github/pr-evidence/narrative-craft/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "provider and model selection",
+      "background concurrency",
+      "new-chat defaults",
+      "legacy agent compatibility",
+      "persisted agent memory",
+      "model-produced user-visible guidance"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Only validated guidance derived from exact excerpts in completed assistant prose can affect one later roleplay reply; clean, exempt, cancelled, malformed, Conversation, and Game paths keep their prior writer behavior.",
+    "riskType": "prompt, provider, persistence, background concurrency, defaults, and legacy compatibility",
+    "entrypoints": [
+      "New roleplay chat creation",
+      "Saved roleplay generation",
+      "Roleplay regeneration and continuation",
+      "Manual agent retry",
+      "Legacy Prose Guardian, Director, and Secret Plot activation",
+      "Narrative Craft inspector"
+    ],
+    "currentPathsOrFormats": [
+      "narrative-craft built-in agent",
+      "Version 1 bounded Narrative Craft state",
+      "Exact assistant-response evidence arrays",
+      "Consume-once context injection"
+    ],
+    "legacyPathsOrFormats": [
+      "prose-guardian",
+      "director",
+      "secret-plot-driver",
+      "Legacy Secret Plot agent-memory state",
+      "Existing per-chat activeAgentIds and presets"
+    ],
+    "outOfScopeClaims": [
+      "No claim that every instance of AI-shaped prose is detected.",
+      "No claim that StoryScope represents real reader preference by itself.",
+      "No claim that the detached critic has zero token or quota cost.",
+      "No claim that the planted-control activation rate predicts user-chat prevalence."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The old story agents could overlap, add foreground work, and shape prose without a single exact-evidence, next-turn-only owner.",
+    "producer": "The roleplay writer and completed saved assistant response",
+    "consumer": "The next roleplay prompt assembly and Narrative Craft inspector",
+    "impliedContract": "Story guidance should be sparse, grounded in completed assistant prose, nonblocking, compatible with existing chats, and unable to delay a new foreground reply.",
+    "actualEnforcement": "src/engine owns trigger, critic, state, exact-evidence validation, consume-once injection, legacy remapping, and foreground cancellation; React exposes inspection and controls only.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Engine generation owns completed output, background scheduling, provider resolution, state persistence, and the next-turn prompt boundary.",
+    "consumerOnlyLanes": [
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not rewrite saved prose in React, run the critic before the writer, accept paraphrased evidence, or keep three competing story-policy agents active.",
+    "regressionProof": [
+      "Focused engine suites prove trigger controls, exact evidence, coalescing, cancellation, consume-once state, legacy mapping, and default creation.",
+      "The expanded two-family shadow corpus measures StoryScope, blind quality, false positives, and detached latency."
+    ]
+  },
+  "riskClaimMatrix": {
+    "coreClaim": "Narrative Craft improves repeated story-shape behavior without adding foreground latency or overriding intentional prose choices.",
+    "riskType": "prompt and cross-entrypoint generation compatibility",
+    "entrypoints": [
+      "New roleplay chats",
+      "Existing roleplay chats with explicit agent selections",
+      "Saved generation and regeneration",
+      "Manual retry",
+      "Legacy story-agent configuration"
+    ],
+    "currentPathsOrFormats": [
+      "Narrative Craft state and guidance",
+      "Shared foreground-generation lease",
+      "Agent-configured connection and model"
+    ],
+    "legacyPathsOrFormats": [
+      "Legacy story agent ids and memory",
+      "Visual novel mode alias",
+      "Explicit chat presets"
+    ],
+    "positiveRowsTested": [
+      "52 completed accepted intervention pairs across GLM-5.2 and GPT-5.6 Terra",
+      "Exact evidence accepted from prior and current assistant turns",
+      "Consume-once guidance injected into a later reply",
+      "Legacy ids resolve to one Narrative Craft instance",
+      "New roleplay chats persist Narrative Craft as the only detached default"
+    ],
+    "negativeRowsTested": [
+      "User-authored and assistant-role attribution separation",
+      "Requested ritual, chorus, formal refrain, and clean resolution",
+      "Sentient or speaking settings",
+      "Factual procedure and form exposition",
+      "Causally necessary continuing danger",
+      "Paraphrased or missing evidence",
+      "Conversation and Game mode defaults",
+      "Foreground generation aborts queued and in-flight critics"
+    ],
+    "groundTruthFacts": [
+      {
+        "description": "The critic is outside the reply-producing path.",
+        "sourceType": "harness-proven",
+        "evidence": "The start-generation integration test reaches the visible done event before the critic starts, and the shared foreground lease tests defer and abort critic work."
+      },
+      {
+        "description": "Only exact assistant excerpts can authorize guidance.",
+        "sourceType": "harness-proven",
+        "evidence": "The evaluation harness and engine tests reject subject substitutions, paraphrases, and evidence absent from completed assistant prose."
+      },
+      {
+        "description": "The completed intervention subset improved both evaluation gates.",
+        "sourceType": "measured",
+        "evidence": "Across 52 pairs, StoryScope favored treatment 34 to 18 and blind judges preferred treatment 61 to 42 with one tie."
+      }
+    ],
+    "manualBlockers": [
+      {
+        "item": "Live-user prevalence telemetry",
+        "blockingCoreClaim": false,
+        "status": "not-blocking",
+        "reason": "The tracked corpus is synthetic by design so private user prose is not retained; production can count content-free activation and cancellation diagnostics."
+      }
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Accepted interventions improve the measured StoryScope direction across two model families.",
+        "evidence": "The full-feature classifier favored treatment 34 to 18 across 52 completed pairs, with mean treatment-minus-baseline estimated human probability of +0.1298."
+      },
+      {
+        "claim": "Blind quality is non-inferior and directionally better.",
+        "evidence": "Independent judges preferred treatment 61 times, baseline 42 times, and tied once."
+      },
+      {
+        "claim": "Foreground generation remains the priority.",
+        "evidence": "The critic starts only after visible completion, waits on the shared foreground lease, and is aborted across chats when a new foreground turn starts."
+      },
+      {
+        "claim": "New roleplay chats receive Narrative Craft without enabling unrelated foreground agents.",
+        "evidence": "The creation schema tests persist only narrative-craft for roleplay and add no agent to Conversation or Game."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "A requested stylistic or story choice must not be treated as a defect merely because it resembles a category.",
+        "evidence": "Prompt contracts and 14 negative-control evaluations cover formal repetition, personified settings, direct emotion, procedures, and continuing danger."
+      },
+      {
+        "claim": "A paraphrased quotation must not create guidance.",
+        "evidence": "Exact-evidence tests reject subject substitutions and absent excerpts."
+      },
+      {
+        "claim": "A new reply must not wait for prior critic work.",
+        "evidence": "Shared coordinator and Narrative Craft scheduler tests prove deferral and cross-chat abort behavior."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Legacy story-agent activation does not run three agents.",
+        "evidence": "Agent contract tests normalize Prose Guardian, Director, Secret Plot, and Narrative Craft ids to one Narrative Craft activation."
+      },
+      {
+        "claim": "Existing explicit chat selections remain unchanged.",
+        "evidence": "Default activation occurs only through new-roleplay-chat schema creation; existing chat metadata and presets are not migrated."
+      }
+    ],
+    "untestedRows": [
+      "No private live-user prose was collected, so the synthetic planted-control activation rate is not a production prevalence estimate.",
+      "No manual app-browser screenshot was captured for the inspector panel; component tests cover visibility, retry, and memory clearing."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Narrative Craft uses its configured connection and model, then the default Agent connection, then the chat writer connection.",
+      "sourceType": "derived",
+      "evidence": "agent-runner resolves agent.connectionId and agent.model before the default Agent and chat connection fallbacks."
+    },
+    {
+      "description": "A cancelled or failed critic creates no pending guidance.",
+      "sourceType": "harness-proven",
+      "evidence": "Scheduler and state tests cover cancellation, failure containment, and consume-once pending guidance."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Live-user prevalence telemetry",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "Synthetic held-out controls establish selectivity and quality direction without retaining private chat content."
+    },
+    {
+      "item": "Inspector panel browser screenshot",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "The core claim is engine behavior; focused component tests cover the panel actions and no layout claim is made."
+    }
+  ],
+  "reviewThreadLedger": [
+    {
+      "finding": "Partial Narrative Craft memory clear left only a transient toast.",
+      "disposition": "fixed",
+      "fix": "The inspector now keeps a persistent alert naming each memory block that failed, reloads and displays the surviving state, and changes the action to Retry clear. The component test reproduces a successful current-state clear plus failed legacy clear.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Retired writer injections could remain visible as rerunnable specialist guidance.",
+      "disposition": "fixed",
+      "fix": "Context Injection normalization now excludes Narrative Craft and all three retired narrative agent types while preserving non-narrative specialist injections.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "String-only replay entries might represent non-narrative guidance.",
+      "disposition": "proven-and-clarified",
+      "fix": "The legacy string-only format was exclusively Prose Guardian output. Replay now assigns that explicit legacy type before applying the common replayability filter; typed non-narrative object entries remain replayable.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Exact Narrative Craft post-processing filter could lose valid forked critic guidance.",
+      "disposition": "proven-and-clarified",
+      "fix": "Legacy active IDs are canonically remapped before agent resolution and the existing collapse test proves all three retired IDs produce one Narrative Craft call. Custom agent types are separate agents and must not enter the built-in critic state contract.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "A full Bunny rerun repeated the partial-clear warning after the original persistent alert repair.",
+      "disposition": "fixed",
+      "fix": "The persistent alert now has an explicit partial-clear heading, lists every memory block that is still saved, states that the inspector above is the surviving state, and keeps Retry clear visible. The focused component regression asserts all four facts.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Feature evaluation might throw for incomplete pairs instead of reporting them.",
+      "disposition": "proven-and-clarified",
+      "fix": "The summarizer already records missing baseline and missing treatment identities in missingPairs and skips them from matchedPairs. A focused Node test now proves both directions, while a separate test proves only a true duplicate feature within one condition throws.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Collapsing several retired narrative activations might silently lose intended distinct behavior.",
+      "disposition": "accepted-design",
+      "fix": "Replacing the three overlapping story agents with one Narrative Craft activation is the requested product behavior. Contract and runtime tests explicitly prove all retired IDs collapse to one call, while legacy Secret Plot memory remains readable through the Narrative Craft inspector.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Non-narrative replay overrides might be dropped when Narrative Craft is inactive.",
+      "disposition": "proven-and-clarified",
+      "fix": "Explicit overrides are merged before the active-agent early return and are independent of Narrative Craft pending guidance. A new runtime regression proves a custom specialist override remains in preInjections and preResults with no active Narrative Craft agent.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Unknown replay injection types might be silently skipped or misclassified.",
+      "disposition": "proven-and-clarified",
+      "fix": "The replay normalizer excludes only the four current or retired narrative types. A focused regression now proves an unknown custom-specialist object remains replayable while legacy string-only Prose Guardian guidance stays excluded.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm test; pnpm check",
+    "baselineEvidence": "The current-main-integrated branch passed 2,537 frontend tests with one skipped, including focused Narrative Craft partial-clear, replay-override, legacy-collapse, and evaluator-pair tests, plus TypeScript, architecture, docs, storage contracts, Rust workspace compilation, repository checks, external harness unit tests, and git diff whitespace checks.",
+    "negativeRowsTested": [
+      "Requested repetition and resolution",
+      "Speaking settings",
+      "Procedural exposition",
+      "Continuing danger",
+      "Paraphrased evidence",
+      "Conversation and Game defaults",
+      "Queued and in-flight cancellation"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run focused Narrative Craft, chat creation, coordinator, pipeline, and lifecycle suites",
+      "pnpm test",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check",
+      "python -m unittest test_generation_eval.py test_storyscope_features.py",
+      "pnpm vitest run RoleplayHUDPanels, ContextInjectionPanel, generation-replay, agent-runner, and agent-prompts focused suites (40 passed)",
+      "node --test summarize-features plus focused review regressions (43 passed)",
+      "git diff --check"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pass",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "passed_locally",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1198,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1198",
+    "headRefName": "feature/narrative-craft",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "The user explicitly authorized commit, push, PR creation, merge to main, and Pi deployment.",
+    "The synthetic evaluation corpus contains no user-chat content.",
+    "Durable test rationale: prompt grounding, consume-once persistence, compatibility remapping, default activation, and foreground cancellation are risky invariants that can regress silently; the tests are narrow at their engine or component owner boundaries."
+  ]
+}

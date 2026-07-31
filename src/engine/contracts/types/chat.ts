@@ -293,8 +293,10 @@ export interface ChatMetadata {
   groupScenarioOverride?: boolean;
   /** The shared scenario text used when groupScenarioOverride is enabled */
   groupScenarioText?: string;
-  /** When true, show the Secret Plot tab in the roleplay Agents menu (edits apply to agent memory, same as generation). */
+  /** Legacy read fallback for the Narrative Craft panel. */
   showSecretPlotPanel?: boolean;
+  /** When true, show the Narrative Craft tab in the roleplay Agents menu. */
+  showNarrativeCraftPanel?: boolean;
   /** When true, show the Injections tab in the roleplay Agents menu for cached prompt injections. */
   showInjectionsPanel?: boolean;
   /** When true, tracker agents only run when the user manually triggers them (not after every generation) */
@@ -623,7 +625,7 @@ export interface MessageExtra {
   /** When true, the visible message is excluded from future AI prompt context */
   hiddenFromAI?: boolean;
   /**
-   * Cached pipeline injections (prose-guardian, director, knowledge-retrieval, etc.)
+   * Cached pipeline injections (narrative-craft, knowledge-retrieval, custom agents, etc.)
    * saved with this assistant message — reused when regenerating that swipe unless refreshed.
    */
   contextInjections?: Array<{ agentType: string; agentName?: string; text: string }> | null;

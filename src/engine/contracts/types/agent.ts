@@ -203,11 +203,10 @@ export interface AgentContext {
 /** Built-in agent type identifiers. */
 export const BUILT_IN_AGENT_IDS = {
   WORLD_STATE: "world-state",
-  PROSE_GUARDIAN: "prose-guardian",
+  NARRATIVE_CRAFT: "narrative-craft",
   CONTINUITY: "continuity",
   EXPRESSION: "expression",
   ECHO_CHAMBER: "echo-chamber",
-  DIRECTOR: "director",
   QUEST: "quest",
   ILLUSTRATOR: "illustrator",
   LOREBOOK_KEEPER: "lorebook-keeper",
@@ -229,8 +228,9 @@ export const BUILT_IN_AGENT_IDS = {
   AUTONOMOUS_MESSENGER: "autonomous-messenger",
   CUSTOM_TRACKER: "custom-tracker",
   CYOA: "cyoa",
-  SECRET_PLOT_DRIVER: "secret-plot-driver",
 } as const;
+
+const LEGACY_NARRATIVE_AGENT_IDS = ["prose-guardian", "director", "secret-plot-driver"] as const;
 
 export type AgentCategory = "writer" | "tracker" | "misc";
 export type AgentChatMode = "conversation" | "roleplay" | "game" | "visual_novel";
@@ -268,13 +268,15 @@ export interface BuiltInAgentMeta {
 const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
   // ── Writer Agents ──
   {
-    id: "prose-guardian",
-    name: "Prose Guardian",
+    id: "narrative-craft",
+    name: "Narrative Craft",
     description:
-      "Analyzes recent messages for repetition, rhetorical patterns, and sentence structure — then generates strict writing directives to force variety and freshness.",
-    phase: "pre_generation",
+      "Tracks story threads and recent prose choices, then offers sparse guidance when the next reply would benefit.",
+    phase: "post_processing",
     enabledByDefault: false,
+    defaultInjectAsSection: true,
     category: "writer",
+    modeAllowlist: ["roleplay", "visual_novel"],
   },
   {
     id: "continuity",
@@ -282,15 +284,6 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     description: "Detects contradictions with established lore and facts.",
     phase: "post_processing",
     enabledByDefault: false,
-    category: "writer",
-  },
-  {
-    id: "director",
-    name: "Narrative Director",
-    description: "Introduces events, NPCs, and plot beats to keep the story moving.",
-    phase: "pre_generation",
-    enabledByDefault: false,
-    defaultInjectAsSection: true,
     category: "writer",
   },
   {
@@ -509,16 +502,6 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     category: "misc",
     modeAllowlist: ["roleplay", "visual_novel"],
   },
-  {
-    id: "secret-plot-driver",
-    name: "Secret Plot Driver",
-    description:
-      "Secretly develops an overarching story arc and scene directions behind the scenes. The user never sees the actual plot — only a hint that something is unfolding. Creates long-term narrative structure with protagonist growth, mysteries, and pacing control.",
-    phase: "pre_generation",
-    enabledByDefault: false,
-    defaultInjectAsSection: true,
-    category: "writer",
-  },
 ];
 
 export const BUILT_IN_AGENTS: BuiltInAgentMeta[] = BUILT_IN_AGENT_DEFINITIONS.map((agent) => ({
@@ -528,6 +511,7 @@ export const BUILT_IN_AGENTS: BuiltInAgentMeta[] = BUILT_IN_AGENT_DEFINITIONS.ma
 
 const BUILT_IN_AGENT_ID_PREFIX = "builtin:";
 const BUILT_IN_AGENT_ID_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
+const LEGACY_NARRATIVE_AGENT_ID_SET = new Set<string>(LEGACY_NARRATIVE_AGENT_IDS);
 const CONVERSATION_BUILT_IN_AGENT_ID_SET = new Set<string>(CONVERSATION_BUILT_IN_AGENT_IDS);
 const GAME_BUILT_IN_AGENT_ID_SET = new Set<string>(GAME_BUILT_IN_AGENT_IDS);
 const ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET = new Set<string>(ROLEPLAY_AGENT_PICKER_HIDDEN_IDS);
@@ -553,16 +537,32 @@ function boolishFalse(value: unknown): boolean {
   return ["false", "0", "no", "off"].includes(value.trim().toLowerCase());
 }
 
-function canonicalAgentActiveId(value: unknown, options: { remapLegacySpotify?: boolean } = {}): string {
+function canonicalAgentActiveId(
+  value: unknown,
+  options: { remapLegacySpotify?: boolean; remapLegacyNarrativeAgents?: boolean } = {},
+): string {
   const id = typeof value === "string" ? value.trim() : "";
-  const remap = options.remapLegacySpotify === true;
-  if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) return remap && id === "spotify" ? "music-dj" : id;
+  const remapSpotify = options.remapLegacySpotify === true;
+  const remapNarrative = options.remapLegacyNarrativeAgents === true;
+  if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) {
+    if (remapSpotify && id === "spotify") return "music-dj";
+    if (remapNarrative && LEGACY_NARRATIVE_AGENT_ID_SET.has(id)) return "narrative-craft";
+    return id;
+  }
   const rawType = id.slice(BUILT_IN_AGENT_ID_PREFIX.length).trim();
-  const type = remap && rawType === "spotify" ? "music-dj" : rawType;
+  const type =
+    remapSpotify && rawType === "spotify"
+      ? "music-dj"
+      : remapNarrative && LEGACY_NARRATIVE_AGENT_ID_SET.has(rawType)
+        ? "narrative-craft"
+        : rawType;
   return BUILT_IN_AGENT_ID_SET.has(type) ? type : id;
 }
 
-function canonicalAgentActiveIds(value: unknown, options: { remapLegacySpotify?: boolean } = {}): string[] {
+function canonicalAgentActiveIds(
+  value: unknown,
+  options: { remapLegacySpotify?: boolean; remapLegacyNarrativeAgents?: boolean } = {},
+): string[] {
   if (!Array.isArray(value)) return [];
   return Array.from(new Set(value.map((id) => canonicalAgentActiveId(id, options)).filter(Boolean)));
 }
@@ -579,7 +579,7 @@ function modeAllowlistIncludes(
 }
 
 export function isBuiltInAgentAvailableInChatMode(mode: unknown, agentId: string): boolean {
-  const id = canonicalAgentActiveId(agentId);
+  const id = canonicalAgentActiveId(agentId, { remapLegacyNarrativeAgents: true });
   const meta = BUILT_IN_AGENTS.find((agent) => agent.id === id) ?? null;
   if (!meta) return true;
   const chatMode = normalizeAgentChatMode(mode);
@@ -599,9 +599,10 @@ export function enabledChatAgentIds(metadata: unknown, mode: unknown): string[] 
   const record = metadataRecord(metadata);
   if (!chatAgentsEnabled(record)) return [];
   const chatMode = normalizeAgentChatMode(mode);
-  return canonicalAgentActiveIds(record.activeAgentIds, { remapLegacySpotify: chatMode === "roleplay" }).filter((id) =>
-    isBuiltInAgentAvailableInChatMode(chatMode, id),
-  );
+  return canonicalAgentActiveIds(record.activeAgentIds, {
+    remapLegacySpotify: chatMode === "roleplay",
+    remapLegacyNarrativeAgents: true,
+  }).filter((id) => isBuiltInAgentAvailableInChatMode(chatMode, id));
 }
 
 export function enabledChatAgentIdSet(metadata: unknown, mode: unknown): Set<string> {
@@ -611,14 +612,14 @@ export function enabledChatAgentIdSet(metadata: unknown, mode: unknown): Set<str
 export function filterAgentIdsForChatMode(agentIds: Iterable<string>, mode: unknown): Set<string> {
   const filtered = new Set<string>();
   for (const id of agentIds) {
-    const canonical = canonicalAgentActiveId(id);
+    const canonical = canonicalAgentActiveId(id, { remapLegacyNarrativeAgents: true });
     if (canonical && isBuiltInAgentAvailableInChatMode(mode, canonical)) filtered.add(canonical);
   }
   return filtered;
 }
 
 export const BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS: Readonly<Record<string, number>> = {
-  director: 5,
+  "narrative-craft": 4,
   illustrator: 5,
   "lorebook-keeper": 8,
   "card-evolution-auditor": 8,
@@ -640,6 +641,11 @@ export function getDefaultBuiltInAgentSettings(agentType: string): Record<string
     settings.injectAsSection = true;
   }
 
+  if (agentType === "narrative-craft") {
+    settings.maxTokens = 2500;
+    settings.temperature = 0;
+  }
+
   const runInterval = BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS[agentType];
   if (runInterval !== undefined) {
     settings.runInterval = runInterval;
@@ -655,11 +661,10 @@ export function getDefaultBuiltInAgentSettings(agentType: string): Record<string
 /** Recommended default tools for each built-in agent type. */
 export const DEFAULT_AGENT_TOOLS: Record<string, string[]> = {
   "world-state": ["update_game_state"],
-  "prose-guardian": [],
+  "narrative-craft": [],
   continuity: ["search_lorebook"],
   expression: ["set_expression"],
   "echo-chamber": [],
-  director: ["trigger_event"],
   quest: ["update_game_state"],
   illustrator: [],
   "lorebook-keeper": ["search_lorebook"],
@@ -695,7 +700,6 @@ export const DEFAULT_AGENT_TOOLS: Record<string, string[]> = {
   "autonomous-messenger": [],
   "custom-tracker": ["update_game_state"],
   cyoa: [],
-  "secret-plot-driver": [],
 };
 
 /** Data shape for a lorebook_update agent result. */

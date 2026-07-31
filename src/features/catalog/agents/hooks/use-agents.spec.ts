@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createAgentConfigSchema } from "../../../../engine/contracts/schemas/agent.schema";
-import { agentCreditLabel } from "./use-agents";
+import { agentCreditLabel, isBuiltInOrLegacyAgentType, isCustomAgentConfig } from "./use-agents";
 
 describe("agent author metadata", () => {
   it("leaves missing custom agent author empty at the schema boundary", () => {
@@ -18,4 +18,12 @@ describe("agent author metadata", () => {
     expect(agentCreditLabel("")).toBe("");
     expect(agentCreditLabel("  Celia  ")).toBe("Celia");
   });
+
+  it.each(["prose-guardian", "director", "secret-plot-driver"])(
+    "keeps retired built-in type %s out of custom-agent surfaces",
+    (type) => {
+      expect(isBuiltInOrLegacyAgentType(type)).toBe(true);
+      expect(isCustomAgentConfig({ type })).toBe(false);
+    },
+  );
 });

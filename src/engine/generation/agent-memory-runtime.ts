@@ -1,13 +1,11 @@
 import type { AgentResult } from "../contracts/types/agent";
 import type { StorageGateway } from "../capabilities/storage";
-import { normalizeSecretPlotSceneDirections, normalizeStringArray } from "./agent-normalizers";
 import { isRecord, nowIso, readString, type JsonRecord } from "./runtime-records";
-
-export type SecretPlotRerollMode = "full" | "turn_only";
-
-interface SecretPlotAgentMemoryPersistOptions {
-  rerollMode?: SecretPlotRerollMode | null;
-}
+import {
+  narrativeCraftStateFromLegacyMemory,
+  normalizeNarrativeCraftState,
+  type NarrativeCraftState,
+} from "./narrative-craft-state";
 
 export async function loadAgentMemory(
   storage: StorageGateway,
@@ -25,92 +23,94 @@ export async function loadAgentMemory(
   return memory;
 }
 
-export function secretPlotStateFromMemory(memory: Record<string, unknown>): Record<string, unknown> | null {
-  const state: Record<string, unknown> = {};
-  if (memory.overarchingArc) state.overarchingArc = memory.overarchingArc;
-  const sceneDirections = normalizeSecretPlotSceneDirections(memory.sceneDirections);
-  if (sceneDirections.length > 0) state.sceneDirections = sceneDirections;
-  if (memory.pacing) state.pacing = memory.pacing;
-  const recentlyFulfilled = normalizeStringArray(memory.recentlyFulfilled);
-  if (recentlyFulfilled.length > 0) state.recentlyFulfilled = recentlyFulfilled;
-  if (memory.staleDetected != null) state.staleDetected = memory.staleDetected;
-  return Object.keys(state).length > 0 ? state : null;
-}
+export async function loadNarrativeCraftState(
+  storage: StorageGateway,
+  agentId: string,
+  chatId: string,
+): Promise<NarrativeCraftState | null> {
+  const currentMemory = await loadAgentMemory(storage, agentId, chatId);
+  if (Object.prototype.hasOwnProperty.call(currentMemory, "state")) {
+    return normalizeNarrativeCraftState(currentMemory.state);
+  }
 
-function normalizeSecretPlotArc(value: unknown): unknown {
-  if (typeof value === "string") return value.trim() ? value.trim() : null;
-  if (value && typeof value === "object") return value;
+  const agentRows = await storage.list<JsonRecord>("agents");
+  const storedLegacyIds = agentRows
+    .filter((row) => readString(row.type || row.agentType) === "secret-plot-driver")
+    .map((row) => readString(row.id))
+    .filter(Boolean);
+  const legacyIds = Array.from(new Set(["secret-plot-driver", "builtin:secret-plot-driver", ...storedLegacyIds]));
+
+  for (const legacyId of legacyIds) {
+    const memory = await loadAgentMemory(storage, legacyId, chatId);
+    if (
+      ["overarchingArc", "sceneDirections", "pacing", "recentlyFulfilled", "staleDetected"].some((key) =>
+        Object.prototype.hasOwnProperty.call(memory, key),
+      )
+    ) {
+      return narrativeCraftStateFromLegacyMemory(memory);
+    }
+  }
   return null;
 }
 
-function secretPlotArcText(value: unknown): string {
-  const arc = normalizeSecretPlotArc(value);
-  if (!arc) return "";
-  if (typeof arc === "string") return arc;
-  return JSON.stringify(arc);
-}
-
-export function secretPlotPromptGuidanceFromData(data: unknown): string | null {
-  if (!isRecord(data)) return null;
-  const arc = secretPlotArcText(data.overarchingArc);
-  const directions = normalizeSecretPlotSceneDirections(data.sceneDirections)
-    .filter((direction) => !direction.fulfilled)
-    .map((direction) => direction.direction);
-  const parts: string[] = [];
-  if (arc) {
-    parts.push(["<overarching_arc>", arc, "</overarching_arc>"].join("\n"));
-  }
-  if (directions.length > 0) {
-    parts.push(
-      ["<scene_directions>", directions.map((direction) => `- ${direction}`).join("\n"), "</scene_directions>"].join(
-        "\n",
-      ),
-    );
-  }
-  return parts.length > 0 ? parts.join("\n\n") : null;
-}
-
-export async function persistSecretPlotAgentMemory(
+export async function persistNarrativeCraftAgentMemory(
   storage: StorageGateway,
   chatId: string,
   results: AgentResult[],
-  options: SecretPlotAgentMemoryPersistOptions = {},
 ): Promise<void> {
-  const result = results.find((entry) => entry.success && entry.type === "secret_plot" && isRecord(entry.data));
-  if (!result || !isRecord(result.data)) return;
-  const agentConfigId = result.agentId;
-  const data = result.data;
+  const result = results.find(
+    (entry) =>
+      entry.success &&
+      entry.agentType === "narrative-craft" &&
+      entry.type === "context_injection" &&
+      isRecord(entry.data) &&
+      isRecord(entry.data.state),
+  );
+  if (!result || !isRecord(result.data) || !isRecord(result.data.state)) return;
+  const directive = result.data.intervened === true ? readString(result.data.text).trim() : "";
+  await setAgentMemoryValue(storage, result.agentId, chatId, "state", {
+    ...normalizeNarrativeCraftState(result.data.state),
+    pendingGuidance: directive ? [directive] : [],
+    lastAnalysisReason: readString(result.data.reason).trim(),
+  });
+}
 
-  if (Object.prototype.hasOwnProperty.call(data, "overarchingArc") && options.rerollMode !== "turn_only") {
-    await setAgentMemoryValue(
-      storage,
-      agentConfigId,
-      chatId,
-      "overarchingArc",
-      normalizeSecretPlotArc(data.overarchingArc),
-    );
+export async function consumeNarrativeCraftPendingGuidance(
+  storage: StorageGateway,
+  agentId: string,
+  chatId: string,
+): Promise<string | null> {
+  const preferredMemory = await loadAgentMemory(storage, agentId, chatId);
+  if (Object.prototype.hasOwnProperty.call(preferredMemory, "state")) {
+    return consumeNarrativeCraftStateGuidance(storage, agentId, chatId, preferredMemory.state);
   }
 
-  if (data.sceneDirections !== undefined) {
-    const allDirections = normalizeSecretPlotSceneDirections(data.sceneDirections);
-    const active = allDirections.filter((direction) => !direction.fulfilled);
-    const justFulfilled = allDirections
-      .filter((direction) => direction.fulfilled)
-      .map((direction) => direction.direction);
-    await setAgentMemoryValue(storage, agentConfigId, chatId, "sceneDirections", active);
-    if (justFulfilled.length > 0) {
-      const memory = await loadAgentMemory(storage, agentConfigId, chatId);
-      const merged = [...normalizeStringArray(memory.recentlyFulfilled), ...justFulfilled].slice(-10);
-      await setAgentMemoryValue(storage, agentConfigId, chatId, "recentlyFulfilled", merged);
-    }
-  } else {
-    await setAgentMemoryValue(storage, agentConfigId, chatId, "sceneDirections", []);
+  const configuredIds = (await storage.list<JsonRecord>("agents"))
+    .filter((row) => readString(row.type || row.agentType).trim() === "narrative-craft")
+    .map((row) => readString(row.id).trim())
+    .filter((id) => id && id !== agentId);
+  for (const configuredId of configuredIds) {
+    const memory = await loadAgentMemory(storage, configuredId, chatId);
+    if (!Object.prototype.hasOwnProperty.call(memory, "state")) continue;
+    return consumeNarrativeCraftStateGuidance(storage, configuredId, chatId, memory.state);
   }
+  return null;
+}
 
-  if (data.pacing) {
-    await setAgentMemoryValue(storage, agentConfigId, chatId, "pacing", data.pacing);
-  }
-  await setAgentMemoryValue(storage, agentConfigId, chatId, "staleDetected", data.staleDetected ?? false);
+async function consumeNarrativeCraftStateGuidance(
+  storage: StorageGateway,
+  agentId: string,
+  chatId: string,
+  value: unknown,
+): Promise<string | null> {
+  const state = normalizeNarrativeCraftState(value);
+  const guidance = state.pendingGuidance[0]?.trim() ?? "";
+  if (!guidance) return null;
+  await setAgentMemoryValue(storage, agentId, chatId, "state", {
+    ...state,
+    pendingGuidance: [],
+  });
+  return guidance;
 }
 
 function parseMaybeJson(value: unknown): unknown {

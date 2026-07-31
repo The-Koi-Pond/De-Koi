@@ -5,7 +5,11 @@ import {
   buildModePromptMetadataPatch,
   chatToolStatusDescription,
   chatToolSelectionMode,
+  hasNarrativeCraftMemory,
   hasSecretPlotMemory,
+  narrativeCraftPanelMetadataPatch,
+  narrativeCraftTabVisible,
+  narrativeCraftPanelVisible,
   toggleChatAgent,
   toggleConversationStatusMessages,
 } from "./chat-settings-actions";
@@ -47,7 +51,7 @@ describe("chat settings actions", () => {
       readLatestChat: () => undefined,
       updateMeta,
       agentMemory: { getMemory: vi.fn(), clearMemory: vi.fn() },
-      confirmSecretPlotRemoval: vi.fn(),
+      confirmNarrativeCraftRemoval: vi.fn(),
       showMutationFailure,
     });
 
@@ -58,8 +62,8 @@ describe("chat settings actions", () => {
     expect(showMutationFailure).not.toHaveBeenCalled();
   });
 
-  it("rolls Secret Plot Driver back when memory cleanup fails after metadata success", async () => {
-    let latestChat = chatWithAgents(["secret-plot-driver"]);
+  it("removes Narrative Craft and clears current and legacy memory best-effort", async () => {
+    let latestChat = chatWithAgents(["narrative-craft"]);
     const updateMeta = {
       mutateAsync: vi.fn(async (_patch: unknown, options?: { onSuccess?: () => Promise<void> | void }) => {
         latestChat = chatWithAgents([]);
@@ -67,53 +71,54 @@ describe("chat settings actions", () => {
       }),
     };
     const showMutationFailure = vi.fn();
-    const clearMemory = vi.fn().mockRejectedValue(new Error("clear failed"));
+    const clearMemory = vi.fn(async (agentId: string) => {
+      if (agentId === "secret-plot-driver") throw new Error("legacy clear failed");
+    });
 
     await toggleChatAgent({
-      agentId: "secret-plot-driver",
-      chat: chatWithAgents(["secret-plot-driver"]),
-      activeAgentIds: ["secret-plot-driver"],
+      agentId: "narrative-craft",
+      chat: chatWithAgents(["narrative-craft"]),
+      activeAgentIds: ["narrative-craft"],
       readLatestChat: () => latestChat,
       updateMeta,
       agentMemory: {
-        getMemory: vi.fn().mockResolvedValue({ memory: { overarchingArc: "Arc" } }),
+        getMemory: vi.fn(async (agentId: string) => ({
+          memory: agentId === "narrative-craft" ? { state: { pacing: "steady" } } : null,
+        })),
         clearMemory,
       },
-      confirmSecretPlotRemoval: vi.fn().mockResolvedValue(true),
+      confirmNarrativeCraftRemoval: vi.fn().mockResolvedValue(true),
       showMutationFailure,
     });
 
-    expect(updateMeta.mutateAsync).toHaveBeenNthCalledWith(
-      1,
+    expect(updateMeta.mutateAsync).toHaveBeenCalledOnce();
+    expect(updateMeta.mutateAsync).toHaveBeenCalledWith(
       { id: "chat-1", activeAgentIds: [] },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
-    expect(updateMeta.mutateAsync).toHaveBeenNthCalledWith(2, {
-      id: "chat-1",
-      activeAgentIds: ["secret-plot-driver"],
-    });
+    expect(clearMemory).toHaveBeenCalledWith("narrative-craft", "chat-1");
     expect(clearMemory).toHaveBeenCalledWith("secret-plot-driver", "chat-1");
-    expect(showMutationFailure).toHaveBeenCalledWith({ removing: true, message: "clear failed" });
+    expect(showMutationFailure).not.toHaveBeenCalled();
   });
 
   it("keeps removal intent when latest metadata changes before mutation", async () => {
-    let latestChat = chatWithAgents(["secret-plot-driver"]);
+    let latestChat = chatWithAgents(["narrative-craft"]);
     const updateMeta = { mutateAsync: vi.fn().mockResolvedValue(undefined) };
 
     await toggleChatAgent({
-      agentId: "secret-plot-driver",
-      chat: chatWithAgents(["secret-plot-driver"]),
-      activeAgentIds: ["secret-plot-driver"],
+      agentId: "narrative-craft",
+      chat: chatWithAgents(["narrative-craft"]),
+      activeAgentIds: ["narrative-craft"],
       readLatestChat: () => latestChat,
       updateMeta,
       agentMemory: {
         getMemory: vi.fn().mockImplementation(async () => {
           latestChat = chatWithAgents([]);
-          return { memory: { overarchingArc: "Arc" } };
+          return { memory: { state: { pacing: "steady" } } };
         }),
         clearMemory: vi.fn(),
       },
-      confirmSecretPlotRemoval: vi.fn().mockResolvedValue(true),
+      confirmNarrativeCraftRemoval: vi.fn().mockResolvedValue(true),
       showMutationFailure: vi.fn(),
     });
 
@@ -236,5 +241,29 @@ describe("chat settings actions", () => {
     expect(hasSecretPlotMemory({ sceneDirections: [{ direction: "Reveal clue" }] })).toBe(true);
     expect(hasSecretPlotMemory({ overarchingArc: { completed: true } })).toBe(true);
     expect(hasSecretPlotMemory({ sceneDirections: ["  "], recentlyFulfilled: [] })).toBe(false);
+  });
+
+  it("detects current Narrative Craft state", () => {
+    expect(hasNarrativeCraftMemory({ state: { pacing: "steady" } })).toBe(true);
+    expect(hasNarrativeCraftMemory({ state: {} })).toBe(false);
+    expect(hasNarrativeCraftMemory({ state: null })).toBe(false);
+  });
+
+  it("reads the legacy panel flag only when the Narrative Craft flag is absent", () => {
+    expect(narrativeCraftPanelVisible({ showSecretPlotPanel: true })).toBe(true);
+    expect(narrativeCraftPanelVisible({ showNarrativeCraftPanel: false, showSecretPlotPanel: true })).toBe(false);
+    expect(narrativeCraftPanelVisible({ showNarrativeCraftPanel: true })).toBe(true);
+  });
+
+  it("writes only the current Narrative Craft panel flag on the next settings save", () => {
+    expect(narrativeCraftPanelMetadataPatch({ showSecretPlotPanel: true }, false)).toEqual({
+      showNarrativeCraftPanel: false,
+    });
+  });
+
+  it("shows the Narrative Craft tab only when the panel is enabled and the agent is active", () => {
+    expect(narrativeCraftTabVisible({ showNarrativeCraftPanel: true }, new Set(["narrative-craft"]))).toBe(true);
+    expect(narrativeCraftTabVisible({ showNarrativeCraftPanel: true }, new Set())).toBe(false);
+    expect(narrativeCraftTabVisible({ showNarrativeCraftPanel: false }, new Set(["narrative-craft"]))).toBe(false);
   });
 });

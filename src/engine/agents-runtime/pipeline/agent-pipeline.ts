@@ -408,7 +408,7 @@ async function runPreGenerationAgents(
   for (const result of results) {
     if (!result.success) continue;
 
-    // prose-guardian & director produce text to inject
+    // Narrative Craft and compatible custom agents produce text to inject.
     if (result.type === "context_injection" || result.type === "director_event") {
       const text = getAgentResultText(result.data);
       const agentName = agents.find((agent) => agent.type === result.agentType)?.name;
@@ -428,8 +428,10 @@ async function runPostProcessingAgents(
   agents: ResolvedAgent[],
   context: AgentContext,
   onResult?: AgentResultCallback,
+  agentTypeFilter?: (agentType: string) => boolean,
 ): Promise<AgentResult[]> {
-  return executePhase(agents, "post_processing", context, onResult);
+  const filtered = agentTypeFilter ? agents.filter((agent) => agentTypeFilter(agent.type)) : agents;
+  return executePhase(filtered, "post_processing", context, onResult);
 }
 
 /**
@@ -498,16 +500,22 @@ export function createAgentPipeline(
      */
     async postGenerate(
       mainResponse: string,
-      options: { preGenInjections?: AgentInjection[]; parallelResults?: AgentResult[] } = {},
+      options: {
+        preGenInjections?: AgentInjection[];
+        parallelResults?: AgentResult[];
+        agentTypeFilter?: (agentType: string) => boolean;
+        signal?: AbortSignal;
+      } = {},
     ): Promise<AgentResult[]> {
       const fullContext: AgentContext = {
         ...baseContext,
         mainResponse,
+        signal: options.signal ?? baseContext.signal,
         preGenInjections: options.preGenInjections ?? preGenerationInjections,
         parallelResults: options.parallelResults ?? parallelPhaseResults,
       };
 
-      return runPostProcessingAgents(agents, fullContext, wrappedOnResult);
+      return runPostProcessingAgents(agents, fullContext, wrappedOnResult, options.agentTypeFilter);
     },
 
     /** All results collected so far. */

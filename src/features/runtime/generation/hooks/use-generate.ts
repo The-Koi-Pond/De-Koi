@@ -735,7 +735,7 @@ async function buildPendingCardUpdates(
   });
 }
 
-function formatAgentBubble(result: AgentResult, agentName: string): string | null {
+export function formatAgentBubble(result: AgentResult, agentName: string): string | null {
   if (result.agentType === "world-state" || result.type === "game_state_update") {
     const patch = worldStatePatchFromAgentData(result.data, {
       allowFreeform: result.agentType === "world-state",
@@ -779,6 +779,8 @@ function formatAgentBubble(result: AgentResult, agentName: string): string | nul
       return (
         readString(data.text).trim() || (result.agentType === "secret-plot-driver" ? "Secret plotline active." : null)
       );
+    case "narrative-craft":
+      return readString(data.reason).trim() || readString(data.text).trim() || "No intervention needed.";
     case "quest": {
       const updates = Array.isArray(data.updates) ? data.updates : [];
       return (

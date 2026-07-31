@@ -3,23 +3,25 @@
 // Shown in the roleplay Agents menu — survives clearing thought bubbles.
 // ──────────────────────────────────────────────
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Minus, Plus, RefreshCw, Save } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BUILT_IN_AGENTS, getDefaultBuiltInAgentSettings } from "../../../../engine/contracts/types/agent";
+import { Check, ChevronDown, RefreshCw, Save } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { BUILT_IN_AGENTS } from "../../../../engine/contracts/types/agent";
 import type { Message } from "../../../../engine/contracts/types/chat";
-import { agentApi, type AgentCadenceStatus } from "../../../../shared/api/agent-api";
 import { cn } from "../../../../shared/lib/utils";
 import { chatKeys, useUpdateMessageExtra } from "../../../catalog/chats";
 import { useGenerate } from "../../../runtime/generation/index";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
-import { useUpdateAgentByType, type AgentConfigRow } from "../../../catalog/agents";
-import { getAgentRunIntervalMeta, stepCadenceValue } from "../../../../shared/lib/agent-cadence";
+import type { AgentConfigRow } from "../../../catalog/agents";
 
 const CACHED_INJECTIONS_HELP =
-  "Troubleshooting view for text that certain writer agents added before the current reply, usually Prose Guardian, Narrative Director, or custom injected text. Edits and re-runs are only used if you regenerate this same assistant message. Re-runs use the original transcript slice and tracker snapshot, not newer chat.";
-const DIRECTOR_CADENCE_HELP =
-  "Shows when Narrative Director will add guidance again. Interval changes affect future replies, not the cached injection on this message.";
+  "Troubleshooting view for text that custom or specialist agents added before the current reply. Edits and re-runs are only used if you regenerate this same assistant message. Re-runs use the original transcript slice and tracker snapshot, not newer chat.";
 const NON_REROLLABLE_INJECTION_AGENTS = new Set(["knowledge-retrieval", "knowledge-router"]);
+const RETIRED_NARRATIVE_INJECTION_AGENTS = new Set([
+  "narrative-craft",
+  "prose-guardian",
+  "director",
+  "secret-plot-driver",
+]);
 
 const INJECTION_LABEL: Record<string, string> = Object.fromEntries(BUILT_IN_AGENTS.map((a) => [a.id, a.name]));
 
@@ -54,7 +56,7 @@ function normalizeContextInjections(raw: unknown): CachedInjection[] {
   const normalized: CachedInjection[] = [];
   for (const entry of raw) {
     if (typeof entry === "string") {
-      normalized.push({ agentType: "prose-guardian", text: entry });
+      normalized.push({ agentType: "narrative-craft", text: entry });
       continue;
     }
     if (!entry || typeof entry !== "object") continue;
@@ -69,19 +71,8 @@ function normalizeContextInjections(raw: unknown): CachedInjection[] {
   return normalized;
 }
 
-function parseAgentSettings(value: string | undefined): Record<string, unknown> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function normalizeDirectorInterval(value: unknown, fallback: number, max: number): number {
-  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  return Number.isFinite(parsed) && parsed >= 1 ? Math.min(max, Math.floor(parsed)) : fallback;
+export function normalizeVisibleContextInjections(raw: unknown): CachedInjection[] {
+  return normalizeContextInjections(raw).filter((entry) => !RETIRED_NARRATIVE_INJECTION_AGENTS.has(entry.agentType));
 }
 
 export function ContextInjectionPanel({
@@ -89,8 +80,6 @@ export function ContextInjectionPanel({
   messages,
   isAgentProcessing,
   isGenerationBusy = isAgentProcessing,
-  agentConfigs,
-  enabledAgentTypes,
 }: {
   chatId: string | null;
   messages: Message[] | undefined;
@@ -102,7 +91,6 @@ export function ContextInjectionPanel({
   const qc = useQueryClient();
   const { retryAgents } = useGenerate();
   const updateExtra = useUpdateMessageExtra(chatId);
-  const updateDirectorAgent = useUpdateAgentByType();
   const [open, setOpen] = useState(true);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [rerollingType, setRerollingType] = useState<string | null>(null);
@@ -113,36 +101,10 @@ export function ContextInjectionPanel({
 
   const target = useMemo(() => findLastAssistant(messages), [messages]);
   const parsedExtra = useMemo(() => (target ? parseExtra(target.extra) : {}), [target]);
-  const injections = useMemo(() => {
-    return normalizeContextInjections(parsedExtra.contextInjections).filter(
-      (entry) => entry.agentType !== "secret-plot-driver",
-    );
-  }, [parsedExtra.contextInjections]);
-  const hasDirectorInjection = injections.some((entry) => entry.agentType === "director");
-  const showDirectorCadence = (enabledAgentTypes?.has("director") ?? false) || hasDirectorInjection;
-  const directorConfig = useMemo(
-    () => (agentConfigs ?? []).find((config) => config.type === "director") ?? null,
-    [agentConfigs],
+  const injections = useMemo(
+    () => normalizeVisibleContextInjections(parsedExtra.contextInjections),
+    [parsedExtra.contextInjections],
   );
-  const directorCadenceQueryKey = useMemo(() => ["agent-cadence", "director", chatId ?? ""] as const, [chatId]);
-  const directorCadence = useQuery({
-    queryKey: directorCadenceQueryKey,
-    enabled: !!chatId && showDirectorCadence,
-    queryFn: () => agentApi.cadenceStatus("director", chatId!),
-    staleTime: 15_000,
-  });
-  const directorIntervalMeta = getAgentRunIntervalMeta("director");
-  const directorSettings = useMemo(
-    () => ({ ...getDefaultBuiltInAgentSettings("director"), ...parseAgentSettings(directorConfig?.settings) }),
-    [directorConfig?.settings],
-  );
-  const directorInterval = directorIntervalMeta
-    ? normalizeDirectorInterval(
-        directorCadence.data?.runInterval ?? directorSettings.runInterval,
-        directorIntervalMeta.defaultValue,
-        directorIntervalMeta.max,
-      )
-    : 1;
 
   useEffect(() => {
     const next: Record<string, string> = {};
@@ -183,28 +145,11 @@ export function ContextInjectionPanel({
       try {
         await retryAgents(chatId, [agentType], { forMessageId: target.id });
         await qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
-        if (agentType === "director") {
-          await qc.invalidateQueries({ queryKey: directorCadenceQueryKey });
-        }
       } finally {
         setRerollingType(null);
       }
     },
-    [chatId, target, isGenerationBusy, qc, rerollingType, retryAgents, directorCadenceQueryKey],
-  );
-
-  const handleDirectorIntervalStep = useCallback(
-    async (delta: number) => {
-      if (!directorIntervalMeta || updateDirectorAgent.isPending) return;
-      const next = stepCadenceValue(directorInterval, delta, directorIntervalMeta.max);
-      if (next === directorInterval) return;
-      await updateDirectorAgent.mutateAsync({
-        agentType: "director",
-        settings: { ...directorSettings, runInterval: next },
-      });
-      await qc.invalidateQueries({ queryKey: directorCadenceQueryKey });
-    },
-    [directorInterval, directorIntervalMeta, directorSettings, directorCadenceQueryKey, qc, updateDirectorAgent],
+    [chatId, target, isGenerationBusy, qc, rerollingType, retryAgents],
   );
 
   if (!chatId) return null;
@@ -243,18 +188,6 @@ export function ContextInjectionPanel({
       </div>
       {open && (
         <div className="border-t border-[var(--border)] px-2 pb-2 pt-1.5">
-          {showDirectorCadence && directorIntervalMeta && (
-            <DirectorCadenceCard
-              status={directorCadence.data}
-              loading={directorCadence.isLoading}
-              error={directorCadence.isError}
-              interval={directorInterval}
-              maxInterval={directorIntervalMeta.max}
-              canEdit
-              saving={updateDirectorAgent.isPending}
-              onStep={handleDirectorIntervalStep}
-            />
-          )}
           {!target && (
             <p className="py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
               No assistant message loaded yet.
@@ -358,106 +291,6 @@ export function ContextInjectionPanel({
             })}
         </div>
       )}
-    </div>
-  );
-}
-
-function DirectorCadenceCard({
-  status,
-  loading,
-  error,
-  interval,
-  maxInterval,
-  canEdit,
-  saving,
-  onStep,
-}: {
-  status: AgentCadenceStatus | undefined;
-  loading: boolean;
-  error: boolean;
-  interval: number;
-  maxInterval: number;
-  canEdit: boolean;
-  saving: boolean;
-  onStep: (delta: number) => void;
-}) {
-  const remaining = status?.remainingAssistantMessages ?? 0;
-  const statusLabel =
-    interval <= 1
-      ? "Every reply"
-      : loading
-        ? "Checking"
-        : error
-          ? "Unavailable"
-          : remaining <= 0
-            ? "Ready"
-            : `${remaining} left`;
-  const detail =
-    interval <= 1
-      ? "Narrative Director can run on every eligible assistant reply."
-      : loading
-        ? "Checking the latest saved Director run."
-        : error
-          ? "Could not load the countdown. The interval setting still saves normally."
-          : !status?.lastSuccessfulRun
-            ? "No saved Director run yet. The next eligible reply can run it."
-            : remaining <= 0
-              ? "Ready for the next eligible assistant reply."
-              : `Next run after ${remaining} assistant ${remaining === 1 ? "reply" : "replies"}.`;
-  const intervalLabel = interval <= 1 ? "assistant reply" : `${interval} replies`;
-
-  return (
-    <div className="mb-1 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)]/55">
-      <div className="flex items-center gap-1.5 px-2 py-1.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[0.625rem] font-semibold text-[var(--popover-foreground)]">
-              Narrative Director
-            </span>
-            <span className="shrink-0 rounded-full bg-[var(--primary)]/15 px-1.5 py-px text-[0.5rem] font-semibold text-[var(--primary)] ring-1 ring-[var(--primary)]/25">
-              {statusLabel}
-            </span>
-          </div>
-          <p className="mt-0.5 line-clamp-2 text-[0.5625rem] leading-snug text-[var(--muted-foreground)]">{detail}</p>
-        </div>
-        <HelpTooltip
-          text={DIRECTOR_CADENCE_HELP}
-          wide
-          side="left"
-          size="0.75rem"
-          className="shrink-0 text-[var(--muted-foreground)]"
-        />
-      </div>
-      <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] px-2 py-1.5">
-        <span className="min-w-0 text-[0.5625rem] text-[var(--muted-foreground)]">
-          Runs every <span className="font-medium text-[var(--popover-foreground)]">{intervalLabel}</span>
-        </span>
-        <div className="flex shrink-0 items-center rounded-md border border-[var(--border)] bg-[var(--secondary)]/35">
-          <button
-            type="button"
-            onClick={() => onStep(-1)}
-            disabled={!canEdit || saving || interval <= 1}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-l-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]/55 hover:text-[var(--accent-foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] disabled:opacity-40 max-md:h-7 max-md:w-7"
-            title="Decrease Narrative Director interval"
-            aria-label="Decrease Narrative Director interval"
-          >
-            <Minus size="0.625rem" />
-          </button>
-          <span className="min-w-8 px-1 text-center text-[0.5625rem] font-semibold tabular-nums text-[var(--popover-foreground)]">
-            {interval === 1 ? "Every" : interval}
-          </span>
-          <button
-            type="button"
-            onClick={() => onStep(1)}
-            disabled={!canEdit || saving || interval >= maxInterval}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-r-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]/55 hover:text-[var(--accent-foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] disabled:opacity-40 max-md:h-7 max-md:w-7"
-            title="Increase Narrative Director interval"
-            aria-label="Increase Narrative Director interval"
-          >
-            <Plus size="0.625rem" />
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

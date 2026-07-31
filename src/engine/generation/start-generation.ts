@@ -41,12 +41,17 @@ import {
   assertChatHasActiveCharacters,
   assertRequestedCharacterIsActive,
 } from "./active-characters";
-import { persistSecretPlotAgentMemory, type SecretPlotRerollMode } from "./agent-memory-runtime";
+import { persistNarrativeCraftAgentMemory } from "./agent-memory-runtime";
 import {
   createGenerationAgentRuntime,
   runFocusedRoleplayQualityAudit,
+  type GenerationAgentRuntime,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
+import {
+  cancelNarrativeCraftAnalysesForForeground,
+  scheduleNarrativeCraftAnalysis,
+} from "./narrative-craft-background";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import { generationContextAttribution } from "./context-attribution";
 import {
@@ -176,6 +181,7 @@ export type GenerationPerformanceTiming = {
     | "generation.first_token"
     | "generation.post_save"
     | "generation.lorebook_keeper_backfill"
+    | "generation.narrative_craft_background"
     | "generation.background_maintenance";
   elapsedMs: number;
   status: "ok" | "error";
@@ -235,6 +241,7 @@ const MAX_LOREBOOK_KEEPER_BACKFILL_RUNS = 4;
 const MAX_LOREBOOK_KEEPER_BACKFILL_CANDIDATES = 16;
 
 const LOREBOOK_KEEPER_AGENT_TYPE = "lorebook-keeper";
+const NARRATIVE_CRAFT_AGENT_TYPE = "narrative-craft";
 const DEFAULT_LOREBOOK_KEEPER_RUN_INTERVAL = BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS[LOREBOOK_KEEPER_AGENT_TYPE] ?? 8;
 
 const CONTINUE_ASSISTANT_RESPONSE_INSTRUCTION =
@@ -2507,17 +2514,44 @@ async function persistAgentResults(
   }
 }
 
-async function persistSecretPlotAgentMemorySafely(
+async function persistNarrativeCraftAgentMemorySafely(
   storage: StorageGateway,
   chatId: string,
   results: AgentResult[],
-  options: { rerollMode?: SecretPlotRerollMode | null } = {},
 ): Promise<void> {
   try {
-    await persistSecretPlotAgentMemory(storage, chatId, results, options);
+    await persistNarrativeCraftAgentMemory(storage, chatId, results);
   } catch (error) {
-    console.warn("[generation] secret plot memory persist failed", error);
+    console.warn("[generation] narrative craft memory persist failed", error);
   }
+}
+
+function scheduleNarrativeCraftAfterSavedAssistant(args: {
+  deps: GenerationEngineDeps;
+  runtime: GenerationAgentRuntime | null;
+  chatId: string;
+  messageId: string | null;
+  content: string;
+}): boolean {
+  if (!args.runtime?.narrativeCraftAnalysisDue || !args.messageId) return false;
+  return scheduleNarrativeCraftAnalysis({
+    storage: args.deps.storage,
+    chatId: args.chatId,
+    onDiagnostic: args.deps.onPerformanceTiming
+      ? (diagnostic) =>
+          args.deps.onPerformanceTiming?.({
+            name: "generation.narrative_craft_background",
+            elapsedMs: diagnostic.durationMs,
+            status: diagnostic.status,
+          })
+      : undefined,
+    run: async (signal) => {
+      const results = await args.runtime!.runNarrativeCraftAnalysis(args.content, { signal });
+      if (results.length === 0) return;
+      await persistNarrativeCraftAgentMemory(args.deps.storage, args.chatId, results);
+      await persistAgentResults(args.deps.storage, args.chatId, args.messageId, results);
+    },
+  });
 }
 
 async function persistTrackerSnapshotSafely(
@@ -3249,7 +3283,7 @@ function normalizeContextInjections(value: unknown): AgentInjectionOverride[] {
   for (const entry of value) {
     if (typeof entry === "string") {
       const text = entry.trim();
-      if (text) injections.push({ agentType: "prose-guardian", text });
+      if (text) injections.push({ agentType: "narrative-craft", text });
       continue;
     }
     if (!isRecord(entry)) continue;
@@ -3944,11 +3978,6 @@ function retryBypassesCustomAgentActivation(input: RetryAgentsInput): boolean {
   return boolish(parseRecord(input.options).bypassActivation, false);
 }
 
-function secretPlotRerollMode(input: RetryAgentsInput): SecretPlotRerollMode | null {
-  const mode = readString(input.options?.secretPlotRerollMode).trim();
-  return mode === "full" || mode === "turn_only" ? mode : null;
-}
-
 async function commitVisibleTrackerSnapshotSafely(
   storage: StorageGateway,
   chatId: string,
@@ -4057,6 +4086,9 @@ async function runGenerationAgentsForTarget(args: {
   const mainResponse = target ? readString(target.content) : "";
   results.push(...(await runtime.runParallel()));
   results.push(...(await runtime.runPost(mainResponse)));
+  if (agentTypes.has(NARRATIVE_CRAFT_AGENT_TYPE)) {
+    results.push(...(await runtime.runNarrativeCraftAnalysis(mainResponse, { force: true })));
+  }
 
   const unique = new Map<string, AgentResult>();
   for (const result of [...runtime.preResults, ...results]) {
@@ -4138,9 +4170,7 @@ async function runGenerationAgentsForTarget(args: {
       deps.onTrackerSnapshotSaved,
     );
   }
-  await persistSecretPlotAgentMemorySafely(deps.storage, chatId, finalResults, {
-    rerollMode: secretPlotRerollMode(input),
-  });
+  await persistNarrativeCraftAgentMemorySafely(deps.storage, chatId, finalResults);
   await persistAgentResults(deps.storage, chatId, target ? readString(target.id) || null : null, finalResults);
 
   const events: GenerationEvent[] = runtime.agentWarnings.map((warning) => ({ type: "agent_warning", data: warning }));
@@ -4344,6 +4374,7 @@ export async function* dryRunGeneration(
   const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
   cancelConversationSummaryBackgroundForForeground(deps.storage, chat);
+  cancelNarrativeCraftAnalysesForForeground(deps.storage);
   input = (await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input)) as GenerationDryRunInput;
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
@@ -4534,6 +4565,7 @@ export async function* startGeneration(
   signal?: AbortSignal,
 ): AsyncGenerator<GenerationEvent> {
   const releaseForegroundGeneration = beginForegroundGeneration(deps.storage);
+  cancelNarrativeCraftAnalysesForForeground(deps.storage);
   try {
     yield* startGenerationImpl(deps, input, signal);
   } finally {
@@ -5252,7 +5284,7 @@ async function* startGenerationImpl(
           );
         }
         throwIfAborted(signal);
-        await persistSecretPlotAgentMemorySafely(deps.storage, chatId, allAgentResults);
+        await persistNarrativeCraftAgentMemorySafely(deps.storage, chatId, allAgentResults);
         throwIfAborted(signal);
         await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
         throwIfAborted(signal);
@@ -5261,6 +5293,15 @@ async function* startGenerationImpl(
         reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
       }
       if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+      if (savedAssistantGeneration) {
+        scheduleNarrativeCraftAfterSavedAssistant({
+          deps,
+          runtime,
+          chatId,
+          messageId: messageId(latestSaved),
+          content: displayContent,
+        });
+      }
       yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
       if (savedAssistantGeneration) {
         const backgroundMaintenanceStartedAt = generationTimingStartedAt();

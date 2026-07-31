@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { ChatMessageListOptions, StorageEntity, StorageGateway } from "../../../capabilities/storage";
+import { NARRATIVE_CRAFT_PRINCIPLES } from "../../../contracts/constants/agent-prompts";
 import {
   abandonRoleplayScene,
   concludeRoleplayScene,
@@ -182,6 +183,46 @@ function llmWithResponse(response: string): LlmGateway {
 }
 
 describe("roleplay scene recent history", () => {
+  it("applies shared Narrative Craft principles to generated opening messages without forcing a stock beat", async () => {
+    const { storage } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: ["char-1"], metadata: {} }],
+      characters: [{ id: "char-1", name: "Mara", personality: "Patient and dryly funny." }],
+      messages: { "chat-1": [{ id: "message-1", role: "user", content: "Keep this a quiet mystery." }] },
+      connections: [{ id: "conn-1" }],
+    });
+    let systemPrompt = "";
+    const llm = {
+      complete: async (request: { messages: Array<{ role: string; content: string }> }) => {
+        systemPrompt = request.messages.find((message) => message.role === "system")?.content ?? "";
+        return JSON.stringify({
+          name: "Scene: Quiet Archive",
+          description: "Mara examines a misplaced key.",
+          scenario: "A quiet mystery in the archive.",
+          firstMessage: 'Mara turns the key over once. "This was not here yesterday."',
+          background: null,
+          characterIds: ["char-1"],
+          rating: "sfw",
+          relationshipHistory: "",
+        });
+      },
+      stream: async function* () {},
+      listModels: async () => [],
+    } as unknown as LlmGateway;
+
+    await planRoleplayScene(
+      { storage, llm },
+      { chatId: "chat-1", prompt: "A quiet archive mystery with Mara already holding the key.", connectionId: null },
+    );
+
+    expect(systemPrompt).toContain(NARRATIVE_CRAFT_PRINCIPLES);
+    expect(systemPrompt).toContain("Do not force a cinematic opening");
+    expect(systemPrompt).toContain("Do not use setting as an emotional mirror");
+    expect(systemPrompt).toContain("Do not add automatic micro-gestures");
+    expect(systemPrompt).toContain("Do not explain the scene's theme");
+    expect(systemPrompt).toContain("Do not force an interruption, reveal, or choice");
+    expect(systemPrompt).toContain("Honor the requested premise, cast, genre, and opening situation");
+  });
+
   it("bounds scene planning recent conversation reads", async () => {
     const plan = {
       name: "Scene: Mirror Hall",

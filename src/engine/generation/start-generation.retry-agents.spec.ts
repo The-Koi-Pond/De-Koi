@@ -215,6 +215,105 @@ function retryMusicDjStorage(
     },
   };
 }
+
+function retryNarrativeCraftStorage() {
+  const chat = {
+    id: "chat-1",
+    mode: "roleplay",
+    connectionId: "conn-1",
+    metadata: { activeAgentIds: ["narrative-craft"] },
+    characterIds: [],
+  };
+  const connection = { id: "conn-1", provider: "openai", model: "chat-model" };
+  const target = {
+    id: "assistant-1",
+    chatId: "chat-1",
+    role: "assistant",
+    content: "Mira leaves the sealed note on the table.",
+    createdAt: "2026-01-01T00:01:00.000Z",
+    updatedAt: "2026-01-01T00:01:00.000Z",
+    extra: {},
+  };
+  const user = {
+    id: "user-1",
+    chatId: "chat-1",
+    role: "user",
+    content: "I ask why she will not open it.",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    extra: {},
+  };
+  const creates: Array<{ entity: string; value: Record<string, unknown> }> = [];
+  return {
+    creates,
+    storage: {
+      async get(entity: string, id: string) {
+        if (entity === "chats" && id === chat.id) return chat;
+        if (entity === "connections" && id === connection.id) return connection;
+        return null;
+      },
+      async list(entity: string) {
+        if (entity === "connections") return [connection];
+        return [];
+      },
+      async listChatMessages(_chatId: string, options?: { before?: unknown }) {
+        return options?.before ? [user] : [user, target];
+      },
+      async getChatMessage(messageId: string) {
+        if (messageId === target.id) return target;
+        if (messageId === user.id) return user;
+        return null;
+      },
+      async create(entity: string, value: Record<string, unknown>) {
+        creates.push({ entity, value });
+        return { id: `${entity}-${creates.length}`, ...value };
+      },
+      async update() {
+        return {};
+      },
+      async delete() {
+        return { deleted: false };
+      },
+      async createChatMessage() {
+        return {};
+      },
+      async updateChatMessage() {
+        return {};
+      },
+      async deleteChatMessage() {
+        return { deleted: false };
+      },
+      async patchChatMessageExtra() {
+        return {};
+      },
+      async addChatMessageSwipe() {
+        return {};
+      },
+      async patchChatMetadata() {
+        return {};
+      },
+      async patchChatSummaries() {
+        return {};
+      },
+      async listChatMemories() {
+        return [];
+      },
+      async getWorldState() {
+        return null;
+      },
+      async saveTrackerSnapshot() {
+        return {};
+      },
+      async listLorebookEntries() {
+        return [];
+      },
+      async createLorebookEntries() {
+        return [];
+      },
+    },
+  };
+}
+
 const expressionResult = (expressions: Array<{ characterId: string; expression: string }>): AgentResult =>
   ({
     agentId: "expression",
@@ -1050,5 +1149,68 @@ describe("retryGenerationAgents manual Illustrator retries", () => {
     expect((state.get("assistant-1")?.extra as { attachments?: unknown[] }).attachments).toEqual([
       expect.objectContaining({ type: "image", galleryId: "gallery-1" }),
     ]);
+  });
+});
+
+describe("retryGenerationAgents Narrative Craft retries", () => {
+  it("runs explicitly and persists the returned state", async () => {
+    const { storage, creates } = retryNarrativeCraftStorage();
+    const llm = {
+      async *stream() {
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            text: "",
+            state: {
+              version: 1,
+              pacing: "quiet",
+              threads: [],
+              openQuestions: ["Why is the note sealed?"],
+              withheldInformation: [],
+              unresolvedConsequences: [],
+              recentShapeChoices: [],
+              lastGuidance: [],
+            },
+            reason: "The existing uncertainty is doing useful work.",
+            intervened: false,
+          }),
+        };
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    } as unknown as LlmGateway;
+
+    const result = await retryGenerationAgents(
+      { storage: storage as never, llm, integrations: {} as IntegrationGateway },
+      {
+        chatId: "chat-1",
+        agentTypes: ["narrative-craft"],
+        options: { forMessageId: "assistant-1", bypassActivation: true },
+      },
+    );
+
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        agentType: "narrative-craft",
+        type: "context_injection",
+        success: true,
+        data: expect.objectContaining({ intervened: false }),
+      }),
+    ]);
+    expect(creates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ entity: "agent-runs" }),
+        expect.objectContaining({
+          entity: "agent-memory",
+          value: expect.objectContaining({
+            agentConfigId: "builtin:narrative-craft",
+            chatId: "chat-1",
+            key: "state",
+          }),
+        }),
+      ]),
+    );
   });
 });

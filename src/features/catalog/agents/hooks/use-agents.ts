@@ -48,7 +48,7 @@ export interface AgentRunRow {
   createdAt: string;
 }
 
-export const LEGACY_BUILT_IN_AGENT_TYPES = new Set(["spotify"]);
+export const LEGACY_BUILT_IN_AGENT_TYPES = new Set(["spotify", "prose-guardian", "director", "secret-plot-driver"]);
 const builtInAgentTypes = new Set([...BUILT_IN_AGENTS.map((agent) => agent.id), ...LEGACY_BUILT_IN_AGENT_TYPES]);
 const agentResultTypeValues = [
   "game_state_update",

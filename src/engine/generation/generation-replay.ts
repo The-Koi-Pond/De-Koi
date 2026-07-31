@@ -6,7 +6,25 @@ import {
 import type { AgentInjectionOverride } from "./start-generation-input";
 
 type GenerationReplayGuideSource = GenerationGuideSource;
-const SECRET_PLOT_DRIVER_AGENT_TYPE = "secret-plot-driver";
+const LEGACY_STRING_INJECTION_AGENT_TYPE = "prose-guardian";
+const NON_REPLAYABLE_NARRATIVE_AGENT_TYPES = new Set([
+  "narrative-craft",
+  "prose-guardian",
+  "director",
+  "secret-plot-driver",
+]);
+
+function normalizeReplayableInjection(
+  agentTypeValue: unknown,
+  textValue: unknown,
+  agentNameValue?: unknown,
+): AgentInjectionOverride | null {
+  const agentType = typeof agentTypeValue === "string" ? agentTypeValue.trim() : "";
+  const text = typeof textValue === "string" ? textValue.trim() : "";
+  if (!agentType || NON_REPLAYABLE_NARRATIVE_AGENT_TYPES.has(agentType) || !text) return null;
+  const agentName = typeof agentNameValue === "string" ? agentNameValue.trim() : "";
+  return { agentType, ...(agentName ? { agentName } : {}), text };
+}
 
 export interface GenerationReplay {
   impersonate?: true;
@@ -52,17 +70,16 @@ function normalizeCachedContextInjections(value: unknown): AgentInjectionOverrid
   const injections: AgentInjectionOverride[] = [];
   for (const entry of value) {
     if (typeof entry === "string") {
-      const text = entry.trim();
-      if (text) injections.push({ agentType: "prose-guardian", text });
+      // The original string-only cache format was exclusively Prose Guardian output.
+      // Give it its real legacy type so the same replayability check applies to every format.
+      const normalized = normalizeReplayableInjection(LEGACY_STRING_INJECTION_AGENT_TYPE, entry);
+      if (normalized) injections.push(normalized);
       continue;
     }
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const raw = entry as Record<string, unknown>;
-    const agentType = typeof raw.agentType === "string" ? raw.agentType.trim() : "";
-    const text = typeof raw.text === "string" ? raw.text.trim() : "";
-    if (!agentType || agentType === SECRET_PLOT_DRIVER_AGENT_TYPE || !text) continue;
-    const agentName = typeof raw.agentName === "string" ? raw.agentName.trim() : "";
-    injections.push({ agentType, ...(agentName ? { agentName } : {}), text });
+    const normalized = normalizeReplayableInjection(raw.agentType, raw.text, raw.agentName);
+    if (normalized) injections.push(normalized);
   }
   return injections;
 }

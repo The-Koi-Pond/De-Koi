@@ -7,6 +7,7 @@ const PERFORMANCE_DIAGNOSTICS_STAGE_NAMES = [
   "generation.first_token",
   "generation.post_save",
   "generation.lorebook_keeper_backfill",
+  "generation.narrative_craft_background",
   "deki.session_summaries",
   "deki.active_history",
   "generation.background_maintenance",

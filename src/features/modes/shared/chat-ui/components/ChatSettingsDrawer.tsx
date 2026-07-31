@@ -78,7 +78,13 @@ import {
   metadataStringArray,
   metadataTranslationProvider,
 } from "../lib/chat-settings-metadata";
-import { chatToolSelectionMode, chatToolStatusDescription, toggleChatAgent } from "../lib/chat-settings-actions";
+import {
+  chatToolSelectionMode,
+  chatToolStatusDescription,
+  narrativeCraftPanelMetadataPatch,
+  narrativeCraftPanelVisible,
+  toggleChatAgent,
+} from "../lib/chat-settings-actions";
 import {
   characterSearchValues,
   mergeDrawerCharacters,
@@ -1297,9 +1303,9 @@ function ChatSettingsDrawerInner({
       readLatestChat: () => qc.getQueryData<Chat>(chatKeys.detail(chat.id)),
       updateMeta,
       agentMemory: agentApi,
-      confirmSecretPlotRemoval: (message) =>
+      confirmNarrativeCraftRemoval: (message) =>
         showConfirmDialog({
-          title: "Remove Secret Plot Driver",
+          title: "Remove Narrative Craft",
           message,
           confirmLabel: "Remove Agent",
           tone: "destructive",
@@ -1592,9 +1598,9 @@ function ChatSettingsDrawerInner({
         await updateMeta.mutateAsync({
           id: chat.id,
           activeAgentIds: Array.from(new Set([...activeAgentIds, agent.id])),
-          ...(agent.id === "secret-plot-driver"
+          ...(agent.id === "narrative-craft"
             ? {
-                showSecretPlotPanel: true,
+                showNarrativeCraftPanel: true,
               }
             : {}),
         });
@@ -4971,7 +4977,8 @@ function ChatSettingsDrawerInner({
                                 <div className="flex flex-col gap-1 mb-1.5">
                                   {activeInCat.map((agent) => {
                                     const tokenEst = agentLoadCost.tokensByType.get(agent.id);
-                                    const isSecretPlotDriver = agent.id === "secret-plot-driver";
+                                    const isNarrativeCraft = agent.id === "narrative-craft";
+                                    const showNarrativeCraftPanel = narrativeCraftPanelVisible(metadata);
                                     return (
                                       <div
                                         key={agent.id}
@@ -5016,32 +5023,32 @@ function ChatSettingsDrawerInner({
                                             <Trash2 size="0.6875rem" />
                                           </button>
                                         </div>
-                                        {isSecretPlotDriver && (
+                                        {isNarrativeCraft && (
                                           <button
                                             type="button"
                                             onClick={(event) => {
                                               event.stopPropagation();
                                               updateMeta.mutate({
                                                 id: chat.id,
-                                                showSecretPlotPanel: metadata.showSecretPlotPanel !== true,
+                                                ...narrativeCraftPanelMetadataPatch(metadata, !showNarrativeCraftPanel),
                                               });
                                             }}
-                                            aria-pressed={metadata.showSecretPlotPanel === true}
+                                            aria-pressed={showNarrativeCraftPanel}
                                             className="ml-auto mt-1.5 flex w-fit max-w-full items-center gap-2 rounded-md bg-[var(--background)]/20 px-1.5 py-1 text-left text-[0.5625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]/35 hover:text-[var(--foreground)]"
                                             title={
-                                              metadata.showSecretPlotPanel === true
-                                                ? "Hide the Secret Plot tab in the roleplay Agents menu. That tab lets you inspect and edit the Secret Plot Driver's hidden arc memory and scene directions for this chat."
-                                                : "Show the Secret Plot tab in the roleplay Agents menu. Use it to inspect and edit the Secret Plot Driver's hidden arc memory and scene directions for this chat."
+                                              showNarrativeCraftPanel
+                                                ? "Hide the Narrative Craft tab in the roleplay Agents menu."
+                                                : "Show the Narrative Craft tab in the roleplay Agents menu to inspect its current guidance and story state."
                                             }
                                           >
                                             <span className="flex min-w-0 items-center gap-1.5">
                                               <Brain size="0.625rem" className="shrink-0 text-[var(--primary)]" />
-                                              <span className="truncate font-medium">Secret Plot tab</span>
+                                              <span className="truncate font-medium">Narrative Craft tab</span>
                                             </span>
                                             <span
                                               className={cn(
                                                 "h-3.5 w-6 shrink-0 rounded-full p-0.5 transition-colors",
-                                                metadata.showSecretPlotPanel === true
+                                                showNarrativeCraftPanel
                                                   ? "bg-[var(--primary)]"
                                                   : "bg-[var(--muted-foreground)]/50",
                                               )}
@@ -5049,7 +5056,7 @@ function ChatSettingsDrawerInner({
                                               <span
                                                 className={cn(
                                                   "block h-2.5 w-2.5 rounded-full bg-white shadow-sm transition-transform",
-                                                  metadata.showSecretPlotPanel === true && "translate-x-2.5",
+                                                  showNarrativeCraftPanel && "translate-x-2.5",
                                                 )}
                                               />
                                             </span>

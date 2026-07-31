@@ -124,7 +124,8 @@ const collectionMetadata = {
   "agent-memory": {
     model: "Agent memory key/value row",
     confidence: "Rust-normalized",
-    notes: "`agentConfigId`, `chatId`, `key`, and JSON-string `value`. Used for secret plot and other agent state.",
+    notes:
+      '`agentConfigId`, `chatId`, `key`, and JSON-string `value`. Narrative Craft stores one bounded normalized JSON object under `key = "state"`; its `pendingGuidance` contains at most one consume-once future-turn directive, while `lastGuidance` remains inspectable. Legacy Secret Plot rows remain readable for lazy conversion. Other agents may use additional keys.',
   },
   themes: {
     model: "`Theme`",

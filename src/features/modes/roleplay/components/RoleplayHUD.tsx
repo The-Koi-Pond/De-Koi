@@ -47,6 +47,7 @@ import {
 } from "./RoleplayHUDTrackerWidgets";
 import { MOBILE_HUD_BTN, TrackerPanelToggleButton, WIDGET } from "./RoleplayHUDWidgetShell";
 import { CombinedWorldWidget } from "./RoleplayHUDWorldWidget";
+import { narrativeCraftTabVisible } from "../../shared/chat-ui";
 
 interface RoleplayHUDProps {
   chatId: string;
@@ -145,8 +146,7 @@ export function RoleplayHUD({
     return m;
   }, [chatForAgentsMenu?.metadata]);
   const showInjectionsTab = agentsMenuMetadata.showInjectionsPanel === true;
-  const showSecretPlotTab =
-    agentsMenuMetadata.showSecretPlotPanel === true && enabledAgentTypes.has("secret-plot-driver");
+  const showNarrativeCraftTab = narrativeCraftTabVisible(agentsMenuMetadata, enabledAgentTypes);
 
   const thoughtBubbles = useAgentStore((s) => s.thoughtBubbles);
   const isAgentProcessing = useAgentStore((s) => s.isProcessing);
@@ -295,7 +295,7 @@ export function RoleplayHUD({
         failedAgentTypes={failedAgentTypes}
         failedAgentFailures={failedAgentFailures}
         showInjectionsTab={showInjectionsTab}
-        showSecretPlotTab={showSecretPlotTab}
+        showNarrativeCraftTab={showNarrativeCraftTab}
       />
 
       {/* â”€â”€ Mobile: combined widgets, centered â”€â”€ */}

@@ -22,7 +22,11 @@ function DeferredActionsFallback({ isAgentProcessing }: { isAgentProcessing: boo
   );
 }
 
-function customAgentRunIdentity(run: { agentType?: string | null; agentId?: string | null; id?: string | null }): string {
+function customAgentRunIdentity(run: {
+  agentType?: string | null;
+  agentId?: string | null;
+  id?: string | null;
+}): string {
   return run.agentType?.trim() || run.agentId?.trim() || run.id?.trim() || "custom-agent";
 }
 
@@ -46,7 +50,7 @@ interface ActionsGroupProps {
   failedAgentTypes: string[];
   failedAgentFailures: AgentFailure[];
   showInjectionsTab?: boolean;
-  showSecretPlotTab?: boolean;
+  showNarrativeCraftTab?: boolean;
 }
 
 export function ActionsGroup({
@@ -69,7 +73,7 @@ export function ActionsGroup({
   failedAgentTypes,
   failedAgentFailures,
   showInjectionsTab,
-  showSecretPlotTab,
+  showNarrativeCraftTab,
 }: ActionsGroupProps) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -176,7 +180,7 @@ export function ActionsGroup({
             failedAgentFailures={failedAgentFailures}
             onClose={() => setAgentsOpen(false)}
             showInjectionsTab={showInjectionsTab}
-            showSecretPlotTab={showSecretPlotTab}
+            showNarrativeCraftTab={showNarrativeCraftTab}
           />
         </Suspense>
       </div>,
