@@ -50,11 +50,10 @@ const NO_LORE_FIELDS = [] as const satisfies readonly AgentLoreField[];
 
 const BUILT_IN_AGENT_LORE_FIELDS = {
   "world-state": DESCRIPTION_FIELDS,
-  "prose-guardian": NARRATIVE_FIELDS,
+  "narrative-craft": FULL_IDENTITY_FIELDS,
   continuity: NARRATIVE_FIELDS,
   expression: VISUAL_FIELDS,
   "echo-chamber": NARRATIVE_FIELDS,
-  director: NARRATIVE_FIELDS,
   quest: DESCRIPTION_FIELDS,
   illustrator: VISUAL_FIELDS,
   "lorebook-keeper": NARRATIVE_FIELDS,
@@ -76,7 +75,6 @@ const BUILT_IN_AGENT_LORE_FIELDS = {
   "autonomous-messenger": MUSIC_FIELDS,
   "custom-tracker": DESCRIPTION_FIELDS,
   cyoa: NARRATIVE_FIELDS,
-  "secret-plot-driver": FULL_IDENTITY_FIELDS,
 } as const satisfies Record<BuiltInAgentId, readonly AgentLoreField[]>;
 
 export function loreFieldsForAgentTypes(agentTypes: readonly string[]): ReadonlySet<AgentLoreField> {

@@ -12,6 +12,10 @@ export interface ChatModeDefinition {
   defaultAgents: string[];
 }
 
+export function defaultBackgroundAgentIdsForNewChat(mode: ChatMode): string[] {
+  return mode === "roleplay" ? ["narrative-craft"] : [];
+}
+
 export const CHAT_MODES: Record<ChatMode, ChatModeDefinition> = {
   conversation: {
     id: "conversation",
@@ -25,7 +29,7 @@ export const CHAT_MODES: Record<ChatMode, ChatModeDefinition> = {
     name: "Roleplay",
     description: "Immersive roleplay with characters, game state tracking, and world simulation.",
     icon: "🎭",
-    defaultAgents: ["world-state", "prose-guardian", "continuity", "expression"],
+    defaultAgents: ["world-state", "continuity", "expression"],
   },
   game: {
     id: "game",

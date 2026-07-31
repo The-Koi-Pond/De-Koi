@@ -3,7 +3,7 @@ import { applyCachedContextInjectionsToRegenerateInput } from "../../src/engine/
 import type { StartGenerationInput } from "../../src/engine/generation/start-generation-input";
 
 describe("applyCachedContextInjectionsToRegenerateInput", () => {
-  it("reuses cached target injections on regeneration and filters Secret Plot", () => {
+  it("reuses non-narrative cached target injections and filters current and retired writing guidance", () => {
     const input = { chatId: "chat-1", regenerateMessageId: "msg-2" } as StartGenerationInput;
 
     const applied = applyCachedContextInjectionsToRegenerateInput(input, [
@@ -15,9 +15,7 @@ describe("applyCachedContextInjectionsToRegenerateInput", () => {
 
     expect(applied).toBe(true);
     expect(input.agentInjectionOverrides).toEqual([
-      { agentType: "prose-guardian", text: "Avoid repeated phrasing." },
       { agentType: "knowledge-router", agentName: "Knowledge Router", text: "Use selected entry." },
-      { agentType: "director", text: "Let the scene breathe." },
     ]);
   });
 

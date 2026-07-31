@@ -27,7 +27,9 @@ import {
 import { ContinuityIssueChecklist } from "../../../catalog/agents/activity";
 import { ContextInjectionPanel } from "./ContextInjectionPanel";
 
-const SecretPlotPanel = lazy(async () => import("./SecretPlotPanel").then((m) => ({ default: m.SecretPlotPanel })));
+const NarrativeCraftPanel = lazy(async () =>
+  import("./NarrativeCraftPanel").then((module) => ({ default: module.NarrativeCraftPanel })),
+);
 
 interface ThoughtBubble {
   agentId: string;
@@ -36,9 +38,13 @@ interface ThoughtBubble {
   timestamp: number;
 }
 
-type AgentsMenuTab = "activity" | "injections" | "secret";
+type AgentsMenuTab = "activity" | "injections" | "craft";
 
-function customAgentRunIdentity(run: { agentType?: string | null; agentId?: string | null; id?: string | null }): string {
+function customAgentRunIdentity(run: {
+  agentType?: string | null;
+  agentId?: string | null;
+  id?: string | null;
+}): string {
   return run.agentType?.trim() || run.agentId?.trim() || run.id?.trim() || "custom-agent";
 }
 
@@ -66,7 +72,7 @@ interface RoleplayHUDActionsMenuProps {
   failedAgentFailures?: AgentFailure[];
   onClose: () => void;
   showInjectionsTab?: boolean;
-  showSecretPlotTab?: boolean;
+  showNarrativeCraftTab?: boolean;
 }
 
 export function RoleplayHUDActionsMenu({
@@ -93,7 +99,7 @@ export function RoleplayHUDActionsMenu({
   failedAgentFailures,
   onClose,
   showInjectionsTab,
-  showSecretPlotTab,
+  showNarrativeCraftTab,
 }: RoleplayHUDActionsMenuProps) {
   const [tab, setTab] = useState<AgentsMenuTab>("activity");
   const uniqueAgentCount = new Set([
@@ -123,7 +129,7 @@ export function RoleplayHUDActionsMenu({
   const tabs = [
     { id: "activity" as const, label: "Activity" },
     ...(showInjectionsTab ? [{ id: "injections" as const, label: "Injections" }] : []),
-    ...(showSecretPlotTab ? [{ id: "secret" as const, label: "Secret plot" }] : []),
+    ...(showNarrativeCraftTab ? [{ id: "craft" as const, label: "Narrative Craft" }] : []),
   ] as const;
   const currentTabIndex = tabs.findIndex((t) => t.id === tab);
   const safeTabIndex = currentTabIndex >= 0 ? currentTabIndex : 0;
@@ -149,10 +155,10 @@ export function RoleplayHUDActionsMenu({
       setTab("activity");
       return;
     }
-    if (!showSecretPlotTab && tab === "secret") {
+    if (!showNarrativeCraftTab && tab === "craft") {
       setTab("activity");
     }
-  }, [showInjectionsTab, showSecretPlotTab, tab]);
+  }, [showInjectionsTab, showNarrativeCraftTab, tab]);
 
   return (
     <>
@@ -167,8 +173,8 @@ export function RoleplayHUDActionsMenu({
                   type="button"
                   onClick={() => setTab(item.id)}
                   title={
-                    item.id === "secret"
-                      ? "Values here are stored in agent memory - the same source used when injecting arc and directions before each reply."
+                    item.id === "craft"
+                      ? "Inspect Narrative Craft's current guidance and compact story state."
                       : undefined
                   }
                   className={
@@ -284,11 +290,11 @@ export function RoleplayHUDActionsMenu({
         </>
       )}
 
-      {activeTab === "secret" && showSecretPlotTab && (
+      {activeTab === "craft" && showNarrativeCraftTab && (
         <Suspense
-          fallback={<div className="px-3 py-4 text-center text-[0.625rem] text-white/35">Loading secret plot...</div>}
+          fallback={<div className="px-3 py-4 text-center text-[0.625rem] text-white/35">Loading craft state...</div>}
         >
-          <SecretPlotPanel
+          <NarrativeCraftPanel
             chatId={chatId}
             messages={injectionSourceMessages}
             isAgentProcessing={isAgentProcessing}
@@ -530,7 +536,9 @@ function isAgentConfigActiveForMenu(config: AgentConfigRow, enabledAgentTypes?: 
 }
 
 function getRunnableCustomAgents(configs: AgentConfigRow[], enabledAgentTypes?: Set<string>): AgentConfigRow[] {
-  return configs.filter((config) => isCustomAgentConfig(config) && isAgentConfigActiveForMenu(config, enabledAgentTypes));
+  return configs.filter(
+    (config) => isCustomAgentConfig(config) && isAgentConfigActiveForMenu(config, enabledAgentTypes),
+  );
 }
 
 function hasActiveInjectableCustomAgent(configs: AgentConfigRow[], enabledAgentTypes?: Set<string>): boolean {

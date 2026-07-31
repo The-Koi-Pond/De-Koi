@@ -235,6 +235,7 @@ export function AgentEditor() {
     isCustomAgent || isNewCustomAgent
       ? getAgentRunIntervalMeta(isNewCustomAgent ? "__new__" : (dbConfig?.type ?? agentDetailId ?? ""), false)
       : null;
+  const builtInRunIntervalMeta = builtIn ? getAgentRunIntervalMeta(builtIn.id) : null;
 
   // Default prompt for this agent type
   const defaultPrompt = useMemo(() => (agentDetailId ? getDefaultAgentPrompt(agentDetailId) : ""), [agentDetailId]);
@@ -414,8 +415,8 @@ export function AgentEditor() {
   // Lorebook Keeper agent — run interval setting
   const isLorebookKeeperAgent = agentDetailId === "lorebook-keeper" || dbConfig?.type === "lorebook-keeper";
 
-  // Narrative Director / Illustrator agent cadence
-  const isDirectorAgent = agentDetailId === "director" || dbConfig?.type === "director";
+  // Built-in writer / image cadence
+  const isNarrativeCraftAgent = agentDetailId === "narrative-craft" || dbConfig?.type === "narrative-craft";
   const isIllustratorAgent = agentDetailId === "illustrator" || dbConfig?.type === "illustrator";
 
   // Chat Summary agent — uses "Triggers After" instead of context size
@@ -1594,37 +1595,35 @@ export function AgentEditor() {
             </FieldGroup>
           )}
 
-          {/* Run Interval (Narrative Director / Illustrator) */}
-          {(isDirectorAgent || isIllustratorAgent) && (
+          {/* Built-in assistant-message cadence */}
+          {(isNarrativeCraftAgent || isIllustratorAgent) && builtInRunIntervalMeta && (
             <FieldGroup
-              label="Run Interval"
+              label={builtInRunIntervalMeta.label}
               icon={<Clock size="0.875rem" className="text-[var(--primary)]" />}
-              help={
-                isIllustratorAgent
-                  ? "How many assistant messages between allowed Illustrator image generations. Set to 1 to allow it every message."
-                  : "How many assistant messages between each Narrative Director intervention. Higher values make the director less aggressive. Set to 1 to run every message."
-              }
+              help={builtInRunIntervalMeta.help}
             >
               <div className="flex items-center gap-3">
                 <input
                   type="number"
                   min={1}
-                  max={100}
+                  max={builtInRunIntervalMeta.max}
                   value={localRunInterval}
                   onChange={(e) => {
                     const v = e.target.value;
-                    setLocalRunInterval(v === "" ? "" : Math.max(1, Math.min(100, parseInt(v) || 1)));
+                    setLocalRunInterval(
+                      v === "" ? "" : Math.max(1, Math.min(builtInRunIntervalMeta.max, parseInt(v) || 1)),
+                    );
                     markDirty();
                   }}
-                  placeholder="5"
+                  placeholder={String(builtInRunIntervalMeta.defaultValue)}
                   className="w-28 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm tabular-nums ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
                 />
-                <span className="text-[0.6875rem] text-[var(--muted-foreground)]">messages</span>
+                <span className="text-[0.6875rem] text-[var(--muted-foreground)]">{builtInRunIntervalMeta.unit}</span>
               </div>
               <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
                 {isIllustratorAgent
                   ? "The Illustrator can only create a new image once every N assistant messages. If it decides not to draw, the timer does not reset. Default: 5."
-                  : "The director only jumps in once every N assistant messages instead of steering every reply. Default: 5."}
+                  : `Narrative Craft analyzes once every N assistant messages. Default: ${builtInRunIntervalMeta.defaultValue}.`}
               </p>
             </FieldGroup>
           )}

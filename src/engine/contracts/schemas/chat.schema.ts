@@ -3,6 +3,8 @@
 // ──────────────────────────────────────────────
 import { z } from "zod";
 
+import { defaultBackgroundAgentIdsForNewChat } from "../constants/chat-modes";
+
 const canonicalChatModeSchema = z.enum(["conversation", "roleplay", "game"]);
 
 export const chatModeSchema = z.preprocess(
@@ -14,15 +16,27 @@ const messageRoleSchema = z.enum(["user", "assistant", "system", "narrator"]);
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 const createMessageSwipeSchema = z.object({ content: z.string() }).passthrough();
 
-export const createChatSchema = z.object({
-  name: z.string().min(1).max(200),
-  mode: chatModeSchema,
-  characterIds: z.array(z.string()).default([]),
-  groupId: z.string().nullable().default(null),
-  personaId: z.string().nullable().default(null),
-  promptPresetId: z.string().nullable().default(null),
-  connectionId: z.string().nullable().default(null),
-});
+export const createChatSchema = z
+  .object({
+    name: z.string().min(1).max(200),
+    mode: chatModeSchema,
+    characterIds: z.array(z.string()).default([]),
+    groupId: z.string().nullable().default(null),
+    personaId: z.string().nullable().default(null),
+    promptPresetId: z.string().nullable().default(null),
+    connectionId: z.string().nullable().default(null),
+  })
+  .transform((chat) => {
+    const activeAgentIds = defaultBackgroundAgentIdsForNewChat(chat.mode);
+    if (activeAgentIds.length === 0) return chat;
+    return {
+      ...chat,
+      metadata: {
+        activeAgentIds,
+        enableAgents: true,
+      },
+    };
+  });
 
 export const createMessageSchema = z
   .object({

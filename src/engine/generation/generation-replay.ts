@@ -6,7 +6,12 @@ import {
 import type { AgentInjectionOverride } from "./start-generation-input";
 
 type GenerationReplayGuideSource = GenerationGuideSource;
-const SECRET_PLOT_DRIVER_AGENT_TYPE = "secret-plot-driver";
+const NON_REPLAYABLE_NARRATIVE_AGENT_TYPES = new Set([
+  "narrative-craft",
+  "prose-guardian",
+  "director",
+  "secret-plot-driver",
+]);
 
 export interface GenerationReplay {
   impersonate?: true;
@@ -52,15 +57,13 @@ function normalizeCachedContextInjections(value: unknown): AgentInjectionOverrid
   const injections: AgentInjectionOverride[] = [];
   for (const entry of value) {
     if (typeof entry === "string") {
-      const text = entry.trim();
-      if (text) injections.push({ agentType: "prose-guardian", text });
       continue;
     }
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const raw = entry as Record<string, unknown>;
     const agentType = typeof raw.agentType === "string" ? raw.agentType.trim() : "";
     const text = typeof raw.text === "string" ? raw.text.trim() : "";
-    if (!agentType || agentType === SECRET_PLOT_DRIVER_AGENT_TYPE || !text) continue;
+    if (!agentType || NON_REPLAYABLE_NARRATIVE_AGENT_TYPES.has(agentType) || !text) continue;
     const agentName = typeof raw.agentName === "string" ? raw.agentName.trim() : "";
     injections.push({ agentType, ...(agentName ? { agentName } : {}), text });
   }

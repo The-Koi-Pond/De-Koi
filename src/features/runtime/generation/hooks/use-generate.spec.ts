@@ -8,6 +8,7 @@ import { MUSIC_PLAYBACK_EVENT, type MusicPlaybackEventDetail } from "../../../..
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
+  formatAgentBubble,
   generateAndApplyBackgroundRequest,
   handleGenerationDiagnosticEvent,
   handleSceneCreatedGenerationEvent,
@@ -48,6 +49,50 @@ afterEach(() => {
   useChatStore.getState().reset();
   useUIStore.getState().setEnableStreaming(true);
   useUIStore.getState().setStreamingSpeed(50);
+});
+
+describe("Narrative Craft activity summaries", () => {
+  it("uses the analysis reason when Narrative Craft does not inject guidance", () => {
+    expect(
+      formatAgentBubble(
+        {
+          agentId: "builtin:narrative-craft",
+          agentType: "narrative-craft",
+          type: "context_injection",
+          success: true,
+          data: { text: "", reason: "The scene already varies its shape.", state: {} },
+        } as AgentResult,
+        "Narrative Craft",
+      ),
+    ).toBe("The scene already varies its shape.");
+  });
+
+  it("retains readable summaries for historical narrative-agent runs", () => {
+    expect(
+      formatAgentBubble(
+        {
+          agentId: "director",
+          agentType: "director",
+          type: "director_event",
+          success: true,
+          data: { text: "Let the quiet beat stand." },
+        } as AgentResult,
+        "Narrative Director",
+      ),
+    ).toBe("Let the quiet beat stand.");
+    expect(
+      formatAgentBubble(
+        {
+          agentId: "secret-plot-driver",
+          agentType: "secret-plot-driver",
+          type: "secret_plot",
+          success: true,
+          data: { pacing: "building" },
+        } as AgentResult,
+        "Secret Plot Driver",
+      ),
+    ).toBe("Secret plotline active.");
+  });
 });
 
 describe("off-chat assistant notifications", () => {

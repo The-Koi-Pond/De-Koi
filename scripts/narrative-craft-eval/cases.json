@@ -1,0 +1,122 @@
+[
+  {
+    "caseId": "quiet-character-conflict",
+    "title": "Quiet character conflict",
+    "prompt": "Two longtime friends repair a radio after one has broken a promise. Let the scene remain quiet unless the characters themselves change its temperature.",
+    "tags": ["quiet-dialogue", "conflict"]
+  },
+  {
+    "caseId": "action-without-quips",
+    "title": "Action without compulsory quips",
+    "prompt": "A courier crosses a collapsing footbridge while protecting a sealed parcel. Keep the physical problem legible and let humor occur only if it fits.",
+    "tags": ["action"]
+  },
+  {
+    "caseId": "romance-direct-feeling",
+    "title": "Romance with direct feeling",
+    "prompt": "One character admits they missed the other during a mundane grocery trip. Direct emotional language is welcome when natural.",
+    "tags": ["romance", "direct-emotion"]
+  },
+  {
+    "caseId": "horror-empty-house",
+    "title": "Horror in an empty house",
+    "prompt": "A locksmith enters a house whose front door keeps relocking behind them. Build horror from concrete events without requiring a reveal.",
+    "tags": ["horror"]
+  },
+  {
+    "caseId": "comedy-bad-presentation",
+    "title": "Comedy from a bad presentation",
+    "prompt": "A town planner must present a disastrous slideshow to three patient residents. Let comedy arise from character and circumstance.",
+    "tags": ["comedy", "multi-character"]
+  },
+  {
+    "caseId": "mystery-false-inventory",
+    "title": "Mystery in a false inventory",
+    "prompt": "A museum registrar finds an object listed in two rooms at once. Preserve uncertainty and do not solve the mystery immediately.",
+    "tags": ["mystery"]
+  },
+  {
+    "caseId": "ensemble-kitchen",
+    "title": "Ensemble kitchen scene",
+    "prompt": "Four housemates cook during a power outage, each pursuing a different small goal. No one character must organize the whole scene.",
+    "tags": ["multi-character", "non-protagonist-causation"]
+  },
+  {
+    "caseId": "neighbor-causes-change",
+    "title": "A neighbor causes the change",
+    "prompt": "The viewpoint character watches a neighbor independently decide to close the community garden for the night.",
+    "tags": ["non-protagonist-causation"]
+  },
+  {
+    "caseId": "scene-need-not-advance",
+    "title": "A scene that need not advance plot",
+    "prompt": "Two siblings fold laundry and compare the strange pockets in old coats. The scene may simply deepen their texture.",
+    "tags": ["quiet", "no-plot-advance"]
+  },
+  {
+    "caseId": "plain-grief",
+    "title": "Plainly stated grief",
+    "prompt": "A character tells their cousin they are sad after selling a family piano. Do not require physical symptoms to validate the feeling.",
+    "tags": ["direct-emotion"]
+  },
+  {
+    "caseId": "aftermath-cleanup",
+    "title": "Aftermath cleanup",
+    "prompt": "After a neighborhood festival, volunteers collect cups and untie banners. Focus on aftermath without inventing a new crisis.",
+    "tags": ["aftermath", "no-plot-advance"]
+  },
+  {
+    "caseId": "dormant-subplot",
+    "title": "A subplot can stay dormant",
+    "prompt": "During a train ride, an old unanswered letter remains in a character's bag while the immediate conversation concerns breakfast.",
+    "tags": ["subplot", "quiet-dialogue"]
+  },
+  {
+    "caseId": "withheld-information",
+    "title": "Information remains withheld",
+    "prompt": "A mechanic knows why the engine failed but chooses not to explain yet. Keep the knowledge boundary without teasing it theatrically.",
+    "tags": ["mystery", "withheld-information"]
+  },
+  {
+    "caseId": "unresolved-consequence",
+    "title": "An unresolved consequence",
+    "prompt": "A council has approved a noisy night market; nearby tenants discuss what may happen next without settling the issue.",
+    "tags": ["consequence", "multi-character"]
+  },
+  {
+    "caseId": "argument-no-weather-mirror",
+    "title": "Argument without weather mirroring",
+    "prompt": "Two scientists disagree in a bright, comfortable cafeteria. Keep the setting factual rather than making it echo their emotions.",
+    "tags": ["conflict", "setting"]
+  },
+  {
+    "caseId": "conversation-no-gestures",
+    "title": "Conversation without gesture substitution",
+    "prompt": "A tired nurse plainly declines an invitation. The response need not translate every feeling into glances, breaths, or hand movements.",
+    "tags": ["dialogue", "direct-emotion"]
+  },
+  {
+    "caseId": "ordinary-opening",
+    "title": "An ordinary opening",
+    "prompt": "Open with a baker already counting change for a familiar customer. No cinematic establishing shot or interruption is required.",
+    "tags": ["opening", "quiet"]
+  },
+  {
+    "caseId": "comic-interruption-earned",
+    "title": "An earned interruption",
+    "prompt": "A solemn rehearsal is interrupted by a goat that genuinely belongs on the farm. Let the interruption matter without turning it into a twist.",
+    "tags": ["comedy", "interruption"]
+  },
+  {
+    "caseId": "ambiguous-apology",
+    "title": "An ambiguous apology",
+    "prompt": "A former teammate says, 'I should have called.' Leave room for more than one interpretation without making all language cryptic.",
+    "tags": ["dialogue", "ambiguity"]
+  },
+  {
+    "caseId": "resolved-ending",
+    "title": "A resolved ending",
+    "prompt": "End a short scene after a child successfully returns a lost library book. A clean resolution is preferable to a compulsory hook.",
+    "tags": ["resolution"]
+  }
+]

@@ -992,3 +992,271 @@ describe("generation agent runner", () => {
     expect(requests[0]?.tools?.map((tool) => tool.name)).toEqual(["search_lorebook"]);
   });
 });
+
+describe("Narrative Craft runtime cadence", () => {
+  const connection = { id: "conn-craft", name: "API", provider: "openai", model: "craft-model" };
+
+  function storageForNarrativeCraft(options: {
+    agentRuns?: JsonRecord[];
+    memoryRows?: JsonRecord[];
+  }): StorageGateway {
+    const base = testStorage([], [connection]);
+    const memoryRows = (options.memoryRows ?? []).map((row) => ({ ...row }));
+    return {
+      ...base,
+      async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+        if (entity === "agent-runs") return asStorageValue<T[]>(options.agentRuns ?? []);
+        if (entity === "agent-memory") return asStorageValue<T[]>(memoryRows);
+        return base.list<T>(entity);
+      },
+      async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
+        if (entity !== "agent-memory") return base.create<T>(entity, value);
+        const row = { id: `memory-${memoryRows.length + 1}`, ...value };
+        memoryRows.push(row);
+        return asStorageValue<T>(row);
+      },
+      async update<T = unknown>(entity: StorageEntity, id: string, patch: Record<string, unknown>): Promise<T> {
+        if (entity !== "agent-memory") return base.update<T>(entity, id, patch);
+        const index = memoryRows.findIndex((row) => row.id === id);
+        if (index >= 0) memoryRows[index] = { ...memoryRows[index], ...patch };
+        return asStorageValue<T>(memoryRows[index] ?? patch);
+      },
+    };
+  }
+
+  function narrativeCraftLlm(requests: LlmRequest[]): LlmGateway {
+    return {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            text: "Let the unanswered question remain open.",
+            evidence: ["Two questions remain unresolved.", "Three questions remain unresolved."],
+            issue: "tidy-resolution",
+            state: {
+              version: 1,
+              pacing: "quiet",
+              threads: [],
+              openQuestions: ["Who left the note?"],
+              withheldInformation: [],
+              unresolvedConsequences: [],
+              recentShapeChoices: [],
+              lastGuidance: ["Let the unanswered question remain open."],
+            },
+            reason: "The scene has been resolving each question immediately.",
+            intervened: true,
+          }),
+        };
+        yield { type: "done" };
+      },
+    };
+  }
+
+  function narrativeInput(storedMessages: JsonRecord[]): GenerationAgentRuntimeInput {
+    const input = activeAgentRuntimeInput(connection, { activeAgentIds: ["narrative-craft"] });
+    input.storedMessages = storedMessages;
+    return input;
+  }
+
+  it("does not call Narrative Craft before generation and forced analysis receives the completed response", async () => {
+    const requests: LlmRequest[] = [];
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({
+          memoryRows: [
+            {
+              id: "state-1",
+              agentConfigId: "builtin:narrative-craft",
+              chatId: "chat-1",
+              key: "state",
+              value: JSON.stringify({ version: 1, pacing: "exploring", threads: [] }),
+            },
+          ],
+        }),
+        llm: narrativeCraftLlm(requests),
+        integrations: noopIntegrations,
+      },
+      narrativeInput([
+        { id: "assistant-1", role: "assistant", content: "Two questions remain unresolved." },
+        { id: "user-1", role: "user", content: "I unfold the note." },
+      ]),
+    );
+
+    expect(requests).toHaveLength(0);
+    expect(runtime.preInjections).toEqual([]);
+    expect(runtime.preResults).toEqual([]);
+
+    await expect(
+      runtime.runNarrativeCraftAnalysis("Three questions remain unresolved.", { force: true }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        agentType: "narrative-craft",
+        success: true,
+        data: expect.objectContaining({
+          text:
+            "Avoid forcing a tidy resolution or summarizing closure in the next reply. Preserve the requested scene content, live threads, and character agency.",
+          evidence: ["Two questions remain unresolved.", "Three questions remain unresolved."],
+          intervened: true,
+          state: expect.objectContaining({
+            pacing: "quiet",
+            openQuestions: ["Who left the note?"],
+            lastGuidance: [
+              "Avoid forcing a tidy resolution or summarizing closure in the next reply. Preserve the requested scene content, live threads, and character agency.",
+            ],
+          }),
+        }),
+      }),
+    ]);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.messages.map((message) => message.content).join("\n")).toContain(
+      "<narrative_craft_state>",
+    );
+    expect(requests[0]?.messages.map((message) => message.content).join("\n")).toContain(
+      "<assistant_response>",
+    );
+    expect(requests[0]?.messages.map((message) => message.content).join("\n")).toContain(
+      "Three questions remain unresolved.",
+    );
+  });
+
+  it("skips automatic analysis when the cheap recurrence trigger finds no candidate", async () => {
+    const requests: LlmRequest[] = [];
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({}),
+        llm: narrativeCraftLlm(requests),
+        integrations: noopIntegrations,
+      },
+      narrativeInput([
+        { id: "assistant-1", role: "assistant", content: "Mara repairs the radio in silence." },
+        { id: "user-1", role: "user", content: "I hold the flashlight." },
+      ]),
+    );
+
+    await expect(runtime.runNarrativeCraftAnalysis("The loose wire clicks into place.")).resolves.toEqual([]);
+    expect(requests).toHaveLength(0);
+  });
+
+  it("skips between cadence boundaries and runs on the fourth pending assistant turn", async () => {
+    const lastRun = {
+      id: "run-1",
+      chatId: "chat-1",
+      messageId: "assistant-1",
+      agentId: "builtin:narrative-craft",
+      agentType: "narrative-craft",
+      success: true,
+      createdAt: "2026-01-01T00:01:00.000Z",
+    };
+    const baseMessages = [
+      { id: "assistant-1", role: "assistant", content: "One unresolved question." },
+      { id: "user-2", role: "user", content: "Two?" },
+      { id: "assistant-2", role: "assistant", content: "Two questions remain unresolved." },
+      { id: "user-3", role: "user", content: "Three?" },
+      { id: "assistant-3", role: "assistant", content: "Three questions remain unresolved." },
+      { id: "user-4", role: "user", content: "Four?" },
+    ];
+    const skippedRequests: LlmRequest[] = [];
+    const skipped = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({ agentRuns: [lastRun] }),
+        llm: narrativeCraftLlm(skippedRequests),
+        integrations: noopIntegrations,
+      },
+      narrativeInput(baseMessages),
+    );
+    expect(skippedRequests).toHaveLength(0);
+    expect(skipped.preInjections).toEqual([]);
+    await expect(
+      skipped.runNarrativeCraftAnalysis("Her breath caught as the dial moved."),
+    ).resolves.toEqual([]);
+
+    const dueRequests: LlmRequest[] = [];
+    const due = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({ agentRuns: [lastRun] }),
+        llm: narrativeCraftLlm(dueRequests),
+        integrations: noopIntegrations,
+      },
+      narrativeInput([
+        ...baseMessages.slice(0, -1),
+        { id: "assistant-4", role: "assistant", content: "His breath caught as the lock moved." },
+        { id: "user-5", role: "user", content: "Five?" },
+      ]),
+    );
+    expect(dueRequests).toHaveLength(0);
+    await expect(due.runNarrativeCraftAnalysis("Her breath caught as the dial moved.")).resolves.toHaveLength(1);
+    expect(dueRequests).toHaveLength(1);
+    expect(due.preInjections).toEqual([]);
+  });
+
+  it("claims cached guidance for exactly one later generation", async () => {
+    const requests: LlmRequest[] = [];
+    const state = {
+      version: 1,
+      pacing: "quiet",
+      threads: [],
+      openQuestions: [],
+      withheldInformation: [],
+      unresolvedConsequences: [],
+      recentShapeChoices: [],
+      lastGuidance: ["Avoid repeating the cited rhetorical shape."],
+      pendingGuidance: ["Avoid repeating the cited rhetorical shape."],
+      lastAnalysisReason: "The same opening appeared twice.",
+    };
+    const storage = storageForNarrativeCraft({
+      memoryRows: [
+        {
+          id: "state-row",
+          agentConfigId: "builtin:narrative-craft",
+          chatId: "chat-1",
+          key: "state",
+          value: JSON.stringify(state),
+        },
+      ],
+    });
+    const input = narrativeInput([{ id: "user-1", role: "user", content: "Continue." }]);
+
+    const first = await createGenerationAgentRuntime(
+      { storage, llm: narrativeCraftLlm(requests), integrations: noopIntegrations },
+      input,
+    );
+    const second = await createGenerationAgentRuntime(
+      { storage, llm: narrativeCraftLlm(requests), integrations: noopIntegrations },
+      input,
+    );
+
+    expect(first.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: "Avoid repeating the cited rhetorical shape.",
+      },
+    ]);
+    expect(second.preInjections).toEqual([]);
+    expect(requests).toHaveLength(0);
+  });
+
+  it("collapses all retired active IDs to one runtime call", async () => {
+    const requests: LlmRequest[] = [];
+    const input = activeAgentRuntimeInput(connection, {
+      activeAgentIds: ["prose-guardian", "director", "secret-plot-driver"],
+    });
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({}),
+        llm: narrativeCraftLlm(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+    await runtime.runNarrativeCraftAnalysis("Three questions remain unresolved.", { force: true });
+    expect(requests).toHaveLength(1);
+  });
+});

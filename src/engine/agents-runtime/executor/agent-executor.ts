@@ -349,7 +349,7 @@ export async function executeAgent(
       agentId: config.id,
       agentType: config.type,
       type: parsed.type,
-      data: fallback.data,
+      data: applyNarrativeCraftGuidanceGate(config, context, fallback.data),
       tokensUsed: totalTokens,
       durationMs,
       success: fallback.error === null,
@@ -441,7 +441,7 @@ async function executeAgentWithTools(
         agentId: config.id,
         agentType: config.type,
         type: parsed.type,
-        data: fallback.data,
+        data: applyNarrativeCraftGuidanceGate(config, context, fallback.data),
         tokensUsed: totalTokens,
         durationMs: Date.now() - startTime,
         success: fallback.error === null,
@@ -589,7 +589,7 @@ async function executeAgentWithTools(
     agentId: config.id,
     agentType: config.type,
     type: parsed.type,
-    data: fallback.data,
+    data: applyNarrativeCraftGuidanceGate(config, context, fallback.data),
     tokensUsed: totalTokens,
     durationMs: Date.now() - startTime,
     success: fallback.error === null,
@@ -599,6 +599,135 @@ async function executeAgentWithTools(
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizedEvidenceText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+
+function narrativeCraftEvidenceCandidates(value: unknown): string[][] {
+  if (!Array.isArray(value)) return [];
+  const flat = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (flat.length > 0) return [flat];
+  return value
+    .filter(Array.isArray)
+    .map((candidate) =>
+      candidate
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    )
+    .filter((candidate) => candidate.length > 0);
+}
+
+const NARRATIVE_CRAFT_DIRECTIVE_BY_ISSUE: Readonly<Record<string, string>> = {
+  "emotional-gesture":
+    "Avoid defaulting to another generic micro-gesture or physiological cue solely to imply emotion; preserve task mechanics, requested scene content, live threads, and character agency.",
+  "image-explanation":
+    "Do not explain the meaning of images or sensory details in the next reply; let them stand. Preserve the requested scene content, live threads, and character agency.",
+  "mirrored-setting":
+    "Do not use setting or weather as an automatic mirror of emotion in the next reply. Preserve the requested scene content, live threads, and character agency.",
+  "compulsory-turn":
+    "Do not force an escalation, reversal, choice, or new turn merely to advance the next reply. Preserve the requested scene content, live threads, and character agency.",
+  "collapsed-threads":
+    "Keep established threads causally independent unless story facts connect them. Preserve the requested scene content, live threads, and character agency.",
+  "tidy-resolution":
+    "Avoid forcing a tidy resolution or summarizing closure in the next reply. Preserve the requested scene content, live threads, and character agency.",
+  "repeated-shape":
+    "Avoid repeating the cited rhetorical or structural shape in the next reply. Preserve the requested scene content, live threads, and character agency.",
+};
+
+function withoutNarrativeCraftGuidance(data: Record<string, unknown>, reason: string): Record<string, unknown> {
+  const state = isJsonRecord(data.state)
+    ? {
+        ...data.state,
+        lastGuidance: [],
+      }
+    : data.state;
+
+  return {
+    ...data,
+    text: "",
+    evidence: [],
+    issue: "",
+    ...(state === undefined ? {} : { state }),
+    reason,
+    intervened: false,
+  };
+}
+
+function applyNarrativeCraftGuidanceGate(
+  config: Pick<AgentExecConfig, "type">,
+  context: Pick<AgentContext, "mainResponse" | "recentMessages">,
+  data: unknown,
+): unknown {
+  if (config.type !== "narrative-craft" || !isJsonRecord(data)) return data;
+
+  const text = typeof data.text === "string" ? data.text.trim() : "";
+  const intervened = data.intervened === true;
+  if (!text && !intervened) {
+    const reason =
+      typeof data.reason === "string" && data.reason.trim()
+        ? data.reason.trim()
+        : "Narrative Craft found no material intervention.";
+    return withoutNarrativeCraftGuidance(data, reason);
+  }
+
+  const assistantProse = context.recentMessages
+    .filter((message) => message.role === "assistant")
+    .map((message) => message.content.trim())
+    .filter(Boolean);
+  const completedResponse = (context.mainResponse ?? "").trim();
+  if (completedResponse) assistantProse.push(completedResponse);
+  if (assistantProse.length === 0) {
+    return withoutNarrativeCraftGuidance(data, "No existing assistant prose supports an intervention.");
+  }
+
+  let evidence: string[] | undefined;
+  for (const candidate of narrativeCraftEvidenceCandidates(data.evidence)) {
+    const normalizedEvidence = candidate.map(normalizedEvidenceText);
+    if (
+      normalizedEvidence.length === 2 &&
+      normalizedEvidence[0] !== normalizedEvidence[1] &&
+      normalizedEvidence.every(
+        (excerpt) =>
+          excerpt.length >= 8 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
+      )
+    ) {
+      evidence = candidate;
+      break;
+    }
+  }
+  if (!evidence) {
+    return withoutNarrativeCraftGuidance(
+      data,
+      "Narrative Craft did not cite two different exact excerpts from existing assistant prose.",
+    );
+  }
+
+  const issue = typeof data.issue === "string" ? data.issue.trim() : "";
+  const directive = NARRATIVE_CRAFT_DIRECTIVE_BY_ISSUE[issue];
+  if (!directive) {
+    return withoutNarrativeCraftGuidance(data, "Narrative Craft did not select a supported prose issue.");
+  }
+  const state = isJsonRecord(data.state)
+    ? {
+        ...data.state,
+        lastGuidance: [directive],
+      }
+    : data.state;
+
+  return {
+    ...data,
+    text: directive,
+    evidence,
+    issue,
+    ...(state === undefined ? {} : { state }),
+    intervened: true,
+  };
 }
 
 function normalizeSpotifyTrackUri(value: unknown): string | null {
@@ -2212,8 +2341,8 @@ function buildAgentMessages(
   // Slice to this agent's own contextSize (the shared pool may be larger)
   const recent = context.recentMessages.slice(-contextSize);
   const contextAgentTypes = options.contextAgentTypes ?? [agentType];
-  // Text-output agents (director, prose-guardian) evaluate pacing/writing
-  // quality and do NOT need raw committed tracker JSON. Including it makes
+  // Text-output agents evaluate pacing/writing quality and do NOT need raw
+  // committed tracker JSON. Including it makes
   // the input look like `[assistant] roleplay + <committed_tracker_state>{...}`
   // — a pattern small/fine-tuned models mimic into their response, leaking
   // roleplay and tracker JSON that gets injected into the main prompt.
@@ -2581,10 +2710,10 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
     parts.push(`</previous_cyoa_choices>`);
   }
 
-  if (context.memory._secretPlotState) {
-    parts.push(`<secret_plot_state>`);
-    parts.push(JSON.stringify(context.memory._secretPlotState));
-    parts.push(`</secret_plot_state>`);
+  if (context.memory._narrativeCraftState) {
+    parts.push(`<narrative_craft_state>`);
+    parts.push(JSON.stringify(context.memory._narrativeCraftState));
+    parts.push(`</narrative_craft_state>`);
   }
 
   return parts.join("\n");
@@ -2593,11 +2722,10 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
 /** Map agent type → its primary result type. */
 const AGENT_RESULT_TYPE_MAP: Record<string, AgentResultType> = {
   "world-state": "game_state_update",
-  "prose-guardian": "context_injection",
+  "narrative-craft": "context_injection",
   continuity: "continuity_check",
   expression: "sprite_change",
   "echo-chamber": "echo_message",
-  director: "director_event",
   quest: "quest_update",
   illustrator: "image_prompt",
   "lorebook-keeper": "lorebook_update",
@@ -2614,7 +2742,6 @@ const AGENT_RESULT_TYPE_MAP: Record<string, AgentResultType> = {
   editor: "text_rewrite",
   "knowledge-retrieval": "context_injection",
   cyoa: "cyoa_choices",
-  "secret-plot-driver": "secret_plot",
 };
 
 const AGENT_RESULT_TYPES = new Set<AgentResultType>([
@@ -2660,8 +2787,8 @@ function agentResponseIsJson(config: Pick<AgentExecConfig, "type" | "settings">)
 }
 
 /**
- * Whether a built-in agent type's primary output is plain text (director note,
- * writing directives, etc.) rather than structured JSON. Used to suppress
+ * Whether a built-in agent type's primary output is plain text rather than
+ * structured JSON. Used to suppress
  * inputs/outputs that text agents may pattern-mimic into their response.
  *
  * Returns false for unknown types (custom agents, "__batch__"): the safe
@@ -2676,6 +2803,7 @@ function isTextOutputAgentType(agentType: string): boolean {
 /** Agents that return structured JSON. */
 const JSON_AGENTS = new Set([
   "world-state",
+  "narrative-craft",
   "continuity",
   "expression",
   "echo-chamber",
@@ -2693,41 +2821,23 @@ const JSON_AGENTS = new Set([
   "spotify",
   "editor",
   "cyoa",
-  "secret-plot-driver",
 ]);
 
 /**
- * Strip leaked synthetic tags from a text agent's response and, for the
- * Narrative Director, extract only the canonical "[Director's note: ...]"
- * payload its prompt mandates.
+ * Strip leaked synthetic tags from a text agent's response.
  *
- * Background: when a text agent (director, prose-guardian) is shown chat
+ * Background: when a text agent is shown chat
  * history that ends in `<committed_tracker_state>{...}</committed_tracker_state>`,
  * smaller models will continue the pattern and emit roleplay + tracker JSON
  * before/around their intended directive. That leaked content gets injected
  * into the main prompt as a system block, then converted to a user message
  * by `prepareProviderMessages`, causing the main AI to respond to the leak.
  */
-function sanitizeTextAgentResponse(agentType: string, text: string): string {
-  const cleaned = text
+function sanitizeTextAgentResponse(text: string): string {
+  return text
     .replace(/<committed_tracker_state>[\s\S]*?<\/committed_tracker_state>/gi, "")
     .replace(/<assistant_response>[\s\S]*?<\/assistant_response>/gi, "")
     .trim();
-
-  // Director output is locked to "[Director's note: ...]" by its prompt.
-  // Anything outside that bracket is leakage — extract the last note (most
-  // likely the model's "final" intent) and discard the rest. If no bracketed
-  // note is present at all, the response is fully off-format; drop it so the
-  // pipeline injects nothing rather than hallucinated roleplay.
-  if (agentType === "director") {
-    const noteMatches = cleaned.match(/\[Director(?:'|’)s note:[^\]]*\]/gi);
-    if (noteMatches && noteMatches.length > 0) {
-      return noteMatches[noteMatches.length - 1]!.trim();
-    }
-    return "";
-  }
-
-  return cleaned;
 }
 
 /**
@@ -2757,9 +2867,9 @@ function parseAgentResponse(
     }
   }
 
-  // Text-based agents (prose-guardian, director). Sanitize before injection so
-  // leaked tracker/roleplay content can't reach the main prompt.
-  return { type: resultType, data: { text: sanitizeTextAgentResponse(config.type, responseText) }, error: null };
+  // Sanitize text output before injection so leaked tracker/roleplay content
+  // cannot reach the main prompt.
+  return { type: resultType, data: { text: sanitizeTextAgentResponse(responseText) }, error: null };
 }
 
 function coerceMalformedJsonAgentResponse(agentType: string, responseText: string): unknown | null {

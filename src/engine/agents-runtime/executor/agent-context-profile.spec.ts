@@ -5,17 +5,8 @@ import { executeAgent, executeAgentBatch, type AgentExecConfig } from "./agent-e
 import { loreFieldsForAgentTypes } from "./agent-context-profile";
 
 const EXPECTED_PROFILE_MEMBERS = {
-  full: ["card-evolution-auditor", "prompt-reviewer", "editor", "secret-plot-driver"],
-  narrative: [
-    "director",
-    "prose-guardian",
-    "continuity",
-    "cyoa",
-    "echo-chamber",
-    "lorebook-keeper",
-    "knowledge-retrieval",
-    "knowledge-router",
-  ],
+  full: ["card-evolution-auditor", "prompt-reviewer", "editor", "narrative-craft"],
+  narrative: ["continuity", "cyoa", "echo-chamber", "lorebook-keeper", "knowledge-retrieval", "knowledge-router"],
   visual: ["expression", "illustrator", "background"],
   state: ["world-state", "quest", "combat", "character-tracker", "persona-stats", "custom-tracker"],
   music: ["music-dj", "spotify", "schedule-planner", "response-orchestrator", "autonomous-messenger"],

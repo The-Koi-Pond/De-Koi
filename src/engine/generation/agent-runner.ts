@@ -48,7 +48,12 @@ import {
   isBuiltInAgent,
 } from "./built-in-agent-fallback";
 import { llmParameters } from "./context";
-import { loadAgentMemory, secretPlotPromptGuidanceFromData, secretPlotStateFromMemory } from "./agent-memory-runtime";
+import {
+  consumeNarrativeCraftPendingGuidance,
+  loadAgentMemory,
+  loadNarrativeCraftState,
+} from "./agent-memory-runtime";
+import { narrativeCraftHasRecurringShape } from "./narrative-craft-background";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
 import {
@@ -120,8 +125,13 @@ export interface GenerationAgentRuntime {
   agentWarnings: AgentConnectionWarning[];
   agentData: Record<string, string>;
   availableSprites: AvailableSpriteCharacter[];
+  narrativeCraftAnalysisDue: boolean;
   runParallel(): Promise<AgentResult[]>;
   runPost(mainResponse: string): Promise<AgentResult[]>;
+  runNarrativeCraftAnalysis(
+    mainResponse: string,
+    options?: { force?: boolean; signal?: AbortSignal },
+  ): Promise<AgentResult[]>;
 }
 
 interface AgentConnectionWarningBase {
@@ -160,16 +170,15 @@ interface ResolvedAgentsResult {
   agentWarnings: AgentConnectionWarning[];
 }
 
-const DIRECTOR_AGENT_TYPE = "director";
+const NARRATIVE_CRAFT_AGENT_TYPE = "narrative-craft";
 const ILLUSTRATOR_AGENT_TYPE = "illustrator";
 const CARD_EVOLUTION_AUDITOR_AGENT_TYPE = "card-evolution-auditor";
 const CHAT_SUMMARY_AGENT_TYPE = "chat-summary";
-const SECRET_PLOT_DRIVER_AGENT_TYPE = "secret-plot-driver";
 const KNOWLEDGE_RETRIEVAL_AGENT_TYPE = "knowledge-retrieval";
 const KNOWLEDGE_ROUTER_AGENT_TYPE = "knowledge-router";
 const KNOWLEDGE_AGENT_TYPES = new Set([KNOWLEDGE_RETRIEVAL_AGENT_TYPE, KNOWLEDGE_ROUTER_AGENT_TYPE]);
 const ASSISTANT_INTERVAL_AGENT_TYPES = new Set([
-  DIRECTOR_AGENT_TYPE,
+  NARRATIVE_CRAFT_AGENT_TYPE,
   ILLUSTRATOR_AGENT_TYPE,
   CARD_EVOLUTION_AUDITOR_AGENT_TYPE,
 ]);
@@ -1550,10 +1559,11 @@ async function buildAgentContext(
     resolvedAgentIds.map((agentId) => loadAgentMemory(deps.storage, agentId, chatId)),
   );
   const memory = Object.assign({}, ...memoryRows);
-  const secretPlotAgent = agents.find((agent) => agent.type === SECRET_PLOT_DRIVER_AGENT_TYPE);
-  const secretPlotMemory = secretPlotAgent ? await loadAgentMemory(deps.storage, secretPlotAgent.id, chatId) : null;
-  const secretPlotState = secretPlotMemory ? secretPlotStateFromMemory(secretPlotMemory) : null;
-  if (secretPlotState) memory._secretPlotState = secretPlotState;
+  const narrativeCraftAgent = agents.find((agent) => agent.type === NARRATIVE_CRAFT_AGENT_TYPE);
+  const narrativeCraftState = narrativeCraftAgent
+    ? await loadNarrativeCraftState(deps.storage, narrativeCraftAgent.id, chatId)
+    : null;
+  if (narrativeCraftState) memory._narrativeCraftState = narrativeCraftState;
   const personaId = readString(input.chat.personaId).trim();
   if (personaId) memory._personaId = personaId;
   if (input.illustratorManualRequest === true) memory._illustratorManualRequest = true;
@@ -1615,7 +1625,6 @@ async function buildAgentContext(
 function resultText(result: AgentResult): string | null {
   if (!result.success) return null;
   if (!PROMPT_INJECTABLE_RESULT_TYPES.has(result.type)) return null;
-  if (result.type === "secret_plot") return secretPlotPromptGuidanceFromData(result.data);
   if (typeof result.data === "string") return result.data;
   if (!isRecord(result.data)) return null;
   const text = result.data.text ?? result.data.direction ?? result.data.summary ?? result.data.raw;
@@ -1627,11 +1636,8 @@ function cachedInjectionResult(injection: AgentInjection): AgentResult {
   return {
     agentId: agentType,
     agentType,
-    type: agentType === DIRECTOR_AGENT_TYPE ? "director_event" : "context_injection",
-    data:
-      agentType === DIRECTOR_AGENT_TYPE
-        ? { direction: injection.text, source: "cached_context_injection" }
-        : { text: injection.text, source: "cached_context_injection" },
+    type: "context_injection",
+    data: { text: injection.text, source: "cached_context_injection" },
     tokensUsed: 0,
     durationMs: 0,
     success: true,
@@ -1742,7 +1748,32 @@ export async function createGenerationAgentRuntime(
   const { agents, skippedResults, staticInjections, agentWarnings } = await resolveAgents(deps, input);
   const preResults: AgentResult[] = [...skippedResults];
   const overrideInjections = normalizedAgentInjectionOverrides(input.agentInjectionOverrides);
-  const initialInjections = mergeAgentInjections(staticInjections, overrideInjections);
+  const narrativeCraftAgent = agents.find((agent) => agent.type === NARRATIVE_CRAFT_AGENT_TYPE);
+  const shouldClaimNarrativeCraftGuidance =
+    !input.agentTypes?.size &&
+    overrideInjections.length === 0 &&
+    chatActiveAgentIds(input).has(NARRATIVE_CRAFT_AGENT_TYPE);
+  const pendingNarrativeCraftGuidance = shouldClaimNarrativeCraftGuidance
+    ? await consumeNarrativeCraftPendingGuidance(
+        deps.storage,
+        narrativeCraftAgent?.id ?? `builtin:${NARRATIVE_CRAFT_AGENT_TYPE}`,
+        readString(input.chat.id).trim(),
+      )
+    : null;
+  const pendingNarrativeCraftInjections: AgentInjection[] = pendingNarrativeCraftGuidance
+    ? [
+        {
+          agentType: NARRATIVE_CRAFT_AGENT_TYPE,
+          agentName: narrativeCraftAgent?.name ?? "Narrative Craft",
+          text: pendingNarrativeCraftGuidance,
+        },
+      ]
+    : [];
+  const initialInjections = mergeAgentInjections(
+    staticInjections,
+    overrideInjections,
+    pendingNarrativeCraftInjections,
+  );
   const agentData: Record<string, string> = agentDataFromInjections(initialInjections);
   for (const result of skippedResults) {
     onResult?.(result);
@@ -1758,14 +1789,14 @@ export async function createGenerationAgentRuntime(
       agentWarnings,
       agentData,
       availableSprites: [],
+      narrativeCraftAnalysisDue: false,
       runParallel: async () => [],
       runPost: async () => [],
+      runNarrativeCraftAnalysis: async () => [],
     };
   }
 
   const context = await buildAgentContext(deps, input, agents);
-  const secretPlotGuidance = secretPlotPromptGuidanceFromData(context.memory._secretPlotState);
-  if (secretPlotGuidance) agentData[SECRET_PLOT_DRIVER_AGENT_TYPE] = secretPlotGuidance;
   const availableSprites = availableSpritesFromContext(context);
   const pipelineAgents = agents.filter((agent) => !KNOWLEDGE_AGENT_TYPES.has(agent.type));
   const pipeline = createAgentPipeline(pipelineAgents, context, (result) => {
@@ -1781,8 +1812,14 @@ export async function createGenerationAgentRuntime(
       agentWarnings,
       agentData,
       availableSprites,
+      narrativeCraftAnalysisDue: false,
       runParallel: async () => pipeline.runParallel(),
-      runPost: async (mainResponse) => pipeline.postGenerate(mainResponse, { preGenInjections: initialInjections }),
+      runPost: async (mainResponse) =>
+        pipeline.postGenerate(mainResponse, {
+          preGenInjections: initialInjections,
+          agentTypeFilter: (agentType) => agentType !== NARRATIVE_CRAFT_AGENT_TYPE,
+        }),
+      runNarrativeCraftAnalysis: async () => [],
     };
   }
 
@@ -1811,7 +1848,21 @@ export async function createGenerationAgentRuntime(
     agentWarnings,
     agentData,
     availableSprites,
+    narrativeCraftAnalysisDue: !!narrativeCraftAgent,
     runParallel: async () => pipeline.runParallel(),
-    runPost: async (mainResponse) => pipeline.postGenerate(mainResponse, { preGenInjections: preInjections }),
+    runPost: async (mainResponse) =>
+      pipeline.postGenerate(mainResponse, {
+        preGenInjections: preInjections,
+        agentTypeFilter: (agentType) => agentType !== NARRATIVE_CRAFT_AGENT_TYPE,
+      }),
+    runNarrativeCraftAnalysis: async (mainResponse, options = {}) => {
+      if (!narrativeCraftAgent) return [];
+      if (!options.force && !narrativeCraftHasRecurringShape(input.storedMessages, mainResponse)) return [];
+      return pipeline.postGenerate(mainResponse, {
+        preGenInjections: preInjections,
+        agentTypeFilter: (agentType) => agentType === NARRATIVE_CRAFT_AGENT_TYPE,
+        signal: options.signal,
+      });
+    },
   };
 }

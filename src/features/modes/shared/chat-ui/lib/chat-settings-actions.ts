@@ -86,6 +86,31 @@ export function hasSecretPlotMemory(memory: Record<string, unknown> | null | und
   return Array.isArray(recentlyFulfilled) && recentlyFulfilled.some((entry) => String(entry ?? "").trim());
 }
 
+export function hasNarrativeCraftMemory(memory: Record<string, unknown> | null | undefined): boolean {
+  if (!memory) return false;
+  const state = memory.state;
+  return !!state && typeof state === "object" && !Array.isArray(state) && Object.keys(state).length > 0;
+}
+
+export function narrativeCraftPanelVisible(metadata: Record<string, unknown>): boolean {
+  if (typeof metadata.showNarrativeCraftPanel === "boolean") return metadata.showNarrativeCraftPanel;
+  return metadata.showSecretPlotPanel === true;
+}
+
+export function narrativeCraftTabVisible(
+  metadata: Record<string, unknown>,
+  enabledAgentTypes: ReadonlySet<string>,
+): boolean {
+  return narrativeCraftPanelVisible(metadata) && enabledAgentTypes.has("narrative-craft");
+}
+
+export function narrativeCraftPanelMetadataPatch(
+  _metadata: Record<string, unknown>,
+  visible: boolean,
+): ChatSettingsMetadataPatch {
+  return { showNarrativeCraftPanel: visible };
+}
+
 type UpdateMetadataMutation = {
   mutateAsync: (
     patch: ChatSettingsMetadataPatch & { id: string },
@@ -148,7 +173,7 @@ export async function toggleChatAgent({
   readLatestChat,
   updateMeta,
   agentMemory,
-  confirmSecretPlotRemoval,
+  confirmNarrativeCraftRemoval,
   showMutationFailure,
 }: {
   agentId: string;
@@ -157,7 +182,7 @@ export async function toggleChatAgent({
   readLatestChat: () => Chat | undefined;
   updateMeta: UpdateMetadataMutation;
   agentMemory: AgentMemoryApi;
-  confirmSecretPlotRemoval: (message: string) => Promise<boolean>;
+  confirmNarrativeCraftRemoval: (message: string) => Promise<boolean>;
   showMutationFailure: (options: { removing: boolean; message: string }) => Promise<void>;
 }): Promise<void> {
   const readLatestActiveAgentIds = () => {
@@ -165,17 +190,20 @@ export async function toggleChatAgent({
     return latestChat ? chatActiveAgentIds(latestChat) : [...activeAgentIds];
   };
   const wasRemoving = readLatestActiveAgentIds().includes(agentId);
-  if (wasRemoving && agentId === "secret-plot-driver") {
+  if (wasRemoving && agentId === "narrative-craft") {
     let shouldWarn: boolean;
     try {
-      const res = await agentMemory.getMemory(agentId, chat.id);
-      shouldWarn = hasSecretPlotMemory(res.memory);
+      const [current, legacy] = await Promise.all([
+        agentMemory.getMemory("narrative-craft", chat.id),
+        agentMemory.getMemory("secret-plot-driver", chat.id),
+      ]);
+      shouldWarn = hasNarrativeCraftMemory(current.memory) || hasSecretPlotMemory(legacy.memory);
     } catch {
       shouldWarn = true;
     }
     if (shouldWarn) {
-      const ok = await confirmSecretPlotRemoval(
-        "Remove Secret Plot Driver from this chat? This will wipe its hidden plot memory for this chat, including the current arc and scene directions. This cannot be undone.",
+      const ok = await confirmNarrativeCraftRemoval(
+        "Remove Narrative Craft from this chat? This will clear its current craft state and any legacy Secret Plot memory for this chat. This cannot be undone.",
       );
       if (!ok) return;
     }
@@ -191,14 +219,17 @@ export async function toggleChatAgent({
       {
         onSuccess: async () => {
           metadataSaved = true;
-          if (isRemoving && agentId === "secret-plot-driver") {
-            await agentMemory.clearMemory(agentId, chat.id);
+          if (isRemoving && agentId === "narrative-craft") {
+            await Promise.allSettled([
+              agentMemory.clearMemory("narrative-craft", chat.id),
+              agentMemory.clearMemory("secret-plot-driver", chat.id),
+            ]);
           }
         },
       },
     );
   } catch (error) {
-    if (metadataSaved && isRemoving && agentId === "secret-plot-driver") {
+    if (metadataSaved && isRemoving) {
       const rollbackIds = Array.from(new Set([...readLatestActiveAgentIds(), agentId]));
       await updateMeta.mutateAsync({ id: chat.id, activeAgentIds: rollbackIds }).catch(() => undefined);
     }
