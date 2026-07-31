@@ -240,13 +240,38 @@
       "reason": "The core claim is engine behavior; focused component tests cover the panel actions and no layout claim is made."
     }
   ],
-  "reviewThreadLedger": [],
+  "reviewThreadLedger": [
+    {
+      "finding": "Partial Narrative Craft memory clear left only a transient toast.",
+      "disposition": "fixed",
+      "fix": "The inspector now keeps a persistent alert naming each memory block that failed, reloads and displays the surviving state, and changes the action to Retry clear. The component test reproduces a successful current-state clear plus failed legacy clear.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Retired writer injections could remain visible as rerunnable specialist guidance.",
+      "disposition": "fixed",
+      "fix": "Context Injection normalization now excludes Narrative Craft and all three retired narrative agent types while preserving non-narrative specialist injections.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "String-only replay entries might represent non-narrative guidance.",
+      "disposition": "proven-and-clarified",
+      "fix": "The legacy string-only format was exclusively Prose Guardian output. Replay now assigns that explicit legacy type before applying the common replayability filter; typed non-narrative object entries remain replayable.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Exact Narrative Craft post-processing filter could lose valid forked critic guidance.",
+      "disposition": "proven-and-clarified",
+      "fix": "Legacy active IDs are canonically remapped before agent resolution and the existing collapse test proves all three retired IDs produce one Narrative Craft call. Custom agent types are separate agents and must not enter the built-in critic state contract.",
+      "humanResolutionRequired": false
+    }
+  ],
   "verification": {
     "originalReproPassed": true,
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm test; pnpm check",
-    "baselineEvidence": "The current-main branch passed 2,502 frontend tests with one skipped, focused Narrative Craft and coordinator tests, TypeScript, architecture, docs, storage contracts, Rust workspace compilation, repository checks, external harness unit tests, and git diff whitespace checks.",
+    "baselineEvidence": "The repaired branch passed 2,503 frontend tests with one skipped, including focused Narrative Craft partial-clear and retired-injection compatibility tests, plus TypeScript, architecture, docs, storage contracts, Rust workspace compilation, repository checks, external harness unit tests, and git diff whitespace checks.",
     "negativeRowsTested": [
       "Requested repetition and resolution",
       "Speaking settings",
@@ -263,6 +288,7 @@
       "pnpm check:architecture",
       "pnpm check",
       "python -m unittest test_generation_eval.py test_storyscope_features.py",
+      "pnpm vitest run RoleplayHUDPanels, ContextInjectionPanel, generation-replay, agent-runner, and agent-prompts focused suites (40 passed)",
       "git diff --check"
     ]
   },

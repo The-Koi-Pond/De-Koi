@@ -242,10 +242,29 @@ describe("NarrativeCraftPanel", () => {
     expect(narrativeCraftMocks.clearMemory).toHaveBeenCalledWith("secret-plot-driver", "chat-1");
   });
 
-  it("reports a partial clear instead of claiming all state disappeared", async () => {
-    narrativeCraftMocks.getMemory.mockResolvedValue({ memory: { state: {} } });
+  it("keeps a partial clear visible and shows the memory block that remains", async () => {
+    let currentCleared = false;
+    narrativeCraftMocks.getMemory.mockImplementation(async (agentType: string) => {
+      if (agentType === "narrative-craft") {
+        return {
+          memory: currentCleared
+            ? {}
+            : {
+                state: {
+                  unresolvedConsequences: ["Current consequence"],
+                },
+              },
+        };
+      }
+      return {
+        memory: {
+          overarchingArc: "Legacy consequence",
+        },
+      };
+    });
     narrativeCraftMocks.clearMemory.mockImplementation(async (agentType: string) => {
       if (agentType === "secret-plot-driver") throw new Error("legacy clear failed");
+      currentCleared = true;
       return { deleted: true };
     });
     await renderPanel();
@@ -260,6 +279,10 @@ describe("NarrativeCraftPanel", () => {
     expect(narrativeCraftMocks.toastError).toHaveBeenCalledWith(
       "Some saved craft state could not be cleared. Reloaded the remaining state.",
     );
+    expect(container!.textContent).toContain("Secret Plot memory could not be cleared.");
+    expect(container!.textContent).toContain("Retry clear");
+    expect(container!.textContent).toContain("Legacy consequence");
+    expect(container!.textContent).not.toContain("Current consequence");
   });
 });
 

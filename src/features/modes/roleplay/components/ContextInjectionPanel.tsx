@@ -16,6 +16,12 @@ import type { AgentConfigRow } from "../../../catalog/agents";
 const CACHED_INJECTIONS_HELP =
   "Troubleshooting view for text that custom or specialist agents added before the current reply. Edits and re-runs are only used if you regenerate this same assistant message. Re-runs use the original transcript slice and tracker snapshot, not newer chat.";
 const NON_REROLLABLE_INJECTION_AGENTS = new Set(["knowledge-retrieval", "knowledge-router"]);
+const RETIRED_NARRATIVE_INJECTION_AGENTS = new Set([
+  "narrative-craft",
+  "prose-guardian",
+  "director",
+  "secret-plot-driver",
+]);
 
 const INJECTION_LABEL: Record<string, string> = Object.fromEntries(BUILT_IN_AGENTS.map((a) => [a.id, a.name]));
 
@@ -65,6 +71,10 @@ function normalizeContextInjections(raw: unknown): CachedInjection[] {
   return normalized;
 }
 
+export function normalizeVisibleContextInjections(raw: unknown): CachedInjection[] {
+  return normalizeContextInjections(raw).filter((entry) => !RETIRED_NARRATIVE_INJECTION_AGENTS.has(entry.agentType));
+}
+
 export function ContextInjectionPanel({
   chatId,
   messages,
@@ -91,11 +101,10 @@ export function ContextInjectionPanel({
 
   const target = useMemo(() => findLastAssistant(messages), [messages]);
   const parsedExtra = useMemo(() => (target ? parseExtra(target.extra) : {}), [target]);
-  const injections = useMemo(() => {
-    return normalizeContextInjections(parsedExtra.contextInjections).filter(
-      (entry) => entry.agentType !== "narrative-craft" && entry.agentType !== "secret-plot-driver",
-    );
-  }, [parsedExtra.contextInjections]);
+  const injections = useMemo(
+    () => normalizeVisibleContextInjections(parsedExtra.contextInjections),
+    [parsedExtra.contextInjections],
+  );
 
   useEffect(() => {
     const next: Record<string, string> = {};

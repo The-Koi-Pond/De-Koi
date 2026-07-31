@@ -19,6 +19,10 @@ import { useGenerate } from "../../../runtime/generation";
 
 const AGENT_TYPE = "narrative-craft";
 const LEGACY_AGENT_TYPE = "secret-plot-driver";
+const MEMORY_LABEL: Record<string, string> = {
+  [AGENT_TYPE]: "Narrative Craft state",
+  [LEGACY_AGENT_TYPE]: "Secret Plot memory",
+};
 
 function findLastAssistant(messages: Message[] | undefined): Message | null {
   if (!messages?.length) return null;
@@ -143,6 +147,7 @@ export function NarrativeCraftPanel({
   const { retryAgents } = useGenerate();
   const [reanalyzing, setReanalyzing] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [clearFailures, setClearFailures] = useState<string[]>([]);
   const target = useMemo(() => findLastAssistant(messages), [messages]);
   const queryKey = useMemo(() => ["agent-memory", AGENT_TYPE, chatId ?? ""] as const, [chatId]);
   const {
@@ -189,12 +194,17 @@ export function NarrativeCraftPanel({
         agentApi.clearMemory(AGENT_TYPE, chatId),
         agentApi.clearMemory(LEGACY_AGENT_TYPE, chatId),
       ]);
-      if (results.some((result) => result.status === "rejected")) {
+      const failedAgentTypes = [AGENT_TYPE, LEGACY_AGENT_TYPE].filter(
+        (_, index) => results[index]?.status === "rejected",
+      );
+      if (failedAgentTypes.length > 0) {
+        setClearFailures(failedAgentTypes);
         toast.error("Some saved craft state could not be cleared. Reloaded the remaining state.");
         await queryClient.invalidateQueries({ queryKey });
         await refetch();
         return;
       }
+      setClearFailures([]);
       queryClient.setQueryData(queryKey, emptyNarrativeCraftState());
       await queryClient.invalidateQueries({ queryKey });
     } finally {
@@ -251,6 +261,16 @@ export function NarrativeCraftPanel({
             <TextList values={current.unresolvedConsequences} empty="No unresolved consequences tracked." />
           </StateSection>
 
+          {clearFailures.length > 0 && (
+            <div
+              role="alert"
+              className="rounded-lg border border-[var(--destructive)]/35 bg-[var(--destructive)]/10 px-2 py-1.5 text-[0.625rem] leading-relaxed text-[var(--destructive)]"
+            >
+              {clearFailures.map((agentType) => MEMORY_LABEL[agentType] ?? agentType).join(" and ")} could not be
+              cleared. Retry to remove the remaining saved state.
+            </div>
+          )}
+
           <div className="flex gap-1.5 pt-0.5">
             <button
               type="button"
@@ -268,7 +288,7 @@ export function NarrativeCraftPanel({
               className="inline-flex min-h-7 flex-1 items-center justify-center gap-1.5 rounded-md bg-[var(--destructive)]/10 px-2 py-1 text-[0.625rem] font-medium text-[var(--destructive)] ring-1 ring-[var(--destructive)]/20 transition-colors hover:bg-[var(--destructive)]/15 disabled:opacity-40"
             >
               <Trash2 size="0.6875rem" />
-              Clear craft state
+              {clearFailures.length > 0 ? "Retry clear" : "Clear craft state"}
             </button>
           </div>
         </>
