@@ -693,13 +693,21 @@ function applyCraftGuidanceGates(
     .filter(Boolean);
   const completedResponse = (context.mainResponse ?? "").trim();
   if (completedResponse) assistantProse.push(completedResponse);
-  if (assistantProse.length === 0) return reject("No grounded intervention.");
+  if (assistantProse.length === 0) {
+    return reject(
+      conversation ? "No grounded intervention." : "No existing assistant prose supports an intervention.",
+    );
+  }
 
   const issue = typeof data.issue === "string" ? data.issue.trim() : "";
   const directive = conversation
     ? conversationCraftDirectiveForIssue(issue, context.characters.length > 1 ? "group" : "solo")
     : NARRATIVE_CRAFT_DIRECTIVE_BY_ISSUE[issue];
-  if (!directive) return reject("Invalid issue.");
+  if (!directive) {
+    return reject(
+      conversation ? "Invalid issue." : "Narrative Craft did not select a supported prose issue.",
+    );
+  }
 
   if (conversation) {
     const evidence = Array.isArray(data.evidence)
@@ -735,7 +743,9 @@ function applyCraftGuidanceGates(
       )
     );
   });
-  if (!evidence) return reject("Narrative Craft requires two grounded excerpts.");
+  if (!evidence) {
+    return reject("Narrative Craft did not cite two different exact excerpts from existing assistant prose.");
+  }
   const state = isJsonRecord(data.state) ? { ...data.state, lastGuidance: [directive] } : data.state;
   return { ...data, text: directive, evidence, issue, ...(state === undefined ? {} : { state }), intervened: true };
 }
