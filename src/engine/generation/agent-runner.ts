@@ -1778,6 +1778,11 @@ export async function createGenerationAgentRuntime(
     narrativeCraftInjections,
   );
   const agentData: Record<string, string> = agentDataFromInjections(initialInjections);
+  delete agentData[NARRATIVE_CRAFT_AGENT_TYPE];
+  const recordAgentData = (agentType: string, text: string | null) => {
+    if (agentType === NARRATIVE_CRAFT_AGENT_TYPE || !text?.trim()) return;
+    agentData[agentType] = text.trim();
+  };
   for (const result of skippedResults) {
     onResult?.(result);
   }
@@ -1805,7 +1810,7 @@ export async function createGenerationAgentRuntime(
   const pipelineAgents = agents.filter((agent) => !KNOWLEDGE_AGENT_TYPES.has(agent.type));
   const pipeline = createAgentPipeline(pipelineAgents, context, (result) => {
     const text = resultText(result);
-    if (text) agentData[result.agentType] = text;
+    recordAgentData(result.agentType, text);
     onResult?.(resultEventData(result));
   });
 
@@ -1831,7 +1836,7 @@ export async function createGenerationAgentRuntime(
     pipeline.preGenerate((type) => type !== "prompt-reviewer"),
     runKnowledgePreGenerationAgents(deps, input, context, agents, (result) => {
       const text = resultText(result);
-      if (text) agentData[result.agentType] = text;
+      recordAgentData(result.agentType, text);
       onResult?.(resultEventData(result));
     }),
   ]);
@@ -1843,7 +1848,7 @@ export async function createGenerationAgentRuntime(
     if (result.agentType && !preResults.includes(result)) preResults.push(result);
   }
   for (const injection of preInjections) {
-    if (injection.text.trim()) agentData[injection.agentType] = injection.text.trim();
+    recordAgentData(injection.agentType, injection.text);
   }
 
   return {

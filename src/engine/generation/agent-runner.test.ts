@@ -1067,7 +1067,7 @@ describe("Narrative Craft runtime cadence", () => {
   }
 
   const narrativeCraftBaselineGuidance =
-    "Perform a silent craft-shape pass before replying. Preserve the requested content, character voice, intentional repetition, direct emotion, and genre-appropriate flourish. Avoid defaulting to stacked fragments or polished triplets, contrast pivots, explaining an image after it lands, stock physiological cues, automatic setting mirrors, or endings that restate the beat. Do not replace them with a new fixed formula.";
+    "Before replying, draft freely, then silently revise once for sentence and story shape. Let the present beat breathe; do not invent a gift, confession, secret, choice, reveal, or escalation merely to give this reply a climax. Keep unresolved pressure unresolved when the scene has not earned a turn, and leave causal space for the user. Outside dialogue, use complete sentences and join accidental fragments to their neighbors. Avoid staccato lists or triplets and rhetorical contrast pivots such as not X but Y, Not X—Y, or less X than Y. Use figurative language sparingly: keep only images that add new information, and do not explain them afterward. Prefer concrete, character-specific action to stock body cues. Do not automatically mirror emotion in the setting or restate the beat at the end. Vary sentence and paragraph length without a repeating pattern. Preserve intentional quoted fragments and repetition, character voice, direct emotion, requested content, and genre-appropriate flourish. These checks are not a replacement style.";
 
   it("adds the baseline silent shape pass without a provider request", async () => {
     const requests: LlmRequest[] = [];
@@ -1087,6 +1087,7 @@ describe("Narrative Craft runtime cadence", () => {
         text: narrativeCraftBaselineGuidance,
       },
     ]);
+    expect(runtime.agentData).toEqual({});
     expect(requests).toHaveLength(0);
   });
 
