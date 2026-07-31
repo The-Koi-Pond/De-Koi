@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib";
 
 export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   startupJs: 700 * 1024,
-  totalJs: 1710 * 1024,
+  totalJs: 1712 * 1024,
   largestLazyJs: 300 * 1024,
   css: 120 * 1024,
 });

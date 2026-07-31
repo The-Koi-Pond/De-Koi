@@ -177,6 +177,7 @@ export interface ChatMemoryChunk {
   cleanupBatchId?: string | null;
   cleanupSourceIds?: string[];
   cleanupAppliedAt?: string | null;
+  automaticLineage?: boolean;
   cleanupPreviousStatus?: ChatMemoryStatus | null;
   cleanupPreviousUpdatedAt?: string | null;
   cleanupSupersededByBatchId?: string | null;

@@ -18,6 +18,7 @@ function source(overrides: Partial<MemoryCleanupSource> = {}): MemoryCleanupSour
     updatedAt: "2026-07-01T00:00:00.000Z",
     pinned: false,
     userEdited: false,
+    automaticLineage: true,
     ...overrides,
   };
 }
@@ -434,5 +435,43 @@ describe("memory cleanup proposal validation", () => {
         sources,
       ),
     ).toThrow("replacement");
+  });
+
+  it("accepts only a single-source kind-preserving context clarification", () => {
+    const one = source({ id: "one", kind: "fact" });
+    const two = source({ id: "two", kind: "fact" });
+    const sources = new Map([
+      [one.id, one],
+      [two.id, two],
+    ]);
+    const clarify = proposal({
+      id: "clarify-one",
+      type: "clarify",
+      sourceIds: ["one"],
+      winnerId: undefined,
+      replacement: { content: "Pierrot avoids discussing the circus accident.", kind: "fact" },
+      reason: "Context clarification",
+      estimatedTokensBefore: 8,
+      estimatedTokensAfter: 8,
+    });
+
+    expect(validateCleanupProposal(clarify, sources)).toEqual(clarify);
+    expect(() => validateCleanupProposal(proposal({ ...clarify, sourceIds: [] }), sources)).toThrow("one source");
+    expect(() => validateCleanupProposal(proposal({ ...clarify, sourceIds: ["one", "two"] }), sources)).toThrow(
+      "one source",
+    );
+    expect(() => validateCleanupProposal(proposal({ ...clarify, winnerId: "two" }), sources)).toThrow("winner");
+    expect(() => validateCleanupProposal(proposal({ ...clarify, replacement: undefined }), sources)).toThrow(
+      "replacement",
+    );
+    expect(() =>
+      validateCleanupProposal(
+        proposal({ ...clarify, replacement: { content: "Pierrot avoids the accident.", kind: "plot_state" } }),
+        sources,
+      ),
+    ).toThrow("kind");
+    expect(() => validateCleanupProposal(proposal({ ...clarify, reason: "Overlapping memories" }), sources)).toThrow(
+      "context clarification",
+    );
   });
 });

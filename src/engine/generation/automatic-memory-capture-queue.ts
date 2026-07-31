@@ -8,6 +8,7 @@ import {
   reviewAutomaticMemoryCandidates,
   type PersistedCanonicalConsequence,
 } from "./automatic-memory-capture";
+import { buildAutomaticMemoryCaptureContext, type AutomaticMemorySourceMessage } from "./automatic-memory-context";
 import { resolveAutomaticMemoryScope, type CharacterMemoryScopeCharacter } from "./character-memory-scope";
 import { nowIso, parseArray, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 import {
@@ -25,22 +26,17 @@ const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
 
 type MemoryCaptureJobStatus = "pending" | "processing" | "retryable" | "completed" | "failed" | "stale";
 
-interface SourceMessageSnapshot {
-  id: string;
-  chatId: string;
-  role: string;
-  content: string;
-  characterId: string | null;
-  createdAt: string;
-}
-
 interface MemoryCaptureJob extends JsonRecord {
   id: string;
   status: MemoryCaptureJobStatus;
   chatId: string;
   sourceChatId: string;
   sourceMessageIds: string[];
-  sourceMessages: SourceMessageSnapshot[];
+  sourceMessages: AutomaticMemorySourceMessage[];
+  referenceMessageIds: string[];
+  referenceMessages: AutomaticMemorySourceMessage[];
+  userLabel: string;
+  characterLabels: Record<string, string>;
   assistantMessageId: string;
   userMessageId?: string | null;
   mode?: string | null;
@@ -169,7 +165,7 @@ function jobIdFor(chatId: string, sourceMessageIds: string[]): string {
   return `memory-capture-${stableHash(`${AUTOMATIC_MEMORY_CAPTURE_VERSION}\u001f${chatId}\u001f${sourceMessageIds.join("\u001f")}`)}`;
 }
 
-function sourceSnapshot(value: unknown): SourceMessageSnapshot | null {
+function sourceSnapshot(value: unknown): AutomaticMemorySourceMessage | null {
   const record = parseRecord(value);
   const id = readString(record.id).trim();
   const chatId = readString(record.chatId).trim();
@@ -183,13 +179,20 @@ function sourceSnapshot(value: unknown): SourceMessageSnapshot | null {
     content,
     characterId: readString(record.characterId).trim() || null,
     createdAt: readString(record.createdAt).trim(),
+    speakerLabel: readString(record.speakerLabel).trim(),
   };
 }
 
-function sourceSnapshotsFromJob(job: JsonRecord): SourceMessageSnapshot[] {
+function sourceSnapshotsFromJob(job: JsonRecord): AutomaticMemorySourceMessage[] {
   return parseArray(job.sourceMessages)
     .map((value) => sourceSnapshot(value))
-    .filter((value): value is SourceMessageSnapshot => value !== null);
+    .filter((value): value is AutomaticMemorySourceMessage => value !== null);
+}
+
+function referenceSnapshotsFromJob(job: JsonRecord): AutomaticMemorySourceMessage[] {
+  return parseArray(job.referenceMessages)
+    .map((value) => sourceSnapshot(value))
+    .filter((value): value is AutomaticMemorySourceMessage => value !== null);
 }
 
 function jobStatus(job: JsonRecord): MemoryCaptureJobStatus {
@@ -242,7 +245,7 @@ async function patchMemoryCaptureStatus(
 }
 
 async function validateSourceMessages(storage: StorageGateway, job: JsonRecord): Promise<string | null> {
-  const snapshots = sourceSnapshotsFromJob(job);
+  const snapshots = [...sourceSnapshotsFromJob(job), ...referenceSnapshotsFromJob(job)];
   if (snapshots.length === 0) return "missing_source_snapshot";
   for (const snapshot of snapshots) {
     const current = await storage.getChatMessage<JsonRecord>(snapshot.id, {
@@ -294,6 +297,7 @@ async function extractConsequences(args: { storage: StorageGateway; llm: LlmGate
   const jobId = readString(args.job.id).trim();
   const chatId = readString(args.job.chatId).trim();
   const sourceMessages = sourceSnapshotsFromJob(args.job);
+  const referenceMessages = referenceSnapshotsFromJob(args.job);
   if (!scope || !jobId || !chatId || sourceMessages.length === 0) {
     throw new Error("Automatic memory capture job is incomplete");
   }
@@ -307,7 +311,10 @@ async function extractConsequences(args: { storage: StorageGateway; llm: LlmGate
       mode: readString(args.job.mode).trim() || "conversation",
       scope,
       activeCharacterId: readString(args.job.characterId).trim() || null,
+      userLabel: readString(args.job.userLabel).trim() || "{{user}}",
+      characterLabels: parseRecord(args.job.characterLabels) as Record<string, string>,
       sourceMessages,
+      referenceMessages,
       eligibleMemories,
       connectionId: readString(args.job.connectionId).trim() || null,
       model: readString(args.job.model).trim() || null,
@@ -322,11 +329,14 @@ export async function enqueueAutomaticMemoryCaptureJob(
   now = nowIso(),
 ): Promise<JsonRecord | null> {
   const chat = input.chat;
-  const assistant = sourceSnapshot(input.savedAssistantMessage);
+  const captureContext = await buildAutomaticMemoryCaptureContext(storage, input);
+  if (!captureContext) return null;
+  const { userLabel, characterLabels, sourceMessages, referenceMessages } = captureContext;
+  const assistant = sourceMessages.at(-1);
   if (!assistant || assistant.role !== "assistant") return null;
-  const user = sourceSnapshot(input.savedUserMessage);
-  const sourceMessages = [user, assistant].filter((value): value is SourceMessageSnapshot => value !== null);
+  const user = sourceMessages.find((message) => message.role === "user");
   const sourceMessageIds = sourceMessages.map((message) => message.id);
+  const referenceMessageIds = referenceMessages.map((message) => message.id);
   const chatId = readString(chat.id).trim() || assistant.chatId;
   if (!chatId || sourceMessageIds.length === 0) return null;
   const mode = readString(chat.mode || chat.chatMode).trim();
@@ -348,6 +358,10 @@ export async function enqueueAutomaticMemoryCaptureJob(
     sourceChatId: chatId,
     sourceMessageIds,
     sourceMessages,
+    referenceMessageIds,
+    referenceMessages,
+    userLabel,
+    characterLabels,
     assistantMessageId: assistant.id,
     userMessageId: user?.id ?? null,
     mode: mode || null,
