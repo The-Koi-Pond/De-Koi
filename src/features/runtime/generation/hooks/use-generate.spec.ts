@@ -786,6 +786,98 @@ describe("runGenerationWithUi", () => {
     );
     queryClient.clear();
   });
+  it("reveals the completed reply immediately instead of waiting for typewriter frames", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-completed-reply-flush";
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+    useChatStore.getState().setActiveChatId(chatId);
+    useUIStore.getState().setEnableStreaming(true);
+    useUIStore.getState().setStreamingSpeed(1);
+
+    const requestAnimationFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const visibilityState = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: "token", data: "complete answer" } as StreamEvent;
+      yield {
+        type: "assistant_message",
+        data: {
+          id: "assistant-1",
+          chatId,
+          role: "assistant",
+          content: "complete answer",
+          createdAt: new Date().toISOString(),
+          extra: {},
+        },
+      } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId }, stream);
+    try {
+      for (let i = 0; i < 10 && requestAnimationFrame.mock.calls.length === 0; i += 1) {
+        await Promise.resolve();
+      }
+      for (let i = 0; i < 10 && useChatStore.getState().streamBuffer === ""; i += 1) {
+        await Promise.resolve();
+      }
+
+      expect(useChatStore.getState().streamBuffer).toBe("complete answer");
+      await run;
+      expect(useChatStore.getState().isStreaming).toBe(false);
+    } finally {
+      visibilityState.mockReturnValue("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+      await run;
+      queryClient.clear();
+    }
+  });
+  it("accelerates the typewriter when streamed text builds a large backlog", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-stream-backlog";
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+    useChatStore.getState().setActiveChatId(chatId);
+    useUIStore.getState().setEnableStreaming(true);
+    useUIStore.getState().setStreamingSpeed(1);
+
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const visibilityState = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    let releaseStream: (() => void) | undefined;
+
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: "token", data: "x".repeat(500) } as StreamEvent;
+      await new Promise<void>((resolve) => {
+        releaseStream = resolve;
+      });
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId }, stream);
+    try {
+      for (let i = 0; i < 10 && frames.length === 0; i += 1) await Promise.resolve();
+      frames.shift()?.(16);
+      frames.shift()?.(116);
+
+      expect(useChatStore.getState().streamBuffer.length).toBeGreaterThan(100);
+    } finally {
+      visibilityState.mockReturnValue("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+      releaseStream?.();
+      await run;
+      queryClient.clear();
+    }
+  });
   it("flushes pending typewriter text when the page becomes hidden", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-background-flush";

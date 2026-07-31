@@ -182,3 +182,8 @@ export function useAutomaticMemoryMaintenance(): void {
     };
   }, []);
 }
+
+export function AutomaticMemoryMaintenanceHost() {
+  useAutomaticMemoryMaintenance();
+  return null;
+}

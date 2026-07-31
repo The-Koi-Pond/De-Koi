@@ -12,11 +12,6 @@ import {
 import { toast } from "sonner";
 import { chatKeys } from "../query-keys";
 import {
-  previewGenerationPrompt,
-  type PromptPreviewInput,
-  type PromptPreviewResult,
-} from "../../../../engine/generation/prompt-preview";
-import {
   createMessageSchema,
   summariesPatchSchema,
   type CreateMessageInput,
@@ -29,7 +24,6 @@ import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { markPerformanceMilestoneOnce } from "../../../../shared/lib/performance-diagnostics";
@@ -1231,16 +1225,6 @@ function resolveSummaryPromptTemplate(
     id: selected?.id ?? null,
     prompt: selected?.prompt ?? getDefaultAgentPrompt("chat-summary"),
   };
-}
-
-/** Peek at the assembled prompt for a chat */
-export function usePeekPrompt() {
-  return useMutation({
-    mutationFn: (input: string | PromptPreviewInput): Promise<PromptPreviewResult> => {
-      const request: PromptPreviewInput = typeof input === "string" ? { chatId: input } : input;
-      return previewGenerationPrompt(storageApi, request, visualAssetsApi);
-    },
-  });
 }
 
 /** Export a chat as JSONL or plain text */
