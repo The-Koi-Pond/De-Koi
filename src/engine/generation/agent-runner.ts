@@ -111,6 +111,7 @@ export interface GenerationAgentRuntimeInput {
   signal?: AbortSignal;
   forCharacterId?: string | null;
   agentTypes?: Set<string>;
+  automaticNarrativeCraftOnly?: boolean;
   bypassCustomAgentActivation?: boolean;
   hideAutomatedSummarySourceMessages?: boolean;
   regenerateMessageId?: string | null;
@@ -879,7 +880,7 @@ function automaticIntervalGate(
   settings: Record<string, unknown>,
   builtInAgent: boolean,
 ): AutomaticIntervalGate | null {
-  if (input.agentTypes && input.agentTypes.size > 0) return null;
+  if (input.agentTypes && input.agentTypes.size > 0 && !input.automaticNarrativeCraftOnly) return null;
   if (builtInAgent && (ASSISTANT_INTERVAL_AGENT_TYPES.has(type) || USER_INTERVAL_AGENT_TYPES.has(type))) {
     const messageRole: AutomaticIntervalMessageRole = USER_INTERVAL_AGENT_TYPES.has(type) ? "user" : "assistant";
     const maxInterval = messageRole === "user" ? MAX_CUSTOM_AGENT_USER_RUN_INTERVAL : MAX_ASSISTANT_RUN_INTERVAL;
@@ -1751,7 +1752,7 @@ export async function createGenerationAgentRuntime(
   const overrideInjections = normalizedAgentInjectionOverrides(input.agentInjectionOverrides);
   const narrativeCraftAgent = agents.find((agent) => agent.type === NARRATIVE_CRAFT_AGENT_TYPE);
   const shouldClaimNarrativeCraftGuidance =
-    !input.agentTypes?.size &&
+    (!input.agentTypes?.size || input.automaticNarrativeCraftOnly === true) &&
     overrideInjections.length === 0 &&
     chatActiveAgentIds(input).has(NARRATIVE_CRAFT_AGENT_TYPE);
   const pendingNarrativeCraftGuidance = shouldClaimNarrativeCraftGuidance
