@@ -382,7 +382,7 @@ function memoryAwareLlm(calls: LlmRequest[], extractedMemories: Record<string, u
       const promptText = request.messages.map((message) => message.content).join("\n");
       yield {
         type: "token",
-        text: promptText.includes("The user's cat is named Miso.")
+        text: promptText.includes("{{user}}'s cat is named Miso.")
           ? "You told me your cat is named Miso."
           : promptText.includes("<memories>") && promptText.includes("blue lantern")
             ? "You hid the key under the blue lantern."
@@ -479,7 +479,7 @@ describe("startGeneration Memory Recall preflight", () => {
         llm: memoryAwareLlm(calls, [
           {
             kind: "fact",
-            content: "The user's cat is named Miso.",
+            content: "{{user}}'s cat is named Miso.",
             confidence: 0.98,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["message-1"],
@@ -500,7 +500,7 @@ describe("startGeneration Memory Recall preflight", () => {
         expect([...harness.canonicalMemories.values()]).toEqual([
           expect.objectContaining({
             kind: "fact",
-            content: "The user's cat is named Miso.",
+            content: "{{user}}'s cat is named Miso.",
             provenance: expect.objectContaining({ messageIds: ["message-1"] }),
           }),
         ]),
@@ -519,7 +519,7 @@ describe("startGeneration Memory Recall preflight", () => {
           .at(-1)
           ?.messages.map((message) => message.content)
           .join("\n") ?? "";
-      expect(lastPrompt).toContain("The user's cat is named Miso.");
+      expect(lastPrompt).toContain("{{user}}'s cat is named Miso.");
       expect(harness.messages.filter((message) => message.role === "assistant").at(-1)?.content).toBe(
         "You told me your cat is named Miso.",
       );
