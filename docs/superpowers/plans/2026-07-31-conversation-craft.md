@@ -8,6 +8,8 @@
 
 **Tech Stack:** TypeScript 5.9, Vitest, De-Koi engine contracts/capabilities, existing LLM Agent runtime, pnpm.
 
+**Implementation note:** The final size-safe implementation reuses the hidden `narrative-craft` runtime with a Conversation-specific prompt and gate instead of registering a second built-in. The behavioral acceptance criteria and test lanes below remain authoritative; references to a separate built-in describe the original implementation route.
+
 ## Global Constraints
 
 - Automatic for both one-on-one and group Conversation chats, including existing chats.
@@ -26,6 +28,7 @@
 ### Task 1: Conversation Craft contracts, prompt, and final baseline guide
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/agent.ts`
 - Modify: `src/engine/contracts/constants/agent-prompts.ts`
 - Modify: `src/engine/contracts/constants/agent-prompts.spec.ts`
@@ -37,6 +40,7 @@
 - Modify: `src/engine/shared/text/generation-guide.spec.ts`
 
 **Interfaces:**
+
 - Produces: `CONVERSATION_CRAFT_AGENT_TYPE`, `CONVERSATION_CRAFT_BASELINE_GUIDANCE`, `ConversationCraftIssue`, `ConversationCraftState`, `normalizeConversationCraftState`, and `conversationCraftDirectiveForIssue`.
 - Produces: `BuildGenerationGuideMessagesInput.conversationCraftMode?: "solo" | "group" | null`.
 - Consumes: existing `BUILT_IN_AGENT_DEFINITIONS`, result types, and final internal guide assembly.
@@ -111,12 +115,14 @@ git commit -m "Add Conversation Craft prompt contracts"
 ### Task 2: Validated critic output and one-shot memory
 
 **Files:**
+
 - Modify: `src/engine/agents-runtime/executor/agent-executor.ts`
 - Create: `src/engine/agents-runtime/executor/agent-executor.conversation-craft.spec.ts`
 - Modify: `src/engine/generation/agent-memory-runtime.ts`
 - Modify: `src/engine/generation/agent-memory-runtime.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `ConversationCraftIssue`, `normalizeConversationCraftState`, and `conversationCraftDirectiveForIssue` from Task 1.
 - Produces: `loadConversationCraftState(storage, agentId, chatId)`.
 - Produces: `persistConversationCraftAgentMemory(storage, chatId, results)`.
@@ -192,10 +198,12 @@ git commit -m "Validate Conversation Craft feedback"
 ### Task 3: Automatic runtime activation and four-message cadence
 
 **Files:**
+
 - Modify: `src/engine/generation/agent-runner.ts`
 - Modify: `src/engine/generation/agent-runner.test.ts`
 
 **Interfaces:**
+
 - Extends `GenerationAgentRuntime` with `conversationCraftAnalysisDue` and `runConversationCraftAnalysis(mainResponse, options)`.
 - Extends `GenerationAgentRuntimeInput` with `automaticConversationCraftOnly?: boolean` for direct-message isolation.
 - Consumes Task 2 memory functions.
@@ -243,6 +251,7 @@ git commit -m "Activate Conversation Craft automatically"
 ### Task 4: Shared background queue and detached generation lifecycle
 
 **Files:**
+
 - Create: `src/engine/generation/craft-analysis-background.ts`
 - Create: `src/engine/generation/craft-analysis-background.spec.ts`
 - Modify: `src/engine/generation/narrative-craft-background.ts`
@@ -251,6 +260,7 @@ git commit -m "Activate Conversation Craft automatically"
 - Modify: `src/engine/generation/start-generation.ts`
 
 **Interfaces:**
+
 - Produces: `scheduleCraftAnalysis({ storage, chatId, stage, run, onDiagnostic })`.
 - Produces: `cancelCraftAnalysis(storage, chatId)` and `cancelCraftAnalysesForForeground(storage)`.
 - Narrative Craft wrappers delegate to the shared queue without behavior change.
@@ -324,11 +334,13 @@ git commit -m "Run Conversation Craft after replies"
 ### Task 5: Quality and latency evaluation
 
 **Files:**
+
 - Create: `.github/pr-evidence/conversation-craft/proof-ledger.json`
 - Modify: `docs/superpowers/specs/2026-07-31-conversation-craft-design.md` only if measured evidence requires narrowing a claim.
 - Scratch only, not committed: `D:\tmp\user-temp\de-koi-conversation-craft-20260731\`
 
 **Interfaces:**
+
 - Consumes the production prompt builder and one configured writer model.
 - Produces reproducible baseline/treatment outputs, blind judgments, call-order timings, and a checked proof ledger.
 
@@ -361,9 +373,11 @@ git commit -m "Document Conversation Craft proof"
 ### Task 6: Full verification, Bunny, PR, merge, and Pi deployment
 
 **Files:**
+
 - Modify only files required by verified failures or Bunny findings.
 
 **Interfaces:**
+
 - Consumes all feature tasks and proof artifacts.
 - Produces a merged PR and exact-revision Pi deployment receipt.
 

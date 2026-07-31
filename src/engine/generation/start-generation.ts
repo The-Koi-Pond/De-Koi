@@ -41,19 +41,13 @@ import {
   assertChatHasActiveCharacters,
   assertRequestedCharacterIsActive,
 } from "./active-characters";
-import {
-  persistConversationCraftAgentMemory,
-  persistNarrativeCraftAgentMemory,
-} from "./agent-memory-runtime";
+import { persistNarrativeCraftAgentMemory } from "./agent-memory-runtime";
 import {
   createGenerationAgentRuntime,
   runFocusedRoleplayQualityAudit,
   type GenerationAgentRuntime,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
-import {
-  scheduleNarrativeCraftAnalysis,
-} from "./narrative-craft-background";
 import { cancelCraftAnalysesForForeground, scheduleCraftAnalysis } from "./craft-analysis-background";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import { generationContextAttribution } from "./context-attribution";
@@ -2518,45 +2512,40 @@ async function persistAgentResults(
   }
 }
 
-async function persistNarrativeCraftAgentMemorySafely(
+async function persistCraftAgentMemorySafely(
   storage: StorageGateway,
   chatId: string,
   results: AgentResult[],
 ): Promise<void> {
   try {
-    await persistNarrativeCraftAgentMemory(storage, chatId, results);
+    if (results.some((result) => result.agentType === "narrative-craft")) {
+      await persistNarrativeCraftAgentMemory(storage, chatId, results);
+    }
   } catch (error) {
-    console.warn("[generation] narrative craft memory persist failed", error);
+    console.warn("[generation] craft memory persist failed", error);
   }
 }
 
-async function persistConversationCraftAgentMemorySafely(
-  storage: StorageGateway,
-  chatId: string,
-  results: AgentResult[],
-): Promise<void> {
-  try {
-    await persistConversationCraftAgentMemory(storage, chatId, results);
-  } catch (error) {
-    console.warn("[generation] conversation craft memory persist failed", error);
-  }
-}
-
-function scheduleNarrativeCraftAfterSavedAssistant(args: {
+function scheduleCraftAfterSavedAssistant(args: {
   deps: GenerationEngineDeps;
   runtime: GenerationAgentRuntime | null;
   chatId: string;
   messageId: string | null;
   content: string;
+  kind: "narrative" | "conversation";
 }): boolean {
   if (!args.runtime?.narrativeCraftAnalysisDue || !args.messageId) return false;
-  return scheduleNarrativeCraftAnalysis({
+  const stage = args.kind === "narrative" ? "narrative_craft_analysis" : "conversation_craft_analysis";
+  const timingName =
+    args.kind === "narrative" ? "generation.narrative_craft_background" : "generation.conversation_craft_background";
+  return scheduleCraftAnalysis({
     storage: args.deps.storage,
     chatId: args.chatId,
+    stage,
     onDiagnostic: args.deps.onPerformanceTiming
       ? (diagnostic) =>
           args.deps.onPerformanceTiming?.({
-            name: "generation.narrative_craft_background",
+            name: timingName,
             elapsedMs: diagnostic.durationMs,
             status: diagnostic.status,
           })
@@ -2565,35 +2554,6 @@ function scheduleNarrativeCraftAfterSavedAssistant(args: {
       const results = await args.runtime!.runNarrativeCraftAnalysis(args.content, { signal });
       if (results.length === 0) return;
       await persistNarrativeCraftAgentMemory(args.deps.storage, args.chatId, results);
-      await persistAgentResults(args.deps.storage, args.chatId, args.messageId, results);
-    },
-  });
-}
-
-function scheduleConversationCraftAfterSavedAssistant(args: {
-  deps: GenerationEngineDeps;
-  runtime: GenerationAgentRuntime | null;
-  chatId: string;
-  messageId: string | null;
-  content: string;
-}): boolean {
-  if (!args.runtime?.conversationCraftAnalysisDue || !args.messageId) return false;
-  return scheduleCraftAnalysis({
-    storage: args.deps.storage,
-    chatId: args.chatId,
-    stage: "conversation_craft_analysis",
-    onDiagnostic: args.deps.onPerformanceTiming
-      ? (diagnostic) =>
-          args.deps.onPerformanceTiming?.({
-            name: "generation.conversation_craft_background",
-            elapsedMs: diagnostic.durationMs,
-            status: diagnostic.status,
-          })
-      : undefined,
-    run: async (signal) => {
-      const results = await args.runtime!.runConversationCraftAnalysis(args.content, { signal });
-      if (results.length === 0) return;
-      await persistConversationCraftAgentMemory(args.deps.storage, args.chatId, results);
       await persistAgentResults(args.deps.storage, args.chatId, args.messageId, results);
     },
   });
@@ -4215,7 +4175,7 @@ async function runGenerationAgentsForTarget(args: {
       deps.onTrackerSnapshotSaved,
     );
   }
-  await persistNarrativeCraftAgentMemorySafely(deps.storage, chatId, finalResults);
+  await persistCraftAgentMemorySafely(deps.storage, chatId, finalResults);
   await persistAgentResults(deps.storage, chatId, target ? readString(target.id) || null : null, finalResults);
 
   const events: GenerationEvent[] = runtime.agentWarnings.map((warning) => ({ type: "agent_warning", data: warning }));
@@ -5079,9 +5039,10 @@ async function* startGenerationImpl(
         parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
         baseMessages,
         previewMessages: withUserMessageRegenerationRewritePrompt(
-          [...promptPreviewMessages, ...generationGuideMessages(input, chatForGeneration, runtime?.preInjections)].filter(
-            (message): message is LlmMessage => !!message,
-          ),
+          [
+            ...promptPreviewMessages,
+            ...generationGuideMessages(input, chatForGeneration, runtime?.preInjections),
+          ].filter((message): message is LlmMessage => !!message),
           assembly.userRegenerationSourceMessage,
         ),
         contextAttribution: generationContextAttribution(assembly.contextAttributionItems),
@@ -5331,8 +5292,7 @@ async function* startGenerationImpl(
           );
         }
         throwIfAborted(signal);
-        await persistNarrativeCraftAgentMemorySafely(deps.storage, chatId, allAgentResults);
-        await persistConversationCraftAgentMemorySafely(deps.storage, chatId, allAgentResults);
+        await persistCraftAgentMemorySafely(deps.storage, chatId, allAgentResults);
         throwIfAborted(signal);
         await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
         throwIfAborted(signal);
@@ -5342,19 +5302,13 @@ async function* startGenerationImpl(
       }
       if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
       if (savedAssistantGeneration) {
-        scheduleNarrativeCraftAfterSavedAssistant({
+        scheduleCraftAfterSavedAssistant({
           deps,
           runtime,
           chatId,
           messageId: messageId(latestSaved),
           content: displayContent,
-        });
-        scheduleConversationCraftAfterSavedAssistant({
-          deps,
-          runtime,
-          chatId,
-          messageId: messageId(latestSaved),
-          content: displayContent,
+          kind: readString(chat.mode || chat.chatMode).trim() === "conversation" ? "conversation" : "narrative",
         });
       }
       yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
@@ -5457,23 +5411,20 @@ async function* startGenerationImpl(
   const directConversationCraftEnabled =
     input.impersonateBlockAgents !== true &&
     !isUserMessageRegeneration &&
+    boolish(parseRecord(chatForGeneration.metadata).enableAgents, true) &&
     readString(chatForGeneration.mode || chatForGeneration.chatMode).trim() === "conversation";
   const directCraftRuntime: GenerationAgentRuntime | null =
     directNarrativeCraftEnabled || directConversationCraftEnabled
-    ? await createGenerationAgentRuntime(
-        { storage: deps.storage, llm: deps.llm, integrations: deps.integrations, visuals: deps.visuals },
-        {
-          ...directAgentInput,
-          agentTypes: new Set([
-            ...(directNarrativeCraftEnabled ? [NARRATIVE_CRAFT_AGENT_TYPE] : []),
-            ...(directConversationCraftEnabled ? ["conversation-craft"] : []),
-          ]),
-          automaticNarrativeCraftOnly: true,
-          automaticConversationCraftOnly: directConversationCraftEnabled,
-          bypassCustomAgentActivation: true,
-        },
-      )
-    : null;
+      ? await createGenerationAgentRuntime(
+          { storage: deps.storage, llm: deps.llm, integrations: deps.integrations, visuals: deps.visuals },
+          {
+            ...directAgentInput,
+            agentTypes: new Set([NARRATIVE_CRAFT_AGENT_TYPE]),
+            automaticNarrativeCraftOnly: true,
+            bypassCustomAgentActivation: true,
+          },
+        )
+      : null;
   throwIfAborted(signal);
   for (const warning of directCraftRuntime?.agentWarnings ?? []) {
     yield { type: "agent_warning", data: warning };
@@ -5675,19 +5626,13 @@ async function* startGenerationImpl(
     }
     if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
     if (savedAssistantGeneration) {
-      scheduleNarrativeCraftAfterSavedAssistant({
+      scheduleCraftAfterSavedAssistant({
         deps,
         runtime: directCraftRuntime,
         chatId,
         messageId: messageId(saved),
         content: displayContentDirect,
-      });
-      scheduleConversationCraftAfterSavedAssistant({
-        deps,
-        runtime: directCraftRuntime,
-        chatId,
-        messageId: messageId(saved),
-        content: displayContentDirect,
+        kind: readString(chat.mode || chat.chatMode).trim() === "conversation" ? "conversation" : "narrative",
       });
     }
     yield { type: "done" };

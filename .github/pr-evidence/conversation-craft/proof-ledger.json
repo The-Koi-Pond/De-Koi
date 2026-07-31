@@ -12,7 +12,7 @@
   "scope": {
     "inScope": [
       "First-reply solo and group Conversation guidance",
-      "Automatic hidden Conversation Craft built-in",
+      "Automatic hidden craft critic with a Conversation-specific prompt",
       "Configured default Agent connection and model resolution",
       "First eligible reply then four-assistant-message cadence",
       "Exact assistant-evidence validation and deterministic directives",
@@ -36,8 +36,6 @@
       "src/engine/contracts/types/agent.spec.ts",
       "src/engine/agents-runtime/executor/agent-executor.ts",
       "src/engine/agents-runtime/executor/agent-executor.conversation-craft.spec.ts",
-      "src/engine/generation/agent-memory-runtime.ts",
-      "src/engine/generation/agent-memory-runtime.spec.ts",
       "src/engine/generation/agent-runner.ts",
       "src/engine/generation/agent-runner.test.ts",
       "src/engine/generation/craft-analysis-background.ts",
@@ -48,6 +46,7 @@
       "src/engine/shared/text/generation-guide.ts",
       "src/engine/shared/text/generation-guide.spec.ts",
       "src/shared/lib/performance-diagnostics.ts",
+      "scripts/check-bundle-budgets.mjs",
       "docs/superpowers/specs/2026-07-31-conversation-craft-design.md",
       "docs/superpowers/plans/2026-07-31-conversation-craft.md",
       ".github/pr-evidence/conversation-craft/proof-ledger.json"
@@ -72,13 +71,13 @@
       "Dry-run and prompt preview"
     ],
     "currentPathsOrFormats": [
-      "conversation-craft built-in Agent",
-      "Version 1 bounded Conversation Craft state",
+      "narrative-craft runtime with Conversation-specific prompt and gate",
+      "Version 1 shared craft memory envelope",
       "Flat exact-evidence excerpts",
       "Consume-once context injection"
     ],
     "legacyPathsOrFormats": [
-      "Existing Conversation chats with no Conversation Craft active ID",
+      "Existing Conversation chats with no craft Agent active ID",
       "Existing explicit agentInjectionOverrides",
       "Existing enableAgents false metadata"
     ],
@@ -94,7 +93,7 @@
     "producer": "The Conversation writer produces and saves an assistant message.",
     "consumer": "The final writer guide and the next eligible Conversation prompt consume baseline or one-shot guidance.",
     "impliedContract": "Quality guidance must apply from the first reply, use the configured Agent model for later analysis, remain grounded in written assistant text, and stay outside foreground latency.",
-    "actualEnforcement": "The generation guide owns the first-reply baseline; agent-runner owns automatic configured-model resolution and cadence; the executor owns exact-evidence validation; agent memory owns one-shot state; the shared scheduler owns detachment, coalescing, and foreground cancellation.",
+    "actualEnforcement": "The generation guide owns the first-reply baseline; agent-runner reuses Narrative Craft's configured-model resolution and cadence; the executor selects the Conversation evidence gate; shared agent memory owns one-shot state; the scheduler owns detachment, coalescing, and foreground cancellation.",
     "primaryOwnerLane": "src/engine",
     "primaryOwnerDetail": "The engine owns prompt construction, provider resolution, generated output, persistence, and background lifecycle.",
     "consumerOnlyLanes": ["src/features"],
@@ -160,7 +159,7 @@
     {
       "description": "Only one validated directive can be pending and it is consumed once.",
       "sourceType": "harness-proven",
-      "evidence": "State normalization bounds pendingGuidance to one item and memory runtime tests consume it once while preserving the diagnostic state."
+      "evidence": "The shared craft memory normalizer bounds pendingGuidance to one item and runtime tests consume it once while preserving diagnostic state."
     },
     {
       "description": "The final live sample did not show added writer latency.",
@@ -190,7 +189,7 @@
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm vitest run <Conversation Craft focused suites> && pnpm typecheck",
-    "baselineEvidence": "The combined focused suite passed 84 tests before final wording refinement; final wording-specific and full repository verification run in the release gate.",
+    "baselineEvidence": "The final combined focused suite passed 99 tests; full repository verification runs in the release gate.",
     "githubValidationPassed": false,
     "edgeRowsTested": [
       "Solo and group first reply",
@@ -210,7 +209,7 @@
       "No critic surviving foreground cancellation"
     ],
     "afterEvidence": [
-      "pnpm vitest run src/engine/shared/text/conversation-craft.spec.ts src/engine/shared/text/generation-guide.spec.ts src/engine/contracts/constants/agent-prompts.spec.ts src/engine/agents-runtime/executor/agent-executor.conversation-craft.spec.ts src/engine/generation/agent-memory-runtime.spec.ts src/engine/generation/agent-runner.test.ts src/engine/generation/craft-analysis-background.spec.ts src/engine/generation/narrative-craft-background.spec.ts src/engine/generation/start-generation.conversation-craft-background.spec.ts src/engine/generation/start-generation.narrative-craft-background.spec.ts",
+      "pnpm vitest run src/engine/contracts/constants/conversation-craft.spec.ts src/engine/shared/text/generation-guide.spec.ts src/engine/contracts/constants/agent-prompts.spec.ts src/engine/agents-runtime/executor/agent-executor.conversation-craft.spec.ts src/engine/generation/agent-memory-runtime.spec.ts src/engine/generation/agent-runner.test.ts src/engine/generation/craft-analysis-background.spec.ts src/engine/generation/narrative-craft-background.spec.ts src/engine/generation/start-generation.conversation-craft-background.spec.ts src/engine/generation/start-generation.narrative-craft-background.spec.ts",
       "python D:/tmp/user-temp/de-koi-conversation-craft-20260731/run_eval.py",
       "pnpm typecheck",
       "pnpm check:architecture",
@@ -221,10 +220,10 @@
   },
   "checks": {
     "baselineCommand": "pnpm check",
-    "baselineStatus": "pending final run",
+    "baselineStatus": "passed",
     "ciStatus": "pending",
-    "bunnyReviewStatus": "pending",
-    "prHealthStatus": "pending"
+    "bunnyReviewStatus": "passed locally",
+    "prHealthStatus": "pending PR"
   },
   "finalGate": {
     "coreClaimProven": true,

@@ -36,8 +36,8 @@ function context(mode: "solo" | "group", recentMessages: ChatMessage[], mainResp
 }
 
 const config: AgentExecConfig = {
-  id: "builtin:conversation-craft",
-  type: "conversation-craft",
+  id: "builtin:narrative-craft",
+  type: "narrative-craft",
   name: "Conversation Craft",
   phase: "post_processing",
   promptTemplate: "Return Conversation Craft JSON.",
@@ -86,8 +86,7 @@ describe("Conversation Craft executor validation", () => {
       issue: "therapy-speak",
       intervened: true,
     });
-    expect(prompt).toContain("<conversation_craft_state>");
-    expect(prompt).toContain('"conversationMode":"solo"');
+    expect(prompt).not.toContain("<conversation_craft_state>");
   });
 
   it("suppresses evidence that is absent from assistant messages", async () => {

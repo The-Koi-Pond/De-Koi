@@ -17,7 +17,7 @@ Make one-on-one and group Conversation Mode replies feel like natural, character
 
 ## Chosen Architecture
 
-Add a Conversation Mode-owned `conversation-craft` built-in background critic. It follows the successful Narrative Craft timing pattern but has its own prompt, state, validation rules, and guidance because prose fiction and private texting have different failure modes.
+Reuse the hidden `narrative-craft` Agent runtime in Conversation Mode, selecting a Conversation-specific prompt and evidence gate there. This preserves the configured Agent-model fallback, cadence, memory, and detached lifecycle without shipping a duplicate built-in or runtime.
 
 Conversation Craft has two layers:
 
@@ -43,7 +43,7 @@ The runtime places this in the existing final internal generation-guide block, a
 
 ## Adaptive Critic
 
-The critic runs after the first saved assistant reply and then on the existing four-assistant-message cadence. It receives recent visible chat, the completed response, character/persona context, the solo/group classification, and compact prior Conversation Craft state.
+The critic runs after the first saved assistant reply and then on the existing four-assistant-message cadence. It receives recent visible chat, the completed response, character/persona context, and the solo/group classification. Conversation runs do not receive roleplay Narrative Craft state.
 
 It may classify at most one supported issue:
 
@@ -58,19 +58,11 @@ It may classify at most one supported issue:
 - `group-omnireply`
 - `group-voice-collapse`
 
-The model does not author arbitrary instructions. It returns an issue, exact evidence excerpts, compact state, and an intervention decision. Engine validation confirms that evidence occurs in recent assistant text, applies issue-specific evidence-count requirements, and maps the issue to a bounded deterministic directive. Invalid, unsupported, requested, or weakly evidenced findings produce no guidance.
+The model does not author arbitrary instructions. It returns an issue, exact evidence excerpts, and an intervention decision. Engine validation confirms that evidence occurs in recent assistant text, applies issue-specific evidence-count requirements, and maps the issue to a bounded deterministic directive. Invalid, unsupported, requested, or weakly evidenced findings produce no guidance.
 
 ## State and Persistence
 
-Conversation Craft stores versioned chat-scoped Agent memory containing:
-
-- whether the latest analysis concerned a solo or group conversation;
-- a bounded list of recent observed patterns;
-- a bounded list of recent strengths worth preserving;
-- zero or one pending directive;
-- the last analysis reason.
-
-The next generation atomically consumes the pending directive and clears it. State normalization bounds all arrays and strings, ignores malformed fields, and permits future version migration without changing the storage schema.
+Conversation Craft reuses Narrative Craft's versioned, chat-scoped memory envelope to store zero or one pending directive and the last analysis reason. The next generation atomically consumes the directive and clears it. Conversation chats have separate chat IDs, and their critic never receives roleplay state, so the shared storage mechanism does not blend the two rubrics.
 
 ## Scheduling and Group Behavior
 

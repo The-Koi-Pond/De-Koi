@@ -204,7 +204,6 @@ export interface AgentContext {
 export const BUILT_IN_AGENT_IDS = {
   WORLD_STATE: "world-state",
   NARRATIVE_CRAFT: "narrative-craft",
-  CONVERSATION_CRAFT: "conversation-craft",
   CONTINUITY: "continuity",
   EXPRESSION: "expression",
   ECHO_CHAMBER: "echo-chamber",
@@ -237,7 +236,7 @@ export type AgentCategory = "writer" | "tracker" | "misc";
 export type AgentChatMode = "conversation" | "roleplay" | "game" | "visual_novel";
 
 const CONVERSATION_BUILT_IN_AGENT_IDS = [
-  "conversation-craft",
+  "narrative-craft",
   "schedule-planner",
   "response-orchestrator",
   "autonomous-messenger",
@@ -245,7 +244,7 @@ const CONVERSATION_BUILT_IN_AGENT_IDS = [
   "music-dj",
 ] as const;
 
-const CONVERSATION_AGENT_PICKER_HIDDEN_IDS = new Set(["conversation-craft"]);
+const CONVERSATION_AGENT_PICKER_HIDDEN_IDS = new Set(["narrative-craft"]);
 
 const GAME_BUILT_IN_AGENT_IDS = ["world-state", "quest", "expression", "combat"] as const;
 
@@ -280,16 +279,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     enabledByDefault: false,
     defaultInjectAsSection: true,
     category: "writer",
-    modeAllowlist: ["roleplay", "visual_novel"],
-  },
-  {
-    id: "conversation-craft",
-    name: "Conversation Craft",
-    description: "Quietly reviews completed Conversation Mode messages and improves later texting quality.",
-    phase: "post_processing",
-    enabledByDefault: false,
-    category: "writer",
-    modeAllowlist: ["conversation"],
+    modeAllowlist: ["conversation", "roleplay", "visual_novel"],
   },
   {
     id: "continuity",
@@ -635,7 +625,6 @@ export function filterAgentIdsForChatMode(agentIds: Iterable<string>, mode: unkn
 
 export const BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS: Readonly<Record<string, number>> = {
   "narrative-craft": 4,
-  "conversation-craft": 4,
   illustrator: 5,
   "lorebook-keeper": 8,
   "card-evolution-auditor": 8,
@@ -659,11 +648,6 @@ export function getDefaultBuiltInAgentSettings(agentType: string): Record<string
 
   if (agentType === "narrative-craft") {
     settings.maxTokens = 2500;
-    settings.temperature = 0;
-  }
-
-  if (agentType === "conversation-craft") {
-    settings.maxTokens = 1400;
     settings.temperature = 0;
   }
 

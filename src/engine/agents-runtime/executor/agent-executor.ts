@@ -10,11 +10,7 @@ import type {
 } from "../../generation-core/llm/base-provider.js";
 import type { AgentResult, AgentContext, AgentResultType } from "../../contracts/types/agent";
 import { getDefaultAgentPrompt } from "../../contracts/constants/agent-prompts";
-import {
-  conversationCraftDirectiveForIssue,
-  normalizeConversationCraftState,
-  type ConversationCraftMode,
-} from "../../contracts/constants/conversation-craft";
+import { conversationCraftDirectiveForIssue } from "../../contracts/constants/conversation-craft";
 import {
   DEFAULT_AGENT_CONTEXT_SIZE,
   DEFAULT_AGENT_MAX_TOKENS,
@@ -664,169 +660,84 @@ function withoutNarrativeCraftGuidance(data: Record<string, unknown>, reason: st
   };
 }
 
-function applyNarrativeCraftGuidanceGate(
-  config: Pick<AgentExecConfig, "type">,
-  context: Pick<AgentContext, "mainResponse" | "recentMessages">,
-  data: unknown,
-): unknown {
-  if (config.type !== "narrative-craft" || !isJsonRecord(data)) return data;
-
-  const text = typeof data.text === "string" ? data.text.trim() : "";
-  const intervened = data.intervened === true;
-  if (!text && !intervened) {
-    const reason =
-      typeof data.reason === "string" && data.reason.trim()
-        ? data.reason.trim()
-        : "Narrative Craft found no material intervention.";
-    return withoutNarrativeCraftGuidance(data, reason);
-  }
-
-  const assistantProse = context.recentMessages
-    .filter((message) => message.role === "assistant")
-    .map((message) => message.content.trim())
-    .filter(Boolean);
-  const completedResponse = (context.mainResponse ?? "").trim();
-  if (completedResponse) assistantProse.push(completedResponse);
-  if (assistantProse.length === 0) {
-    return withoutNarrativeCraftGuidance(data, "No existing assistant prose supports an intervention.");
-  }
-
-  let evidence: string[] | undefined;
-  for (const candidate of narrativeCraftEvidenceCandidates(data.evidence)) {
-    const normalizedEvidence = candidate.map(normalizedEvidenceText);
-    if (
-      normalizedEvidence.length === 2 &&
-      normalizedEvidence[0] !== normalizedEvidence[1] &&
-      normalizedEvidence.every(
-        (excerpt) =>
-          excerpt.length >= 8 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
-      )
-    ) {
-      evidence = candidate;
-      break;
-    }
-  }
-  if (!evidence) {
-    return withoutNarrativeCraftGuidance(
-      data,
-      "Narrative Craft did not cite two different exact excerpts from existing assistant prose.",
-    );
-  }
-
-  const issue = typeof data.issue === "string" ? data.issue.trim() : "";
-  const directive = NARRATIVE_CRAFT_DIRECTIVE_BY_ISSUE[issue];
-  if (!directive) {
-    return withoutNarrativeCraftGuidance(data, "Narrative Craft did not select a supported prose issue.");
-  }
-  const state = isJsonRecord(data.state)
-    ? {
-        ...data.state,
-        lastGuidance: [directive],
-      }
-    : data.state;
-
-  return {
-    ...data,
-    text: directive,
-    evidence,
-    issue,
-    ...(state === undefined ? {} : { state }),
-    intervened: true,
-  };
-}
-
 function withoutConversationCraftGuidance(data: Record<string, unknown>, reason: string): Record<string, unknown> {
   return {
     ...data,
     text: "",
     evidence: [],
     issue: "",
-    state: {
-      ...normalizeConversationCraftState(data.state),
-      pendingGuidance: [],
-    },
+    state: {},
     reason,
     intervened: false,
   };
 }
 
-function applyConversationCraftGuidanceGate(
+function applyCraftGuidanceGates(
   config: Pick<AgentExecConfig, "type">,
-  context: Pick<AgentContext, "mainResponse" | "recentMessages" | "characters">,
+  context: Pick<AgentContext, "chatMode" | "mainResponse" | "recentMessages" | "characters">,
   data: unknown,
 ): unknown {
-  if (config.type !== "conversation-craft" || !isJsonRecord(data)) return data;
-
-  const mode: ConversationCraftMode = context.characters.length > 1 ? "group" : "solo";
-  if (data.intervened !== true) {
+  if (config.type !== "narrative-craft" || !isJsonRecord(data)) return data;
+  const conversation = context.chatMode === "conversation";
+  if (data.intervened !== true && (conversation || typeof data.text !== "string" || !data.text.trim())) {
     const reason =
-      typeof data.reason === "string" && data.reason.trim()
-        ? data.reason.trim()
-        : "Conversation Craft found no material intervention.";
-    return withoutConversationCraftGuidance(data, reason);
+      (typeof data.reason === "string" && data.reason.trim()) ||
+      `${conversation ? "Conversation" : "Narrative"} Craft found no material intervention.`;
+    return conversation ? withoutConversationCraftGuidance(data, reason) : withoutNarrativeCraftGuidance(data, reason);
   }
-
+  const reject = (reason: string) =>
+    conversation ? withoutConversationCraftGuidance(data, reason) : withoutNarrativeCraftGuidance(data, reason);
   const assistantProse = context.recentMessages
     .filter((message) => message.role === "assistant")
     .map((message) => message.content.trim())
     .filter(Boolean);
   const completedResponse = (context.mainResponse ?? "").trim();
   if (completedResponse) assistantProse.push(completedResponse);
-  if (assistantProse.length === 0) {
-    return withoutConversationCraftGuidance(data, "No existing assistant prose supports an intervention.");
-  }
+  if (assistantProse.length === 0) return reject("No grounded intervention.");
 
   const issue = typeof data.issue === "string" ? data.issue.trim() : "";
-  const directive = conversationCraftDirectiveForIssue(issue, mode);
-  if (!directive) {
-    return withoutConversationCraftGuidance(data, "Conversation Craft did not select an issue valid for this mode.");
+  const directive = conversation
+    ? conversationCraftDirectiveForIssue(issue, context.characters.length > 1 ? "group" : "solo")
+    : NARRATIVE_CRAFT_DIRECTIVE_BY_ISSUE[issue];
+  if (!directive) return reject("Invalid issue.");
+
+  if (conversation) {
+    const evidence = Array.isArray(data.evidence)
+      ? data.evidence
+          .filter((entry): entry is string => typeof entry === "string")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .slice(0, 2)
+      : [];
+    const required = issue === "polished-shape" || issue === "group-voice-collapse" ? 2 : 1;
+    const normalized = evidence.map(normalizedEvidenceText);
+    if (
+      evidence.length !== required ||
+      new Set(normalized).size !== required ||
+      !normalized.every(
+        (excerpt) =>
+          excerpt.length >= 4 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
+      )
+    ) {
+      return reject("Ungrounded evidence.");
+    }
+    return { ...data, text: directive, evidence, issue, state: {}, intervened: true };
   }
 
-  const evidence = Array.isArray(data.evidence)
-    ? data.evidence
-        .filter((entry): entry is string => typeof entry === "string")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .slice(0, 2)
-    : [];
-  const requiredEvidence = issue === "polished-shape" || issue === "group-voice-collapse" ? 2 : 1;
-  const normalizedEvidence = evidence.map(normalizedEvidenceText);
-  const grounded =
-    evidence.length === requiredEvidence &&
-    new Set(normalizedEvidence).size === requiredEvidence &&
-    normalizedEvidence.every(
-      (excerpt) =>
-        excerpt.length >= 4 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
+  const evidence = narrativeCraftEvidenceCandidates(data.evidence).find((candidate) => {
+    const normalized = candidate.map(normalizedEvidenceText);
+    return (
+      normalized.length === 2 &&
+      normalized[0] !== normalized[1] &&
+      normalized.every(
+        (excerpt) =>
+          excerpt.length >= 8 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
+      )
     );
-  if (!grounded) {
-    return withoutConversationCraftGuidance(
-      data,
-      requiredEvidence === 2
-        ? "Conversation Craft did not cite two different exact excerpts from assistant messages."
-        : "Conversation Craft did not cite an exact excerpt from an assistant message.",
-    );
-  }
-
-  return {
-    ...data,
-    text: directive,
-    evidence,
-    issue,
-    state: {
-      ...normalizeConversationCraftState(data.state),
-      conversationMode: mode,
-      pendingGuidance: [],
-    },
-    intervened: true,
-  };
-}
-
-function applyCraftGuidanceGates(
-  config: Pick<AgentExecConfig, "type">,
-  context: Pick<AgentContext, "mainResponse" | "recentMessages" | "characters">,
-  data: unknown,
-): unknown {
-  return applyConversationCraftGuidanceGate(config, context, applyNarrativeCraftGuidanceGate(config, context, data));
+  });
+  if (!evidence) return reject("Narrative Craft requires two grounded excerpts.");
+  const state = isJsonRecord(data.state) ? { ...data.state, lastGuidance: [directive] } : data.state;
+  return { ...data, text: directive, evidence, issue, ...(state === undefined ? {} : { state }), intervened: true };
 }
 
 function normalizeSpotifyTrackUri(value: unknown): string | null {
@@ -2815,12 +2726,6 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
     parts.push(`</narrative_craft_state>`);
   }
 
-  if (context.memory._conversationCraftState) {
-    parts.push(`<conversation_craft_state>`);
-    parts.push(JSON.stringify(context.memory._conversationCraftState));
-    parts.push(`</conversation_craft_state>`);
-  }
-
   return parts.join("\n");
 }
 
@@ -2828,7 +2733,6 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
 const AGENT_RESULT_TYPE_MAP: Record<string, AgentResultType> = {
   "world-state": "game_state_update",
   "narrative-craft": "context_injection",
-  "conversation-craft": "context_injection",
   continuity: "continuity_check",
   expression: "sprite_change",
   "echo-chamber": "echo_message",
@@ -2910,7 +2814,6 @@ function isTextOutputAgentType(agentType: string): boolean {
 const JSON_AGENTS = new Set([
   "world-state",
   "narrative-craft",
-  "conversation-craft",
   "continuity",
   "expression",
   "echo-chamber",

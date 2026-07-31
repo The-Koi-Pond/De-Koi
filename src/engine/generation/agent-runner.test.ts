@@ -1483,7 +1483,7 @@ describe("Narrative Craft runtime cadence", () => {
       agentRuns?: JsonRecord[];
       memoryRows?: JsonRecord[];
       agentInjectionOverrides?: GenerationAgentRuntimeInput["agentInjectionOverrides"];
-      automaticConversationCraftOnly?: boolean;
+      automaticNarrativeCraftOnly?: boolean;
     } = {},
   ): { input: GenerationAgentRuntimeInput; storage: StorageGateway } {
     const input = activeAgentRuntimeInput(connection, {
@@ -1495,7 +1495,7 @@ describe("Narrative Craft runtime cadence", () => {
       options.characters ?? [{ id: "char-1", name: "Mira", description: "A dry friend", tags: [] }];
     input.storedMessages = options.storedMessages ?? [{ id: "user-1", role: "user", content: "hello" }];
     input.agentInjectionOverrides = options.agentInjectionOverrides;
-    input.automaticConversationCraftOnly = options.automaticConversationCraftOnly;
+    input.automaticNarrativeCraftOnly = options.automaticNarrativeCraftOnly;
     return {
       input,
       storage: storageForNarrativeCraft({ agentRuns: options.agentRuns, memoryRows: options.memoryRows }),
@@ -1511,7 +1511,7 @@ describe("Narrative Craft runtime cadence", () => {
     );
 
     expect(runtime.preInjections).toEqual([]);
-    expect(runtime.conversationCraftAnalysisDue).toBe(true);
+    expect(runtime.narrativeCraftAnalysisDue).toBe(true);
     expect(requests).toHaveLength(0);
   });
 
@@ -1523,8 +1523,8 @@ describe("Narrative Craft runtime cadence", () => {
       input,
     );
 
-    expect(runtime.conversationCraftAnalysisDue).toBe(false);
-    await expect(runtime.runConversationCraftAnalysis("hello back")).resolves.toEqual([]);
+    expect(runtime.narrativeCraftAnalysisDue).toBe(false);
+    await expect(runtime.runNarrativeCraftAnalysis("hello back")).resolves.toEqual([]);
     expect(requests).toHaveLength(0);
   });
 
@@ -1542,7 +1542,7 @@ describe("Narrative Craft runtime cadence", () => {
     );
 
     await expect(
-      runtime.runConversationCraftAnalysis("I hear you, and your feelings are completely valid."),
+      runtime.runNarrativeCraftAnalysis("I hear you, and your feelings are completely valid."),
     ).resolves.toHaveLength(1);
     expect(requests).toHaveLength(1);
     const prompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
@@ -1565,7 +1565,7 @@ describe("Narrative Craft runtime cadence", () => {
       memoryRows: [
         {
           id: "conversation-state",
-          agentConfigId: "builtin:conversation-craft",
+          agentConfigId: "builtin:narrative-craft",
           chatId: "chat-1",
           key: "state",
           value: JSON.stringify(pendingState),
@@ -1593,8 +1593,8 @@ describe("Narrative Craft runtime cadence", () => {
     );
     expect(first.preInjections).toEqual([
       {
-        agentType: "conversation-craft",
-        agentName: "Conversation Craft",
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
         text: "React without canned validation.",
       },
     ]);
@@ -1606,8 +1606,8 @@ describe("Narrative Craft runtime cadence", () => {
       id: "run-1",
       chatId: "chat-1",
       messageId: "assistant-1",
-      agentId: "builtin:conversation-craft",
-      agentType: "conversation-craft",
+      agentId: "builtin:narrative-craft",
+      agentType: "narrative-craft",
       success: true,
       createdAt: "2026-01-01T00:01:00.000Z",
     };
@@ -1623,14 +1623,14 @@ describe("Narrative Craft runtime cadence", () => {
       activeAgentIds: ["expression"],
       storedMessages: messages,
       agentRuns: [lastRun],
-      automaticConversationCraftOnly: true,
+      automaticNarrativeCraftOnly: true,
     });
     const skippedRequests: LlmRequest[] = [];
     const skippedRuntime = await createGenerationAgentRuntime(
       { storage: skipped.storage, llm: conversationCraftLlm(skippedRequests), integrations: noopIntegrations },
       skipped.input,
     );
-    expect(skippedRuntime.conversationCraftAnalysisDue).toBe(false);
+    expect(skippedRuntime.narrativeCraftAnalysisDue).toBe(false);
     await skippedRuntime.runPost("ordinary response");
     expect(skippedRequests).toHaveLength(0);
 
@@ -1638,17 +1638,17 @@ describe("Narrative Craft runtime cadence", () => {
       activeAgentIds: ["expression"],
       storedMessages: [...messages, { id: "assistant-4", role: "assistant", content: "four" }],
       agentRuns: [lastRun],
-      automaticConversationCraftOnly: true,
+      automaticNarrativeCraftOnly: true,
     });
     const dueRequests: LlmRequest[] = [];
     const dueRuntime = await createGenerationAgentRuntime(
       { storage: due.storage, llm: conversationCraftLlm(dueRequests), integrations: noopIntegrations },
       due.input,
     );
-    expect(dueRuntime.conversationCraftAnalysisDue).toBe(true);
+    expect(dueRuntime.narrativeCraftAnalysisDue).toBe(true);
     await dueRuntime.runPost("ordinary response");
     expect(dueRequests).toHaveLength(0);
-    await dueRuntime.runConversationCraftAnalysis("I hear you, and your feelings are completely valid.");
+    await dueRuntime.runNarrativeCraftAnalysis("I hear you, and your feelings are completely valid.");
     expect(dueRequests).toHaveLength(1);
   });
 });

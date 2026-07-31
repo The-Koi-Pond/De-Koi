@@ -93,9 +93,7 @@ describe("buildGenerationGuideMessages", () => {
       generationGuide: "keep the caps-lock style",
       generationGuideSource: "guide",
       conversationCraftMode: "group",
-      contextInjections: [
-        { agentType: "conversation-craft", text: "Leave more unsaid in the next reply." },
-      ],
+      contextInjections: [{ agentType: "narrative-craft", text: "Leave more unsaid in the next reply." }],
     });
 
     expect(messages).toHaveLength(2);

@@ -1,12 +1,18 @@
 import type { LlmMessage } from "../../capabilities/llm";
 import {
-  CONVERSATION_CRAFT_AGENT_TYPE,
   CONVERSATION_CRAFT_BASELINE_GUIDANCE,
   CONVERSATION_CRAFT_GROUP_GUIDANCE,
   type ConversationCraftMode,
 } from "../../contracts/constants/conversation-craft";
 
-export const GENERATION_GUIDE_SOURCES = ["narrator", "guide", "amend", "game_start", "game_turn", "game_retry"] as const;
+export const GENERATION_GUIDE_SOURCES = [
+  "narrator",
+  "guide",
+  "amend",
+  "game_start",
+  "game_turn",
+  "game_retry",
+] as const;
 
 export type GenerationGuideSource = (typeof GENERATION_GUIDE_SOURCES)[number];
 
@@ -102,7 +108,7 @@ function buildConversationCraftGuide(
   if (!mode) return null;
   const adaptive = uniqueTrimmedLines(
     (injections ?? [])
-      .filter((injection) => injection.agentType === CONVERSATION_CRAFT_AGENT_TYPE)
+      .filter((injection) => injection.agentType === NARRATIVE_CRAFT_AGENT_TYPE)
       .map((injection) => injection.text ?? ""),
   );
   const directives = [
@@ -157,7 +163,7 @@ export function buildGenerationGuideMessages(input: BuildGenerationGuideMessages
 
   const internalContent = [
     buildProseGuardianAvoidanceGuide(input.contextInjections),
-    buildNarrativeCraftGuide(input.contextInjections),
+    input.conversationCraftMode ? null : buildNarrativeCraftGuide(input.contextInjections),
     buildConversationCraftGuide(input.conversationCraftMode, input.contextInjections),
     ...(input.internalGuides ?? []),
   ]
