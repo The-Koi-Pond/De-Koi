@@ -10,6 +10,7 @@ import type {
 } from "../../generation-core/llm/base-provider.js";
 import type { AgentResult, AgentContext, AgentResultType } from "../../contracts/types/agent";
 import { getDefaultAgentPrompt } from "../../contracts/constants/agent-prompts";
+import { conversationCraftDirectiveForIssue } from "../../contracts/constants/conversation-craft";
 import {
   DEFAULT_AGENT_CONTEXT_SIZE,
   DEFAULT_AGENT_MAX_TOKENS,
@@ -349,7 +350,7 @@ export async function executeAgent(
       agentId: config.id,
       agentType: config.type,
       type: parsed.type,
-      data: applyNarrativeCraftGuidanceGate(config, context, fallback.data),
+      data: applyCraftGuidanceGates(config, context, fallback.data),
       tokensUsed: totalTokens,
       durationMs,
       success: fallback.error === null,
@@ -441,7 +442,7 @@ async function executeAgentWithTools(
         agentId: config.id,
         agentType: config.type,
         type: parsed.type,
-        data: applyNarrativeCraftGuidanceGate(config, context, fallback.data),
+        data: applyCraftGuidanceGates(config, context, fallback.data),
         tokensUsed: totalTokens,
         durationMs: Date.now() - startTime,
         success: fallback.error === null,
@@ -589,7 +590,7 @@ async function executeAgentWithTools(
     agentId: config.id,
     agentType: config.type,
     type: parsed.type,
-    data: applyNarrativeCraftGuidanceGate(config, context, fallback.data),
+    data: applyCraftGuidanceGates(config, context, fallback.data),
     tokensUsed: totalTokens,
     durationMs: Date.now() - startTime,
     success: fallback.error === null,
@@ -659,23 +660,33 @@ function withoutNarrativeCraftGuidance(data: Record<string, unknown>, reason: st
   };
 }
 
-function applyNarrativeCraftGuidanceGate(
+function withoutConversationCraftGuidance(data: Record<string, unknown>, reason: string): Record<string, unknown> {
+  return {
+    ...data,
+    text: "",
+    evidence: [],
+    issue: "",
+    state: {},
+    reason,
+    intervened: false,
+  };
+}
+
+function applyCraftGuidanceGates(
   config: Pick<AgentExecConfig, "type">,
-  context: Pick<AgentContext, "mainResponse" | "recentMessages">,
+  context: Pick<AgentContext, "chatMode" | "mainResponse" | "recentMessages" | "characters">,
   data: unknown,
 ): unknown {
   if (config.type !== "narrative-craft" || !isJsonRecord(data)) return data;
-
-  const text = typeof data.text === "string" ? data.text.trim() : "";
-  const intervened = data.intervened === true;
-  if (!text && !intervened) {
+  const conversation = context.chatMode === "conversation";
+  if (data.intervened !== true && (conversation || typeof data.text !== "string" || !data.text.trim())) {
     const reason =
-      typeof data.reason === "string" && data.reason.trim()
-        ? data.reason.trim()
-        : "Narrative Craft found no material intervention.";
-    return withoutNarrativeCraftGuidance(data, reason);
+      (typeof data.reason === "string" && data.reason.trim()) ||
+      `${conversation ? "Conversation" : "Narrative"} Craft found no material intervention.`;
+    return conversation ? withoutConversationCraftGuidance(data, reason) : withoutNarrativeCraftGuidance(data, reason);
   }
-
+  const reject = (reason: string) =>
+    conversation ? withoutConversationCraftGuidance(data, reason) : withoutNarrativeCraftGuidance(data, reason);
   const assistantProse = context.recentMessages
     .filter((message) => message.role === "assistant")
     .map((message) => message.content.trim())
@@ -683,51 +694,60 @@ function applyNarrativeCraftGuidanceGate(
   const completedResponse = (context.mainResponse ?? "").trim();
   if (completedResponse) assistantProse.push(completedResponse);
   if (assistantProse.length === 0) {
-    return withoutNarrativeCraftGuidance(data, "No existing assistant prose supports an intervention.");
-  }
-
-  let evidence: string[] | undefined;
-  for (const candidate of narrativeCraftEvidenceCandidates(data.evidence)) {
-    const normalizedEvidence = candidate.map(normalizedEvidenceText);
-    if (
-      normalizedEvidence.length === 2 &&
-      normalizedEvidence[0] !== normalizedEvidence[1] &&
-      normalizedEvidence.every(
-        (excerpt) =>
-          excerpt.length >= 8 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
-      )
-    ) {
-      evidence = candidate;
-      break;
-    }
-  }
-  if (!evidence) {
-    return withoutNarrativeCraftGuidance(
-      data,
-      "Narrative Craft did not cite two different exact excerpts from existing assistant prose.",
+    return reject(
+      conversation ? "No grounded intervention." : "No existing assistant prose supports an intervention.",
     );
   }
 
   const issue = typeof data.issue === "string" ? data.issue.trim() : "";
-  const directive = NARRATIVE_CRAFT_DIRECTIVE_BY_ISSUE[issue];
+  const directive = conversation
+    ? conversationCraftDirectiveForIssue(issue, context.characters.length > 1 ? "group" : "solo")
+    : NARRATIVE_CRAFT_DIRECTIVE_BY_ISSUE[issue];
   if (!directive) {
-    return withoutNarrativeCraftGuidance(data, "Narrative Craft did not select a supported prose issue.");
+    return reject(
+      conversation ? "Invalid issue." : "Narrative Craft did not select a supported prose issue.",
+    );
   }
-  const state = isJsonRecord(data.state)
-    ? {
-        ...data.state,
-        lastGuidance: [directive],
-      }
-    : data.state;
 
-  return {
-    ...data,
-    text: directive,
-    evidence,
-    issue,
-    ...(state === undefined ? {} : { state }),
-    intervened: true,
-  };
+  if (conversation) {
+    const evidence = Array.isArray(data.evidence)
+      ? data.evidence
+          .filter((entry): entry is string => typeof entry === "string")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .slice(0, 2)
+      : [];
+    const required = issue === "polished-shape" || issue === "group-voice-collapse" ? 2 : 1;
+    const normalized = evidence.map(normalizedEvidenceText);
+    if (
+      evidence.length !== required ||
+      new Set(normalized).size !== required ||
+      !normalized.every(
+        (excerpt) =>
+          excerpt.length >= 4 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
+      )
+    ) {
+      return reject("Ungrounded evidence.");
+    }
+    return { ...data, text: directive, evidence, issue, state: {}, intervened: true };
+  }
+
+  const evidence = narrativeCraftEvidenceCandidates(data.evidence).find((candidate) => {
+    const normalized = candidate.map(normalizedEvidenceText);
+    return (
+      normalized.length === 2 &&
+      normalized[0] !== normalized[1] &&
+      normalized.every(
+        (excerpt) =>
+          excerpt.length >= 8 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
+      )
+    );
+  });
+  if (!evidence) {
+    return reject("Narrative Craft did not cite two different exact excerpts from existing assistant prose.");
+  }
+  const state = isJsonRecord(data.state) ? { ...data.state, lastGuidance: [directive] } : data.state;
+  return { ...data, text: directive, evidence, issue, ...(state === undefined ? {} : { state }), intervened: true };
 }
 
 function normalizeSpotifyTrackUri(value: unknown): string | null {

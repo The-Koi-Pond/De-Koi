@@ -236,12 +236,15 @@ export type AgentCategory = "writer" | "tracker" | "misc";
 export type AgentChatMode = "conversation" | "roleplay" | "game" | "visual_novel";
 
 const CONVERSATION_BUILT_IN_AGENT_IDS = [
+  "narrative-craft",
   "schedule-planner",
   "response-orchestrator",
   "autonomous-messenger",
   "illustrator",
   "music-dj",
 ] as const;
+
+const CONVERSATION_AGENT_PICKER_HIDDEN_IDS = new Set(["narrative-craft"]);
 
 const GAME_BUILT_IN_AGENT_IDS = ["world-state", "quest", "expression", "combat"] as const;
 
@@ -276,7 +279,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     enabledByDefault: false,
     defaultInjectAsSection: true,
     category: "writer",
-    modeAllowlist: ["roleplay", "visual_novel"],
+    modeAllowlist: ["conversation", "roleplay", "visual_novel"],
   },
   {
     id: "continuity",
@@ -592,7 +595,9 @@ export function isBuiltInAgentAvailableInChatMode(mode: unknown, agentId: string
 export function isBuiltInAgentHiddenFromChatSettingsPicker(mode: unknown, agentId: string): boolean {
   const id = canonicalAgentActiveId(agentId);
   if (!isBuiltInAgentAvailableInChatMode(mode, id)) return true;
-  return normalizeAgentChatMode(mode) === "roleplay" && ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET.has(id);
+  const chatMode = normalizeAgentChatMode(mode);
+  if (chatMode === "conversation" && CONVERSATION_AGENT_PICKER_HIDDEN_IDS.has(id)) return true;
+  return chatMode === "roleplay" && ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET.has(id);
 }
 
 export function enabledChatAgentIds(metadata: unknown, mode: unknown): string[] {

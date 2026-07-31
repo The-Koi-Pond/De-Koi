@@ -40,7 +40,7 @@ describe("built-in agent chat mode availability", () => {
       enabledByDefault: false,
       defaultInjectAsSection: true,
       category: "writer",
-      modeAllowlist: ["roleplay", "visual_novel"],
+      modeAllowlist: ["conversation", "roleplay", "visual_novel"],
     });
     expect(BUILT_IN_AGENTS.map((agent) => agent.id)).not.toEqual(
       expect.arrayContaining(["prose-guardian", "director", "secret-plot-driver"]),
@@ -51,6 +51,12 @@ describe("built-in agent chat mode availability", () => {
       injectAsSection: true,
       runInterval: 4,
     });
+  });
+
+  it("reuses the hidden craft critic in Conversation mode", () => {
+    expect(isBuiltInAgentAvailableInChatMode("conversation", "narrative-craft")).toBe(true);
+    expect(isBuiltInAgentHiddenFromChatSettingsPicker("conversation", "narrative-craft")).toBe(true);
+    expect(isBuiltInAgentAvailableInChatMode("game", "narrative-craft")).toBe(false);
   });
 
   it("maps retired narrative agents to one Narrative Craft activation", () => {
@@ -64,11 +70,11 @@ describe("built-in agent chat mode availability", () => {
     ).toEqual(["narrative-craft"]);
   });
 
-  it("does not make Narrative Craft available to Conversation or Game", () => {
+  it("does not make Narrative Craft available to Game", () => {
     expect(isBuiltInAgentAvailableInChatMode("roleplay", "narrative-craft")).toBe(true);
-    expect(isBuiltInAgentAvailableInChatMode("conversation", "narrative-craft")).toBe(false);
+    expect(isBuiltInAgentAvailableInChatMode("conversation", "narrative-craft")).toBe(true);
     expect(isBuiltInAgentAvailableInChatMode("game", "narrative-craft")).toBe(false);
-    expect(enabledChatAgentIds({ activeAgentIds: ["director"] }, "conversation")).toEqual([]);
+    expect(enabledChatAgentIds({ activeAgentIds: ["director"] }, "conversation")).toEqual(["narrative-craft"]);
     expect(enabledChatAgentIds({ activeAgentIds: ["secret-plot-driver"] }, "game")).toEqual([]);
   });
 });

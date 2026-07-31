@@ -48,10 +48,7 @@ import {
   type GenerationAgentRuntime,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
-import {
-  cancelNarrativeCraftAnalysesForForeground,
-  scheduleNarrativeCraftAnalysis,
-} from "./narrative-craft-background";
+import { cancelCraftAnalysesForForeground, scheduleCraftAnalysis } from "./craft-analysis-background";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import { generationContextAttribution } from "./context-attribution";
 import {
@@ -182,6 +179,7 @@ export type GenerationPerformanceTiming = {
     | "generation.post_save"
     | "generation.lorebook_keeper_backfill"
     | "generation.narrative_craft_background"
+    | "generation.conversation_craft_background"
     | "generation.background_maintenance";
   elapsedMs: number;
   status: "ok" | "error";
@@ -2514,33 +2512,40 @@ async function persistAgentResults(
   }
 }
 
-async function persistNarrativeCraftAgentMemorySafely(
+async function persistCraftAgentMemorySafely(
   storage: StorageGateway,
   chatId: string,
   results: AgentResult[],
 ): Promise<void> {
   try {
-    await persistNarrativeCraftAgentMemory(storage, chatId, results);
+    if (results.some((result) => result.agentType === "narrative-craft")) {
+      await persistNarrativeCraftAgentMemory(storage, chatId, results);
+    }
   } catch (error) {
-    console.warn("[generation] narrative craft memory persist failed", error);
+    console.warn("[generation] craft memory persist failed", error);
   }
 }
 
-function scheduleNarrativeCraftAfterSavedAssistant(args: {
+function scheduleCraftAfterSavedAssistant(args: {
   deps: GenerationEngineDeps;
   runtime: GenerationAgentRuntime | null;
   chatId: string;
   messageId: string | null;
   content: string;
+  kind: "narrative" | "conversation";
 }): boolean {
   if (!args.runtime?.narrativeCraftAnalysisDue || !args.messageId) return false;
-  return scheduleNarrativeCraftAnalysis({
+  const stage = args.kind === "narrative" ? "narrative_craft_analysis" : "conversation_craft_analysis";
+  const timingName =
+    args.kind === "narrative" ? "generation.narrative_craft_background" : "generation.conversation_craft_background";
+  return scheduleCraftAnalysis({
     storage: args.deps.storage,
     chatId: args.chatId,
+    stage,
     onDiagnostic: args.deps.onPerformanceTiming
       ? (diagnostic) =>
           args.deps.onPerformanceTiming?.({
-            name: "generation.narrative_craft_background",
+            name: timingName,
             elapsedMs: diagnostic.durationMs,
             status: diagnostic.status,
           })
@@ -4170,7 +4175,7 @@ async function runGenerationAgentsForTarget(args: {
       deps.onTrackerSnapshotSaved,
     );
   }
-  await persistNarrativeCraftAgentMemorySafely(deps.storage, chatId, finalResults);
+  await persistCraftAgentMemorySafely(deps.storage, chatId, finalResults);
   await persistAgentResults(deps.storage, chatId, target ? readString(target.id) || null : null, finalResults);
 
   const events: GenerationEvent[] = runtime.agentWarnings.map((warning) => ({ type: "agent_warning", data: warning }));
@@ -4374,7 +4379,7 @@ export async function* dryRunGeneration(
   const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
   cancelConversationSummaryBackgroundForForeground(deps.storage, chat);
-  cancelNarrativeCraftAnalysesForForeground(deps.storage);
+  cancelCraftAnalysesForForeground(deps.storage);
   input = (await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input)) as GenerationDryRunInput;
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
@@ -4455,7 +4460,9 @@ export async function* dryRunGeneration(
     preparedUserInput.images,
   );
   const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-    [...prompt, ...generationGuideMessages(input)].filter((message): message is LlmMessage => !!message),
+    [...prompt, ...generationGuideMessages(input, chatForGeneration)].filter(
+      (message): message is LlmMessage => !!message,
+    ),
     assembly.userRegenerationSourceMessage,
   );
   const dryRunPartial: StreamPartialSink = {
@@ -4486,7 +4493,7 @@ export async function* dryRunGeneration(
     parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
     baseMessages,
     previewMessages: withUserMessageRegenerationRewritePrompt(
-      [...promptPreviewMessages, ...generationGuideMessages(input)].filter(
+      [...promptPreviewMessages, ...generationGuideMessages(input, chatForGeneration)].filter(
         (message): message is LlmMessage => !!message,
       ),
       assembly.userRegenerationSourceMessage,
@@ -4565,7 +4572,7 @@ export async function* startGeneration(
   signal?: AbortSignal,
 ): AsyncGenerator<GenerationEvent> {
   const releaseForegroundGeneration = beginForegroundGeneration(deps.storage);
-  cancelNarrativeCraftAnalysesForForeground(deps.storage);
+  cancelCraftAnalysesForForeground(deps.storage);
   try {
     yield* startGenerationImpl(deps, input, signal);
   } finally {
@@ -4989,7 +4996,7 @@ async function* startGenerationImpl(
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
     };
     const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-      [...prompt, ...generationGuideMessages(input, runtime?.preInjections)].filter(
+      [...prompt, ...generationGuideMessages(input, chatForGeneration, runtime?.preInjections)].filter(
         (message): message is LlmMessage => !!message,
       ),
       assembly.userRegenerationSourceMessage,
@@ -5032,9 +5039,10 @@ async function* startGenerationImpl(
         parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
         baseMessages,
         previewMessages: withUserMessageRegenerationRewritePrompt(
-          [...promptPreviewMessages, ...generationGuideMessages(input, runtime?.preInjections)].filter(
-            (message): message is LlmMessage => !!message,
-          ),
+          [
+            ...promptPreviewMessages,
+            ...generationGuideMessages(input, chatForGeneration, runtime?.preInjections),
+          ].filter((message): message is LlmMessage => !!message),
           assembly.userRegenerationSourceMessage,
         ),
         contextAttribution: generationContextAttribution(assembly.contextAttributionItems),
@@ -5284,7 +5292,7 @@ async function* startGenerationImpl(
           );
         }
         throwIfAborted(signal);
-        await persistNarrativeCraftAgentMemorySafely(deps.storage, chatId, allAgentResults);
+        await persistCraftAgentMemorySafely(deps.storage, chatId, allAgentResults);
         throwIfAborted(signal);
         await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
         throwIfAborted(signal);
@@ -5294,12 +5302,13 @@ async function* startGenerationImpl(
       }
       if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
       if (savedAssistantGeneration) {
-        scheduleNarrativeCraftAfterSavedAssistant({
+        scheduleCraftAfterSavedAssistant({
           deps,
           runtime,
           chatId,
           messageId: messageId(latestSaved),
           content: displayContent,
+          kind: readString(chat.mode || chat.chatMode).trim() === "conversation" ? "conversation" : "narrative",
         });
       }
       yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
@@ -5399,23 +5408,29 @@ async function* startGenerationImpl(
     input.impersonateBlockAgents !== true &&
     !isUserMessageRegeneration &&
     (chatActiveAgentIds(chatForGeneration).has(NARRATIVE_CRAFT_AGENT_TYPE) || directNarrativeCraftRequested);
-  const directNarrativeCraftRuntime: GenerationAgentRuntime | null = directNarrativeCraftEnabled
-    ? await createGenerationAgentRuntime(
-        { storage: deps.storage, llm: deps.llm, integrations: deps.integrations, visuals: deps.visuals },
-        {
-          ...directAgentInput,
-          agentTypes: new Set([NARRATIVE_CRAFT_AGENT_TYPE]),
-          automaticNarrativeCraftOnly: true,
-          bypassCustomAgentActivation: true,
-        },
-      )
-    : null;
+  const directConversationCraftEnabled =
+    input.impersonateBlockAgents !== true &&
+    !isUserMessageRegeneration &&
+    boolish(parseRecord(chatForGeneration.metadata).enableAgents, true) &&
+    readString(chatForGeneration.mode || chatForGeneration.chatMode).trim() === "conversation";
+  const directCraftRuntime: GenerationAgentRuntime | null =
+    directNarrativeCraftEnabled || directConversationCraftEnabled
+      ? await createGenerationAgentRuntime(
+          { storage: deps.storage, llm: deps.llm, integrations: deps.integrations, visuals: deps.visuals },
+          {
+            ...directAgentInput,
+            agentTypes: new Set([NARRATIVE_CRAFT_AGENT_TYPE]),
+            automaticNarrativeCraftOnly: true,
+            bypassCustomAgentActivation: true,
+          },
+        )
+      : null;
   throwIfAborted(signal);
-  for (const warning of directNarrativeCraftRuntime?.agentWarnings ?? []) {
+  for (const warning of directCraftRuntime?.agentWarnings ?? []) {
     yield { type: "agent_warning", data: warning };
   }
   const baseMessagesDirect: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-    [...(prompt ?? []), ...generationGuideMessages(input, directNarrativeCraftRuntime?.preInjections)].filter(
+    [...(prompt ?? []), ...generationGuideMessages(input, chatForGeneration, directCraftRuntime?.preInjections)].filter(
       (message): message is LlmMessage => !!message,
     ),
     assembly.userRegenerationSourceMessage,
@@ -5460,7 +5475,7 @@ async function* startGenerationImpl(
       previewMessages: withUserMessageRegenerationRewritePrompt(
         [
           ...(promptPreviewMessagesDirect ?? []),
-          ...generationGuideMessages(input, directNarrativeCraftRuntime?.preInjections),
+          ...generationGuideMessages(input, chatForGeneration, directCraftRuntime?.preInjections),
         ].filter((message): message is LlmMessage => !!message),
         assembly.userRegenerationSourceMessage,
       ),
@@ -5576,7 +5591,7 @@ async function* startGenerationImpl(
         clearWebResearchRequest: mainToolsDirect?.characterWebResearchGrant != null,
         webResearchSources: webResearchSourcesDirect,
         roleplayQualityCorrection: roleplayQualityDirect.correction,
-        contextInjections: isUserMessageRegeneration ? null : (directNarrativeCraftRuntime?.preInjections ?? null),
+        contextInjections: isUserMessageRegeneration ? null : (directCraftRuntime?.preInjections ?? null),
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
   const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
@@ -5611,12 +5626,13 @@ async function* startGenerationImpl(
     }
     if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
     if (savedAssistantGeneration) {
-      scheduleNarrativeCraftAfterSavedAssistant({
+      scheduleCraftAfterSavedAssistant({
         deps,
-        runtime: directNarrativeCraftRuntime,
+        runtime: directCraftRuntime,
         chatId,
         messageId: messageId(saved),
         content: displayContentDirect,
+        kind: readString(chat.mode || chat.chatMode).trim() === "conversation" ? "conversation" : "narrative",
       });
     }
     yield { type: "done" };
@@ -5680,12 +5696,19 @@ async function resolveForegroundGenerationConnection(
 
 function generationGuideMessages(
   input: StartGenerationInput,
+  chat: JsonRecord,
   contextInjections: readonly AgentInjectionOverride[] | null | undefined = null,
 ): LlmMessage[] {
   return buildGenerationGuideMessages({
     generationGuide: input.generationGuide,
     generationGuideSource: input.generationGuideSource,
     contextInjections,
+    conversationCraftMode:
+      readString(chat.mode || chat.chatMode).trim() === "conversation"
+        ? activeCharacterIds(chat).length > 1
+          ? "group"
+          : "solo"
+        : null,
   });
 }
 

@@ -1442,4 +1442,213 @@ describe("Narrative Craft runtime cadence", () => {
     await runtime.runNarrativeCraftAnalysis("Three questions remain unresolved.", { force: true });
     expect(requests).toHaveLength(1);
   });
+
+  function conversationCraftLlm(requests: LlmRequest[]): LlmGateway {
+    return {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            text: "model advice is not trusted",
+            evidence: ["I hear you, and your feelings are completely valid."],
+            issue: "therapy-speak",
+            state: {
+              version: 1,
+              conversationMode: "solo",
+              recentPatterns: ["canned validation"],
+              recentStrengths: [],
+            },
+            reason: "The reply used canned validation.",
+            intervened: true,
+          }),
+        };
+        yield { type: "done" };
+      },
+    };
+  }
+
+  function conversationInput(
+    options: {
+      activeAgentIds?: string[];
+      enableAgents?: boolean;
+      characters?: GenerationAgentRuntimeInput["characters"];
+      storedMessages?: JsonRecord[];
+      agentRuns?: JsonRecord[];
+      memoryRows?: JsonRecord[];
+      agentInjectionOverrides?: GenerationAgentRuntimeInput["agentInjectionOverrides"];
+      automaticNarrativeCraftOnly?: boolean;
+    } = {},
+  ): { input: GenerationAgentRuntimeInput; storage: StorageGateway } {
+    const input = activeAgentRuntimeInput(connection, {
+      mode: "conversation",
+      activeAgentIds: options.activeAgentIds ?? [],
+      enableAgents: options.enableAgents,
+    });
+    input.characters =
+      options.characters ?? [{ id: "char-1", name: "Mira", description: "A dry friend", tags: [] }];
+    input.storedMessages = options.storedMessages ?? [{ id: "user-1", role: "user", content: "hello" }];
+    input.agentInjectionOverrides = options.agentInjectionOverrides;
+    input.automaticNarrativeCraftOnly = options.automaticNarrativeCraftOnly;
+    return {
+      input,
+      storage: storageForNarrativeCraft({ agentRuns: options.agentRuns, memoryRows: options.memoryRows }),
+    };
+  }
+
+  it("automatically activates Conversation Craft without a foreground provider call", async () => {
+    const requests: LlmRequest[] = [];
+    const { input, storage } = conversationInput();
+    const runtime = await createGenerationAgentRuntime(
+      { storage, llm: conversationCraftLlm(requests), integrations: noopIntegrations },
+      input,
+    );
+
+    expect(runtime.preInjections).toEqual([]);
+    expect(runtime.narrativeCraftAnalysisDue).toBe(true);
+    expect(requests).toHaveLength(0);
+  });
+
+  it("keeps the adaptive critic off when Agents are disabled", async () => {
+    const requests: LlmRequest[] = [];
+    const { input, storage } = conversationInput({ enableAgents: false });
+    const runtime = await createGenerationAgentRuntime(
+      { storage, llm: conversationCraftLlm(requests), integrations: noopIntegrations },
+      input,
+    );
+
+    expect(runtime.narrativeCraftAnalysisDue).toBe(false);
+    await expect(runtime.runNarrativeCraftAnalysis("hello back")).resolves.toEqual([]);
+    expect(requests).toHaveLength(0);
+  });
+
+  it("runs the first completed Conversation reply and supplies solo or group context", async () => {
+    const requests: LlmRequest[] = [];
+    const { input, storage } = conversationInput({
+      characters: [
+        { id: "char-1", name: "Mira", description: "A dry friend", tags: [] },
+        { id: "char-2", name: "Lena", description: "An earnest friend", tags: [] },
+      ],
+    });
+    const runtime = await createGenerationAgentRuntime(
+      { storage, llm: conversationCraftLlm(requests), integrations: noopIntegrations },
+      input,
+    );
+
+    await expect(
+      runtime.runNarrativeCraftAnalysis("I hear you, and your feelings are completely valid."),
+    ).resolves.toHaveLength(1);
+    expect(requests).toHaveLength(1);
+    const prompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(prompt).toContain("<assistant_response>");
+    expect(prompt).toContain("I hear you, and your feelings are completely valid.");
+    expect(prompt).toContain("Mira");
+    expect(prompt).toContain("Lena");
+  });
+
+  it("claims pending Conversation guidance once but leaves replay overrides untouched", async () => {
+    const pendingState = {
+      version: 1,
+      conversationMode: "solo",
+      recentPatterns: ["canned validation"],
+      recentStrengths: [],
+      pendingGuidance: ["React without canned validation."],
+      lastAnalysisReason: "Voice drifted.",
+    };
+    const options = {
+      memoryRows: [
+        {
+          id: "conversation-state",
+          agentConfigId: "builtin:narrative-craft",
+          chatId: "chat-1",
+          key: "state",
+          value: JSON.stringify(pendingState),
+        },
+      ],
+    };
+    const replay = conversationInput({
+      ...options,
+      agentInjectionOverrides: [{ agentType: "cached", text: "Replay this exact context." }],
+    });
+    const replayRuntime = await createGenerationAgentRuntime(
+      { storage: replay.storage, llm: conversationCraftLlm([]), integrations: noopIntegrations },
+      replay.input,
+    );
+    expect(replayRuntime.preInjections).toEqual([{ agentType: "cached", text: "Replay this exact context." }]);
+
+    const freshInput = conversationInput().input;
+    const first = await createGenerationAgentRuntime(
+      { storage: replay.storage, llm: conversationCraftLlm([]), integrations: noopIntegrations },
+      freshInput,
+    );
+    const second = await createGenerationAgentRuntime(
+      { storage: replay.storage, llm: conversationCraftLlm([]), integrations: noopIntegrations },
+      freshInput,
+    );
+    expect(first.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: "React without canned validation.",
+      },
+    ]);
+    expect(second.preInjections).toEqual([]);
+  });
+
+  it("obeys the four-assistant cadence and isolates direct automatic runs", async () => {
+    const lastRun = {
+      id: "run-1",
+      chatId: "chat-1",
+      messageId: "assistant-1",
+      agentId: "builtin:narrative-craft",
+      agentType: "narrative-craft",
+      success: true,
+      createdAt: "2026-01-01T00:01:00.000Z",
+    };
+    const messages = [
+      { id: "assistant-1", role: "assistant", content: "one" },
+      { id: "user-2", role: "user", content: "two?" },
+      { id: "assistant-2", role: "assistant", content: "two" },
+      { id: "user-3", role: "user", content: "three?" },
+      { id: "assistant-3", role: "assistant", content: "three" },
+      { id: "user-4", role: "user", content: "four?" },
+    ];
+    const skipped = conversationInput({
+      activeAgentIds: ["expression"],
+      storedMessages: messages,
+      agentRuns: [lastRun],
+      automaticNarrativeCraftOnly: true,
+    });
+    const skippedRequests: LlmRequest[] = [];
+    const skippedRuntime = await createGenerationAgentRuntime(
+      { storage: skipped.storage, llm: conversationCraftLlm(skippedRequests), integrations: noopIntegrations },
+      skipped.input,
+    );
+    expect(skippedRuntime.narrativeCraftAnalysisDue).toBe(false);
+    await skippedRuntime.runPost("ordinary response");
+    expect(skippedRequests).toHaveLength(0);
+
+    const due = conversationInput({
+      activeAgentIds: ["expression"],
+      storedMessages: [...messages, { id: "assistant-4", role: "assistant", content: "four" }],
+      agentRuns: [lastRun],
+      automaticNarrativeCraftOnly: true,
+    });
+    const dueRequests: LlmRequest[] = [];
+    const dueRuntime = await createGenerationAgentRuntime(
+      { storage: due.storage, llm: conversationCraftLlm(dueRequests), integrations: noopIntegrations },
+      due.input,
+    );
+    expect(dueRuntime.narrativeCraftAnalysisDue).toBe(true);
+    await dueRuntime.runPost("ordinary response");
+    expect(dueRequests).toHaveLength(0);
+    await dueRuntime.runNarrativeCraftAnalysis("I hear you, and your feelings are completely valid.");
+    expect(dueRequests).toHaveLength(1);
+  });
 });

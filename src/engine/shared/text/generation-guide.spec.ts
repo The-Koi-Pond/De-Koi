@@ -76,4 +76,33 @@ describe("buildGenerationGuideMessages", () => {
     expect(messages.at(-1)?.content).toContain("<narrative_craft>");
     expect(messages.at(-1)?.content).toContain("Use complete sentences and remove accidental contrast pivots.");
   });
+
+  it("adds exactly one solo Conversation Craft block without adaptive guidance", () => {
+    const messages = buildGenerationGuideMessages({ conversationCraftMode: "solo" });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ role: "system", contextKind: "injection" });
+    expect(messages[0]?.content.match(/<conversation_craft>/g)).toHaveLength(1);
+    expect(messages[0]?.content.match(/<\/conversation_craft>/g)).toHaveLength(1);
+    expect(messages[0]?.content).toContain("Explicit style requests control");
+    expect(messages[0]?.content).not.toContain("answer only what this character would notice");
+  });
+
+  it("combines group baseline and pending feedback in one final Conversation Craft block", () => {
+    const messages = buildGenerationGuideMessages({
+      generationGuide: "keep the caps-lock style",
+      generationGuideSource: "guide",
+      conversationCraftMode: "group",
+      contextInjections: [{ agentType: "narrative-craft", text: "Leave more unsaid in the next reply." }],
+    });
+
+    expect(messages).toHaveLength(2);
+    expect(messages.at(-1)?.content.match(/<conversation_craft>/g)).toHaveLength(1);
+    expect(messages.at(-1)?.content).toContain("respond to what this character naturally cares about");
+    expect(messages.at(-1)?.content).toContain("Leave more unsaid in the next reply.");
+  });
+
+  it("does not add Conversation Craft outside Conversation Mode", () => {
+    expect(buildGenerationGuideMessages({ conversationCraftMode: null })).toEqual([]);
+  });
 });

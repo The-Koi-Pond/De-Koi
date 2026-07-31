@@ -9,7 +9,11 @@ import {
   type AgentContext,
   type AgentResult,
 } from "../contracts/types/agent";
-import { getDefaultAgentPrompt, ROLEPLAY_QUALITY_EDITOR_PROMPT } from "../contracts/constants/agent-prompts";
+import {
+  CONVERSATION_CRAFT_AGENT_PROMPT,
+  getDefaultAgentPrompt,
+  ROLEPLAY_QUALITY_EDITOR_PROMPT,
+} from "../contracts/constants/agent-prompts";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
@@ -48,11 +52,7 @@ import {
   isBuiltInAgent,
 } from "./built-in-agent-fallback";
 import { llmParameters } from "./context";
-import {
-  consumeNarrativeCraftPendingGuidance,
-  loadAgentMemory,
-  loadNarrativeCraftState,
-} from "./agent-memory-runtime";
+import { consumeNarrativeCraftPendingGuidance, loadAgentMemory, loadNarrativeCraftState } from "./agent-memory-runtime";
 import { narrativeCraftHasRecurringShape } from "./narrative-craft-background";
 import { NARRATIVE_CRAFT_BASELINE_GUIDANCE } from "./narrative-craft-guidance";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
@@ -880,7 +880,9 @@ function automaticIntervalGate(
   settings: Record<string, unknown>,
   builtInAgent: boolean,
 ): AutomaticIntervalGate | null {
-  if (input.agentTypes && input.agentTypes.size > 0 && !input.automaticNarrativeCraftOnly) return null;
+  if (input.agentTypes && input.agentTypes.size > 0 && !input.automaticNarrativeCraftOnly) {
+    return null;
+  }
   if (builtInAgent && (ASSISTANT_INTERVAL_AGENT_TYPES.has(type) || USER_INTERVAL_AGENT_TYPES.has(type))) {
     const messageRole: AutomaticIntervalMessageRole = USER_INTERVAL_AGENT_TYPES.has(type) ? "user" : "assistant";
     const maxInterval = messageRole === "user" ? MAX_CUSTOM_AGENT_USER_RUN_INTERVAL : MAX_ASSISTANT_RUN_INTERVAL;
@@ -1151,11 +1153,16 @@ function dedupeExplicitBuiltInAgentRows(
 }
 
 async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput): Promise<ResolvedAgentsResult> {
-  const scopedAgentIds = chatActiveAgentIds(input);
+  const scopedAgentIds = input.automaticNarrativeCraftOnly ? new Set<string>() : chatActiveAgentIds(input);
   const hasExplicitAgentTypes = !!input.agentTypes && input.agentTypes.size > 0;
   const requestedAgentTypes =
     hasExplicitAgentTypes && input.agentTypes ? filterAgentIdsForChatMode(input.agentTypes, chatMode(input)) : null;
-  if (hasExplicitAgentTypes && requestedAgentTypes?.size === 0) {
+  const automaticConversationCraft =
+    chatMode(input) === "conversation" &&
+    boolish(chatMetadata(input).enableAgents, true) &&
+    (!hasExplicitAgentTypes || input.automaticNarrativeCraftOnly === true);
+  if (automaticConversationCraft) scopedAgentIds.add(NARRATIVE_CRAFT_AGENT_TYPE);
+  if (hasExplicitAgentTypes && requestedAgentTypes?.size === 0 && !automaticConversationCraft) {
     return { agents: [], skippedResults: [], staticInjections: [], agentWarnings: [] };
   }
   if (
@@ -1181,7 +1188,13 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     const isKnownBuiltIn = BUILT_IN_AGENT_TYPES.has(type);
     if (!isBuiltInAgentAvailableInChatMode(chatMode(input), type)) return false;
     const requestedExplicitly = requestedAgentTypes && (requestedAgentTypes.has(type) || requestedAgentTypes.has(id));
-    if (!boolish(agent.enabled, true) && !(isKnownBuiltIn && requestedExplicitly)) return false;
+    if (
+      !boolish(agent.enabled, true) &&
+      !(isKnownBuiltIn && requestedExplicitly) &&
+      !(automaticConversationCraft && type === NARRATIVE_CRAFT_AGENT_TYPE)
+    ) {
+      return false;
+    }
     const scopedToChat = scopedAgentIds.size > 0 && (scopedAgentIds.has(type) || scopedAgentIds.has(id));
     if (
       !requestedExplicitly &&
@@ -1190,7 +1203,9 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     ) {
       return false;
     }
-    if (requestedAgentTypes && requestedAgentTypes.size > 0) return Boolean(requestedExplicitly);
+    if (requestedAgentTypes && requestedAgentTypes.size > 0 && !input.automaticNarrativeCraftOnly) {
+      return Boolean(requestedExplicitly);
+    }
     if (scopedAgentIds.size > 0) return scopedToChat;
     return true;
   });
@@ -1271,7 +1286,10 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
       type,
       name,
       phase: normalizePhase(agent),
-      promptTemplate: readString(agent.promptTemplate),
+      promptTemplate:
+        type === NARRATIVE_CRAFT_AGENT_TYPE && chatMode(input) === "conversation"
+          ? CONVERSATION_CRAFT_AGENT_PROMPT
+          : readString(agent.promptTemplate),
       connectionId,
       settings,
       provider: llmProvider(deps.llm, connectionId, parameters),
@@ -1562,9 +1580,10 @@ async function buildAgentContext(
   );
   const memory = Object.assign({}, ...memoryRows);
   const narrativeCraftAgent = agents.find((agent) => agent.type === NARRATIVE_CRAFT_AGENT_TYPE);
-  const narrativeCraftState = narrativeCraftAgent
-    ? await loadNarrativeCraftState(deps.storage, narrativeCraftAgent.id, chatId)
-    : null;
+  const narrativeCraftState =
+    narrativeCraftAgent && chatMode !== "conversation"
+      ? await loadNarrativeCraftState(deps.storage, narrativeCraftAgent.id, chatId)
+      : null;
   if (narrativeCraftState) memory._narrativeCraftState = narrativeCraftState;
   const personaId = readString(input.chat.personaId).trim();
   if (personaId) memory._personaId = personaId;
@@ -1751,10 +1770,13 @@ export async function createGenerationAgentRuntime(
   const preResults: AgentResult[] = [...skippedResults];
   const overrideInjections = normalizedAgentInjectionOverrides(input.agentInjectionOverrides);
   const narrativeCraftAgent = agents.find((agent) => agent.type === NARRATIVE_CRAFT_AGENT_TYPE);
+  const conversationMode = chatMode(input) === "conversation";
   const shouldClaimNarrativeCraftGuidance =
     (!input.agentTypes?.size || input.automaticNarrativeCraftOnly === true) &&
     overrideInjections.length === 0 &&
-    chatActiveAgentIds(input).has(NARRATIVE_CRAFT_AGENT_TYPE);
+    (conversationMode
+      ? boolish(chatMetadata(input).enableAgents, true)
+      : chatActiveAgentIds(input).has(NARRATIVE_CRAFT_AGENT_TYPE));
   const pendingNarrativeCraftGuidance = shouldClaimNarrativeCraftGuidance
     ? await consumeNarrativeCraftPendingGuidance(
         deps.storage,
@@ -1762,26 +1784,27 @@ export async function createGenerationAgentRuntime(
         readString(input.chat.id).trim(),
       )
     : null;
-  const narrativeCraftInjections: AgentInjection[] = shouldClaimNarrativeCraftGuidance
-    ? [
-        {
-          agentType: NARRATIVE_CRAFT_AGENT_TYPE,
-          agentName: narrativeCraftAgent?.name ?? "Narrative Craft",
-          text: pendingNarrativeCraftGuidance
-            ? `${NARRATIVE_CRAFT_BASELINE_GUIDANCE}\n\nStory-specific guidance:\n${pendingNarrativeCraftGuidance}`
-            : NARRATIVE_CRAFT_BASELINE_GUIDANCE,
-        },
-      ]
-    : [];
-  const initialInjections = mergeAgentInjections(
-    staticInjections,
-    overrideInjections,
-    narrativeCraftInjections,
-  );
+  const narrativeCraftInjections: AgentInjection[] =
+    shouldClaimNarrativeCraftGuidance && (!conversationMode || pendingNarrativeCraftGuidance)
+      ? [
+          {
+            agentType: NARRATIVE_CRAFT_AGENT_TYPE,
+            agentName: narrativeCraftAgent?.name ?? "Narrative Craft",
+            text: conversationMode
+              ? pendingNarrativeCraftGuidance!
+              : pendingNarrativeCraftGuidance
+                ? `${NARRATIVE_CRAFT_BASELINE_GUIDANCE}\n\nStory-specific guidance:\n${pendingNarrativeCraftGuidance}`
+                : NARRATIVE_CRAFT_BASELINE_GUIDANCE,
+          },
+        ]
+      : [];
+  const initialInjections = mergeAgentInjections(staticInjections, overrideInjections, narrativeCraftInjections);
   const agentData: Record<string, string> = agentDataFromInjections(initialInjections);
   delete agentData[NARRATIVE_CRAFT_AGENT_TYPE];
   const recordAgentData = (agentType: string, text: string | null) => {
-    if (agentType === NARRATIVE_CRAFT_AGENT_TYPE || !text?.trim()) return;
+    if (agentType === NARRATIVE_CRAFT_AGENT_TYPE || !text?.trim()) {
+      return;
+    }
     agentData[agentType] = text.trim();
   };
   for (const result of skippedResults) {
@@ -1806,7 +1829,8 @@ export async function createGenerationAgentRuntime(
   }
 
   const context = await buildAgentContext(deps, input, agents);
-  const firstNarrativeCraftAnalysis = !!narrativeCraftAgent && !context.memory._narrativeCraftState;
+  const firstNarrativeCraftAnalysis =
+    !!narrativeCraftAgent && !conversationMode && !context.memory._narrativeCraftState;
   const availableSprites = availableSpritesFromContext(context);
   const pipelineAgents = agents.filter((agent) => !KNOWLEDGE_AGENT_TYPES.has(agent.type));
   const pipeline = createAgentPipeline(pipelineAgents, context, (result) => {
@@ -1869,6 +1893,7 @@ export async function createGenerationAgentRuntime(
       if (!narrativeCraftAgent) return [];
       if (
         !options.force &&
+        !conversationMode &&
         !firstNarrativeCraftAnalysis &&
         !narrativeCraftHasRecurringShape(input.storedMessages, mainResponse)
       ) {

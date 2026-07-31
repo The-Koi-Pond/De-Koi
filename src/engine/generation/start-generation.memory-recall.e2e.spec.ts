@@ -614,9 +614,8 @@ describe("startGeneration Memory Recall preflight", () => {
 
     const promptText =
       calls
-        .at(-1)
-        ?.messages.map((message) => message.content)
-        .join("\n") ?? "";
+        .map((call) => call.messages.map((message) => message.content).join("\n"))
+        .find((prompt) => prompt.includes("<memories>") && prompt.includes("jasmine tea")) ?? "";
     expect(promptText).toContain("<memories>");
     expect(promptText).toContain("jasmine tea");
 
