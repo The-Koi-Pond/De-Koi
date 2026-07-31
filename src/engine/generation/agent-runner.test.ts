@@ -1156,11 +1156,42 @@ describe("Narrative Craft runtime cadence", () => {
     );
   });
 
-  it("skips automatic analysis when the cheap recurrence trigger finds no candidate", async () => {
+  it("analyzes the first completed response when the cheap recurrence trigger finds no candidate", async () => {
     const requests: LlmRequest[] = [];
     const runtime = await createGenerationAgentRuntime(
       {
         storage: storageForNarrativeCraft({}),
+        llm: narrativeCraftLlm(requests),
+        integrations: noopIntegrations,
+      },
+      narrativeInput([
+        { id: "assistant-1", role: "assistant", content: "Mara repairs the radio in silence." },
+        { id: "user-1", role: "user", content: "I hold the flashlight." },
+      ]),
+    );
+
+    await expect(runtime.runNarrativeCraftAnalysis("The loose wire clicks into place.")).resolves.toHaveLength(1);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.messages.map((message) => message.content).join("\n")).toContain(
+      "The loose wire clicks into place.",
+    );
+  });
+
+  it("skips automatic analysis with saved state when the cheap recurrence trigger finds no candidate", async () => {
+    const requests: LlmRequest[] = [];
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({
+          memoryRows: [
+            {
+              id: "state-1",
+              agentConfigId: "builtin:narrative-craft",
+              chatId: "chat-1",
+              key: "state",
+              value: JSON.stringify({ version: 1, pacing: "exploring", threads: [] }),
+            },
+          ],
+        }),
         llm: narrativeCraftLlm(requests),
         integrations: noopIntegrations,
       },

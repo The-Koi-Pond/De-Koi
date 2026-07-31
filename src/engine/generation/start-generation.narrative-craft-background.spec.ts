@@ -72,8 +72,8 @@ function narrativeCraftBackgroundStorage() {
     async listChatMessages<T = unknown>(): Promise<T[]> {
       return messages as T[];
     },
-    async getChatMessage() {
-      return null;
+    async getChatMessage<T = unknown>(messageId: string): Promise<T | null> {
+      return (messages.find((message) => message.id === messageId) ?? null) as T | null;
     },
     async createChatMessage<T = unknown>(chatId: string, value: Record<string, unknown>): Promise<T> {
       const message = {

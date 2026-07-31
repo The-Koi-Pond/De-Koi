@@ -1800,6 +1800,7 @@ export async function createGenerationAgentRuntime(
   }
 
   const context = await buildAgentContext(deps, input, agents);
+  const firstNarrativeCraftAnalysis = !!narrativeCraftAgent && !context.memory._narrativeCraftState;
   const availableSprites = availableSpritesFromContext(context);
   const pipelineAgents = agents.filter((agent) => !KNOWLEDGE_AGENT_TYPES.has(agent.type));
   const pipeline = createAgentPipeline(pipelineAgents, context, (result) => {
@@ -1860,7 +1861,13 @@ export async function createGenerationAgentRuntime(
       }),
     runNarrativeCraftAnalysis: async (mainResponse, options = {}) => {
       if (!narrativeCraftAgent) return [];
-      if (!options.force && !narrativeCraftHasRecurringShape(input.storedMessages, mainResponse)) return [];
+      if (
+        !options.force &&
+        !firstNarrativeCraftAnalysis &&
+        !narrativeCraftHasRecurringShape(input.storedMessages, mainResponse)
+      ) {
+        return [];
+      }
       return pipeline.postGenerate(mainResponse, {
         preGenInjections: preInjections,
         agentTypeFilter: (agentType) => agentType === NARRATIVE_CRAFT_AGENT_TYPE,
