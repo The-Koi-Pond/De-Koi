@@ -53,6 +53,26 @@ describe("built-in agent chat mode availability", () => {
     });
   });
 
+  it("defines Conversation Craft as a hidden conversation-only background critic", () => {
+    expect(BUILT_IN_AGENT_IDS.CONVERSATION_CRAFT).toBe("conversation-craft");
+    expect(BUILT_IN_AGENTS.find((agent) => agent.id === "conversation-craft")).toMatchObject({
+      name: "Conversation Craft",
+      phase: "post_processing",
+      enabledByDefault: false,
+      category: "writer",
+      modeAllowlist: ["conversation"],
+    });
+    expect(isBuiltInAgentAvailableInChatMode("conversation", "conversation-craft")).toBe(true);
+    expect(isBuiltInAgentAvailableInChatMode("roleplay", "conversation-craft")).toBe(false);
+    expect(isBuiltInAgentAvailableInChatMode("game", "conversation-craft")).toBe(false);
+    expect(isBuiltInAgentHiddenFromChatSettingsPicker("conversation", "conversation-craft")).toBe(true);
+    expect(getDefaultBuiltInAgentSettings("conversation-craft")).toEqual({
+      maxTokens: 1400,
+      temperature: 0,
+      runInterval: 4,
+    });
+  });
+
   it("maps retired narrative agents to one Narrative Craft activation", () => {
     expect(
       enabledChatAgentIds(

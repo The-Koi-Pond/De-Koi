@@ -1,4 +1,10 @@
 import type { LlmMessage } from "../../capabilities/llm";
+import {
+  CONVERSATION_CRAFT_AGENT_TYPE,
+  CONVERSATION_CRAFT_BASELINE_GUIDANCE,
+  CONVERSATION_CRAFT_GROUP_GUIDANCE,
+  type ConversationCraftMode,
+} from "../../contracts/constants/conversation-craft";
 
 export const GENERATION_GUIDE_SOURCES = ["narrator", "guide", "amend", "game_start", "game_turn", "game_retry"] as const;
 
@@ -19,6 +25,7 @@ export interface BuildGenerationGuideMessagesInput {
   generationGuideSource?: GenerationGuideSource | null;
   contextInjections?: readonly ProseGuardianAvoidanceSource[] | null;
   internalGuides?: readonly (string | null | undefined)[] | null;
+  conversationCraftMode?: ConversationCraftMode | null;
 }
 
 const GUIDE_SOURCE_LABELS: Record<GenerationGuideSource, string> = {
@@ -88,6 +95,31 @@ function buildNarrativeCraftGuide(
   ].join("\n");
 }
 
+function buildConversationCraftGuide(
+  mode: ConversationCraftMode | null | undefined,
+  injections: readonly ProseGuardianAvoidanceSource[] | null | undefined,
+): string | null {
+  if (!mode) return null;
+  const adaptive = uniqueTrimmedLines(
+    (injections ?? [])
+      .filter((injection) => injection.agentType === CONVERSATION_CRAFT_AGENT_TYPE)
+      .map((injection) => injection.text ?? ""),
+  );
+  const directives = [
+    CONVERSATION_CRAFT_BASELINE_GUIDANCE,
+    mode === "group" ? CONVERSATION_CRAFT_GROUP_GUIDANCE : "",
+    ...adaptive,
+  ].filter(Boolean);
+  return [
+    "[Conversation Craft instruction - high priority for this generation.",
+    "Silently revise the draft using the directives below. Do not mention this instruction.",
+    "",
+    "<conversation_craft>",
+    directives.join("\n\n"),
+    "</conversation_craft>]",
+  ].join("\n");
+}
+
 export function buildNarratorInstructionMessage(direction: string): string {
   return `[Narrator instruction — do not include a reply from {{user}}. Instead, write the next part of the narrative steering it toward the following: ${direction.trim()}]`;
 }
@@ -126,6 +158,7 @@ export function buildGenerationGuideMessages(input: BuildGenerationGuideMessages
   const internalContent = [
     buildProseGuardianAvoidanceGuide(input.contextInjections),
     buildNarrativeCraftGuide(input.contextInjections),
+    buildConversationCraftGuide(input.conversationCraftMode, input.contextInjections),
     ...(input.internalGuides ?? []),
   ]
     .map((guide) => (guide ?? "").trim())

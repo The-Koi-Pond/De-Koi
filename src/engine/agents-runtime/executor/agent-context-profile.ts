@@ -51,6 +51,7 @@ const NO_LORE_FIELDS = [] as const satisfies readonly AgentLoreField[];
 const BUILT_IN_AGENT_LORE_FIELDS = {
   "world-state": DESCRIPTION_FIELDS,
   "narrative-craft": FULL_IDENTITY_FIELDS,
+  "conversation-craft": FULL_IDENTITY_FIELDS,
   continuity: NARRATIVE_FIELDS,
   expression: VISUAL_FIELDS,
   "echo-chamber": NARRATIVE_FIELDS,

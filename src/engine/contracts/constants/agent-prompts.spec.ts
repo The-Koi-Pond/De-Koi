@@ -109,6 +109,23 @@ describe("default agent prompts", () => {
     expect(prompt).not.toContain("Rotate which senses you emphasize");
   });
 
+  it("makes Conversation Craft structured, mode-aware, and unable to author directives", () => {
+    const prompt = DEFAULT_AGENT_PROMPTS["conversation-craft"];
+
+    expect(prompt).toContain("quiet background texting critic");
+    expect(prompt).toContain("<assistant_response>");
+    expect(prompt).toContain("<conversation_craft_state>");
+    expect(prompt).toContain('"text": ""');
+    expect(prompt).toContain('"issue": ""');
+    expect(prompt).toContain('"conversationMode": "solo|group"');
+    expect(prompt).toContain("The runtime constructs the directive");
+    expect(prompt).toContain("exact excerpts copied from assistant messages");
+    expect(prompt).toContain("explicitly requested style");
+    expect(prompt).toContain("group-omnireply");
+    expect(prompt).toContain("group-voice-collapse");
+    expect(prompt).not.toMatch(/AI detector|undetectable/i);
+  });
+
   it("retires the three overlapping narrative prompts", () => {
     expect(DEFAULT_AGENT_PROMPTS).not.toHaveProperty("prose-guardian");
     expect(DEFAULT_AGENT_PROMPTS).not.toHaveProperty("director");

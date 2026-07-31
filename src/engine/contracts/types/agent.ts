@@ -204,6 +204,7 @@ export interface AgentContext {
 export const BUILT_IN_AGENT_IDS = {
   WORLD_STATE: "world-state",
   NARRATIVE_CRAFT: "narrative-craft",
+  CONVERSATION_CRAFT: "conversation-craft",
   CONTINUITY: "continuity",
   EXPRESSION: "expression",
   ECHO_CHAMBER: "echo-chamber",
@@ -236,12 +237,15 @@ export type AgentCategory = "writer" | "tracker" | "misc";
 export type AgentChatMode = "conversation" | "roleplay" | "game" | "visual_novel";
 
 const CONVERSATION_BUILT_IN_AGENT_IDS = [
+  "conversation-craft",
   "schedule-planner",
   "response-orchestrator",
   "autonomous-messenger",
   "illustrator",
   "music-dj",
 ] as const;
+
+const CONVERSATION_AGENT_PICKER_HIDDEN_IDS = new Set(["conversation-craft"]);
 
 const GAME_BUILT_IN_AGENT_IDS = ["world-state", "quest", "expression", "combat"] as const;
 
@@ -277,6 +281,15 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     defaultInjectAsSection: true,
     category: "writer",
     modeAllowlist: ["roleplay", "visual_novel"],
+  },
+  {
+    id: "conversation-craft",
+    name: "Conversation Craft",
+    description: "Quietly reviews completed Conversation Mode messages and improves later texting quality.",
+    phase: "post_processing",
+    enabledByDefault: false,
+    category: "writer",
+    modeAllowlist: ["conversation"],
   },
   {
     id: "continuity",
@@ -592,7 +605,9 @@ export function isBuiltInAgentAvailableInChatMode(mode: unknown, agentId: string
 export function isBuiltInAgentHiddenFromChatSettingsPicker(mode: unknown, agentId: string): boolean {
   const id = canonicalAgentActiveId(agentId);
   if (!isBuiltInAgentAvailableInChatMode(mode, id)) return true;
-  return normalizeAgentChatMode(mode) === "roleplay" && ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET.has(id);
+  const chatMode = normalizeAgentChatMode(mode);
+  if (chatMode === "conversation" && CONVERSATION_AGENT_PICKER_HIDDEN_IDS.has(id)) return true;
+  return chatMode === "roleplay" && ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET.has(id);
 }
 
 export function enabledChatAgentIds(metadata: unknown, mode: unknown): string[] {
@@ -620,6 +635,7 @@ export function filterAgentIdsForChatMode(agentIds: Iterable<string>, mode: unkn
 
 export const BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS: Readonly<Record<string, number>> = {
   "narrative-craft": 4,
+  "conversation-craft": 4,
   illustrator: 5,
   "lorebook-keeper": 8,
   "card-evolution-auditor": 8,
@@ -643,6 +659,11 @@ export function getDefaultBuiltInAgentSettings(agentType: string): Record<string
 
   if (agentType === "narrative-craft") {
     settings.maxTokens = 2500;
+    settings.temperature = 0;
+  }
+
+  if (agentType === "conversation-craft") {
+    settings.maxTokens = 1400;
     settings.temperature = 0;
   }
 
