@@ -49,8 +49,10 @@ import {
 } from "./built-in-agent-fallback";
 import { llmParameters } from "./context";
 import {
+  consumeConversationCraftPendingGuidance,
   consumeNarrativeCraftPendingGuidance,
   loadAgentMemory,
+  loadConversationCraftState,
   loadNarrativeCraftState,
 } from "./agent-memory-runtime";
 import { narrativeCraftHasRecurringShape } from "./narrative-craft-background";
@@ -112,6 +114,7 @@ export interface GenerationAgentRuntimeInput {
   forCharacterId?: string | null;
   agentTypes?: Set<string>;
   automaticNarrativeCraftOnly?: boolean;
+  automaticConversationCraftOnly?: boolean;
   bypassCustomAgentActivation?: boolean;
   hideAutomatedSummarySourceMessages?: boolean;
   regenerateMessageId?: string | null;
@@ -128,12 +131,14 @@ export interface GenerationAgentRuntime {
   agentData: Record<string, string>;
   availableSprites: AvailableSpriteCharacter[];
   narrativeCraftAnalysisDue: boolean;
+  conversationCraftAnalysisDue: boolean;
   runParallel(): Promise<AgentResult[]>;
   runPost(mainResponse: string): Promise<AgentResult[]>;
   runNarrativeCraftAnalysis(
     mainResponse: string,
     options?: { force?: boolean; signal?: AbortSignal },
   ): Promise<AgentResult[]>;
+  runConversationCraftAnalysis(mainResponse: string, options?: { signal?: AbortSignal }): Promise<AgentResult[]>;
 }
 
 interface AgentConnectionWarningBase {
@@ -173,6 +178,7 @@ interface ResolvedAgentsResult {
 }
 
 const NARRATIVE_CRAFT_AGENT_TYPE = "narrative-craft";
+const CONVERSATION_CRAFT_AGENT_TYPE = "conversation-craft";
 const ILLUSTRATOR_AGENT_TYPE = "illustrator";
 const CARD_EVOLUTION_AUDITOR_AGENT_TYPE = "card-evolution-auditor";
 const CHAT_SUMMARY_AGENT_TYPE = "chat-summary";
@@ -181,6 +187,7 @@ const KNOWLEDGE_ROUTER_AGENT_TYPE = "knowledge-router";
 const KNOWLEDGE_AGENT_TYPES = new Set([KNOWLEDGE_RETRIEVAL_AGENT_TYPE, KNOWLEDGE_ROUTER_AGENT_TYPE]);
 const ASSISTANT_INTERVAL_AGENT_TYPES = new Set([
   NARRATIVE_CRAFT_AGENT_TYPE,
+  CONVERSATION_CRAFT_AGENT_TYPE,
   ILLUSTRATOR_AGENT_TYPE,
   CARD_EVOLUTION_AUDITOR_AGENT_TYPE,
 ]);
@@ -880,7 +887,14 @@ function automaticIntervalGate(
   settings: Record<string, unknown>,
   builtInAgent: boolean,
 ): AutomaticIntervalGate | null {
-  if (input.agentTypes && input.agentTypes.size > 0 && !input.automaticNarrativeCraftOnly) return null;
+  if (
+    input.agentTypes &&
+    input.agentTypes.size > 0 &&
+    !input.automaticNarrativeCraftOnly &&
+    !input.automaticConversationCraftOnly
+  ) {
+    return null;
+  }
   if (builtInAgent && (ASSISTANT_INTERVAL_AGENT_TYPES.has(type) || USER_INTERVAL_AGENT_TYPES.has(type))) {
     const messageRole: AutomaticIntervalMessageRole = USER_INTERVAL_AGENT_TYPES.has(type) ? "user" : "assistant";
     const maxInterval = messageRole === "user" ? MAX_CUSTOM_AGENT_USER_RUN_INTERVAL : MAX_ASSISTANT_RUN_INTERVAL;
@@ -1151,11 +1165,16 @@ function dedupeExplicitBuiltInAgentRows(
 }
 
 async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput): Promise<ResolvedAgentsResult> {
-  const scopedAgentIds = chatActiveAgentIds(input);
+  const scopedAgentIds = input.automaticConversationCraftOnly ? new Set<string>() : chatActiveAgentIds(input);
   const hasExplicitAgentTypes = !!input.agentTypes && input.agentTypes.size > 0;
   const requestedAgentTypes =
     hasExplicitAgentTypes && input.agentTypes ? filterAgentIdsForChatMode(input.agentTypes, chatMode(input)) : null;
-  if (hasExplicitAgentTypes && requestedAgentTypes?.size === 0) {
+  const automaticConversationCraft =
+    chatMode(input) === "conversation" &&
+    boolish(chatMetadata(input).enableAgents, true) &&
+    (!hasExplicitAgentTypes || input.automaticConversationCraftOnly === true);
+  if (automaticConversationCraft) scopedAgentIds.add(CONVERSATION_CRAFT_AGENT_TYPE);
+  if (hasExplicitAgentTypes && requestedAgentTypes?.size === 0 && !automaticConversationCraft) {
     return { agents: [], skippedResults: [], staticInjections: [], agentWarnings: [] };
   }
   if (
@@ -1181,7 +1200,13 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     const isKnownBuiltIn = BUILT_IN_AGENT_TYPES.has(type);
     if (!isBuiltInAgentAvailableInChatMode(chatMode(input), type)) return false;
     const requestedExplicitly = requestedAgentTypes && (requestedAgentTypes.has(type) || requestedAgentTypes.has(id));
-    if (!boolish(agent.enabled, true) && !(isKnownBuiltIn && requestedExplicitly)) return false;
+    if (
+      !boolish(agent.enabled, true) &&
+      !(isKnownBuiltIn && requestedExplicitly) &&
+      !(automaticConversationCraft && type === CONVERSATION_CRAFT_AGENT_TYPE)
+    ) {
+      return false;
+    }
     const scopedToChat = scopedAgentIds.size > 0 && (scopedAgentIds.has(type) || scopedAgentIds.has(id));
     if (
       !requestedExplicitly &&
@@ -1190,7 +1215,9 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     ) {
       return false;
     }
-    if (requestedAgentTypes && requestedAgentTypes.size > 0) return Boolean(requestedExplicitly);
+    if (requestedAgentTypes && requestedAgentTypes.size > 0 && !input.automaticConversationCraftOnly) {
+      return Boolean(requestedExplicitly);
+    }
     if (scopedAgentIds.size > 0) return scopedToChat;
     return true;
   });
@@ -1566,6 +1593,16 @@ async function buildAgentContext(
     ? await loadNarrativeCraftState(deps.storage, narrativeCraftAgent.id, chatId)
     : null;
   if (narrativeCraftState) memory._narrativeCraftState = narrativeCraftState;
+  const conversationCraftAgent = agents.find((agent) => agent.type === CONVERSATION_CRAFT_AGENT_TYPE);
+  const conversationCraftState = conversationCraftAgent
+    ? await loadConversationCraftState(deps.storage, conversationCraftAgent.id, chatId)
+    : null;
+  if (conversationCraftState) {
+    memory._conversationCraftState = {
+      ...conversationCraftState,
+      conversationMode: input.characters.length > 1 ? "group" : "solo",
+    };
+  }
   const personaId = readString(input.chat.personaId).trim();
   if (personaId) memory._personaId = personaId;
   if (input.illustratorManualRequest === true) memory._illustratorManualRequest = true;
@@ -1751,6 +1788,7 @@ export async function createGenerationAgentRuntime(
   const preResults: AgentResult[] = [...skippedResults];
   const overrideInjections = normalizedAgentInjectionOverrides(input.agentInjectionOverrides);
   const narrativeCraftAgent = agents.find((agent) => agent.type === NARRATIVE_CRAFT_AGENT_TYPE);
+  const conversationCraftAgent = agents.find((agent) => agent.type === CONVERSATION_CRAFT_AGENT_TYPE);
   const shouldClaimNarrativeCraftGuidance =
     (!input.agentTypes?.size || input.automaticNarrativeCraftOnly === true) &&
     overrideInjections.length === 0 &&
@@ -1773,15 +1811,44 @@ export async function createGenerationAgentRuntime(
         },
       ]
     : [];
+  const shouldClaimConversationCraftGuidance =
+    chatMode(input) === "conversation" &&
+    boolish(chatMetadata(input).enableAgents, true) &&
+    (!input.agentTypes?.size || input.automaticConversationCraftOnly === true) &&
+    overrideInjections.length === 0;
+  const pendingConversationCraftGuidance = shouldClaimConversationCraftGuidance
+    ? await consumeConversationCraftPendingGuidance(
+        deps.storage,
+        conversationCraftAgent?.id ?? `builtin:${CONVERSATION_CRAFT_AGENT_TYPE}`,
+        readString(input.chat.id).trim(),
+      )
+    : null;
+  const conversationCraftInjections: AgentInjection[] = pendingConversationCraftGuidance
+    ? [
+        {
+          agentType: CONVERSATION_CRAFT_AGENT_TYPE,
+          agentName: conversationCraftAgent?.name ?? "Conversation Craft",
+          text: pendingConversationCraftGuidance,
+        },
+      ]
+    : [];
   const initialInjections = mergeAgentInjections(
     staticInjections,
     overrideInjections,
     narrativeCraftInjections,
+    conversationCraftInjections,
   );
   const agentData: Record<string, string> = agentDataFromInjections(initialInjections);
   delete agentData[NARRATIVE_CRAFT_AGENT_TYPE];
+  delete agentData[CONVERSATION_CRAFT_AGENT_TYPE];
   const recordAgentData = (agentType: string, text: string | null) => {
-    if (agentType === NARRATIVE_CRAFT_AGENT_TYPE || !text?.trim()) return;
+    if (
+      agentType === NARRATIVE_CRAFT_AGENT_TYPE ||
+      agentType === CONVERSATION_CRAFT_AGENT_TYPE ||
+      !text?.trim()
+    ) {
+      return;
+    }
     agentData[agentType] = text.trim();
   };
   for (const result of skippedResults) {
@@ -1799,9 +1866,11 @@ export async function createGenerationAgentRuntime(
       agentData,
       availableSprites: [],
       narrativeCraftAnalysisDue: false,
+      conversationCraftAnalysisDue: false,
       runParallel: async () => [],
       runPost: async () => [],
       runNarrativeCraftAnalysis: async () => [],
+      runConversationCraftAnalysis: async () => [],
     };
   }
 
@@ -1823,13 +1892,16 @@ export async function createGenerationAgentRuntime(
       agentData,
       availableSprites,
       narrativeCraftAnalysisDue: false,
+      conversationCraftAnalysisDue: false,
       runParallel: async () => pipeline.runParallel(),
       runPost: async (mainResponse) =>
         pipeline.postGenerate(mainResponse, {
           preGenInjections: initialInjections,
-          agentTypeFilter: (agentType) => agentType !== NARRATIVE_CRAFT_AGENT_TYPE,
+          agentTypeFilter: (agentType) =>
+            agentType !== NARRATIVE_CRAFT_AGENT_TYPE && agentType !== CONVERSATION_CRAFT_AGENT_TYPE,
         }),
       runNarrativeCraftAnalysis: async () => [],
+      runConversationCraftAnalysis: async () => [],
     };
   }
 
@@ -1859,11 +1931,13 @@ export async function createGenerationAgentRuntime(
     agentData,
     availableSprites,
     narrativeCraftAnalysisDue: !!narrativeCraftAgent,
+    conversationCraftAnalysisDue: !!conversationCraftAgent,
     runParallel: async () => pipeline.runParallel(),
     runPost: async (mainResponse) =>
       pipeline.postGenerate(mainResponse, {
         preGenInjections: preInjections,
-        agentTypeFilter: (agentType) => agentType !== NARRATIVE_CRAFT_AGENT_TYPE,
+        agentTypeFilter: (agentType) =>
+          agentType !== NARRATIVE_CRAFT_AGENT_TYPE && agentType !== CONVERSATION_CRAFT_AGENT_TYPE,
       }),
     runNarrativeCraftAnalysis: async (mainResponse, options = {}) => {
       if (!narrativeCraftAgent) return [];
@@ -1877,6 +1951,14 @@ export async function createGenerationAgentRuntime(
       return pipeline.postGenerate(mainResponse, {
         preGenInjections: preInjections,
         agentTypeFilter: (agentType) => agentType === NARRATIVE_CRAFT_AGENT_TYPE,
+        signal: options.signal,
+      });
+    },
+    runConversationCraftAnalysis: async (mainResponse, options = {}) => {
+      if (!conversationCraftAgent) return [];
+      return pipeline.postGenerate(mainResponse, {
+        preGenInjections: preInjections,
+        agentTypeFilter: (agentType) => agentType === CONVERSATION_CRAFT_AGENT_TYPE,
         signal: options.signal,
       });
     },
