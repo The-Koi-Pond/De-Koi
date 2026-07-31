@@ -9,6 +9,26 @@ function readAppSource() {
   return readFileSync(join(currentDir, "App.tsx"), "utf8");
 }
 
+function readChatHooksSource() {
+  return readFileSync(join(currentDir, "../features/catalog/chats/hooks/use-chats.ts"), "utf8");
+}
+
+function readPromptPreviewHookSource() {
+  return readFileSync(join(currentDir, "../features/modes/shared/chat-ui/hooks/use-peek-prompt.ts"), "utf8");
+}
+
+function readTimelineActionsSource() {
+  return readFileSync(join(currentDir, "../features/modes/shared/chat-ui/hooks/use-chat-timeline-actions.ts"), "utf8");
+}
+
+function readAppShellSource() {
+  return readFileSync(join(currentDir, "shell/AppShell.tsx"), "utf8");
+}
+
+function readMemoryMaintenanceStartupSource() {
+  return readFileSync(join(currentDir, "startup/AutomaticMemoryMaintenanceStartup.tsx"), "utf8");
+}
+
 describe("app boot shell boundary", () => {
   it("keeps the root App module free of deferred shell and feature imports", () => {
     const source = readAppSource();
@@ -19,5 +39,24 @@ describe("app boot shell boundary", () => {
     expect(source).not.toMatch(/from\s+["']\.\.\/features\//);
     expect(source).not.toMatch(/from\s+["']\.\.\/shared\/api\/settings-assets-api/);
     expect(source).not.toMatch(/from\s+["']sonner["']/);
+  });
+
+  it("keeps the prompt preview engine out of the initial application bundle", () => {
+    const chatHooksSource = readChatHooksSource();
+    const previewHookSource = readPromptPreviewHookSource();
+    const timelineActionsSource = readTimelineActionsSource();
+
+    expect(chatHooksSource).not.toContain("prompt-preview");
+    expect(previewHookSource).toContain('from "../../../../../engine/generation/prompt-preview"');
+    expect(timelineActionsSource).toContain('from "./use-peek-prompt"');
+  });
+
+  it("keeps automatic memory maintenance behind an idle lazy boundary", () => {
+    const shellSource = readAppShellSource();
+    const startupSource = readMemoryMaintenanceStartupSource();
+
+    expect(shellSource).not.toContain('from "../startup/automatic-memory-maintenance"');
+    expect(startupSource).toContain('import("./automatic-memory-maintenance")');
+    expect(startupSource).toContain("requestIdleCallback");
   });
 });

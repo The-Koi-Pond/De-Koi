@@ -5,11 +5,11 @@ import {
   useDeleteMessage,
   useDeleteMessages,
   useDeleteSwipe,
-  usePeekPrompt,
   useSetActiveSwipe,
   useUpdateMessage,
   useUpdateMessageExtra,
 } from "../../../../catalog/chats/index";
+import { usePeekPrompt } from "./use-peek-prompt";
 import { useGenerate } from "../../../../runtime/generation/index";
 import { useGameStateStore, worldStateApi, type WorldStateTarget } from "../../../../runtime/world-state/index";
 import { BUILT_IN_AGENTS } from "../../../../../engine/contracts/types/agent";

@@ -90,6 +90,8 @@ type AgentResultEffectOptions = {
   autoRemoveFullyCompletedQuests?: boolean;
 };
 const TYPEWRITER_MAX_FRAME_MS = 120;
+const TYPEWRITER_BACKLOG_CATCHUP_THRESHOLD = 240;
+const TYPEWRITER_MAX_CATCHUP_CHARS_PER_SECOND = 2_400;
 const STREAM_BUFFER_COMMIT_INTERVAL_MS = 45;
 const AGENT_DEBUG_FLUSH_DELAY_MS = 80;
 const AGENT_DEBUG_FLUSH_CHUNK_SIZE = 8;
@@ -1544,7 +1546,12 @@ export async function runGenerationWithUi(
     const speed = useUIStore.getState().streamingSpeed;
     if (speed >= 100) return Infinity;
     const normalized = Math.max(0, Math.min(1, (speed - 1) / 98));
-    return 12 + Math.pow(normalized, 1.65) * 248;
+    const selectedSpeed = 12 + Math.pow(normalized, 1.65) * 248;
+    if (pendingReveal.length <= TYPEWRITER_BACKLOG_CATCHUP_THRESHOLD) return selectedSpeed;
+
+    // Preserve the selected reading pace for normal streaming, but catch up when
+    // the model produces text much faster than the animation can reveal it.
+    return Math.max(selectedSpeed, Math.min(TYPEWRITER_MAX_CATCHUP_CHARS_PER_SECOND, pendingReveal.length * 4));
   };
 
   const revealNextStreamSlice = (now = performance.now()) => {
@@ -1640,7 +1647,7 @@ export async function runGenerationWithUi(
     resolveAllRevealWaiters();
   };
 
-  const flushVisibleStreamText = async () => {
+  const flushVisibleStreamText = async (immediate = false) => {
     if (controller.signal.aborted) {
       cancelTypewriterFrame();
       pendingReveal = "";
@@ -1648,7 +1655,7 @@ export async function runGenerationWithUi(
       resolveAllRevealWaiters();
       return;
     }
-    if (!useUIStore.getState().enableStreaming) {
+    if (!useUIStore.getState().enableStreaming || immediate) {
       cancelTypewriterFrame();
       pendingReveal = "";
       typewriterActive = false;
@@ -1665,9 +1672,9 @@ export async function runGenerationWithUi(
     });
   };
 
-  const flushLiveGenerationBuffers = async () => {
+  const flushLiveGenerationBuffers = async (immediate = false) => {
     commitThinkingBuffer(true);
-    await flushVisibleStreamText();
+    await flushVisibleStreamText(immediate);
   };
 
   const resetLiveGenerationBuffers = () => {
@@ -1828,7 +1835,7 @@ export async function runGenerationWithUi(
           break;
         case "assistant_message":
           if (event.data && typeof event.data === "object") {
-            await flushLiveGenerationBuffers();
+            await flushLiveGenerationBuffers(true);
             upsertCachedMessage(queryClient, chatId, event.data, { replaceMessageId: regenerateMessageId });
             scheduleChatQueryRefresh(queryClient, chatId);
             await notifyOffChatAssistantMessage(queryClient, chatId, event.data);
