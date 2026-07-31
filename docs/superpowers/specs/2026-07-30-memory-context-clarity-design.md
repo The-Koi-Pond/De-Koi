@@ -360,6 +360,11 @@ content.
 - `cargo check --manifest-path src-tauri/Cargo.toml`; and
 - full `pnpm check` before any shipping request.
 
+The production build measures 1711.3 KiB total JavaScript gzip with this
+bounded clarity review, so the total budget moves from 1710 to 1712 KiB.
+Startup JavaScript, the largest lazy route, and CSS remain below their existing
+budgets and those limits do not change.
+
 ### Synthetic semantic evaluation
 
 Run a bounded fixture set through a configured text model using invented

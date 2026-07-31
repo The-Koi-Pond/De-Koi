@@ -204,7 +204,7 @@ export function canonicalMemoryEligibleForConsequences(value: unknown): value is
   );
 }
 
-function stableHash(value: string): string {
+export function stableHash(value: string): string {
   let hash = 2166136261;
   for (const char of value) {
     hash ^= char.codePointAt(0) ?? 0;
@@ -388,7 +388,10 @@ function evidenceTokens(value: string): Set<string> {
   );
 }
 
-function contentSupportedByEvidence(content: string, messages: CanonicalConsequenceSourceMessage[]): boolean {
+export function contentSupportedByEvidence(
+  content: string,
+  messages: CanonicalConsequenceSourceMessage[],
+): boolean {
   const contentTokens = evidenceTokens(content);
   const sourceTokens = evidenceTokens(
     messages.map((message) => `${message.speakerLabel} ${message.content}`).join(" "),
