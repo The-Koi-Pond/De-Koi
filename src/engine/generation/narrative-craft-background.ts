@@ -1,8 +1,10 @@
 import type { StorageGateway } from "../capabilities/storage";
 import {
-  deferUntilForegroundGenerationCompletes,
-  foregroundGenerationActive,
-} from "./background-generation-coordinator";
+  cancelCraftAnalysis,
+  cancelCraftAnalysesForForeground,
+  scheduleCraftAnalysis,
+  type CraftAnalysisDiagnostic,
+} from "./craft-analysis-background";
 import { hiddenFromAi, readString, type JsonRecord } from "./runtime-records";
 
 const MAX_ASSISTANT_TURNS = 8;
@@ -79,145 +81,20 @@ export interface ScheduleNarrativeCraftAnalysisInput {
   now?: () => number;
 }
 
-interface NarrativeCraftAnalysisJob {
-  run: (signal: AbortSignal) => Promise<void>;
-  onDiagnostic?: (diagnostic: NarrativeCraftAnalysisDiagnostic) => void;
-  now: () => number;
-}
-
-interface ScheduledNarrativeCraftAnalysis {
-  pendingJob: NarrativeCraftAnalysisJob | null;
-  controller: AbortController | null;
-  cancelled: boolean;
-}
-
-const scheduledByStorage = new WeakMap<StorageGateway, Map<string, ScheduledNarrativeCraftAnalysis>>();
-
-function jobFor(input: ScheduleNarrativeCraftAnalysisInput): NarrativeCraftAnalysisJob {
-  return {
-    run: input.run,
-    onDiagnostic: input.onDiagnostic,
-    now: input.now ?? Date.now,
-  };
-}
-
-function reportDiagnostic(
-  job: NarrativeCraftAnalysisJob,
-  status: NarrativeCraftAnalysisDiagnostic["status"],
-  startedAt: number,
-): void {
-  if (!job.onDiagnostic) return;
-  try {
-    const elapsed = job.now() - startedAt;
-    job.onDiagnostic({
-      stage: "narrative_craft_analysis",
-      status,
-      durationMs: Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0,
-    });
-  } catch {
-    // Optional diagnostics must not affect background work or queue progress.
-  }
-}
-
 export function scheduleNarrativeCraftAnalysis(input: ScheduleNarrativeCraftAnalysisInput): boolean {
-  const chatId = input.chatId.trim();
-  if (!chatId) return false;
-
-  const scheduled = scheduledByStorage.get(input.storage) ?? new Map<string, ScheduledNarrativeCraftAnalysis>();
-  scheduledByStorage.set(input.storage, scheduled);
-  const active = scheduled.get(chatId);
-  if (active) {
-    active.pendingJob = jobFor(input);
-    return true;
-  }
-
-  const state: ScheduledNarrativeCraftAnalysis = { pendingJob: null, controller: null, cancelled: false };
-  scheduled.set(chatId, state);
-  const initialJob = jobFor(input);
-  setTimeout(() => {
-    startOrDeferNarrativeCraftAnalyses(input.storage, chatId, initialJob, state, scheduled);
-  }, 0);
-  return true;
-}
-
-function startOrDeferNarrativeCraftAnalyses(
-  storage: StorageGateway,
-  chatId: string,
-  initialJob: NarrativeCraftAnalysisJob,
-  state: ScheduledNarrativeCraftAnalysis,
-  scheduled: Map<string, ScheduledNarrativeCraftAnalysis>,
-): void {
-  if (state.cancelled || scheduled.get(chatId) !== state) return;
-  if (foregroundGenerationActive(storage)) {
-    deferUntilForegroundGenerationCompletes(storage, state, () => {
-      startOrDeferNarrativeCraftAnalyses(storage, chatId, initialJob, state, scheduled);
-    });
-    return;
-  }
-  void runScheduledNarrativeCraftAnalyses(storage, chatId, initialJob, state, scheduled);
+  return scheduleCraftAnalysis({
+    ...input,
+    stage: "narrative_craft_analysis",
+    onDiagnostic: input.onDiagnostic
+      ? (diagnostic: CraftAnalysisDiagnostic) => input.onDiagnostic?.(diagnostic as NarrativeCraftAnalysisDiagnostic)
+      : undefined,
+  });
 }
 
 export function cancelNarrativeCraftAnalysis(storage: StorageGateway, chatId: string): void {
-  const normalizedChatId = chatId.trim();
-  if (!normalizedChatId) return;
-  const active = scheduledByStorage.get(storage)?.get(normalizedChatId);
-  if (!active) return;
-  active.cancelled = true;
-  active.pendingJob = null;
-  active.controller?.abort();
-  const scheduled = scheduledByStorage.get(storage);
-  scheduled?.delete(normalizedChatId);
-  if (scheduled?.size === 0) scheduledByStorage.delete(storage);
+  cancelCraftAnalysis(storage, chatId);
 }
 
 export function cancelNarrativeCraftAnalysesForForeground(storage: StorageGateway): void {
-  const scheduled = scheduledByStorage.get(storage);
-  if (!scheduled) return;
-  scheduledByStorage.delete(storage);
-  for (const state of scheduled.values()) {
-    state.cancelled = true;
-    state.pendingJob = null;
-    state.controller?.abort();
-  }
-  scheduled.clear();
-}
-
-function abortError(error: unknown): boolean {
-  return !!error && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError";
-}
-
-async function runScheduledNarrativeCraftAnalyses(
-  storage: StorageGateway,
-  chatId: string,
-  initialJob: NarrativeCraftAnalysisJob,
-  state: ScheduledNarrativeCraftAnalysis,
-  scheduled: Map<string, ScheduledNarrativeCraftAnalysis>,
-): Promise<void> {
-  let job: NarrativeCraftAnalysisJob | null = initialJob;
-  try {
-    while (job && !state.cancelled) {
-      const startedAt = job.now();
-      const controller = new AbortController();
-      state.controller = controller;
-      try {
-        await job.run(controller.signal);
-        reportDiagnostic(job, "ok", startedAt);
-      } catch (error) {
-        if (!controller.signal.aborted && !abortError(error)) {
-          console.warn("[generation] narrative craft background analysis failed", {
-            chatId,
-            error: error instanceof Error ? error.message : String(error ?? "Unknown Narrative Craft error"),
-          });
-          reportDiagnostic(job, "error", startedAt);
-        }
-      }
-      state.controller = null;
-      job = state.pendingJob;
-      state.pendingJob = null;
-    }
-  } finally {
-    state.controller = null;
-    if (scheduled.get(chatId) === state) scheduled.delete(chatId);
-    if (scheduled.size === 0) scheduledByStorage.delete(storage);
-  }
+  cancelCraftAnalysesForForeground(storage);
 }

@@ -41,7 +41,10 @@ import {
   assertChatHasActiveCharacters,
   assertRequestedCharacterIsActive,
 } from "./active-characters";
-import { persistNarrativeCraftAgentMemory } from "./agent-memory-runtime";
+import {
+  persistConversationCraftAgentMemory,
+  persistNarrativeCraftAgentMemory,
+} from "./agent-memory-runtime";
 import {
   createGenerationAgentRuntime,
   runFocusedRoleplayQualityAudit,
@@ -49,9 +52,9 @@ import {
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
 import {
-  cancelNarrativeCraftAnalysesForForeground,
   scheduleNarrativeCraftAnalysis,
 } from "./narrative-craft-background";
+import { cancelCraftAnalysesForForeground, scheduleCraftAnalysis } from "./craft-analysis-background";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import { generationContextAttribution } from "./context-attribution";
 import {
@@ -182,6 +185,7 @@ export type GenerationPerformanceTiming = {
     | "generation.post_save"
     | "generation.lorebook_keeper_backfill"
     | "generation.narrative_craft_background"
+    | "generation.conversation_craft_background"
     | "generation.background_maintenance";
   elapsedMs: number;
   status: "ok" | "error";
@@ -2526,6 +2530,18 @@ async function persistNarrativeCraftAgentMemorySafely(
   }
 }
 
+async function persistConversationCraftAgentMemorySafely(
+  storage: StorageGateway,
+  chatId: string,
+  results: AgentResult[],
+): Promise<void> {
+  try {
+    await persistConversationCraftAgentMemory(storage, chatId, results);
+  } catch (error) {
+    console.warn("[generation] conversation craft memory persist failed", error);
+  }
+}
+
 function scheduleNarrativeCraftAfterSavedAssistant(args: {
   deps: GenerationEngineDeps;
   runtime: GenerationAgentRuntime | null;
@@ -2549,6 +2565,35 @@ function scheduleNarrativeCraftAfterSavedAssistant(args: {
       const results = await args.runtime!.runNarrativeCraftAnalysis(args.content, { signal });
       if (results.length === 0) return;
       await persistNarrativeCraftAgentMemory(args.deps.storage, args.chatId, results);
+      await persistAgentResults(args.deps.storage, args.chatId, args.messageId, results);
+    },
+  });
+}
+
+function scheduleConversationCraftAfterSavedAssistant(args: {
+  deps: GenerationEngineDeps;
+  runtime: GenerationAgentRuntime | null;
+  chatId: string;
+  messageId: string | null;
+  content: string;
+}): boolean {
+  if (!args.runtime?.conversationCraftAnalysisDue || !args.messageId) return false;
+  return scheduleCraftAnalysis({
+    storage: args.deps.storage,
+    chatId: args.chatId,
+    stage: "conversation_craft_analysis",
+    onDiagnostic: args.deps.onPerformanceTiming
+      ? (diagnostic) =>
+          args.deps.onPerformanceTiming?.({
+            name: "generation.conversation_craft_background",
+            elapsedMs: diagnostic.durationMs,
+            status: diagnostic.status,
+          })
+      : undefined,
+    run: async (signal) => {
+      const results = await args.runtime!.runConversationCraftAnalysis(args.content, { signal });
+      if (results.length === 0) return;
+      await persistConversationCraftAgentMemory(args.deps.storage, args.chatId, results);
       await persistAgentResults(args.deps.storage, args.chatId, args.messageId, results);
     },
   });
@@ -4374,7 +4419,7 @@ export async function* dryRunGeneration(
   const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
   cancelConversationSummaryBackgroundForForeground(deps.storage, chat);
-  cancelNarrativeCraftAnalysesForForeground(deps.storage);
+  cancelCraftAnalysesForForeground(deps.storage);
   input = (await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input)) as GenerationDryRunInput;
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
@@ -4455,7 +4500,9 @@ export async function* dryRunGeneration(
     preparedUserInput.images,
   );
   const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-    [...prompt, ...generationGuideMessages(input)].filter((message): message is LlmMessage => !!message),
+    [...prompt, ...generationGuideMessages(input, chatForGeneration)].filter(
+      (message): message is LlmMessage => !!message,
+    ),
     assembly.userRegenerationSourceMessage,
   );
   const dryRunPartial: StreamPartialSink = {
@@ -4486,7 +4533,7 @@ export async function* dryRunGeneration(
     parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
     baseMessages,
     previewMessages: withUserMessageRegenerationRewritePrompt(
-      [...promptPreviewMessages, ...generationGuideMessages(input)].filter(
+      [...promptPreviewMessages, ...generationGuideMessages(input, chatForGeneration)].filter(
         (message): message is LlmMessage => !!message,
       ),
       assembly.userRegenerationSourceMessage,
@@ -4565,7 +4612,7 @@ export async function* startGeneration(
   signal?: AbortSignal,
 ): AsyncGenerator<GenerationEvent> {
   const releaseForegroundGeneration = beginForegroundGeneration(deps.storage);
-  cancelNarrativeCraftAnalysesForForeground(deps.storage);
+  cancelCraftAnalysesForForeground(deps.storage);
   try {
     yield* startGenerationImpl(deps, input, signal);
   } finally {
@@ -4989,7 +5036,7 @@ async function* startGenerationImpl(
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
     };
     const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-      [...prompt, ...generationGuideMessages(input, runtime?.preInjections)].filter(
+      [...prompt, ...generationGuideMessages(input, chatForGeneration, runtime?.preInjections)].filter(
         (message): message is LlmMessage => !!message,
       ),
       assembly.userRegenerationSourceMessage,
@@ -5032,7 +5079,7 @@ async function* startGenerationImpl(
         parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
         baseMessages,
         previewMessages: withUserMessageRegenerationRewritePrompt(
-          [...promptPreviewMessages, ...generationGuideMessages(input, runtime?.preInjections)].filter(
+          [...promptPreviewMessages, ...generationGuideMessages(input, chatForGeneration, runtime?.preInjections)].filter(
             (message): message is LlmMessage => !!message,
           ),
           assembly.userRegenerationSourceMessage,
@@ -5285,6 +5332,7 @@ async function* startGenerationImpl(
         }
         throwIfAborted(signal);
         await persistNarrativeCraftAgentMemorySafely(deps.storage, chatId, allAgentResults);
+        await persistConversationCraftAgentMemorySafely(deps.storage, chatId, allAgentResults);
         throwIfAborted(signal);
         await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
         throwIfAborted(signal);
@@ -5295,6 +5343,13 @@ async function* startGenerationImpl(
       if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
       if (savedAssistantGeneration) {
         scheduleNarrativeCraftAfterSavedAssistant({
+          deps,
+          runtime,
+          chatId,
+          messageId: messageId(latestSaved),
+          content: displayContent,
+        });
+        scheduleConversationCraftAfterSavedAssistant({
           deps,
           runtime,
           chatId,
@@ -5399,23 +5454,32 @@ async function* startGenerationImpl(
     input.impersonateBlockAgents !== true &&
     !isUserMessageRegeneration &&
     (chatActiveAgentIds(chatForGeneration).has(NARRATIVE_CRAFT_AGENT_TYPE) || directNarrativeCraftRequested);
-  const directNarrativeCraftRuntime: GenerationAgentRuntime | null = directNarrativeCraftEnabled
+  const directConversationCraftEnabled =
+    input.impersonateBlockAgents !== true &&
+    !isUserMessageRegeneration &&
+    readString(chatForGeneration.mode || chatForGeneration.chatMode).trim() === "conversation";
+  const directCraftRuntime: GenerationAgentRuntime | null =
+    directNarrativeCraftEnabled || directConversationCraftEnabled
     ? await createGenerationAgentRuntime(
         { storage: deps.storage, llm: deps.llm, integrations: deps.integrations, visuals: deps.visuals },
         {
           ...directAgentInput,
-          agentTypes: new Set([NARRATIVE_CRAFT_AGENT_TYPE]),
+          agentTypes: new Set([
+            ...(directNarrativeCraftEnabled ? [NARRATIVE_CRAFT_AGENT_TYPE] : []),
+            ...(directConversationCraftEnabled ? ["conversation-craft"] : []),
+          ]),
           automaticNarrativeCraftOnly: true,
+          automaticConversationCraftOnly: directConversationCraftEnabled,
           bypassCustomAgentActivation: true,
         },
       )
     : null;
   throwIfAborted(signal);
-  for (const warning of directNarrativeCraftRuntime?.agentWarnings ?? []) {
+  for (const warning of directCraftRuntime?.agentWarnings ?? []) {
     yield { type: "agent_warning", data: warning };
   }
   const baseMessagesDirect: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-    [...(prompt ?? []), ...generationGuideMessages(input, directNarrativeCraftRuntime?.preInjections)].filter(
+    [...(prompt ?? []), ...generationGuideMessages(input, chatForGeneration, directCraftRuntime?.preInjections)].filter(
       (message): message is LlmMessage => !!message,
     ),
     assembly.userRegenerationSourceMessage,
@@ -5460,7 +5524,7 @@ async function* startGenerationImpl(
       previewMessages: withUserMessageRegenerationRewritePrompt(
         [
           ...(promptPreviewMessagesDirect ?? []),
-          ...generationGuideMessages(input, directNarrativeCraftRuntime?.preInjections),
+          ...generationGuideMessages(input, chatForGeneration, directCraftRuntime?.preInjections),
         ].filter((message): message is LlmMessage => !!message),
         assembly.userRegenerationSourceMessage,
       ),
@@ -5576,7 +5640,7 @@ async function* startGenerationImpl(
         clearWebResearchRequest: mainToolsDirect?.characterWebResearchGrant != null,
         webResearchSources: webResearchSourcesDirect,
         roleplayQualityCorrection: roleplayQualityDirect.correction,
-        contextInjections: isUserMessageRegeneration ? null : (directNarrativeCraftRuntime?.preInjections ?? null),
+        contextInjections: isUserMessageRegeneration ? null : (directCraftRuntime?.preInjections ?? null),
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
   const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
@@ -5613,7 +5677,14 @@ async function* startGenerationImpl(
     if (savedAssistantGeneration) {
       scheduleNarrativeCraftAfterSavedAssistant({
         deps,
-        runtime: directNarrativeCraftRuntime,
+        runtime: directCraftRuntime,
+        chatId,
+        messageId: messageId(saved),
+        content: displayContentDirect,
+      });
+      scheduleConversationCraftAfterSavedAssistant({
+        deps,
+        runtime: directCraftRuntime,
         chatId,
         messageId: messageId(saved),
         content: displayContentDirect,
@@ -5680,12 +5751,19 @@ async function resolveForegroundGenerationConnection(
 
 function generationGuideMessages(
   input: StartGenerationInput,
+  chat: JsonRecord,
   contextInjections: readonly AgentInjectionOverride[] | null | undefined = null,
 ): LlmMessage[] {
   return buildGenerationGuideMessages({
     generationGuide: input.generationGuide,
     generationGuideSource: input.generationGuideSource,
     contextInjections,
+    conversationCraftMode:
+      readString(chat.mode || chat.chatMode).trim() === "conversation"
+        ? activeCharacterIds(chat).length > 1
+          ? "group"
+          : "solo"
+        : null,
   });
 }
 
