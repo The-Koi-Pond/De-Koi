@@ -264,6 +264,36 @@
       "disposition": "proven-and-clarified",
       "fix": "Legacy active IDs are canonically remapped before agent resolution and the existing collapse test proves all three retired IDs produce one Narrative Craft call. Custom agent types are separate agents and must not enter the built-in critic state contract.",
       "humanResolutionRequired": false
+    },
+    {
+      "finding": "A full Bunny rerun repeated the partial-clear warning after the original persistent alert repair.",
+      "disposition": "fixed",
+      "fix": "The persistent alert now has an explicit partial-clear heading, lists every memory block that is still saved, states that the inspector above is the surviving state, and keeps Retry clear visible. The focused component regression asserts all four facts.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Feature evaluation might throw for incomplete pairs instead of reporting them.",
+      "disposition": "proven-and-clarified",
+      "fix": "The summarizer already records missing baseline and missing treatment identities in missingPairs and skips them from matchedPairs. A focused Node test now proves both directions, while a separate test proves only a true duplicate feature within one condition throws.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Collapsing several retired narrative activations might silently lose intended distinct behavior.",
+      "disposition": "accepted-design",
+      "fix": "Replacing the three overlapping story agents with one Narrative Craft activation is the requested product behavior. Contract and runtime tests explicitly prove all retired IDs collapse to one call, while legacy Secret Plot memory remains readable through the Narrative Craft inspector.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Non-narrative replay overrides might be dropped when Narrative Craft is inactive.",
+      "disposition": "proven-and-clarified",
+      "fix": "Explicit overrides are merged before the active-agent early return and are independent of Narrative Craft pending guidance. A new runtime regression proves a custom specialist override remains in preInjections and preResults with no active Narrative Craft agent.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Unknown replay injection types might be silently skipped or misclassified.",
+      "disposition": "proven-and-clarified",
+      "fix": "The replay normalizer excludes only the four current or retired narrative types. A focused regression now proves an unknown custom-specialist object remains replayable while legacy string-only Prose Guardian guidance stays excluded.",
+      "humanResolutionRequired": false
     }
   ],
   "verification": {
@@ -271,7 +301,7 @@
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm test; pnpm check",
-    "baselineEvidence": "The repaired branch passed 2,503 frontend tests with one skipped, including focused Narrative Craft partial-clear and retired-injection compatibility tests, plus TypeScript, architecture, docs, storage contracts, Rust workspace compilation, repository checks, external harness unit tests, and git diff whitespace checks.",
+    "baselineEvidence": "The current-main-integrated branch passed 2,537 frontend tests with one skipped, including focused Narrative Craft partial-clear, replay-override, legacy-collapse, and evaluator-pair tests, plus TypeScript, architecture, docs, storage contracts, Rust workspace compilation, repository checks, external harness unit tests, and git diff whitespace checks.",
     "negativeRowsTested": [
       "Requested repetition and resolution",
       "Speaking settings",
@@ -289,6 +319,7 @@
       "pnpm check",
       "python -m unittest test_generation_eval.py test_storyscope_features.py",
       "pnpm vitest run RoleplayHUDPanels, ContextInjectionPanel, generation-replay, agent-runner, and agent-prompts focused suites (40 passed)",
+      "node --test summarize-features plus focused review regressions (43 passed)",
       "git diff --check"
     ]
   },

@@ -1243,6 +1243,35 @@ describe("Narrative Craft runtime cadence", () => {
     expect(requests).toHaveLength(0);
   });
 
+  it("preserves explicit non-narrative replay overrides even when Narrative Craft is inactive", async () => {
+    const input = activeAgentRuntimeInput(connection, { activeAgentIds: [] });
+    input.agentInjectionOverrides = [
+      {
+        agentType: "custom-specialist",
+        agentName: "Custom Specialist",
+        text: "Preserve the custom constraint.",
+      },
+    ];
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({}),
+        llm: narrativeCraftLlm([]),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    expect(runtime.preInjections).toEqual(input.agentInjectionOverrides);
+    expect(runtime.preResults).toEqual([
+      expect.objectContaining({
+        agentType: "custom-specialist",
+        success: true,
+        data: { text: "Preserve the custom constraint.", source: "cached_context_injection" },
+      }),
+    ]);
+  });
+
   it("collapses all retired active IDs to one runtime call", async () => {
     const requests: LlmRequest[] = [];
     const input = activeAgentRuntimeInput(connection, {

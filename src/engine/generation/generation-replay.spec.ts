@@ -14,11 +14,13 @@ describe("cached generation injections", () => {
         { agentType: "director", text: "old direction" },
         { agentType: "secret-plot-driver", text: "old plot direction" },
         { agentType: "continuity", agentName: "Continuity Checker", text: "Keep the date consistent." },
+        { agentType: "custom-specialist", text: "Preserve the custom constraint." },
       ]),
     ).toBe(true);
 
     expect(input.agentInjectionOverrides).toEqual([
       { agentType: "continuity", agentName: "Continuity Checker", text: "Keep the date consistent." },
+      { agentType: "custom-specialist", text: "Preserve the custom constraint." },
     ]);
   });
 

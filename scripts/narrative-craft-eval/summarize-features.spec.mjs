@@ -46,12 +46,26 @@ test("reports unmatched baseline or treatment identities instead of silently dro
     metric("case-a", "baseline", "forced_escalation", true),
     metric("case-a", "treatment", "forced_escalation", false),
     metric("case-b", "baseline", "forced_escalation", true),
+    metric("case-c", "treatment", "forced_escalation", false),
   ]);
 
   assert.equal(summary.matchedPairs, 1);
   assert.deepEqual(summary.missingPairs, [
     { caseId: "case-b", model: "provider/model", seed: "1", missingCondition: "treatment" },
+    { caseId: "case-c", model: "provider/model", seed: "1", missingCondition: "baseline" },
   ]);
+});
+
+test("rejects only a true duplicate feature within the same generation condition", () => {
+  assert.throws(
+    () =>
+      summarizeFeatureRows([
+        metric("case-a", "baseline", "forced_escalation", true),
+        metric("case-a", "baseline", "forced_escalation", false),
+        metric("case-a", "treatment", "forced_escalation", false),
+      ]),
+    /Duplicate feature "forced_escalation"/,
+  );
 });
 
 test("does not invent a zero latency delta when no complete pairs exist", () => {

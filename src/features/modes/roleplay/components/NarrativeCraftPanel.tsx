@@ -266,8 +266,15 @@ export function NarrativeCraftPanel({
               role="alert"
               className="rounded-lg border border-[var(--destructive)]/35 bg-[var(--destructive)]/10 px-2 py-1.5 text-[0.625rem] leading-relaxed text-[var(--destructive)]"
             >
-              {clearFailures.map((agentType) => MEMORY_LABEL[agentType] ?? agentType).join(" and ")} could not be
-              cleared. Retry to remove the remaining saved state.
+              <p className="font-semibold">Craft state was only partly cleared</p>
+              <ul className="mt-0.5 list-disc pl-4">
+                {clearFailures.map((agentType) => (
+                  <li key={agentType}>{MEMORY_LABEL[agentType] ?? agentType} is still saved.</li>
+                ))}
+              </ul>
+              <p className="mt-0.5">
+                The state shown above is what remains. Retry clear to remove the remaining saved state.
+              </p>
             </div>
           )}
 

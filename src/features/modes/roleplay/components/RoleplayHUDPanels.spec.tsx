@@ -279,7 +279,9 @@ describe("NarrativeCraftPanel", () => {
     expect(narrativeCraftMocks.toastError).toHaveBeenCalledWith(
       "Some saved craft state could not be cleared. Reloaded the remaining state.",
     );
-    expect(container!.textContent).toContain("Secret Plot memory could not be cleared.");
+    expect(container!.textContent).toContain("Craft state was only partly cleared");
+    expect(container!.textContent).toContain("Secret Plot memory is still saved.");
+    expect(container!.textContent).toContain("The state shown above is what remains.");
     expect(container!.textContent).toContain("Retry clear");
     expect(container!.textContent).toContain("Legacy consequence");
     expect(container!.textContent).not.toContain("Current consequence");
