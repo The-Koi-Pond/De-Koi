@@ -3,6 +3,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { VisualAssetGateway } from "../capabilities/visual-assets";
+import { NARRATIVE_CRAFT_PRINCIPLES } from "../contracts/constants/agent-prompts";
 import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../contracts/types/sidecar";
 import {
   createGenerationAgentRuntime,
@@ -10,6 +11,7 @@ import {
   type AgentConnectionWarning,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
+import { loadNarrativeCraftState, persistNarrativeCraftAgentMemory } from "./agent-memory-runtime";
 import { LOREBOOK_WRITE_TOOL_NAME } from "./tools-runtime";
 import type { JsonRecord } from "./runtime-records";
 
@@ -1065,6 +1067,30 @@ describe("Narrative Craft runtime cadence", () => {
     return input;
   }
 
+  const narrativeCraftBaselineGuidance = `${NARRATIVE_CRAFT_PRINCIPLES}\nAlso avoid clustered polished triplets, not-X-but-Y pivots, dense comparisons, and endings that restate the beat. Explicit style requests control.`;
+
+  it("adds the baseline silent shape pass without a provider request", async () => {
+    const requests: LlmRequest[] = [];
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({}),
+        llm: narrativeCraftLlm(requests),
+        integrations: noopIntegrations,
+      },
+      narrativeInput([{ id: "user-1", role: "user", content: "Continue." }]),
+    );
+
+    expect(runtime.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
+    expect(runtime.agentData).toEqual({});
+    expect(requests).toHaveLength(0);
+  });
+
   it("does not call Narrative Craft before generation and forced analysis receives the completed response", async () => {
     const requests: LlmRequest[] = [];
     const runtime = await createGenerationAgentRuntime(
@@ -1090,7 +1116,13 @@ describe("Narrative Craft runtime cadence", () => {
     );
 
     expect(requests).toHaveLength(0);
-    expect(runtime.preInjections).toEqual([]);
+    expect(runtime.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
     expect(runtime.preResults).toEqual([]);
 
     await expect(
@@ -1126,7 +1158,7 @@ describe("Narrative Craft runtime cadence", () => {
     );
   });
 
-  it("skips automatic analysis when the cheap recurrence trigger finds no candidate", async () => {
+  it("analyzes the first completed response when the cheap recurrence trigger finds no candidate", async () => {
     const requests: LlmRequest[] = [];
     const runtime = await createGenerationAgentRuntime(
       {
@@ -1140,8 +1172,112 @@ describe("Narrative Craft runtime cadence", () => {
       ]),
     );
 
+    await expect(runtime.runNarrativeCraftAnalysis("The loose wire clicks into place.")).resolves.toHaveLength(1);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.messages.map((message) => message.content).join("\n")).toContain(
+      "The loose wire clicks into place.",
+    );
+  });
+
+  it("skips automatic analysis with saved state when the cheap recurrence trigger finds no candidate", async () => {
+    const requests: LlmRequest[] = [];
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({
+          memoryRows: [
+            {
+              id: "state-1",
+              agentConfigId: "builtin:narrative-craft",
+              chatId: "chat-1",
+              key: "state",
+              value: JSON.stringify({ version: 1, pacing: "exploring", threads: [] }),
+            },
+          ],
+        }),
+        llm: narrativeCraftLlm(requests),
+        integrations: noopIntegrations,
+      },
+      narrativeInput([
+        { id: "assistant-1", role: "assistant", content: "Mara repairs the radio in silence." },
+        { id: "user-1", role: "user", content: "I hold the flashlight." },
+      ]),
+    );
+
     await expect(runtime.runNarrativeCraftAnalysis("The loose wire clicks into place.")).resolves.toEqual([]);
     expect(requests).toHaveLength(0);
+  });
+
+  it("persists a first no-candidate analysis so the next no-candidate response stays cadence-gated", async () => {
+    const requests: LlmRequest[] = [];
+    const storage = storageForNarrativeCraft({});
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            text: "",
+            evidence: [],
+            issue: "",
+            intervened: false,
+            reason: "The opening establishes a quiet scene without a repeated shape.",
+            state: {
+              version: 1,
+              pacing: "quiet",
+              threads: [{ id: "radio", summary: "A damaged radio needs repair.", kind: "main", status: "active" }],
+              openQuestions: [],
+              withheldInformation: [],
+              unresolvedConsequences: [],
+              recentShapeChoices: [],
+              lastGuidance: [],
+            },
+          }),
+        };
+        yield { type: "done" };
+      },
+    };
+    const first = await createGenerationAgentRuntime(
+      { storage, llm, integrations: noopIntegrations },
+      narrativeInput([
+        { id: "assistant-1", role: "assistant", content: "Mara repairs the radio in silence." },
+        { id: "user-1", role: "user", content: "I hold the flashlight." },
+      ]),
+    );
+
+    const firstResults = await first.runNarrativeCraftAnalysis("The loose wire clicks into place.");
+    expect(firstResults).toEqual([
+      expect.objectContaining({
+        agentType: "narrative-craft",
+        success: true,
+        data: expect.objectContaining({ intervened: false }),
+      }),
+    ]);
+    expect(requests).toHaveLength(1);
+
+    await persistNarrativeCraftAgentMemory(storage, "chat-1", firstResults);
+    await expect(loadNarrativeCraftState(storage, "builtin:narrative-craft", "chat-1")).resolves.toMatchObject({
+      pacing: "quiet",
+      threads: [expect.objectContaining({ id: "radio" })],
+    });
+
+    const next = await createGenerationAgentRuntime(
+      { storage, llm, integrations: noopIntegrations },
+      narrativeInput([
+        { id: "assistant-1", role: "assistant", content: "Mara repairs the radio in silence." },
+        { id: "user-1", role: "user", content: "I hold the flashlight." },
+        { id: "assistant-2", role: "assistant", content: "The loose wire clicks into place." },
+        { id: "user-2", role: "user", content: "I wait for the sound." },
+      ]),
+    );
+
+    await expect(next.runNarrativeCraftAnalysis("The radio hums once, then falls quiet.")).resolves.toEqual([]);
+    expect(requests).toHaveLength(1);
   });
 
   it("skips between cadence boundaries and runs on the fourth pending assistant turn", async () => {
@@ -1172,7 +1308,13 @@ describe("Narrative Craft runtime cadence", () => {
       narrativeInput(baseMessages),
     );
     expect(skippedRequests).toHaveLength(0);
-    expect(skipped.preInjections).toEqual([]);
+    expect(skipped.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
     await expect(
       skipped.runNarrativeCraftAnalysis("Her breath caught as the dial moved."),
     ).resolves.toEqual([]);
@@ -1193,7 +1335,13 @@ describe("Narrative Craft runtime cadence", () => {
     expect(dueRequests).toHaveLength(0);
     await expect(due.runNarrativeCraftAnalysis("Her breath caught as the dial moved.")).resolves.toHaveLength(1);
     expect(dueRequests).toHaveLength(1);
-    expect(due.preInjections).toEqual([]);
+    expect(due.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
   });
 
   it("claims cached guidance for exactly one later generation", async () => {
@@ -1236,10 +1384,16 @@ describe("Narrative Craft runtime cadence", () => {
       {
         agentType: "narrative-craft",
         agentName: "Narrative Craft",
-        text: "Avoid repeating the cited rhetorical shape.",
+        text: `${narrativeCraftBaselineGuidance}\n\nStory-specific guidance:\nAvoid repeating the cited rhetorical shape.`,
       },
     ]);
-    expect(second.preInjections).toEqual([]);
+    expect(second.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
     expect(requests).toHaveLength(0);
   });
 

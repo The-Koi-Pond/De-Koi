@@ -53,4 +53,27 @@ describe("buildGenerationGuideMessages", () => {
     expect(messages[1]?.content).toContain("Conversation freshness guide");
     expect(messages.at(-1)?.role).not.toBe("user");
   });
+
+  it("keeps Narrative Craft guidance as the final high-priority system instruction", () => {
+    const messages = buildGenerationGuideMessages({
+      generationGuide: "Continue into the tent.",
+      generationGuideSource: "guide",
+      contextInjections: [
+        {
+          agentType: "narrative-craft",
+          text: "Use complete sentences and remove accidental contrast pivots.",
+        },
+      ],
+    });
+
+    expect(messages).toHaveLength(2);
+    expect(messages.at(-1)).toMatchObject({
+      role: "system",
+      contextKind: "injection",
+      displayName: "Internal Avoidance Guidance",
+    });
+    expect(messages.at(-1)?.content).toContain("Narrative Craft instruction - high priority");
+    expect(messages.at(-1)?.content).toContain("<narrative_craft>");
+    expect(messages.at(-1)?.content).toContain("Use complete sentences and remove accidental contrast pivots.");
+  });
 });

@@ -72,8 +72,8 @@ function narrativeCraftBackgroundStorage() {
     async listChatMessages<T = unknown>(): Promise<T[]> {
       return messages as T[];
     },
-    async getChatMessage() {
-      return null;
+    async getChatMessage<T = unknown>(messageId: string): Promise<T | null> {
+      return (messages.find((message) => message.id === messageId) ?? null) as T | null;
     },
     async createChatMessage<T = unknown>(chatId: string, value: Record<string, unknown>): Promise<T> {
       const message = {
@@ -190,6 +190,9 @@ describe("startGeneration Narrative Craft background analysis", () => {
       await advanceToDone(generation);
       expect(criticStarted).toBe(false);
       expect(requests).toHaveLength(1);
+      expect(requests[0]?.messages.map((message) => message.content).join("\n").match(/<narrative_craft>/g)).toHaveLength(
+        1,
+      );
 
       await generation.return(undefined);
       await vi.runOnlyPendingTimersAsync();
@@ -203,6 +206,82 @@ describe("startGeneration Narrative Craft background analysis", () => {
           expect.objectContaining({ entity: "agent-runs" }),
         ]),
       );
+    } finally {
+      criticGate.resolve();
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies one Narrative Craft guide and schedules first analysis for direct messages", async () => {
+    vi.useFakeTimers();
+    const { storage, agentRunPersisted } = narrativeCraftBackgroundStorage();
+    const criticGate = deferred<void>();
+    let criticStarted = false;
+    const requests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        const prompt = request.messages.map((message) => message.content).join("\n");
+        if (prompt.includes("You are Narrative Craft")) {
+          criticStarted = true;
+          await criticGate.promise;
+          yield {
+            type: "token",
+            text: JSON.stringify({
+              text: "",
+              evidence: [],
+              issue: "",
+              state: {
+                version: 1,
+                pacing: "quiet",
+                threads: [],
+                openQuestions: [],
+                withheldInformation: [],
+                unresolvedConsequences: [],
+                recentShapeChoices: [],
+                lastGuidance: [],
+              },
+              reason: "No recurring shape requires later guidance.",
+              intervened: false,
+            }),
+          };
+          yield { type: "done" };
+          return;
+        }
+        yield { type: "token", text: "The radio clicks once in the quiet room." };
+        yield { type: "done" };
+      },
+    };
+    const generation = startGeneration(
+      { storage, llm, integrations: {} as IntegrationGateway },
+      {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        messages: [{ role: "user", content: "Continue the quiet scene." }],
+      },
+    );
+
+    try {
+      await advanceToDone(generation);
+      expect(criticStarted).toBe(false);
+      expect(requests).toHaveLength(1);
+      const writerPrompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
+      expect(writerPrompt.match(/<narrative_craft>/g)).toHaveLength(1);
+      expect(writerPrompt).toContain("Trust the reader");
+      expect(writerPrompt).toContain("Explicit style requests control");
+
+      await generation.return(undefined);
+      await vi.runOnlyPendingTimersAsync();
+      expect(criticStarted).toBe(true);
+
+      criticGate.resolve();
+      await agentRunPersisted.promise;
     } finally {
       criticGate.resolve();
       vi.useRealTimers();

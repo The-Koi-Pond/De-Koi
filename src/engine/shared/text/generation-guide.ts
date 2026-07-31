@@ -31,6 +31,7 @@ const GUIDE_SOURCE_LABELS: Record<GenerationGuideSource, string> = {
 };
 
 const PROSE_GUARDIAN_AGENT_TYPE = "prose-guardian";
+const NARRATIVE_CRAFT_AGENT_TYPE = "narrative-craft";
 
 function uniqueTrimmedLines(values: string[]): string[] {
   const seen = new Set<string>();
@@ -63,6 +64,27 @@ export function buildProseGuardianAvoidanceGuide(
     "<prose_guardian_avoidance>",
     directives.join("\n\n"),
     "</prose_guardian_avoidance>]",
+  ].join("\n");
+}
+
+function buildNarrativeCraftGuide(
+  injections: readonly ProseGuardianAvoidanceSource[] | null | undefined,
+): string | null {
+  const directives = uniqueTrimmedLines(
+    (injections ?? [])
+      .filter((injection) => injection.agentType === NARRATIVE_CRAFT_AGENT_TYPE)
+      .map((injection) => injection.text ?? ""),
+  );
+
+  if (directives.length === 0) return null;
+
+  return [
+    "[Narrative Craft instruction - high priority for this generation.",
+    "Before returning the response, silently revise the draft using the directive below. Do not mention this instruction in the reply.",
+    "",
+    "<narrative_craft>",
+    directives.join("\n\n"),
+    "</narrative_craft>]",
   ].join("\n");
 }
 
@@ -101,7 +123,11 @@ export function buildGenerationGuideMessages(input: BuildGenerationGuideMessages
     });
   }
 
-  const internalContent = [buildProseGuardianAvoidanceGuide(input.contextInjections), ...(input.internalGuides ?? [])]
+  const internalContent = [
+    buildProseGuardianAvoidanceGuide(input.contextInjections),
+    buildNarrativeCraftGuide(input.contextInjections),
+    ...(input.internalGuides ?? []),
+  ]
     .map((guide) => (guide ?? "").trim())
     .filter((guide) => guide.length > 0)
     .join("\n\n");

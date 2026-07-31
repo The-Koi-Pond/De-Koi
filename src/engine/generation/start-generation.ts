@@ -5374,8 +5374,50 @@ async function* startGenerationImpl(
     chatSummary: assembly.chatSummary,
     hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
   };
+  const directAgentInput: GenerationAgentRuntimeInput = {
+    chat: chatForGeneration,
+    connection,
+    storedMessages: generationMessages,
+    cadenceMessages: storedMessages,
+    characters: assembly.characters,
+    persona: assembly.persona,
+    activatedLorebookEntries: assembly.activatedLorebookEntries,
+    chatSummary: assembly.chatSummary,
+    embeddingSource: turnEmbeddingSource,
+    debugMode: input.debugMode === true,
+    debugSink: input.debugSink,
+    hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
+    signal,
+    forCharacterId: readString(input.forCharacterId).trim() || null,
+    regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
+    agentInjectionOverrides,
+  };
+  const directNarrativeCraftRequested = agentInjectionOverrides.some(
+    (injection) => injection.agentType === NARRATIVE_CRAFT_AGENT_TYPE,
+  );
+  const directNarrativeCraftEnabled =
+    input.impersonateBlockAgents !== true &&
+    !isUserMessageRegeneration &&
+    (chatActiveAgentIds(chatForGeneration).has(NARRATIVE_CRAFT_AGENT_TYPE) || directNarrativeCraftRequested);
+  const directNarrativeCraftRuntime: GenerationAgentRuntime | null = directNarrativeCraftEnabled
+    ? await createGenerationAgentRuntime(
+        { storage: deps.storage, llm: deps.llm, integrations: deps.integrations, visuals: deps.visuals },
+        {
+          ...directAgentInput,
+          agentTypes: new Set([NARRATIVE_CRAFT_AGENT_TYPE]),
+          automaticNarrativeCraftOnly: true,
+          bypassCustomAgentActivation: true,
+        },
+      )
+    : null;
+  throwIfAborted(signal);
+  for (const warning of directNarrativeCraftRuntime?.agentWarnings ?? []) {
+    yield { type: "agent_warning", data: warning };
+  }
   const baseMessagesDirect: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-    [...(prompt ?? []), ...generationGuideMessages(input)].filter((message): message is LlmMessage => !!message),
+    [...(prompt ?? []), ...generationGuideMessages(input, directNarrativeCraftRuntime?.preInjections)].filter(
+      (message): message is LlmMessage => !!message,
+    ),
     assembly.userRegenerationSourceMessage,
   );
   const directPartial: StreamPartialSink = {
@@ -5416,9 +5458,10 @@ async function* startGenerationImpl(
       parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
       baseMessages: baseMessagesDirect,
       previewMessages: withUserMessageRegenerationRewritePrompt(
-        [...(promptPreviewMessagesDirect ?? []), ...generationGuideMessages(input)].filter(
-          (message): message is LlmMessage => !!message,
-        ),
+        [
+          ...(promptPreviewMessagesDirect ?? []),
+          ...generationGuideMessages(input, directNarrativeCraftRuntime?.preInjections),
+        ].filter((message): message is LlmMessage => !!message),
         assembly.userRegenerationSourceMessage,
       ),
       contextAttribution: generationContextAttribution(assembly.contextAttributionItems),
@@ -5489,24 +5532,6 @@ async function* startGenerationImpl(
   throwIfAborted(signal);
   for (const event of connected.events) yield event;
   let displayContentDirect = finalAssistantContent(input, connected.displayContent);
-  const directAgentInput: GenerationAgentRuntimeInput = {
-    chat: chatForGeneration,
-    connection,
-    storedMessages: generationMessages,
-    cadenceMessages: storedMessages,
-    characters: assembly.characters,
-    persona: assembly.persona,
-    activatedLorebookEntries: assembly.activatedLorebookEntries,
-    chatSummary: assembly.chatSummary,
-    embeddingSource: turnEmbeddingSource,
-    debugMode: input.debugMode === true,
-    debugSink: input.debugSink,
-    hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
-    signal,
-    forCharacterId: readString(input.forCharacterId).trim() || null,
-    regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
-    agentInjectionOverrides,
-  };
   const roleplayQualityDirect =
     isUserMessageRegeneration || connected.suppressAssistantMessage
       ? { content: displayContentDirect, correction: null }
@@ -5551,6 +5576,7 @@ async function* startGenerationImpl(
         clearWebResearchRequest: mainToolsDirect?.characterWebResearchGrant != null,
         webResearchSources: webResearchSourcesDirect,
         roleplayQualityCorrection: roleplayQualityDirect.correction,
+        contextInjections: isUserMessageRegeneration ? null : (directNarrativeCraftRuntime?.preInjections ?? null),
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
   const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
@@ -5584,6 +5610,15 @@ async function* startGenerationImpl(
       reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "ok");
     }
     if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+    if (savedAssistantGeneration) {
+      scheduleNarrativeCraftAfterSavedAssistant({
+        deps,
+        runtime: directNarrativeCraftRuntime,
+        chatId,
+        messageId: messageId(saved),
+        content: displayContentDirect,
+      });
+    }
     yield { type: "done" };
     if (savedAssistantGeneration) {
       const backgroundMaintenanceStartedAt = generationTimingStartedAt();
