@@ -126,8 +126,15 @@ describe("automatic memory capture context", () => {
   it("excludes reference messages that cannot be proven to precede the source exchange", async () => {
     const validPrior = savedMessage("valid-prior", "user", "The circus accident?", "2026-01-01T00:09:00.000Z");
     const missingTimestamp = savedMessage("missing-time", "user", "Unknown order.", "");
+    const invalidTimestamp = savedMessage("invalid-time", "user", "Invalid order.", "!not-a-date");
     const sameTimestamp = savedMessage("same-time", "user", "Not earlier.", "2026-01-01T00:10:00.000Z");
     const futureTimestamp = savedMessage("future-time", "user", "From the future.", "2026-01-01T00:11:00.000Z");
+    const futureOffsetTimestamp = savedMessage(
+      "future-offset-time",
+      "user",
+      "Also from the future.",
+      "2026-01-01T09:30:00.000-05:00",
+    );
     const user = savedMessage("user-current", "user", "What happened?", "2026-01-01T00:10:00.000Z");
     const assistant = savedMessage(
       "assistant-current",
@@ -137,7 +144,16 @@ describe("automatic memory capture context", () => {
     );
 
     const context = await buildAutomaticMemoryCaptureContext(
-      storageForContext([missingTimestamp, validPrior, sameTimestamp, user, assistant, futureTimestamp]),
+      storageForContext([
+        missingTimestamp,
+        invalidTimestamp,
+        validPrior,
+        sameTimestamp,
+        user,
+        assistant,
+        futureTimestamp,
+        futureOffsetTimestamp,
+      ]),
       {
         chat: { id: "chat-1", personaId: "persona-1" },
         characters: [{ id: "pierrot", name: "Pierrot" }],

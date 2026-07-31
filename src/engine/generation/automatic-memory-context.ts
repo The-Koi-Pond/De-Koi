@@ -3,6 +3,8 @@ import type { CharacterMemoryScopeCharacter } from "./character-memory-scope";
 import { hiddenFromAi, parseRecord, readString, type JsonRecord } from "./runtime-records";
 
 const MAX_REFERENCE_MESSAGES = 6;
+const ISO_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 export interface AutomaticMemorySourceMessage {
   id: string;
@@ -87,7 +89,15 @@ export async function resolveAutomaticMemorySpeakerContext(
 }
 
 function chronological(left: AutomaticMemorySourceMessage, right: AutomaticMemorySourceMessage): number {
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+  const leftAt = parseIsoTimestamp(left.createdAt);
+  const rightAt = parseIsoTimestamp(right.createdAt);
+  return (leftAt !== null && rightAt !== null ? leftAt - rightAt : 0) || left.id.localeCompare(right.id);
+}
+
+function parseIsoTimestamp(value: string): number | null {
+  if (!ISO_TIMESTAMP.test(value)) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 export async function buildAutomaticMemoryCaptureContext(
@@ -120,7 +130,7 @@ export async function buildAutomaticMemoryCaptureContext(
   }
 
   const sourceIds = new Set(sourceMessages.map((message) => message.id));
-  const firstSourceAt = sourceMessages[0]?.createdAt ?? "";
+  const firstSourceAt = parseIsoTimestamp(sourceMessages[0]?.createdAt ?? "");
   const storedMessages = await storage
     .listChatMessages<JsonRecord>(chatId, {
       fields: ["id", "chatId", "role", "content", "characterId", "createdAt", "extra"],
@@ -132,7 +142,10 @@ export async function buildAutomaticMemoryCaptureContext(
     .filter((message) => !hiddenFromAi(message))
     .map((message) => automaticMemorySourceSnapshot(message, speakerContext))
     .filter((message): message is AutomaticMemorySourceMessage => message !== null)
-    .filter((message) => Boolean(firstSourceAt && message.createdAt && message.createdAt < firstSourceAt))
+    .filter((message) => {
+      const createdAt = parseIsoTimestamp(message.createdAt);
+      return firstSourceAt !== null && createdAt !== null && createdAt < firstSourceAt;
+    })
     .sort(chronological)
     .slice(-MAX_REFERENCE_MESSAGES);
 
