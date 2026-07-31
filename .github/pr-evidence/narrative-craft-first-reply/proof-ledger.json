@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Apply Narrative Craft from the first roleplay reply",
+    "source": "User report that Narrative Craft did not affect the opening reply",
+    "classification": "engine generation, prompt assembly, detached agent cadence, and direct-message parity",
+    "status": "verified"
+  },
+  "coreClaim": "An active Narrative Craft agent supplies one zero-extra-call craft instruction to every supported roleplay writer path from the first reply, then analyzes that completed reply in detached background work and returns to its normal four-assistant-message cadence.",
+  "rootCause": "Automatic Narrative Craft guidance existed only after a validated prior intervention, recurrence filtering skipped the first critic run, and the supported direct-message writer path bypassed the agent runtime entirely.",
+  "scope": {
+    "inScope": [
+      "One baseline Narrative Craft instruction on normal and direct-message roleplay generation",
+      "Consume-once story-specific guidance composition",
+      "First completed-response analysis when no saved craft state exists",
+      "Persisted state anchoring for later recurrence and cadence gates",
+      "Final high-priority prompt placement without a second writer call"
+    ],
+    "outOfScope": [
+      "Synchronous rewriting of a completed response",
+      "A guarantee that every model response beats StoryScope",
+      "Changing the configured writer or Agent model",
+      "New storage schemas, APIs, settings, or UI"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/agent-runner.ts",
+      "src/engine/generation/agent-runner.test.ts",
+      "src/engine/generation/narrative-craft-guidance.ts",
+      "src/engine/generation/start-generation.ts",
+      "src/engine/generation/start-generation.narrative-craft-background.spec.ts",
+      "src/engine/shared/text/generation-guide.ts",
+      "src/engine/shared/text/generation-guide.spec.ts",
+      "docs/superpowers/specs/2026-07-31-narrative-craft-first-reply-design.md",
+      "docs/superpowers/plans/2026-07-31-narrative-craft-first-reply.md",
+      ".github/pr-evidence/narrative-craft-first-reply/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "direct-message generation parity",
+      "background concurrency",
+      "agent memory and cadence",
+      "model-produced user-visible prose"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The writer receives one advisory craft block before its existing model call; explicit style and established voice remain authoritative, and the first critic runs only after the visible reply completes.",
+    "riskType": "prompt, model-call count, background ordering, persistence, and cross-entrypoint compatibility",
+    "entrypoints": [
+      "Normal saved roleplay generation",
+      "Direct-message roleplay generation",
+      "Roleplay regeneration replay overrides",
+      "Later automatic Narrative Craft cadence"
+    ],
+    "currentPathsOrFormats": [
+      "Narrative Craft baseline injection",
+      "Optional consume-once story-specific guidance",
+      "Version 1 bounded Narrative Craft state"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing Narrative Craft state counts as established state",
+      "Explicit replay injection overrides remain authoritative",
+      "Chats without active Narrative Craft remain unchanged"
+    ],
+    "outOfScopeClaims": [
+      "No claim that StoryScope is a production quality score.",
+      "No claim that a prompt can force every provider sample to avoid every flagged device.",
+      "No claim that detached analysis has zero quota or token cost."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Narrative Craft promised later-reply learning but did not protect or analyze the first generated reply on every supported writer path.",
+    "producer": "src/engine/generation creates the writer request and saves the completed assistant response.",
+    "consumer": "The roleplay writer prompt and the next Narrative Craft cadence decision.",
+    "impliedContract": "Active Narrative Craft should influence the first reply without adding foreground calls, then establish readable state for later sparse analysis.",
+    "actualEnforcement": "agent-runner owns baseline composition and first-state detection; generation-guide owns final system placement; start-generation supplies normal/direct parity and detached scheduling.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "The TypeScript generation engine owns prompt assembly, model-call count, saved output, agent state, and background scheduling.",
+    "consumerOnlyLanes": [],
+    "wrongLaneFixToAvoid": "Do not rewrite prose in React, add a second foreground model call, or encode the behavior only in bundled preset JSON.",
+    "regressionProof": [
+      "Focused runtime tests prove baseline composition, consume-once guidance, state round-trip, cadence, and replay behavior.",
+      "Request-level integration tests prove one final Narrative Craft block and detached first analysis on normal and direct-message paths."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The first writer request gets one craft instruction without a pre-generation provider request.",
+        "evidence": "agent-runner and start-generation focused tests count one narrative_craft block while the writer remains the first provider request."
+      },
+      {
+        "claim": "A first quiet response still establishes persistent craft state.",
+        "evidence": "The state round-trip test runs a no-candidate first analysis, reloads its persisted state, and proves the next no-candidate response creates no critic request."
+      },
+      {
+        "claim": "Visible completion remains ahead of the critic.",
+        "evidence": "Normal and direct-message integration tests reach the done event before the critic starts, then observe detached persistence."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The baseline must not become a universal house style.",
+        "evidence": "The final wording makes explicit user style authoritative, exempts established voice and intentional devices, leaves clean prose alone, and corrects only accidental or repeated clustering."
+      },
+      {
+        "claim": "A single Harlequin sample must not be reported as a detector win when it is not one.",
+        "evidence": "Pinned StoryScope full-arc scoring was effectively tied but slightly favored baseline; the result is recorded as a non-blocking limitation rather than a pass."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Saved Narrative Craft state does not trigger another forced first analysis.",
+        "evidence": "The saved-state no-candidate regression remains recurrence-gated."
+      },
+      {
+        "claim": "Inactive chats and explicit replay overrides preserve their existing selection boundary.",
+        "evidence": "Focused runtime tests keep inactive behavior empty and preserve explicit overrides without synthesizing a baseline."
+      }
+    ],
+    "untestedRows": [
+      "The exact Harlequin full-arc treatment did not beat StoryScope: full delta -0.0044 and narrative-without-style delta -0.0636 in the final scored iteration.",
+      "StoryScope feature extraction is model-assisted and repeated baseline extraction showed variance; it is diagnostic rather than a deterministic release oracle."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The baseline adds no extra foreground model call.",
+      "sourceType": "harness-proven",
+      "evidence": "Focused tests assert zero provider requests during runtime construction and one writer request before detached analysis."
+    },
+    {
+      "description": "The exact Harlequin treatment retained reader quality despite its detector result.",
+      "sourceType": "measured",
+      "evidence": "Three blind judges preferred treatment two to one."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Per-sample provider and StoryScope variance",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "The deterministic release claim is first-turn coverage and call ordering, not guaranteed detector classification; the broader prior 52-pair Narrative Craft evaluation remains favorable."
+    }
+  ],
+  "reviewThreadLedger": [
+    {
+      "finding": "Direct-message generation bypassed Narrative Craft.",
+      "disposition": "fixed",
+      "fix": "Direct roleplay generation now uses an automatic Narrative-Craft-only runtime, one final guide, cadence-aware detached analysis, and saved context-injection metadata.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "The strict baseline could override intentional literary devices.",
+      "disposition": "fixed",
+      "fix": "The baseline now makes explicit style authoritative and limits correction to accidental or repeated clusters while preserving established voice and intentional devices.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "Focused Vitest, TypeScript, architecture, deterministic repository checks, Rust workspace compilation, and git diff whitespace checks pass on the implementation branch.",
+    "githubValidationPassed": false,
+    "edgeRowsTested": [
+      "No saved state and saved state",
+      "No recurrence candidate and recurrence candidate",
+      "Normal and direct-message generation",
+      "Baseline-only and consume-once story-specific guidance",
+      "Explicit replay override"
+    ],
+    "negativeRowsTested": [
+      "Inactive Narrative Craft chat",
+      "No pre-generation provider call",
+      "No second no-candidate critic after state persistence",
+      "No duplicate narrative_craft wrapper"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run src/engine/shared/text/generation-guide.spec.ts src/engine/generation/agent-runner.test.ts src/engine/generation/start-generation.narrative-craft-background.spec.ts",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check",
+      "git diff --check origin/main...HEAD"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}
