@@ -1,0 +1,2 @@
+export const NARRATIVE_CRAFT_BASELINE_GUIDANCE =
+  "Perform a silent craft-shape pass before replying. Preserve the requested content, character voice, intentional repetition, direct emotion, and genre-appropriate flourish. Avoid defaulting to stacked fragments or polished triplets, contrast pivots, explaining an image after it lands, stock physiological cues, automatic setting mirrors, or endings that restate the beat. Do not replace them with a new fixed formula.";

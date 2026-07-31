@@ -1065,6 +1065,30 @@ describe("Narrative Craft runtime cadence", () => {
     return input;
   }
 
+  const narrativeCraftBaselineGuidance =
+    "Perform a silent craft-shape pass before replying. Preserve the requested content, character voice, intentional repetition, direct emotion, and genre-appropriate flourish. Avoid defaulting to stacked fragments or polished triplets, contrast pivots, explaining an image after it lands, stock physiological cues, automatic setting mirrors, or endings that restate the beat. Do not replace them with a new fixed formula.";
+
+  it("adds the baseline silent shape pass without a provider request", async () => {
+    const requests: LlmRequest[] = [];
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: storageForNarrativeCraft({}),
+        llm: narrativeCraftLlm(requests),
+        integrations: noopIntegrations,
+      },
+      narrativeInput([{ id: "user-1", role: "user", content: "Continue." }]),
+    );
+
+    expect(runtime.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
+    expect(requests).toHaveLength(0);
+  });
+
   it("does not call Narrative Craft before generation and forced analysis receives the completed response", async () => {
     const requests: LlmRequest[] = [];
     const runtime = await createGenerationAgentRuntime(
@@ -1090,7 +1114,13 @@ describe("Narrative Craft runtime cadence", () => {
     );
 
     expect(requests).toHaveLength(0);
-    expect(runtime.preInjections).toEqual([]);
+    expect(runtime.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
     expect(runtime.preResults).toEqual([]);
 
     await expect(
@@ -1172,7 +1202,13 @@ describe("Narrative Craft runtime cadence", () => {
       narrativeInput(baseMessages),
     );
     expect(skippedRequests).toHaveLength(0);
-    expect(skipped.preInjections).toEqual([]);
+    expect(skipped.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
     await expect(
       skipped.runNarrativeCraftAnalysis("Her breath caught as the dial moved."),
     ).resolves.toEqual([]);
@@ -1193,7 +1229,13 @@ describe("Narrative Craft runtime cadence", () => {
     expect(dueRequests).toHaveLength(0);
     await expect(due.runNarrativeCraftAnalysis("Her breath caught as the dial moved.")).resolves.toHaveLength(1);
     expect(dueRequests).toHaveLength(1);
-    expect(due.preInjections).toEqual([]);
+    expect(due.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
   });
 
   it("claims cached guidance for exactly one later generation", async () => {
@@ -1236,10 +1278,16 @@ describe("Narrative Craft runtime cadence", () => {
       {
         agentType: "narrative-craft",
         agentName: "Narrative Craft",
-        text: "Avoid repeating the cited rhetorical shape.",
+        text: `${narrativeCraftBaselineGuidance}\n\nStory-specific guidance:\nAvoid repeating the cited rhetorical shape.`,
       },
     ]);
-    expect(second.preInjections).toEqual([]);
+    expect(second.preInjections).toEqual([
+      {
+        agentType: "narrative-craft",
+        agentName: "Narrative Craft",
+        text: narrativeCraftBaselineGuidance,
+      },
+    ]);
     expect(requests).toHaveLength(0);
   });
 

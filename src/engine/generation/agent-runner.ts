@@ -54,6 +54,7 @@ import {
   loadNarrativeCraftState,
 } from "./agent-memory-runtime";
 import { narrativeCraftHasRecurringShape } from "./narrative-craft-background";
+import { NARRATIVE_CRAFT_BASELINE_GUIDANCE } from "./narrative-craft-guidance";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
 import {
@@ -1760,19 +1761,21 @@ export async function createGenerationAgentRuntime(
         readString(input.chat.id).trim(),
       )
     : null;
-  const pendingNarrativeCraftInjections: AgentInjection[] = pendingNarrativeCraftGuidance
+  const narrativeCraftInjections: AgentInjection[] = shouldClaimNarrativeCraftGuidance
     ? [
         {
           agentType: NARRATIVE_CRAFT_AGENT_TYPE,
           agentName: narrativeCraftAgent?.name ?? "Narrative Craft",
-          text: pendingNarrativeCraftGuidance,
+          text: pendingNarrativeCraftGuidance
+            ? `${NARRATIVE_CRAFT_BASELINE_GUIDANCE}\n\nStory-specific guidance:\n${pendingNarrativeCraftGuidance}`
+            : NARRATIVE_CRAFT_BASELINE_GUIDANCE,
         },
       ]
     : [];
   const initialInjections = mergeAgentInjections(
     staticInjections,
     overrideInjections,
-    pendingNarrativeCraftInjections,
+    narrativeCraftInjections,
   );
   const agentData: Record<string, string> = agentDataFromInjections(initialInjections);
   for (const result of skippedResults) {
