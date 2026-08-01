@@ -1,0 +1,155 @@
+{
+  "coreClaim": "A Roleplay scene created by the user-invoked /scene command activates Narrative Craft and sends its opening through the normal Roleplay generation pipeline instead of displaying the scene planner's draft as finished prose.",
+  "scope": {
+    "inScope": [
+      "User-invoked /scene from Conversation",
+      "Narrative Craft activation on newly created scene chats",
+      "Configured Roleplay writer ownership of the opening",
+      "Honest partial-success handling when opening generation cannot start"
+    ],
+    "outOfScope": [
+      "Changing the configured writer or Agent model",
+      "Model-created scene commands",
+      "Conversation or Game generation",
+      "Guaranteeing that every individual output passes a detector"
+    ],
+    "intendedFiles": [
+      "src/engine/contracts/types/scene.ts",
+      "src/engine/modes/roleplay/scene/scene-service.ts",
+      "src/engine/modes/roleplay/scene/scene-service.spec.ts",
+      "src/shared/lib/slash-commands.ts",
+      "src/shared/lib/slash-commands.scene.spec.ts",
+      ".github/pr-evidence/scene-craft-entrypoint/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "cross-entrypoint generation",
+      "model-produced user-visible prose"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The /scene planner supplies scene intent and metadata, while the existing Roleplay pipeline and configured writer produce the visible opening with Narrative Craft active.",
+    "riskType": "prompt ownership, model-call ordering, and cross-entrypoint compatibility",
+    "entrypoints": [
+      "Local /scene slash command",
+      "Scene chat creation",
+      "Normal Roleplay generation for the newly created chat"
+    ],
+    "currentPathsOrFormats": [
+      "SceneFullPlan",
+      "SceneCreateRequest openingMode",
+      "Chat metadata activeAgentIds and enableAgents",
+      "Narrator generation guide"
+    ],
+    "legacyPathsOrFormats": [
+      "Callers that omit openingMode still persist the planner's opening",
+      "Existing scene lifecycle metadata and conversation carryover remain unchanged"
+    ],
+    "outOfScopeClaims": [
+      "No claim that StoryScope is a production quality score.",
+      "No claim that /scene creation has zero added latency.",
+      "No claim that non-/scene scene-opening callers use the configured writer."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The /scene route created a Roleplay chat without Narrative Craft and persisted planner-authored prose directly, bypassing the configured Roleplay writer and corrections.",
+    "producer": "src/engine/modes/roleplay/scene creates scene chat state; src/shared/lib/slash-commands invokes the user-facing /scene workflow.",
+    "consumer": "The Roleplay generation runtime and the user-visible opening message.",
+    "impliedContract": "A user-created Roleplay scene should have the same default craft agent and writer pipeline as a normal Roleplay chat.",
+    "actualEnforcement": "Scene creation records the default Roleplay background agents; /scene requests a deferred opening and invokes generation against the new scene chat with the planner draft as intent only.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "The scene service owns persisted scene state; the slash command owns handing the new chat to the existing generation pipeline.",
+    "consumerOnlyLanes": [
+      "cross-boundary"
+    ],
+    "wrongLaneFixToAvoid": "Do not rewrite planner prose in React, add a second visible writer, or make Conversation and Game inherit Roleplay orchestration.",
+    "regressionProof": [
+      "The scene-service test fails before the fix because activeAgentIds and enableAgents are absent.",
+      "The slash-command test fails before the fix because openingMode is not deferred and ctx.generate is never called.",
+      "The final focused suite proves activation, writer routing, legacy planned-opening behavior, and partial-failure handling."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A /scene-created chat activates Narrative Craft.",
+        "evidence": "The scene-service regression asserts activeAgentIds contains narrative-craft and enableAgents is true."
+      },
+      {
+        "claim": "The configured Roleplay writer owns the /scene opening.",
+        "evidence": "The slash-command regression asserts the planner draft is deferred and ctx.generate targets the new scene chat with a narrator guide."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "An opening failure must not be reported as a scene-creation failure.",
+        "evidence": "False and rejected generation tests preserve navigation to the created scene and return explicit partial-success feedback."
+      },
+      {
+        "claim": "The planner draft must not become the second visible writer.",
+        "evidence": "The guide labels firstMessage as intent rather than prose to copy; only the normal Roleplay generation result is persisted for /scene."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing non-/scene callers retain their planned opening behavior.",
+        "evidence": "openingMode is optional and the complete pre-existing scene-service suite remains green."
+      }
+    ],
+    "untestedRows": [
+      "A post-deploy live /scene generation on the Pi is completed after matching images are published."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The affected live scene had no active agent IDs, no Agent runs, and no roleplay quality correction metadata.",
+      "sourceType": "measured",
+      "evidence": "Read-only inspection of the reported Pi chat before the fix."
+    },
+    {
+      "description": "The production JavaScript bundle remains within its enforced budget.",
+      "sourceType": "measured",
+      "evidence": "pnpm perf:size measured 1724.8 KiB gzip against the 1726.0 KiB total-JS limit."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Post-merge live /scene sample on the matching Pi image",
+      "blockingCoreClaim": false,
+      "reason": "The routing contract is deterministic locally; exact provider output requires the merged ARM64 image and is verified after deployment."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Narrative Craft activation on scene creation",
+      "Deferred planner opening",
+      "Generation returns false",
+      "Generation throws after scene creation"
+    ],
+    "negativeRowsTested": [
+      "Non-generated opening mode retains the existing planned message",
+      "Conversation and Game mode code is unchanged",
+      "No alternate writer or provider is introduced"
+    ],
+    "afterEvidence": [
+      "pnpm test -- src/engine/modes/roleplay/scene/scene-service.spec.ts src/shared/lib/slash-commands.scene.spec.ts src/engine/generation/start-generation.narrative-craft-background.spec.ts",
+      "pnpm test",
+      "pnpm check",
+      "pnpm perf:size",
+      "git diff --check"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1208",
+    "evidencePublished": true,
+    "checks": "Focused regressions, all 2640 runnable tests, full pnpm check, and production bundle budgets passed locally.",
+    "automatedReview": "Local Bunny pass has no blocking findings; hosted current-head Bunny pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}

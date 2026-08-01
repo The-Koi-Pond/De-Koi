@@ -749,6 +749,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
             initiatorCharId: null, // user-initiated
             plan: planRes.plan,
             connectionId: null,
+            openingMode: "generated",
           },
           visualAssetsApi,
         );
@@ -756,6 +757,33 @@ const SLASH_COMMANDS: SlashCommand[] = [
         // Invalidate chats so the new scene appears + navigate to it
         ctx.invalidate();
         useChatStore.getState().setActiveChatId(res.chatId);
+
+        let openingStarted: boolean | void = false;
+        try {
+          openingStarted = await ctx.generate({
+            chatId: res.chatId,
+            connectionId: null,
+            generationGuide: buildNarratorInstructionMessage(
+              [
+                "Open this roleplay scene now.",
+                "Treat the planned opening beat as intent, not prose to copy. Write a fresh in-world opening using the scene context and current Roleplay settings, then leave room for the user.",
+                "",
+                "Planned opening beat:",
+                planRes.plan.firstMessage,
+              ].join("\n"),
+            ),
+            generationGuideSource: "narrator",
+          });
+        } catch {
+          openingStarted = false;
+        }
+        if (openingStarted === false) {
+          toast.dismiss(planToastId);
+          return {
+            handled: true,
+            feedback: "Scene created, but its opening could not start. Send a message in the scene to continue.",
+          };
+        }
 
         // Apply background if the plan chose one
         if (res.background) {
