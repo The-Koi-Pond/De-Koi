@@ -256,7 +256,6 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   const hydrateUnread = useChatStore((s) => s.hydrateUnread);
   const hasAnyDetailOpen = useUIStore((s) => s.hasAnyDetailOpen);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
-  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const setSettingsTab = useUIStore((s) => s.setSettingsTab);
   const startNewChat = useStartNewChat();
@@ -569,13 +568,10 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     runChatSidebarNewChatAction({
       mode: activeTab,
       isMobile: window.innerWidth < 768,
-      closeSidebar: () => {
-        setSidebarOpen(false);
-        onRequestClose();
-      },
+      closeSidebar: onRequestClose,
       startNewChat,
     });
-  }, [activeTab, onRequestClose, setSidebarOpen, startNewChat]);
+  }, [activeTab, onRequestClose, startNewChat]);
 
   const clearChatFilters = useCallback(() => {
     setSearchQuery("");
@@ -921,10 +917,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           internalNavRef.current = true;
           setActiveChatId(chat.id);
           useUIStore.getState().setMobileChatToolsOpen(false);
-          if (window.innerWidth < 768) {
-            setSidebarOpen(false);
-            onRequestClose();
-          }
+          if (window.innerWidth < 768) onRequestClose();
         }}
         className={cn(
           "group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all duration-150",
@@ -1163,10 +1156,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
         <h2 className="retro-glow-text truncate text-sm font-bold">✧ Chats</h2>
         <button
-          onClick={() => {
-            setSidebarOpen(false);
-            onRequestClose();
-          }}
+          onClick={onRequestClose}
           className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"
           title="Back to chat"
           aria-label="Back to chat"
