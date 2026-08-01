@@ -69,6 +69,8 @@ export interface SceneCreateRequest {
   plan: SceneFullPlan;
   /** Connection to use for the scene's generations. */
   connectionId?: string | null;
+  /** Whether to save the planner's draft or let the normal Roleplay pipeline generate the opening. */
+  openingMode?: "planned" | "generated";
 }
 
 /** Response from POST /scene/create. */

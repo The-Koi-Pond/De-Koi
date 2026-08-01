@@ -16,6 +16,7 @@ import type {
   ScenePlanResponse,
 } from "../../../contracts/types/scene";
 import { NARRATIVE_CRAFT_PRINCIPLES } from "../../../contracts/constants/agent-prompts";
+import { defaultBackgroundAgentIdsForNewChat } from "../../../contracts/constants/chat-modes";
 import {
   copyTrackerSnapshotsForRebasedMessages,
   type TrackerSnapshotMessageRebase,
@@ -219,6 +220,8 @@ export async function createRoleplayScene(
     sceneRating: plan.rating === "nsfw" ? "nsfw" : "sfw",
     sceneStatus: "active",
     enableMemoryRecall: true,
+    activeAgentIds: defaultBackgroundAgentIdsForNewChat("roleplay"),
+    enableAgents: true,
     ...(universalPreset.presetId
       ? {
           sceneUniversalPresetId: universalPreset.presetId,
@@ -258,12 +261,14 @@ export async function createRoleplayScene(
       characterId: null,
     });
   }
-  const firstCharacterId = input.initiatorCharId || characterIds[0] || null;
-  await createChatMessage(storage, sceneChatId, {
-    role: "assistant",
-    content: [description, "", firstMessage].join("\n"),
-    characterId: firstCharacterId,
-  });
+  if (input.openingMode !== "generated") {
+    const firstCharacterId = input.initiatorCharId || characterIds[0] || null;
+    await createChatMessage(storage, sceneChatId, {
+      role: "assistant",
+      content: [description, "", firstMessage].join("\n"),
+      characterId: firstCharacterId,
+    });
+  }
 
   return {
     chatId: sceneChatId,

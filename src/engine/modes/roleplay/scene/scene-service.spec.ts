@@ -431,7 +431,7 @@ describe("createRoleplayScene", () => {
     participationGuide: "",
   };
 
-  async function createSceneFromOrigin(origin: JsonRecord) {
+  async function createSceneFromOrigin(origin: JsonRecord, request: JsonRecord = {}) {
     const fixture = storageForScene({
       chats: [
         {
@@ -452,6 +452,7 @@ describe("createRoleplayScene", () => {
       initiatorCharId: null,
       connectionId: null,
       plan: basePlan,
+      ...request,
     });
 
     return { ...fixture, create };
@@ -468,6 +469,35 @@ describe("createRoleplayScene", () => {
     const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
     expect(createdScene).toMatchObject({ mode: "roleplay" });
     expect(createdScene).not.toHaveProperty("folderId", "conversation-folder");
+  });
+
+  it("activates the default roleplay background agents for a created scene", async () => {
+    const { create, createdRecords } = await createSceneFromOrigin({
+      mode: "conversation",
+      folderId: "conversation-folder",
+    });
+
+    await create;
+
+    const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
+    expect(createdScene?.metadata).toMatchObject({
+      activeAgentIds: ["narrative-craft"],
+      enableAgents: true,
+    });
+  });
+
+  it("defers the planned opening when the caller will use the roleplay writer", async () => {
+    const { create, createdMessages } = await createSceneFromOrigin(
+      {
+        mode: "conversation",
+        folderId: "conversation-folder",
+      },
+      { openingMode: "generated" },
+    );
+
+    await create;
+
+    expect(createdMessages).toEqual([]);
   });
 
   it("does not copy AI-hidden conclusion messages into a later scene's conversation context", async () => {
