@@ -73,6 +73,7 @@ describe("settings information architecture", () => {
     expect(presentation).toContain("Group consecutive messages");
     expect(presentation).toContain("Show model name on messages");
     expect(presentation).toContain("Show token usage on messages");
+    expect(presentation).not.toContain("Show recalled-memory indicators");
     expect(presentation).toContain("const setMessageGrouping = useUIStore((s) => s.setMessageGrouping)");
     expect(presentation).toContain("const setShowTokenUsage = useUIStore((s) => s.setShowTokenUsage)");
   });

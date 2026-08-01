@@ -1045,13 +1045,6 @@ export const ChatMessage = memo(function ChatMessage({
   const thinking = readStoredThinking(extra);
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
   const activePromptSnapshot = resolvePromptSnapshotFromExtra(extra, message.activeSwipeIndex);
-  const openMemoryPeekPrompt = useCallback(() => {
-    onPeekPrompt?.({
-      forCharacterId: message.characterId ?? null,
-      messageId: message.id,
-      promptSnapshot: activePromptSnapshot,
-    });
-  }, [activePromptSnapshot, message.characterId, message.id, onPeekPrompt]);
   const isHiddenExpanded =
     isHiddenFromAI && (!collapseHiddenMessages || manuallyExpandedHidden || editing || !!isStreaming);
   const isHiddenCollapsed = isHiddenFromAI && collapseHiddenMessages && !isHiddenExpanded;
@@ -1984,12 +1977,7 @@ export const ChatMessage = memo(function ChatMessage({
                   {genLabel}
                 </span>
               )}
-              <MessageMemoryIndicators
-                isUser={isUser}
-                memoryCapture={extra.memoryCapture ?? null}
-                promptSnapshot={activePromptSnapshot}
-                onPeekPrompt={onPeekPrompt ? openMemoryPeekPrompt : null}
-              />
+              <MessageMemoryIndicators isUser={isUser} memoryCapture={extra.memoryCapture ?? null} />
               {showRoleplayAvatarPanel && (showActions || showMessageNumbers) && messageIndex != null && (
                 <span className="text-[0.5625rem] font-medium text-white/25 select-none">#{messageIndex}</span>
               )}
@@ -2579,12 +2567,7 @@ export const ChatMessage = memo(function ChatMessage({
                 {genLabel}
               </span>
             )}
-            <MessageMemoryIndicators
-              isUser={isUser}
-              memoryCapture={extra.memoryCapture ?? null}
-              promptSnapshot={activePromptSnapshot}
-              onPeekPrompt={onPeekPrompt ? openMemoryPeekPrompt : null}
-            />
+            <MessageMemoryIndicators isUser={isUser} memoryCapture={extra.memoryCapture ?? null} />
           </div>
 
           {/* Conversation start marker */}

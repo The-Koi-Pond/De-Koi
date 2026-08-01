@@ -1124,7 +1124,7 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(children.indexOf(name)).toBeLessThan(children.indexOf(timestamp));
   });
 
-  it("shows remembered and recalled memory indicators in conversation metadata", () => {
+  it("keeps recalled memory details out of conversation metadata and available to Peek Prompt", () => {
     const onPeekPrompt = vi.fn();
     const promptSnapshot: GenerationPromptSnapshot = {
       messages: [],
@@ -1178,19 +1178,11 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(
       Array.from(container!.querySelectorAll("button")).some((button) => button.textContent?.includes("remembered")),
     ).toBe(true);
-    const recalledChip = Array.from(container!.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("1 memory recalled"),
-    );
-    expect(recalledChip).toBeTruthy();
+    expect(container!.textContent).not.toContain("1 memory recalled");
+    expect(container!.textContent).not.toContain("Aster remembers the quiet signal.");
 
-    act(() => {
-      recalledChip!.click();
-    });
-
-    expect(container!.textContent).toContain("I remembered: Aster remembers the quiet signal.");
-    const peekButton = Array.from(container!.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Open Peek Prompt"),
-    );
+    const peekButton = container!.querySelector<HTMLButtonElement>('button[title="Peek prompt"]');
+    expect(peekButton).not.toBeNull();
     act(() => {
       peekButton!.click();
     });

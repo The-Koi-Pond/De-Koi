@@ -834,22 +834,7 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
           {formatTimestamp(context.message.createdAt)}
         </span>
       )}
-      <MessageMemoryIndicators
-        isUser={context.isUser}
-        memoryCapture={context.memoryCapture ?? null}
-        promptSnapshot={context.activePromptSnapshot}
-        onPeekPrompt={
-          context.onPeekPrompt
-            ? () => {
-                context.onPeekPrompt?.({
-                  forCharacterId: context.message.characterId ?? null,
-                  messageId: context.message.id,
-                  promptSnapshot: context.activePromptSnapshot ?? null,
-                });
-              }
-            : null
-        }
-      />
+      <MessageMemoryIndicators isUser={context.isUser} memoryCapture={context.memoryCapture ?? null} />
     </div>
   );
 }

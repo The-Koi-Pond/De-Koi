@@ -983,7 +983,7 @@ describe("ChatMessage", () => {
     expect(container!.querySelector<HTMLElement>(".mari-message-content strong")).toBeNull();
     expect(container!.querySelector<HTMLElement>(".mari-message-content")?.textContent).toContain('"Welcome,"');
   });
-  it("shows remembered and recalled memory indicators with recalled details", () => {
+  it("shows saved memory details while keeping recalled memory details in Peek Prompt", () => {
     const onPeekPrompt = vi.fn();
     const promptSnapshot: GenerationPromptSnapshot = {
       messages: [],
@@ -1078,23 +1078,13 @@ describe("ChatMessage", () => {
     expect(container!.textContent).toContain("canonical-fact-1");
     expect(container!.textContent).toContain("Mira promised to guard the north door.");
     expect(container!.textContent).toContain("canonical-promise-1");
-    const recalledChip = Array.from(container!.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("2 memories recalled"),
-    );
-    expect(recalledChip).toBeTruthy();
-
-    act(() => {
-      recalledChip!.click();
-    });
-
-    expect(container!.textContent).toContain("Recalled memories");
-    expect(container!.textContent).toContain("I remembered: Aster remembers Celia prefers concise recaps.");
+    expect(container!.textContent).not.toContain("2 memories recalled");
+    expect(container!.textContent).not.toContain("Aster remembers Celia prefers concise recaps.");
+    expect(container!.textContent).not.toContain("Aster remembers the pond metaphor.");
     expect(container!.textContent).not.toContain("Skipped memory should not count.");
-    expect(onPeekPrompt).not.toHaveBeenCalled();
 
-    const peekButton = Array.from(container!.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Open Peek Prompt"),
-    );
+    const peekButton = container!.querySelector<HTMLButtonElement>('button[title="Peek prompt"]');
+    expect(peekButton).not.toBeNull();
     act(() => {
       peekButton!.click();
     });
@@ -1104,16 +1094,6 @@ describe("ChatMessage", () => {
       messageId: "message-memory-indicators",
       promptSnapshot,
     });
-
-    act(() => {
-      useUIStore.setState({ showMemoryRecallIndicators: false });
-    });
-
-    expect(
-      Array.from(container!.querySelectorAll("button")).some((button) => button.textContent?.includes("remembered")),
-    ).toBe(true);
-    expect(container!.textContent).not.toContain("2 memories recalled");
-    expect(container!.textContent).not.toContain("Recalled memories");
   });
 
   it("does not claim a memory was remembered when completed capture details are missing", () => {
