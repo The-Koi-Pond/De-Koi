@@ -90,7 +90,7 @@
     "positiveRows": [
       {
         "claim": "Focused background-generation behavior passes.",
-        "evidence": "Five Vitest files passed 70 tests."
+        "evidence": "Five Vitest files passed 71 tests."
       },
       {
         "claim": "Provider transport behavior passes.",
@@ -121,14 +121,21 @@
       "Post-merge production Pi telemetry is pending exact-image publication and deployment."
     ]
   },
-  "reviewThreadLedger": [],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny found that a missing stored fallback could synthesize a connection with an id but no model.",
+      "disposition": "fixed",
+      "fix": "Synthetic fallback now requires a non-empty fallback model; otherwise selection continues to a real default or fails explicitly. A focused negative-path regression proves the resolver rejects a model-less synthetic fallback.",
+      "humanResolutionRequired": false
+    }
+  ],
   "manualBlockers": [],
   "verification": {
     "originalReproPassed": true,
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm check; focused Vitest; cargo test --manifest-path src-tauri/crates/llm/Cargo.toml; focused ESLint; git diff --check",
-    "baselineEvidence": "70 focused TypeScript tests, 117 provider tests, repository-wide checks, focused lint, and whitespace validation passed.",
+    "baselineEvidence": "71 focused TypeScript tests, 117 provider tests, repository-wide checks, focused lint, and whitespace validation passed.",
     "githubValidationPassed": false,
     "negativeRowsTested": [
       "Non-GLM NanoGPT request",

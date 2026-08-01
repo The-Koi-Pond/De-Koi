@@ -16,11 +16,10 @@ export function selectBackgroundTextConnection(
 ): JsonRecord | null {
   const available = connections.filter(isEnabledTextConnection);
   const fallback = readString(fallbackConnectionId).trim();
+  const fallbackModelId = readString(fallbackModel).trim();
   const fallbackConnection = fallback
-    ? (available.find((connection) => readString(connection.id).trim() === fallback) ?? {
-        id: fallback,
-        ...(readString(fallbackModel).trim() ? { model: readString(fallbackModel).trim() } : {}),
-      })
+    ? (available.find((connection) => readString(connection.id).trim() === fallback) ??
+      (fallbackModelId ? { id: fallback, model: fallbackModelId } : undefined))
     : undefined;
   return (
     available.find((connection) => boolish(connection.defaultForAgents, false)) ??
