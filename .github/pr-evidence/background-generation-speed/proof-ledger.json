@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "performance-bugfix",
+    "title": "Make automatic memory generation provider-safe and background-routed",
+    "source": "Direct user request to implement the highest-impact De-Koi speed optimization.",
+    "classification": "provider transport, background generation, compatibility, and retry policy",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Automatic memory work uses a dedicated background text connection when configured, NanoGPT GLM 5.2 receives only supported reasoning effort values, and explicit provider configuration failures do not consume repeated retries.",
+  "rootCause": "Automatic memory jobs inherited the foreground chat connection, GLM 5.2 received unsupported reasoning effort values in the final NanoGPT body, and deterministic provider 4xx failures were retried like transient outages.",
+  "scope": {
+    "inScope": [
+      "Final NanoGPT GLM 5.2 reasoning-effort normalization",
+      "Execution-time background text connection selection",
+      "Automatic memory capture and maintenance routing",
+      "Terminal classification for explicit HTTP 400, 401, 403, and 404 failures"
+    ],
+    "outOfScope": [
+      "Foreground Fast, Balanced, or Quality controls",
+      "Changing model-provider settings",
+      "Changing memory extraction or cleanup prompts",
+      "Deleting or migrating stored memory data"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/llm/src/lib.rs",
+      "src-tauri/crates/llm/src/providers/openai.rs",
+      "src/engine/generation/background-llm-connection.ts",
+      "src/engine/generation/background-generation-error.ts",
+      "src/engine/generation/automatic-memory-capture-queue.ts",
+      "src/engine/generation/automatic-memory-maintenance-queue.ts",
+      "src/app/startup/automatic-memory-maintenance.ts",
+      ".github/pr-evidence/background-generation-speed/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "provider compatibility",
+      "background work",
+      "local sidecar compatibility",
+      "retry semantics",
+      "automatic memory lifecycle"
+    ]
+  },
+  "riskClaimMatrix": {
+    "coreClaim": "Background memory work avoids known doomed provider calls without breaking existing text-connection fallbacks.",
+    "riskType": "provider request and background orchestration compatibility",
+    "entrypoints": [
+      "Automatic memory capture queue",
+      "Automatic memory maintenance startup worker",
+      "NanoGPT OpenAI-compatible request assembly"
+    ],
+    "currentPathsOrFormats": [
+      "Stored text connections with defaultForAgents",
+      "Chat-selected fallback connections",
+      "Synthetic local sidecar catalog connection",
+      "NanoGPT reasoningEffort and customParameters"
+    ],
+    "legacyPathsOrFormats": [
+      "No dedicated agent-default connection",
+      "Queued capture jobs carrying only connectionId and model",
+      "Non-GLM NanoGPT models",
+      "Transient HTTP 429 and 5xx failures"
+    ],
+    "positiveRowsTested": [
+      "Agent-default text connection wins over the foreground fallback",
+      "GLM 5.2 maps high to high and xhigh or maximum to max",
+      "HTTP 400 and 401 fail automatic jobs after one attempt"
+    ],
+    "negativeRowsTested": [
+      "Image and disabled connections cannot become the background lane",
+      "Missing stored local-sidecar rows preserve the queued fallback",
+      "Non-GLM NanoGPT models retain none reasoning effort",
+      "HTTP 429, 5xx, and unknown failures remain retryable"
+    ],
+    "groundTruthFacts": [
+      {
+        "description": "NanoGPT GLM 5.2 accepts only high or max reasoning effort in the observed provider contract.",
+        "sourceType": "runtime-observed-and-harness-proven",
+        "evidence": "Live provider failures rejected none; focused Rust request-body tests prove the normalized final body."
+      },
+      {
+        "description": "The local sidecar can be synthetic and absent from stored connections.",
+        "sourceType": "code-and-harness-proven",
+        "evidence": "The app catalog synthesizes the connection and the selector regression preserves a missing stored fallback."
+      }
+    ],
+    "userActionCopy": [],
+    "manualBlockers": []
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Focused background-generation behavior passes.",
+        "evidence": "Five Vitest files passed 71 tests."
+      },
+      {
+        "claim": "Provider transport behavior passes.",
+        "evidence": "The marinara-llm crate passed all 117 tests."
+      },
+      {
+        "claim": "Repository policy, architecture, frontend types, Rust workspace, and unused-code reporting pass.",
+        "evidence": "pnpm check completed successfully on the final local base."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The fix must not strip reasoning effort from unrelated NanoGPT models.",
+        "evidence": "The non-GLM negative control retains none."
+      },
+      {
+        "claim": "The fix must not turn transient provider failures into permanent failures.",
+        "evidence": "HTTP 429, 5xx, and unknown-error classifier rows remain retryable."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Users without an agent-default connection retain their chat or default text connection.",
+        "evidence": "Selector and startup integration tests cover fallback and default ordering."
+      }
+    ],
+    "untestedRows": [
+      "Post-merge production Pi telemetry is pending exact-image publication and deployment."
+    ]
+  },
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny found that a missing stored fallback could synthesize a connection with an id but no model.",
+      "disposition": "fixed",
+      "fix": "Synthetic fallback now requires a non-empty fallback model; otherwise selection continues to a real default or fails explicitly. A focused negative-path regression proves the resolver rejects a model-less synthetic fallback.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check; focused Vitest; cargo test --manifest-path src-tauri/crates/llm/Cargo.toml; focused ESLint; git diff --check",
+    "baselineEvidence": "71 focused TypeScript tests, 117 provider tests, repository-wide checks, focused lint, and whitespace validation passed.",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Non-GLM NanoGPT request",
+      "Disabled and image connections",
+      "Synthetic missing connection fallback",
+      "Transient and unknown provider failures"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1205,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1205",
+    "headRefName": "perf/background-generation-lane",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "No user memory content, provider secrets, or API keys are included.",
+    "No UI behavior changes, so browser screenshots are not required.",
+    "Production Pi deployment waits for the exact merged revision's matched image batch."
+  ]
+}

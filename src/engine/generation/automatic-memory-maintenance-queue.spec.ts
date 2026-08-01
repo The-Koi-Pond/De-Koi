@@ -293,6 +293,21 @@ describe("automatic memory maintenance queue", () => {
     expect(test.jobs.get("job-1")?.status).toBe("retryable");
   });
 
+  it("fails once without retrying an explicit provider configuration error", async () => {
+    const test = harness();
+    analyzeMemoryCleanup.mockRejectedValue(new Error("Provider returned HTTP 401: invalid API key"));
+
+    const result = await processAutomaticMemoryMaintenanceQueue(test.dependencies);
+
+    expect(result).toMatchObject({ failed: 1, retryable: 0 });
+    expect(test.jobs.get("job-1")).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      nextAttemptAt: null,
+      lastErrorCode: "configuration_error",
+    });
+  });
+
   it("does not undo user suppression during startup discovery", async () => {
     const test = harness();
     test.jobs.clear();

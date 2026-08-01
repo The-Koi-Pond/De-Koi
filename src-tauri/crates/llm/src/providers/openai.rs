@@ -1473,6 +1473,9 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
             skip_keys,
         );
     }
+    if request.connection.provider == "nanogpt" {
+        normalize_nanogpt_glm_52_reasoning_effort(body, &request.connection.model);
+    }
     if request.connection.provider == "mistral" {
         if let Some(body) = body.as_object_mut() {
             body.retain(|key, _| !is_mistral_unsupported_custom_parameter_key(key));
@@ -1492,6 +1495,37 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
         .filter(|value| !value.is_null())
     {
         body["tool_choice"] = tool_choice.clone();
+    }
+}
+
+fn normalize_nanogpt_glm_52_reasoning_effort(body: &mut Value, model: &str) {
+    let is_glm_52 = model
+        .to_ascii_lowercase()
+        .split(['/', ':', ' ', '\t'])
+        .map(|segment| segment.trim_start_matches('~'))
+        .any(|segment| matches!(segment, "glm-5.2" | "glm_5.2"));
+    if !is_glm_52 {
+        return;
+    }
+
+    let requested = body
+        .get("reasoning_effort")
+        .or_else(|| body.get("reasoningEffort"))
+        .and_then(Value::as_str)
+        .map(str::to_ascii_lowercase);
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    object.remove("reasoning_effort");
+    object.remove("reasoningEffort");
+    match requested.as_deref() {
+        Some("high") => {
+            object.insert("reasoning_effort".to_string(), json!("high"));
+        }
+        Some("xhigh" | "maximum" | "max") => {
+            object.insert("reasoning_effort".to_string(), json!("max"));
+        }
+        _ => {}
     }
 }
 

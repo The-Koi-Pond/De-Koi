@@ -15,6 +15,8 @@ import {
   deferUntilForegroundGenerationCompletes,
   foregroundGenerationActive,
 } from "./background-generation-coordinator";
+import { resolveBackgroundTextConnection } from "./background-llm-connection";
+import { isTerminalBackgroundGenerationError } from "./background-generation-error";
 import { wakeAutomaticMemoryMaintenanceQueueProcessing } from "./automatic-memory-maintenance-queue";
 
 export { beginForegroundGeneration } from "./background-generation-coordinator";
@@ -288,7 +290,13 @@ async function eligibleCanonicalMemories(
     .slice(0, 24);
 }
 
-async function extractConsequences(args: { storage: StorageGateway; llm: LlmGateway; job: JsonRecord }): Promise<{
+async function extractConsequences(args: {
+  storage: StorageGateway;
+  llm: LlmGateway;
+  job: JsonRecord;
+  connectionId: string;
+  model: string | null;
+}): Promise<{
   scope: MemoryScope;
   candidates: Awaited<ReturnType<typeof extractCanonicalMemoryConsequences>>["candidates"];
   eligibleMemories: CanonicalMemoryRecord[];
@@ -316,8 +324,8 @@ async function extractConsequences(args: { storage: StorageGateway; llm: LlmGate
       sourceMessages,
       referenceMessages,
       eligibleMemories,
-      connectionId: readString(args.job.connectionId).trim() || null,
-      model: readString(args.job.model).trim() || null,
+      connectionId: args.connectionId,
+      model: args.model,
     },
   });
   return { scope, candidates: extraction.candidates, eligibleMemories };
@@ -449,14 +457,20 @@ export async function processAutomaticMemoryCaptureQueue(
 
       const sourceMessageIds = jobSourceIds(job);
       const chatId = readString(job.chatId).trim();
-      const connectionId = readString(job.connectionId).trim();
       if (!llm) throw new Error("Automatic memory value review requires an LLM gateway");
-      if (!connectionId) throw new Error("Automatic memory value review requires a connection");
+      const queuedConnectionId = readString(job.connectionId).trim();
+      const queuedModel = readString(job.model).trim();
+      const backgroundConnection = await resolveBackgroundTextConnection(storage, queuedConnectionId, queuedModel);
+      const connectionId = readString(backgroundConnection.id).trim();
+      const model =
+        readString(backgroundConnection.model).trim() ||
+        (connectionId === queuedConnectionId ? queuedModel : "") ||
+        null;
       if (!storage.previewChatMemoryCapture || !storage.commitChatMemoryCapture) {
         throw new Error("Automatic memory capture requires a two-phase storage runtime");
       }
       const preview = await storage.previewChatMemoryCapture(chatId, sourceMessageIds);
-      const extracted = await extractConsequences({ storage, llm, job });
+      const extracted = await extractConsequences({ storage, llm, job, connectionId, model });
       const valueGate = await reviewAutomaticMemoryCandidates({
         llm,
         connectionId,
@@ -548,7 +562,8 @@ export async function processAutomaticMemoryCaptureQueue(
         });
       }
     } catch (error) {
-      const terminal = attempts >= maxAttempts;
+      const configurationFailure = isTerminalBackgroundGenerationError(error);
+      const terminal = configurationFailure || attempts >= maxAttempts;
       const nextAttemptAt = terminal ? null : retryTime(now, attempts);
       await updateJob(storage, id, {
         status: terminal ? "failed" : "retryable",
@@ -562,7 +577,9 @@ export async function processAutomaticMemoryCaptureQueue(
         jobId: id,
         sourceMessageIds: jobSourceIds(job),
         attempts,
-        ...(terminal ? { failureCategory: "capture_unavailable" } : { nextAttemptAt }),
+        ...(terminal
+          ? { failureCategory: configurationFailure ? "configuration_error" : "capture_unavailable" }
+          : { nextAttemptAt }),
         updatedAt: now,
       }).catch(() => {});
       if (terminal) result.failed += 1;
