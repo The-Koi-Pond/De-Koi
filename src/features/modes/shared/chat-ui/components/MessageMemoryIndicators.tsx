@@ -41,6 +41,7 @@ function normalizeMemoryCaptureStatus(value: unknown): MessageMemoryDisplayStatu
     : "unsupported";
 }
 
+// Reply metadata owns capture feedback only; recalled context stays in Peek Prompt.
 interface MessageMemoryIndicatorsProps {
   isUser?: boolean;
   memoryCapture?: MessageMemoryCapture | null;
