@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { ChatSidebarRecoveryView, runChatSidebarRecoveryAction } from "./ChatSidebar";
+import { ChatSidebarRecoveryView, runChatSidebarNewChatAction, runChatSidebarRecoveryAction } from "./ChatSidebar";
 
 function dependencies() {
   return {
@@ -31,6 +31,23 @@ describe("runChatSidebarRecoveryAction", () => {
 
     expect(actions[dependency]).toHaveBeenCalledOnce();
     expect(Object.values(actions).filter((action) => action.mock.calls.length > 0)).toHaveLength(1);
+  });
+});
+
+describe("runChatSidebarNewChatAction", () => {
+  it.each([
+    ["conversation", true, 1],
+    ["roleplay", true, 1],
+    ["conversation", false, 0],
+  ] as const)("starts %s and requests the real sidebar close only on mobile", (mode, isMobile, closeCalls) => {
+    const closeSidebar = vi.fn();
+    const startNewChat = vi.fn();
+
+    runChatSidebarNewChatAction({ mode, isMobile, closeSidebar, startNewChat });
+
+    expect(closeSidebar).toHaveBeenCalledTimes(closeCalls);
+    expect(startNewChat).toHaveBeenCalledOnce();
+    expect(startNewChat).toHaveBeenCalledWith(mode);
   });
 });
 

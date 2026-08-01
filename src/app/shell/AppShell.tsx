@@ -1511,7 +1511,11 @@ export function AppShell() {
             }}
           >
             <div className="h-full" style={{ width: isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth }}>
-              <ChatSidebar activeTab={activeChatSidebarTab} onActiveTabChange={setActiveChatSidebarTab} />
+              <ChatSidebar
+                activeTab={activeChatSidebarTab}
+                onActiveTabChange={setActiveChatSidebarTab}
+                onRequestClose={() => setLeftSidebarPanel(null)}
+              />
             </div>
           </aside>
           <aside

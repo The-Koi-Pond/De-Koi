@@ -85,6 +85,21 @@ export type ChatSidebarTab = "conversation" | "roleplay" | "game";
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
 type ChatDropTarget = { folderId: string | null } | null;
 
+export function runChatSidebarNewChatAction({
+  mode,
+  isMobile,
+  closeSidebar,
+  startNewChat,
+}: {
+  mode: ChatSidebarTab;
+  isMobile: boolean;
+  closeSidebar: () => void;
+  startNewChat: (mode: ChatSidebarTab) => void;
+}) {
+  if (isMobile) closeSidebar();
+  startNewChat(mode);
+}
+
 export type ChatSidebarRecoveryActionDependencies = {
   retry: () => void;
   create: () => void;
@@ -152,6 +167,7 @@ export function ChatSidebarRecoveryView({
 type ChatSidebarProps = {
   activeTab: ChatSidebarTab;
   onActiveTabChange: (tab: ChatSidebarTab) => void;
+  onRequestClose: () => void;
 };
 
 const CHAT_DRAG_MIME = "application/x-de-koi-chat-id";
@@ -221,7 +237,7 @@ const MODE_CONFIG: Record<
   },
 };
 
-export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) {
+export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: ChatSidebarProps) {
   const {
     data: chats,
     error: chatsLoadError,
@@ -550,9 +566,16 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
   }, [activeChatId, chats, folders, onActiveTabChange, updateFolderMut]);
 
   const handleNewChatFromTab = useCallback(() => {
-    if (window.innerWidth < 768) setSidebarOpen(false);
-    startNewChat(activeTab);
-  }, [activeTab, setSidebarOpen, startNewChat]);
+    runChatSidebarNewChatAction({
+      mode: activeTab,
+      isMobile: window.innerWidth < 768,
+      closeSidebar: () => {
+        setSidebarOpen(false);
+        onRequestClose();
+      },
+      startNewChat,
+    });
+  }, [activeTab, onRequestClose, setSidebarOpen, startNewChat]);
 
   const clearChatFilters = useCallback(() => {
     setSearchQuery("");
@@ -898,7 +921,10 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
           internalNavRef.current = true;
           setActiveChatId(chat.id);
           useUIStore.getState().setMobileChatToolsOpen(false);
-          if (window.innerWidth < 768) setSidebarOpen(false);
+          if (window.innerWidth < 768) {
+            setSidebarOpen(false);
+            onRequestClose();
+          }
         }}
         className={cn(
           "group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all duration-150",
@@ -1137,7 +1163,10 @@ export function ChatSidebar({ activeTab, onActiveTabChange }: ChatSidebarProps) 
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
         <h2 className="retro-glow-text truncate text-sm font-bold">✧ Chats</h2>
         <button
-          onClick={() => setSidebarOpen(false)}
+          onClick={() => {
+            setSidebarOpen(false);
+            onRequestClose();
+          }}
           className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"
           title="Back to chat"
           aria-label="Back to chat"
