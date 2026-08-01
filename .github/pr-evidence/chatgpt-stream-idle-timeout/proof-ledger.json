@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Keep ChatGPT reasoning streams alive during long silent gaps",
+    "source": "Live Raspberry Pi remote-runtime user report",
+    "classification": "provider transport, authentication-backed external service, and remote runtime reliability",
+    "status": "pr_open_checks_pending"
+  },
+  "coreClaim": "ChatGPT Responses regenerations can survive silent upstream reasoning gaps longer than two minutes without weakening the ordinary-provider idle limit.",
+  "rootCause": "The shared Rust provider client applied one two-minute read timeout to every upstream request. ChatGPT reasoning models can legitimately emit no upstream bytes for longer than two minutes, so reqwest aborted the Responses stream and the hostable runtime surfaced a transport interruption after partial output.",
+  "scope": {
+    "inScope": [
+      "Provider-specific upstream stream idle timeout selection",
+      "A ten-minute idle allowance for openai_chatgpt Responses streams",
+      "Preservation of the ordinary two-minute provider timeout",
+      "Focused LLM policy regression coverage"
+    ],
+    "outOfScope": [
+      "Changing browser-to-Pi SSE keepalive behavior",
+      "Changing provider authentication, request payloads, prompts, storage, retries, or model selection",
+      "Guaranteeing that every long generation completes successfully",
+      "Repairing already interrupted assistant swipes"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/llm/src/lib.rs",
+      "src-tauri/crates/llm/src/providers/openai.rs",
+      ".github/pr-evidence/chatgpt-stream-idle-timeout/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src-tauri/crates/llm/src/lib.rs",
+      "src-tauri/crates/llm/src/providers/openai.rs",
+      ".github/pr-evidence/chatgpt-stream-idle-timeout/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "provider transport",
+      "authentication-backed external service",
+      "remote runtime",
+      "streaming generation"
+    ],
+    "hardStops": []
+  },
+  "claimBoundary": {
+    "coreClaim": "Only openai_chatgpt Responses streaming receives the longer upstream read timeout; other provider requests retain their existing timeout policy.",
+    "riskType": "external provider streaming reliability, delayed failure reporting, and cross-entrypoint behavior",
+    "entrypoints": [
+      "Message generation and regeneration using an openai_chatgpt connection",
+      "OpenAI Responses request construction in the Rust LLM capability",
+      "Hostable runtime LLM SSE forwarding"
+    ],
+    "currentPathsOrFormats": [
+      "openai_chatgpt requests sent to the ChatGPT Responses endpoint",
+      "Ordinary OpenAI-compatible and non-Responses provider requests using the shared provider client",
+      "Embedded Tauri and remote web shells sharing the Rust LLM capability"
+    ],
+    "legacyPathsOrFormats": [
+      "All existing non-openai_chatgpt provider requests retain the two-minute read timeout",
+      "Non-streaming ChatGPT model discovery retains the ordinary shared-client timeout"
+    ],
+    "outOfScopeClaims": [
+      "This change does not retry failed generations or hide provider errors.",
+      "This change does not alter authentication refresh or secret handling.",
+      "This change does not change the browser-facing SSE keepalive interval.",
+      "This change does not promise a ten-minute total generation deadline; the timeout applies to an individual silent read gap."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A healthy ChatGPT reasoning stream was treated as failed solely because its upstream byte stream was silent for the ordinary-provider idle window.",
+    "producer": "reqwest ClientBuilder read_timeout in src-tauri/crates/llm/src/lib.rs",
+    "consumer": "openai_responses_request in src-tauri/crates/llm/src/providers/openai.rs",
+    "impliedContract": "The provider transport must allow the supported ChatGPT reasoning path enough idle time to emit its next event while retaining a finite failure bound.",
+    "actualEnforcement": "openai_responses_request selects provider_stream_idle_timeout for its connection provider; openai_chatgpt receives ten minutes and every ordinary provider receives two minutes.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "The privileged Rust provider transport owns upstream HTTP connection and read-timeout mechanics.",
+    "consumerOnlyLanes": [
+      "src/features",
+      "src/shared/api"
+    ],
+    "wrongLaneFixToAvoid": "Do not add frontend retries or suppress remote runtime errors, because a retry could duplicate provider work and would not repair the upstream transport contract.",
+    "regressionProof": [
+      "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-llm",
+      "pnpm check:architecture",
+      "pnpm check",
+      "git diff --check"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "openai_chatgpt receives a ten-minute silent-read allowance.",
+        "evidence": "chatgpt_streams_allow_longer_silent_reasoning_than_ordinary_providers asserts the exact ten-minute policy and passed in the 118-test marinara-llm suite."
+      },
+      {
+        "claim": "The ChatGPT Responses request actually uses the provider-specific policy.",
+        "evidence": "openai_responses_request passes provider_stream_idle_timeout(request.connection.provider) into provider_http_client_for_url_with_read_timeout before building the request."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Ordinary providers must not inherit the longer timeout.",
+        "evidence": "The focused test asserts that the ordinary openai provider remains at PROVIDER_STREAM_IDLE_TIMEOUT_SECS, and the default client wrapper still supplies that same two-minute value."
+      },
+      {
+        "claim": "The fix must not retry, duplicate, or hide failed provider work.",
+        "evidence": "No retry or error-handling path changed; the existing request still flows through the same send and streaming error propagation after the finite timeout."
+      },
+      {
+        "claim": "Authentication and request payload shape must remain unchanged.",
+        "evidence": "The existing apply_chatgpt_auth_headers branch and JSON body are unchanged; the provider-specific timeout is selected before the same request builder chain."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing shared provider-client callers retain the current behavior.",
+        "evidence": "provider_http_client_for_url remains as a compatibility wrapper that supplies the ordinary two-minute read timeout."
+      },
+      {
+        "claim": "The remote runtime continues to report genuine provider stream failures.",
+        "evidence": "No hostable HTTP server, SSE forwarding, terminal-event validation, or stream-error mapping code changed."
+      }
+    ],
+    "untestedRows": [
+      "A real ChatGPT reasoning regeneration with a silent upstream gap longer than two minutes requires the merged arm64 image to publish and be deployed to the live Pi."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The live Pi persisted an assistant regeneration as transport-interrupted after partial output.",
+      "sourceType": "measured",
+      "evidence": "A read-only storage query found an assistant message with two swipes, activeSwipeIndex 1, and generationInterrupted.reason set to transport after partial completion usage."
+    },
+    {
+      "description": "The pre-fix shared provider client used a two-minute reqwest read timeout for every provider.",
+      "sourceType": "derived",
+      "evidence": "PROVIDER_STREAM_IDLE_TIMEOUT_SECS was wired directly into the sole provider ClientBuilder read_timeout before this change."
+    },
+    {
+      "description": "The browser-facing remote-runtime SSE connection has its own keepalive behavior and is not the owner of the observed upstream abort.",
+      "sourceType": "derived",
+      "evidence": "The hostable runtime SSE layer remained connected while the Rust provider client produced the transport interruption; no HTTP server file is changed by this PR."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Post-merge live Pi regeneration",
+      "blockingCoreClaim": false,
+      "status": "post-merge-verification",
+      "reason": "The timeout-policy contract is proven locally. Exact live behavior requires the merged arm64 prealpha image to publish and be deployed."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": false,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "On current main, all 118 marinara-llm tests passed, pnpm check:architecture passed, full pnpm check passed, and git diff --check passed.",
+    "githubValidationPassed": true,
+    "reviewIterationFastPath": false
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending_current_head",
+    "bunnyReviewStatus": "pending_current_head",
+    "prHealthStatus": "pending_current_head"
+  },
+  "pr": {
+    "number": 1207,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1207",
+    "headRefName": "fix/chatgpt-stream-idle-timeout",
+    "baseRefName": "main",
+    "healthStatus": "pending_current_head",
+    "bunnyReviewStatus": "pending_current_head",
+    "checksStatus": "pending_current_head",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "The user explicitly authorized PR creation, merge to main, and Pi deployment.",
+    "No user data was mutated during diagnosis.",
+    "The post-merge Pi update must prove exact image revision, health, runtime writability, and preserved data and Codex mounts."
+  ]
+}
