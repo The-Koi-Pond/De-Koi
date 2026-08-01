@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Keep remote storage reads available during atomic writes",
+    "source": "Live Raspberry Pi Android Chrome report and runtime logs",
+    "classification": "remote runtime, persistent storage concurrency, and chat deletion",
+    "status": "local_verification_passed"
+  },
+  "scope": {
+    "inScope": [
+      "Atomic collection replacement preparation",
+      "Reader availability during large collection writes",
+      "No-op connected-chat cleanup during chat deletion"
+    ],
+    "outOfScope": [
+      "Storage file, journal, manifest, or command format changes",
+      "Frontend request timeout changes",
+      "Deletion of live user data for verification"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/lib.rs",
+      "src-tauri/src/commands/storage/chats.rs",
+      "docs/superpowers/specs/2026-07-31-remote-runtime-storage-read-availability-design.md",
+      "docs/superpowers/plans/2026-07-31-remote-runtime-storage-read-availability.md",
+      ".github/pr-evidence/remote-runtime-storage-read-availability/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent storage",
+      "remote runtime",
+      "user-data deletion",
+      "transaction durability"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Readers can observe the complete pre-commit state while a large atomic update serializes and syncs replacement files, then observe the committed state after the short locked install.",
+    "riskType": "persistent storage concurrency, transaction durability, remote runtime availability, and chat deletion",
+    "entrypoints": [
+      "FileStorage::update_collections_atomically",
+      "FileStorage::replace_all_many_locked",
+      "disconnect_connected_chat",
+      "storage_delete through the remote runtime"
+    ],
+    "currentPathsOrFormats": [
+      "data/collections/chats.json",
+      "data/collections/messages.json",
+      "data/collections/message-swipes.json",
+      "prepared collection transaction manifests"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing collection JSON files and append journals",
+      "Existing prepared and committed transaction recovery",
+      "Existing connected-chat and connected-note rows"
+    ],
+    "outOfScopeClaims": [
+      "This does not promise every storage write completes within a fixed deadline.",
+      "This does not change frontend timeout behavior.",
+      "This does not change any persistent format or deletion response."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "src-tauri held the global storage RwLock while serializing and syncing large atomic replacement files, so unrelated and target readers could not service remote-runtime requests.",
+    "producer": "src-tauri FileStorage atomic replacement transaction",
+    "consumer": "Remote-runtime storage commands and chat deletion",
+    "impliedContract": "The src-tauri storage owner must preserve atomic writer ordering and durability without blocking readers during pre-commit file preparation.",
+    "actualEnforcement": "The atomic WriteGate remains held for the whole update; dirty targets are flushed and replacement files are prepared outside the global RwLock; the RwLock is reacquired for stamp conflict validation, manifest installation, rename, sync, and cache installation.",
+    "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "FileStorage owns native locking, transaction preparation, durability, recovery, and cache installation.",
+    "consumerOnlyLanes": [
+      "src/shared/api",
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not widen the frontend timeout or hide failed requests; src-tauri owns the native lock duration that starved remote readers.",
+    "regressionProof": [
+      "reads_continue_while_atomic_replacement_files_are_prepared",
+      "disconnect_connected_chat_skips_unconnected_collection_rewrite",
+      "Full marinara-storage durability and recovery suite"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A target collection read finishes while replacement-file preparation is deliberately paused.",
+        "evidence": "The focused regression failed before the implementation, passes after it, and passed ten repeated runs."
+      },
+      {
+        "claim": "The concurrent read sees the complete pre-commit row and a later read sees the committed row.",
+        "evidence": "reads_continue_while_atomic_replacement_files_are_prepared asserts Before during preparation and After after commit."
+      },
+      {
+        "claim": "Disconnecting an already-unconnected chat does not replace chats.json.",
+        "evidence": "disconnect_connected_chat_skips_unconnected_collection_rewrite compares exact file bytes before and after the command."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Concurrent writers must not enter while atomic replacement files are prepared.",
+        "evidence": "concurrent_message_append_waits_for_atomic_update_and_then_succeeds passes in the full storage suite."
+      },
+      {
+        "claim": "Corrupt journals, conflicting stamps, partial installs, and recovery evidence must still fail closed.",
+        "evidence": "The 151-test marinara-storage suite passes all corruption, conflict, rollback, manifest, checkpoint, and recovery cases."
+      },
+      {
+        "claim": "Real connected-chat links and notes must still be cleared.",
+        "evidence": "All four connected-chat command tests pass, including partner-link and connected-note cleanup."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing storage files and recovery state require no migration.",
+        "evidence": "No collection, journal, checkpoint, backup, or transaction manifest format changed."
+      },
+      {
+        "claim": "Existing replace_all_many callers retain their lock and install semantics.",
+        "evidence": "replace_all_many_locked reuses the extracted prepare/install helpers while its callers and full storage suite remain green."
+      }
+    ],
+    "untestedRows": [
+      "A destructive delete against real Pi user data is intentionally excluded; post-merge live proof uses health, image revision, mounts, mobile boot, and non-destructive invokes."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "A live Pi storage_delete held the storage path for 56.5 seconds while concurrent storage_list and storage_get calls took 18 to 21 seconds.",
+      "sourceType": "measured",
+      "evidence": "Remote server operation logs captured start and completion timestamps for the Android Chrome session."
+    },
+    {
+      "description": "Android Chrome requests abandoned during the stall and Nginx recorded HTTP 499 responses.",
+      "sourceType": "measured",
+      "evidence": "Live Pi Nginx access logs for POST /api/invoke."
+    },
+    {
+      "description": "Pi CPU and memory remained healthy while chats.json was about 37.7 MB, messages.json about 14 MB, and message-swipes.json about 13.5 MB.",
+      "sourceType": "measured",
+      "evidence": "Live resource and collection-size inspection during diagnosis."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration is required. Before any manual destructive storage experiment, copy the current De-Koi collection data to a separate backup folder.",
+      "source": "/home/chai/de-koi-data/collections",
+      "destination": "/home/chai/de-koi-data-backups/<timestamp>/collections",
+      "folders": [
+        "collections"
+      ],
+      "action": "Copy the folder and verify the backup before running a destructive experiment; normal update and use require no action.",
+      "detectedLayouts": [
+        "Current Pi bind-mounted collection layout",
+        "Existing collection JSON and transaction sidecars"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Destructive timing proof against real user chat data",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "The concurrency and no-op contracts are deterministic in focused tests; live user data will not be deleted to repeat the failure."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-storage: 151 passed",
+      "Atomic read-availability regression: 10 repeated passes",
+      "Connected-chat command tests: 4 passed",
+      "cargo check --manifest-path src-tauri/Cargo.toml: passed",
+      "pnpm check:architecture: passed",
+      "pnpm check: passed",
+      "git diff --check origin/main...HEAD: passed"
+    ]
+  },
+  "pr": {
+    "number": 1202,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1202",
+    "headRefName": "fix/remote-runtime-storage-read-availability",
+    "baseRefName": "main",
+    "checks": "GitHub validation pending",
+    "automatedReview": "Pre-PR Bunny pass clean; hosted exact-head Bunny review pending"
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "readyToReportDone": false
+  }
+}

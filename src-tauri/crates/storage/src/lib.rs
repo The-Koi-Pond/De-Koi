@@ -119,6 +119,23 @@ type DirtyFlushCloneTestHook = Box<dyn FnMut(&Path, &str) + Send + 'static>;
 static DIRTY_FLUSH_CLONE_TEST_HOOK: std::sync::Mutex<Option<DirtyFlushCloneTestHook>> =
     std::sync::Mutex::new(None);
 
+#[cfg(test)]
+type AtomicReplacementPrepareTestHook = Box<dyn FnMut(&Path, &str) + Send + 'static>;
+
+#[cfg(test)]
+static ATOMIC_REPLACEMENT_PREPARE_TEST_HOOK: std::sync::Mutex<
+    Option<AtomicReplacementPrepareTestHook>,
+> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+fn notify_atomic_replacement_prepare(storage_root: &Path, collection: &str) {
+    if let Ok(mut hook) = ATOMIC_REPLACEMENT_PREPARE_TEST_HOOK.lock() {
+        if let Some(hook) = hook.as_mut() {
+            hook(storage_root, collection);
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum FlushKind {
     Deferred,
@@ -207,6 +224,11 @@ pub struct AtomicCollectionRows {
     collection: String,
     rows: Vec<Value>,
     write_requested: bool,
+}
+
+struct PreparedCollectionReplacements {
+    transaction_id: String,
+    pending: Vec<PendingCollectionReplacement>,
 }
 
 fn take_requested_replacements(entries: Vec<AtomicCollectionRows>) -> Vec<(String, Vec<Value>)> {
@@ -1119,10 +1141,25 @@ impl FileStorage {
         F: FnOnce(&mut [AtomicCollectionRows]) -> AppResult<T>,
     {
         let _atomic_update = self.write_gate.begin_atomic_update()?;
+        let mut collection_paths = Vec::with_capacity(collections.len());
+        let mut seen_paths = HashSet::new();
+        for collection in &collections {
+            let path = self.collection_path(collection)?;
+            if !seen_paths.insert(path.clone()) {
+                return Err(AppError::invalid_input(format!(
+                    "Duplicate collection update: {collection}"
+                )));
+            }
+            collection_paths.push(((*collection).to_string(), path));
+        }
         let target_collections = collections
             .iter()
             .map(|collection| (*collection).to_string())
             .collect::<HashSet<_>>();
+        // The atomic write permit keeps dirty target rows stable while they are
+        // materialized. Readers can keep using the authoritative dirty cache,
+        // so this potentially slow disk work must stay outside the global lock.
+        self.flush_dirty_collections_for(FlushKind::Shutdown, &target_collections)?;
         // Load the rows and capture each collection's file stamp under the SAME
         // write lock, so the conflict baseline reflects exactly the bytes the rows
         // were read from. Sampling the stamp after the lock is released would let a
@@ -1133,24 +1170,16 @@ impl FileStorage {
                 .lock
                 .write()
                 .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-            self.flush_dirty_collections_for(FlushKind::Shutdown, &target_collections)?;
 
             let mut loaded = Vec::with_capacity(collections.len());
             let mut original_stamps = Vec::with_capacity(collections.len());
-            let mut seen_paths = HashSet::new();
-            for collection in collections {
-                let path = self.collection_path(collection)?;
-                if !seen_paths.insert(path.clone()) {
-                    return Err(AppError::invalid_input(format!(
-                        "Duplicate collection update: {collection}"
-                    )));
-                }
+            for (collection, path) in collection_paths {
                 loaded.push(AtomicCollectionRows {
-                    collection: collection.to_string(),
-                    rows: self.read_collection_no_recovery(collection)?,
+                    collection: collection.clone(),
+                    rows: self.read_collection_no_recovery(&collection)?,
                     write_requested: false,
                 });
-                original_stamps.push((collection.to_string(), collection_content_stamp(&path)?));
+                original_stamps.push((collection, collection_content_stamp(&path)?));
             }
             (loaded, original_stamps)
         };
@@ -1160,22 +1189,32 @@ impl FileStorage {
             return Ok(output);
         }
 
-        let _guard = self
-            .lock
-            .write()
-            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.flush_dirty_collections_for(FlushKind::Shutdown, &target_collections)?;
-        for (collection, original_stamp) in &original_stamps {
-            let path = self.collection_path(collection)?;
-            if collection_content_stamp(&path)? != *original_stamp {
-                return Err(AppError::new(
-                    "storage_conflict",
-                    format!("Collection changed during atomic update: {collection}"),
-                ));
-            }
-        }
         let replacements = take_requested_replacements(entries);
-        self.replace_all_many_locked(replacements, || Ok(()))?;
+        let prepared = self.prepare_collection_replacement_files(&replacements)?;
+        let _guard = match self.lock.write() {
+            Ok(guard) => guard,
+            Err(_) => {
+                cleanup_pending_collection_temps(&prepared.pending);
+                return Err(AppError::new("lock_error", "Storage lock poisoned"));
+            }
+        };
+        let stamp_check = (|| -> AppResult<()> {
+            for (collection, original_stamp) in &original_stamps {
+                let path = self.collection_path(collection)?;
+                if collection_content_stamp(&path)? != *original_stamp {
+                    return Err(AppError::new(
+                        "storage_conflict",
+                        format!("Collection changed during atomic update: {collection}"),
+                    ));
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = stamp_check {
+            cleanup_pending_collection_temps(&prepared.pending);
+            return Err(error);
+        }
+        self.install_prepared_collection_replacements_locked(replacements, prepared, || Ok(()))?;
         Ok(output)
     }
 
@@ -3024,17 +3063,14 @@ impl FileStorage {
     where
         F: FnOnce() -> AppResult<()>,
     {
-        let collections_dir = self.root.join("collections");
-        for (collection, _) in &replacements {
-            validate_collection_journal_before_replacement(&collections_dir, collection)?;
-        }
-        let replaces_append_checkpoint = replacements
-            .iter()
-            .any(|(collection, _)| append_journal::checkpoint_tracks(collection));
-        if replaces_append_checkpoint {
-            append_journal::recover(&collections_dir)?;
-            append_journal::invalidate_checkpoint(&collections_dir)?;
-        }
+        let prepared = self.prepare_collection_replacement_files(&replacements)?;
+        self.install_prepared_collection_replacements_locked(replacements, prepared, after_install)
+    }
+
+    fn prepare_collection_replacement_files(
+        &self,
+        replacements: &[(String, Vec<Value>)],
+    ) -> AppResult<PreparedCollectionReplacements> {
         let transaction_id = storage_transaction_id();
         let mut pending = Vec::new();
         let mut seen_paths = HashSet::new();
@@ -3073,6 +3109,8 @@ impl FileStorage {
                 let item = pending
                     .last()
                     .expect("pending collection replacement should exist");
+                #[cfg(test)]
+                notify_atomic_replacement_prepare(&self.root, collection);
                 {
                     let file = fs::File::create(&item.tmp)?;
                     let mut writer = BufWriter::new(file);
@@ -3084,6 +3122,44 @@ impl FileStorage {
             Ok(())
         })();
         if let Err(error) = prepare_result {
+            cleanup_pending_collection_temps(&pending);
+            return Err(error);
+        }
+
+        Ok(PreparedCollectionReplacements {
+            transaction_id,
+            pending,
+        })
+    }
+
+    fn install_prepared_collection_replacements_locked<F>(
+        &self,
+        replacements: Vec<(String, Vec<Value>)>,
+        prepared: PreparedCollectionReplacements,
+        after_install: F,
+    ) -> AppResult<()>
+    where
+        F: FnOnce() -> AppResult<()>,
+    {
+        let PreparedCollectionReplacements {
+            transaction_id,
+            pending,
+        } = prepared;
+        let collections_dir = self.root.join("collections");
+        let replaces_append_checkpoint = replacements
+            .iter()
+            .any(|(collection, _)| append_journal::checkpoint_tracks(collection));
+        let journal_result = (|| -> AppResult<()> {
+            for (collection, _) in &replacements {
+                validate_collection_journal_before_replacement(&collections_dir, collection)?;
+            }
+            if replaces_append_checkpoint {
+                append_journal::recover(&collections_dir)?;
+                append_journal::invalidate_checkpoint(&collections_dir)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = journal_result {
             cleanup_pending_collection_temps(&pending);
             return Err(error);
         }
@@ -3237,6 +3313,7 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     static DIRTY_FLUSH_CLONE_TEST_SERIAL: TestMutex<()> = TestMutex::new(());
+    static ATOMIC_REPLACEMENT_PREPARE_TEST_SERIAL: TestMutex<()> = TestMutex::new(());
 
     fn temp_storage_root(test_name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -6234,6 +6311,76 @@ mod tests {
 
         assert_eq!(row_count, 1);
         assert_eq!(fs::metadata(path).unwrap().modified().unwrap(), modified);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reads_continue_while_atomic_replacement_files_are_prepared() {
+        let _serial = ATOMIC_REPLACEMENT_PREPARE_TEST_SERIAL.lock().unwrap();
+        let root = temp_storage_root("atomic-replacement-preparation-readable");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "content": "Before" })],
+            )
+            .unwrap();
+        let (prepare_started_tx, prepare_started_rx) = mpsc::sync_channel(1);
+        let (release_prepare_tx, release_prepare_rx) = mpsc::sync_channel(1);
+        let observed_root = root.clone();
+        *ATOMIC_REPLACEMENT_PREPARE_TEST_HOOK.lock().unwrap() =
+            Some(Box::new(move |storage_root, collection| {
+                if storage_root == observed_root && collection == "messages" {
+                    prepare_started_tx.send(()).unwrap();
+                    release_prepare_rx.recv().unwrap();
+                }
+            }));
+
+        let atomic_storage = storage.clone();
+        let atomic = std::thread::spawn(move || {
+            atomic_storage.update_collections_atomically(vec!["messages"], |collections| {
+                collections[0].rows_mut()[0]["content"] = json!("After");
+                Ok(())
+            })
+        });
+        prepare_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("atomic replacement must reach file preparation");
+
+        let (read_tx, read_rx) = mpsc::sync_channel(1);
+        let read_storage = storage.clone();
+        let read = std::thread::spawn(move || {
+            read_tx
+                .send(read_storage.get("messages", "message-1"))
+                .unwrap();
+        });
+        let early_read = read_rx.recv_timeout(Duration::from_millis(250));
+        let read_completed_while_preparation_paused = early_read.is_ok();
+
+        release_prepare_tx.send(()).unwrap();
+        atomic.join().unwrap().unwrap();
+        *ATOMIC_REPLACEMENT_PREPARE_TEST_HOOK.lock().unwrap() = None;
+        let read_result = match early_read {
+            Ok(result) => result,
+            Err(_) => read_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("read must finish after atomic preparation resumes"),
+        };
+        read.join().unwrap();
+
+        assert!(
+            read_completed_while_preparation_paused,
+            "replacement file preparation must not hold the global storage lock"
+        );
+        assert_eq!(
+            read_result.unwrap().unwrap()["content"],
+            "Before",
+            "reads during preparation must observe the complete pre-commit state"
+        );
+        assert_eq!(
+            storage.get("messages", "message-1").unwrap().unwrap()["content"],
+            "After"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

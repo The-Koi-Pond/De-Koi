@@ -1400,7 +1400,7 @@ pub(crate) fn disconnect_connected_chat(state: &AppState, chat_id: &str) -> AppR
     state
         .storage
         .update_collections_atomically(vec!["chats"], move |collections| {
-            let chats = collections[0].rows_mut();
+            let chats = collections[0].rows();
             let requested_chat = chats
                 .iter()
                 .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
@@ -1423,21 +1423,38 @@ pub(crate) fn disconnect_connected_chat(state: &AppState, chat_id: &str) -> AppR
             }
 
             let mut link_clear_chat_ids = link_partner_ids.clone();
-            link_clear_chat_ids.insert(chat_id.to_string());
-            let mut affected_chat_ids = link_clear_chat_ids.iter().cloned().collect::<Vec<_>>();
+            if string_field(requested_chat, "connectedChatId").is_some() {
+                link_clear_chat_ids.insert(chat_id.to_string());
+            }
+            let mut affected_chat_ids = link_partner_ids.iter().cloned().collect::<Vec<_>>();
+            affected_chat_ids.push(chat_id.to_string());
             affected_chat_ids.sort();
+            affected_chat_ids.dedup();
+            let removes_connected_notes = chats.iter().any(|chat| {
+                chat_note_values(chat)
+                    .iter()
+                    .any(|note| connected_note_belongs_to_pair(note, chat_id, &note_partner_ids))
+            });
+            if link_clear_chat_ids.is_empty() && !removes_connected_notes {
+                return Ok(json!({
+                    "disconnected": true,
+                    "chatIds": affected_chat_ids,
+                }));
+            }
+
             let now = now_iso();
+            let chats = collections[0].rows_mut();
 
             for chat in chats.iter_mut() {
                 let Some(id) = string_field(chat, "id") else {
                     continue;
                 };
-                let Some(object) = chat.as_object_mut() else {
-                    return Err(AppError::invalid_input(
-                        "Stored chat record is not an object",
-                    ));
-                };
                 if link_clear_chat_ids.contains(&id) {
+                    let Some(object) = chat.as_object_mut() else {
+                        return Err(AppError::invalid_input(
+                            "Stored chat record is not an object",
+                        ));
+                    };
                     object.insert("connectedChatId".to_string(), Value::Null);
                     object.insert("updatedAt".to_string(), Value::String(now.clone()));
                 }
@@ -5571,6 +5588,27 @@ mod tests {
         let game = state.storage.get("chats", "game-1").unwrap().unwrap();
         assert!(game.get("connectedChatId").is_some_and(Value::is_null));
         assert!(game["notes"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn disconnect_connected_chat_skips_unconnected_collection_rewrite() {
+        let state = test_state("disconnect-unconnected-no-rewrite");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "conversation-1", "name": "Conversation" }),
+            )
+            .unwrap();
+        state.storage.flush().unwrap();
+        let chats_path = state.storage.root().join("collections").join("chats.json");
+        let before = std::fs::read(&chats_path).unwrap();
+
+        let result = disconnect_connected_chat(&state, "conversation-1").unwrap();
+
+        assert_eq!(result["disconnected"], true);
+        assert_eq!(result["chatIds"], json!(["conversation-1"]));
+        assert_eq!(std::fs::read(chats_path).unwrap(), before);
     }
 
     #[test]
