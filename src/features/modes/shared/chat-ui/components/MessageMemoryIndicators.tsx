@@ -1,23 +1,12 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type {
-  GenerationContextAttributionItem,
-  GenerationPromptSnapshot,
-  MessageExtra,
-  MessageMemoryCaptureStatus,
-} from "../../../../../engine/contracts/types/chat";
+import { useEffect, useId, useRef, useState } from "react";
+import type { MessageExtra, MessageMemoryCaptureStatus } from "../../../../../engine/contracts/types/chat";
 import { cn } from "../../../../../shared/lib/utils";
-import { useUIStore } from "../../../../../shared/stores/ui.store";
 
 type MessageMemoryCapture = MessageExtra["memoryCapture"];
 type MessageMemoryDisplayStatus = MessageMemoryCaptureStatus | "unsupported";
 type MessageMemoryLifecycleStatus = Exclude<MessageMemoryDisplayStatus, "completed">;
 
-const MEMORY_CAPTURE_STATUSES = new Set<MessageMemoryCaptureStatus>([
-  "processing",
-  "retryable",
-  "failed",
-  "completed",
-]);
+const MEMORY_CAPTURE_STATUSES = new Set<MessageMemoryCaptureStatus>(["processing", "retryable", "failed", "completed"]);
 
 const MEMORY_CAPTURE_LIFECYCLE_PRESENTATION: Record<
   MessageMemoryLifecycleStatus,
@@ -52,26 +41,11 @@ function normalizeMemoryCaptureStatus(value: unknown): MessageMemoryDisplayStatu
     : "unsupported";
 }
 
+// Reply metadata owns capture feedback only; recalled context stays in Peek Prompt.
 interface MessageMemoryIndicatorsProps {
   isUser?: boolean;
   memoryCapture?: MessageMemoryCapture | null;
-  promptSnapshot?: GenerationPromptSnapshot | null;
-  onPeekPrompt?: (() => void) | null;
   className?: string;
-}
-
-function recalledMemoryItems(
-  promptSnapshot: GenerationPromptSnapshot | null | undefined,
-): GenerationContextAttributionItem[] {
-  return (
-    promptSnapshot?.contextAttribution?.items.filter(
-      (item) => item.kind === "memory_recall" && item.status === "injected",
-    ) ?? []
-  );
-}
-
-function memoryLabel(count: number): string {
-  return count === 1 ? "1 memory recalled" : `${count} memories recalled`;
 }
 
 const SAVED_MEMORY_OPERATIONS = new Set(["created", "updated", "superseded"]);
@@ -107,23 +81,10 @@ function completeSavedMemory(
   );
 }
 
-export function MessageMemoryIndicators({
-  isUser,
-  memoryCapture,
-  promptSnapshot,
-  onPeekPrompt,
-  className,
-}: MessageMemoryIndicatorsProps) {
-  const [open, setOpen] = useState(false);
+export function MessageMemoryIndicators({ isUser, memoryCapture, className }: MessageMemoryIndicatorsProps) {
   const [savedOpen, setSavedOpen] = useState(false);
-  const showMemoryRecallIndicators = useUIStore((state) => state.showMemoryRecallIndicators);
-  const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
-  const chipRef = useRef<HTMLButtonElement | null>(null);
   const savedChipRef = useRef<HTMLButtonElement | null>(null);
   const savedPopoverRef = useRef<HTMLDivElement | null>(null);
-  const popoverAnchorRef = useRef<HTMLSpanElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const titleId = useId();
   const savedTitleId = useId();
   const savedCapture = memoryCapture?.capture;
   const consequenceEntries = memoryCapture?.consequences?.affected ?? [];
@@ -136,12 +97,7 @@ export function MessageMemoryIndicators({
     savedCapture.memory.content.trim().length > 0
       ? savedCapture
       : null;
-  const savedMemories =
-    savedConsequences.length > 0
-      ? savedConsequences
-      : completeCapture
-        ? [completeCapture]
-        : [];
+  const savedMemories = savedConsequences.length > 0 ? savedConsequences : completeCapture ? [completeCapture] : [];
   const captureStatus = memoryCapture ? normalizeMemoryCaptureStatus(memoryCapture.status) : null;
   const captureHasProblems =
     memoryCapture?.consequences?.status === "skipped" ||
@@ -155,69 +111,18 @@ export function MessageMemoryIndicators({
   const lifecyclePresentation = lifecycleStatus ? MEMORY_CAPTURE_LIFECYCLE_PRESENTATION[lifecycleStatus] : null;
   const remembered =
     !isUser && captureStatus === "completed" && (savedMemories.length > 0 || partialCapture || unavailableCapture);
-  const recalledItems = useMemo(() => recalledMemoryItems(promptSnapshot), [promptSnapshot]);
-  const recalledCount = !isUser ? recalledItems.length : 0;
-  const visibleSnippets = recalledItems
-    .map((item) => item.snippet?.trim())
-    .filter((snippet): snippet is string => !!snippet)
-    .slice(0, 3);
-  const hiddenCount = Math.max(0, recalledCount - visibleSnippets.length);
-  const showRecalled = showMemoryRecallIndicators && recalledCount > 0;
 
   useEffect(() => {
-    if (!showMemoryRecallIndicators) setOpen(false);
-  }, [showMemoryRecallIndicators]);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setPopoverStyle(null);
-      return;
-    }
-
-    const updatePopoverPosition = () => {
-      const chipRect = chipRef.current?.getBoundingClientRect();
-      const anchorRect = popoverAnchorRef.current?.getBoundingClientRect();
-      if (!chipRect || !anchorRect) return;
-      const viewportPadding = 16;
-      const width = Math.min(288, Math.max(0, window.innerWidth - viewportPadding * 2));
-      const maxLeft = Math.max(viewportPadding, window.innerWidth - width - viewportPadding);
-      const viewportLeft = Math.min(Math.max(chipRect.left, viewportPadding), maxLeft);
-      setPopoverStyle({
-        left: viewportLeft - anchorRect.left,
-        maxWidth: `calc(100vw - ${viewportPadding * 2}px)`,
-        position: "absolute",
-        width,
-      });
-    };
-
-    updatePopoverPosition();
-    window.addEventListener("resize", updatePopoverPosition);
-    window.addEventListener("scroll", updatePopoverPosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePopoverPosition);
-      window.removeEventListener("scroll", updatePopoverPosition, true);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open && !savedOpen) return;
+    if (!savedOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (
-        chipRef.current?.contains(target) ||
-        popoverRef.current?.contains(target) ||
-        savedChipRef.current?.contains(target) ||
-        savedPopoverRef.current?.contains(target)
-      )
-        return;
-      setOpen(false);
+      if (savedChipRef.current?.contains(target) || savedPopoverRef.current?.contains(target)) return;
       setSavedOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      setOpen(false);
       setSavedOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -226,9 +131,9 @@ export function MessageMemoryIndicators({
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, savedOpen]);
+  }, [savedOpen]);
 
-  if (!remembered && !lifecycleStatus && !showRecalled) return null;
+  if (!remembered && !lifecycleStatus) return null;
 
   return (
     <span className={cn("inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5", className)}>
@@ -309,72 +214,6 @@ export function MessageMemoryIndicators({
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-        </span>
-      )}
-      {showRecalled && (
-        <span ref={popoverAnchorRef} className="relative inline-flex">
-          <button
-            ref={chipRef}
-            type="button"
-            className="inline-flex shrink-0 items-center rounded-full border border-sky-400/20 bg-sky-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-300/80 outline-none transition-colors duration-150 hover:bg-sky-400/15 focus-visible:ring-1 focus-visible:ring-sky-300/45"
-            aria-expanded={open}
-            aria-haspopup="dialog"
-            aria-controls={open ? titleId : undefined}
-            aria-label={`Open recalled memory details for ${memoryLabel(recalledCount)}`}
-            title={`Show ${memoryLabel(recalledCount)}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              setOpen((value) => !value);
-            }}
-          >
-            💭 {memoryLabel(recalledCount)}
-          </button>
-          {open && (
-            <div
-              ref={popoverRef}
-              role="dialog"
-              aria-labelledby={titleId}
-              className="absolute top-full z-50 mt-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left text-[0.6875rem] shadow-xl shadow-black/25"
-              style={popoverStyle ?? undefined}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div id={titleId} className="mb-2 text-[0.6875rem] font-semibold text-[var(--foreground)]">
-                Recalled memories
-              </div>
-              <div className="space-y-1.5">
-                {visibleSnippets.length > 0 ? (
-                  visibleSnippets.map((snippet, index) => (
-                    <p
-                      key={`${snippet}-${index}`}
-                      className="max-h-16 overflow-hidden rounded-md bg-[var(--accent)]/35 px-2 py-1.5 leading-relaxed text-[var(--foreground)]/80"
-                    >
-                      I remembered: {snippet}
-                    </p>
-                  ))
-                ) : (
-                  <p className="rounded-md bg-[var(--accent)]/35 px-2 py-1.5 text-[var(--muted-foreground)]">
-                    Recalled source details are unavailable for this response.
-                  </p>
-                )}
-                {hiddenCount > 0 && (
-                  <p className="px-1 text-[0.625rem] text-[var(--muted-foreground)]">+{hiddenCount} more</p>
-                )}
-              </div>
-              {onPeekPrompt && (
-                <button
-                  type="button"
-                  className="mt-2 inline-flex rounded-md border border-[var(--border)] px-2 py-1 text-[0.625rem] font-medium text-[var(--foreground)]/80 transition-colors hover:bg-[var(--accent)]"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setOpen(false);
-                    onPeekPrompt();
-                  }}
-                >
-                  Open Peek Prompt
-                </button>
-              )}
             </div>
           )}
         </span>
