@@ -174,6 +174,14 @@ describe("deterministic craft shape detection", () => {
     expect(detectRoleplayCraftCandidate(messages, repaired)).toBeNull();
   });
 
+  it("bounds repeated-opening repair when punctuation is the only difference", () => {
+    const messages = [{ role: "assistant", content: "For a long moment Mara studies the brass door latch." }];
+
+    expect(
+      repairRoleplayCraftCandidate(messages, "For a long moment, Mara studies the brass door latch!"),
+    ).toBe("Latch!");
+  });
+
   it("does not alter clean prose or repetition the user explicitly requested", () => {
     const clean = 'Mara catches the latch under her thumb. "Stay here."';
     expect(repairRoleplayCraftCandidate([], clean)).toBe(clean);

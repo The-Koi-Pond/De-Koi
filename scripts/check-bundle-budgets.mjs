@@ -5,9 +5,10 @@ import { gzipSync } from "node:zlib";
 
 export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   startupJs: 700 * 1024,
-  // Allow the small compression overhead from keeping prompt assembly out of
-  // the initial application chunk while retaining a tight whole-app ceiling.
-  totalJs: 1722 * 1024,
+  // Keep the bounded craft planner/detector in lazy generation code without
+  // moving it onto startup; current main measures 1719.7 KiB and the guarded
+  // path measures 1724.0 KiB, leaving a narrow two-KiB ceiling margin.
+  totalJs: 1726 * 1024,
   largestLazyJs: 300 * 1024,
   css: 120 * 1024,
 });

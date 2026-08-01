@@ -56,9 +56,9 @@ import { consumeNarrativeCraftPendingGuidance, loadAgentMemory, loadNarrativeCra
 import {
   craftShapeRepairGuidance,
   detectConversationCraftShape,
+  detectRoleplayCraftCandidate,
   detectRoleplayCraftShape,
 } from "./craft-shape-detector";
-import { narrativeCraftHasRecurringShape } from "./narrative-craft-background";
 import { NARRATIVE_CRAFT_BASELINE_GUIDANCE } from "./narrative-craft-guidance";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
@@ -1995,7 +1995,7 @@ export async function createGenerationAgentRuntime(
         !options.force &&
         !conversationMode &&
         !firstNarrativeCraftAnalysis &&
-        !narrativeCraftHasRecurringShape(input.storedMessages, mainResponse)
+        !hasRecurringNarrativeCraftShape(input.storedMessages, mainResponse)
       ) {
         return [];
       }
@@ -2006,4 +2006,23 @@ export async function createGenerationAgentRuntime(
       });
     },
   };
+}
+
+const LEGACY_RECURRING_CRAFT_MARKERS = [
+  /\b(?:breath|pulse|heartbeat)\b.{0,32}\b(?:caught|hitched|hammered|fluttered|stuttered|quickened)\b/iu,
+  /\b(?:jaw|fingers?|hands?|shoulders?|throat|chest)\b.{0,32}\b(?:clenched|tightened|tensed|sagged|trembled|coiled)\b/iu,
+  /\b(?:as if|as though)\b.{8,96}\b(?:knew|understood|remembered|answered|accused|mocked|meant)\b/iu,
+  /\b(?:suddenly|without warning|before (?:he|she|they|it|you) could)\b/iu,
+  /\b(?:for now|at last|in the end)\b/iu,
+];
+
+function hasRecurringNarrativeCraftShape(messages: readonly JsonRecord[], response: string): boolean {
+  if (detectRoleplayCraftCandidate(messages, response)) return true;
+  const prior = messages
+    .filter((message) => readString(message.role).trim() === "assistant")
+    .slice(-7)
+    .map((message) => readString(message.content));
+  return LEGACY_RECURRING_CRAFT_MARKERS.some(
+    (pattern) => pattern.test(response) && prior.some((content) => pattern.test(content)),
+  );
 }

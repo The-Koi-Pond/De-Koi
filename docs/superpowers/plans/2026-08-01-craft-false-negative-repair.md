@@ -25,6 +25,7 @@
 - [x] Prove Conversation performs candidate repair with one writer request total.
 - [x] Run live Harlequin/Nano latency and output proof without saving generated messages.
 - [x] Run the pinned StoryScope comparison outside the repository and delete private artifacts.
+- [x] Measure bundle impact against clean `main`: startup stays at 179.4 KiB gzip and total lazy JavaScript rises 4.3 KiB gzip.
 
 ## Remaining Verification
 
