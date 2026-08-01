@@ -52,7 +52,7 @@ import {
   shouldBeginSetupJourney,
 } from "./app-shell-center-surfaces";
 import { closeDiscoverHistory, useDiscoverHistoryLifecycle } from "./app-shell-discover-history";
-import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
+import { setAppShellLeftSidebarPanel, type AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
@@ -595,7 +595,10 @@ export function AppShell() {
   }, [syncDekiSessionState]);
 
   const setLeftSidebarPanel = useCallback((requestedPanel: AppShellLeftSidebarPanel) => {
-    setLeftSidebarPanelState(requestedPanel);
+    setAppShellLeftSidebarPanel(requestedPanel, {
+      setChatSidebarOpen: useUIStore.getState().setSidebarOpen,
+      setPanel: setLeftSidebarPanelState,
+    });
   }, []);
 
   const closeDekiShell = useCallback(() => {
@@ -1511,7 +1514,11 @@ export function AppShell() {
             }}
           >
             <div className="h-full" style={{ width: isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth }}>
-              <ChatSidebar activeTab={activeChatSidebarTab} onActiveTabChange={setActiveChatSidebarTab} />
+              <ChatSidebar
+                activeTab={activeChatSidebarTab}
+                onActiveTabChange={setActiveChatSidebarTab}
+                onRequestClose={() => setLeftSidebarPanel(null)}
+              />
             </div>
           </aside>
           <aside

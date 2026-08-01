@@ -5,6 +5,20 @@ export type AppShellLeftSidebarState = {
   dekiSidebarOpen: boolean;
 };
 
+export function setAppShellLeftSidebarPanel(
+  requestedPanel: AppShellLeftSidebarPanel,
+  {
+    setChatSidebarOpen,
+    setPanel,
+  }: {
+    setChatSidebarOpen: (open: boolean) => void;
+    setPanel: (panel: AppShellLeftSidebarPanel) => void;
+  },
+): void {
+  setChatSidebarOpen(requestedPanel === "chats");
+  setPanel(requestedPanel);
+}
+
 export function getAppShellLeftSidebarState({
   requestedPanel,
 }: {
