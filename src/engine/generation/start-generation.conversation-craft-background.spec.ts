@@ -8,11 +8,15 @@ import { startGeneration } from "./start-generation";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((complete) => { resolve = complete; });
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
   return { promise, resolve };
 }
 
-function conversationStorage(options: { enableAgents?: boolean; group?: boolean } = {}) {
+function conversationStorage(
+  options: { enableAgents?: boolean; group?: boolean; messages?: Record<string, unknown>[] } = {},
+) {
   const characterIds = options.group ? ["char-a", "char-b"] : ["char-a"];
   const chat = {
     id: "chat-1",
@@ -30,7 +34,7 @@ function conversationStorage(options: { enableAgents?: boolean; group?: boolean 
     { id: "char-a", name: "Aki", data: { name: "Aki", description: "A dry friend", personality: "dry" } },
     { id: "char-b", name: "Bea", data: { name: "Bea", description: "An earnest friend", personality: "earnest" } },
   ];
-  const messages: Record<string, unknown>[] = [];
+  const messages: Record<string, unknown>[] = (options.messages ?? []).map((message) => ({ ...message }));
   const creates: Array<{ entity: StorageEntity; value: Record<string, unknown> }> = [];
   const agentRunPersisted = deferred<void>();
   let nextMessageId = 1;
@@ -53,9 +57,15 @@ function conversationStorage(options: { enableAgents?: boolean; group?: boolean 
       if (entity === "agent-runs") agentRunPersisted.resolve();
       return { id: `${entity}-${creates.length}`, ...value } as T;
     },
-    async update<T = unknown>() { return {} as T; },
-    async delete() { return { deleted: false }; },
-    async listChatMessages<T = unknown>(): Promise<T[]> { return messages as T[]; },
+    async update<T = unknown>() {
+      return {} as T;
+    },
+    async delete() {
+      return { deleted: false };
+    },
+    async listChatMessages<T = unknown>(): Promise<T[]> {
+      return messages as T[];
+    },
     async getChatMessage<T = unknown>(messageId: string): Promise<T | null> {
       return (messages.find((message) => message.id === messageId) ?? null) as T | null;
     },
@@ -64,18 +74,42 @@ function conversationStorage(options: { enableAgents?: boolean; group?: boolean 
       messages.push(message);
       return message as T;
     },
-    async updateChatMessage<T = unknown>() { return {} as T; },
-    async deleteChatMessage() { return { deleted: false }; },
-    async patchChatMessageExtra<T = unknown>() { return {} as T; },
-    async addChatMessageSwipe<T = unknown>() { return {} as T; },
-    async patchChatMetadata<T = unknown>() { return {} as T; },
-    async patchChatSummaries<T = unknown>() { return {} as T; },
-    async listChatMemories<T = unknown>() { return [] as T[]; },
-    async getWorldState() { return null; },
-    async saveTrackerSnapshot<T = unknown>() { return {} as T; },
-    async listLorebookEntries() { return []; },
-    async createLorebookEntries() { return []; },
-    async promptFull() { return null; },
+    async updateChatMessage<T = unknown>() {
+      return {} as T;
+    },
+    async deleteChatMessage() {
+      return { deleted: false };
+    },
+    async patchChatMessageExtra<T = unknown>() {
+      return {} as T;
+    },
+    async addChatMessageSwipe<T = unknown>() {
+      return {} as T;
+    },
+    async patchChatMetadata<T = unknown>() {
+      return {} as T;
+    },
+    async patchChatSummaries<T = unknown>() {
+      return {} as T;
+    },
+    async listChatMemories<T = unknown>() {
+      return [] as T[];
+    },
+    async getWorldState() {
+      return null;
+    },
+    async saveTrackerSnapshot<T = unknown>() {
+      return {} as T;
+    },
+    async listLorebookEntries() {
+      return [];
+    },
+    async createLorebookEntries() {
+      return [];
+    },
+    async promptFull() {
+      return null;
+    },
   };
   return { storage, creates, messages, agentRunPersisted };
 }
@@ -90,8 +124,12 @@ async function advanceToDone(generator: AsyncGenerator<GenerationEvent>): Promis
 
 function conversationLlm(requests: LlmRequest[], criticGate: Promise<void>, onCritic: () => void): LlmGateway {
   return {
-    async complete() { return ""; },
-    async listModels() { return []; },
+    async complete() {
+      return "";
+    },
+    async listModels() {
+      return [];
+    },
     async *stream(request) {
       requests.push(request);
       const prompt = request.messages.map((message) => message.content).join("\n");
@@ -129,7 +167,13 @@ describe("startGeneration Conversation Craft background analysis", () => {
     let criticStarted = false;
     const requests: LlmRequest[] = [];
     const generation = startGeneration(
-      { storage, llm: conversationLlm(requests, gate.promise, () => { criticStarted = true; }), integrations: {} as IntegrationGateway },
+      {
+        storage,
+        llm: conversationLlm(requests, gate.promise, () => {
+          criticStarted = true;
+        }),
+        integrations: {} as IntegrationGateway,
+      },
       direct
         ? { chatId: "chat-1", connectionId: "conn-1", messages: [{ role: "user", content: "today sucked" }] }
         : { chatId: "chat-1", connectionId: "conn-1", userMessage: "today sucked" },
@@ -147,10 +191,12 @@ describe("startGeneration Conversation Craft background analysis", () => {
       expect(criticStarted).toBe(true);
       gate.resolve();
       await agentRunPersisted.promise;
-      expect(creates).toEqual(expect.arrayContaining([
-        expect.objectContaining({ entity: "agent-memory" }),
-        expect.objectContaining({ entity: "agent-runs" }),
-      ]));
+      expect(creates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ entity: "agent-memory" }),
+          expect.objectContaining({ entity: "agent-runs" }),
+        ]),
+      );
     } finally {
       gate.resolve();
       vi.useRealTimers();
@@ -164,7 +210,13 @@ describe("startGeneration Conversation Craft background analysis", () => {
     let criticStarted = false;
     const requests: LlmRequest[] = [];
     const generation = startGeneration(
-      { storage, llm: conversationLlm(requests, gate.promise, () => { criticStarted = true; }), integrations: {} as IntegrationGateway },
+      {
+        storage,
+        llm: conversationLlm(requests, gate.promise, () => {
+          criticStarted = true;
+        }),
+        integrations: {} as IntegrationGateway,
+      },
       { chatId: "chat-1", connectionId: "conn-1", userMessage: "hey" },
     );
     try {
@@ -180,6 +232,94 @@ describe("startGeneration Conversation Craft background analysis", () => {
     }
   });
 
+  it("puts deterministic craft guidance in the next writer request without another foreground call", async () => {
+    vi.useFakeTimers();
+    const { storage } = conversationStorage({
+      messages: [
+        {
+          id: "assistant-1",
+          chatId: "chat-1",
+          role: "assistant",
+          content: "What you're really asking is whether I noticed.",
+        },
+        { id: "user-1", chatId: "chat-1", role: "user", content: "That isn't it." },
+        {
+          id: "assistant-2",
+          chatId: "chat-1",
+          role: "assistant",
+          content: "You don't want an answer. You want permission.",
+        },
+      ],
+    });
+    const gate = deferred<void>();
+    const requests: LlmRequest[] = [];
+    const generation = startGeneration(
+      {
+        storage,
+        llm: conversationLlm(requests, gate.promise, () => undefined),
+        integrations: {} as IntegrationGateway,
+      },
+      { chatId: "chat-1", connectionId: "conn-1", userMessage: "Try again." },
+    );
+    try {
+      await advanceToDone(generation);
+      expect(requests).toHaveLength(1);
+      const writerPrompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
+      expect(writerPrompt).toContain("Do not tell the user what they really mean, want, or feel.");
+      expect(writerPrompt).toContain("What you're really asking is whether I noticed.");
+      expect(writerPrompt).toContain("You don't want an answer. You want permission.");
+      expect(writerPrompt.match(/<conversation_craft>/g)).toHaveLength(1);
+      await generation.return(undefined);
+    } finally {
+      gate.resolve();
+      vi.useRealTimers();
+    }
+  });
+
+  it("removes a compulsory trailing question without a second writer call", async () => {
+    vi.useFakeTimers();
+    const { storage, messages } = conversationStorage({
+      messages: [
+        { id: "assistant-1", chatId: "chat-1", role: "assistant", content: "where were you?" },
+        { id: "user-1", chatId: "chat-1", role: "user", content: "out" },
+        { id: "assistant-2", chatId: "chat-1", role: "assistant", content: "with who?" },
+      ],
+    });
+    const requests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield {
+          type: "token",
+          text: "good. you needed the air. did you have fun?",
+        };
+        yield { type: "done" };
+      },
+    };
+    const generation = startGeneration(
+      { storage, llm, integrations: {} as IntegrationGateway },
+      { chatId: "chat-1", connectionId: "conn-1", userMessage: "maybe" },
+    );
+
+    try {
+      await advanceToDone(generation);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.connectionId).toBe("conn-1");
+      expect(messages.filter((message) => message.role === "assistant").at(-1)?.content).toBe(
+        "good. you needed the air.",
+      );
+      await generation.return(undefined);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("gives every group writer the group guide and analyzes only after the group reply finishes", async () => {
     vi.useFakeTimers();
     const { storage, agentRunPersisted } = conversationStorage({ group: true });
@@ -187,7 +327,13 @@ describe("startGeneration Conversation Craft background analysis", () => {
     let criticStarted = false;
     const requests: LlmRequest[] = [];
     const generation = startGeneration(
-      { storage, llm: conversationLlm(requests, gate.promise, () => { criticStarted = true; }), integrations: {} as IntegrationGateway },
+      {
+        storage,
+        llm: conversationLlm(requests, gate.promise, () => {
+          criticStarted = true;
+        }),
+        integrations: {} as IntegrationGateway,
+      },
       { chatId: "chat-1", connectionId: "conn-1", userMessage: "what do you both think?" },
     );
     try {
