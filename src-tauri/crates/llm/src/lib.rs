@@ -51,6 +51,8 @@ const PROVIDER_LOCAL_URLS_ENABLED_FLAG: &str = "PROVIDER_LOCAL_URLS_ENABLED";
 const PROVIDER_RESPONSE_MAX_BYTES: usize = 5 * 1024 * 1024;
 const PROVIDER_RESPONSE_HEADERS_TIMEOUT_SECS: u64 = 5 * 60;
 const PROVIDER_STREAM_IDLE_TIMEOUT_SECS: u64 = 2 * 60;
+// ChatGPT reasoning models may emit no upstream bytes while hidden reasoning continues.
+const OPENAI_CHATGPT_STREAM_IDLE_TIMEOUT_SECS: u64 = 10 * 60;
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const GOOGLE_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GOOGLE_JWT_BEARER_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
@@ -493,6 +495,17 @@ fn provider_local_urls_enabled() -> bool {
 }
 
 async fn provider_http_client_for_url(url: &str) -> AppResult<reqwest::Client> {
+    provider_http_client_for_url_with_read_timeout(
+        url,
+        Duration::from_secs(PROVIDER_STREAM_IDLE_TIMEOUT_SECS),
+    )
+    .await
+}
+
+async fn provider_http_client_for_url_with_read_timeout(
+    url: &str,
+    read_timeout: Duration,
+) -> AppResult<reqwest::Client> {
     let parsed = reqwest::Url::parse(url).map_err(|error| {
         AppError::invalid_input(format!(
             "Outbound URL is invalid: {}",
@@ -504,7 +517,7 @@ async fn provider_http_client_for_url(url: &str) -> AppResult<reqwest::Client> {
         return Err(provider_url_not_allowed_error(url));
     }
     let resolved = validate_provider_url_resolution(&parsed, allow_private_or_reserved).await?;
-    provider_http_client(parsed.host_str(), resolved.as_deref())
+    provider_http_client(parsed.host_str(), resolved.as_deref(), read_timeout)
 }
 
 async fn validate_provider_url_resolution(
@@ -578,10 +591,11 @@ fn provider_url_not_allowed_error(url: &str) -> AppError {
 fn provider_http_client(
     host: Option<&str>,
     resolved_addresses: Option<&[SocketAddr]>,
+    read_timeout: Duration,
 ) -> AppResult<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .connect_timeout(provider_response_headers_timeout())
-        .read_timeout(Duration::from_secs(PROVIDER_STREAM_IDLE_TIMEOUT_SECS))
+        .read_timeout(read_timeout)
         .redirect(reqwest::redirect::Policy::none());
     if let (Some(host), Some(addresses)) = (host, resolved_addresses) {
         builder = builder.resolve_to_addrs(host, addresses);
@@ -593,6 +607,15 @@ fn provider_http_client(
 
 fn provider_response_headers_timeout() -> Duration {
     Duration::from_secs(PROVIDER_RESPONSE_HEADERS_TIMEOUT_SECS)
+}
+
+fn provider_stream_idle_timeout(provider: &str) -> Duration {
+    let seconds = if provider == "openai_chatgpt" {
+        OPENAI_CHATGPT_STREAM_IDLE_TIMEOUT_SECS
+    } else {
+        PROVIDER_STREAM_IDLE_TIMEOUT_SECS
+    };
+    Duration::from_secs(seconds)
 }
 
 async fn send_provider_request(request: reqwest::RequestBuilder) -> AppResult<reqwest::Response> {
@@ -2786,6 +2809,18 @@ mod tests {
                 "data": { "finishReason": "length" },
                 "finishReason": "length"
             }))
+        );
+    }
+
+    #[test]
+    fn chatgpt_streams_allow_longer_silent_reasoning_than_ordinary_providers() {
+        assert_eq!(
+            provider_stream_idle_timeout("openai_chatgpt"),
+            Duration::from_secs(10 * 60)
+        );
+        assert_eq!(
+            provider_stream_idle_timeout("openai"),
+            Duration::from_secs(PROVIDER_STREAM_IDLE_TIMEOUT_SECS)
         );
     }
 

@@ -546,10 +546,13 @@ pub(crate) async fn openai_responses_request(
     let base = base_url(&request.connection.provider, &request.connection.base_url);
     let url = format!("{base}/responses");
     log_prompt_connection_request("openai.responses", &url, request, body);
-    let req = provider_http_client_for_url(&url)
-        .await?
-        .post(url)
-        .json(body);
+    let req = provider_http_client_for_url_with_read_timeout(
+        &url,
+        provider_stream_idle_timeout(&request.connection.provider),
+    )
+    .await?
+    .post(url)
+    .json(body);
     let req = if request.connection.provider == "openai_chatgpt" {
         apply_chatgpt_auth_headers(req).await?
     } else {
