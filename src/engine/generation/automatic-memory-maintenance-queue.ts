@@ -19,6 +19,7 @@ import {
 } from "./background-generation-coordinator";
 import { analyzeAutomaticMemoryClarity } from "./memory-clarity";
 import { analyzeMemoryCleanup } from "./memory-cleanup";
+import { isTerminalBackgroundGenerationError } from "./background-generation-error";
 import { nowIso, parseArray, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 
 const JOBS_COLLECTION: StorageEntity = "memory-maintenance-jobs";
@@ -245,6 +246,7 @@ function errorCode(error: unknown): string {
 function safeErrorMessage(code: string): string {
   if (code === "stale_state") return "Memory changed during automatic maintenance.";
   if (code === "unknown_command") return "Automatic memory maintenance is unavailable in this runtime.";
+  if (code === "configuration_error") return "Automatic memory maintenance needs a valid model configuration.";
   return "Automatic memory maintenance could not finish.";
 }
 
@@ -503,8 +505,9 @@ export async function processAutomaticMemoryMaintenanceQueue(
         deferWorker(dependencies);
         break;
       }
-      const code = errorCode(error);
-      const terminal = attempts >= maxAttempts;
+      const configurationFailure = isTerminalBackgroundGenerationError(error);
+      const code = configurationFailure ? "configuration_error" : errorCode(error);
+      const terminal = configurationFailure || attempts >= maxAttempts;
       const nextAttemptAt = terminal ? null : retryTime(now, attempts);
       await updateJob(dependencies.storage, id, {
         status: terminal ? "failed" : "retryable",

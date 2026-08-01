@@ -8,7 +8,7 @@ import {
   scheduleAutomaticMemoryMaintenanceQueueProcessing,
   type AutomaticMemoryMaintenanceDependencies,
 } from "../../engine/generation/automatic-memory-maintenance-queue";
-import { resolveGenerationConnection } from "../../engine/generation/context";
+import { selectBackgroundTextConnection } from "../../engine/generation/background-llm-connection";
 import { parseRecord, readString, type JsonRecord } from "../../engine/generation/runtime-records";
 import { connectionCatalogApi } from "../../shared/api/connection-catalog-api";
 import { llmApi } from "../../shared/api/llm-api";
@@ -126,19 +126,28 @@ export async function seedAutomaticMemoryMaintenanceJobs(
   return { chatTargets, canonicalTargets, complete };
 }
 
+export async function resolveAutomaticMemoryMaintenanceConnectionId(
+  storage: StorageGateway,
+  target: MemoryCleanupTarget,
+  listConnections: () => Promise<JsonRecord[]> = async () =>
+    (await connectionCatalogApi.listAvailable()).map((connection) => ({ ...connection })),
+): Promise<string> {
+  let fallbackConnectionId: string | null = null;
+  if (target.scope.kind === "chat" || target.scope.kind === "scene") {
+    const chat = (await storage.get<JsonRecord>("chats", target.scope.id)) ?? {};
+    fallbackConnectionId = readString(chat.connectionId).trim() || null;
+  }
+  const connection = selectBackgroundTextConnection(await listConnections(), fallbackConnectionId);
+  if (!connection) throw new Error("No text connection is available");
+  return readString(connection.id).trim();
+}
+
 function dependencies(): AutomaticMemoryMaintenanceDependencies {
   return {
     storage: storageApi,
     llm: llmApi,
     maintenance: memoryMaintenanceApi,
-    resolveConnectionId: async (target: MemoryCleanupTarget) => {
-      if (target.scope.kind === "chat" || target.scope.kind === "scene") {
-        const chat = (await storageApi.get<Record<string, unknown>>("chats", target.scope.id)) ?? {};
-        const connection = await resolveGenerationConnection(storageApi, chat, {});
-        return String(connection.id);
-      }
-      return connectionCatalogApi.resolveDefaultTextConnectionId();
-    },
+    resolveConnectionId: (target) => resolveAutomaticMemoryMaintenanceConnectionId(storageApi, target),
   };
 }
 

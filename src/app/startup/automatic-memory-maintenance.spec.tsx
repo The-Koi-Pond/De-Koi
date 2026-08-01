@@ -2,7 +2,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { StorageGateway } from "../../engine/capabilities/storage";
-import { seedAutomaticMemoryMaintenanceJobs } from "./automatic-memory-maintenance";
+import {
+  resolveAutomaticMemoryMaintenanceConnectionId,
+  seedAutomaticMemoryMaintenanceJobs,
+} from "./automatic-memory-maintenance";
 
 function sweepHarness(input: { chats?: Array<Record<string, unknown>>; canonical?: Array<Record<string, unknown>> }) {
   const collections = new Map<string, Map<string, Record<string, unknown>>>([
@@ -46,6 +49,35 @@ function sweepHarness(input: { chats?: Array<Record<string, unknown>>; canonical
 }
 
 describe("automatic memory maintenance startup discovery", () => {
+  it("prefers the dedicated background connection over the chat connection", async () => {
+    const connections = [
+      { id: "chat-connection", provider: "nanogpt", model: "foreground", enabled: true },
+      {
+        id: "background-connection",
+        provider: "openai",
+        model: "background",
+        enabled: true,
+        defaultForAgents: true,
+      },
+    ];
+    const storage = {
+      get: vi.fn(async (entity: string) =>
+        entity === "chats" ? { id: "chat-1", connectionId: "chat-connection" } : null,
+      ),
+    } as unknown as StorageGateway;
+
+    await expect(
+      resolveAutomaticMemoryMaintenanceConnectionId(
+        storage,
+        {
+          store: "chat",
+          scope: { kind: "chat", id: "chat-1" },
+        },
+        async () => connections,
+      ),
+    ).resolves.toBe("background-connection");
+  });
+
   it("discovers existing targets in bounded resumable pages", async () => {
     const chats = Array.from({ length: 125 }, (_, index) => ({
       id: `chat-${String(index).padStart(3, "0")}`,

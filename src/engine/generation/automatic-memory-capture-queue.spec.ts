@@ -58,6 +58,7 @@ function queueStorage(
     characters?: CharacterMemoryScopeCharacter[];
     chat?: JsonRecord;
     persona?: JsonRecord | null;
+    connections?: JsonRecord[];
   } = {},
 ) {
   const jobs = new Map<string, JsonRecord>();
@@ -74,6 +75,11 @@ function queueStorage(
   const storage: StorageGateway = {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
       if (entity === "memory-capture-jobs") return Array.from(jobs.values()) as T[];
+      if (entity === "connections") {
+        return (options.connections ?? [
+          { id: "connection-1", provider: "openai", model: "foreground-model", enabled: true },
+        ]) as T[];
+      }
       return [] as T[];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
@@ -275,6 +281,33 @@ function queueStorage(
 }
 
 describe("automatic memory capture queue", () => {
+  it("resolves the dedicated background connection when the queued job runs", async () => {
+    const harness = queueStorage({
+      connections: [
+        { id: "connection-1", provider: "nanogpt", model: "foreground-model", enabled: true },
+        {
+          id: "background-connection",
+          provider: "openai",
+          model: "background-model",
+          enabled: true,
+          defaultForAgents: true,
+        },
+      ],
+    });
+    await harness.enqueue();
+    const requests: Parameters<LlmGateway["complete"]>[0][] = [];
+    const llm = passingValueReviewLlm(async (request) => {
+      requests.push(request);
+      return JSON.stringify({ memories: [] });
+    });
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
+
+    expect(requests).not.toHaveLength(0);
+    expect(requests.every((request) => request.connectionId === "background-connection")).toBe(true);
+    expect(requests[0]?.model).toBe("background-model");
+  });
+
   it("snapshots named source and bounded reference context", async () => {
     const harness = queueStorage({
       chat: { id: "chat-1", mode: "conversation", personaId: "persona-1" },
@@ -437,6 +470,26 @@ describe("automatic memory capture queue", () => {
     expect(result.retryable).toBe(1);
     expect(harness.commitCalls).toHaveLength(0);
     expect(harness.canonicalMemories.size).toBe(0);
+  });
+
+  it("fails once without retrying an explicit provider configuration error", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    const llm = passingValueReviewLlm(async () => {
+      throw new Error('Provider returned HTTP 400: reasoning_effort must be "high" or "max"');
+    });
+
+    const result = await processAutomaticMemoryCaptureQueue(
+      { storage: harness.storage, llm },
+      { now: "2026-01-01T00:03:00.000Z" },
+    );
+
+    expect(result).toMatchObject({ failed: 1, retryable: 0 });
+    expect(harness.jobs.get(String(job?.id))).toMatchObject({ status: "failed", attempts: 1, nextAttemptAt: null });
+    expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).toMatchObject({
+      status: "failed",
+      failureCategory: "configuration_error",
+    });
   });
 
   it("does not duplicate canonical survivors after a partial retry", async () => {

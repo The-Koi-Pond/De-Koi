@@ -3892,6 +3892,64 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
             assert_eq!(body["top_k"], json!(40));
         }
     }
+
+    #[test]
+    fn nanogpt_glm_52_omits_unsupported_no_reasoning_effort() {
+        let request = request_for(
+            "nanogpt",
+            "zai-org/glm-5.2",
+            json!({
+                "reasoningEffort": "none",
+                "customParameters": { "reasoning_effort": "none" }
+            }),
+        );
+        let mut body = json!({});
+
+        apply_openai_parameters(&mut body, &request);
+
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn nanogpt_glm_52_only_sends_supported_reasoning_efforts() {
+        for (requested, expected) in [
+            ("minimal", None),
+            ("low", None),
+            ("medium", None),
+            ("high", Some("high")),
+            ("xhigh", Some("max")),
+            ("maximum", Some("max")),
+        ] {
+            let request = request_for(
+                "nanogpt",
+                "zai-org/glm-5.2",
+                json!({ "reasoningEffort": requested }),
+            );
+            let mut body = json!({});
+
+            apply_openai_parameters(&mut body, &request);
+
+            assert_eq!(
+                body.get("reasoning_effort").and_then(Value::as_str),
+                expected,
+                "requested effort {requested}"
+            );
+        }
+    }
+
+    #[test]
+    fn nanogpt_non_glm_keeps_no_reasoning_effort() {
+        let request = request_for(
+            "nanogpt",
+            "meta-llama/llama-3.3-70b-instruct",
+            json!({ "reasoningEffort": "none" }),
+        );
+        let mut body = json!({});
+
+        apply_openai_parameters(&mut body, &request);
+
+        assert_eq!(body["reasoning_effort"], json!("none"));
+    }
     #[tokio::test]
     async fn provider_http_client_redacts_query_secret() {
         let error = provider_http_client_for_url("ftp://example.test/models?key=sk-test-secret")
