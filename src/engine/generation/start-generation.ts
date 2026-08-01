@@ -45,10 +45,17 @@ import { persistNarrativeCraftAgentMemory } from "./agent-memory-runtime";
 import {
   createGenerationAgentRuntime,
   runFocusedRoleplayQualityAudit,
+  runRoleplayCraftBeatPlan,
   type GenerationAgentRuntime,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
 import { cancelCraftAnalysesForForeground, scheduleCraftAnalysis } from "./craft-analysis-background";
+import {
+  detectRoleplayCraftCandidates,
+  repairConversationCraftCandidate,
+  repairRoleplayCraftCandidate,
+  shouldStopRoleplayCraftStream,
+} from "./craft-shape-detector";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import { generationContextAttribution } from "./context-attribution";
 import {
@@ -122,7 +129,7 @@ import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } fro
 import { buildGenerationTurnUsage } from "./usage-ledger";
 import { applyRuntimeRegexScripts } from "./regex-runtime";
 import { roleplayQualityReasonsForSignals, validateRoleplayQualityAudit } from "./roleplay-quality-audit";
-import { analyzeRoleplayResponse } from "./roleplay-quality-signals";
+import { analyzeRoleplayResponse, type RoleplayQualitySignal } from "./roleplay-quality-signals";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationSubjectMatches } from "../generation-core/images/illustration-reference-matching";
 import {
@@ -295,6 +302,16 @@ type MainGenerationPromptSnapshot = Pick<
   | "contextFitDecision"
 >;
 
+interface MainGenerationLoopResult {
+  content: string;
+  thinking: string;
+  usage: unknown;
+  providerMetadata: unknown;
+  promptSnapshot: MainGenerationPromptSnapshot | null;
+  webResearchRequest: Record<string, unknown> | null;
+  webResearchSources: Array<{ title: string; url: string }>;
+}
+
 type GenerationDryRunPromptSnapshot = MainGenerationPromptSnapshot;
 
 export interface GenerationDryRunInput extends StartGenerationInput {
@@ -345,6 +362,10 @@ function throwIfAborted(signal?: AbortSignal): void {
 
 function inputUserMessage(input: StartGenerationInput): string {
   return collapseExcessBlankLines(readString(input.message) || readString(input.userMessage));
+}
+
+function latestUserMessageContent(messages: readonly LlmMessage[]): string {
+  return readString([...messages].reverse().find((message) => message.role === "user")?.content).trim();
 }
 
 function normalizedAgentInjectionOverrides(input: StartGenerationInput): AgentInjectionOverride[] {
@@ -3200,7 +3221,8 @@ async function applyAutomaticRoleplayQualityCorrection(args: {
   content: string;
   signal?: AbortSignal;
 }): Promise<AutomaticRoleplayQualityCorrectionResult> {
-  if (!automaticRoleplayQualityCorrectionEnabled(args.chat, args.input)) {
+  const standardCorrectionEnabled = automaticRoleplayQualityCorrectionEnabled(args.chat, args.input);
+  if (!standardCorrectionEnabled) {
     return { content: args.content, correction: null };
   }
   const analysis = analyzeRoleplayResponse({
@@ -3213,8 +3235,9 @@ async function applyAutomaticRoleplayQualityCorrection(args: {
     selectedControls: parseRecord(args.chat.promptVariables),
     agencyContract: args.agencyContract,
   });
+  const signals: RoleplayQualitySignal[] = analysis.signals;
   if (!analysis.shouldAudit) return { content: args.content, correction: null };
-  const allowedReasons = roleplayQualityReasonsForSignals(analysis.signals);
+  const allowedReasons = roleplayQualityReasonsForSignals(signals);
   if (allowedReasons.length === 0) return { content: args.content, correction: null };
 
   const deadline = createRoleplayQualityAuditDeadline(args.signal);
@@ -3230,7 +3253,7 @@ async function applyAutomaticRoleplayQualityCorrection(args: {
       {
         mainResponse: args.content,
         agencyContract: args.agencyContract,
-        signals: analysis.signals,
+        signals,
       },
     );
     throwIfAborted(args.signal);
@@ -4459,8 +4482,36 @@ export async function* dryRunGeneration(
     [...assembly.previewMessages, ...directivePromptMessages],
     preparedUserInput.images,
   );
+  const dryRunAgentInput: GenerationAgentRuntimeInput = {
+    chat: chatForGeneration,
+    connection,
+    storedMessages: generationMessages,
+    cadenceMessages: storedMessages,
+    characters: assembly.characters,
+    persona: assembly.persona,
+    activatedLorebookEntries: assembly.activatedLorebookEntries,
+    chatSummary: assembly.chatSummary,
+    embeddingSource: generationEmbeddingSource(deps.llm, connection),
+    debugMode: input.debugMode === true,
+    debugSink: input.debugSink,
+    hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
+    signal,
+    forCharacterId: readString(input.forCharacterId).trim() || null,
+    regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
+  };
+  let dryRunCraftBeatPlan = null;
+  if (
+    directMessages === null &&
+    readString(chatForGeneration.mode || chatForGeneration.chatMode).trim() === "roleplay" &&
+    chatActiveAgentIds(chatForGeneration).has(NARRATIVE_CRAFT_AGENT_TYPE)
+  ) {
+    yield { type: "phase", data: "Planning the next beat..." };
+    dryRunCraftBeatPlan = await boundedRoleplayCraftBeatPlan(deps, dryRunAgentInput, signal);
+    throwIfAborted(signal);
+  }
+  const dryRunCraftInjections = craftInjectionsWithBeatPlan(null, dryRunCraftBeatPlan?.guidance);
   const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-    [...prompt, ...generationGuideMessages(input, chatForGeneration)].filter(
+    [...prompt, ...generationGuideMessages(input, chatForGeneration, dryRunCraftInjections)].filter(
       (message): message is LlmMessage => !!message,
     ),
     assembly.userRegenerationSourceMessage,
@@ -4493,7 +4544,7 @@ export async function* dryRunGeneration(
     parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
     baseMessages,
     previewMessages: withUserMessageRegenerationRewritePrompt(
-      [...promptPreviewMessages, ...generationGuideMessages(input, chatForGeneration)].filter(
+      [...promptPreviewMessages, ...generationGuideMessages(input, chatForGeneration, dryRunCraftInjections)].filter(
         (message): message is LlmMessage => !!message,
       ),
       assembly.userRegenerationSourceMessage,
@@ -4510,6 +4561,8 @@ export async function* dryRunGeneration(
       chatSummary: assembly.chatSummary,
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
     },
+    latestUserInput: latestUserInput || latestUserMessageContent(prompt),
+    stopOnRoleplayCraftShape: chatActiveAgentIds(chatForGeneration).has(NARRATIVE_CRAFT_AGENT_TYPE),
     signal,
     partial: dryRunPartial,
   }));
@@ -4520,24 +4573,15 @@ export async function* dryRunGeneration(
   if (content !== streamedContent) {
     yield { type: "content_replace", data: content };
   }
-  const dryRunAgentInput: GenerationAgentRuntimeInput = {
+  const contentBeforeCraftRepair = content;
+  const deterministicCraft = applyDeterministicCraftCandidateRepair({
     chat: chatForGeneration,
-    connection,
+    narrativeCraftActive: chatActiveAgentIds(chatForGeneration).has(NARRATIVE_CRAFT_AGENT_TYPE),
     storedMessages: generationMessages,
-    cadenceMessages: storedMessages,
-    characters: assembly.characters,
-    persona: assembly.persona,
-    activatedLorebookEntries: assembly.activatedLorebookEntries,
-    chatSummary: assembly.chatSummary,
-    embeddingSource: generationEmbeddingSource(deps.llm, connection),
-    debugMode: input.debugMode === true,
-    debugSink: input.debugSink,
-    hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
-    signal,
-    forCharacterId: readString(input.forCharacterId).trim() || null,
-    regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
-  };
-  const roleplayQuality = await applyAutomaticRoleplayQualityCorrection({
+    content,
+  });
+  content = deterministicCraft.content;
+  const automaticRoleplayQuality = await applyAutomaticRoleplayQualityCorrection({
     deps,
     chat: chatForGeneration,
     input,
@@ -4546,9 +4590,13 @@ export async function* dryRunGeneration(
     content,
     signal,
   });
+  const roleplayQuality: AutomaticRoleplayQualityCorrectionResult = {
+    content: automaticRoleplayQuality.content,
+    correction: automaticRoleplayQuality.correction ?? deterministicCraft.correction,
+  };
   throwIfAborted(signal);
-  if (roleplayQuality.content !== content) {
-    content = roleplayQuality.content;
+  content = roleplayQuality.content;
+  if (content !== contentBeforeCraftRepair) {
     yield { type: "content_replace", data: content };
   }
   const result: GenerationDryRunResult = {
@@ -4979,13 +5027,24 @@ async function* startGenerationImpl(
       preparedUserInput.images,
     );
 
-    const parallelAgents = runtime?.runParallel() ?? Promise.resolve<AgentResult[]>([]);
-    yield { type: "phase", data: "Calling model..." };
     const mainTools = await buildMainToolDefinitions({
       chat: chatForGeneration,
       storage: deps.storage,
       integrations: deps.integrations,
     });
+    let craftBeatPlan = null;
+    if (
+      mainTools === null &&
+      readString(chatForGeneration.mode || chatForGeneration.chatMode).trim() === "roleplay" &&
+      runtimeHasNarrativeCraft(runtime)
+    ) {
+      yield { type: "phase", data: "Planning the next beat..." };
+      craftBeatPlan = await boundedRoleplayCraftBeatPlan(deps, generationAgentInput, signal);
+      throwIfAborted(signal);
+    }
+    const writerCraftInjections = craftInjectionsWithBeatPlan(runtime?.preInjections, craftBeatPlan?.guidance);
+    const parallelAgents = runtime?.runParallel() ?? Promise.resolve<AgentResult[]>([]);
+    yield { type: "phase", data: "Calling model..." };
     const toolRuntimeInput: ToolRuntimeInput = {
       chat: chatForGeneration,
       storedMessages: generationMessages,
@@ -4996,11 +5055,19 @@ async function* startGenerationImpl(
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
     };
     const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-      [...prompt, ...generationGuideMessages(input, chatForGeneration, runtime?.preInjections)].filter(
+      [...prompt, ...generationGuideMessages(input, chatForGeneration, writerCraftInjections)].filter(
         (message): message is LlmMessage => !!message,
       ),
       assembly.userRegenerationSourceMessage,
     );
+    const previewMessages = withUserMessageRegenerationRewritePrompt(
+      [...promptPreviewMessages, ...generationGuideMessages(input, chatForGeneration, writerCraftInjections)].filter(
+        (message): message is LlmMessage => !!message,
+      ),
+      assembly.userRegenerationSourceMessage,
+    );
+    const mainParameters = llmParameters(connection, input, chatForGeneration, assembly.parameters);
+    const mainContextAttribution = generationContextAttribution(assembly.contextAttributionItems);
     const mainPartial: StreamPartialSink = {
       content: "",
       thinking: "",
@@ -5036,19 +5103,18 @@ async function* startGenerationImpl(
         connection,
         input,
         chat: chatForGeneration,
-        parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
+        parameters: mainParameters,
         baseMessages,
-        previewMessages: withUserMessageRegenerationRewritePrompt(
-          [
-            ...promptPreviewMessages,
-            ...generationGuideMessages(input, chatForGeneration, runtime?.preInjections),
-          ].filter((message): message is LlmMessage => !!message),
-          assembly.userRegenerationSourceMessage,
-        ),
-        contextAttribution: generationContextAttribution(assembly.contextAttributionItems),
+        previewMessages,
+        contextAttribution: mainContextAttribution,
         promptPresetId: assembly.promptPresetId,
         mainTools,
         toolRuntimeInput,
+        latestUserInput,
+        stopOnRoleplayCraftShape:
+          mainTools === null &&
+          readString(chatForGeneration.mode || chatForGeneration.chatMode).trim() === "roleplay" &&
+          runtimeHasNarrativeCraft(runtime),
         signal,
         partial: mainPartial,
         onFirstToken: reportFirstToken,
@@ -5134,7 +5200,17 @@ async function* startGenerationImpl(
     throwIfAborted(signal);
     for (const event of connected.events) yield event;
     let displayContent = finalAssistantContent(input, connected.displayContent);
-    const roleplayQuality =
+    const deterministicCraft: AutomaticRoleplayQualityCorrectionResult =
+      isUserMessageRegeneration || connected.suppressAssistantMessage
+        ? { content: displayContent, correction: null }
+        : applyDeterministicCraftCandidateRepair({
+            chat: chatForGeneration,
+            narrativeCraftActive: runtimeHasNarrativeCraft(runtime),
+            storedMessages: generationMessages,
+            content: displayContent,
+          });
+    displayContent = deterministicCraft.content;
+    const automaticRoleplayQuality =
       isUserMessageRegeneration || connected.suppressAssistantMessage
         ? { content: displayContent, correction: null }
         : await applyAutomaticRoleplayQualityCorrection({
@@ -5146,6 +5222,10 @@ async function* startGenerationImpl(
             content: displayContent,
             signal,
           });
+    const roleplayQuality: AutomaticRoleplayQualityCorrectionResult = {
+      content: automaticRoleplayQuality.content,
+      correction: automaticRoleplayQuality.correction ?? deterministicCraft.correction,
+    };
     throwIfAborted(signal);
     if (roleplayQuality.content !== displayContent) {
       displayContent = roleplayQuality.content;
@@ -5429,12 +5509,35 @@ async function* startGenerationImpl(
   for (const warning of directCraftRuntime?.agentWarnings ?? []) {
     yield { type: "agent_warning", data: warning };
   }
+  let directCraftBeatPlan = null;
+  if (
+    mainToolsDirect === null &&
+    readString(chatForGeneration.mode || chatForGeneration.chatMode).trim() === "roleplay" &&
+    runtimeHasNarrativeCraft(directCraftRuntime)
+  ) {
+    yield { type: "phase", data: "Planning the next beat..." };
+    directCraftBeatPlan = await boundedRoleplayCraftBeatPlan(deps, directAgentInput, signal);
+    throwIfAborted(signal);
+  }
+  const directWriterCraftInjections = craftInjectionsWithBeatPlan(
+    directCraftRuntime?.preInjections,
+    directCraftBeatPlan?.guidance,
+  );
   const baseMessagesDirect: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
-    [...(prompt ?? []), ...generationGuideMessages(input, chatForGeneration, directCraftRuntime?.preInjections)].filter(
+    [...(prompt ?? []), ...generationGuideMessages(input, chatForGeneration, directWriterCraftInjections)].filter(
       (message): message is LlmMessage => !!message,
     ),
     assembly.userRegenerationSourceMessage,
   );
+  const previewMessagesDirect = withUserMessageRegenerationRewritePrompt(
+    [
+      ...(promptPreviewMessagesDirect ?? []),
+      ...generationGuideMessages(input, chatForGeneration, directWriterCraftInjections),
+    ].filter((message): message is LlmMessage => !!message),
+    assembly.userRegenerationSourceMessage,
+  );
+  const directParameters = llmParameters(connection, input, chatForGeneration, assembly.parameters);
+  const directContextAttribution = generationContextAttribution(assembly.contextAttributionItems);
   const directPartial: StreamPartialSink = {
     content: "",
     thinking: "",
@@ -5470,19 +5573,18 @@ async function* startGenerationImpl(
       connection,
       input,
       chat: chatForGeneration,
-      parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
+      parameters: directParameters,
       baseMessages: baseMessagesDirect,
-      previewMessages: withUserMessageRegenerationRewritePrompt(
-        [
-          ...(promptPreviewMessagesDirect ?? []),
-          ...generationGuideMessages(input, chatForGeneration, directCraftRuntime?.preInjections),
-        ].filter((message): message is LlmMessage => !!message),
-        assembly.userRegenerationSourceMessage,
-      ),
-      contextAttribution: generationContextAttribution(assembly.contextAttributionItems),
+      previewMessages: previewMessagesDirect,
+      contextAttribution: directContextAttribution,
       promptPresetId: assembly.promptPresetId,
       mainTools: mainToolsDirect,
       toolRuntimeInput: toolRuntimeInputDirect,
+      latestUserInput: latestUserMessageContent(directMessages) || latestUserInput,
+      stopOnRoleplayCraftShape:
+        mainToolsDirect === null &&
+        readString(chatForGeneration.mode || chatForGeneration.chatMode).trim() === "roleplay" &&
+        runtimeHasNarrativeCraft(directCraftRuntime),
       signal,
       partial: directPartial,
       onFirstToken: reportDirectFirstToken,
@@ -5547,7 +5649,17 @@ async function* startGenerationImpl(
   throwIfAborted(signal);
   for (const event of connected.events) yield event;
   let displayContentDirect = finalAssistantContent(input, connected.displayContent);
-  const roleplayQualityDirect =
+  const deterministicCraftDirect: AutomaticRoleplayQualityCorrectionResult =
+    isUserMessageRegeneration || connected.suppressAssistantMessage
+      ? { content: displayContentDirect, correction: null }
+      : applyDeterministicCraftCandidateRepair({
+          chat: chatForGeneration,
+          narrativeCraftActive: runtimeHasNarrativeCraft(directCraftRuntime),
+          storedMessages: generationMessages,
+          content: displayContentDirect,
+        });
+  displayContentDirect = deterministicCraftDirect.content;
+  const automaticRoleplayQualityDirect =
     isUserMessageRegeneration || connected.suppressAssistantMessage
       ? { content: displayContentDirect, correction: null }
       : await applyAutomaticRoleplayQualityCorrection({
@@ -5559,6 +5671,10 @@ async function* startGenerationImpl(
           content: displayContentDirect,
           signal,
         });
+  const roleplayQualityDirect: AutomaticRoleplayQualityCorrectionResult = {
+    content: automaticRoleplayQualityDirect.content,
+    correction: automaticRoleplayQualityDirect.correction ?? deterministicCraftDirect.correction,
+  };
   throwIfAborted(signal);
   if (roleplayQualityDirect.content !== displayContentDirect) {
     displayContentDirect = roleplayQualityDirect.content;
@@ -5792,6 +5908,7 @@ function rerollSeedParameters(
  * from broken models that always emit a tool call.
  */
 const MAX_MAIN_TOOL_ITERATIONS = 8;
+const ROLEPLAY_CRAFT_BEAT_PLAN_TIMEOUT_MS = 5_000;
 
 function llmChunkText(chunk: { text?: unknown; data?: unknown; error?: unknown; message?: unknown }): string {
   if (typeof chunk.text === "string") return chunk.text;
@@ -5807,6 +5924,80 @@ function llmStreamError(chunk: { text?: unknown; data?: unknown }): Error & { co
     ...(code ? { code } : {}),
     ...(Object.keys(data).length > 0 ? { details: data } : {}),
   });
+}
+
+function runtimeHasNarrativeCraft(runtime: GenerationAgentRuntime | null | undefined): boolean {
+  return runtime?.preInjections.some((injection) => injection.agentType === NARRATIVE_CRAFT_AGENT_TYPE) === true;
+}
+
+async function boundedRoleplayCraftBeatPlan(
+  deps: GenerationEngineDeps,
+  input: GenerationAgentRuntimeInput,
+  parentSignal?: AbortSignal,
+): ReturnType<typeof runRoleplayCraftBeatPlan> {
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort(parentSignal?.reason);
+  if (parentSignal?.aborted) abortFromParent();
+  else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(new DOMException("Roleplay beat planning timed out.", "TimeoutError")),
+    ROLEPLAY_CRAFT_BEAT_PLAN_TIMEOUT_MS,
+  );
+  try {
+    return await runRoleplayCraftBeatPlan(
+      { storage: deps.storage, llm: deps.llm, integrations: deps.integrations, visuals: deps.visuals },
+      { ...input, signal: controller.signal },
+    );
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+    parentSignal?.removeEventListener("abort", abortFromParent);
+  }
+}
+
+function craftInjectionsWithBeatPlan(
+  injections: readonly AgentInjectionOverride[] | null | undefined,
+  guidance: string | null | undefined,
+): AgentInjectionOverride[] {
+  return [
+    ...(injections ?? []),
+    ...(guidance ? [{ agentType: NARRATIVE_CRAFT_AGENT_TYPE, agentName: "Narrative Craft", text: guidance }] : []),
+  ];
+}
+
+function applyDeterministicCraftCandidateRepair(args: {
+  chat: JsonRecord;
+  narrativeCraftActive: boolean;
+  storedMessages: JsonRecord[];
+  content: string;
+}): AutomaticRoleplayQualityCorrectionResult {
+  const mode = readString(args.chat.mode || args.chat.chatMode).trim();
+  if (mode === "conversation") {
+    return {
+      content: repairConversationCraftCandidate(args.storedMessages, args.content),
+      correction: null,
+    };
+  }
+  if (mode !== "roleplay" || !args.narrativeCraftActive) {
+    return { content: args.content, correction: null };
+  }
+
+  const startedAt = performance.now();
+  const findings = detectRoleplayCraftCandidates(args.storedMessages, args.content);
+  if (findings.length === 0) return { content: args.content, correction: null };
+  const content = repairRoleplayCraftCandidate(args.storedMessages, args.content);
+  if (!content || content === args.content) return { content: args.content, correction: null };
+
+  return {
+    content,
+    correction: {
+      source: "deterministic_craft_repair",
+      reasons: ["repetition"],
+      evidence: findings.flatMap((finding) => finding.evidence).slice(0, 6),
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    },
+  };
 }
 
 /**
@@ -5837,21 +6028,12 @@ async function* streamMainGenerationLoop(args: {
   contextAttribution?: GenerationContextAttribution | null;
   mainTools: MainToolDefinitions | null;
   toolRuntimeInput: ToolRuntimeInput;
+  latestUserInput?: string;
+  stopOnRoleplayCraftShape?: boolean;
   signal: AbortSignal | undefined;
   partial?: StreamPartialSink | null;
   onFirstToken?: () => void;
-}): AsyncGenerator<
-  GenerationEvent,
-  {
-    content: string;
-    thinking: string;
-    usage: unknown;
-    providerMetadata: unknown;
-    promptSnapshot: MainGenerationPromptSnapshot | null;
-    webResearchRequest: Record<string, unknown> | null;
-    webResearchSources: Array<{ title: string; url: string }>;
-  }
-> {
+}): AsyncGenerator<GenerationEvent, MainGenerationLoopResult> {
   const {
     deps,
     connection,
@@ -5865,6 +6047,8 @@ async function* streamMainGenerationLoop(args: {
     contextAttribution,
     mainTools: initialMainTools,
     toolRuntimeInput,
+    latestUserInput = "",
+    stopOnRoleplayCraftShape = false,
     signal,
     partial,
     onFirstToken,
@@ -5874,6 +6058,8 @@ async function* streamMainGenerationLoop(args: {
   let providerMetadata: unknown = null;
   const turnUsages: unknown[] = [];
   const conversation: LlmMessage[] = [...baseMessages];
+  const craftLatestUserInput =
+    latestUserInput.trim() || inputUserMessage(input) || latestUserMessageContent(baseMessages);
   let promptSnapshot: MainGenerationPromptSnapshot | null = null;
   const recommendedProfile = recommendedGenerationProfileForRequest(connection, input, chat);
   let webResearchRequest: Record<string, unknown> | null = null;
@@ -5896,6 +6082,7 @@ async function* streamMainGenerationLoop(args: {
       let turnProviderMetadata: unknown = null;
       let turnContent = "";
       let turnThinking = "";
+      let stoppedAtCraftBoundary = false;
       inFlightTurn = "";
       const deferResearchPresentation =
         mainTools?.characterWebResearchPresentation === "quiet" &&
@@ -5970,42 +6157,62 @@ async function* streamMainGenerationLoop(args: {
         ...(requestTools?.length ? { tools: cloneSerializableValue(requestTools) } : {}),
       };
 
-      for await (const chunk of deps.llm.stream(
-        {
-          connectionId: readString(connection.id) || input.connectionId,
-          model: readString(connection.model) || undefined,
-          messages: providerRequestMessages,
-          parameters: requestParameters,
-          tools: requestTools,
-        },
-        signal,
-      )) {
-        throwIfAborted(signal);
-        const chunkProviderMetadata =
-          chunk.type === "provider_metadata" ? (chunk.data ?? chunk.providerMetadata) : chunk.providerMetadata;
-        if (chunkProviderMetadata != null) {
-          turnProviderMetadata = mergeProviderMetadata(turnProviderMetadata, chunkProviderMetadata);
-          providerMetadata = mergeProviderMetadata(providerMetadata, chunkProviderMetadata);
+      const craftStreamController = stopOnRoleplayCraftShape ? new AbortController() : null;
+      const abortCraftStreamFromParent = () => craftStreamController?.abort(signal?.reason);
+      if (craftStreamController && signal?.aborted) abortCraftStreamFromParent();
+      else signal?.addEventListener("abort", abortCraftStreamFromParent, { once: true });
+      try {
+        for await (const chunk of deps.llm.stream(
+          {
+            connectionId: readString(connection.id) || input.connectionId,
+            model: readString(connection.model) || undefined,
+            messages: providerRequestMessages,
+            parameters: requestParameters,
+            tools: requestTools,
+          },
+          craftStreamController?.signal ?? signal,
+        )) {
+          throwIfAborted(signal);
+          const chunkProviderMetadata =
+            chunk.type === "provider_metadata" ? (chunk.data ?? chunk.providerMetadata) : chunk.providerMetadata;
+          if (chunkProviderMetadata != null) {
+            turnProviderMetadata = mergeProviderMetadata(turnProviderMetadata, chunkProviderMetadata);
+            providerMetadata = mergeProviderMetadata(providerMetadata, chunkProviderMetadata);
+          }
+          if (chunk.type === "token") {
+            onFirstToken?.();
+            const text = llmChunkText(chunk);
+            if (text) {
+              yield* emitInlineParts(text);
+              if (
+                stopOnRoleplayCraftShape &&
+                shouldStopRoleplayCraftStream(toolRuntimeInput.storedMessages ?? [], turnContent, craftLatestUserInput)
+              ) {
+                stoppedAtCraftBoundary = true;
+                craftStreamController?.abort(
+                  new DOMException("Roleplay response reached its planned craft boundary.", "AbortError"),
+                );
+                break;
+              }
+            }
+          } else if (chunk.type === "thinking") {
+            const text = llmChunkText(chunk);
+            if (text) yield* emitTurnThinking(text);
+          } else if (chunk.type === "tool_call") {
+            const normalized = normalizeToolCall(chunk.data);
+            if (normalized) pendingToolCalls.push(normalized);
+          } else if (chunk.type === "usage" && chunk.data != null) {
+            streamUsages.push(chunk.data);
+          } else if (chunk.type === "provider_metadata") {
+            continue;
+          } else if (chunk.type === "error") {
+            throw llmStreamError(chunk);
+          }
         }
-        if (chunk.type === "token") {
-          onFirstToken?.();
-          const text = llmChunkText(chunk);
-          if (text) yield* emitInlineParts(text);
-        } else if (chunk.type === "thinking") {
-          const text = llmChunkText(chunk);
-          if (text) yield* emitTurnThinking(text);
-        } else if (chunk.type === "tool_call") {
-          const normalized = normalizeToolCall(chunk.data);
-          if (normalized) pendingToolCalls.push(normalized);
-        } else if (chunk.type === "usage" && chunk.data != null) {
-          streamUsages.push(chunk.data);
-        } else if (chunk.type === "provider_metadata") {
-          continue;
-        } else if (chunk.type === "error") {
-          throw llmStreamError(chunk);
-        }
+      } finally {
+        signal?.removeEventListener("abort", abortCraftStreamFromParent);
       }
-      const truncatedFinishReason = incompleteFinishReason(turnProviderMetadata);
+      const truncatedFinishReason = stoppedAtCraftBoundary ? null : incompleteFinishReason(turnProviderMetadata);
       if (truncatedFinishReason) {
         throw Object.assign(new Error(`LLM provider stopped early (${truncatedFinishReason}).`), {
           code: "llm_stream_length",

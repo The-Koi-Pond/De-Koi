@@ -8,6 +8,8 @@ describe("Conversation Craft contracts", () => {
     expect(CONVERSATION_CRAFT_BASELINE_GUIDANCE).toContain("canned validation");
     expect(CONVERSATION_CRAFT_BASELINE_GUIDANCE).toContain("polished triplets");
     expect(CONVERSATION_CRAFT_BASELINE_GUIDANCE).toContain("forced closing question");
+    expect(CONVERSATION_CRAFT_BASELINE_GUIDANCE).toContain("what they really mean");
+    expect(CONVERSATION_CRAFT_BASELINE_GUIDANCE).toContain("one direct reaction");
     expect(CONVERSATION_CRAFT_BASELINE_GUIDANCE).toContain("Explicit style requests control");
     expect(CONVERSATION_CRAFT_BASELINE_GUIDANCE).not.toContain("Always use lowercase");
   });

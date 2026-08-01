@@ -8,6 +8,7 @@ import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../contracts/t
 import {
   createGenerationAgentRuntime,
   runFocusedRoleplayQualityAudit,
+  runRoleplayCraftBeatPlan,
   type AgentConnectionWarning,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
@@ -188,6 +189,109 @@ function activeAgentRuntimeInput(
 }
 
 describe("generation agent runner", () => {
+  it("uses the configured Agent model for one bounded private Roleplay beat plan", async () => {
+    const requests: LlmRequest[] = [];
+    const writerConnection = { id: "writer", name: "Nano", provider: "openai", model: "glm-5.2" };
+    const agentConnection = {
+      id: "agent",
+      name: "Fast Agent",
+      provider: "openai",
+      model: "agent-model",
+      defaultForAgents: true,
+    };
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            action: "Mara closes one hand around the latch.",
+            dialogue: "Stay behind me.",
+            stop: "Her thumb resting on the lock.",
+          }),
+        };
+      },
+    };
+    const input = runtimeInput(writerConnection);
+    input.storedMessages = [
+      { role: "assistant", content: "Rain moves over the glass." },
+      { role: "user", content: "Show me." },
+    ];
+
+    const plan = await runRoleplayCraftBeatPlan(
+      {
+        storage: testStorage(
+          [{ id: "editor", type: "editor", name: "Consistency Editor", enabled: false }],
+          [writerConnection, agentConnection],
+        ),
+        llm,
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.connectionId).toBe("agent");
+    expect(requests[0]?.model).toBe("agent-model");
+    expect(requests[0]?.parameters?.maxTokens).toBeLessThanOrEqual(300);
+    expect(requests[0]?.messages.map((message) => message.content).join("\n")).toContain(
+      "silent beat planner",
+    );
+    expect(plan).toMatchObject({
+      action: "Mara closes one hand around the latch.",
+      dialogue: "Stay behind me.",
+      stop: "Her thumb resting on the lock.",
+    });
+    expect(plan?.guidance).toContain("Realize only this beat");
+  });
+
+  it("rejects an empty private Roleplay beat plan", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "agent", provider: "openai", model: "agent-model", defaultForAgents: true };
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield { type: "token", text: '{"action":"","dialogue":"","stop":""}' };
+      },
+    };
+
+    await expect(
+      runRoleplayCraftBeatPlan(
+        { storage: testStorage([], [connection]), llm, integrations: noopIntegrations },
+        runtimeInput(connection),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("skips private beat planning instead of falling back to the visible writer connection", async () => {
+    const requests: LlmRequest[] = [];
+    const writerConnection = { id: "writer", provider: "nanogpt", model: "glm-5.2" };
+
+    await expect(
+      runRoleplayCraftBeatPlan(
+        {
+          storage: testStorage([], [writerConnection]),
+          llm: llmCapturing(requests),
+          integrations: noopIntegrations,
+        },
+        runtimeInput(writerConnection),
+      ),
+    ).resolves.toBeNull();
+    expect(requests).toEqual([]);
+  });
+
   it("runs a disabled built-in editor through the focused core Roleplay audit contract", async () => {
     const requests: LlmRequest[] = [];
     const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
@@ -1067,7 +1171,7 @@ describe("Narrative Craft runtime cadence", () => {
     return input;
   }
 
-  const narrativeCraftBaselineGuidance = `${NARRATIVE_CRAFT_PRINCIPLES}\nAlso avoid clustered polished triplets, not-X-but-Y pivots, dense comparisons, and endings that restate the beat. Explicit style requests control.`;
+  const narrativeCraftBaselineGuidance = `${NARRATIVE_CRAFT_PRINCIPLES}\nAlso avoid clustered polished triplets, not-X-but-Y pivots, dense comparisons, and endings that restate the beat. Avoid contrast ladders and stacked explanatory fragments: state the image or action once, then move on. Prefer ending on a concrete action, line, or unresolved fact instead of recapping its meaning. Explicit style requests control.`;
 
   it("adds the baseline silent shape pass without a provider request", async () => {
     const requests: LlmRequest[] = [];
@@ -1087,6 +1191,8 @@ describe("Narrative Craft runtime cadence", () => {
         text: narrativeCraftBaselineGuidance,
       },
     ]);
+    expect(runtime.preInjections[0]?.text).toContain("contrast ladders");
+    expect(runtime.preInjections[0]?.text).toContain("concrete action");
     expect(runtime.agentData).toEqual({});
     expect(requests).toHaveLength(0);
   });
@@ -1650,5 +1756,69 @@ describe("Narrative Craft runtime cadence", () => {
     expect(dueRequests).toHaveLength(0);
     await dueRuntime.runNarrativeCraftAnalysis("I hear you, and your feelings are completely valid.");
     expect(dueRequests).toHaveLength(1);
+  });
+
+  it("adds deterministic craft guidance without a provider call in Conversation", async () => {
+    const requests: LlmRequest[] = [];
+    const { input, storage } = conversationInput({
+      storedMessages: [
+        { id: "assistant-1", role: "assistant", content: "What you're really asking is whether I noticed." },
+        { id: "user-1", role: "user", content: "That isn't it." },
+        { id: "assistant-2", role: "assistant", content: "You don't want an answer. You want permission." },
+        { id: "user-2", role: "user", content: "Try again." },
+      ],
+    });
+
+    const runtime = await createGenerationAgentRuntime(
+      { storage, llm: conversationCraftLlm(requests), integrations: noopIntegrations },
+      input,
+    );
+
+    expect(runtime.preInjections).toHaveLength(1);
+    expect(runtime.preInjections[0]).toMatchObject({
+      agentType: "narrative-craft",
+      agentName: "Narrative Craft",
+    });
+    expect(runtime.preInjections[0]?.text).toContain(
+      "Do not tell the user what they really mean, want, or feel.",
+    );
+    expect(runtime.preInjections[0]?.text).toContain("What you're really asking is whether I noticed.");
+    expect(runtime.preInjections[0]?.text).toContain("You don't want an answer. You want permission.");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("adds deterministic craft guidance only to active Roleplay and never Game", async () => {
+    const storedMessages = [
+      { id: "assistant-1", role: "assistant", content: "Not quickly. Not carelessly. Just one measured step." },
+      { id: "user-1", role: "user", content: "I wait." },
+      { id: "assistant-2", role: "assistant", content: "No warning. No hesitation. Just the lock turning." },
+      { id: "user-2", role: "user", content: "Continue." },
+    ];
+    const activeInput = narrativeInput(storedMessages);
+    const active = await createGenerationAgentRuntime(
+      { storage: storageForNarrativeCraft({}), llm: narrativeCraftLlm([]), integrations: noopIntegrations },
+      activeInput,
+    );
+    expect(active.preInjections).toHaveLength(1);
+    expect(active.preInjections[0]?.text).toContain(NARRATIVE_CRAFT_PRINCIPLES);
+    expect(active.preInjections[0]?.text).toContain("Break the repeated contrast ladder.");
+    expect(active.preInjections[0]?.text).toContain("Not quickly. Not carelessly. Just one measured step.");
+    expect(active.preInjections[0]?.text).toContain("No warning. No hesitation. Just the lock turning.");
+
+    const inactiveInput = activeAgentRuntimeInput(connection, { activeAgentIds: [] });
+    inactiveInput.storedMessages = storedMessages;
+    const inactive = await createGenerationAgentRuntime(
+      { storage: storageForNarrativeCraft({}), llm: narrativeCraftLlm([]), integrations: noopIntegrations },
+      inactiveInput,
+    );
+    expect(inactive.preInjections).toEqual([]);
+
+    const gameInput = activeAgentRuntimeInput(connection, { mode: "game", activeAgentIds: ["narrative-craft"] });
+    gameInput.storedMessages = storedMessages;
+    const game = await createGenerationAgentRuntime(
+      { storage: storageForNarrativeCraft({}), llm: narrativeCraftLlm([]), integrations: noopIntegrations },
+      gameInput,
+    );
+    expect(game.preInjections).toEqual([]);
   });
 });
