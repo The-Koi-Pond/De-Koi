@@ -110,6 +110,8 @@ export interface GenerationAgentRuntimeInput {
     secondaryKeys?: string[];
   }>;
   chatSummary: string | null;
+  /** Ephemeral user or generation-guide intent that may not exist in storedMessages yet. */
+  roleplayCraftInstruction?: string | null;
   embeddingSource?: { embed(texts: string[]): Promise<number[][] | null> } | null;
   debugMode?: boolean;
   debugSink?: AgentContext["debugSink"];
@@ -1817,6 +1819,16 @@ export async function runRoleplayCraftBeatPlan(
   if (!editor?.model) return null;
 
   const context = await buildAgentContext(deps, plannerInput, [editor]);
+  const craftInstruction = readString(input.roleplayCraftInstruction).trim();
+  const latestMessage = context.recentMessages.at(-1);
+  if (craftInstruction && !(latestMessage?.role === "user" && latestMessage.content.trim() === craftInstruction)) {
+    context.recentMessages.push({ role: "user", content: craftInstruction.slice(0, 8_000) });
+  } else if (!latestMessage || latestMessage.role !== "user") {
+    context.recentMessages.push({
+      role: "user",
+      content: "Plan the next Roleplay beat now using the supplied scene and character context.",
+    });
+  }
   const planner: ResolvedAgent = {
     ...editor,
     phase: "pre_generation",

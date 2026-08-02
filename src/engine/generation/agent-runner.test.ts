@@ -251,6 +251,63 @@ describe("generation agent runner", () => {
     expect(plan?.guidance).toContain("Realize only this beat");
   });
 
+  it("gives an empty scene opener a terminal user planning request", async () => {
+    const requests: LlmRequest[] = [];
+    const writerConnection = { id: "writer", name: "Nano", provider: "nanogpt", model: "glm-5.2" };
+    const agentConnection = {
+      id: "agent",
+      name: "Agent",
+      provider: "openai_chatgpt",
+      model: "gpt-5.6-terra",
+      defaultForAgents: true,
+    };
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            action: "Harlequin blocks the backstage door with one hand.",
+            dialogue: "Say it again.",
+            stop: "His palm flat against the push bar.",
+          }),
+        };
+      },
+    };
+    const input = runtimeInput(writerConnection);
+    input.storedMessages = [];
+    input.roleplayCraftInstruction = [
+      "Open this roleplay scene now.",
+      "Planned opening beat:",
+      "Harlequin steps into the corridor and blocks the way.",
+    ].join("\n");
+
+    const plan = await runRoleplayCraftBeatPlan(
+      {
+        storage: testStorage(
+          [{ id: "editor", type: "editor", name: "Consistency Editor", enabled: false }],
+          [writerConnection, agentConnection],
+        ),
+        llm,
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.messages.at(-1)).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("Harlequin steps into the corridor and blocks the way."),
+    });
+    expect(plan?.action).toContain("backstage door");
+  });
+
   it("rejects an empty private Roleplay beat plan", async () => {
     const requests: LlmRequest[] = [];
     const connection = { id: "agent", provider: "openai", model: "agent-model", defaultForAgents: true };
