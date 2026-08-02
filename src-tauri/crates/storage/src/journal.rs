@@ -23,6 +23,11 @@ pub(crate) enum CollectionMutation {
     ReplaceAll { rows: Vec<Value> },
 }
 
+pub(crate) enum PendingCollectionRecord {
+    Present(Value),
+    Deleted,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct CollectionJournalEntry {
     version: u8,
@@ -229,6 +234,66 @@ fn read_collection_journal_entries(journal: &Path) -> AppResult<Vec<CollectionMu
     Ok(mutations)
 }
 
+pub(crate) fn collection_journal_exists(
+    collections_dir: &Path,
+    collection: &str,
+) -> AppResult<bool> {
+    Ok(collection_journal_path(collections_dir, collection)?.exists())
+}
+
+pub(crate) fn apply_pending_collection_mutations(
+    collections_dir: &Path,
+    collection: &str,
+    rows: &mut Vec<Value>,
+) -> AppResult<()> {
+    let journal = collection_journal_path(collections_dir, collection)?;
+    if !journal.exists() {
+        return Ok(());
+    }
+    for mutation in read_collection_journal_entries(&journal)? {
+        apply_collection_mutation(rows, &mutation)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn pending_collection_record(
+    collections_dir: &Path,
+    collection: &str,
+    id: &str,
+) -> AppResult<Option<PendingCollectionRecord>> {
+    let journal = collection_journal_path(collections_dir, collection)?;
+    if !journal.exists() {
+        return Ok(None);
+    }
+    let mut pending = None;
+    for mutation in read_collection_journal_entries(&journal)? {
+        match mutation {
+            CollectionMutation::UpsertMany { records } => {
+                if let Some(record) = records
+                    .into_iter()
+                    .find(|record| record.get("id").and_then(Value::as_str) == Some(id))
+                {
+                    pending = Some(PendingCollectionRecord::Present(record));
+                }
+            }
+            CollectionMutation::DeleteIds { ids } => {
+                if ids.iter().any(|candidate| candidate.trim() == id) {
+                    pending = Some(PendingCollectionRecord::Deleted);
+                }
+            }
+            CollectionMutation::ReplaceAll { rows } => {
+                pending = Some(
+                    rows.into_iter()
+                        .find(|record| record.get("id").and_then(Value::as_str) == Some(id))
+                        .map(PendingCollectionRecord::Present)
+                        .unwrap_or(PendingCollectionRecord::Deleted),
+                );
+            }
+        }
+    }
+    Ok(pending)
+}
+
 fn record_id(record: &Value) -> AppResult<&str> {
     record
         .get("id")
@@ -401,6 +466,18 @@ fn recover_collection_journal(
     install_recovered_rows_atomically(&primary, &rows, |_| Ok(()))?;
     remove_collection_journal(collections_dir, collection)?;
     Ok(())
+}
+
+pub(crate) fn recover_collection_journal_if_present(
+    collections_dir: &Path,
+    collection: &str,
+) -> AppResult<bool> {
+    let journal = collection_journal_path(collections_dir, collection)?;
+    if !journal.exists() {
+        return Ok(false);
+    }
+    recover_collection_journal(collections_dir, collection, &journal)?;
+    Ok(true)
 }
 
 pub(crate) fn collection_journal_needs_compaction(

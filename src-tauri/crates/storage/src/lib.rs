@@ -517,6 +517,12 @@ impl FileStorage {
             }
             return Ok(());
         }
+        if collection_journal_exists(&self.root.join("collections"), collection)? {
+            for row in self.read_collection_no_recovery(collection)? {
+                visit(&row)?;
+            }
+            return Ok(());
+        }
         let path = self.collection_path(collection)?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(());
@@ -777,6 +783,47 @@ impl FileStorage {
             .entry("updatedAt".to_string())
             .or_insert_with(|| Value::String(now));
         let record = Value::Object(object);
+        if !write_immediately
+            && collection == "chats"
+            && !had_id
+            && !self.is_collection_cached(collection)?
+        {
+            // Fail before recording a durable mutation if the cache cannot be invalidated.
+            drop(
+                self.cache
+                    .write()
+                    .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?,
+            );
+            let path = self.collection_path(collection)?;
+            if !path.exists() || fs::metadata(&path)?.len() == 0 {
+                self.append_collection_row(collection, &record)?;
+                return Ok(record);
+            }
+            let source_stamp = chat_summary_source_stamp(&path)?;
+            append_collection_mutation(
+                &self.root.join("collections"),
+                collection,
+                &CollectionMutation::UpsertMany {
+                    records: vec![record.clone()],
+                },
+            )?;
+            self.invalidate_read_indexes_for_collection(collection)?;
+            if let Err(error) =
+                upsert_chat_summary_if_current(&self.root, source_stamp.as_deref(), &record)
+            {
+                eprintln!(
+                    "[storage] chat summary update failed after durable chat create; invalidating read model: {}",
+                    error.message
+                );
+                if let Err(invalidation_error) = remove_chat_summary_read_model(&self.root) {
+                    eprintln!(
+                        "[storage] chat summary read model invalidation failed after durable chat create: {}",
+                        invalidation_error.message
+                    );
+                }
+            }
+            return Ok(record);
+        }
         if !write_immediately
             && collection == "messages"
             && !had_id
@@ -1636,6 +1683,21 @@ impl FileStorage {
         Ok(rows)
     }
 
+    fn pending_collection_rows(
+        &self,
+        collection: &str,
+        recover_on_fallback: bool,
+    ) -> AppResult<Option<Vec<Value>>> {
+        if !collection_journal_exists(&self.root.join("collections"), collection)? {
+            return Ok(None);
+        }
+        if recover_on_fallback {
+            self.read_collection(collection).map(Some)
+        } else {
+            self.read_collection_no_recovery(collection).map(Some)
+        }
+    }
+
     fn validate_collection_rows_no_recovery(&self, collection: &str) -> AppResult<()> {
         if self.is_collection_cached(collection)? {
             return Ok(());
@@ -1657,27 +1719,42 @@ impl FileStorage {
 
     fn read_collection_from_disk(&self, collection: &str) -> AppResult<Vec<Value>> {
         let path = self.collection_path(collection)?;
-        if !path.exists() {
-            return Ok(Vec::new());
-        }
-        let raw = fs::read_to_string(&path)?;
-        if raw.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-        parse_collection_rows(collection, &raw)
-            .or_else(|error| self.recover_collection_after_read_error(collection, &path, error))
+        let mut rows = if !path.exists() {
+            Vec::new()
+        } else {
+            let raw = fs::read_to_string(&path)?;
+            if raw.trim().is_empty() {
+                Vec::new()
+            } else {
+                parse_collection_rows(collection, &raw).or_else(|error| {
+                    let collections_dir = self.root.join("collections");
+                    if recover_collection_journal_if_present(&collections_dir, collection)? {
+                        let recovered = fs::read_to_string(&path)?;
+                        parse_collection_rows(collection, &recovered)
+                    } else {
+                        self.recover_collection_after_read_error(collection, &path, error)
+                    }
+                })?
+            }
+        };
+        apply_pending_collection_mutations(&self.root.join("collections"), collection, &mut rows)?;
+        Ok(rows)
     }
 
     fn read_collection_from_disk_no_recovery(&self, collection: &str) -> AppResult<Vec<Value>> {
         let path = self.collection_path(collection)?;
-        if !path.exists() {
-            return Ok(Vec::new());
-        }
-        let raw = fs::read_to_string(&path)?;
-        if raw.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-        parse_collection_rows(collection, &raw)
+        let mut rows = if !path.exists() {
+            Vec::new()
+        } else {
+            let raw = fs::read_to_string(&path)?;
+            if raw.trim().is_empty() {
+                Vec::new()
+            } else {
+                parse_collection_rows(collection, &raw)?
+            }
+        };
+        apply_pending_collection_mutations(&self.root.join("collections"), collection, &mut rows)?;
+        Ok(rows)
     }
 
     fn read_collection_filtered(
@@ -1733,6 +1810,13 @@ impl FileStorage {
             return Ok(Vec::new());
         }
         if let Some(rows) = self.cached_rows(collection)? {
+            return Ok(rows
+                .into_iter()
+                .filter(|row| row_string_field_matches_in(row, filter_field, filter_values))
+                .collect());
+        }
+
+        if let Some(rows) = self.pending_collection_rows(collection, recover_on_fallback)? {
             return Ok(rows
                 .into_iter()
                 .filter(|row| row_string_field_matches_in(row, filter_field, filter_values))
@@ -1797,6 +1881,13 @@ impl FileStorage {
         let field_set: HashSet<String> = fields.iter().cloned().collect();
         let nested_field_sets = selected_nested_fields(field_selections);
         if let Some(rows) = self.cached_dirty_rows(collection)? {
+            return Ok(rows
+                .into_iter()
+                .map(|row| project_row(row, &field_set, &nested_field_sets))
+                .collect());
+        }
+
+        if let Some(rows) = self.pending_collection_rows(collection, recover_on_fallback)? {
             return Ok(rows
                 .into_iter()
                 .map(|row| project_row(row, &field_set, &nested_field_sets))
@@ -1903,6 +1994,14 @@ impl FileStorage {
                 .collect());
         }
 
+        if let Some(rows) = self.pending_collection_rows(collection, recover_on_fallback)? {
+            return Ok(rows
+                .into_iter()
+                .filter(|row| row_matches_filters(row, filters))
+                .map(|row| project_row(row, &field_set, &nested_field_sets))
+                .collect());
+        }
+
         let path = self.collection_path(collection)?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(Vec::new());
@@ -1982,6 +2081,14 @@ impl FileStorage {
         let field_set: HashSet<String> = fields.iter().cloned().collect();
         let nested_field_sets = selected_nested_fields(field_selections);
         if let Some(rows) = self.cached_dirty_rows(collection)? {
+            return Ok(rows
+                .into_iter()
+                .filter(|row| row_string_field_matches_in(row, filter_field, filter_values))
+                .map(|row| project_row(row, &field_set, &nested_field_sets))
+                .collect());
+        }
+
+        if let Some(rows) = self.pending_collection_rows(collection, recover_on_fallback)? {
             return Ok(rows
                 .into_iter()
                 .filter(|row| row_string_field_matches_in(row, filter_field, filter_values))
@@ -2129,6 +2236,11 @@ impl FileStorage {
         if let Some(row) = self.cached_row_by_id(collection, id)? {
             return Ok(row);
         }
+        match pending_collection_record(&self.root.join("collections"), collection, id)? {
+            Some(PendingCollectionRecord::Present(row)) => return Ok(Some(row)),
+            Some(PendingCollectionRecord::Deleted) => return Ok(None),
+            None => {}
+        }
         let path = self.collection_path(collection)?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(None);
@@ -2181,6 +2293,13 @@ impl FileStorage {
         let nested_field_sets = selected_nested_fields(field_selections);
         if let Some(row) = self.cached_dirty_row_by_id(collection, id)? {
             return Ok(row.map(|row| project_row(row, &field_set, &nested_field_sets)));
+        }
+        match pending_collection_record(&self.root.join("collections"), collection, id)? {
+            Some(PendingCollectionRecord::Present(row)) => {
+                return Ok(Some(project_row(row, &field_set, &nested_field_sets)));
+            }
+            Some(PendingCollectionRecord::Deleted) => return Ok(None),
+            None => {}
         }
 
         let path = self.collection_path(collection)?;
@@ -5074,6 +5193,101 @@ mod tests {
             .is_some());
         assert_eq!(fs::metadata(checkpoint).unwrap().len(), 0);
         drop(recovered);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cold_chat_create_journals_without_rewriting_the_primary_collection() {
+        let root = temp_storage_root("cold-chat-create-journals");
+        let collections = root.join("collections");
+        let chats = collections.join("chats.json");
+        write_test_collection(
+            &chats,
+            vec![json!({
+                "id": "historical-chat",
+                "name": "Historical chat",
+                "mode": "conversation",
+            })],
+        );
+        let storage = FileStorage::new(&root).unwrap();
+        let summary_fields = vec![
+            "id".to_string(),
+            "name".to_string(),
+            "updatedAt".to_string(),
+        ];
+        storage
+            .list_chat_summaries(&summary_fields, &Map::new(), true, None)
+            .unwrap();
+        let primary_identity = file_identity(&chats);
+
+        let created = storage
+            .create(
+                "chats",
+                json!({ "name": "New conversation", "mode": "conversation" }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            file_identity(&chats),
+            primary_identity,
+            "acknowledging a cold chat create must not rewrite historical chat bytes"
+        );
+        let journal = collections.join("chats.pending.jsonl");
+        let journal_bytes = fs::metadata(&journal).unwrap().len();
+        assert!(journal_bytes > 0);
+        assert!(
+            journal_bytes < 16 * 1024,
+            "a small chat create must journal only the new row"
+        );
+        assert!(storage
+            .get("chats", created["id"].as_str().unwrap())
+            .unwrap()
+            .is_some());
+        assert!(storage
+            .list_chat_summaries(&summary_fields, &Map::new(), true, None)
+            .unwrap()
+            .iter()
+            .any(|chat| chat["id"] == created["id"]));
+        storage.clear_collection_cache().unwrap();
+        assert!(storage
+            .list("chats")
+            .unwrap()
+            .iter()
+            .any(|chat| chat["id"] == created["id"]));
+        drop(storage);
+
+        let recovered = FileStorage::new(&root).unwrap();
+        assert!(recovered
+            .get("chats", created["id"].as_str().unwrap())
+            .unwrap()
+            .is_some());
+        assert!(!journal.exists());
+        drop(recovered);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn first_chat_create_materializes_the_primary_collection() {
+        let root = temp_storage_root("first-chat-create");
+        let collections = root.join("collections");
+        let chats = collections.join("chats.json");
+        let journal = collections.join("chats.pending.jsonl");
+        let storage = FileStorage::new(&root).unwrap();
+
+        let created = storage
+            .create(
+                "chats",
+                json!({ "name": "First conversation", "mode": "conversation" }),
+            )
+            .unwrap();
+
+        assert!(chats.exists());
+        assert!(!journal.exists());
+        assert_eq!(
+            parse_collection_file("chats", &chats).unwrap()[0]["id"],
+            created["id"]
+        );
+        drop(storage);
         fs::remove_dir_all(root).unwrap();
     }
 

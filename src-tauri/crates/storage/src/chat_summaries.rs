@@ -121,6 +121,48 @@ pub(crate) fn rebuild_chat_summary_read_model(
     tx.commit().map_err(sqlite_error)
 }
 
+pub(crate) fn upsert_chat_summary_if_current(
+    root: &Path,
+    source_stamp: Option<&str>,
+    row: &Value,
+) -> AppResult<()> {
+    let Some(source_stamp) = source_stamp else {
+        return Ok(());
+    };
+    let Some(id) = row.get("id").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let path = sqlite_storage_path(root);
+    if !path.exists() {
+        return Ok(());
+    }
+    let conn = open_chat_summary_connection(root)?;
+    if storage_meta_value(&conn, CHAT_SUMMARIES_SOURCE_KEY)?.as_deref() != Some(source_stamp) {
+        return Ok(());
+    }
+    let row_order = conn
+        .query_row(
+            "SELECT COALESCE(MAX(row_order), -1) + 1 FROM chat_summaries",
+            [],
+            |result| result.get::<_, i64>(0),
+        )
+        .map_err(sqlite_error)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO chat_summaries \
+         (id, updated_at, created_at, row_order, payload) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            id,
+            row.get("updatedAt").and_then(Value::as_str).unwrap_or(""),
+            row.get("createdAt").and_then(Value::as_str).unwrap_or(""),
+            row_order,
+            serde_json::to_string(row)?,
+        ],
+    )
+    .map_err(sqlite_error)?;
+    Ok(())
+}
+
 pub(crate) fn remove_chat_summary_read_model(root: &Path) -> AppResult<()> {
     let path = sqlite_storage_path(root);
     if path.exists() {
