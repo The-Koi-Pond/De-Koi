@@ -1,6 +1,7 @@
 // ──────────────────────────────────────────────
 // React Query: neutral chat data hooks used by conversation, roleplay, and game.
 // ──────────────────────────────────────────────
+import { useEffect } from "react";
 import {
   useQuery,
   useInfiniteQuery,
@@ -25,8 +26,12 @@ import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api"
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useChatStore } from "../../../../shared/stores/chat.store";
-import { ApiError } from "../../../../shared/api/api-errors";
 import { markPerformanceMilestoneOnce } from "../../../../shared/lib/performance-diagnostics";
+import {
+  chatDetailQueryOptions,
+  chatMessagesInfiniteQueryOptions,
+  DEFAULT_CHAT_MESSAGE_PAGE_SIZE,
+} from "../chat-query-options";
 import { getExportErrorMessage } from "../../../shared/lib/export-feedback";
 import { selectChatSummarySourceMessages, type ChatSummarySourceMode } from "../lib/chat-summary-source";
 import {
@@ -37,9 +42,13 @@ import {
 } from "../lib/chat-transcript-export";
 import { downloadTextFile } from "../lib/download";
 import { completeCharacterTitleUpdate } from "../lib/chat-character-update";
-import { sanitizeTimelineMessage, timelineMessageProjection } from "../lib/timeline-message";
+import {
+  forgetRecentMessageContentEdit,
+  preserveRecentMessageContentEdit,
+  rememberRecentMessageContentEdit,
+} from "../lib/recent-message-content-edits";
+import { sanitizeTimelineMessage } from "../lib/timeline-message";
 import { lorebookKeys } from "../../lorebooks/query-keys";
-import { CHAT_SUMMARY_FIELDS } from "./use-chat-summaries";
 import {
   applyChatFieldPatch,
   cancelChatCacheQueries,
@@ -71,8 +80,6 @@ export { useChatSummaries, useRecentChatSummaries } from "./use-chat-summaries";
 export type { ChatListItem } from "./use-chat-summaries";
 export type { ChatTranscriptExportFormat } from "../lib/chat-transcript-export";
 
-const RECENT_MESSAGE_CONTENT_EDIT_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_CHAT_MESSAGE_PAGE_SIZE = 20;
 const MAX_MEMORY_RECALL_IMPORT_BYTES = 25 * 1024 * 1024;
 const scheduledDeleteRefreshTimers = new Map<string, number>();
 let optimisticMessageSequence = 0;
@@ -80,23 +87,6 @@ let optimisticMessageSequence = 0;
 type CreateMessageMutationInput = Omit<CreateMessageInput, "chatId">;
 
 type MessageCountResult = { count: number };
-
-interface RecentMessageContentEdit {
-  chatId: string;
-  content: string;
-  activeSwipeIndex: number | null;
-  updatedAt: number;
-}
-
-const recentMessageContentEdits = new Map<string, RecentMessageContentEdit>();
-
-function pruneRecentMessageContentEdits(now = Date.now()) {
-  for (const [messageId, edit] of recentMessageContentEdits) {
-    if (now - edit.updatedAt > RECENT_MESSAGE_CONTENT_EDIT_TTL_MS) {
-      recentMessageContentEdits.delete(messageId);
-    }
-  }
-}
 
 function scheduleDeleteRefresh(qc: QueryClient, chatId: string) {
   const previous = scheduledDeleteRefreshTimers.get(chatId);
@@ -234,48 +224,10 @@ async function readChatMemoryRecallImportFile(file: File): Promise<ExportEnvelop
   return payload;
 }
 
-function rememberRecentMessageContentEdit(
-  chatId: string,
-  messageId: string,
-  content: string,
-  activeSwipeIndex?: number | null,
-) {
-  pruneRecentMessageContentEdits();
-  recentMessageContentEdits.set(messageId, {
-    chatId,
-    content,
-    activeSwipeIndex: activeSwipeIndex ?? null,
-    updatedAt: Date.now(),
-  });
-}
-
-function forgetRecentMessageContentEdit(chatId: string, messageId: string) {
-  const edit = recentMessageContentEdits.get(messageId);
-  if (edit?.chatId === chatId) {
-    recentMessageContentEdits.delete(messageId);
-  }
-}
-
-export function preserveRecentMessageContentEdit(chatId: string, message: Message): Message {
-  pruneRecentMessageContentEdits();
-  const edit = recentMessageContentEdits.get(message.id);
-  if (!edit || edit.chatId !== chatId) return message;
-  if (edit.activeSwipeIndex !== null && edit.activeSwipeIndex !== (message.activeSwipeIndex ?? 0)) return message;
-  if (message.content === edit.content) return message;
-  return { ...message, content: edit.content };
-}
-
 export function useChat(id: string | null) {
   return useQuery({
-    queryKey: chatKeys.detail(id ?? ""),
-    queryFn: () =>
-      storageApi.get<Chat>("chats", id!, { fields: [...CHAT_SUMMARY_FIELDS] }).then((chat) => {
-        if (!chat) throw new ApiError("Chat not found", 404);
-        return chat;
-      }),
+    ...chatDetailQueryOptions(id ?? ""),
     enabled: !!id,
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
   });
 }
 
@@ -284,40 +236,16 @@ export function useChatMessages(
   pageSize: number = DEFAULT_CHAT_MESSAGE_PAGE_SIZE,
   enabled = true,
 ) {
-  return useInfiniteQuery({
-    queryKey: chatKeys.messages(chatId ?? ""),
-    queryFn: ({ pageParam, signal }) => {
-      if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-      return storageApi
-        .listChatMessages<Message>(chatId!, {
-          ...timelineMessageProjection({
-            ...(pageSize > 0 ? { limit: pageSize } : {}),
-            ...(pageParam ? { before: pageParam } : {}),
-          }),
-        })
-        .then((messages) => {
-          const rows = chatId
-            ? messages.map((message) => preserveRecentMessageContentEdit(chatId, sanitizeTimelineMessage(message)))
-            : messages.map(sanitizeTimelineMessage);
-          if (!pageParam) {
-            markPerformanceMilestoneOnce("chat.message-page.ready", { rowCount: rows.length, pageSize });
-          }
-          return rows;
-        });
-    },
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => {
-      if (pageSize <= 0 || lastPage.length < pageSize) return undefined;
-      const oldestLoaded = lastPage[0];
-      if (!oldestLoaded) return undefined;
-      const createdAt = String(oldestLoaded.createdAt ?? "");
-      const id = String(oldestLoaded.id ?? "");
-      return id ? `${createdAt}|${id}` : createdAt;
-    },
+  const query = useInfiniteQuery({
+    ...chatMessagesInfiniteQueryOptions(chatId ?? "", pageSize),
     enabled: !!chatId && enabled,
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
   });
+  const firstPage = query.data?.pages[0];
+  useEffect(() => {
+    if (!chatId || !firstPage) return;
+    markPerformanceMilestoneOnce("chat.message-page.ready", { rowCount: firstPage.length, pageSize });
+  }, [chatId, firstPage, pageSize]);
+  return query;
 }
 
 export function useChatMessageCount(chatId: string | null) {
