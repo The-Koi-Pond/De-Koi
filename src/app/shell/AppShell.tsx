@@ -57,6 +57,8 @@ import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
 import { shouldUseLowPowerShellMode, syncShellRootAttributes } from "./shell-performance";
+import { loadModeSurface } from "./mode-surface-loader";
+import { requestIdleWork } from "./idle-work";
 import { usePageActivity } from "../../shared/hooks/use-page-activity";
 import { AutomaticMemoryMaintenanceStartup } from "../startup/AutomaticMemoryMaintenanceStartup";
 import { useQueryClient } from "@tanstack/react-query";
@@ -79,9 +81,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
-const ModeSurface = lazy(() =>
-  import("../../features/modes/router/shell").then((module) => ({ default: module.ModeSurface })),
-);
+const ModeSurface = lazy(loadModeSurface);
 const BackgroundAutonomousPollingHost = lazy(() =>
   import("../../features/modes/conversation/background-autonomous").then((module) => ({
     default: module.BackgroundAutonomousPollingHost,
@@ -164,16 +164,6 @@ const FOCUSABLE_SELECTOR = [
 ].join(",");
 
 const loadRightPanelShell = () => import("./RightPanel");
-
-function requestIdleWork(callback: () => void) {
-  if (typeof window.requestIdleCallback === "function") {
-    const id = window.requestIdleCallback(callback, { timeout: 1800 });
-    return () => window.cancelIdleCallback(id);
-  }
-
-  const id = window.setTimeout(callback, 900);
-  return () => window.clearTimeout(id);
-}
 
 function getFocusableElements(root: HTMLElement) {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((element) => {
