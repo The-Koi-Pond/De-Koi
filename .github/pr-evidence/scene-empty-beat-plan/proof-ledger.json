@@ -128,7 +128,7 @@
     {
       "description": "The production JavaScript bundle remains inside its enforced budget.",
       "sourceType": "measured",
-      "evidence": "pnpm perf:size measured 1724.6 KiB gzip against the 1726.0 KiB total-JS limit."
+      "evidence": "After updating to current main, pnpm perf:size measured 1726.4 KiB gzip against the 1728.0 KiB total-JS limit."
     }
   ],
   "userActionCopy": [],
