@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Revert private planning for empty scene openers",
+    "source": "Post-deployment user report that the added planning path made Roleplay writing quality worse",
+    "classification": "engine generation, prompt assembly, and model-produced user-visible prose",
+    "status": "verified"
+  },
+  "coreClaim": "New empty-transcript /scene openers no longer receive the extra PR #1210 private-planner instruction or its forced terminal-user fallback, restoring the exact pre-PR runtime behavior.",
+  "rootCause": "PR #1210 changed the writer's steering by forcing an ephemeral scene-opening instruction through the private Agent beat planner. The deployed result was reported to overconstrain the visible writer and reduce prose quality, so the safest response is to remove that newly introduced behavior rather than layer on another speculative prompt adjustment.",
+  "scope": {
+    "inScope": [
+      "Exact runtime rollback of PR #1210",
+      "Removal of the PR #1210 regressions that required the unwanted planner behavior",
+      "Removal of the superseded PR #1210 proof ledger"
+    ],
+    "outOfScope": [
+      "Replacing or redesigning Narrative Craft",
+      "Changing the configured Agent model or visible writer model",
+      "Changing Conversation or Game generation",
+      "Claiming deterministic measurement of subjective prose quality"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/agent-runner.ts",
+      "src/engine/generation/agent-runner.test.ts",
+      "src/engine/generation/start-generation.ts",
+      "src/engine/generation/start-generation.narrative-craft-background.spec.ts",
+      ".github/pr-evidence/scene-empty-beat-plan/proof-ledger.json",
+      ".github/pr-evidence/revert-scene-empty-beat-plan/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "cross-entrypoint generation",
+      "model-produced user-visible prose"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The PR #1210 runtime changes are absent and the generation engine matches its immediate pre-PR parent.",
+    "riskType": "prompt role ordering and model-call routing",
+    "entrypoints": [
+      "Normal saved Roleplay generation",
+      "Generated /scene opening with an empty transcript",
+      "Roleplay dry run",
+      "Direct-message Roleplay generation"
+    ],
+    "currentPathsOrFormats": [
+      "GenerationAgentRuntimeInput",
+      "Narrative Craft private beat-plan request",
+      "Narrator generation guide"
+    ],
+    "legacyPathsOrFormats": [
+      "Pre-PR #1210 Roleplay planning behavior",
+      "Existing saved-message Roleplay planning",
+      "Chats without active Narrative Craft"
+    ],
+    "outOfScopeClaims": [
+      "No claim that every future prose sample will satisfy a subjective quality threshold.",
+      "No claim that the underlying empty-input provider rejection is repaired after the rollback.",
+      "No claim that Conversation or Game behavior changes."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The newly deployed empty-scene planning behavior worsened the prose experience it was intended to improve.",
+    "producer": "src/engine/generation/start-generation.ts supplied ephemeral opening intent to the private planner.",
+    "consumer": "src/engine/generation/agent-runner.ts converted that intent into an additional private beat-plan request before the visible writer call.",
+    "impliedContract": "Private quality guidance must not make the user's visible Roleplay prose worse.",
+    "actualEnforcement": "The newly added instruction path is removed exactly; the runtime generation files match commit 825bf82c7e4bad07e89f7f1b48ac38073c87d1c0.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "The TypeScript generation engine owns request assembly and Agent-to-writer guidance.",
+    "consumerOnlyLanes": [
+      "cross-boundary"
+    ],
+    "wrongLaneFixToAvoid": "Do not compensate with UI special cases, provider fallbacks, or another unvalidated prompt layer.",
+    "regressionProof": [
+      "git diff --exit-code against PR #1210's parent proves the runtime and test tree is identical to the pre-PR state before adding this ledger.",
+      "The focused generation and /scene suite passes after the rollback."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The unwanted ephemeral Roleplay craft instruction is gone.",
+        "evidence": "The exact inverse removes roleplayCraftInstruction from GenerationAgentRuntimeInput and all three start-generation call sites."
+      },
+      {
+        "claim": "The forced terminal-user planner fallback is gone.",
+        "evidence": "The exact inverse removes both the injected opening intent and the generic fallback user message from runRoleplayCraftBeatPlan."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The rollback must not replace Nano/GLM 5.2 or change connection selection.",
+        "evidence": "No connection, provider, or model-selection files change."
+      },
+      {
+        "claim": "The rollback must not alter Conversation or Game behavior.",
+        "evidence": "Only Roleplay generation engine files and proof artifacts change."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing Narrative Craft behavior outside PR #1210 remains intact.",
+        "evidence": "The branch matches PR #1210's immediate parent for runtime code, and the existing Narrative Craft focused tests pass."
+      },
+      {
+        "claim": "Existing saved-message Roleplay planning remains covered.",
+        "evidence": "The retained agent-runner and Narrative Craft background test suites pass."
+      }
+    ],
+    "untestedRows": [
+      "A new provider-generated prose sample is not asserted as objective proof because prose quality is stochastic and the user already supplied the decisive live quality report."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "PR #1210 is the current origin/main tip at the start of this rollback.",
+      "sourceType": "measured",
+      "evidence": "git fetch origin main and git rev-parse origin/main returned 0cd0dd4752b09cffa448d0945608c4a489fa3057."
+    },
+    {
+      "description": "The rollback runtime tree matches the immediate pre-PR parent.",
+      "sourceType": "measured",
+      "evidence": "git diff --exit-code 825bf82c7e4bad07e89f7f1b48ac38073c87d1c0 returned exit code 0 before the new proof ledger was added."
+    },
+    {
+      "description": "The deployed PR #1210 behavior reduced writing quality for the user's live Roleplay experience.",
+      "sourceType": "derived",
+      "evidence": "The user explicitly requested the change be reverted because the current behavior makes writing quality poor."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Subjective prose quality varies by model sample",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "The core rollback claim is deterministic; future prose quality remains a user-observed product judgment."
+    },
+    {
+      "item": "The complete local Vitest command did not terminate within five minutes",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "Unrelated UI tests repeatedly attempted to contact an unavailable remote runtime before the command timeout closed the reporter pipe. The 47 directly affected tests pass, pnpm check passes, and hosted deterministic validation remains required before merge."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "The 47 focused generation and /scene tests pass, followed by TypeScript, architecture, Rust workspace, security, docs, and repository policy checks.",
+    "githubValidationPassed": false,
+    "edgeRowsTested": [
+      "Empty transcript no longer receives PR #1210's injected planning input",
+      "Saved-message Roleplay planning suite",
+      "Narrative Craft dry-run suite",
+      "Slash-command /scene suite"
+    ],
+    "negativeRowsTested": [
+      "No writer connection substitution",
+      "No Conversation or Game mode expansion",
+      "No provider-adapter fallback",
+      "No unrelated runtime changes"
+    ],
+    "afterEvidence": [
+      "git diff --exit-code 825bf82c7e4bad07e89f7f1b48ac38073c87d1c0 before adding the proof ledger",
+      "pnpm test -- src/engine/generation/agent-runner.test.ts src/engine/generation/start-generation.narrative-craft-background.spec.ts src/shared/lib/slash-commands.scene.spec.ts",
+      "pnpm check",
+      "git diff --check origin/main...HEAD"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "passed locally with no blocking findings",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "url": null,
+    "evidencePublished": false,
+    "checks": "Focused generation tests and full pnpm check passed locally.",
+    "automatedReview": "Local Bunny passed; hosted current-head Bunny pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}
