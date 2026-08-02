@@ -148,6 +148,53 @@ async function advanceToDone(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration Narrative Craft background analysis", () => {
+  it("passes an empty scene opener guide through the Agent planner into the writer prompt", async () => {
+    const { storage } = narrativeCraftBackgroundStorage([]);
+    const requests: LlmRequest[] = [];
+    const openingIntent = "Harlequin steps into the corridor and blocks the way.";
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        requests.push(request);
+        const prompt = request.messages.map((message) => message.content).join("\n");
+        if (prompt.includes("silent beat planner")) {
+          yield {
+            type: "token",
+            text: '{"action":"Harlequin blocks the door.","dialogue":"Say it again.","stop":"His hand on the push bar."}',
+          };
+          return;
+        }
+        yield { type: "token", text: 'Harlequin blocks the door. "Say it again."' };
+        yield { type: "done" };
+      },
+    };
+
+    for await (const event of dryRunGeneration(
+      { storage, llm, integrations: {} as IntegrationGateway },
+      {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        generationGuide: `Open this roleplay scene now.\n\nPlanned opening beat:\n${openingIntent}`,
+        generationGuideSource: "narrator",
+      },
+    )) {
+      if (event.type === "done") break;
+    }
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.messages.at(-1)).toMatchObject({
+      role: "user",
+      content: expect.stringContaining(openingIntent),
+    });
+    expect(requests[1]?.connectionId).toBe("conn-1");
+    expect(requests[1]?.messages.map((message) => message.content).join("\n")).toContain("Private beat plan");
+  });
+
   it("uses the same private Agent beat plan in a Narrative Craft dry run", async () => {
     const { storage } = narrativeCraftBackgroundStorage();
     const requests: LlmRequest[] = [];
