@@ -175,6 +175,12 @@
     "bunnyReviewStatus": "passed locally with no blocking findings",
     "prHealthStatus": "pending"
   },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1210",
+    "evidencePublished": true,
+    "checks": "Focused regressions, all 2642 runnable tests, full pnpm check, and production bundle budgets passed locally.",
+    "automatedReview": "Local Bunny passed; hosted current-head Bunny pending."
+  },
   "finalGate": {
     "coreClaimProven": true,
     "visualProofPresent": false,
