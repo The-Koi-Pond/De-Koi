@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Give empty scene openers a valid private beat-planner request",
+    "source": "Live Pi report that a newly generated /scene opener still read as AI-shaped prose",
+    "classification": "engine generation, prompt assembly, provider compatibility, and cross-entrypoint parity",
+    "status": "verified"
+  },
+  "coreClaim": "A generated /scene opener with no saved transcript gives the private Agent beat planner the ephemeral opening intent as a terminal user message, so the plan succeeds and reaches the configured Roleplay writer.",
+  "rootCause": "The planner built its request only from persisted chat messages. A new /scene chat has none, so the OpenAI ChatGPT adapter stripped the system-only request into instructions plus an empty input array; the provider returned HTTP 400 and the bounded planner correctly but silently fell back to the baseline writer prompt.",
+  "scope": {
+    "inScope": [
+      "Empty-transcript generated Roleplay scene openers",
+      "Ephemeral generation-guide and current-user intent passed to the private planner",
+      "Normal, dry-run, and direct-message Roleplay generation parity",
+      "Terminal-user fallback for other empty Roleplay planner requests"
+    ],
+    "outOfScope": [
+      "Changing the configured Agent or writer model",
+      "Conversation or Game generation",
+      "Adding another visible writer or post-generation rewrite",
+      "Guaranteeing every provider sample passes StoryScope"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/agent-runner.ts",
+      "src/engine/generation/agent-runner.test.ts",
+      "src/engine/generation/start-generation.ts",
+      "src/engine/generation/start-generation.narrative-craft-background.spec.ts",
+      ".github/pr-evidence/scene-empty-beat-plan/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "provider compatibility",
+      "cross-entrypoint generation",
+      "model-produced user-visible prose"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The configured Agent model receives a valid planning request and its bounded beat guidance is injected into the existing configured writer call.",
+    "riskType": "prompt role ordering, model-call routing, and cross-entrypoint compatibility",
+    "entrypoints": [
+      "Normal saved Roleplay generation",
+      "Generated /scene opening with an empty transcript",
+      "Roleplay dry run",
+      "Direct-message Roleplay generation"
+    ],
+    "currentPathsOrFormats": [
+      "GenerationAgentRuntimeInput",
+      "Narrator generation guide",
+      "OpenAI Responses terminal user input",
+      "Narrative Craft private beat-plan injection"
+    ],
+    "legacyPathsOrFormats": [
+      "Saved user messages continue to supply planner history",
+      "Chats without active Narrative Craft remain unchanged",
+      "Providers other than openai_chatgpt keep the same agent execution contract"
+    ],
+    "outOfScopeClaims": [
+      "No claim that the private Agent call has zero latency.",
+      "No claim that StoryScope deterministically grades every sample.",
+      "No claim that Conversation or Game modes use this planner."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The /scene workflow activated Narrative Craft but its empty new chat produced a system-only Agent request that the configured OpenAI Responses provider could not execute.",
+    "producer": "src/engine/generation/start-generation.ts owns the ephemeral current request passed into the agent runtime.",
+    "consumer": "src/engine/generation/agent-runner.ts owns the private Roleplay beat-planner request consumed before the visible writer call.",
+    "impliedContract": "A private planner request must contain usable model input even when the visible chat has no persisted messages yet.",
+    "actualEnforcement": "All Roleplay generation paths pass ephemeral intent into the runtime; the planner appends it as a user message or supplies a bounded terminal-user task when history ends without one.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "The TypeScript generation engine owns request assembly, agent routing, and writer injection.",
+    "consumerOnlyLanes": [
+      "cross-boundary"
+    ],
+    "wrongLaneFixToAvoid": "Do not special-case the UI, relax the provider adapter, add a second writer, or swallow another invalid planner request.",
+    "regressionProof": [
+      "The agent-runner regression failed before the fix because the captured request ended on a system message instead of the scene intent.",
+      "The request-level dry-run regression proves an empty transcript sends the opening intent to the Agent and the returned private beat reaches the writer prompt."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "An empty /scene opener gives the Agent provider usable input.",
+        "evidence": "The focused agent-runner test asserts the request's final message is user-role and contains the planned opening beat."
+      },
+      {
+        "claim": "Nano remains the visible writer and receives the successful private plan.",
+        "evidence": "The request-level dry-run test observes the Agent connection first, the configured writer connection second, and Private beat plan in the writer prompt."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The repair must not require a persisted fake user chat message.",
+        "evidence": "The runtime-only instruction is added to AgentContext and never written to storage or the visible transcript."
+      },
+      {
+        "claim": "The provider adapter must not accept input-less requests globally.",
+        "evidence": "The fix is confined to the Roleplay beat planner, where the task input is semantically required."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing saved-message Roleplay planning remains valid.",
+        "evidence": "The existing configured-Agent beat-plan test and Narrative Craft request-level suite remain green."
+      },
+      {
+        "claim": "Conversation and Game behavior remain mode-separated.",
+        "evidence": "Only the Roleplay-only beat-plan call consumes the new field; no Conversation or Game owner files changed."
+      }
+    ],
+    "untestedRows": [
+      "A post-deploy user-created live /scene sample is not generated automatically because doing so would alter the user's chat history and incur provider cost."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The reported Pi opener's private planner failed before the visible writer began.",
+      "sourceType": "measured",
+      "evidence": "Pi runtime logs recorded HTTP 400: one of input, previous_response_id, prompt, or conversation_id must be provided."
+    },
+    {
+      "description": "The visible writer remained Nano/GLM 5.2 while the private planner selected the configured Agent default.",
+      "sourceType": "measured",
+      "evidence": "Read-only Pi connection and agent configuration inspection on the reported chat."
+    },
+    {
+      "description": "The production JavaScript bundle remains inside its enforced budget.",
+      "sourceType": "measured",
+      "evidence": "pnpm perf:size measured 1724.6 KiB gzip against the 1726.0 KiB total-JS limit."
+    }
+  ],
+  "userActionCopy": [],
+  "manualBlockers": [
+    {
+      "item": "Provider prose quality varies by sample",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "The deterministic bug is the rejected planner request and missing guidance, not a guarantee about a stochastic detector score."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "Focused request-level regressions, all 2642 runnable tests, TypeScript, architecture, Rust workspace checks, repository policy checks, and production bundle budgets pass locally.",
+    "githubValidationPassed": false,
+    "edgeRowsTested": [
+      "Empty transcript with narrator generation guide",
+      "Saved assistant and user history",
+      "Normal, dry-run, and direct generation wiring",
+      "Configured Agent connection distinct from visible writer"
+    ],
+    "negativeRowsTested": [
+      "No fake transcript persistence",
+      "No writer connection substitution",
+      "No Conversation or Game mode expansion",
+      "No provider-adapter fallback"
+    ],
+    "afterEvidence": [
+      "pnpm test -- src/engine/generation/agent-runner.test.ts src/engine/generation/start-generation.narrative-craft-background.spec.ts src/shared/lib/slash-commands.scene.spec.ts",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check",
+      "pnpm perf:size",
+      "git diff --check origin/main...HEAD"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "passed locally with no blocking findings",
+    "prHealthStatus": "pending"
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}
