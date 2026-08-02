@@ -3,22 +3,12 @@ import { Loader2 } from "lucide-react";
 import { useChat, useChatSummaries, type ChatMode } from "../../../catalog/chats/index";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { MODE_ROUTE_LOADERS } from "../mode-route-loaders";
 import { ModeHomeSurface } from "./ModeHomeSurface";
 
-const ConversationModeRoute = lazy(async () => {
-  const module = await import("../../conversation/index");
-  return { default: module.ConversationModeRoute };
-});
-
-const RoleplayModeRoute = lazy(async () => {
-  const module = await import("../../roleplay/index");
-  return { default: module.RoleplayModeRoute };
-});
-
-const GameModeRoute = lazy(async () => {
-  const module = await import("../../game/index");
-  return { default: module.GameModeRoute };
-});
+const ConversationModeRoute = lazy(MODE_ROUTE_LOADERS.conversation);
+const RoleplayModeRoute = lazy(MODE_ROUTE_LOADERS.roleplay);
+const GameModeRoute = lazy(MODE_ROUTE_LOADERS.game);
 
 function RestoringChatState({ error, onBack }: { error?: string | null; onBack: () => void }) {
   const hasError = !!error;

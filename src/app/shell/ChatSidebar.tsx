@@ -61,6 +61,8 @@ import type { ChatFolder } from "../../engine/contracts/types/chat";
 import { Modal } from "../../shared/components/ui/Modal";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { useStartNewChat } from "./useStartNewChat";
+import { predictiveChatIntentHandlers } from "./predictive-chat-preload";
+import { usePredictiveChatPreload } from "./use-predictive-chat-preload";
 import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
 import {
   deleteSingleChatWithConfirmation,
@@ -251,6 +253,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   const updateChatMetadata = useUpdateChatMetadata();
   const bulkExportChats = useBulkExportChats();
   const activeChatId = useChatStore((s) => s.activeChatId);
+  const requestChatPreload = usePredictiveChatPreload({ chats: chats ?? [], activeChatId });
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const unreadCounts = useChatStore((s) => s.unreadCounts);
   const hydrateUnread = useChatStore((s) => s.hydrateUnread);
@@ -893,6 +896,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         tabIndex={0}
         key={chat.groupId ?? chat.id}
         data-chat-id={chat.id}
+        {...(!multiSelectMode ? predictiveChatIntentHandlers(chat, requestChatPreload) : {})}
         draggable={!multiSelectMode && modeFolders.length > 0}
         onDragStart={(event) => handleChatDragStart(event, chat.id)}
         onDragEnd={clearChatDragState}

@@ -4,35 +4,8 @@ import type { Chat } from "../../../../engine/contracts/types/chat";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { apiQueryRetryDelay, shouldRetryApiQuery } from "../../../../shared/api/query-retry";
 import { markPerformanceMilestoneOnce } from "../../../../shared/lib/performance-diagnostics";
+import { CHAT_SUMMARY_FIELDS, CHAT_SUMMARY_METADATA_FIELDS } from "../lib/chat-summary-projection";
 import { chatKeys } from "../query-keys";
-
-export const CHAT_SUMMARY_FIELDS = [
-  "id",
-  "name",
-  "mode",
-  "characterIds",
-  "groupId",
-  "personaId",
-  "promptPresetId",
-  "connectionId",
-  "folderId",
-  "sortOrder",
-  "connectedChatId",
-  "createdAt",
-  "updatedAt",
-  "metadata",
-] as const;
-
-const CHAT_SUMMARY_METADATA_FIELDS = [
-  "autonomousMessages",
-  "autonomousUnreadAt",
-  "autonomousUnreadCharacterIds",
-  "autonomousUnreadCount",
-  "branchName",
-  "gameId",
-  "pinned",
-  "tags",
-] as const;
 
 type ChatSummaryField = Exclude<(typeof CHAT_SUMMARY_FIELDS)[number], "metadata">;
 type ChatSummaryMetadataField = (typeof CHAT_SUMMARY_METADATA_FIELDS)[number];

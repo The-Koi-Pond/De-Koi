@@ -13,6 +13,14 @@ function readChatHooksSource() {
   return readFileSync(join(currentDir, "../features/catalog/chats/hooks/use-chats.ts"), "utf8");
 }
 
+function readChatSidebarEntrySource() {
+  return readFileSync(join(currentDir, "../features/catalog/chats/sidebar.ts"), "utf8");
+}
+
+function readChatQueryOptionsSource() {
+  return readFileSync(join(currentDir, "../features/catalog/chats/chat-query-options.ts"), "utf8");
+}
+
 function readPromptPreviewHookSource() {
   return readFileSync(join(currentDir, "../features/modes/shared/chat-ui/hooks/use-peek-prompt.ts"), "utf8");
 }
@@ -49,6 +57,16 @@ describe("app boot shell boundary", () => {
     expect(chatHooksSource).not.toContain("prompt-preview");
     expect(previewHookSource).toContain('from "../../../../../engine/generation/prompt-preview"');
     expect(timelineActionsSource).toContain('from "./use-peek-prompt"');
+  });
+
+  it("keeps predictive chat queries out of the broad chat hook bundle", () => {
+    const sidebarSource = readChatSidebarEntrySource();
+    const queryOptionsSource = readChatQueryOptionsSource();
+
+    expect(sidebarSource).toContain('from "./chat-query-options"');
+    expect(sidebarSource).not.toContain('from "./hooks/use-chats"');
+    expect(queryOptionsSource).not.toContain("hooks/use-chats");
+    expect(queryOptionsSource).not.toContain("engine/generation");
   });
 
   it("keeps automatic memory maintenance behind an idle lazy boundary", () => {
