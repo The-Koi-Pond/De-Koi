@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Prevent scene discard storage starvation",
+    "source": "Live Raspberry Pi user report and runtime logs",
+    "classification": "persistent storage concurrency, remote runtime, and scene deletion",
+    "status": "draft_pr_local_verification_passed"
+  },
+  "coreClaim": "An atomic storage update that is already queued behind an ordinary write receives the next permit before later ordinary writes, so scene and chat deletion cannot be starved indefinitely by background storage activity.",
+  "rootCause": "WriteGate tracked an active atomic owner but not atomic updates waiting for active ordinary writes to finish. begin_write therefore admitted later ordinary writes whenever no atomic owner was active, allowing a busy runtime to repeatedly overtake a queued deletion.",
+  "scope": {
+    "inScope": [
+      "WriteGate ordering between queued atomic updates and later ordinary writes",
+      "Deterministic regression coverage for permit ordering",
+      "Shared embedded and remote FileStorage callers"
+    ],
+    "outOfScope": [
+      "Changing collection, journal, checkpoint, backup, or transaction formats",
+      "Changing scene deletion payloads, responses, or confirmation UI",
+      "Promising a fixed duration for large atomic collection serialization",
+      "Deleting live user data during verification"
+    ],
+    "intendedFiles": [
+      "src-tauri/crates/storage/src/write_gate.rs",
+      ".github/pr-evidence/scene-discard-write-gate-priority/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src-tauri/crates/storage/src/write_gate.rs",
+      ".github/pr-evidence/scene-discard-write-gate-priority/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent storage",
+      "storage concurrency",
+      "user-data deletion",
+      "remote runtime",
+      "cross-entrypoint behavior"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Queued atomic work has priority over ordinary writes that arrive later, while the atomic owner remains exclusive and ordinary writes resume after it releases the permit.",
+    "riskType": "storage scheduling, deletion progress, transaction isolation, and runtime responsiveness",
+    "entrypoints": [
+      "Roleplay scene discard",
+      "Conversation and chat deletion",
+      "FileStorage::update_collections_atomically",
+      "FileStorage ordinary create, update, patch, and delete operations",
+      "Embedded Tauri and hostable HTTP storage commands"
+    ],
+    "currentPathsOrFormats": [
+      "In-memory WriteGate state shared by FileStorage operations",
+      "Existing data/collections JSON, append journals, and transaction manifests"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing storage files and recovery artifacts continue unchanged."
+    ],
+    "outOfScopeClaims": [
+      "This change does not guarantee a fixed deletion latency once atomic work begins.",
+      "This change does not change which records a deletion removes.",
+      "This change does not retry, cancel, or report success before storage completes."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A destructive atomic transaction could wait forever even though later ordinary writes were allowed to finish.",
+    "producer": "FileStorage WriteGate permit scheduler",
+    "consumer": "Atomic multi-collection cleanup used by scene and chat deletion",
+    "impliedContract": "When an atomic update queues first, later ordinary writes must not overtake it; otherwise destructive cleanup has no progress guarantee.",
+    "actualEnforcement": "begin_atomic_update registers a waiting atomic count before blocking. begin_write waits while that count is nonzero. The count is removed when atomic ownership is acquired or recovery poison aborts the waiter.",
+      "primaryOwnerLane": "src-tauri",
+    "primaryOwnerDetail": "WriteGate owns serialization and permit ordering for all FileStorage writes.",
+    "consumerOnlyLanes": [
+        "src-tauri",
+        "src/shared/api",
+        "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not add a frontend timeout, automatic destructive retry, fake success, or scene-only state reset; those leave the queued server transaction starved or risk duplicate deletion.",
+    "regressionProof": [
+      "cargo test --manifest-path src-tauri/crates/storage/Cargo.toml write_gate::tests::queued_atomic_update_runs_before_later_ordinary_writes -- --exact --nocapture",
+      "cargo test --manifest-path src-tauri/crates/storage/Cargo.toml",
+      "pnpm check"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "An atomic update queued behind an active ordinary write acquires the next permit before an ordinary writer that arrives later.",
+        "evidence": "queued_atomic_update_runs_before_later_ordinary_writes blocks the initial writer, registers the atomic waiter, starts a later ordinary writer, then proves atomic acquisition occurs first."
+      },
+      {
+        "claim": "The later ordinary writer continues after the atomic permit is released.",
+        "evidence": "The same regression keeps the atomic permit held, proves the ordinary writer remains blocked, releases atomic work, and observes the ordinary permit complete."
+      },
+      {
+        "claim": "The full storage capability remains consistent after the scheduling change.",
+        "evidence": "The marinara-storage suite passes all 152 tests, including journal, recovery, replacement, deferred-flush, and concurrency coverage."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "A current atomic owner must remain exclusive and reject re-entrant writes.",
+        "evidence": "Existing update_collections_atomically_rejects_reentrant_writes_without_side_effects and the full storage suite pass unchanged."
+      },
+      {
+        "claim": "Recovery poison must still wake and reject queued work.",
+        "evidence": "queued_writer_observes_recovery_poison_before_receiving_a_permit passes, and the new atomic path decrements its waiter count before returning the existing recovery error."
+      },
+      {
+        "claim": "Ordinary storage work must not be permanently blocked after atomic completion.",
+        "evidence": "The regression explicitly observes the ordinary writer complete after the atomic permit drops."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Storage and deletion contracts require no migration or caller changes.",
+        "evidence": "No command signature, payload, response, persistent format, or TypeScript file changed."
+      },
+      {
+        "claim": "Embedded and remote runtimes share the same fix.",
+        "evidence": "Both entrypoints reach the same AppState FileStorage and WriteGate owner."
+      }
+    ],
+    "untestedRows": [
+      "A destructive live scene discard is intentionally excluded; post-merge proof will use exact image labels, health, mounts, and non-destructive runtime checks."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The Pi reproduced the bug on matching server and web images for revision 3f1d047ca367004a127486716e8eb63abb387e29.",
+      "sourceType": "measured",
+      "evidence": "Read-only Docker OCI label inspection on both running containers."
+    },
+    {
+      "description": "One live chat_messages_bulk_delete completed in 69829 ms, four storage_delete requests completed in 76589 to 169800 ms, and a later storage_delete remained unfinished while subsequent ordinary storage writes completed.",
+      "sourceType": "measured",
+      "evidence": "Read-only timestamped de-koi-server invoke logs."
+    },
+    {
+      "description": "Before the fix, WriteGate had no waiting-atomic state and begin_write checked only the active atomic owner and active ordinary writes.",
+      "sourceType": "derived",
+      "evidence": "Direct inspection of src-tauri/crates/storage/src/write_gate.rs on the deployed revision."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Scene discard remains destructive. Export any conversation or scene that must be recoverable before confirming discard.",
+      "source": "Use De-Koi's conversation export action before discarding irreplaceable content.",
+      "destination": "A user-selected folder outside De-Koi's application data directory.",
+      "files": [
+        "<conversation-name>.json"
+      ],
+      "action": "Verify the exported JSON exists at the destination before confirming discard.",
+      "detectedLayouts": [
+        "Current De-Koi conversation export JSON"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge destructive scene discard on live Pi data",
+      "blockingCoreClaim": false,
+      "status": "not_run_to_preserve_user_data",
+      "reason": "The permit-order contract is deterministic in Rust tests. Deployment verification will not delete an existing user scene."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "The focused regression was red before queued atomic state existed and green after the fix. On current origin/main, marinara-storage passed 152 tests and pnpm check passed."
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pass",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending_final_head",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1211,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1211",
+    "headRefName": "fix/scene-discard-delete-hang",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending_final_head",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "The user explicitly authorized PR creation, merge to main, and Pi deployment.",
+    "Large atomic collection serialization may still take noticeable time after it receives the permit; the core claim is progress and ordering, not a fixed latency.",
+    "No live user scene or message will be deleted as deployment proof."
+  ]
+}
