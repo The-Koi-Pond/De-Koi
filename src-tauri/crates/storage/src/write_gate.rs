@@ -12,6 +12,7 @@ pub(crate) struct WriteGate {
 struct WriteGateState {
     atomic_owner: Option<ThreadId>,
     active_writes: usize,
+    waiting_atomic_updates: usize,
     recovery_required: bool,
 }
 
@@ -66,6 +67,12 @@ impl WriteGate {
                         .wait(state)
                         .map_err(|_| AppError::new("lock_error", "Storage write gate poisoned"))?;
                 }
+                None if state.waiting_atomic_updates > 0 => {
+                    state = self
+                        .changed
+                        .wait(state)
+                        .map_err(|_| AppError::new("lock_error", "Storage write gate poisoned"))?;
+                }
                 None => break,
             }
         }
@@ -89,15 +96,19 @@ impl WriteGate {
                 "Storage atomic update is already active",
             ));
         }
+        state.waiting_atomic_updates = state.waiting_atomic_updates.saturating_add(1);
         while state.atomic_owner.is_some() || state.active_writes > 0 {
             state = self
                 .changed
                 .wait(state)
                 .map_err(|_| AppError::new("lock_error", "Storage write gate poisoned"))?;
             if state.recovery_required {
+                state.waiting_atomic_updates = state.waiting_atomic_updates.saturating_sub(1);
+                self.changed.notify_all();
                 return Err(Self::recovery_required_error());
             }
         }
+        state.waiting_atomic_updates = state.waiting_atomic_updates.saturating_sub(1);
         state.atomic_owner = Some(current);
         drop(state);
         Ok(WritePermit {
@@ -176,5 +187,58 @@ mod tests {
             Err("storage_append_journal_recovery_required".to_string())
         );
         waiter.join().unwrap();
+    }
+
+    #[test]
+    fn queued_atomic_update_runs_before_later_ordinary_writes() {
+        let gate = Arc::new(WriteGate::default());
+        let active = gate.begin_write().unwrap();
+        let atomic_gate = Arc::clone(&gate);
+        let (atomic_started_tx, atomic_started_rx) = mpsc::channel();
+        let (atomic_acquired_tx, atomic_acquired_rx) = mpsc::channel();
+        let (release_atomic_tx, release_atomic_rx) = mpsc::channel();
+        let atomic = std::thread::spawn(move || {
+            atomic_started_tx.send(()).unwrap();
+            let permit = atomic_gate.begin_atomic_update().unwrap();
+            atomic_acquired_tx.send(()).unwrap();
+            release_atomic_rx.recv().unwrap();
+            drop(permit);
+        });
+        atomic_started_rx.recv().unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while gate.state().unwrap().waiting_atomic_updates == 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "atomic update must register as waiting"
+            );
+            std::thread::yield_now();
+        }
+
+        let ordinary_gate = Arc::clone(&gate);
+        let (ordinary_acquired_tx, ordinary_acquired_rx) = mpsc::channel();
+        let ordinary = std::thread::spawn(move || {
+            let permit = ordinary_gate.begin_write().unwrap();
+            ordinary_acquired_tx.send(()).unwrap();
+            drop(permit);
+        });
+
+        drop(active);
+        atomic_acquired_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("queued atomic update must receive the next permit");
+        assert!(
+            ordinary_acquired_rx
+                .recv_timeout(Duration::from_millis(100))
+                .is_err(),
+            "later ordinary writes must not overtake a queued atomic update"
+        );
+
+        release_atomic_tx.send(()).unwrap();
+        ordinary_acquired_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("ordinary write must continue after the atomic update");
+        atomic.join().unwrap();
+        ordinary.join().unwrap();
     }
 }
