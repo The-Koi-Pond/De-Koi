@@ -262,6 +262,7 @@
   },
   "notes": [
     "The existing Discover entry already explains character-wide memory and embedding-based ranking; the connection helper copy now names Character Memory explicitly.",
+    "Feature Discoverability is explicitly N/A because the existing Discover entry already covers this behavior.",
     "No canonical memory content or API credentials are logged by this change."
   ]
 }
