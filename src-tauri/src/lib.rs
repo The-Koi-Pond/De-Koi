@@ -442,6 +442,7 @@ pub fn run() {
             storage_commands::memory_commands::memory_delete,
             storage_commands::memory_commands::memory_query,
             storage_commands::memory_commands::memory_query_batch,
+            storage_commands::memory_commands::memory_query_semantic,
             storage_commands::memory_commands::memory_cleanup_apply,
             storage_commands::memory_commands::memory_cleanup_undo,
             storage_commands::memory_commands::memory_index_upsert,

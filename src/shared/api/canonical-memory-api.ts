@@ -3,6 +3,8 @@ import type {
   CanonicalMemoryPatch,
   CanonicalMemoryQuery,
   CanonicalMemoryRecord,
+  CanonicalMemorySemanticMatch,
+  CanonicalMemorySemanticQuery,
   MemoryIndexDeleteResult,
   MemoryIndexRow,
   MemoryIndexRowInput,
@@ -19,6 +21,8 @@ export const canonicalMemoryApi = {
   query: (body: CanonicalMemoryQuery = {}) => invokeTauri<CanonicalMemoryRecord[]>("memory_query", { body }),
   queryBatch: (queries: CanonicalMemoryQuery[]) =>
     invokeTauri<CanonicalMemoryRecord[]>("memory_query_batch", { body: { queries } }),
+  querySemantic: (body: CanonicalMemorySemanticQuery) =>
+    invokeTauri<CanonicalMemorySemanticMatch[]>("memory_query_semantic", { body }),
   index: {
     upsert: (row: MemoryIndexRowInput) => invokeTauri<MemoryIndexRow>("memory_index_upsert", { row }),
     deleteForMemory: (memoryId: string) =>

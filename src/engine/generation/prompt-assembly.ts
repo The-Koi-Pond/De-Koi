@@ -4404,6 +4404,8 @@ export async function assembleGenerationPrompt(
             memoryPersistence: character.memoryPersistence,
           })),
           personaName: persona?.name ?? null,
+          connectionId:
+            readString(input.chat.embeddingConnectionId).trim() || readString(input.connection.id).trim() || null,
           maxContext,
         }),
   ]);

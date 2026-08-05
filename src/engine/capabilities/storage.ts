@@ -4,6 +4,8 @@ import type {
   CanonicalMemoryPatch,
   CanonicalMemoryQuery,
   CanonicalMemoryRecord,
+  CanonicalMemorySemanticMatch,
+  CanonicalMemorySemanticQuery,
   MemoryLexicalRebuildResult,
 } from "../contracts/types/memory";
 import type { ChatMemoryChunk } from "../contracts/types/chat";
@@ -167,6 +169,7 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   updateMemory?(memoryId: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord>;
   queryMemories?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
   queryMemoriesBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
+  querySemanticMemories?(body: CanonicalMemorySemanticQuery): Promise<CanonicalMemorySemanticMatch[]>;
   queryMemoryIndex?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
   queryMemoryIndexBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
   rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;

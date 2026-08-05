@@ -39,6 +39,10 @@ describe("memory maintenance remote routing", () => {
     expect(isRemoteCommand("chat_memory_capture_preview")).toBe(true);
     expect(isRemoteCommand("chat_memory_capture_commit")).toBe(true);
   });
+
+  it("explicitly allows provider-backed canonical memory retrieval", () => {
+    expect(isRemoteCommand("memory_query_semantic")).toBe(true);
+  });
 });
 
 function stubFetch(responses: Response[]) {

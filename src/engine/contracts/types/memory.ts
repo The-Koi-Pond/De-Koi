@@ -47,10 +47,7 @@ export type CanonicalMemoryInput = Pick<
   "kind" | "scope" | "content" | "confidence" | "provenance"
 > &
   Partial<
-    Pick<
-      CanonicalMemoryRecord,
-      "status" | "title" | "tags" | "supersedesMemoryId" | "supersededByMemoryId" | "payload"
-    >
+    Pick<CanonicalMemoryRecord, "status" | "title" | "tags" | "supersedesMemoryId" | "supersededByMemoryId" | "payload">
   > & {
     id?: string;
     createdAt?: string;
@@ -80,9 +77,26 @@ export interface CanonicalMemoryQuery {
   includeInactive?: boolean;
 }
 
+export interface CanonicalMemorySemanticQuery {
+  queryText: string;
+  queries: CanonicalMemoryQuery[];
+  connectionId: string;
+  limit?: number;
+  similarityThreshold?: number;
+}
+
+export interface CanonicalMemorySemanticMatch {
+  memory: CanonicalMemoryRecord;
+  similarity: number;
+  connectionId: string;
+  provider: string;
+  model: string;
+}
+
 export interface MemoryIndexRow {
   id: string;
   memoryId: string;
+  connectionId?: string | null;
   provider: string;
   model: string;
   dimensions: number;

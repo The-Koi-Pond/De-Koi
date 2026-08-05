@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
-import type { CanonicalMemoryQuery, CanonicalMemoryRecord } from "../contracts/types/memory";
+import type {
+  CanonicalMemoryQuery,
+  CanonicalMemoryRecord,
+  CanonicalMemorySemanticMatch,
+} from "../contracts/types/memory";
 import { assembleGenerationPrompt } from "./prompt-assembly";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 import type { JsonRecord } from "./runtime-records";
@@ -38,6 +42,8 @@ function storageWithMemories(args: {
   indexed?: CanonicalMemoryRecord[];
   fallback?: CanonicalMemoryRecord[];
   fallbackError?: Error;
+  semantic?: CanonicalMemorySemanticMatch[];
+  semanticError?: Error;
 }): StorageGateway {
   return {
     async list<T = unknown>() {
@@ -108,6 +114,14 @@ function storageWithMemories(args: {
       if (args.fallbackError) throw args.fallbackError;
       return args.fallback ?? [];
     }),
+    ...(args.semantic || args.semanticError
+      ? {
+          querySemanticMemories: vi.fn(async () => {
+            if (args.semanticError) throw args.semanticError;
+            return args.semantic ?? [];
+          }),
+        }
+      : {}),
   } as StorageGateway;
 }
 
@@ -350,6 +364,87 @@ describe("canonical memory context", () => {
     expect(result?.block).toContain("obsidian compass");
     expect(result?.block).not.toContain("Sunny picnic");
     expect(result?.attributionItems[0]?.metadata).toMatchObject({ indexSource: "lexical" });
+  });
+
+  it("retrieves a paraphrased character memory by provider similarity without keyword overlap", async () => {
+    const semanticMemory = memory({
+      id: "memory-promise",
+      scope: { kind: "character", id: "jester" },
+      content: "Jester swore beneath the carousel lights that the user would never face the ringmaster alone.",
+      provenance: {
+        sourceChatId: "chat-old",
+        messageIds: ["message-old"],
+        sceneId: null,
+        characterId: "jester",
+        timestamp: "2026-07-01T10:00:00.000Z",
+      },
+    });
+    const lexicalDecoy = memory({
+      id: "memory-word-game",
+      scope: { kind: "character", id: "jester" },
+      content: "Jester keeps a word puzzle in the ticket booth.",
+    });
+    const storage = storageWithMemories({
+      indexed: [semanticMemory, lexicalDecoy],
+      semantic: [
+        {
+          memory: semanticMemory,
+          similarity: 0.86,
+          connectionId: "embedding-connection",
+          provider: "openai",
+          model: "text-embedding-3-small",
+        },
+      ],
+    });
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-group", mode: "roleplay", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Will you keep your word?",
+      characters: [{ id: "jester", name: "Jester", tags: [] }],
+      connectionId: "generation-connection",
+      maxContext: 4096,
+    });
+
+    expect(result?.attributionItems[0]?.sourceId).toBe("memory-promise");
+    expect(result?.attributionItems[0]?.metadata).toMatchObject({
+      retrievalSource: "semantic",
+      semanticScore: 0.86,
+      semanticProvider: "openai",
+      semanticModel: "text-embedding-3-small",
+      semanticConnectionId: "embedding-connection",
+    });
+    expect(storage.querySemanticMemories).toHaveBeenCalledWith({
+      queryText: "Will you keep your word?",
+      queries: [{ scope: { kind: "chat", id: "chat-group" } }, { scope: { kind: "character", id: "jester" } }],
+      connectionId: "generation-connection",
+      limit: 24,
+      similarityThreshold: 0.28,
+    });
+  });
+
+  it("keeps lexical recall working when provider semantic retrieval fails", async () => {
+    const storage = storageWithMemories({
+      indexed: [memory({ id: "memory-fallback", content: "The obsidian compass points toward the archive." })],
+      semanticError: Object.assign(new Error("provider unavailable"), {
+        details: { code: "embedding_unavailable" },
+      }),
+    });
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where does the obsidian compass point?",
+      characters: [],
+      connectionId: "generation-connection",
+      maxContext: 4096,
+    });
+
+    expect(result?.block).toContain("obsidian compass");
+    expect(result?.attributionItems[0]?.metadata).toMatchObject({
+      retrievalSource: "lexical-fallback",
+      semanticFallback: "embedding_unavailable",
+    });
   });
 
   it("merges durable canonical rows when the index covers only part of a scope", async () => {
@@ -835,7 +930,7 @@ describe("prompt assembly canonical memory integration", () => {
   });
 
   it("recalls the active chat plus only the character answering across reusable group prompts", async () => {
-    const storage = groupPromptStorage([
+    const memories = [
       memory({
         id: "memory-chat",
         scope: { kind: "chat", id: "chat-group" },
@@ -865,7 +960,21 @@ describe("prompt assembly canonical memory integration", () => {
         },
         content: "Harlequin ties the purple ribbon around his wrist.",
       }),
-    ]);
+    ];
+    const semanticQuery = vi.fn(async (body: { queries: CanonicalMemoryQuery[] }) => {
+      void body;
+      return memories.map((candidate) => ({
+          memory: candidate,
+          similarity: 0.8,
+          connectionId: "embedding-connection",
+          provider: "openai",
+          model: "text-embedding-3-small",
+      }));
+    });
+    const storage = {
+      ...groupPromptStorage(memories),
+      querySemanticMemories: semanticQuery,
+    } as StorageGateway;
     const sharedInput = {
       chat: {
         id: "chat-group",
@@ -874,7 +983,7 @@ describe("prompt assembly canonical memory integration", () => {
         metadata: { enableCanonicalMemoryRecall: true },
       },
       storedMessages: [{ id: "message-new", role: "user", content: "Who remembers the purple ribbon?" }],
-      connection: { provider: "openai", model: "qa-model" },
+      connection: { id: "generation-connection", provider: "openai", model: "qa-model" },
       latestUserInput: "Who remembers the purple ribbon?",
     };
 
@@ -898,5 +1007,17 @@ describe("prompt assembly canonical memory integration", () => {
     expect.soft(harlequin.characters[0]?.id).toBe("harlequin");
     expect.soft(canonicalIds(harlequin)).toEqual(expect.arrayContaining(["memory-chat", "memory-harlequin"]));
     expect.soft(canonicalIds(harlequin)).not.toContain("memory-jester");
+    expect.soft(semanticQuery).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        queries: [{ scope: { kind: "chat", id: "chat-group" } }, { scope: { kind: "character", id: "jester" } }],
+      }),
+    );
+    expect.soft(semanticQuery).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        queries: [{ scope: { kind: "chat", id: "chat-group" } }, { scope: { kind: "character", id: "harlequin" } }],
+      }),
+    );
   });
 });

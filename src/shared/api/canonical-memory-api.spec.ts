@@ -73,4 +73,19 @@ describe("canonicalMemoryApi", () => {
       body: { scope: { kind: "chat", id: "chat-1" } },
     });
   });
+
+  it("routes provider-backed semantic retrieval through one focused command", async () => {
+    const { canonicalMemoryApi } = await import("./canonical-memory-api");
+    const body = {
+      queryText: "Do you still know what happened that night?",
+      queries: [{ scope: { kind: "character" as const, id: "jester" } }],
+      connectionId: "generation-connection",
+      limit: 24,
+      similarityThreshold: 0.28,
+    };
+
+    await canonicalMemoryApi.querySemantic(body);
+
+    expect(mocks.invokeTauri).toHaveBeenCalledWith("memory_query_semantic", { body });
+  });
 });

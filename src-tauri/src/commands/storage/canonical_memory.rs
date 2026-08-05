@@ -5,6 +5,10 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
+#[path = "canonical_memory/semantic.rs"]
+mod semantic;
+pub(crate) use semantic::query_memories_semantic;
+
 const MEMORY_COLLECTION: &str = "canonical-memories";
 const INDEX_COLLECTION: &str = "memory-index-rows";
 const LEXICAL_PROVIDER: &str = "lexical";
@@ -591,6 +595,7 @@ fn normalize_index_row(state: &AppState, mut object: Map<String, Value>) -> AppR
     let memory = get_memory(state, &memory_id)?;
     let provider = require_string(&object, "provider")?;
     let model = require_string(&object, "model")?;
+    normalize_optional_string(&mut object, "connectionId");
     let dimensions = object
         .get("dimensions")
         .and_then(Value::as_u64)
@@ -613,9 +618,15 @@ fn normalize_index_row(state: &AppState, mut object: Map<String, Value>) -> AppR
         ));
     }
     if !object.contains_key("id") {
+        let connection_id = read_string(object.get("connectionId"));
+        let id = if connection_id.is_empty() {
+            format!("{memory_id}:{provider}:{model}:{projection_hash}")
+        } else {
+            format!("{memory_id}:{connection_id}:{provider}:{model}:{projection_hash}")
+        };
         object.insert(
             "id".to_string(),
-            Value::String(format!("{memory_id}:{provider}:{model}:{projection_hash}")),
+            Value::String(id),
         );
     }
     object.insert("memoryId".to_string(), Value::String(memory_id));
@@ -745,7 +756,11 @@ pub(crate) fn replace_memory_lexical_index(
     memory: &Value,
 ) -> AppResult<()> {
     let memory_id = read_string(memory.get("id"));
-    index_rows.retain(|row| read_string(row.get("memoryId")) != memory_id);
+    index_rows.retain(|row| {
+        read_string(row.get("memoryId")) != memory_id
+            || read_string(row.get("provider")) != LEXICAL_PROVIDER
+            || read_string(row.get("model")) != LEXICAL_MODEL
+    });
     if memory_is_lexically_indexed(memory) {
         index_rows.push(lexical_index_row(memory)?);
     }
@@ -758,16 +773,22 @@ pub(crate) fn rebuild_memory_lexical_index(state: &AppState, body: Value) -> App
         Value::Array(rows) => rows,
         _ => Vec::new(),
     };
-    let mut rebuilt = 0usize;
-    for memory in rows {
-        let memory_id = read_string(memory.get("id"));
-        if memory_id.is_empty() {
-            continue;
-        }
-        delete_memory_index_rows_for_memory(state, &memory_id)?;
-        upsert_memory_index_row(state, lexical_index_row(&memory)?)?;
-        rebuilt += 1;
-    }
+    let rebuilt = rows
+        .iter()
+        .filter(|memory| !read_string(memory.get("id")).is_empty())
+        .count();
+    state
+        .storage
+        .update_collections_atomically(vec![INDEX_COLLECTION], move |collections| {
+            let index_rows = collections[0].rows_mut();
+            for memory in &rows {
+                if read_string(memory.get("id")).is_empty() {
+                    continue;
+                }
+                replace_memory_lexical_index(index_rows, memory)?;
+            }
+            Ok(())
+        })?;
     Ok(json!({ "rebuilt": rebuilt }))
 }
 
@@ -1159,6 +1180,71 @@ mod tests {
         assert!(rows
             .iter()
             .all(|row| row["projectionHash"].as_str().is_some()));
+    }
+
+    #[test]
+    fn lexical_rebuild_preserves_provider_semantic_rows() {
+        let state = test_state("lexical-rebuild-preserves-semantic");
+        let memory = seed_memory(&state, "memory-one", "character", "character-1", "active");
+        upsert_memory_index_row(
+            &state,
+            json!({
+                "id": "memory-one:semantic:embedding-connection:text-embedding-3-small",
+                "memoryId": "memory-one",
+                "connectionId": "embedding-connection",
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "dimensions": 3,
+                "contentHash": "semantic-content",
+                "projectionHash": "semantic-projection",
+                "canonicalUpdatedAt": memory["updatedAt"],
+                "vector": [1.0, 0.0, 0.0]
+            }),
+        )
+        .expect("semantic fixture should be stored");
+
+        rebuild_memory_lexical_index(
+            &state,
+            json!({ "scope": { "kind": "character", "id": "character-1" } }),
+        )
+        .expect("lexical rebuild should succeed");
+
+        let rows = state.storage.list(INDEX_COLLECTION).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows
+            .iter()
+            .any(|row| row["provider"] == json!(LEXICAL_PROVIDER)));
+        assert!(rows.iter().any(|row| {
+            row["provider"] == json!("openai")
+                && row["connectionId"] == json!("embedding-connection")
+                && row["model"] == json!("text-embedding-3-small")
+        }));
+    }
+
+    #[test]
+    fn generated_index_ids_preserve_legacy_shape_without_a_connection() {
+        let state = test_state("generated-index-id-compatibility");
+        let memory = seed_memory(&state, "memory-one", "character", "character-1", "active");
+
+        let row = upsert_memory_index_row(
+            &state,
+            json!({
+                "memoryId": "memory-one",
+                "provider": "lexical",
+                "model": "de-koi-lexical-v1",
+                "dimensions": 64,
+                "contentHash": "content-hash",
+                "projectionHash": "projection-hash",
+                "canonicalUpdatedAt": memory["updatedAt"],
+                "lexicalTokens": ["fact"]
+            }),
+        )
+        .expect("legacy index row should be stored");
+
+        assert_eq!(
+            row["id"],
+            json!("memory-one:lexical:de-koi-lexical-v1:projection-hash")
+        );
     }
 
     #[test]
