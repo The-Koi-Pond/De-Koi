@@ -9,10 +9,17 @@ function readMainSource() {
   return readFileSync(join(currentDir, "main.tsx"), "utf8");
 }
 
-describe("app reduced-motion policy", () => {
-  it("configures Framer Motion to respect the user preference at the root", () => {
-    const source = readMainSource();
+function readAppExperienceSource() {
+  return readFileSync(join(currentDir, "AppExperience.tsx"), "utf8");
+}
 
-    expect(source).toMatch(/<MotionConfig\s+reducedMotion="user">/);
+describe("app reduced-motion policy", () => {
+  it("keeps Framer Motion behind the lazy app experience while respecting the user preference", () => {
+    const mainSource = readMainSource();
+    const appExperienceSource = readAppExperienceSource();
+
+    expect(mainSource).not.toContain('from "framer-motion"');
+    expect(appExperienceSource).toContain('import { MotionConfig } from "framer-motion"');
+    expect(appExperienceSource).toMatch(/<MotionConfig\s+reducedMotion="user">/);
   });
 });

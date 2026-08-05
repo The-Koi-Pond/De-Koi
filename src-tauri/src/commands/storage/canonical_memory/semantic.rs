@@ -3,7 +3,7 @@ use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const DEFAULT_SIMILARITY_THRESHOLD: f64 = 0.28;
 const DEFAULT_RESULT_LIMIT: usize = 24;
@@ -86,26 +86,61 @@ fn semantic_row_matches_identity(row: &Value, identity: &SemanticIndexIdentity) 
         && read_string(row.get("model")) == identity.model
 }
 
+fn semantic_index_rows_for_candidates(
+    state: &AppState,
+    memories: &[Value],
+    identity: &SemanticIndexIdentity,
+) -> AppResult<Vec<Value>> {
+    let memory_ids = memories
+        .iter()
+        .map(|memory| read_string(memory.get("id")))
+        .filter(|memory_id| !memory_id.is_empty())
+        .collect::<HashSet<_>>();
+    let mut rows = Vec::new();
+    state.storage.visit_collection_rows_where_in(
+        INDEX_COLLECTION,
+        "memoryId",
+        &memory_ids,
+        &mut |row| {
+            if semantic_row_matches_identity(row, identity) {
+                rows.push(row.clone());
+            }
+            Ok(())
+        },
+    )?;
+    Ok(rows)
+}
+
 fn semantic_index_plan(
     memories: &[Value],
     index_rows: &[Value],
     identity: &SemanticIndexIdentity,
     expected_dimensions: usize,
 ) -> SemanticIndexPlan {
+    let mut rows_by_memory_id: HashMap<String, Vec<&Value>> = HashMap::new();
+    for row in index_rows {
+        if !semantic_row_matches_identity(row, identity) {
+            continue;
+        }
+        let memory_id = read_string(row.get("memoryId"));
+        if !memory_id.is_empty() {
+            rows_by_memory_id.entry(memory_id).or_default().push(row);
+        }
+    }
     let mut cached_vectors = HashMap::new();
     let mut missing_memory_ids = Vec::new();
     for memory in memories {
         let memory_id = read_string(memory.get("id"));
-        let content = read_string(memory.get("content"));
+        let content_hash = stable_hash(&read_string(memory.get("content")));
         let updated_at = read_string(memory.get("updatedAt"));
-        let fresh = index_rows.iter().find_map(|row| {
-            (read_string(row.get("memoryId")) == memory_id
-                && semantic_row_matches_identity(row, identity)
-                && read_string(row.get("canonicalUpdatedAt")) == updated_at
-                && read_string(row.get("contentHash")) == stable_hash(&content))
-            .then(|| vector_from_value(row.get("vector")))
-            .flatten()
-            .filter(|vector| vector.len() == expected_dimensions)
+        let fresh = rows_by_memory_id.get(&memory_id).and_then(|rows| {
+            rows.iter().find_map(|row| {
+                (read_string(row.get("canonicalUpdatedAt")) == updated_at
+                    && read_string(row.get("contentHash")) == content_hash)
+                    .then(|| vector_from_value(row.get("vector")))
+                    .flatten()
+                    .filter(|vector| vector.len() == expected_dimensions)
+            })
         });
         if let Some(vector) = fresh {
             cached_vectors.insert(memory_id, vector);
@@ -271,7 +306,7 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
         },
         model,
     };
-    let index_rows = state.storage.list(INDEX_COLLECTION)?;
+    let index_rows = semantic_index_rows_for_candidates(state, &memories, &identity)?;
     let mut query_embeddings =
         super::super::prompts::embed_texts(&connection, &identity.model, &[query_text.as_str()])
             .await?;
@@ -346,7 +381,239 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::AppState;
     use serde_json::json;
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+    fn semantic_test_state(label: &str) -> (AppState, std::path::PathBuf) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("de-koi-semantic-index-{label}-{nonce}"));
+        if path.exists() {
+            std::fs::remove_dir_all(&path).unwrap();
+        }
+        let state = AppState::from_data_dir(path.clone(), Vec::new()).unwrap();
+        (state, path)
+    }
+
+    #[test]
+    fn semantic_index_rows_for_candidates_excludes_unrelated_rows_before_cloning() {
+        let (state, data_dir) = semantic_test_state("targeted-read");
+        let identity = SemanticIndexIdentity {
+            connection_id: "embedding-connection".to_string(),
+            provider: "openai".to_string(),
+            model: "text-embedding-3-small".to_string(),
+        };
+        for (id, memory_id, connection_id, provider, model) in [
+            (
+                "candidate-valid",
+                "candidate",
+                "embedding-connection",
+                "openai",
+                "text-embedding-3-small",
+            ),
+            (
+                "other-memory",
+                "not-a-candidate",
+                "embedding-connection",
+                "openai",
+                "text-embedding-3-small",
+            ),
+            (
+                "other-connection",
+                "candidate",
+                "different-connection",
+                "openai",
+                "text-embedding-3-small",
+            ),
+            (
+                "other-provider",
+                "candidate",
+                "embedding-connection",
+                "cohere",
+                "text-embedding-3-small",
+            ),
+            (
+                "other-model",
+                "candidate",
+                "embedding-connection",
+                "openai",
+                "text-embedding-ada-002",
+            ),
+        ] {
+            state
+                .storage
+                .upsert_with_id(
+                    INDEX_COLLECTION,
+                    id,
+                    json!({
+                        "memoryId": memory_id,
+                        "connectionId": connection_id,
+                        "provider": provider,
+                        "model": model,
+                        "vector": [1.0, 0.0]
+                    }),
+                )
+                .unwrap();
+        }
+        let memories = vec![json!({
+            "id": "candidate",
+            "content": "Candidate fact",
+            "updatedAt": "2026-08-05T10:00:00Z"
+        })];
+
+        let rows = semantic_index_rows_for_candidates(&state, &memories, &identity).unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], json!("candidate-valid"));
+        assert_eq!(rows[0]["memoryId"], json!("candidate"));
+        drop(state);
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn semantic_index_plan_keeps_the_first_fresh_valid_row_per_memory() {
+        let identity = SemanticIndexIdentity {
+            connection_id: "embedding-connection".to_string(),
+            provider: "openai".to_string(),
+            model: "text-embedding-3-small".to_string(),
+        };
+        let memories = vec![json!({
+            "id": "candidate",
+            "content": "Candidate fact",
+            "updatedAt": "2026-08-05T10:00:00Z"
+        })];
+        let rows = vec![
+            json!({
+                "memoryId": "candidate",
+                "connectionId": "embedding-connection",
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "canonicalUpdatedAt": "2026-08-04T10:00:00Z",
+                "contentHash": "stale",
+                "vector": [0.5, 0.5]
+            }),
+            semantic_index_row(&memories[0], &identity, vec![1.0, 0.0]).unwrap(),
+            semantic_index_row(&memories[0], &identity, vec![0.0, 1.0]).unwrap(),
+            json!({
+                "memoryId": "unrelated",
+                "connectionId": "embedding-connection",
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "canonicalUpdatedAt": "2026-08-05T10:00:00Z",
+                "contentHash": "unrelated",
+                "vector": [0.0, 1.0]
+            }),
+        ];
+
+        let plan = semantic_index_plan(&memories, &rows, &identity, 2);
+
+        assert_eq!(plan.cached_vectors.len(), 1);
+        assert_eq!(plan.cached_vectors["candidate"], vec![1.0, 0.0]);
+        assert!(plan.missing_memory_ids.is_empty());
+    }
+
+    fn nested_semantic_index_plan_reference(
+        memories: &[Value],
+        index_rows: &[Value],
+        identity: &SemanticIndexIdentity,
+        expected_dimensions: usize,
+    ) -> SemanticIndexPlan {
+        let mut cached_vectors = HashMap::new();
+        let mut missing_memory_ids = Vec::new();
+        for memory in memories {
+            let memory_id = read_string(memory.get("id"));
+            let content = read_string(memory.get("content"));
+            let updated_at = read_string(memory.get("updatedAt"));
+            let fresh = index_rows.iter().find_map(|row| {
+                (read_string(row.get("memoryId")) == memory_id
+                    && semantic_row_matches_identity(row, identity)
+                    && read_string(row.get("canonicalUpdatedAt")) == updated_at
+                    && read_string(row.get("contentHash")) == stable_hash(&content))
+                .then(|| vector_from_value(row.get("vector")))
+                .flatten()
+                .filter(|vector| vector.len() == expected_dimensions)
+            });
+            if let Some(vector) = fresh {
+                cached_vectors.insert(memory_id, vector);
+            } else if !memory_id.is_empty() {
+                missing_memory_ids.push(memory_id);
+            }
+        }
+        SemanticIndexPlan {
+            cached_vectors,
+            missing_memory_ids,
+        }
+    }
+
+    #[test]
+    #[ignore = "manual performance measurement"]
+    fn semantic_index_plan_large_index_benchmark() {
+        const DIMENSIONS: usize = 128;
+        const IRRELEVANT_ROWS: usize = 5_000;
+        let (state, data_dir) = semantic_test_state("large-index-benchmark");
+        let identity = SemanticIndexIdentity {
+            connection_id: "embedding-connection".to_string(),
+            provider: "openai".to_string(),
+            model: "text-embedding-3-small".to_string(),
+        };
+        let memories = (0..MAX_SEMANTIC_CANDIDATES)
+            .map(|index| {
+                json!({
+                    "id": format!("candidate-{index}"),
+                    "content": format!("Candidate fact {index}"),
+                    "updatedAt": "2026-08-05T10:00:00Z"
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut stored_rows = (0..IRRELEVANT_ROWS)
+            .map(|index| {
+                json!({
+                    "id": format!("irrelevant-{index}"),
+                    "memoryId": format!("unrelated-{index}"),
+                    "connectionId": "other-connection",
+                    "provider": "openai",
+                    "model": "text-embedding-3-small",
+                    "canonicalUpdatedAt": "2026-08-05T10:00:00Z",
+                    "contentHash": "irrelevant",
+                    "vector": vec![0.01; DIMENSIONS]
+                })
+            })
+            .collect::<Vec<_>>();
+        stored_rows.extend(
+            memories.iter().map(|memory| {
+                semantic_index_row(memory, &identity, vec![1.0; DIMENSIONS]).unwrap()
+            }),
+        );
+        state
+            .storage
+            .replace_all(INDEX_COLLECTION, stored_rows)
+            .unwrap();
+
+        let old_started = Instant::now();
+        let all_rows = state.storage.list(INDEX_COLLECTION).unwrap();
+        let old_plan =
+            nested_semantic_index_plan_reference(&memories, &all_rows, &identity, DIMENSIONS);
+        let old_elapsed = old_started.elapsed();
+
+        let new_started = Instant::now();
+        let targeted_rows =
+            semantic_index_rows_for_candidates(&state, &memories, &identity).unwrap();
+        let new_plan = semantic_index_plan(&memories, &targeted_rows, &identity, DIMENSIONS);
+        let new_elapsed = new_started.elapsed();
+
+        assert_eq!(new_plan.cached_vectors, old_plan.cached_vectors);
+        assert_eq!(new_plan.missing_memory_ids, old_plan.missing_memory_ids);
+        eprintln!(
+            "semantic index benchmark: rows={}; targeted_rows={}; old={old_elapsed:?}; new={new_elapsed:?}",
+            all_rows.len(),
+            targeted_rows.len()
+        );
+        drop(state);
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
 
     #[test]
     fn semantic_index_plan_reuses_only_fresh_rows_for_the_resolved_embedding_identity() {

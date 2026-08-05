@@ -3173,12 +3173,15 @@ async function buildConversationContextBlocks(
   wrapFormat: WrapFormat,
 ): Promise<ChatMLMessage[]> {
   if (modeOf(input.chat) !== "conversation") return [];
-  const linked = await buildConversationLinkedChatBlock(storage, input.chat, characters, wrapFormat);
+  const [linked, crossChat] = await Promise.all([
+    buildConversationLinkedChatBlock(storage, input.chat, characters, wrapFormat),
+    buildCrossChatAwarenessBlock(storage, input.chat, characters, wrapFormat),
+  ]);
   return [
     buildConversationPresenceBlock(input, wrapFormat),
     buildConversationFreshnessBlock(input, wrapFormat),
     buildConversationScheduleBlock(input.chat, characters, wrapFormat),
-    await buildCrossChatAwarenessBlock(storage, input.chat, characters, wrapFormat),
+    crossChat,
     linked.block,
     buildConversationCommandBlock(input.chat, characters, linked.connectedMode, wrapFormat),
   ].filter((block): block is ChatMLMessage => block !== null);
@@ -4362,53 +4365,56 @@ export async function assembleGenerationPrompt(
       }
     : sourceHistorySelection;
   const history = historySelection.messages;
-  const [initialLoreScan, memoryRecallContext, canonicalMemoryContext] = await Promise.all([
-    canReuseSourceSensitiveContext && reusableContext
-      ? Promise.resolve(reusableContext.loreScan)
-      : scanLorebooksForPositions(baseLorebookIncludedPositions),
-    canReuseSourceSensitiveContext && reusableContext
-      ? Promise.resolve({
-          block: reusableContext.memoryRecallBlock,
-          attributionItems: reusableContext.contextAttributionItems.filter(
-            (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source !== "canonical_memory",
+  const [initialLoreScan, memoryRecallContext, canonicalMemoryContext, conversationContextBlocks, regexScripts] =
+    await Promise.all([
+      canReuseSourceSensitiveContext && reusableContext
+        ? Promise.resolve(reusableContext.loreScan)
+        : scanLorebooksForPositions(baseLorebookIncludedPositions),
+      canReuseSourceSensitiveContext && reusableContext
+        ? Promise.resolve({
+            block: reusableContext.memoryRecallBlock,
+            attributionItems: reusableContext.contextAttributionItems.filter(
+              (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source !== "canonical_memory",
+            ),
+          })
+        : buildMemoryRecallBlock(
+            storage,
+            input.chat,
+            input.storedMessages,
+            input.latestUserInput,
+            maxContext || undefined,
+            readNumber(input.request.memoryRecallTokenBudget, 0) || undefined,
+            embeddingSource,
+            characters.flatMap((character) => character.memories ?? []),
+            historySelection.sourceMessages,
+            persona?.name ?? null,
           ),
-        })
-      : buildMemoryRecallBlock(
-          storage,
-          input.chat,
-          input.storedMessages,
-          input.latestUserInput,
-          maxContext || undefined,
-          readNumber(input.request.memoryRecallTokenBudget, 0) || undefined,
-          embeddingSource,
-          characters.flatMap((character) => character.memories ?? []),
-          historySelection.sourceMessages,
-          persona?.name ?? null,
-        ),
-    canReuseSourceSensitiveContext && reusableContext
-      ? Promise.resolve({
-          block: reusableContext.canonicalMemoryBlock,
-          attributionItems: reusableContext.contextAttributionItems.filter(
-            (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source === "canonical_memory",
-          ),
-        })
-      : buildCanonicalMemoryContext(storage, {
-          chat: input.chat,
-          storedMessages: input.storedMessages,
-          latestUserInput: input.latestUserInput,
-          characters: canonicalMemoryCharacters.map((character) => ({
-            id: character.id,
-            name: character.name,
-            description: character.description,
-            tags: character.tags,
-            memoryPersistence: character.memoryPersistence,
-          })),
-          personaName: persona?.name ?? null,
-          connectionId:
-            readString(input.chat.embeddingConnectionId).trim() || readString(input.connection.id).trim() || null,
-          maxContext,
-        }),
-  ]);
+      canReuseSourceSensitiveContext && reusableContext
+        ? Promise.resolve({
+            block: reusableContext.canonicalMemoryBlock,
+            attributionItems: reusableContext.contextAttributionItems.filter(
+              (item) => item.kind === "memory_recall" && parseRecord(item.metadata).source === "canonical_memory",
+            ),
+          })
+        : buildCanonicalMemoryContext(storage, {
+            chat: input.chat,
+            storedMessages: input.storedMessages,
+            latestUserInput: input.latestUserInput,
+            characters: canonicalMemoryCharacters.map((character) => ({
+              id: character.id,
+              name: character.name,
+              description: character.description,
+              tags: character.tags,
+              memoryPersistence: character.memoryPersistence,
+            })),
+            personaName: persona?.name ?? null,
+            connectionId:
+              readString(input.chat.embeddingConnectionId).trim() || readString(input.connection.id).trim() || null,
+            maxContext,
+          }),
+      buildConversationContextBlocks(storage, input, characters, wrapFormat),
+      loadPromptRegexScripts(),
+    ]);
   let loreScan = initialLoreScan;
   let processedLore =
     canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
@@ -4633,7 +4639,7 @@ export async function assembleGenerationPrompt(
 
   const roleplayQualityContext = buildRoleplayQualityContext(input, wrapFormat);
   insertBeforeLastUser(messages, [
-    ...(await buildConversationContextBlocks(storage, input, characters, wrapFormat)),
+    ...conversationContextBlocks,
     ...buildConnectedConversationBlocks(input.chat),
     ...buildRoleplayDirectMessageCommandReminder(input.chat),
     ...(roleplayQualityContext ? [roleplayQualityContext.message] : []),
@@ -4658,7 +4664,6 @@ export async function assembleGenerationPrompt(
         ],
     chatHistoryDepthInjectionBounds(messages),
   );
-  const regexScripts = await loadPromptRegexScripts();
   applyRegexScriptsToPromptMessages(messages, regexScripts, {
     resolveMacros: (value) => resolvePromptMacros(value, macros, deferCharacterMacros),
     targetCharacterId: regexTargetCharacterId,
