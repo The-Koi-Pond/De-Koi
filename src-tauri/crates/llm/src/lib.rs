@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Mutex, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use uuid::Uuid;
 
@@ -51,6 +51,8 @@ const PROVIDER_LOCAL_URLS_ENABLED_FLAG: &str = "PROVIDER_LOCAL_URLS_ENABLED";
 const PROVIDER_RESPONSE_MAX_BYTES: usize = 5 * 1024 * 1024;
 const PROVIDER_RESPONSE_HEADERS_TIMEOUT_SECS: u64 = 5 * 60;
 const PROVIDER_STREAM_IDLE_TIMEOUT_SECS: u64 = 2 * 60;
+const PROVIDER_HTTP_CLIENT_CACHE_CAPACITY: usize = 32;
+const PROVIDER_HTTP_CLIENT_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 // ChatGPT reasoning models may emit no upstream bytes while hidden reasoning continues.
 const OPENAI_CHATGPT_STREAM_IDLE_TIMEOUT_SECS: u64 = 10 * 60;
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
@@ -66,6 +68,84 @@ struct GoogleVertexCachedToken {
 
 static GOOGLE_VERTEX_TOKEN_CACHE: OnceLock<Mutex<BTreeMap<String, GoogleVertexCachedToken>>> =
     OnceLock::new();
+
+static PROVIDER_HTTP_CLIENT_CACHE: OnceLock<Mutex<ProviderHttpClientCache>> = OnceLock::new();
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct ProviderHttpClientCacheKey {
+    host: Option<String>,
+    resolved_addresses: Vec<SocketAddr>,
+    read_timeout: Duration,
+}
+
+impl ProviderHttpClientCacheKey {
+    fn new(
+        host: Option<&str>,
+        resolved_addresses: Option<&[SocketAddr]>,
+        read_timeout: Duration,
+    ) -> Self {
+        let mut resolved_addresses = resolved_addresses.unwrap_or_default().to_vec();
+        resolved_addresses.sort_unstable();
+        resolved_addresses.dedup();
+        Self {
+            host: host.map(str::to_ascii_lowercase),
+            resolved_addresses,
+            read_timeout,
+        }
+    }
+}
+
+struct CachedProviderHttpClient {
+    client: reqwest::Client,
+    last_used: Instant,
+}
+
+#[derive(Default)]
+struct ProviderHttpClientCache {
+    clients: BTreeMap<ProviderHttpClientCacheKey, CachedProviderHttpClient>,
+}
+
+impl ProviderHttpClientCache {
+    fn get_or_try_insert_with<F>(
+        &mut self,
+        key: ProviderHttpClientCacheKey,
+        now: Instant,
+        build: F,
+    ) -> AppResult<reqwest::Client>
+    where
+        F: FnOnce() -> AppResult<reqwest::Client>,
+    {
+        self.clients.retain(|_, entry| {
+            now.saturating_duration_since(entry.last_used) < PROVIDER_HTTP_CLIENT_CACHE_TTL
+        });
+
+        if let Some(entry) = self.clients.get_mut(&key) {
+            entry.last_used = now;
+            return Ok(entry.client.clone());
+        }
+
+        if self.clients.len() >= PROVIDER_HTTP_CLIENT_CACHE_CAPACITY {
+            if let Some(oldest_key) = self
+                .clients
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(key, _)| key.clone())
+            {
+                self.clients.remove(&oldest_key);
+            }
+        }
+
+        let client = build()?;
+        self.clients.insert(
+            key,
+            CachedProviderHttpClient {
+                client: client.clone(),
+                last_used: now,
+            },
+        );
+        Ok(client)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SseBlockStatus {
@@ -589,6 +669,21 @@ fn provider_url_not_allowed_error(url: &str) -> AppError {
 }
 
 fn provider_http_client(
+    host: Option<&str>,
+    resolved_addresses: Option<&[SocketAddr]>,
+    read_timeout: Duration,
+) -> AppResult<reqwest::Client> {
+    let key = ProviderHttpClientCacheKey::new(host, resolved_addresses, read_timeout);
+    let mut cache = PROVIDER_HTTP_CLIENT_CACHE
+        .get_or_init(|| Mutex::new(ProviderHttpClientCache::default()))
+        .lock()
+        .map_err(|_| AppError::new("llm_client_error", "Provider HTTP client cache unavailable"))?;
+    cache.get_or_try_insert_with(key, Instant::now(), || {
+        build_provider_http_client(host, resolved_addresses, read_timeout)
+    })
+}
+
+fn build_provider_http_client(
     host: Option<&str>,
     resolved_addresses: Option<&[SocketAddr]>,
     read_timeout: Duration,
@@ -3994,6 +4089,116 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("[REDACTED]"));
         assert!(!error.message.contains("sk-test-secret"));
+    }
+
+    #[test]
+    fn provider_http_client_cache_reuses_identical_validated_targets() {
+        let mut cache = ProviderHttpClientCache::default();
+        let addresses = ["93.184.216.34:443"
+            .parse()
+            .expect("public provider address parses")];
+        let key = ProviderHttpClientCacheKey::new(
+            Some("example.test"),
+            Some(&addresses),
+            Duration::from_secs(120),
+        );
+        let now = std::time::Instant::now();
+        let mut builds = 0;
+
+        cache
+            .get_or_try_insert_with(key.clone(), now, || {
+                builds += 1;
+                Ok(reqwest::Client::new())
+            })
+            .expect("first client build succeeds");
+        cache
+            .get_or_try_insert_with(key, now, || {
+                builds += 1;
+                Ok(reqwest::Client::new())
+            })
+            .expect("cached client lookup succeeds");
+
+        assert_eq!(builds, 1);
+    }
+
+    #[test]
+    fn provider_http_client_cache_separates_address_sets_and_timeouts() {
+        let mut cache = ProviderHttpClientCache::default();
+        let first_addresses = ["93.184.216.34:443"
+            .parse()
+            .expect("first public provider address parses")];
+        let second_addresses = ["93.184.216.35:443"
+            .parse()
+            .expect("second public provider address parses")];
+        let now = std::time::Instant::now();
+        let mut builds = 0;
+
+        for key in [
+            ProviderHttpClientCacheKey::new(
+                Some("example.test"),
+                Some(&first_addresses),
+                Duration::from_secs(120),
+            ),
+            ProviderHttpClientCacheKey::new(
+                Some("example.test"),
+                Some(&second_addresses),
+                Duration::from_secs(120),
+            ),
+            ProviderHttpClientCacheKey::new(
+                Some("example.test"),
+                Some(&second_addresses),
+                Duration::from_secs(600),
+            ),
+        ] {
+            cache
+                .get_or_try_insert_with(key, now, || {
+                    builds += 1;
+                    Ok(reqwest::Client::new())
+                })
+                .expect("client build succeeds");
+        }
+
+        assert_eq!(builds, 3);
+    }
+
+    #[test]
+    fn provider_http_client_cache_expires_idle_clients() {
+        let mut cache = ProviderHttpClientCache::default();
+        let key =
+            ProviderHttpClientCacheKey::new(Some("example.test"), None, Duration::from_secs(120));
+        let now = std::time::Instant::now();
+        let mut builds = 0;
+
+        cache
+            .get_or_try_insert_with(key.clone(), now, || {
+                builds += 1;
+                Ok(reqwest::Client::new())
+            })
+            .expect("first client build succeeds");
+        cache
+            .get_or_try_insert_with(key, now + PROVIDER_HTTP_CLIENT_CACHE_TTL, || {
+                builds += 1;
+                Ok(reqwest::Client::new())
+            })
+            .expect("expired client rebuild succeeds");
+
+        assert_eq!(builds, 2);
+    }
+
+    #[test]
+    fn provider_http_client_cache_evicts_past_its_capacity() {
+        let mut cache = ProviderHttpClientCache::default();
+        let now = std::time::Instant::now();
+
+        for host_index in 0..=PROVIDER_HTTP_CLIENT_CACHE_CAPACITY {
+            let host = format!("provider-{host_index}.example.test");
+            let key = ProviderHttpClientCacheKey::new(Some(&host), None, Duration::from_secs(120));
+            cache
+                .get_or_try_insert_with(key, now, || Ok(reqwest::Client::new()))
+                .expect("client build succeeds");
+        }
+
+        assert_eq!(cache.clients.len(), PROVIDER_HTTP_CLIENT_CACHE_CAPACITY);
     }
 
     #[test]
