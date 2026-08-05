@@ -5,7 +5,7 @@
     "title": "Provider-backed semantic Character Memory retrieval",
     "source": "User report: a character denied remembering an event that was present in that character's canonical memories.",
     "classification": "cross-boundary storage, provider, prompt assembly, and remote-runtime change",
-    "status": "local_verification"
+    "status": "pr_open"
   },
   "coreClaim": "Eligible canonical Character Memories can be recalled by meaning without shared keywords, remain scoped to the character answering in group chats, and fall back to the existing lexical path when provider embeddings are unavailable.",
   "rootCause": "Canonical prompt ranking hardcoded semanticScore to zero and required lexical overlap for every unpinned memory, even though the memory index schema and configured embedding providers already supported vector data.",
@@ -123,7 +123,7 @@
       },
       {
         "claim": "A group turn for Jester must not search Harlequin's character memories.",
-        "evidence": "The reusable group prompt test asserts separate semantic query scope arrays for Jester and Harlequin and excludes the other character's canonical row."
+          "evidence": "The reusable group prompt test returns deliberately over-broad semantic results, asserts separate query scope arrays for Jester and Harlequin, and proves the prompt layer excludes the other character's canonical row."
       },
       {
         "claim": "Rebuilding lexical projections must not erase semantic provider vectors.",
@@ -141,7 +141,7 @@
       },
       {
         "claim": "Existing lexical rows without connectionId remain valid and are replaced without touching provider rows.",
-        "evidence": "All 13 focused canonical_memory Rust tests pass, including create, update, query, rebuild, and deletion paths."
+          "evidence": "All 15 focused canonical_memory Rust tests pass, including create, update, query, rebuild, deletion, legacy ID, and bounded candidate paths."
       }
     ],
     "untestedRows": [
@@ -233,8 +233,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1215,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1215",
     "headRefName": "feat/canonical-semantic-memory",
     "baseRefName": "main",
     "healthStatus": "pending",
