@@ -431,6 +431,7 @@ export const storageApi: StorageGateway = {
   updateMemory: (memoryId, patch) => canonicalMemoryApi.update(memoryId, patch),
   queryMemories: (body) => canonicalMemoryApi.query(body),
   queryMemoriesBatch: (queries) => canonicalMemoryApi.queryBatch(queries),
+  querySemanticMemories: (body) => canonicalMemoryApi.querySemantic(body),
   queryMemoryIndex: (body) => canonicalMemoryApi.index.query(body),
   queryMemoryIndexBatch: (queries) => canonicalMemoryApi.index.queryBatch(queries),
   rebuildMemoryIndex: (body) => canonicalMemoryApi.index.rebuildLexical(body),

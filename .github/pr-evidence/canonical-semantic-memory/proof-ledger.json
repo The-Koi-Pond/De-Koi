@@ -1,0 +1,267 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Provider-backed semantic Character Memory retrieval",
+    "source": "User report: a character denied remembering an event that was present in that character's canonical memories.",
+    "classification": "cross-boundary storage, provider, prompt assembly, and remote-runtime change",
+    "status": "local_verification"
+  },
+  "coreClaim": "Eligible canonical Character Memories can be recalled by meaning without shared keywords, remain scoped to the character answering in group chats, and fall back to the existing lexical path when provider embeddings are unavailable.",
+  "rootCause": "Canonical prompt ranking hardcoded semanticScore to zero and required lexical overlap for every unpinned memory, even though the memory index schema and configured embedding providers already supported vector data.",
+  "scope": {
+    "inScope": [
+      "Lazy provider embeddings for scoped canonical memories",
+      "Connection/provider/model-specific derived vector caching",
+      "Cosine-similarity ranking and prompt attribution",
+      "Lexical and pinned fallback when semantic retrieval fails",
+      "Character-specific group targeting",
+      "Embedded Tauri and hostable HTTP runtime parity",
+      "Embedding-setting copy and canonical-memory architecture docs"
+    ],
+    "outOfScope": [
+      "Changing automatic memory extraction or capture quality",
+      "Migrating or rewriting canonical memory text",
+      "Adding a new embedding setting or choosing a model for the user",
+      "Changing chat-local transcript Memory Recall ranking",
+      "Changing roleplay prose prompts or model selection"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/canonical-memory-context.ts",
+      "src/engine/generation/canonical-memory-context.spec.ts",
+      "src/engine/generation/prompt-assembly.ts",
+      "src/engine/contracts/types/memory.ts",
+      "src/engine/capabilities/storage.ts",
+      "src/shared/api/canonical-memory-api.ts",
+      "src/shared/api/canonical-memory-api.spec.ts",
+      "src/shared/api/storage-api.ts",
+      "src/shared/api/remote-runtime.ts",
+      "src/shared/api/remote-runtime.spec.ts",
+      "src-tauri/src/commands/storage/canonical_memory.rs",
+      "src-tauri/src/commands/storage/canonical_memory/semantic.rs",
+      "src-tauri/src/commands/storage/commands/memory.rs",
+      "src-tauri/src/http_dispatch.rs",
+      "src-tauri/src/lib.rs",
+      "src/features/shell/connections/components/ConnectionEditor.tsx",
+      "docs/canonical-memory-architecture.md",
+      ".github/pr-evidence/canonical-semantic-memory/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "storage",
+      "provider transport",
+      "prompt assembly",
+      "memory state shape",
+      "cross-entrypoint behavior",
+      "remote runtime",
+      "user data sent to configured embedding provider"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "A semantic match at or above 0.28 can qualify and rank a scoped canonical memory without lexical overlap; missing or failed semantics preserve lexical and pinned recall.",
+    "riskType": "provider-backed derived storage projection and shared generation prompt behavior",
+    "entrypoints": [
+      "Conversation and Roleplay prompt assembly",
+      "Embedded Tauri memory_query_semantic command",
+      "Hostable /api/invoke memory_query_semantic dispatch",
+      "Configured connection embedding provider"
+    ],
+    "currentPathsOrFormats": [
+      "canonical-memories records remain authoritative",
+      "memory-index-rows lexical and provider projections remain derived",
+      "CanonicalMemorySemanticQuery and CanonicalMemorySemanticMatch shared contracts",
+      "canonical_memories prompt block and generation context attribution"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing lexical-only index rows deserialize with no connectionId and remain usable",
+      "Chats without an embedding model or semantic-capable storage gateway retain lexical retrieval",
+      "Pinned memories remain eligible without semantic or lexical evidence",
+      "Existing chat-local transcript Memory Recall is unchanged"
+    ],
+    "outOfScopeClaims": [
+      "This change does not claim all embedding providers produce identical relevance scores.",
+      "This change does not backfill embeddings until an eligible scoped query occurs.",
+      "This change does not alter or delete canonical memory records.",
+      "Live Pi provider quality remains a post-merge acceptance gate."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Canonical retrieval exposed semanticScore in attribution but always set it to zero, so meaning-only matches could never qualify for prompt injection.",
+    "producer": "Rust canonical-memory semantic query resolves the configured embedding connection, maintains derived vectors, and returns scored matches.",
+    "consumer": "TypeScript canonical-memory prompt ranking merges semantic evidence with existing lexical, scope, recency, confidence, and pinned evidence.",
+    "impliedContract": "Rust owns privileged provider and index mechanics; the TypeScript engine owns relevance eligibility and prompt ranking; shared API owns desktop/remote transport parity.",
+    "actualEnforcement": "The engine calls one typed semantic query for the existing scope list, Rust filters scopes before provider work and caches fresh vectors by connection/provider/model/content, and prompt assembly catches semantic errors into an attributed lexical fallback.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src/engine owns memory ranking; src/shared/api owns runtime adaptation; src-tauri owns secrets, provider transport, and derived index writes.",
+    "consumerOnlyLanes": ["src/features"],
+    "wrongLaneFixToAvoid": "Do not put provider calls in React or engine code, do not send raw HTTP from features, do not treat vector rows as canonical data, and do not broaden group character scopes.",
+    "regressionProof": [
+      "canonical-memory-context.spec.ts proves zero-keyword paraphrase ranking, lexical fallback, and answering-character group scopes.",
+      "canonical_memory semantic Rust tests prove identity/freshness/dimension cache rules and thresholded cosine ranking.",
+      "canonical_memory Rust tests prove lexical rebuild preserves semantic rows.",
+      "canonical-memory-api.spec.ts and remote-runtime.spec.ts prove typed command and remote allowlist routing."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A paraphrase with no shared keyword ranks the intended Jester memory above a lexical keyword decoy.",
+        "evidence": "canonical-memory-context.spec.ts passes the provider-similarity regression and asserts semantic score, provider, model, and connection attribution."
+      },
+      {
+        "claim": "The first scoped semantic query stores missing vectors while later queries can reuse fresh rows.",
+        "evidence": "semantic_index_plan_reuses_only_fresh_rows_for_the_resolved_embedding_identity passes for fresh, stale-content, other-model, and wrong-dimension rows."
+      },
+      {
+        "claim": "Desktop and Pi runtime entrypoints expose the same typed semantic command.",
+        "evidence": "canonical-memory-api.spec.ts, remote-runtime.spec.ts, pnpm check:architecture, and cargo check pass with memory_query_semantic registered in Tauri and HTTP dispatch."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "A provider failure must not block generation or invent semantic success.",
+        "evidence": "canonical-memory-context.spec.ts injects the lexical match with retrievalSource lexical-fallback and semanticFallback unavailable after a rejected semantic command."
+      },
+      {
+        "claim": "A group turn for Jester must not search Harlequin's character memories.",
+        "evidence": "The reusable group prompt test asserts separate semantic query scope arrays for Jester and Harlequin and excludes the other character's canonical row."
+      },
+      {
+        "claim": "Rebuilding lexical projections must not erase semantic provider vectors.",
+        "evidence": "lexical_rebuild_preserves_provider_semantic_rows passes with one lexical and one provider row for the same memory."
+      },
+      {
+        "claim": "A weak or dimension-mismatched vector must not qualify as a semantic match.",
+        "evidence": "Rust semantic tests reject below-threshold cosine results and mark wrong-dimension cache rows for refresh."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "No embedding model or semantic gateway preserves today's lexical behavior.",
+        "evidence": "All pre-existing canonical-memory-context tests pass unchanged, including lexical fallback and pinned eligibility."
+      },
+      {
+        "claim": "Existing lexical rows without connectionId remain valid and are replaced without touching provider rows.",
+        "evidence": "All 13 focused canonical_memory Rust tests pass, including create, update, query, rebuild, and deletion paths."
+      }
+    ],
+    "untestedRows": [
+      "Provider-specific ranking quality cannot be proven deterministically without a live configured provider and is a post-merge Pi acceptance step.",
+      "No screenshot is required because the only visible UI change is explanatory helper copy in the existing Embedding Model field."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Canonical memory text is sent only through the embedding connection resolved from the chat override or active generation connection.",
+      "sourceType": "derived",
+      "evidence": "prompt-assembly.ts supplies the existing connection identity; canonical_memory/semantic.rs uses resolve_embedding_connection_for_id_async and prompts::embed_texts."
+    },
+    {
+      "description": "Semantic vectors are derived cache rows and never replace canonical-memories records.",
+      "sourceType": "derived",
+      "evidence": "semantic.rs writes only INDEX_COLLECTION; query results resolve and return the canonical memory snapshot."
+    },
+    {
+      "description": "Semantic retrieval uses the same character list already narrowed by sourceSensitiveGroupTarget.",
+      "sourceType": "harness-proven",
+      "evidence": "prompt-assembly group integration test passes and asserts target-specific semantic query scopes."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Character Memory text is sent to the configured embedding provider only when semantic retrieval is enabled through an embedding model. Users who want local-only lexical recall can leave the embedding model unset.",
+      "source": "Settings > Connections > open the active generation or linked embedding connection > Embedding Model",
+      "destination": "No external destination when Embedding Model is empty; Character Memory records and lexical index rows stay in De-Koi's configured data directory.",
+      "files": ["No files need to be copied or backed up for this non-destructive setting change."],
+      "action": "Clear Embedding Model, save the connection, and keep Memory Recall enabled. De-Koi will continue with local lexical and pinned Character Memory retrieval.",
+      "companionFiles": "No vector export or companion file is required. Provider vectors are disposable memory-index-rows and canonical-memories remains authoritative.",
+      "detectedLayouts": [
+        "Connections with an embeddingModel use the configured or linked embedding provider.",
+        "Connections without an embeddingModel use the existing local lexical fallback."
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Live provider-backed Pi roleplay query",
+      "blockingCoreClaim": false,
+      "reason": "Local deterministic tests prove the contract and fallback. Exact-provider relevance and cached live behavior will be tested after the exact merge image is deployed, as explicitly requested."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check passed after the proof ledger and final compatibility guards were added.",
+    "githubValidationPassed": false,
+    "edgeRowsTested": [
+      "meaning-only paraphrase",
+      "keyword decoy",
+      "provider failure",
+      "pinned lexical default",
+      "Jester and Harlequin group targets",
+      "stale content hash",
+      "different embedding model",
+      "wrong vector dimensions",
+      "below-threshold cosine result",
+      "lexical rebuild with provider row"
+    ],
+    "negativeRowsTested": [
+      "No cross-character semantic scope",
+      "No below-threshold semantic injection",
+      "No semantic success attribution after provider failure",
+      "No provider-row deletion during lexical rebuild",
+      "No reuse across model, content, or dimension mismatch"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run src/engine/generation/canonical-memory-context.spec.ts src/engine/generation/start-generation.memory-recall.e2e.spec.ts src/shared/api/canonical-memory-api.spec.ts src/shared/api/storage-api.spec.ts src/shared/api/remote-runtime.spec.ts (65 tests)",
+      "cargo test --manifest-path src-tauri/Cargo.toml canonical_memory (15 tests)",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "cargo check --manifest-path src-tauri/Cargo.toml",
+      "pnpm build",
+      "pnpm check"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 0,
+    "url": "",
+    "headRefName": "feat/canonical-semantic-memory",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": false,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "The existing Discover entry already explains character-wide memory and embedding-based ranking; the connection helper copy now names Character Memory explicitly.",
+    "No canonical memory content or API credentials are logged by this change."
+  ]
+}

@@ -1,6 +1,6 @@
 # Canonical Memory Architecture
 
-Phase 2 introduces canonical memory records as the source of truth for long-lived De-Koi memory. Legacy `chats.memories[]` remains supported for Memory Recall, but it is not backfilled into canonical memory and canonical memory is not injected into prompts automatically in this phase.
+Canonical memory records are the source of truth for long-lived De-Koi memory. Legacy `chats.memories[]` remains supported for chat-local Memory Recall. Eligible chat, scene, and character canonical memories are retrieved into generation prompts through a bounded context block.
 
 ## Canonical Records
 
@@ -39,7 +39,15 @@ Retrieval projection rows live in `memory-index-rows`. They are rebuildable and 
 
 Query behavior always resolves index hits back to canonical memory records. Canonical status wins over an index hit: `deleted`, `superseded`, and `stale` records are excluded by default even if an index row matches. Rows whose `canonicalUpdatedAt` no longer matches the canonical record are treated as stale and ignored.
 
-Canonical edits that change content, kind, scope, provenance, status, confidence, tags, payload, title, or supersession links invalidate projection rows for that memory. Soft deletion sets status to `deleted` and removes index rows.
+Canonical edits make provider projections stale through their `canonicalUpdatedAt` and content hash. The next semantic query lazily replaces stale or missing provider vectors for the resolved embedding connection and model. Lexical projection replacement does not delete provider projections. Soft deletion sets status to `deleted` and removes every index row for that memory.
+
+## Semantic Retrieval
+
+When the active chat or generation connection resolves to a configured embedding model, canonical retrieval embeds the user query and lazily embeds only missing or stale scoped memories. Provider vectors are cached per memory, resolved embedding connection, provider, and model. Cosine similarity supplies semantic ranking evidence; results below the default `0.28` similarity threshold do not qualify a memory by meaning alone.
+
+The scoped candidate query happens before vectorization. Group turns therefore retain the existing source-sensitive targeting contract: a Jester-targeted turn can retrieve shared chat/scene memories and Jester's character memories, but not another group member's character scope.
+
+Provider vectors are derived cache data. A missing embedding model, unsupported provider authentication mode, network failure, invalid vector, or other semantic-query error leaves generation on the existing lexical/pinned retrieval path. These failures never mutate canonical records and never block durable memory capture.
 
 ## Lexical Fallback
 

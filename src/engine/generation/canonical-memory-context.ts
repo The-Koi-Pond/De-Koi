@@ -1,7 +1,13 @@
 import { getEffectiveMemoryRecallEnabled, type GenerationContextAttributionItem } from "../contracts/types/chat";
 import type { CharacterMemoryPersistence } from "../contracts/types/character";
 import type { StorageGateway } from "../capabilities/storage";
-import type { CanonicalMemoryQuery, CanonicalMemoryRecord, MemoryKind, MemoryScope } from "../contracts/types/memory";
+import type {
+  CanonicalMemoryQuery,
+  CanonicalMemoryRecord,
+  CanonicalMemorySemanticMatch,
+  MemoryKind,
+  MemoryScope,
+} from "../contracts/types/memory";
 import { hiddenFromAi, isRecord, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 import { effectiveCharacterMemoryPersistence } from "./character-memory-scope";
 import { prepareMemoryPromptContent, resolveMemoryUserIdentity } from "./memory-prompt-content";
@@ -24,6 +30,9 @@ interface CanonicalMemoryCandidate {
   metadataScore: number;
   score: number;
   reasons: string[];
+  retrievalSource: "semantic" | "lexical" | "lexical-fallback" | "pinned";
+  semanticEvidence?: Omit<CanonicalMemorySemanticMatch, "memory" | "similarity">;
+  semanticFallback?: string;
 }
 
 export interface CanonicalMemoryContextInput {
@@ -32,6 +41,7 @@ export interface CanonicalMemoryContextInput {
   latestUserInput: string;
   characters: CanonicalMemoryCharacterContext[];
   personaName?: string | null;
+  connectionId?: string | null;
   maxContext?: number | null;
 }
 
@@ -52,6 +62,8 @@ const MAX_SCOPE_CHARACTER_IDS = 8;
 const MAX_CANDIDATE_MEMORIES = 60;
 const MAX_PROMPT_MEMORIES = 10;
 const MIN_CANONICAL_MEMORY_SCORE = 0.12;
+const SEMANTIC_SIMILARITY_THRESHOLD = 0.28;
+const SEMANTIC_CANDIDATE_LIMIT = 24;
 
 const STOPWORDS = new Set([
   "about",
@@ -198,14 +210,15 @@ function scoreCandidate(
   input: CanonicalMemoryContextInput,
   queryTokens: string[],
   indexSource: MemoryIndexSource,
+  semanticMatch?: CanonicalMemorySemanticMatch,
+  semanticFallback?: string,
 ): CanonicalMemoryCandidate {
   const lexicalScore = lexicalOverlap(queryTokens, memory);
   const lexicalCoverage = queryTokens.length > 0 ? lexicalScore / queryTokens.length : 0;
   const entityTokens = metadataEntityTokens(input);
   const entityScore = entityTokens.length > 0 ? lexicalOverlap(entityTokens, memory) / entityTokens.length : 0;
-  // The current index API returns scoped rows, not query similarity. Index
-  // membership is retrieval provenance and must not qualify a memory as relevant.
-  const semanticScore = 0;
+  const semanticScore =
+    semanticMatch && Number.isFinite(semanticMatch.similarity) ? Math.max(0, Math.min(1, semanticMatch.similarity)) : 0;
   const importance = payloadNumber(memory, "importance");
   const metadataScore =
     Math.min(0.18, lexicalCoverage * 0.18) +
@@ -220,6 +233,8 @@ function scoreCandidate(
   const score = semanticScore + metadataScore;
   const reasons = [
     ...(indexSource === "index" ? ["index_candidate"] : ["lexical_fallback"]),
+    ...(semanticScore >= SEMANTIC_SIMILARITY_THRESHOLD ? ["semantic_match"] : []),
+    ...(semanticFallback ? ["semantic_unavailable"] : []),
     ...(lexicalScore > 0 ? ["keyword_match"] : []),
     ...(entityScore > 0 ? ["entity_match"] : []),
     ...(characterMatch(memory, input.characters) ? ["active_character_match"] : []),
@@ -228,7 +243,34 @@ function scoreCandidate(
     ...(memory.status === "pinned" ? ["pinned"] : []),
     ...(importance > 0 ? ["importance"] : []),
   ];
-  return { memory, indexSource, lexicalScore, semanticScore, metadataScore, score, reasons };
+  const retrievalSource =
+    semanticScore >= SEMANTIC_SIMILARITY_THRESHOLD
+      ? "semantic"
+      : semanticFallback
+        ? "lexical-fallback"
+        : memory.status === "pinned"
+          ? "pinned"
+          : "lexical";
+  return {
+    memory,
+    indexSource,
+    lexicalScore,
+    semanticScore,
+    metadataScore,
+    score,
+    reasons,
+    retrievalSource,
+    ...(semanticMatch
+      ? {
+          semanticEvidence: {
+            connectionId: semanticMatch.connectionId,
+            provider: semanticMatch.provider,
+            model: semanticMatch.model,
+          },
+        }
+      : {}),
+    ...(semanticFallback ? { semanticFallback } : {}),
+  };
 }
 
 function activeMemory(memory: CanonicalMemoryRecord): boolean {
@@ -457,11 +499,28 @@ function attributionForCandidate(
       confidence: candidate.memory.confidence,
       lexicalScore: candidate.lexicalScore,
       semanticScore: candidate.semanticScore,
+      retrievalSource: candidate.retrievalSource,
+      semanticProvider: candidate.semanticEvidence?.provider,
+      semanticModel: candidate.semanticEvidence?.model,
+      semanticConnectionId: candidate.semanticEvidence?.connectionId,
+      semanticFallback: candidate.semanticFallback,
       metadataScore: candidate.metadataScore,
       score: candidate.score,
       reasons: candidate.reasons,
     },
   };
+}
+
+function semanticFallbackCode(error: unknown): string {
+  if (isRecord(error)) {
+    const code = readString(error.code).trim();
+    if (code) return code.slice(0, 80);
+    if (isRecord(error.details)) {
+      const detailsCode = readString(error.details.code).trim();
+      if (detailsCode) return detailsCode.slice(0, 80);
+    }
+  }
+  return "unavailable";
 }
 
 export async function buildCanonicalMemoryContext(
@@ -470,15 +529,65 @@ export async function buildCanonicalMemoryContext(
 ): Promise<CanonicalMemoryPromptContext | null> {
   if (!canonicalMemoryEnabled(input.chat) || !input.latestUserInput.trim()) return null;
   const queryTokens = lexicalTokens(input.latestUserInput);
-  if (queryTokens.length === 0) return null;
+  const connectionId = readString(input.connectionId).trim();
+  const semanticQuery = storage.querySemanticMemories;
+  if (queryTokens.length === 0 && (!semanticQuery || !connectionId)) return null;
 
-  const rows = await collectMemoryRows(storage, input);
+  const queries = scopeQueries(input);
+  const semanticResultPromise =
+    semanticQuery && connectionId
+      ? semanticQuery({
+          queryText: input.latestUserInput,
+          queries,
+          connectionId,
+          limit: SEMANTIC_CANDIDATE_LIMIT,
+          similarityThreshold: SEMANTIC_SIMILARITY_THRESHOLD,
+        })
+          .then((matches) => ({ matches, fallback: undefined as string | undefined }))
+          .catch((error: unknown) => ({
+            matches: [] as CanonicalMemorySemanticMatch[],
+            fallback: semanticFallbackCode(error),
+          }))
+      : Promise.resolve({ matches: [] as CanonicalMemorySemanticMatch[], fallback: undefined as string | undefined });
+  const [collectedRows, semanticResult] = await Promise.all([collectMemoryRows(storage, input), semanticResultPromise]);
+  const allowedScopeKeys = new Set(
+    queries.map((query) => (query.scope ? `${query.scope.kind}:${query.scope.id}` : "")),
+  );
+  const semanticById = new Map(
+    semanticResult.matches
+      .filter(
+        (match) =>
+          validMemoryRecord(match.memory) &&
+          allowedScopeKeys.has(`${match.memory.scope.kind}:${match.memory.scope.id}`) &&
+          Number.isFinite(match.similarity),
+      )
+      .map((match) => [match.memory.id, match] as const),
+  );
+  const rows = [...collectedRows];
+  const collectedIds = new Set(rows.map((row) => row.memory.id));
+  for (const match of semanticById.values()) {
+    if (!collectedIds.has(match.memory.id)) rows.push({ memory: match.memory, source: "index" });
+  }
   const candidates = rows
     .filter((row) => validMemoryRecord(row.memory))
-    .map((row) => scoreCandidate(row.memory, input, queryTokens, row.source));
+    .map((row) =>
+      scoreCandidate(
+        row.memory,
+        input,
+        queryTokens,
+        row.source,
+        semanticById.get(row.memory.id),
+        semanticResult.fallback,
+      ),
+    );
   const consideredCount = candidates.length;
   const ranked = dedupeAndFilterCandidates(candidates, input)
-    .filter((candidate) => candidate.lexicalScore > 0 || candidate.memory.status === "pinned")
+    .filter(
+      (candidate) =>
+        candidate.lexicalScore > 0 ||
+        candidate.semanticScore >= SEMANTIC_SIMILARITY_THRESHOLD ||
+        candidate.memory.status === "pinned",
+    )
     .filter((candidate) => candidate.score >= MIN_CANONICAL_MEMORY_SCORE || candidate.memory.status === "pinned")
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_CANDIDATE_MEMORIES);

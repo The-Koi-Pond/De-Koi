@@ -1907,7 +1907,7 @@ export function ConnectionEditor() {
             )}
           </FieldGroup>
 
-          {/* ── Embedding Model (for lorebook vectorization) ── */}
+          {/* ── Embedding Model (for semantic retrieval) ── */}
           {usesLocalAuthProvider ? (
             <FieldGroup
               label="Embedding Connection"
@@ -1951,8 +1951,8 @@ export function ConnectionEditor() {
                 placeholder="e.g. text-embedding-3-small"
               />
               <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                Used for lorebook semantic search. Entries matching by meaning (not just keywords) will be included in
-                the prompt.
+                Used for semantic lorebook search and Character Memory recall, so relevant details can match by meaning
+                instead of exact keywords.
               </p>
 
               {/* Embedding Base URL Override */}

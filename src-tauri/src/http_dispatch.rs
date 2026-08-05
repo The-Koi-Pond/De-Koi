@@ -1062,6 +1062,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             })
             .await
         }
+        "memory_query_semantic" => {
+            canonical_memory::query_memories_semantic(state, optional_value(&args, "body")).await
+        }
         "memory_cleanup_apply" => {
             memory_maintenance::apply_memory_cleanup(state, optional_value(&args, "body")).await
         }

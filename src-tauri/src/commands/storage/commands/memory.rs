@@ -39,6 +39,14 @@ pub fn memory_query_batch(state: State<'_, AppState>, body: Value) -> Result<Val
 }
 
 #[tauri::command]
+pub async fn memory_query_semantic(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    canonical_memory::query_memories_semantic(&state, body).await
+}
+
+#[tauri::command]
 pub fn memory_index_upsert(state: State<'_, AppState>, row: Value) -> Result<Value, AppError> {
     canonical_memory::upsert_memory_index_row(&state, row)
 }
