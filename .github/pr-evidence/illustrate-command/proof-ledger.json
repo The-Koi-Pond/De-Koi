@@ -221,8 +221,8 @@
     }
   ],
   "pr": {
-    "url": "pending",
-    "evidencePublished": false,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1220",
+    "evidencePublished": true,
     "checks": "Focused local checks and full pnpm check passed; hosted checks pending.",
     "automatedReview": "Local Bunny passed; hosted current-head Bunny pending."
   }
