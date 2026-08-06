@@ -128,8 +128,8 @@
     }
   ],
   "pr": {
-    "url": null,
-    "evidencePublished": false,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1221",
+    "evidencePublished": true,
     "checks": "Local focused tests, pnpm check, and pnpm build passed; hosted checks pending.",
     "automatedReview": "Local Bunny and independent whole-diff review passed; hosted current-head Bunny pending."
   }
