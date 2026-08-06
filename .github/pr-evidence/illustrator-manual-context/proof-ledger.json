@@ -1,0 +1,188 @@
+{
+  "coreClaim": "Manual Illustrator paintbrush retries preserve the manual-request signal so the agent can use conversation context and repair a declined prompt before image generation.",
+  "scope": {
+    "inScope": [
+      "Conversation and roleplay manual Illustrator retries",
+      "Illustrator manual-request prompt extras",
+      "Declined-prompt repair before the selected-message fallback"
+    ],
+    "outOfScope": [
+      "Automatic Illustrator cadence and significance decisions",
+      "Image provider transport and model behavior",
+      "Global Illustrator context-size defaults",
+      "Game image generation"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/start-generation.ts",
+      "src/engine/generation/start-generation.retry-agents.spec.ts",
+      ".github/pr-evidence/illustrator-manual-context/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "generation routing",
+      "conversation and roleplay shared retry path"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Manual Illustrator paintbrush retries preserve the manual-request signal from the UI retry input through agent prompt construction and declined-response repair.",
+    "riskType": "prompt and generation routing",
+    "entrypoints": [
+      "Conversation message paintbrush action",
+      "Roleplay message paintbrush action",
+      "retryGenerationAgents"
+    ],
+    "currentPathsOrFormats": [
+      "RetryAgentsInput.options.illustratorManualRequest",
+      "GenerationAgentRuntimeInput.illustratorManualRequest",
+      "AgentContext.memory._illustratorManualRequest",
+      "<manual_illustration_request> prompt block"
+    ],
+    "legacyPathsOrFormats": [
+      "Manual selected-message fallback after repeated declined or unusable agent responses"
+    ],
+    "outOfScopeClaims": [
+      "This change does not increase the global Illustrator context window.",
+      "This change does not alter automatic Illustrator cadence or image-provider behavior."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The manual paintbrush option reached fallback handling but was dropped before createGenerationAgentRuntime, so the runtime could not add manual instructions or repair a declined response.",
+    "producer": "The conversation and roleplay paintbrush action sets RetryAgentsInput.options.illustratorManualRequest to true.",
+    "consumer": "buildAgentContext and the Illustrator executor consume GenerationAgentRuntimeInput.illustratorManualRequest to add prompt instructions and enable repair.",
+    "impliedContract": "A true manual paintbrush option must remain true through the retry orchestrator into the agent runtime.",
+    "actualEnforcement": "runGenerationAgentsForTarget now passes the option directly into createGenerationAgentRuntime; the public retry test observes the manual prompt block and repair call.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "start-generation.ts owns retry orchestration and agent-runner.ts owns agent runtime context construction.",
+    "consumerOnlyLanes": [
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not copy conversation text into the UI or expand the context-blind image fallback; preserve the existing engine runtime contract.",
+    "regressionProof": [
+      "The focused public-seam test fails before the fix with one LLM request and passes after the fix with the initial contextual request plus a repair request.",
+      "The existing fallback test still passes when both model responses remain unusable."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A declined manual Illustrator response is repaired with the selected conversation context.",
+        "evidence": "The focused retryGenerationAgents test observes two LLM requests, the manual prompt block, prior user context, the selected assistant response, and the repaired prompt delivered to image generation."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Repeated unusable Illustrator responses must not remove the existing last-resort fallback.",
+        "evidence": "The existing selected-message fallback test remains green after the flag handoff."
+      },
+      {
+        "claim": "Automatic Illustrator runs must not be converted into manual requests.",
+        "evidence": "The new handoff is strictly true only when input.options.illustratorManualRequest is true; omitted and false values remain false."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "The default selected-message fallback remains available after repair cannot obtain a usable prompt.",
+        "evidence": "The full 25-test retry-agent suite includes and passes the existing fallback behavior."
+      }
+    ],
+    "untestedRows": [
+      "A post-merge live Pi image-quality rerun is not part of non-destructive deployment proof."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The reported live Pi run persisted the deterministic fallback rather than a model-authored Illustrator prompt.",
+      "sourceType": "measured",
+      "evidence": "The agent run reported zero tokens, zero duration, and the manual fallback reason."
+    },
+    {
+      "description": "The missing handoff was between retry orchestration and the already-existing manual Illustrator runtime behavior.",
+      "sourceType": "derived",
+      "evidence": "Derived from start-generation.ts, agent-runner.ts, and agent-executor.ts before the change."
+    }
+  ],
+  "reproduction": {
+    "steps": [
+      "Inspect the latest live Pi Illustrator agent run for the reported conversation.",
+      "Confirm the persisted result used the zero-token manual selected-message fallback.",
+      "Exercise retryGenerationAgents with illustratorManualRequest enabled and an initial shouldGenerate=false result."
+    ],
+    "reproducedBeforeFix": true,
+    "beforeEvidence": [
+      "The live Pi persisted a successful Illustrator result with zero tokens, zero duration, and reason 'Manual paintbrush fallback from the selected message.'",
+      "The focused test made one LLM request instead of the expected initial request plus manual repair request."
+    ]
+  },
+  "riskClaimMatrix": [
+    {
+      "coreClaim": "A manual paintbrush retry reaches Illustrator with its manual-request instruction and selected conversation context.",
+      "riskType": "prompt and generation routing",
+      "entrypoints": [
+        "Conversation message paintbrush action",
+        "Roleplay message paintbrush action",
+        "retryGenerationAgents"
+      ],
+      "currentPathsOrFormats": [
+        "RetryAgentsInput.options.illustratorManualRequest",
+        "GenerationAgentRuntimeInput.illustratorManualRequest",
+        "AgentContext.memory._illustratorManualRequest",
+        "<manual_illustration_request> prompt block"
+      ],
+      "legacyPathsOrFormats": [
+        "Manual selected-message fallback remains available after repeated declined or unusable agent responses"
+      ],
+      "positiveRowsTested": [
+        "Initial declined Illustrator response triggers a second repair request",
+        "Initial request contains the prior user message and selected assistant response",
+        "Repaired contextual prompt reaches image generation"
+      ],
+      "negativeRowsTested": [
+        "Repeated declined responses retain the existing selected-message fallback",
+        "Automatic runs omit the manual flag because the option is not true"
+      ],
+      "groundTruthFacts": [
+        "The manual flag was read by fallback handling but was not passed into createGenerationAgentRuntime.",
+        "The runtime already owns manual prompt instructions and declined-response repair when the flag is present.",
+        "Conversation and roleplay manual retries share runGenerationAgentsForTarget without a mode-specific branch."
+      ],
+      "userActionCopy": "No user-facing copy changes.",
+      "manualBlockers": [
+        "A fixed-build live Pi rerun requires the merged SHA's matched container images and is deferred to the requested deployment step."
+      ]
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Initial declined manual response",
+      "Second response supplies a usable contextual prompt",
+      "Repeated declined responses"
+    ],
+    "negativeRowsTested": [
+      "Existing fallback remains after two unusable responses",
+      "No UI, provider, storage, Rust, or remote-runtime boundary changed"
+    ],
+    "afterEvidence": [
+      "Focused red-green Vitest failed before the flag handoff with one request and passed after it with two requests.",
+      "start-generation.retry-agents.spec.ts passed 25 of 25 tests.",
+      "pnpm typecheck passed.",
+      "pnpm check:architecture passed.",
+      "pnpm check passed."
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi paintbrush rerun",
+      "blockingCoreClaim": false,
+      "reason": "The prompt-routing contract is covered at the public engine seam; a live image-quality rerun requires an intentional model and image-generation action, while deployment proof verifies the exact build without creating new user content."
+    }
+  ],
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1219",
+    "evidencePublished": true,
+    "checks": "Local focused tests and pnpm check passed; hosted checks pending.",
+    "automatedReview": "Local Bunny passed with no findings; hosted current-head Bunny pending."
+  }
+}
