@@ -161,7 +161,8 @@ export const imageGenerationApi = {
   avatarPreview: <T = unknown>(body: Record<string, unknown>) =>
     invokeTauri<T>("avatar_generation_preview_command", { body }),
   avatarGenerate: <T = unknown>(body: Record<string, unknown>) => invokeTauri<T>("avatar_generation_command", { body }),
-  generate: (body: Record<string, unknown>) => invokeTauri<GeneratedImageResult>("image_generate", { body }),
+  generate: (body: Record<string, unknown>) =>
+    invokeTauri<GeneratedImageResult>("image_generate", { body }, { timeoutMs: null }),
 };
 
 type CharacterGalleryUploadRecord = {
