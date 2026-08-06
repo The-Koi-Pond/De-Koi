@@ -167,7 +167,7 @@ describe("agent lore context profiles", () => {
       expect(prompt.split(value)).toHaveLength(2);
     }
     expect(prompt).toContain("<lore><characters>");
-    expect(prompt).not.toContain("<character_cards>");
+    expect(prompt).toContain('<character id="char-1" name="Mira">');
   });
 
   it("restores full identity fields when a compact agent is batched with the card auditor", async () => {

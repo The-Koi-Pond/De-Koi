@@ -34,6 +34,33 @@ describe("buildSummaryContextProjection", () => {
     expect(projection.text).not.toContain("Scene continuity owned elsewhere");
   });
 
+  it("uses only the canonical mode field for default scene-summary ownership", () => {
+    const canonicalConversation = buildSummaryContextProjection({
+      chat: {
+        mode: "conversation",
+        chatMode: "roleplay",
+        metadata: {
+          crossChatAwareness: false,
+          lastRoleplaySceneSummary: "Conflicting legacy mode must not own this scene",
+        },
+      },
+      budgetTokens: 512,
+    });
+    const unsupportedMode = buildSummaryContextProjection({
+      chat: {
+        mode: "future-mode",
+        metadata: {
+          crossChatAwareness: false,
+          lastRoleplaySceneSummary: "Unknown modes must fail closed",
+        },
+      },
+      budgetTokens: 512,
+    });
+
+    expect(canonicalConversation.text).toBeNull();
+    expect(unsupportedMode.text).toBeNull();
+  });
+
   it("projects a completed week without repeating its daily summaries", () => {
     const projection = buildSummaryContextProjection({
       chat: {

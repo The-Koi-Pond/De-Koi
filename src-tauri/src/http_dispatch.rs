@@ -2435,6 +2435,25 @@ mod tests {
         let error = dispatch(
             &state,
             InvokeRequest {
+                command: "chat_summary_maps_patch".to_string(),
+                args: Some(json!({
+                    "chatId": "chat-1",
+                    "patch": {
+                        "weekSummaries": {
+                            "07.07.2025": { "summary": "Week", "keyDetails": [false] }
+                        }
+                    }
+                })),
+            },
+        )
+        .await
+        .expect_err("malformed weekly summary entries should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
                 command: "storage_update".to_string(),
                 args: Some(json!({
                     "entity": "chats",

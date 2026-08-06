@@ -161,6 +161,7 @@ export interface ChatTranscriptPort {
 
 export interface ChatMetadataPort {
   patchChatMetadata<T = unknown>(chatId: string, patch: Record<string, unknown>): Promise<T>;
+  /** Atomically merge typed day/week summary deltas; the runtime rejects every other field or entry shape. */
   patchChatSummaries<T = unknown>(chatId: string, patch: ChatSummaryMapsPatch): Promise<T>;
 }
 

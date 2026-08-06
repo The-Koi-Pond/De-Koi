@@ -68,6 +68,10 @@ function isMondayTimestamp(timestamp: number | null): timestamp is number {
   return timestamp !== null && new Date(timestamp).getUTCDay() === 1;
 }
 
+function summaryChatMode(value: unknown): "conversation" | "roleplay" | "game" {
+  return value === "roleplay" || value === "game" ? value : "conversation";
+}
+
 function summaryMapEntries(label: "Day" | "Week", value: unknown): SummaryMapEntry[] {
   return Object.entries(record(value))
     .map(([key, entry]) => ({ key, timestamp: dottedDateTimestamp(key), text: formatSummaryEntry(label, key, entry) }))
@@ -118,7 +122,7 @@ export function buildSummaryContextProjection(input: {
       entry.timestamp === null ||
       !weeklyRanges.some((range) => entry.timestamp! >= range.start && entry.timestamp! <= range.end),
   );
-  const mode = textValue(input.chat.mode ?? input.chat.chatMode) || "conversation";
+  const mode = summaryChatMode(input.chat.mode);
   const includeSceneSummary =
     input.includeSceneSummary ?? (mode !== "conversation" || metadata.crossChatAwareness !== false);
   const rollingText = rollingEntries

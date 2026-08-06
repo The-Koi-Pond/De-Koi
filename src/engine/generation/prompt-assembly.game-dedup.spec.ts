@@ -249,6 +249,17 @@ describe("prompt assembly ownership", () => {
         markerConfig: { type: "character", characterFields: ["creator_notes"] },
       },
       {
+        id: "character-aliases",
+        enabled: true,
+        sortOrder: 3.5,
+        name: "Character Aliases",
+        role: "system",
+        markerConfig: {
+          type: "character",
+          characterFields: ["firstMes", "mesExample", "creatorNotes", "systemPrompt", "postHistoryInstructions"],
+        },
+      },
+      {
         id: "dialogue-examples",
         enabled: true,
         sortOrder: 4,
