@@ -466,6 +466,57 @@ describe("showAgentWarningToast", () => {
   });
 });
 describe("runGenerationWithUi", () => {
+  it("shows an optimistic user message for an image-only send", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-image-only-optimistic";
+    const attachment = {
+      type: "image/png",
+      data: "data:image/png;base64,current-image",
+      filename: "image.png",
+    };
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+    queryClient.setQueryData(chatKeys.messages(chatId), {
+      pages: [[]],
+      pageParams: [undefined],
+    });
+
+    let markStreamStarted!: () => void;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    let releaseStream!: () => void;
+    const waitForStream = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      markStreamStarted();
+      await waitForStream;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId, userMessage: "", attachments: [attachment] }, stream);
+    try {
+      await streamStarted;
+
+      const optimisticRows = queryClient.getQueryData<{ pages: Message[][] }>(chatKeys.messages(chatId))?.pages.flat();
+      expect(optimisticRows).toEqual([
+        expect.objectContaining({
+          role: "user",
+          content: "",
+          extra: expect.objectContaining({ attachments: [attachment] }),
+        }),
+      ]);
+    } finally {
+      releaseStream();
+      await Promise.allSettled([run]);
+      queryClient.clear();
+    }
+  });
+
   it("keeps the optimistic user message when an older messages query finishes", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-stale-message-query";

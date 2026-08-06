@@ -38,7 +38,8 @@ function useResolvedMessageAttachmentImageSource(attachment: MessageAttachment):
   const directSrc = messageAttachmentImageSource(attachment);
   const filename = attachment.filename ?? attachment.name ?? null;
   const filePath = attachment.filePath ?? null;
-  const hasManagedGallery = hasText(filename) || hasText(filePath);
+  const hasManagedGallery =
+    hasText(attachment.galleryId) || hasText(filePath) || (!!directSrc && isLikelyFilesystemPath(directSrc));
   const fallbackSrc = useMemo(() => {
     if (!directSrc) return null;
     return hasManagedGallery && isLikelyFilesystemPath(directSrc) ? null : directSrc;
@@ -86,7 +87,9 @@ function useResolvedMessageAttachmentImageSource(attachment: MessageAttachment):
     };
   }, [fallbackSrc, filePath, filename, hasManagedGallery, resolutionKey]);
 
-  return resolvedState.key === resolutionKey ? (resolvedState.src ?? cachedResolvedSrc ?? fallbackSrc) : cachedResolvedSrc;
+  return resolvedState.key === resolutionKey
+    ? (resolvedState.src ?? cachedResolvedSrc ?? fallbackSrc)
+    : cachedResolvedSrc;
 }
 
 export function MessageAttachmentImagePreview({

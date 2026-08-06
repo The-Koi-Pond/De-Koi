@@ -253,8 +253,8 @@ function cachedPersonaSnapshot(queryClient: QueryClient, chatId: string) {
 function optimisticUserMessage(queryClient: QueryClient, args: GenerateArgs): Message | null {
   if (args.impersonate === true || readString(args.regenerateMessageId).trim()) return null;
   const content = readString(args.userMessage).trim() || readString(args.message).trim();
-  if (!content) return null;
   const attachments = Array.isArray(args.attachments) ? args.attachments : [];
+  if (!content && attachments.length === 0) return null;
   const personaSnapshot = cachedPersonaSnapshot(queryClient, args.chatId);
   const createdAt = new Date().toISOString();
   return {
