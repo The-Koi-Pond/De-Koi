@@ -56,9 +56,17 @@ describe("buildSummaryContextProjection", () => {
       },
       budgetTokens: 512,
     });
+    const legacyOnly = buildSummaryContextProjection({
+      chat: {
+        chatMode: "roleplay",
+        metadata: { lastRoleplaySceneSummary: "Legacy mode continuity remains available" },
+      },
+      budgetTokens: 512,
+    });
 
     expect(canonicalConversation.text).toBeNull();
     expect(unsupportedMode.text).toBeNull();
+    expect(legacyOnly.text).toContain("Legacy mode continuity remains available");
   });
 
   it("projects a completed week without repeating its daily summaries", () => {

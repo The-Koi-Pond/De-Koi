@@ -68,8 +68,11 @@ function isMondayTimestamp(timestamp: number | null): timestamp is number {
   return timestamp !== null && new Date(timestamp).getUTCDay() === 1;
 }
 
-function summaryChatMode(value: unknown): "conversation" | "roleplay" | "game" {
-  return value === "roleplay" || value === "game" ? value : "conversation";
+function summaryChatMode(chat: Record<string, unknown>): "conversation" | "roleplay" | "game" {
+  const canonicalMode = textValue(chat.mode);
+  if (canonicalMode) return canonicalMode === "roleplay" || canonicalMode === "game" ? canonicalMode : "conversation";
+  const legacyMode = textValue(chat.chatMode);
+  return legacyMode === "roleplay" || legacyMode === "game" ? legacyMode : "conversation";
 }
 
 function summaryMapEntries(label: "Day" | "Week", value: unknown): SummaryMapEntry[] {
@@ -122,7 +125,7 @@ export function buildSummaryContextProjection(input: {
       entry.timestamp === null ||
       !weeklyRanges.some((range) => entry.timestamp! >= range.start && entry.timestamp! <= range.end),
   );
-  const mode = summaryChatMode(input.chat.mode);
+  const mode = summaryChatMode(input.chat);
   const includeSceneSummary =
     input.includeSceneSummary ?? (mode !== "conversation" || metadata.crossChatAwareness !== false);
   const rollingText = rollingEntries
