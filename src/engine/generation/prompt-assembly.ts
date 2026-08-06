@@ -749,8 +749,8 @@ function appendGameCardFields(parts: string[], card: JsonRecord | undefined): vo
 }
 
 interface GamePromptPresetCoverage {
-  characterFieldsById: Map<string, Set<string>>;
-  projectedCharacterFields: Set<string>;
+  characterIds: Set<string>;
+  characterFields: Set<string>;
   persona: boolean;
   worldBefore: boolean;
   worldAfter: boolean;
@@ -785,13 +785,8 @@ function coverGameCharacterFields(
   characters: GenerationCharacterContext[],
   fields: string[],
 ): void {
-  const normalizedFields = fields.map(normalizedCharacterFieldName);
-  for (const field of normalizedFields) coverage.projectedCharacterFields.add(field);
-  for (const character of characters) {
-    const covered = coverage.characterFieldsById.get(character.id) ?? new Set<string>();
-    for (const field of normalizedFields) covered.add(field);
-    coverage.characterFieldsById.set(character.id, covered);
-  }
+  for (const character of characters) coverage.characterIds.add(character.id);
+  for (const field of fields) coverage.characterFields.add(normalizedCharacterFieldName(field));
 }
 
 function gameCardFieldCovered(
@@ -799,27 +794,7 @@ function gameCardFieldCovered(
   character: GenerationCharacterContext,
   fieldName: string,
 ): boolean {
-  return coverage.characterFieldsById.get(character.id)?.has(normalizedCharacterFieldName(fieldName)) === true;
-}
-
-function gameCharacterFieldValue(
-  character: GenerationCharacterContext,
-  fieldName: string,
-  context: GameCardRenderContext,
-): string {
-  if (fieldName === "scenario" && context.groupScenarioOverride.enabled) {
-    return resolveMacros(
-      context.groupScenarioOverride.text,
-      macroContextForCharacter(context.macros, character, context.groupScenarioOverride),
-      { trimResult: false },
-    );
-  }
-  return characterMarkerFieldValue(
-    character,
-    fieldName,
-    context.macros,
-    context.groupScenarioOverride.enabled ? NO_GROUP_SCENARIO_OVERRIDE : context.groupScenarioOverride,
-  );
+  return coverage.characterIds.has(character.id) && coverage.characterFields.has(normalizedCharacterFieldName(fieldName));
 }
 
 function characterCardText(
@@ -828,32 +803,44 @@ function characterCardText(
   context: GameCardRenderContext,
 ): string {
   const parts = [`Name: ${character.name}`];
-  const addField = (fieldName: string, label: string) => {
+  const addField = (fieldName: string) => {
     if (gameCardFieldCovered(context.coverage, character, fieldName)) return;
-    const value = gameCharacterFieldValue(character, fieldName, context);
+    const value =
+      fieldName === "scenario" && context.groupScenarioOverride.enabled
+        ? resolveMacros(
+            context.groupScenarioOverride.text,
+            macroContextForCharacter(context.macros, character, context.groupScenarioOverride),
+            { trimResult: false },
+          )
+        : characterMarkerFieldValue(
+            character,
+            fieldName,
+            context.macros,
+            context.groupScenarioOverride.enabled ? NO_GROUP_SCENARIO_OVERRIDE : context.groupScenarioOverride,
+          );
     if (fieldName === "scenario" && context.groupScenarioOverride.enabled) {
       if (context.emittedGroupScenarioValues.has(value)) return;
       context.emittedGroupScenarioValues.add(value);
     }
-    if (value) parts.push(`${label}: ${value}`);
+    if (value) parts.push(`${CHARACTER_FIELD_LABELS[fieldName] ?? fieldName}: ${value}`);
   };
-  addField("personality", "Personality");
-  addField("description", "Description");
-  addField("backstory", "Backstory");
-  addField("appearance", "Appearance");
-  addField("scenario", "Scenario");
+  for (const field of ["personality", "description", "backstory", "appearance", "scenario"]) addField(field);
   if (!gameCardFieldCovered(context.coverage, character, "public_profile")) {
-    const publicProfile = characterPublicProfileText(character.publicProfile);
-    const resolvedPublicProfile = publicProfile
-      ? resolveMacros(publicProfile, macroContextForCharacter(context.macros, character), { trimResult: false })
+    const rawPublicProfile = characterPublicProfileText(character.publicProfile);
+    const resolvedPublicProfile = rawPublicProfile
+      ? resolveMacros(rawPublicProfile, macroContextForCharacter(context.macros, character), { trimResult: false })
       : "";
     if (resolvedPublicProfile) parts.push(`Public Profile:\n${resolvedPublicProfile}`);
   }
-  addField("first_mes", "First Message");
-  addField("mes_example", "Example Dialogue");
-  addField("creator_notes", "Creator Notes");
-  addField("system_prompt", "System Prompt");
-  addField("post_history_instructions", "Post History Instructions");
+  for (const field of [
+    "first_mes",
+    "mes_example",
+    "creator_notes",
+    "system_prompt",
+    "post_history_instructions",
+  ]) {
+    addField(field);
+  }
   if (!gameCardFieldCovered(context.coverage, character, "memories") && character.memories?.length) {
     parts.push(`Memories:\n${character.memories.join("\n")}`);
   }
@@ -874,15 +861,11 @@ function personaCardText(
   if (!persona) return null;
   const parts = [`Name: ${persona.name}`];
   if (!context.coverage.persona) {
-    const addField = (label: string, value: string | undefined) => {
+    for (const field of ["description", "personality", "backstory", "appearance", "scenario"] as const) {
+      const value = persona[field];
       const resolved = value ? resolvePromptMacros(value, context.macros, false) : "";
-      if (resolved) parts.push(`${label}: ${resolved}`);
-    };
-    addField("Description", persona.description);
-    addField("Personality", persona.personality);
-    addField("Backstory", persona.backstory);
-    addField("Appearance", persona.appearance);
-    addField("Scenario", persona.scenario);
+      if (resolved) parts.push(`${CHARACTER_FIELD_LABELS[field]}: ${resolved}`);
+    }
   }
   appendGameCardFields(parts, gameCard);
   return parts.join("\n");
@@ -1685,13 +1668,13 @@ function renderCharacters(
   options: {
     compactCharacterCards?: boolean;
     conversationTargetId?: string | null;
-    characterFieldsOverride?: string[];
-    omittedSupplementalFields?: Set<string>;
+    omittedFields?: Set<string>;
   } = {},
 ): string {
-  const defaultFields =
-    options.characterFieldsOverride ?? characterMarkerFields(marker, options.compactCharacterCards === true);
-  const omittedSupplementalFields = options.omittedSupplementalFields ?? new Set<string>();
+  const omittedFields = options.omittedFields ?? new Set<string>();
+  const defaultFields = characterMarkerFields(marker, options.compactCharacterCards === true).filter(
+    (field) => !omittedFields.has(normalizedCharacterFieldName(field)),
+  );
   const compactTargetedConversation = !!options.conversationTargetId && !hasExplicitCharacterMarkerFields(marker);
   const characterBlocks = characters
     .map((character) => {
@@ -1701,10 +1684,10 @@ function renderCharacters(
         : defaultFields;
       const content = renderNamedFields(
         [
-          ["Name", omittedSupplementalFields.has("name") ? "" : character.name],
+          ["Name", omittedFields.has("name") ? "" : character.name],
           [
             "Public Profile",
-            compactTargetedConversation || omittedSupplementalFields.has("public_profile")
+            compactTargetedConversation || omittedFields.has("public_profile")
               ? ""
               : characterPublicProfileText(character.publicProfile),
           ],
@@ -1714,12 +1697,12 @@ function renderCharacters(
           ]),
           [
             "Behavioral Interpretation",
-            compactTargetedConversation || omittedSupplementalFields.has("behavioral_interpretation")
+            compactTargetedConversation || omittedFields.has("behavioral_interpretation")
               ? ""
               : (character.behavioralInterpretation ?? ""),
           ],
           ...(fields.includes("memories") ||
-          omittedSupplementalFields.has("memories") ||
+          omittedFields.has("memories") ||
           (compactTargetedConversation && !isConversationTarget)
             ? []
             : ([["Memories", character.memories?.join("\n") ?? ""]] as Array<[string, string]>)),
@@ -4190,8 +4173,7 @@ function sectionContent(args: {
   groupScenarioOverride: GroupScenarioOverride;
   compactCharacterCards: boolean;
   conversationTargetId: string | null;
-  characterFieldsOverride?: string[];
-  omittedCharacterSupplementalFields?: Set<string>;
+  omittedCharacterFields?: Set<string>;
   omitDialogueExamples?: boolean;
 }) {
   switch (args.marker?.type) {
@@ -4199,8 +4181,7 @@ function sectionContent(args: {
       return renderCharacters(args.characters, args.wrapFormat, args.marker, args.macros, args.groupScenarioOverride, {
         compactCharacterCards: args.compactCharacterCards,
         conversationTargetId: args.conversationTargetId,
-        characterFieldsOverride: args.characterFieldsOverride,
-        omittedSupplementalFields: args.omittedCharacterSupplementalFields,
+        omittedFields: args.omittedCharacterFields,
       });
     case "persona":
       return renderPersona(args.persona, args.wrapFormat);
@@ -4604,8 +4585,8 @@ export async function assembleGenerationPrompt(
   let presetDepthEntries: PromptDepthEntry[] = [];
   let hasPresetPromptContent = false;
   const gameCoverage: GamePromptPresetCoverage = {
-    characterFieldsById: new Map(),
-    projectedCharacterFields: new Set(),
+    characterIds: new Set(),
+    characterFields: new Set(),
     persona: false,
     worldBefore: false,
     worldAfter: false,
@@ -4632,25 +4613,19 @@ export async function assembleGenerationPrompt(
       let sectionPersona = persona;
       let sectionWorldBefore = processedLore.worldInfoBefore;
       let sectionWorldAfter = processedLore.worldInfoAfter;
-      let characterFieldsOverride: string[] | undefined;
-      let omittedCharacterSupplementalFields: Set<string> | undefined;
+      let omittedCharacterFields: Set<string> | undefined;
       let omitDialogueExamples = false;
       if (chatMode === "game") {
         switch (marker?.type) {
           case "character": {
             const requestedFields = characterMarkerFields(marker);
-            characterFieldsOverride = requestedFields.filter(
-              (field) => !gameCoverage.projectedCharacterFields.has(normalizedCharacterFieldName(field)),
-            );
             const supplementalFields = ["name", "public_profile", "behavioral_interpretation", "memories"];
-            omittedCharacterSupplementalFields = new Set(
-              supplementalFields.filter((field) => gameCoverage.projectedCharacterFields.has(field)),
-            );
+            omittedCharacterFields = new Set(gameCoverage.characterFields);
             coverGameCharacterFields(gameCoverage, promptCharacters, [...requestedFields, ...supplementalFields]);
             break;
           }
           case "dialogue_examples":
-            omitDialogueExamples = gameCoverage.projectedCharacterFields.has("mes_example");
+            omitDialogueExamples = gameCoverage.characterFields.has("mes_example");
             coverGameCharacterFields(gameCoverage, promptCharacters, ["mes_example"]);
             break;
           case "persona":
@@ -4687,8 +4662,7 @@ export async function assembleGenerationPrompt(
         groupScenarioOverride: activeGroupScenarioOverride,
         compactCharacterCards: compactMergedRoleplayCards,
         conversationTargetId: targetedConversationCharacterId,
-        characterFieldsOverride,
-        omittedCharacterSupplementalFields,
+        omittedCharacterFields,
         omitDialogueExamples,
       });
       const resolvedContent =
