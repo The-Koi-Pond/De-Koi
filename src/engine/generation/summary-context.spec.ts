@@ -17,6 +17,23 @@ function hasUnpairedSurrogate(text: string): boolean {
 }
 
 describe("buildSummaryContextProjection", () => {
+  it("lets the caller exclude a scene summary owned by another roleplay block", () => {
+    const projection = buildSummaryContextProjection({
+      chat: {
+        mode: "roleplay",
+        metadata: {
+          lastRoleplaySceneSummary: "Scene continuity owned elsewhere",
+          conversationSummary: "Legacy continuity still belongs here",
+        },
+      },
+      budgetTokens: 512,
+      includeSceneSummary: false,
+    });
+
+    expect(projection.text).toContain("Legacy continuity still belongs here");
+    expect(projection.text).not.toContain("Scene continuity owned elsewhere");
+  });
+
   it("projects a completed week without repeating its daily summaries", () => {
     const projection = buildSummaryContextProjection({
       chat: {

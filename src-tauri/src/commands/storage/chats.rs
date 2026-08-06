@@ -511,6 +511,46 @@ fn merge_chat_metadata(
     })
 }
 
+pub(crate) fn patch_chat_summary_maps(
+    state: &AppState,
+    chat_id: &str,
+    patch: Value,
+) -> AppResult<Value> {
+    const SUMMARY_MAP_FIELDS: [&str; 2] = ["daySummaries", "weekSummaries"];
+
+    let patch = patch
+        .as_object()
+        .ok_or_else(|| AppError::invalid_input("Summary patch must be an object"))?;
+    if patch.is_empty() {
+        return Err(AppError::invalid_input("Summary patch must not be empty"));
+    }
+
+    let mut deltas = Vec::with_capacity(patch.len());
+    for (field, value) in patch {
+        if !SUMMARY_MAP_FIELDS.contains(&field.as_str()) {
+            return Err(AppError::invalid_input(format!(
+                "Unsupported summary patch field: {field}"
+            )));
+        }
+        let entries = value.as_object().ok_or_else(|| {
+            AppError::invalid_input(format!("{field} summary delta must be an object"))
+        })?;
+        deltas.push((field.clone(), entries.clone()));
+    }
+
+    update_chat_metadata(state, chat_id, |metadata| {
+        for (field, entries) in deltas {
+            let mut summaries = metadata
+                .get(&field)
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            summaries.extend(entries);
+            metadata.insert(field, Value::Object(summaries));
+        }
+    })
+}
+
 fn apply_deleted_swipe_tracker_cleanup_in_collections(
     collections: &mut [AtomicCollectionRows],
     chat_id: &str,

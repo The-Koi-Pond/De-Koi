@@ -104,6 +104,7 @@ function truncateBlock(text: string, maxChars: number, fromEnd: boolean): string
 export function buildSummaryContextProjection(input: {
   chat: Record<string, unknown>;
   budgetTokens: number;
+  includeSceneSummary?: boolean;
 }): SummaryContextProjection {
   const metadata = record(input.chat.metadata);
   const rollingEntries = normalizeChatSummaryMetadata(metadata).entries.filter((entry) => entry.enabled);
@@ -118,7 +119,8 @@ export function buildSummaryContextProjection(input: {
       !weeklyRanges.some((range) => entry.timestamp! >= range.start && entry.timestamp! <= range.end),
   );
   const mode = textValue(input.chat.mode ?? input.chat.chatMode) || "conversation";
-  const includeSceneSummary = mode !== "conversation" || metadata.crossChatAwareness !== false;
+  const includeSceneSummary =
+    input.includeSceneSummary ?? (mode !== "conversation" || metadata.crossChatAwareness !== false);
   const rollingText = rollingEntries
     .map((entry) => entry.content.trim())
     .filter(Boolean)

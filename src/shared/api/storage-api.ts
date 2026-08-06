@@ -216,89 +216,8 @@ function chatMessageSwipeBody(content: string, options?: AddChatMessageSwipeOpti
   return body;
 }
 
-const DISCORD_WEBHOOK_URL_PATTERN = /^https:\/\/discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/;
-
-function normalizeChatInactiveCharacterIds(chat: Record<string, unknown>, value: unknown): string[] {
-  if (!Array.isArray(value) || value.some((id) => typeof id !== "string")) {
-    throw new ApiError("inactiveCharacterIds must be an array of strings", 400);
-  }
-  const activeIds = new Set(
-    Array.isArray(chat.characterIds) ? chat.characterIds.filter((id) => typeof id === "string") : [],
-  );
-  const normalized: string[] = [];
-  const seen = new Set<string>();
-  for (const rawId of value) {
-    const id = rawId.trim();
-    if (!id || !activeIds.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    normalized.push(id);
-  }
-  return normalized;
-}
-
-function normalizeChatMetadataPatch(
-  chat: Record<string, unknown>,
-  current: Record<string, unknown>,
-  patch: Record<string, unknown>,
-): Record<string, unknown> {
-  const metadata = { ...current };
-  for (const [key, value] of Object.entries(patch)) {
-    if (key === "discordWebhookUrl" || key === "inactiveCharacterIds") continue;
-    metadata[key] = value;
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "discordWebhookUrl")) {
-    const value = patch.discordWebhookUrl;
-    if (value === undefined || value === null) {
-      delete metadata.discordWebhookUrl;
-    } else {
-      if (typeof value !== "string") throw new ApiError("Discord webhook URL must be a string", 400);
-      const trimmed = value.trim();
-      if (trimmed && !DISCORD_WEBHOOK_URL_PATTERN.test(trimmed)) {
-        throw new ApiError("Invalid Discord webhook URL", 400);
-      }
-      if (trimmed) {
-        metadata.discordWebhookUrl = trimmed;
-      } else {
-        delete metadata.discordWebhookUrl;
-      }
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "inactiveCharacterIds")) {
-    metadata.inactiveCharacterIds = normalizeChatInactiveCharacterIds(chat, patch.inactiveCharacterIds);
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(patch, "activeAgentIds") &&
-    !Object.prototype.hasOwnProperty.call(patch, "enableAgents")
-  ) {
-    metadata.enableAgents = Array.isArray(metadata.activeAgentIds) && metadata.activeAgentIds.length > 0;
-  }
-  return metadata;
-}
-
 async function patchChatMetadataField<T>(chatId: string, patch: Record<string, unknown>): Promise<T> {
-  const chat = await storageApi.get<Record<string, unknown>>("chats", chatId, { fields: ["metadata", "characterIds"] });
-  if (!chat) throw new ApiError(`Chat ${chatId} was not found`, 404);
-  return storageApi.update<T>("chats", chatId, {
-    metadata: normalizeChatMetadataPatch(chat, asRecord(chat.metadata), patch),
-  });
-}
-
-// Day/week summary maps live inside chat metadata, but callers send only the
-// entries they changed (a delta), not the whole map. A plain metadata patch
-// would replace `metadata.daySummaries` with just the delta and drop every
-// other summary, so merge each map at the entry level instead.
-const SUMMARY_MAP_FIELDS = ["daySummaries", "weekSummaries"] as const;
-
-async function patchChatSummariesField<T>(chatId: string, patch: Record<string, unknown>): Promise<T> {
-  const chat = await storageApi.get<Record<string, unknown>>("chats", chatId, { fields: ["metadata"] });
-  if (!chat) throw new ApiError(`Chat ${chatId} was not found`, 404);
-  const current = asRecord(chat.metadata);
-  const metadata: Record<string, unknown> = { ...current };
-  for (const field of SUMMARY_MAP_FIELDS) {
-    if (patch[field] === undefined) continue;
-    metadata[field] = { ...asRecord(current[field]), ...asRecord(patch[field]) };
-  }
-  return storageApi.update<T>("chats", chatId, { metadata });
+  return storageApi.update<T>("chats", chatId, { metadata: patch });
 }
 
 function textField(value: unknown): string {
@@ -544,7 +463,8 @@ export const storageApi: StorageGateway = {
   evictPromptSnapshots: (chatId, keepLast) =>
     invokeTauri("chat_evict_prompt_snapshots", { chatId, keepLast }) as Promise<{ evicted: number }>,
   patchChatMetadata: (chatId, patch) => patchChatMetadataField(chatId, patch),
-  patchChatSummaries: (chatId, patch) => patchChatSummariesField(chatId, patch),
+  patchChatSummaries: <T = unknown>(chatId: string, patch: Record<string, unknown>) =>
+    invokeTauri<T>("chat_summary_maps_patch", { chatId, patch }, { timeoutMs: null }),
   listChatMemories: <T = unknown>(chatId: string, options?: ListChatMemoriesOptions) =>
     chatCommandApi.memoriesList<T[]>(chatId, options),
   refreshChatMemories: (chatId, options?: RefreshChatMemoriesOptions) =>

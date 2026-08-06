@@ -424,6 +424,7 @@ pub fn run() {
             storage_commands::chat_commands::chat_group_delete,
             storage_commands::chat_commands::chat_autonomous_unread_mark,
             storage_commands::chat_commands::chat_autonomous_unread_clear,
+            storage_commands::chat_commands::chat_summary_maps_patch,
             storage_commands::chat_commands::chat_messages_bulk_delete,
             storage_commands::chat_commands::chat_message_count,
             storage_commands::chat_commands::chat_sibling_conversation_context,

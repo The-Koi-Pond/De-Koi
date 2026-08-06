@@ -1,0 +1,136 @@
+{
+  "coreClaim": "De-Koi avoids five lossless sources of repeated LLM input while preserving prompt facts, generation semantics, summary durability, and desktop/remote behavior.",
+  "scope": {
+    "inScope": [
+      "Anthropic explicit prompt-cache breakpoints",
+      "Game character, persona, lore, and group-scenario prompt ownership",
+      "Roleplay scene-summary ownership",
+      "Daily and weekly summary durability under concurrent metadata writes",
+      "Card Evolution Auditor character-card context"
+    ],
+    "outOfScope": [
+      "Reordering wand prompts for cache locality",
+      "Changing model output or generation parameters",
+      "Changing memory-recall selection",
+      "UI or feature discovery changes"
+    ],
+    "riskFlags": [
+      "provider transport",
+      "prompt assembly",
+      "Rust storage",
+      "remote runtime"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Only repeated representations and ignored cache metadata are removed; each unique authored fact and durability boundary remains represented.",
+    "riskType": "prompt, provider, and persistence contracts",
+    "entrypoints": [
+      "Anthropic desktop and hostable requests",
+      "Game and roleplay generation",
+      "Conversation summary backfill",
+      "Card Evolution Auditor execution"
+    ],
+    "currentPathsOrFormats": [
+      "Anthropic system and message content blocks",
+      "Prompt preset markers plus canonical game prompt",
+      "chat_summary_maps_patch plus generic chat metadata patch",
+      "<lore><characters><character> auditor context"
+    ],
+    "legacyPathsOrFormats": [
+      "Caching-disabled Anthropic string request shape",
+      "No-preset game fallback",
+      "Desktop and remote-runtime command surfaces"
+    ],
+    "outOfScopeClaims": [
+      "No claim is made about live provider cache-hit rates or billing before deployment.",
+      "No wand prompt ordering change is included because it was not provably lossless."
+    ]
+  },
+  "riskClaimMatrix": [
+    {
+      "coreClaim": "Anthropic caching settings produce documented cache-control breakpoints without changing the disabled request shape.",
+      "riskType": "provider transport",
+      "entrypoints": ["desktop", "hostable runtime"],
+      "currentPathsOrFormats": ["system text blocks", "message text and image blocks"],
+      "legacyPathsOrFormats": ["joined system string", "plain message strings"],
+      "positiveRowsTested": ["system-only", "default depth", "depth zero", "older-depth clamp", "image message"],
+      "negativeRowsTested": ["caching disabled preserves prior JSON shape"],
+      "groundTruthFacts": ["Both entrypoints share marinara-llm request construction."],
+      "userActionCopy": "No user-facing copy changes.",
+      "manualBlockers": ["Credentialed cache-hit and billing observation is deferred; it does not block request-shape correctness."]
+    },
+    {
+      "coreClaim": "Game and roleplay prompts emit each owned fact once without losing unique content or marker semantics.",
+      "riskType": "prompt assembly",
+      "entrypoints": ["selected preset", "no-preset fallback", "game", "roleplay"],
+      "currentPathsOrFormats": ["character markers", "persona marker", "lore markers", "canonical GM prompt", "scene block"],
+      "legacyPathsOrFormats": ["preset roles, depth, order, grouping, context kinds, and macros"],
+      "positiveRowsTested": ["full unique field coverage", "shared and character-specific group scenarios", "combined lore", "roleplay scene continuity"],
+      "negativeRowsTested": ["no-preset fallback remains complete", "regeneration fingerprint remains scene-sensitive"],
+      "groundTruthFacts": ["Preset output remains in place; canonical rendering omits only fields already projected by enabled markers."],
+      "userActionCopy": "No user-facing copy changes.",
+      "manualBlockers": ["No live provider prompt-preview session was required because deterministic assembly output is directly tested."]
+    },
+    {
+      "coreClaim": "Generated daily summaries survive weekly consolidation failure and concurrent ordinary metadata writes.",
+      "riskType": "storage durability and cross-entrypoint parity",
+      "entrypoints": ["desktop Tauri", "remote /api/invoke"],
+      "currentPathsOrFormats": ["daySummaries", "weekSummaries", "chat metadata deltas"],
+      "legacyPathsOrFormats": ["generic chat metadata updates and validation"],
+      "positiveRowsTested": ["per-day awaited checkpoint", "day/week delta merge", "concurrent summary and ordinary metadata update"],
+      "negativeRowsTested": ["invalid patch shapes", "failed checkpoint excluded from weekly consolidation", "abort replay"],
+      "groundTruthFacts": ["Summary and ordinary metadata writes serialize through the same Rust patch_if write boundary."],
+      "userActionCopy": "No destructive operation or migration copy is involved.",
+      "manualBlockers": []
+    },
+    {
+      "coreClaim": "Card Evolution Auditor receives one full exact character representation.",
+      "riskType": "agent prompt contract",
+      "entrypoints": ["single-agent run", "mixed-agent batch"],
+      "currentPathsOrFormats": ["<lore><characters><character>"],
+      "legacyPathsOrFormats": ["exact characterId and oldText update contract"],
+      "positiveRowsTested": ["all ten editable fields and exact IDs appear once"],
+      "negativeRowsTested": ["mixed batch does not restore the removed <character_cards> duplicate"],
+      "groundTruthFacts": ["The canonical lore identity profile already contained the complete persisted card."],
+      "userActionCopy": "No user-facing copy changes.",
+      "manualBlockers": []
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "81 focused frontend tests",
+      "6 Anthropic caching tests",
+      "summary-map and metadata concurrency tests",
+      "desktop/remote command parity"
+    ],
+    "negativeRowsTested": [
+      "caching disabled",
+      "malformed summary patches",
+      "failed daily checkpoint",
+      "no-preset prompt fallback",
+      "regeneration fingerprint continuity"
+    ],
+    "afterEvidence": [
+      "pnpm check passed on the final origin/main base.",
+      "pnpm build passed on the final origin/main base.",
+      "Independent whole-diff review passed after both findings were repaired.",
+      "Local Bunny passed with no blocking findings."
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "manualBlockers": [
+    {
+      "item": "Live Anthropic cache-hit and billing observation",
+      "blockingCoreClaim": false,
+      "reason": "Request construction is covered deterministically; a live call would spend credentials and only verify provider-side accounting."
+    }
+  ],
+  "pr": {
+    "url": null,
+    "evidencePublished": false,
+    "checks": "Local focused tests, pnpm check, and pnpm build passed; hosted checks pending.",
+    "automatedReview": "Local Bunny and independent whole-diff review passed; hosted current-head Bunny pending."
+  }
+}
