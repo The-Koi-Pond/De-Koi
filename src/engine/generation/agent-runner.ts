@@ -124,6 +124,7 @@ export interface GenerationAgentRuntimeInput {
   spotifyDjManualRetry?: boolean;
   spotifyDjForceFreshPick?: boolean;
   illustratorManualRequest?: boolean;
+  illustratorGuidance?: string;
 }
 
 export interface GenerationAgentRuntime {
@@ -1600,7 +1601,11 @@ async function buildAgentContext(
   if (narrativeCraftState) memory._narrativeCraftState = narrativeCraftState;
   const personaId = readString(input.chat.personaId).trim();
   if (personaId) memory._personaId = personaId;
-  if (input.illustratorManualRequest === true) memory._illustratorManualRequest = true;
+  if (input.illustratorManualRequest === true) {
+    memory._illustratorManualRequest = true;
+    const illustratorGuidance = readString(input.illustratorGuidance).trim();
+    if (illustratorGuidance) memory._illustratorGuidance = illustratorGuidance;
+  }
   const musicDjConstraints = buildSpotifyDjConstraints(chatMode, chatMeta, {
     manualRetry: input.spotifyDjManualRetry === true,
     forceFreshPick: input.spotifyDjForceFreshPick === true,

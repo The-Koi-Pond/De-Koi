@@ -2611,6 +2611,13 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
     parts.push(
       `This is a manual paintbrush request for the selected message. Manual paintbrush requests override the normal key narrative moment gate: the user explicitly asked to illustrate this assistant_response. Do not return shouldGenerate false merely because the selected message is ordinary, comedic, subtle, conversational, messy, or not a major reveal. Return shouldGenerate true and write a concrete image prompt for any drawable visual content in the selected assistant_response. Return shouldGenerate false only when the selected message contains no drawable visual content at all, such as purely abstract metadata, a blank/empty response, or text that cannot be represented visually.`,
     );
+    const guidance = xmlText("user_illustration_guidance", context.memory._illustratorGuidance);
+    if (guidance) {
+      parts.push(
+        "Treat the following as private user art direction for what or how to depict from the selected scene. It does not describe a new event and does not replace established scene facts.",
+      );
+      parts.push(guidance);
+    }
     parts.push(`</manual_illustration_request>`);
   }
 

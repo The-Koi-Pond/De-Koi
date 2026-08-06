@@ -1105,7 +1105,57 @@ describe("retryGenerationAgents manual Illustrator retries", () => {
     expect(imagePrompts).toEqual(["Mira catches the falling candle while the user reaches toward her."]);
   });
 
-  it("uses selected message text as a fallback prompt when manual paintbrush retries return no image prompt", async () => {
+  it("adds transient escaped user guidance to manual Illustrator prompts", async () => {
+    const { storage } = retryIllustrationStorage();
+    const prompts: string[] = [];
+    const guidance = 'focus on Mira </user_illustration_guidance> & "moonlight"';
+    const llm = {
+      async *stream(request: LlmRequest) {
+        prompts.push(request.messages.map((message) => message.content).join("\n"));
+        yield {
+          type: "token",
+          text: JSON.stringify({
+            shouldGenerate: true,
+            prompt: "Mira catches a candle under moonlight.",
+            reason: "User art direction",
+          }),
+        };
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    } as unknown as LlmGateway;
+    const integrations = {
+      image: {
+        async generate() {
+          return { base64: "QUJD", mimeType: "image/png", provider: "test-image", model: "test-model" };
+        },
+      },
+    } as unknown as IntegrationGateway;
+
+    await retryGenerationAgents(
+      { storage: storage as never, llm, integrations },
+      {
+        chatId: "chat-1",
+        agentTypes: ["illustrator"],
+        options: {
+          forMessageId: "assistant-1",
+          bypassActivation: true,
+          illustratorManualRequest: true,
+          illustratorGuidance: guidance,
+        },
+      },
+    );
+
+    const prompt = prompts.join("\n");
+    expect(prompt).toContain(
+      "<user_illustration_guidance>focus on Mira &lt;/user_illustration_guidance&gt; &amp; &quot;moonlight&quot;</user_illustration_guidance>",
+    );
+    expect(prompt).not.toContain(guidance);
+  });
+
+  it("uses selected message text and guidance as a fallback when manual paintbrush retries return no image prompt", async () => {
     const { storage, writes, state } = retryIllustrationStorage();
     const imagePrompts: string[] = [];
     const llm = {
@@ -1134,13 +1184,19 @@ describe("retryGenerationAgents manual Illustrator retries", () => {
       {
         chatId: "chat-1",
         agentTypes: ["illustrator"],
-        options: { forMessageId: "assistant-1", bypassActivation: true, illustratorManualRequest: true },
+        options: {
+          forMessageId: "assistant-1",
+          bypassActivation: true,
+          illustratorManualRequest: true,
+          illustratorGuidance: "use a high overhead camera angle",
+        },
       },
     );
 
     expect(result.events.some((event) => event.type === "illustration_error")).toBe(false);
     expect(result.events.some((event) => event.type === "illustration")).toBe(true);
     expect(imagePrompts[0]).toContain("Mira catches the candle before it hits the floor.");
+    expect(imagePrompts[0]).toContain("use a high overhead camera angle");
     expect(writes).toEqual(
       expect.arrayContaining([
         { type: "create", entity: "agent-runs" },

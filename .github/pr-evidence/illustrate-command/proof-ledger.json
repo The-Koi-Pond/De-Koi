@@ -1,0 +1,229 @@
+{
+  "coreClaim": "Conversation and Roleplay users can run /illustrate with optional invisible free-form art direction, and De-Koi carries that guidance through the existing manual Illustrator prompt and deterministic fallback without persisting a chat message.",
+  "scope": {
+    "inScope": [
+      "/illustrate slash-command parsing, help, and autocomplete",
+      "Conversation and Roleplay input dispatch to the existing manual Illustrator retry",
+      "Transient prompt guidance and XML delimiter escaping",
+      "Selected-message fallback preservation of optional guidance",
+      "Slash Commands discovery metadata"
+    ],
+    "outOfScope": [
+      "Automatic Illustrator cadence and significance decisions",
+      "Image provider transport, model selection, and image quality",
+      "Message-number targeting and saved art-direction presets",
+      "Game image generation",
+      "Storage schemas, Rust commands, and remote-runtime routes"
+    ],
+    "intendedFiles": [
+      "src/shared/lib/slash-commands.ts",
+      "src/shared/lib/slash-commands.spec.ts",
+      "src/features/modes/shared/chat-ui/components/ChatInput.tsx",
+      "src/features/modes/conversation/components/ConversationInput.tsx",
+      "src/engine/generation/start-generation.ts",
+      "src/engine/generation/start-generation.retry-agents.spec.ts",
+      "src/engine/generation/agent-runner.ts",
+      "src/engine/agents-runtime/executor/agent-executor.ts",
+      "src/features/shell/discovery/discovery-entries.json",
+      "docs/superpowers/specs/2026-08-06-illustrate-command-design.md",
+      "docs/superpowers/plans/2026-08-06-illustrate-command.md",
+      ".github/pr-evidence/illustrate-command/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "cross-entrypoint command dispatch",
+      "manual Illustrator fallback",
+      "transcript invisibility"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The new command privately targets the latest visible assistant response and uses optional trailing text only as art direction for that manual illustration request.",
+    "riskType": "prompt assembly and cross-entrypoint generation routing",
+    "entrypoints": [
+      "ConversationInput slash-command submission",
+      "Shared ChatInput slash-command submission for Roleplay",
+      "retryGenerationAgents"
+    ],
+    "currentPathsOrFormats": [
+      "SlashCommandContext.illustrate({ forMessageId, guidance? })",
+      "RetryAgentsInput.options.illustratorManualRequest",
+      "RetryAgentsInput.options.illustratorGuidance",
+      "GenerationAgentRuntimeInput.illustratorGuidance",
+      "AgentContext.memory._illustratorGuidance",
+      "<user_illustration_guidance> prompt element",
+      "manualIllustratorFallbackPrompt"
+    ],
+    "legacyPathsOrFormats": [
+      "Guidance-free manual paintbrush retries",
+      "Selected-message fallback after repeated declined or unusable Illustrator responses"
+    ],
+    "outOfScopeClaims": [
+      "This change does not alter provider behavior or promise a specific image quality.",
+      "This change does not add guidance to automatic Illustrator runs.",
+      "This change does not make /illustrate available in Game mode."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "De-Koi had a manual message paintbrush action but no typed slash command capable of privately forwarding arbitrary user art direction into that existing scene-aware pipeline.",
+    "producer": "The slash-command registry parses optional trailing guidance and dispatches the latest assistant message ID through a narrow injected action.",
+    "consumer": "The generation retry orchestrator, agent runner, and Illustrator executor consume the manual flag and optional guidance to build the image prompt.",
+    "impliedContract": "Slash guidance must remain invisible, stay scoped to one manual request, preserve current scene facts, survive fallback, and never corrupt prompt delimiters.",
+    "actualEnforcement": "Both input owners adapt SlashCommandContext.illustrate to retryAgents; start-generation trims the option; agent-runner stores it only in current-run context; agent-executor XML-escapes it; the deterministic fallback appends it to the selected-message prompt.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src/shared/lib/slash-commands.ts owns command semantics; src/engine owns generation and prompt behavior; React inputs only inject retryAgents.",
+    "consumerOnlyLanes": ["src/features"],
+    "wrongLaneFixToAvoid": "Do not persist a synthetic hidden user message, add a second image pipeline, or duplicate prompt construction in React mode inputs.",
+    "regressionProof": [
+      "The slash-command test failed before registration and passed after, proving arbitrary trimmed guidance, no createMessage call, no normal generate call, guidance-free behavior, no-target feedback, help, and autocomplete.",
+      "The public retry test failed before the guidance handoff and passed after, proving escaped prompt content reaches the existing Illustrator request.",
+      "The fallback test failed when guidance was dropped and passed after manualIllustratorFallbackPrompt preserved it."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "/illustrate forwards arbitrary optional art direction without creating a transcript message.",
+        "evidence": "slash-commands.spec.ts executes the matched command, observes the exact trimmed callback payload, and asserts createMessage and generate were not called."
+      },
+      {
+        "claim": "Guidance reaches the scene-aware manual Illustrator prompt safely.",
+        "evidence": "start-generation.retry-agents.spec.ts observes the selected conversation context and an XML-escaped user_illustration_guidance element before image generation."
+      },
+      {
+        "claim": "Guidance survives the deterministic selected-message fallback.",
+        "evidence": "The fallback integration row forces unusable Illustrator responses and observes both the selected assistant content and requested overhead camera angle in the image prompt."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "A chat with no assistant scene must not trigger an illustration.",
+        "evidence": "The slash-command test receives ephemeral no-scene feedback and observes no illustrate callback."
+      },
+      {
+        "claim": "Hostile delimiter-shaped guidance must not close the prompt element.",
+        "evidence": "The integration row supplies a literal closing tag plus ampersand and quotes, then observes escaped entities and confirms the raw string is absent."
+      },
+      {
+        "claim": "Guidance-free /illustrate must preserve existing paintbrush behavior.",
+        "evidence": "The command test forwards only forMessageId, while all existing manual Illustrator retry tests remain green."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing manual message paintbrush and selected-message fallback paths remain intact.",
+        "evidence": "The complete manual Illustrator retry describe block passes, including upstream manual-context repair and gallery attachment rows."
+      }
+    ],
+    "untestedRows": [
+      "No live image-provider request was created solely for pre-merge verification; exact-build Pi deployment is non-destructive and does not create user content."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Conversation and Roleplay slash-command inputs both use the same retryGenerationAgents Illustrator path.",
+      "sourceType": "derived",
+      "evidence": "Derived from ConversationInput.tsx, ChatInput.tsx, use-generate.ts, and start-generation.ts."
+    },
+    {
+      "description": "The transient _illustratorGuidance field has one current-run write site and one prompt read site, with no storage write site.",
+      "sourceType": "measured",
+      "evidence": "Repository search for _illustratorGuidance returns only agent-runner.ts and agent-executor.ts."
+    }
+  ],
+  "reproduction": {
+    "steps": [
+      "Execute matchSlashCommand with /illustrate followed by arbitrary guidance.",
+      "Observe that the command is absent before the change and cannot dispatch the manual Illustrator action.",
+      "Execute retryGenerationAgents with illustratorGuidance and inspect the resulting Illustrator prompt."
+    ],
+    "reproducedBeforeFix": true,
+    "beforeEvidence": [
+      "The focused slash-command suite failed all four rows because /illustrate was not registered.",
+      "The focused engine row failed because the expected user_illustration_guidance prompt element was absent.",
+      "The fallback row failed because the generated image prompt omitted the requested camera angle."
+    ]
+  },
+  "riskClaimMatrix": [
+    {
+      "coreClaim": "/illustrate privately applies arbitrary optional art direction to the latest assistant scene through the existing manual Illustrator pipeline.",
+      "riskType": "prompt assembly and cross-entrypoint generation routing",
+      "entrypoints": [
+        "Conversation input",
+        "Roleplay shared chat input",
+        "retryGenerationAgents"
+      ],
+      "currentPathsOrFormats": [
+        "SlashCommandContext.illustrate",
+        "illustratorGuidance retry option",
+        "user_illustration_guidance XML prompt element",
+        "manual selected-message fallback"
+      ],
+      "legacyPathsOrFormats": [
+        "Guidance-free manual paintbrush request",
+        "Repeated-decline selected-message fallback"
+      ],
+      "positiveRowsTested": [
+        "Free-form guidance is trimmed and forwarded with the latest assistant ID",
+        "Guidance is XML-escaped into the scene-aware Illustrator prompt",
+        "Guidance reaches the deterministic fallback image prompt",
+        "Autocomplete and help expose the command"
+      ],
+      "negativeRowsTested": [
+        "No assistant scene returns feedback without dispatch",
+        "Raw closing-tag guidance is absent from prompt output",
+        "The command creates no chat message and starts no normal character generation",
+        "Empty guidance preserves existing manual behavior"
+      ],
+      "groundTruthFacts": [
+        "The existing manual Illustrator retry already owns scene context, avatar references, provider selection, gallery persistence, and message attachments.",
+        "Both chat inputs obtain retryAgents from useGenerate.",
+        "No Rust, storage schema, shared API, HTTP dispatch, or provider contract changed."
+      ],
+      "userActionCopy": "Type /illustrate or /illustrate followed by any private art direction in a Conversation or Roleplay input.",
+      "manualBlockers": [
+        "Live provider image quality is model-dependent and is not required to prove command routing; post-merge deployment verifies the exact build without generating user content."
+      ]
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Arbitrary punctuation and whitespace",
+      "Empty guidance",
+      "Missing assistant target",
+      "Delimiter-shaped guidance",
+      "Repeated unusable Illustrator responses"
+    ],
+    "negativeRowsTested": [
+      "No transcript message creation",
+      "No normal character generation",
+      "No raw delimiter injection",
+      "No guidance loss in fallback",
+      "No architecture boundary violation"
+    ],
+    "afterEvidence": [
+      "Focused Vitest passed 30 of 30 tests.",
+      "pnpm typecheck passed.",
+      "pnpm check:architecture passed with zero dependency violations.",
+      "pnpm check:discovery passed.",
+      "pnpm check passed, including deterministic checks, Rust workspace check, and warning-only unused-code reporting.",
+      "git diff --check passed.",
+      "Local Bunny passed after fixing the fallback guidance gap."
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "manualBlockers": [
+    {
+      "item": "Live image-provider generation",
+      "blockingCoreClaim": false,
+      "reason": "Routing, prompt construction, escaping, fallback, and attachment integration are covered at stable public seams; deployment proof should not create new user content."
+    }
+  ],
+  "pr": {
+    "url": "pending",
+    "evidencePublished": false,
+    "checks": "Focused local checks and full pnpm check passed; hosted checks pending.",
+    "automatedReview": "Local Bunny passed; hosted current-head Bunny pending."
+  }
+}

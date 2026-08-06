@@ -59,6 +59,8 @@ export interface SlashCommandContext {
   characterNames: string[];
   /** Latest visible assistant message, used by commands that target the current response. */
   latestAssistantMessage?: { id: string; content: string } | null;
+  /** Illustrate an existing assistant response without adding a transcript message. */
+  illustrate?: (params: { forMessageId: string; guidance?: string }) => Promise<boolean | void>;
   /** Characters available in the current roleplay scene */
   characters?: Array<{ id: string; name: string }>;
   /** Apply a manual sprite expression override */
@@ -395,6 +397,25 @@ const SLASH_COMMANDS: SlashCommand[] = [
         generationGuide: buildAmendGenerationInstructionMessage(instruction, previousResponse),
         generationGuideSource: "amend",
       });
+      return { handled: true };
+    },
+  },
+  {
+    name: "illustrate",
+    description: "Illustrate the latest scene with optional private art direction",
+    usage: "/illustrate [guidance]",
+    async execute(args, ctx) {
+      const target = ctx.latestAssistantMessage;
+      const forMessageId = target?.id?.trim() ?? "";
+      if (!forMessageId || !target?.content?.trim()) {
+        return { handled: true, feedback: "There is no assistant scene to illustrate yet." };
+      }
+      if (!ctx.illustrate) {
+        return { handled: true, feedback: "Illustration is not available in this chat." };
+      }
+
+      const guidance = args.trim();
+      await ctx.illustrate({ forMessageId, ...(guidance ? { guidance } : {}) });
       return { handled: true };
     },
   },

@@ -1038,15 +1038,20 @@ function isIllustratorResult(result: AgentResult): boolean {
   return result.agentType === "illustrator" || result.type === "image_prompt";
 }
 
-function manualIllustratorFallbackPrompt(target: JsonRecord | null): string {
+function manualIllustratorFallbackPrompt(target: JsonRecord | null, guidance: string): string {
   const content = readString(target?.content).replace(/\s+/g, " ").trim();
   if (!content) return "";
-  return ["Illustrate the selected roleplay message as a visual scene.", `Selected message: ${content}`].join("\n\n");
+  return [
+    "Illustrate the selected roleplay message as a visual scene.",
+    `Selected message: ${content}`,
+    ...(guidance ? [`User art direction: ${guidance}`] : []),
+  ].join("\n\n");
 }
 
 function manualIllustratorFallbackResult(args: {
   target: JsonRecord | null;
   illustratorManualRequest: boolean;
+  illustratorGuidance: string;
   agentTypes: ReadonlySet<string>;
   results: readonly AgentResult[];
 }): AgentResult | null {
@@ -1054,7 +1059,7 @@ function manualIllustratorFallbackResult(args: {
   if (args.results.some((result) => illustratorPromptData(result) !== null)) return null;
   const illustratorResults = args.results.filter(isIllustratorResult);
   if (illustratorResults.length === 0 || illustratorResults.some((result) => !result.success)) return null;
-  const prompt = manualIllustratorFallbackPrompt(args.target);
+  const prompt = manualIllustratorFallbackPrompt(args.target, args.illustratorGuidance);
   if (!prompt) return null;
   const source = illustratorResults[0];
   return {
@@ -4110,6 +4115,7 @@ async function runGenerationAgentsForTarget(args: {
       spotifyDjManualRetry: agentTypes.has("spotify") || agentTypes.has("music-dj"),
       spotifyDjForceFreshPick: agentTypes.has("spotify") || agentTypes.has("music-dj"),
       illustratorManualRequest: input.options?.illustratorManualRequest === true,
+      illustratorGuidance: readString(input.options?.illustratorGuidance).trim() || undefined,
     },
     (result) => results.push(result),
   );
@@ -4128,6 +4134,7 @@ async function runGenerationAgentsForTarget(args: {
   const manualIllustratorFallback = manualIllustratorFallbackResult({
     target,
     illustratorManualRequest: input.options?.illustratorManualRequest === true,
+    illustratorGuidance: readString(input.options?.illustratorGuidance).trim(),
     agentTypes,
     results: speculativeResults,
   });
