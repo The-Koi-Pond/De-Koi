@@ -35,11 +35,15 @@ function groupTypingStorage(
     "char-c": { id: "char-c", name: "Cleo", data: { name: "Cleo", personality: "bright" } },
   };
   const messages: StoredMessage[] = [];
+  const characterGetIds: string[] = [];
   let nextMessageId = 1;
 
   const storage: StorageGateway = {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
       if (entity === "connections") return [records["conn-1"]] as T[];
+      if (entity === "characters") {
+        return Object.values(records).filter((record) => String(record.id ?? "").startsWith("char-")) as T[];
+      }
       if (entity === "personas") return [] as T[];
       if (entity === "prompts") return [] as T[];
       if (entity === "regex-scripts") return [] as T[];
@@ -50,6 +54,7 @@ function groupTypingStorage(
       if (entity === "chats" && id === "chat-1") return records["chat-1"] as T;
       if (entity === "connections" && id === "conn-1") return records["conn-1"] as T;
       if (entity === "characters" && (id === "char-a" || id === "char-b" || id === "char-c")) {
+        characterGetIds.push(id);
         return records[id] as T;
       }
       return null;
@@ -128,7 +133,7 @@ function groupTypingStorage(
     },
   };
 
-  return { storage, messages };
+  return { storage, messages, characterGetIds };
 }
 
 function groupTypingLlm(selectorResponse = ""): LlmGateway {
@@ -148,6 +153,24 @@ async function collectEvents(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration group typing", () => {
+  it("reuses the status bulk load for conversation availability names", async () => {
+    const { storage, characterGetIds } = groupTypingStorage({}, { characterIds: ["char-a"] });
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm: groupTypingLlm(), integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "hello",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(characterGetIds).toEqual(["char-a"]);
+  });
+
   it("lets sequential conversation group responders send separate messages", async () => {
     const { storage, messages } = groupTypingStorage();
 

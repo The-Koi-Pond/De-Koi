@@ -2374,20 +2374,21 @@ async function resolveConversationAvailability(args: {
   const mentionedNames = normalizedMentionedCharacterNames(args.mentionedCharacterNames ?? []);
   const respondingIds = requested && activeSet.has(requested) ? [requested] : activeIds;
   const statusResult = await getConversationStatus(args.storage, readString(args.chat.id).trim());
-  const characters: ConversationAvailabilityCharacter[] = [];
-  for (const id of respondingIds) {
-    const row = statusResult.statuses[id];
-    const schedule = isRecord(row?.schedule) ? (row.schedule as unknown as WeekSchedule) : null;
-    const fallbackActivity = typeof row?.activity === "string" ? row.activity : "free time";
-    const availability = getAvailabilityDecision(schedule, new Date(), fallbackActivity);
-    characters.push({
-      id,
-      name: (await characterNameById(args.storage, [], id)) ?? "Character",
-      status: conversationStatus(availability.status),
-      schedule,
-      availability,
-    });
-  }
+  const characters = await Promise.all(
+    respondingIds.map(async (id): Promise<ConversationAvailabilityCharacter> => {
+      const row = statusResult.statuses[id];
+      const schedule = isRecord(row?.schedule) ? (row.schedule as unknown as WeekSchedule) : null;
+      const fallbackActivity = typeof row?.activity === "string" ? row.activity : "free time";
+      const availability = getAvailabilityDecision(schedule, new Date(), fallbackActivity);
+      return {
+        id,
+        name: row?.name ?? (await characterNameById(args.storage, [], id)) ?? "Character",
+        status: conversationStatus(availability.status),
+        schedule,
+        availability,
+      };
+    }),
+  );
   const mentionedCharacters =
     mentionedNames.size > 0 ? characters.filter((character) => mentionedNames.has(character.name.toLowerCase())) : [];
   const availableCharacters = mentionedCharacters.length > 0 ? mentionedCharacters : characters;

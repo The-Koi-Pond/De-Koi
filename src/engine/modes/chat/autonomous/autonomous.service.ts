@@ -29,6 +29,7 @@ export interface ConversationStatusResult {
   statuses: Record<
     string,
     {
+      name: string | null;
       status: string;
       activity: string;
       schedule?: unknown;
@@ -61,6 +62,7 @@ type StoredMessage = {
 
 type StoredCharacter = {
   id?: unknown;
+  name?: unknown;
   data?: unknown;
 };
 
@@ -248,6 +250,10 @@ async function computeConversationStatus(
   const statusSyncs: Array<Promise<string | null>> = [];
 
   for (const characterId of characterIds) {
+    const character = characterRows.get(characterId);
+    const characterData = metadataRecord(character?.data);
+    const dataName = typeof characterData.name === "string" ? characterData.name.trim() : "";
+    const rowName = typeof character?.name === "string" ? character.name.trim() : "";
     let routine = statusRoutines[characterId];
     let schedule: WeekSchedule | undefined = statusSchedules[characterId];
     if (routine && scheduleNeedsRefresh(routine)) {
@@ -278,6 +284,7 @@ async function computeConversationStatus(
     const availability = getAvailabilityDecision(profile, new Date(), profile ? "scheduled" : "unknown (no schedule)");
     const availabilityExplanation = getAvailabilityExplanation(availability);
     statuses[characterId] = {
+      name: dataName || rowName || null,
       status: availability.status,
       activity: availability.activity,
       schedule,
