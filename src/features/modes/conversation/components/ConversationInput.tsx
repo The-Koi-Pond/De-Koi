@@ -198,7 +198,7 @@ export function ConversationInput({
   const clearInputDraft = useChatStore((s) => s.clearInputDraft);
   const setCurrentInput = useChatStore((s) => s.setCurrentInput);
   const currentInput = useChatStore((s) => s.currentInput);
-  const { generate } = useGenerate();
+  const { generate, retryAgents } = useGenerate();
   const chatCharacterIds = useMemo(() => chatCharacters?.map((c) => c.id), [chatCharacters]);
   const { applyToUserInput } = useApplyRegex(chatCharacterIds);
   const enterToSend = useUIStore((s) => s.enterToSendConvo);
@@ -652,6 +652,12 @@ export function ConversationInput({
         invalidate: () => qc.invalidateQueries({ queryKey: chatKeys.all }),
         characterNames,
         latestAssistantMessage,
+        illustrate: ({ forMessageId, guidance }) =>
+          retryAgents(activeChatId, ["illustrator"], {
+            forMessageId,
+            illustratorManualRequest: true,
+            ...(guidance ? { illustratorGuidance: guidance } : {}),
+          }),
       };
       const submittedDraft = textareaRef.current?.value ?? "";
       const submittedHeight = textareaRef.current?.style.height ?? "auto";
@@ -850,6 +856,7 @@ export function ConversationInput({
     updateMessageExtra,
     characterNames,
     latestAssistantMessage,
+    retryAgents,
     completions,
     _mentionQuery,
     mentionCompletions,
@@ -882,6 +889,12 @@ export function ConversationInput({
         invalidate: () => qc.invalidateQueries({ queryKey: chatKeys.all }),
         characterNames,
         latestAssistantMessage,
+        illustrate: ({ forMessageId, guidance }) =>
+          retryAgents(submittingChatId, ["illustrator"], {
+            forMessageId,
+            illustratorManualRequest: true,
+            ...(guidance ? { illustratorGuidance: guidance } : {}),
+          }),
       };
 
       const previousDraft = textareaRef.current?.value ?? "";
@@ -944,6 +957,7 @@ export function ConversationInput({
       generate,
       latestAssistantMessage,
       qc,
+      retryAgents,
       setInputDraft,
       syncInputState,
     ],

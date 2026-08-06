@@ -193,7 +193,7 @@ export const ChatInput = memo(function ChatInput({
   const setCurrentInput = useChatStore((s) => s.setCurrentInput);
   const currentInput = useChatStore((s) => s.currentInput);
   const activeChat = useChatStore((s) => s.activeChat);
-  const { generate } = useGenerate();
+  const { generate, retryAgents } = useGenerate();
   const chatCharacterIds = useMemo(() => chatCharacters?.map((c) => c.id), [chatCharacters]);
   const { applyToUserInput } = useApplyRegex(chatCharacterIds);
   const enterToSend = useUIStore((s) => (mode === "conversation" ? s.enterToSendConvo : s.enterToSendRP));
@@ -499,6 +499,12 @@ export const ChatInput = memo(function ChatInput({
       invalidate: () => qc.invalidateQueries({ queryKey: chatKeys.all }),
       characterNames,
       latestAssistantMessage,
+      illustrate: ({ forMessageId, guidance }) =>
+        retryAgents(activeChatId, ["illustrator"], {
+          forMessageId,
+          illustratorManualRequest: true,
+          ...(guidance ? { illustratorGuidance: guidance } : {}),
+        }),
       characters: chatCharacters,
       setSpriteExpression: onExpressionChange
         ? (characterId, expression) => onExpressionChange(characterId, expression, { immediate: true })
@@ -511,6 +517,7 @@ export const ChatInput = memo(function ChatInput({
     createMessage,
     characterNames,
     latestAssistantMessage,
+    retryAgents,
     chatCharacters,
     onExpressionChange,
     qc,
