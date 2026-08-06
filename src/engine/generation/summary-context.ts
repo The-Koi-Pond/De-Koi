@@ -69,10 +69,8 @@ function isMondayTimestamp(timestamp: number | null): timestamp is number {
 }
 
 function summaryChatMode(chat: Record<string, unknown>): "conversation" | "roleplay" | "game" {
-  const canonicalMode = textValue(chat.mode);
-  if (canonicalMode) return canonicalMode === "roleplay" || canonicalMode === "game" ? canonicalMode : "conversation";
-  const legacyMode = textValue(chat.chatMode);
-  return legacyMode === "roleplay" || legacyMode === "game" ? legacyMode : "conversation";
+  const mode = textValue(chat.mode) || textValue(chat.chatMode);
+  return mode === "roleplay" || mode === "game" ? mode : "conversation";
 }
 
 function summaryMapEntries(label: "Day" | "Week", value: unknown): SummaryMapEntry[] {
