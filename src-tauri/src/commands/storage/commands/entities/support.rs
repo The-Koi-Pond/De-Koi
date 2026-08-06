@@ -53,16 +53,20 @@ pub(super) fn patch_chat_record(
             if let Some(metadata_patch) = &metadata_patch {
                 for (key, value) in metadata_patch {
                     if matches!(key.as_str(), "daySummaries" | "weekSummaries") {
-                        if let Some(entries) = value.as_object() {
-                            let mut summaries = metadata
-                                .get(key)
-                                .and_then(Value::as_object)
-                                .cloned()
-                                .unwrap_or_default();
-                            summaries.extend(entries.clone());
-                            metadata.insert(key.clone(), Value::Object(summaries));
-                            continue;
-                        }
+                        let entries = value.as_object().ok_or_else(|| {
+                            AppError::invalid_input(format!(
+                                "{key} summary delta must be an object"
+                            ))
+                        })?;
+                        chats::validate_summary_map_entries(key, entries)?;
+                        let mut summaries = metadata
+                            .get(key)
+                            .and_then(Value::as_object)
+                            .cloned()
+                            .unwrap_or_default();
+                        summaries.extend(entries.clone());
+                        metadata.insert(key.clone(), Value::Object(summaries));
+                        continue;
                     }
                     metadata.insert(key.clone(), value.clone());
                 }

@@ -1,6 +1,7 @@
 import type {
   AddChatMessageSwipeOptions,
   ChatMetadataPort,
+  ChatSummaryMapsPatch,
   ChatTranscriptPort,
   ListChatMemoriesOptions,
   RefreshChatMemoriesOptions,
@@ -463,7 +464,7 @@ export const storageApi: StorageGateway = {
   evictPromptSnapshots: (chatId, keepLast) =>
     invokeTauri("chat_evict_prompt_snapshots", { chatId, keepLast }) as Promise<{ evicted: number }>,
   patchChatMetadata: (chatId, patch) => patchChatMetadataField(chatId, patch),
-  patchChatSummaries: <T = unknown>(chatId: string, patch: Record<string, unknown>) =>
+  patchChatSummaries: <T = unknown>(chatId: string, patch: ChatSummaryMapsPatch) =>
     invokeTauri<T>("chat_summary_maps_patch", { chatId, patch }, { timeoutMs: null }),
   listChatMemories: <T = unknown>(chatId: string, options?: ListChatMemoriesOptions) =>
     chatCommandApi.memoriesList<T[]>(chatId, options),

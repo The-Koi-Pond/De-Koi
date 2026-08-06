@@ -511,6 +511,38 @@ fn merge_chat_metadata(
     })
 }
 
+pub(crate) fn validate_summary_map_entries(
+    field: &str,
+    entries: &Map<String, Value>,
+) -> AppResult<()> {
+    for (entry_key, value) in entries {
+        let entry = value.as_object().ok_or_else(|| {
+            AppError::invalid_input(format!(
+                "{field}.{entry_key} summary entry must be an object"
+            ))
+        })?;
+        if !entry.get("summary").is_some_and(Value::is_string) {
+            return Err(AppError::invalid_input(format!(
+                "{field}.{entry_key}.summary must be a string"
+            )));
+        }
+        let key_details = entry
+            .get("keyDetails")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                AppError::invalid_input(format!(
+                    "{field}.{entry_key}.keyDetails must be an array of strings"
+                ))
+            })?;
+        if !key_details.iter().all(Value::is_string) {
+            return Err(AppError::invalid_input(format!(
+                "{field}.{entry_key}.keyDetails must be an array of strings"
+            )));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn patch_chat_summary_maps(
     state: &AppState,
     chat_id: &str,
@@ -535,6 +567,7 @@ pub(crate) fn patch_chat_summary_maps(
         let entries = value.as_object().ok_or_else(|| {
             AppError::invalid_input(format!("{field} summary delta must be an object"))
         })?;
+        validate_summary_map_entries(field, entries)?;
         deltas.push((field.clone(), entries.clone()));
     }
 

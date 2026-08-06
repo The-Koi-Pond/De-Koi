@@ -2374,7 +2374,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatch_chat_summary_maps_patch_rejects_non_object_deltas() {
+    async fn dispatch_chat_summary_maps_patch_rejects_malformed_deltas() {
         let state = test_state("chat-summary-maps-invalid-delta");
         state
             .storage
@@ -2410,6 +2410,55 @@ mod tests {
         .expect_err("non-summary patch fields should be rejected");
 
         assert_eq!(error.code, "invalid_input");
+
+        for invalid_entry in [
+            json!({ "summary": [], "keyDetails": [] }),
+            json!({ "summary": "Valid summary", "keyDetails": [42] }),
+            json!({ "summary": "Missing details" }),
+        ] {
+            let error = dispatch(
+                &state,
+                InvokeRequest {
+                    command: "chat_summary_maps_patch".to_string(),
+                    args: Some(json!({
+                        "chatId": "chat-1",
+                        "patch": { "daySummaries": { "13.07.2025": invalid_entry } }
+                    })),
+                },
+            )
+            .await
+            .expect_err("malformed summary entries should be rejected");
+
+            assert_eq!(error.code, "invalid_input");
+        }
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "storage_update".to_string(),
+                args: Some(json!({
+                    "entity": "chats",
+                    "id": "chat-1",
+                    "patch": {
+                        "metadata": {
+                            "daySummaries": {
+                                "13.07.2025": { "summary": 42, "keyDetails": [] }
+                            }
+                        }
+                    }
+                })),
+            },
+        )
+        .await
+        .expect_err("generic chat metadata patches should reject malformed summary entries");
+
+        assert_eq!(error.code, "invalid_input");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert!(chat.get("metadata").is_none());
     }
 
     #[tokio::test]
