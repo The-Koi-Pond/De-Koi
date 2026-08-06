@@ -5,7 +5,7 @@
     "title": "Conversation replies account for elapsed real-world time",
     "source": "User report: after saying goodnight and messaging the next day, characters sometimes still treated it as nighttime unless explicitly told good morning.",
     "classification": "conversation prompt continuity",
-    "status": "ready_for_pr"
+    "status": "waiting_on_ci"
   },
   "coreClaim": "Conversation characters receive a compact, timezone-correct elapsed-time transition for meaningful gaps before a new user message, while short gaps, regenerations, impersonation, Roleplay, and Game retain their prior behavior.",
   "rootCause": "The conversation presence block supplied the current date and time, but visible ChatML history intentionally omitted each message's createdAt value. A previous night's exchange therefore appeared immediately adjacent to a new user turn, with no evidence that hours or a calendar day had passed.",
@@ -203,8 +203,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1223,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1223",
     "headRefName": "fix/conversation-time-continuity",
     "baseRefName": "main",
     "healthStatus": "pending",
