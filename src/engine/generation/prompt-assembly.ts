@@ -2849,16 +2849,8 @@ function recentVisibleMessageLines(messages: JsonRecord[], characterNames: Map<s
 const MIN_CONVERSATION_TRANSITION_GAP_MS = 30 * 60 * 1000;
 
 function conversationElapsedTime(elapsedMs: number): string {
-  const totalMinutes = Math.max(1, Math.round(elapsedMs / 60_000));
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
-  const parts = [
-    days > 0 ? `${days} ${days === 1 ? "day" : "days"}` : "",
-    hours > 0 ? `${hours} ${hours === 1 ? "hour" : "hours"}` : "",
-    minutes > 0 ? `${minutes} ${minutes === 1 ? "minute" : "minutes"}` : "",
-  ].filter(Boolean);
-  return parts.join(" ");
+  const minutes = Math.max(1, Math.round(elapsedMs / 60_000));
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function conversationTransitionLines(input: PromptAssemblyInput, timeZone?: string): string[] {
@@ -2900,12 +2892,8 @@ function conversationTransitionLines(input: PromptAssemblyInput, timeZone?: stri
   const previousDate = formatZonedDate(previousAt, timeZone);
   const latestUserDate = formatZonedDate(latestUserAt, timeZone);
   return [
-    `Previous visible message: ${previousDate} ${formatZonedTime(previousAt, timeZone)}`,
-    `Latest user message: ${latestUserDate} ${formatZonedTime(latestUserAt, timeZone)}`,
-    `Elapsed since previous message: ${conversationElapsedTime(elapsedMs)}`,
-    previousDate !== latestUserDate ? "The user's local calendar date changed between these messages." : "",
-    "Treat the latest message as a later interaction rather than assuming the earlier exchange is still happening. Account for elapsed time naturally; do not mention timestamps or this timing note unless relevant to the reply.",
-  ].filter(Boolean);
+    `Conversation resumed ${conversationElapsedTime(elapsedMs)} after the previous visible message (${previousDate} ${formatZonedTime(previousAt, timeZone)} -> ${latestUserDate} ${formatZonedTime(latestUserAt, timeZone)}${previousDate !== latestUserDate ? "; local date changed" : ""}). Treat this as a later interaction; reflect elapsed time naturally without exposing this note.`,
+  ];
 }
 
 function buildConversationPresenceBlock(input: PromptAssemblyInput, wrapFormat: WrapFormat): ChatMLMessage | null {

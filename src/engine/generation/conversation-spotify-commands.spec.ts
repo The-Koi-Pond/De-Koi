@@ -285,11 +285,9 @@ describe("conversation Spotify command prompting", () => {
       "hey, how are you?",
     );
 
-    expect(promptText).toContain("Previous visible message: 2026-06-21 23:30");
-    expect(promptText).toContain("Latest user message: 2026-06-22 09:00");
-    expect(promptText).toContain("Elapsed since previous message: 9 hours 30 minutes");
-    expect(promptText).toContain("The user's local calendar date changed between these messages.");
-    expect(promptText).toContain("Treat the latest message as a later interaction");
+    expect(promptText).toContain("Conversation resumed 9h 30m after the previous visible message");
+    expect(promptText).toContain("2026-06-21 23:30 -> 2026-06-22 09:00; local date changed");
+    expect(promptText).toContain("Treat this as a later interaction");
   });
 
   it("keeps a short message gap in the same conversation interaction", async () => {
@@ -314,8 +312,8 @@ describe("conversation Spotify command prompting", () => {
       "pretty good",
     );
 
-    expect(promptText).not.toContain("Previous visible message:");
-    expect(promptText).not.toContain("Treat the latest message as a later interaction");
+    expect(promptText).not.toContain("Conversation resumed");
+    expect(promptText).not.toContain("Treat this as a later interaction");
   });
 
   it("does not reinterpret an overnight gap while regenerating an old reply", async () => {
@@ -341,8 +339,8 @@ describe("conversation Spotify command prompting", () => {
       { regenerateMessageId: "assistant-reply" },
     );
 
-    expect(promptText).not.toContain("Previous visible message:");
-    expect(promptText).not.toContain("Treat the latest message as a later interaction");
+    expect(promptText).not.toContain("Conversation resumed");
+    expect(promptText).not.toContain("Treat this as a later interaction");
   });
 
   it("uses one activation contract for conversation command defaults", () => {

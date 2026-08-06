@@ -125,7 +125,7 @@
     "positiveRows": [
       {
         "claim": "An overnight return supplies the elapsed relationship and local calendar-day transition.",
-        "evidence": "The America/New_York regression row covers 2026-06-21 23:30 through 2026-06-22 09:00 and asserts a 9 hour 30 minute gap plus local-day-crossed guidance."
+        "evidence": "The America/New_York regression row covers 2026-06-21 23:30 through 2026-06-22 09:00 and asserts a compact 9h 30m gap plus local-day-crossed guidance."
       },
       {
         "claim": "The surrounding prompt-assembly contract remains green.",
@@ -134,6 +134,10 @@
       {
         "claim": "The repository shipping baseline remains green.",
         "evidence": "pnpm check exited 0, including TypeScript, architecture, docs, agent workflow, frontend, and Rust workspace checks."
+      },
+      {
+        "claim": "The prompt change remains within the production bundle budget.",
+        "evidence": "pnpm perf:size passed with totalJs at 1727.8 KiB gzip against the 1728.0 KiB gzip budget."
       }
     ],
     "contradictionRows": [
@@ -189,7 +193,7 @@
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm check",
-    "baselineEvidence": "The focused test first failed because no transition was present, then 7 focused tests, 48 prompt-assembly tests, pnpm typecheck, pnpm check:architecture, pnpm check:docs, and the full pnpm check passed.",
+    "baselineEvidence": "The focused test first failed because no transition was present, then 7 focused tests, 66 assembleGenerationPrompt tests, pnpm perf:size, and the full pnpm check passed.",
     "githubValidationPassed": false,
     "reviewIterationFastPath": false
   },
