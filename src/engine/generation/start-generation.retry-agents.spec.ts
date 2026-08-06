@@ -1055,6 +1055,56 @@ describe("retryGenerationAgents manual Illustrator retries", () => {
       }),
     ).toBe(false);
   });
+
+  it("repairs a declined manual paintbrush prompt with the selected conversation context", async () => {
+    const { storage } = retryIllustrationStorage();
+    const requests: string[] = [];
+    const imagePrompts: string[] = [];
+    const llm = {
+      async *stream(request: LlmRequest) {
+        requests.push(request.messages.map((message) => message.content).join("\n"));
+        yield {
+          type: "token",
+          text:
+            requests.length === 1
+              ? JSON.stringify({ shouldGenerate: false, reason: "not visually significant" })
+              : JSON.stringify({
+                  shouldGenerate: true,
+                  prompt: "Mira catches the falling candle while the user reaches toward her.",
+                  reason: "Manual request",
+                }),
+        };
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    } as unknown as LlmGateway;
+    const integrations = {
+      image: {
+        async generate(input: Record<string, unknown>) {
+          imagePrompts.push(String(input.prompt ?? ""));
+          return { base64: "QUJD", mimeType: "image/png", provider: "test-image", model: "test-model" };
+        },
+      },
+    } as unknown as IntegrationGateway;
+
+    await retryGenerationAgents(
+      { storage: storage as never, llm, integrations },
+      {
+        chatId: "chat-1",
+        agentTypes: ["illustrator"],
+        options: { forMessageId: "assistant-1", bypassActivation: true, illustratorManualRequest: true },
+      },
+    );
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toContain("<manual_illustration_request>");
+    expect(requests[0]).toContain("I reach for the falling candle.");
+    expect(requests[0]).toContain("Mira catches the candle before it hits the floor.");
+    expect(imagePrompts).toEqual(["Mira catches the falling candle while the user reaches toward her."]);
+  });
+
   it("uses selected message text as a fallback prompt when manual paintbrush retries return no image prompt", async () => {
     const { storage, writes, state } = retryIllustrationStorage();
     const imagePrompts: string[] = [];

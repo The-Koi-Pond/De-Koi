@@ -4109,6 +4109,7 @@ async function runGenerationAgentsForTarget(args: {
       regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
       spotifyDjManualRetry: agentTypes.has("spotify") || agentTypes.has("music-dj"),
       spotifyDjForceFreshPick: agentTypes.has("spotify") || agentTypes.has("music-dj"),
+      illustratorManualRequest: input.options?.illustratorManualRequest === true,
     },
     (result) => results.push(result),
   );
