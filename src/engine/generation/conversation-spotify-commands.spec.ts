@@ -213,6 +213,26 @@ async function conversationPromptText(commandCapabilities: JsonRecord, metadata:
   return result.messages.map((message) => String(message.content ?? "")).join("\n");
 }
 
+async function timedConversationPromptText(
+  storedMessages: JsonRecord[],
+  latestUserInput: string,
+  request: JsonRecord = {},
+): Promise<string> {
+  const result = await assembleGenerationPrompt(promptStorage(), {
+    chat: {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: {},
+    },
+    storedMessages,
+    connection: { provider: "openai", model: "qa-model" },
+    request: { userTimeZone: "America/New_York", ...request },
+    latestUserInput,
+  });
+  return result.messages.map((message) => String(message.content ?? "")).join("\n");
+}
+
 describe("conversation Spotify command prompting", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -243,6 +263,86 @@ describe("conversation Spotify command prompting", () => {
     expect(promptText).toContain("Time zone: America/New_York");
   });
 
+  it("marks an overnight user return as a later conversation interaction", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T13:00:00.000Z"));
+
+    const promptText = await timedConversationPromptText(
+      [
+        {
+          id: "assistant-goodnight",
+          role: "assistant",
+          content: "goodnight",
+          createdAt: "2026-06-22T03:30:00.000Z",
+        },
+        {
+          id: "user-return",
+          role: "user",
+          content: "hey, how are you?",
+          createdAt: "2026-06-22T13:00:00.000Z",
+        },
+      ],
+      "hey, how are you?",
+    );
+
+    expect(promptText).toContain("Conversation resumed 9h 30m after the previous visible message");
+    expect(promptText).toContain("2026-06-21 23:30 -> 2026-06-22 09:00; local date changed");
+    expect(promptText).toContain("Treat this as a later interaction");
+  });
+
+  it("keeps a short message gap in the same conversation interaction", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T13:00:00.000Z"));
+
+    const promptText = await timedConversationPromptText(
+      [
+        {
+          id: "assistant-recent",
+          role: "assistant",
+          content: "not bad, you?",
+          createdAt: "2026-06-22T12:50:00.000Z",
+        },
+        {
+          id: "user-recent",
+          role: "user",
+          content: "pretty good",
+          createdAt: "2026-06-22T13:00:00.000Z",
+        },
+      ],
+      "pretty good",
+    );
+
+    expect(promptText).not.toContain("Conversation resumed");
+    expect(promptText).not.toContain("Treat this as a later interaction");
+  });
+
+  it("does not reinterpret an overnight gap while regenerating an old reply", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T13:00:00.000Z"));
+
+    const promptText = await timedConversationPromptText(
+      [
+        {
+          id: "assistant-goodnight",
+          role: "assistant",
+          content: "goodnight",
+          createdAt: "2026-06-22T03:30:00.000Z",
+        },
+        {
+          id: "user-return",
+          role: "user",
+          content: "hey, how are you?",
+          createdAt: "2026-06-22T13:00:00.000Z",
+        },
+      ],
+      "hey, how are you?",
+      { regenerateMessageId: "assistant-reply" },
+    );
+
+    expect(promptText).not.toContain("Conversation resumed");
+    expect(promptText).not.toContain("Treat this as a later interaction");
+  });
+
   it("uses one activation contract for conversation command defaults", () => {
     expect(conversationCommandPromptEnabled({ mode: "conversation" })).toBe(true);
     expect(conversationCommandPromptEnabled({ mode: "conversation", metadata: {} })).toBe(true);
@@ -262,9 +362,9 @@ describe("conversation Spotify command prompting", () => {
     await expect(
       conversationPromptText({ spotifyPlaybackAvailable: true }, { characterCommands: false }),
     ).resolves.not.toContain('[spotify: title="Song title", artist="Artist"]');
-    await expect(
-      conversationPromptText({ spotifyPlaybackAvailable: true, spotify: false }),
-    ).resolves.not.toContain('[spotify: title="Song title", artist="Artist"]');
+    await expect(conversationPromptText({ spotifyPlaybackAvailable: true, spotify: false })).resolves.not.toContain(
+      '[spotify: title="Song title", artist="Artist"]',
+    );
   });
 });
 

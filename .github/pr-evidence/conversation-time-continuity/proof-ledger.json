@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Conversation replies account for elapsed real-world time",
+    "source": "User report: after saying goodnight and messaging the next day, characters sometimes still treated it as nighttime unless explicitly told good morning.",
+    "classification": "conversation prompt continuity",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Conversation characters receive a compact, timezone-correct elapsed-time transition for meaningful gaps before a new user message, while short gaps, regenerations, impersonation, Roleplay, and Game retain their prior behavior.",
+  "rootCause": "The conversation presence block supplied the current date and time, but visible ChatML history intentionally omitted each message's createdAt value. A previous night's exchange therefore appeared immediately adjacent to a new user turn, with no evidence that hours or a calendar day had passed.",
+  "scope": {
+    "inScope": [
+      "Conversation presence prompt timing",
+      "Elapsed date and time formatting in the user's resolved timezone",
+      "Focused overnight, short-gap, and regeneration regression coverage",
+      "Design, implementation plan, and proof-ledger documentation"
+    ],
+    "outOfScope": [
+      "Adding timestamps to all prompt history",
+      "Roleplay or Game time semantics",
+      "Storage schema, shared API, Rust, provider, or UI changes",
+      "Live stochastic model wording"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/prompt-assembly.ts",
+      "src/engine/generation/conversation-spotify-commands.spec.ts",
+      "docs/superpowers/specs/2026-08-06-conversation-time-continuity-design.md",
+      "docs/superpowers/plans/2026-08-06-conversation-time-continuity.md",
+      ".github/pr-evidence/conversation-time-continuity/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src/engine/generation/prompt-assembly.ts",
+      "src/engine/generation/conversation-spotify-commands.spec.ts",
+      "docs/superpowers/specs/2026-08-06-conversation-time-continuity-design.md",
+      "docs/superpowers/plans/2026-08-06-conversation-time-continuity.md",
+      ".github/pr-evidence/conversation-time-continuity/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt-agent-lorebook",
+      "conversation generation",
+      "timezone formatting"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Normal Conversation sends after a gap of at least 30 minutes receive an explicit elapsed-time transition derived from stored message timestamps and the user's resolved timezone.",
+    "riskType": "conversation prompt continuity",
+    "entrypoints": [
+      "assembleGenerationPrompt",
+      "buildConversationContextBlocks",
+      "buildConversationPresenceBlock"
+    ],
+    "currentPathsOrFormats": [
+      "Visible conversation messages carry persisted ISO createdAt values into prompt assembly.",
+      "userTimeZone or promptTimeZone controls local timestamp and calendar-day formatting.",
+      "Only a normal user-authored Conversation turn can append the transition to conversation_presence."
+    ],
+    "legacyPathsOrFormats": [
+      "Missing, invalid, reversed, or sub-threshold timestamps safely skip the transition.",
+      "Regeneration and impersonation keep their existing prompt paths.",
+      "Existing stored conversation rows require no migration."
+    ],
+    "outOfScopeClaims": [
+      "This PR does not make every historic timestamp visible to the model.",
+      "This PR does not change Roleplay or Game time behavior.",
+      "This PR does not guarantee a particular live model phrase in response to the transition."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Conversation prompt assembly knew the current clock but did not communicate the elapsed relationship between the previous visible exchange and a later user return.",
+    "producer": "src/engine/generation/prompt-assembly.ts buildConversationPresenceBlock",
+    "consumer": "Conversation model generation through the assembled conversation_presence block",
+    "impliedContract": "A character responding in the present should know when a meaningful real-world gap or local calendar-day transition separates the new message from the preceding exchange.",
+    "actualEnforcement": "Prompt assembly compares the latest visible user message with its visible predecessor, formats both in the resolved timezone, and appends compact elapsed-time facts only when the gap is at least 30 minutes.",
+    "primaryOwnerLane": "src/engine/generation",
+    "primaryOwnerDetail": "Engine prompt assembly owns conversation presence facts supplied to the model.",
+    "consumerOnlyLanes": [
+      "Conversation LLM providers"
+    ],
+    "wrongLaneFixToAvoid": "Do not require users to say good morning or add UI/storage/provider workarounds; the missing temporal relationship belongs in prompt assembly.",
+    "regressionProof": [
+      "The overnight New York row asserts a 9 hour 30 minute gap and a crossed local calendar day.",
+      "The 10-minute row asserts no transition is added.",
+      "The regeneration row asserts no transition is added.",
+      "All 48 prompt-assembly tests and the full pnpm check baseline pass."
+    ]
+  },
+  "riskClaimMatrix": [
+    {
+      "coreClaim": "A later Conversation turn receives a truthful elapsed-time transition without changing excluded generation modes.",
+      "riskType": "prompt-agent-lorebook",
+      "entrypoints": [
+        "assembleGenerationPrompt",
+        "buildConversationContextBlocks",
+        "buildConversationPresenceBlock"
+      ],
+      "currentPathsOrFormats": [
+        "Stored ISO createdAt timestamps",
+        "Resolved IANA timezone",
+        "Normal Conversation user turn"
+      ],
+      "legacyPathsOrFormats": [
+        "Missing or invalid createdAt",
+        "Short same-session gaps",
+        "Regeneration, impersonation, Roleplay, and Game"
+      ],
+      "positiveRowsTested": [
+        "2026-06-21 23:30 to 2026-06-22 09:00 America/New_York produces 9 hours 30 minutes and local-day-crossed facts."
+      ],
+      "negativeRowsTested": [
+        "A 10-minute gap produces no transition.",
+        "Regeneration produces no transition."
+      ],
+      "groundTruthFacts": [
+        "Message storage already owns createdAt.",
+        "Prompt assembly already owns the resolved conversation timezone and current presence block."
+      ],
+      "userActionCopy": "No new user action or setting.",
+      "manualBlockers": [
+        "Live stochastic model phrasing was not run; this does not block the deterministic prompt-contract claim."
+      ]
+    }
+  ],
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "An overnight return supplies the elapsed relationship and local calendar-day transition.",
+        "evidence": "The America/New_York regression row covers 2026-06-21 23:30 through 2026-06-22 09:00 and asserts a compact 9h 30m gap plus local-day-crossed guidance."
+      },
+      {
+        "claim": "The surrounding prompt-assembly contract remains green.",
+        "evidence": "Eight prompt-assembly spec files passed with 48 tests."
+      },
+      {
+        "claim": "The repository shipping baseline remains green.",
+        "evidence": "pnpm check exited 0, including TypeScript, architecture, docs, agent workflow, frontend, and Rust workspace checks."
+      },
+      {
+        "claim": "The prompt change remains within the production bundle budget.",
+        "evidence": "pnpm perf:size passed with totalJs at 1727.8 KiB gzip against the 1728.0 KiB gzip budget."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "A brief same-session pause should not add noisy time metadata.",
+        "evidence": "The 10-minute regression row asserts that no conversation transition is present."
+      },
+      {
+        "claim": "Regenerating an existing reply should not be reinterpreted as a later user return.",
+        "evidence": "The regeneration regression row asserts that no conversation transition is present."
+      },
+      {
+        "claim": "Roleplay and Game should not inherit this Conversation-only clock contract.",
+        "evidence": "The transition is constructed only inside the Conversation presence block path."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Old or malformed rows do not break prompt assembly.",
+        "evidence": "Missing, invalid, reversed, or empty timestamps skip transition construction."
+      },
+      {
+        "claim": "Existing current-time context remains available.",
+        "evidence": "The transition appends to the existing conversation_presence block rather than replacing its current date, time, and timezone facts."
+      }
+    ],
+    "untestedRows": [
+      "A live stochastic model reply was not generated on the user's character data.",
+      "Image-only user turns with empty text intentionally skip the transition and were not added as a separate regression row."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Message persistence already owns the createdAt timestamps used by this fix.",
+      "sourceType": "derived",
+      "evidence": "Visible messages supplied to prompt assembly expose createdAt without a storage or API change."
+    },
+    {
+      "description": "Conversation presence is the mode-specific owner for present-time facts.",
+      "sourceType": "derived",
+      "evidence": "The transition is appended by buildConversationPresenceBlock and is not added to Roleplay or Game prompt paths."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Live stochastic provider reply",
+      "blockingCoreClaim": false,
+      "reason": "The core claim is the deterministic prompt contract. Running a live character turn would mutate user conversation data and still would not guarantee identical wording across models."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "The focused test first failed because no transition was present, then 7 focused tests, 66 assembleGenerationPrompt tests, pnpm perf:size, and the full pnpm check passed.",
+    "githubValidationPassed": false,
+    "reviewIterationFastPath": false
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "local_pass",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1223,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1223",
+    "headRefName": "fix/conversation-time-continuity",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": false,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "No live model call was run; deterministic prompt construction and its negative controls are the proof boundary.",
+    "The Pi deployment will verify the exact merged image revision without mutating character conversation data."
+  ]
+}

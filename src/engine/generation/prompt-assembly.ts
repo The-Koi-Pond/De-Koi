@@ -2977,6 +2977,56 @@ function recentVisibleMessageLines(messages: JsonRecord[], characterNames: Map<s
     .map((message) => historyLine(message, characterNames));
 }
 
+const MIN_CONVERSATION_TRANSITION_GAP_MS = 30 * 60 * 1000;
+
+function conversationElapsedTime(elapsedMs: number): string {
+  const minutes = Math.max(1, Math.round(elapsedMs / 60_000));
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function conversationTransitionLines(input: PromptAssemblyInput, timeZone?: string): string[] {
+  if (
+    readString(input.request.regenerateMessageId).trim() ||
+    boolish(input.request.impersonate, false) ||
+    !input.latestUserInput.trim()
+  ) {
+    return [];
+  }
+
+  const visibleMessages = input.storedMessages.filter((message) => {
+    const role = readString(message.role).trim();
+    return !hiddenFromAi(message) && (role === "user" || role === "assistant");
+  });
+  let latestUserIndex = -1;
+  for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
+    const message = visibleMessages[index]!;
+    if (
+      readString(message.role).trim() === "user" &&
+      readString(message.content).trim() === input.latestUserInput.trim()
+    ) {
+      latestUserIndex = index;
+      break;
+    }
+  }
+  if (latestUserIndex <= 0) return [];
+
+  const previousMessage = visibleMessages[latestUserIndex - 1]!;
+  const latestUserMessage = visibleMessages[latestUserIndex]!;
+  const previousAtMs = Date.parse(readString(previousMessage.createdAt).trim());
+  const latestUserAtMs = Date.parse(readString(latestUserMessage.createdAt).trim());
+  if (!Number.isFinite(previousAtMs) || !Number.isFinite(latestUserAtMs)) return [];
+  const elapsedMs = latestUserAtMs - previousAtMs;
+  if (elapsedMs < MIN_CONVERSATION_TRANSITION_GAP_MS) return [];
+
+  const previousAt = new Date(previousAtMs);
+  const latestUserAt = new Date(latestUserAtMs);
+  const previousDate = formatZonedDate(previousAt, timeZone);
+  const latestUserDate = formatZonedDate(latestUserAt, timeZone);
+  return [
+    `Conversation resumed ${conversationElapsedTime(elapsedMs)} after the previous visible message (${previousDate} ${formatZonedTime(previousAt, timeZone)} -> ${latestUserDate} ${formatZonedTime(latestUserAt, timeZone)}${previousDate !== latestUserDate ? "; local date changed" : ""}). Treat this as a later interaction; reflect elapsed time naturally without exposing this note.`,
+  ];
+}
+
 function buildConversationPresenceBlock(input: PromptAssemblyInput, wrapFormat: WrapFormat): ChatMLMessage | null {
   const chatMode = modeOf(input.chat);
   if (chatMode !== "conversation") return null;
@@ -2992,6 +3042,7 @@ function buildConversationPresenceBlock(input: PromptAssemblyInput, wrapFormat: 
     `Current time of day: ${conversationTimeOfDay(now, timeZone)}`,
     `Current weekday: ${getZonedWeekdayName(now, timeZone)}`,
     timeZone ? `Time zone: ${timeZone}` : "",
+    ...conversationTransitionLines(input, timeZone),
   ].filter(Boolean);
   if (parts.length === 0) return null;
   return {
