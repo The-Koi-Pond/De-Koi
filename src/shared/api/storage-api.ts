@@ -217,10 +217,6 @@ function chatMessageSwipeBody(content: string, options?: AddChatMessageSwipeOpti
   return body;
 }
 
-async function patchChatMetadataField<T>(chatId: string, patch: Record<string, unknown>): Promise<T> {
-  return storageApi.update<T>("chats", chatId, { metadata: patch });
-}
-
 function textField(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -463,7 +459,7 @@ export const storageApi: StorageGateway = {
     }),
   evictPromptSnapshots: (chatId, keepLast) =>
     invokeTauri("chat_evict_prompt_snapshots", { chatId, keepLast }) as Promise<{ evicted: number }>,
-  patchChatMetadata: (chatId, patch) => patchChatMetadataField(chatId, patch),
+  patchChatMetadata: (chatId, patch) => storageApi.update("chats", chatId, { metadata: patch }),
   patchChatSummaries: <T = unknown>(chatId: string, patch: ChatSummaryMapsPatch) =>
     invokeTauri<T>("chat_summary_maps_patch", { chatId, patch }, { timeoutMs: null }),
   listChatMemories: <T = unknown>(chatId: string, options?: ListChatMemoriesOptions) =>

@@ -58,7 +58,7 @@ interface GenerateMissingConversationSummariesOptions {
   timeoutMs?: number;
   maxMissingDays?: number;
   signal?: AbortSignal;
-  onDayGenerated?: (date: string, entry: DaySummaryEntry) => Promise<void>;
+  onDayGenerated: (date: string, entry: DaySummaryEntry) => Promise<void>;
 }
 
 interface RunConversationSummaryBackfillInput {
@@ -557,7 +557,7 @@ async function generateMissingConversationSummaries(
       throwIfSummaryAborted(options.signal);
       const entry = await summarizeDayBucket(options.provider, options.model, bucket, timeoutMs, options.signal);
       if (entry.summary || entry.keyDetails.length > 0) {
-        await options.onDayGenerated?.(bucket.date, entry);
+        await options.onDayGenerated(bucket.date, entry);
         daySummaries[bucket.date] = entry;
         newlyGeneratedDays[bucket.date] = entry;
       }

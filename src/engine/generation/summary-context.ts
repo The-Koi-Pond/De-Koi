@@ -64,15 +64,6 @@ function dottedDateTimestamp(key: string): number | null {
     : null;
 }
 
-function isMondayTimestamp(timestamp: number | null): timestamp is number {
-  return timestamp !== null && new Date(timestamp).getUTCDay() === 1;
-}
-
-function summaryChatMode(chat: Record<string, unknown>): "conversation" | "roleplay" | "game" {
-  const mode = textValue(chat.mode) || textValue(chat.chatMode);
-  return mode === "roleplay" || mode === "game" ? mode : "conversation";
-}
-
 function summaryMapEntries(label: "Day" | "Week", value: unknown): SummaryMapEntry[] {
   return Object.entries(record(value))
     .map(([key, entry]) => ({ key, timestamp: dottedDateTimestamp(key), text: formatSummaryEntry(label, key, entry) }))
@@ -115,7 +106,10 @@ export function buildSummaryContextProjection(input: {
   const rollingEntries = normalizeChatSummaryMetadata(metadata).entries.filter((entry) => entry.enabled);
   const weeklyEntries = summaryMapEntries("Week", metadata.weekSummaries);
   const weeklyRanges = weeklyEntries
-    .filter((entry): entry is SummaryMapEntry & { timestamp: number } => isMondayTimestamp(entry.timestamp))
+    .filter(
+      (entry): entry is SummaryMapEntry & { timestamp: number } =>
+        entry.timestamp !== null && new Date(entry.timestamp).getUTCDay() === 1,
+    )
     .map((entry) => ({ start: entry.timestamp, end: entry.timestamp + 6 * 86_400_000 }));
   const allDailyEntries = summaryMapEntries("Day", metadata.daySummaries);
   const dailyEntries = allDailyEntries.filter(
@@ -123,48 +117,22 @@ export function buildSummaryContextProjection(input: {
       entry.timestamp === null ||
       !weeklyRanges.some((range) => entry.timestamp! >= range.start && entry.timestamp! <= range.end),
   );
-  const mode = summaryChatMode(input.chat);
+  const requestedMode = textValue(input.chat.mode) || textValue(input.chat.chatMode);
   const includeSceneSummary =
-    input.includeSceneSummary ?? (mode !== "conversation" || metadata.crossChatAwareness !== false);
+    input.includeSceneSummary ??
+    (requestedMode === "roleplay" || requestedMode === "game" || metadata.crossChatAwareness !== false);
   const rollingText = rollingEntries
     .map((entry) => entry.content.trim())
     .filter(Boolean)
     .join("\n\n");
-  const blocks: ProjectionBlock[] = [
-    ...(rollingText
-      ? [
-          {
-            text: rollingText,
-            kind: "rolling" as const,
-            truncateFromEnd: true,
-          },
-        ]
-      : []),
-    ...(includeSceneSummary && textValue(metadata.lastRoleplaySceneSummary)
-      ? [
-          {
-            text: textValue(metadata.lastRoleplaySceneSummary),
-            kind: "scene" as const,
-          },
-        ]
-      : []),
-    ...dailyEntries.map((entry) => ({
-      text: entry.text,
-      kind: "daily" as const,
-    })),
-    ...weeklyEntries.map((entry) => ({
-      text: entry.text,
-      kind: "weekly" as const,
-    })),
-    ...(textValue(metadata.conversationSummary)
-      ? [
-          {
-            text: textValue(metadata.conversationSummary),
-            kind: "legacy" as const,
-          },
-        ]
-      : []),
-  ];
+  const blocks: ProjectionBlock[] = [];
+  if (rollingText) blocks.push({ text: rollingText, kind: "rolling", truncateFromEnd: true });
+  const sceneSummary = textValue(metadata.lastRoleplaySceneSummary);
+  if (includeSceneSummary && sceneSummary) blocks.push({ text: sceneSummary, kind: "scene" });
+  blocks.push(...dailyEntries.map((entry) => ({ text: entry.text, kind: "daily" as const })));
+  blocks.push(...weeklyEntries.map((entry) => ({ text: entry.text, kind: "weekly" as const })));
+  const legacySummary = textValue(metadata.conversationSummary);
+  if (legacySummary) blocks.push({ text: legacySummary, kind: "legacy" });
   const maxChars = Math.max(0, Math.floor(input.budgetTokens)) * 4;
   const selected: Array<{ block: ProjectionBlock; text: string; complete: boolean }> = [];
   let usedChars = 0;
@@ -185,10 +153,15 @@ export function buildSummaryContextProjection(input: {
     break;
   }
   const text = selected.map((entry) => entry.text).join("\n\n") || null;
-  const selectedDailyCount = selected.filter((entry) => entry.block.kind === "daily").length;
-  const completeSelectedDailyCount = selected.filter((entry) => entry.block.kind === "daily" && entry.complete).length;
-  const selectedWeeklyCount = selected.filter((entry) => entry.block.kind === "weekly").length;
-  const deduplicatedDailyCount = allDailyEntries.length - dailyEntries.length;
+  let selectedDailyCount = 0;
+  let completeSelectedDailyCount = 0;
+  let selectedWeeklyCount = 0;
+  for (const entry of selected) {
+    if (entry.block.kind === "daily") {
+      selectedDailyCount += 1;
+      if (entry.complete) completeSelectedDailyCount += 1;
+    } else if (entry.block.kind === "weekly") selectedWeeklyCount += 1;
+  }
 
   return {
     text,
@@ -198,7 +171,7 @@ export function buildSummaryContextProjection(input: {
     // caller can provide both boundaries and they can be verified here.
     coversPriorHistory: false,
     omittedDailyCount: allDailyEntries.length - selectedDailyCount,
-    deduplicatedDailyCount,
+    deduplicatedDailyCount: allDailyEntries.length - dailyEntries.length,
     budgetOmittedDailyCount: dailyEntries.length - completeSelectedDailyCount,
     omittedWeeklyCount: weeklyEntries.length - selectedWeeklyCount,
   };
