@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import type { MessageAttachment } from "../../../../../engine/contracts/types/chat";
 import { resolveGalleryFileUrl } from "../../../../../shared/api/local-file-api";
 import { messageAttachmentImageAlt, messageAttachmentImageSource } from "../lib/message-attachments";
@@ -34,16 +34,17 @@ function isLikelyFilesystemPath(value: string): boolean {
   );
 }
 
+function isInlineImageSource(value: string): boolean {
+  return /^(?:data|blob):/i.test(value);
+}
+
 function useResolvedMessageAttachmentImageSource(attachment: MessageAttachment): string | null {
   const directSrc = messageAttachmentImageSource(attachment);
   const filename = attachment.filename ?? attachment.name ?? null;
   const filePath = attachment.filePath ?? null;
-  const hasManagedGallery =
-    hasText(attachment.galleryId) || hasText(filePath) || (!!directSrc && isLikelyFilesystemPath(directSrc));
-  const fallbackSrc = useMemo(() => {
-    if (!directSrc) return null;
-    return hasManagedGallery && isLikelyFilesystemPath(directSrc) ? null : directSrc;
-  }, [directSrc, hasManagedGallery]);
+  const directSrcIsFilesystemPath = !!directSrc && !isInlineImageSource(directSrc) && isLikelyFilesystemPath(directSrc);
+  const hasManagedGallery = hasText(attachment.galleryId) || hasText(filePath) || directSrcIsFilesystemPath;
+  const fallbackSrc = !directSrc || directSrcIsFilesystemPath ? null : directSrc;
   const resolutionKey = JSON.stringify([directSrc ?? "", filename ?? "", filePath ?? ""]);
   const cachedResolvedSrc = hasManagedGallery ? readCachedResolvedAttachmentSrc(resolutionKey) : null;
   const [resolvedState, setResolvedState] = useState<{ key: string; src: string | null }>({

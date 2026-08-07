@@ -26,9 +26,22 @@ const notificationMocks = vi.hoisted(() => ({
 const notificationSoundMocks = vi.hoisted(() => ({
   playNotificationPing: vi.fn(),
 }));
+const worldStateApiMocks = vi.hoisted(() => ({
+  get: vi.fn(async () => null),
+}));
 
 vi.mock("../../../../shared/lib/local-notifications", () => notificationMocks);
 vi.mock("../../../../shared/lib/notification-sound", () => notificationSoundMocks);
+vi.mock("../../world-state/index", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../world-state/index")>();
+  return {
+    ...actual,
+    worldStateApi: {
+      ...actual.worldStateApi,
+      get: worldStateApiMocks.get,
+    },
+  };
+});
 
 vi.mock("sonner", () => {
   const base = vi.fn();
