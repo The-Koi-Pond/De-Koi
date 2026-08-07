@@ -8,7 +8,7 @@ import type {
   CanonicalMemorySemanticQuery,
   MemoryLexicalRebuildResult,
 } from "../contracts/types/memory";
-import type { ChatMemoryChunk } from "../contracts/types/chat";
+import type { ChatMemoryChunk, DaySummaryEntry, WeekSummaryEntry } from "../contracts/types/chat";
 
 export type { StorageEntity } from "./storage-collections";
 
@@ -161,7 +161,13 @@ export interface ChatTranscriptPort {
 
 export interface ChatMetadataPort {
   patchChatMetadata<T = unknown>(chatId: string, patch: Record<string, unknown>): Promise<T>;
-  patchChatSummaries<T = unknown>(chatId: string, patch: Record<string, unknown>): Promise<T>;
+  /** Atomically merge typed day/week summary deltas; the runtime rejects every other field or entry shape. */
+  patchChatSummaries<T = unknown>(chatId: string, patch: ChatSummaryMapsPatch): Promise<T>;
+}
+
+export interface ChatSummaryMapsPatch {
+  daySummaries?: Record<string, DaySummaryEntry>;
+  weekSummaries?: Record<string, WeekSummaryEntry>;
 }
 
 export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPort, ChatMetadataPort {

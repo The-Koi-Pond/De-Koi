@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getDefaultAgentPrompt } from "../../contracts/constants/agent-prompts";
 import { BUILT_IN_AGENT_IDS, EDITABLE_CHARACTER_CARD_FIELDS, type AgentContext } from "../../contracts/types/agent";
 import type { BaseLLMProvider, ChatMessage } from "../../generation-core/llm/base-provider";
 import { executeAgent, executeAgentBatch, type AgentExecConfig } from "./agent-executor";
@@ -71,7 +72,7 @@ function config(type: string): AgentExecConfig {
     type,
     name: type,
     phase: "post_processing",
-    promptTemplate: `Return the ${type} result.`,
+    promptTemplate: type === "card-evolution-auditor" ? getDefaultAgentPrompt(type) : `Return the ${type} result.`,
     connectionId: null,
     settings: {},
   };
@@ -159,12 +160,14 @@ describe("agent lore context profiles", () => {
     expect(visualPrompt).not.toContain(CARD_FIELD_VALUES.personality);
   });
 
-  it("serializes every exact editable source field for the card auditor", async () => {
+  it("serializes every exact editable source field once for the card auditor", async () => {
     const prompt = await captureSystemPrompt("card-evolution-auditor");
 
     for (const value of Object.values(CARD_FIELD_VALUES)) {
-      expect(prompt).toContain(value);
+      expect(prompt.split(value)).toHaveLength(2);
     }
+    expect(prompt).toContain("<lore><characters>");
+    expect(prompt).toContain('<character id="char-1" name="Mira">');
   });
 
   it("restores full identity fields when a compact agent is batched with the card auditor", async () => {
@@ -188,7 +191,7 @@ describe("agent lore context profiles", () => {
     const systemPrompt = batchMessages.find((message) => message.role === "system")?.content ?? "";
 
     for (const value of Object.values(CARD_FIELD_VALUES)) {
-      expect(systemPrompt).toContain(value);
+      expect(systemPrompt.split(value)).toHaveLength(2);
     }
   });
 });

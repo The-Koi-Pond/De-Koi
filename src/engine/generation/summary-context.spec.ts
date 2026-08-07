@@ -17,6 +17,58 @@ function hasUnpairedSurrogate(text: string): boolean {
 }
 
 describe("buildSummaryContextProjection", () => {
+  it("lets the caller exclude a scene summary owned by another roleplay block", () => {
+    const projection = buildSummaryContextProjection({
+      chat: {
+        mode: "roleplay",
+        metadata: {
+          lastRoleplaySceneSummary: "Scene continuity owned elsewhere",
+          conversationSummary: "Legacy continuity still belongs here",
+        },
+      },
+      budgetTokens: 512,
+      includeSceneSummary: false,
+    });
+
+    expect(projection.text).toContain("Legacy continuity still belongs here");
+    expect(projection.text).not.toContain("Scene continuity owned elsewhere");
+  });
+
+  it("uses only the canonical mode field for default scene-summary ownership", () => {
+    const canonicalConversation = buildSummaryContextProjection({
+      chat: {
+        mode: "conversation",
+        chatMode: "roleplay",
+        metadata: {
+          crossChatAwareness: false,
+          lastRoleplaySceneSummary: "Conflicting legacy mode must not own this scene",
+        },
+      },
+      budgetTokens: 512,
+    });
+    const unsupportedMode = buildSummaryContextProjection({
+      chat: {
+        mode: "future-mode",
+        metadata: {
+          crossChatAwareness: false,
+          lastRoleplaySceneSummary: "Unknown modes must fail closed",
+        },
+      },
+      budgetTokens: 512,
+    });
+    const legacyOnly = buildSummaryContextProjection({
+      chat: {
+        chatMode: "roleplay",
+        metadata: { lastRoleplaySceneSummary: "Legacy mode continuity remains available" },
+      },
+      budgetTokens: 512,
+    });
+
+    expect(canonicalConversation.text).toBeNull();
+    expect(unsupportedMode.text).toBeNull();
+    expect(legacyOnly.text).toContain("Legacy mode continuity remains available");
+  });
+
   it("projects a completed week without repeating its daily summaries", () => {
     const projection = buildSummaryContextProjection({
       chat: {

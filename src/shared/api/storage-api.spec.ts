@@ -35,6 +35,51 @@ describe("storageApi prompt preset bundles", () => {
   });
 });
 
+describe("storageApi chat summary patches", () => {
+  it("sends ordinary metadata deltas without a stale read-modify-replace", async () => {
+    invokeTauriMock.mockResolvedValueOnce({ id: "chat-1" });
+    const { storageApi } = await import("./storage-api");
+
+    await storageApi.patchChatMetadata("chat-1", { narratorStyleInstructions: "Dry noir" });
+
+    expect(invokeTauriMock).toHaveBeenCalledTimes(1);
+    expect(invokeTauriMock).toHaveBeenCalledWith(
+      "storage_update",
+      {
+        entity: "chats",
+        id: "chat-1",
+        patch: { metadata: { narratorStyleInstructions: "Dry noir" } },
+      },
+      { timeoutMs: null },
+    );
+  });
+
+  it("sends summary map deltas through the atomic runtime command", async () => {
+    invokeTauriMock.mockResolvedValueOnce({ id: "chat-1" });
+    const { storageApi } = await import("./storage-api");
+
+    await storageApi.patchChatSummaries("chat-1", {
+      daySummaries: {
+        "13.07.2025": { summary: "Sunday summary.", keyDetails: ["Sunday detail."] },
+      },
+    });
+
+    expect(invokeTauriMock).toHaveBeenCalledTimes(1);
+    expect(invokeTauriMock).toHaveBeenCalledWith(
+      "chat_summary_maps_patch",
+      {
+        chatId: "chat-1",
+        patch: {
+          daySummaries: {
+            "13.07.2025": { summary: "Sunday summary.", keyDetails: ["Sunday detail."] },
+          },
+        },
+      },
+      { timeoutMs: null },
+    );
+  });
+});
+
 describe("storageApi chat message writes", () => {
   it("preserves generated message blank lines on create and swipe writes", async () => {
     invokeTauriMock

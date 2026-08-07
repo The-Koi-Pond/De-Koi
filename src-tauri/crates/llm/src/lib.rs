@@ -5008,6 +5008,163 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
+    fn anthropic_cache_disabled_preserves_joined_system_and_text_content_shapes() {
+        let mut request = request_for("anthropic", "claude-test", json!({}));
+        request.messages = vec![
+            test_message("system", "First instruction."),
+            test_message("system", "Second instruction."),
+            test_message("user", "Hello."),
+        ];
+
+        let body = build_anthropic_body(&request, false);
+
+        assert_eq!(body["system"], json!("First instruction.\n\nSecond instruction."));
+        assert_eq!(body["messages"][0]["content"], json!("Hello."));
+        assert!(!body.to_string().contains("cache_control"));
+    }
+
+    #[test]
+    fn anthropic_cache_enabled_marks_last_system_text_block() {
+        let mut request = request_for("anthropic", "claude-test", json!({}));
+        request.connection.enable_caching = true;
+        request.messages = vec![
+            test_message("system", "First instruction."),
+            test_message("system", "Second instruction."),
+        ];
+
+        let body = build_anthropic_body(&request, false);
+
+        assert_eq!(
+            body["system"],
+            json!([
+                { "type": "text", "text": "First instruction." },
+                {
+                    "type": "text",
+                    "text": "Second instruction.",
+                    "cache_control": { "type": "ephemeral" }
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn anthropic_cache_depth_zero_marks_newest_non_system_message() {
+        let mut request = request_for("anthropic", "claude-test", json!({}));
+        request.connection.enable_caching = true;
+        request.connection.caching_at_depth = Some(0);
+        request.messages = vec![
+            test_message("user", "Older."),
+            test_message("assistant", "Newest."),
+        ];
+
+        let body = build_anthropic_body(&request, false);
+
+        assert_eq!(body["messages"][0]["content"], json!("Older."));
+        assert_eq!(
+            body["messages"][1]["content"],
+            json!([{
+                "type": "text",
+                "text": "Newest.",
+                "cache_control": { "type": "ephemeral" }
+            }])
+        );
+    }
+
+    #[test]
+    fn anthropic_cache_nonzero_and_default_depth_clamp_to_oldest_message() {
+        let mut request = request_for("anthropic", "claude-test", json!({}));
+        request.connection.enable_caching = true;
+        request.connection.caching_at_depth = Some(1);
+        request.messages = vec![
+            test_message("user", "Oldest."),
+            test_message("assistant", "Middle."),
+            test_message("user", "Newest."),
+        ];
+
+        let body = build_anthropic_body(&request, false);
+        assert_eq!(
+            body["messages"][1]["content"],
+            json!([{
+                "type": "text",
+                "text": "Middle.",
+                "cache_control": { "type": "ephemeral" }
+            }])
+        );
+
+        request.connection.caching_at_depth = Some(99);
+        let clamped_body = build_anthropic_body(&request, false);
+        assert_eq!(
+            clamped_body["messages"][0]["content"],
+            json!([{
+                "type": "text",
+                "text": "Oldest.",
+                "cache_control": { "type": "ephemeral" }
+            }])
+        );
+
+        request.connection.caching_at_depth = None;
+        let default_depth_body = build_anthropic_body(&request, false);
+        assert_eq!(
+            default_depth_body["messages"][0]["content"],
+            json!([{
+                "type": "text",
+                "text": "Oldest.",
+                "cache_control": { "type": "ephemeral" }
+            }])
+        );
+    }
+
+    #[test]
+    fn anthropic_cache_selected_image_message_retains_text_images_and_marks_final_block() {
+        let mut request = request_for("anthropic", "claude-test", json!({}));
+        request.connection.enable_caching = true;
+        request.connection.caching_at_depth = Some(0);
+        let mut message = test_message("user", "Describe this.");
+        message.images = vec![
+            "data:image/png;base64,aW1hZ2U=".to_string(),
+            "not-a-data-url".to_string(),
+        ];
+        request.messages = vec![message];
+
+        let body = build_anthropic_body(&request, false);
+
+        assert_eq!(
+            body["messages"][0]["content"],
+            json!([
+                { "type": "text", "text": "Describe this." },
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "aW1hZ2U="
+                    },
+                    "cache_control": { "type": "ephemeral" }
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn anthropic_cache_enabled_with_no_non_system_messages_marks_only_system() {
+        let mut request = request_for("anthropic", "claude-test", json!({}));
+        request.connection.enable_caching = true;
+        request.messages = vec![test_message("system", "Only instruction.")];
+
+        let body = build_anthropic_body(&request, false);
+
+        assert_eq!(body["messages"], json!([]));
+        assert_eq!(
+            body["system"],
+            json!([{
+                "type": "text",
+                "text": "Only instruction.",
+                "cache_control": { "type": "ephemeral" }
+            }])
+        );
+    }
+
+    #[test]
     fn anthropic_fable_5_body_uses_adaptive_thinking_and_strips_sampling() {
         let request = request_for(
             "anthropic",

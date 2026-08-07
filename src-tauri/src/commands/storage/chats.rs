@@ -511,6 +511,79 @@ fn merge_chat_metadata(
     })
 }
 
+pub(crate) fn validate_summary_map_entries(
+    field: &str,
+    entries: &Map<String, Value>,
+) -> AppResult<()> {
+    for (entry_key, value) in entries {
+        let entry = value.as_object().ok_or_else(|| {
+            AppError::invalid_input(format!(
+                "{field}.{entry_key} summary entry must be an object"
+            ))
+        })?;
+        if !entry.get("summary").is_some_and(Value::is_string) {
+            return Err(AppError::invalid_input(format!(
+                "{field}.{entry_key}.summary must be a string"
+            )));
+        }
+        let key_details = entry
+            .get("keyDetails")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                AppError::invalid_input(format!(
+                    "{field}.{entry_key}.keyDetails must be an array of strings"
+                ))
+            })?;
+        if !key_details.iter().all(Value::is_string) {
+            return Err(AppError::invalid_input(format!(
+                "{field}.{entry_key}.keyDetails must be an array of strings"
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn patch_chat_summary_maps(
+    state: &AppState,
+    chat_id: &str,
+    patch: Value,
+) -> AppResult<Value> {
+    const SUMMARY_MAP_FIELDS: [&str; 2] = ["daySummaries", "weekSummaries"];
+
+    let patch = patch
+        .as_object()
+        .ok_or_else(|| AppError::invalid_input("Summary patch must be an object"))?;
+    if patch.is_empty() {
+        return Err(AppError::invalid_input("Summary patch must not be empty"));
+    }
+
+    let mut deltas = Vec::with_capacity(patch.len());
+    for (field, value) in patch {
+        if !SUMMARY_MAP_FIELDS.contains(&field.as_str()) {
+            return Err(AppError::invalid_input(format!(
+                "Unsupported summary patch field: {field}"
+            )));
+        }
+        let entries = value.as_object().ok_or_else(|| {
+            AppError::invalid_input(format!("{field} summary delta must be an object"))
+        })?;
+        validate_summary_map_entries(field, entries)?;
+        deltas.push((field.clone(), entries.clone()));
+    }
+
+    update_chat_metadata(state, chat_id, |metadata| {
+        for (field, entries) in deltas {
+            let mut summaries = metadata
+                .get(&field)
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            summaries.extend(entries);
+            metadata.insert(field, Value::Object(summaries));
+        }
+    })
+}
+
 fn apply_deleted_swipe_tracker_cleanup_in_collections(
     collections: &mut [AtomicCollectionRows],
     chat_id: &str,

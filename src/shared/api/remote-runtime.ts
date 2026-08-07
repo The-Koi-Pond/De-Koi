@@ -140,6 +140,7 @@ const REMOTE_COMMANDS = new Set([
   "chat_evict_prompt_snapshots",
   "chat_autonomous_unread_mark",
   "chat_autonomous_unread_clear",
+  "chat_summary_maps_patch",
   "tracker_snapshot_latest",
   "tracker_snapshot_get",
   "tracker_snapshot_save",
