@@ -771,10 +771,7 @@ fn storage_update_inner_impl(
     let normalized_patch = normalize_chat_for_update(&entity, normalized_patch)?;
     let normalized_patch = normalize_library_folder_for_update(&entity, normalized_patch)?;
     let normalized_patch = normalize_library_item_folder_for_update(&entity, normalized_patch)?;
-    let mut normalized_patch = normalize_lorebook_entry_for_update(&entity, normalized_patch)?;
-    if entity == "chats" {
-        validate_chat_metadata_patch(state, &id, &mut normalized_patch)?;
-    }
+    let normalized_patch = normalize_lorebook_entry_for_update(&entity, normalized_patch)?;
     if entity == "lorebook-entries" {
         return update_lorebook_entry_with_character_book_sync(state, &id, normalized_patch);
     }
@@ -801,6 +798,8 @@ fn storage_update_inner_impl(
         )?
     } else if entity == "connections" {
         connection_secrets::patch_connection(state, &id, normalized_patch)?
+    } else if entity == "chats" {
+        patch_chat_record(state, &id, normalized_patch)?
     } else {
         state.storage.patch(&entity, &id, normalized_patch)?
     };

@@ -212,6 +212,15 @@ pub fn chat_autonomous_unread_clear(
 }
 
 #[tauri::command]
+pub fn chat_summary_maps_patch(
+    state: State<'_, AppState>,
+    chat_id: String,
+    patch: Value,
+) -> Result<Value, AppError> {
+    chats::patch_chat_summary_maps(&state, &chat_id, patch)
+}
+
+#[tauri::command]
 pub fn chat_messages_bulk_delete(
     state: State<'_, AppState>,
     chat_id: String,

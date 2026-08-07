@@ -100,6 +100,7 @@
     "prettier": "^3.8.3",
     "size-limit": "^12.1.0",
     "tailwindcss": "^4.2.4",
+    "terser": "^5.47.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.1",
     "vite": "^7.3.2",

@@ -718,14 +718,14 @@ function gameCardByName(meta: JsonRecord): Map<string, JsonRecord> {
 
 function appendGameCardFields(parts: string[], card: JsonRecord | undefined): void {
   if (!card) return;
-  const className = readString(card.class).trim();
-  if (className) parts.push(`Class: ${className}`);
-  const abilities = stringArray(card.abilities);
-  if (abilities.length) parts.push(`Abilities: ${abilities.join(", ")}`);
-  const strengths = stringArray(card.strengths);
-  if (strengths.length) parts.push(`Strengths: ${strengths.join(", ")}`);
-  const weaknesses = stringArray(card.weaknesses);
-  if (weaknesses.length) parts.push(`Weaknesses: ${weaknesses.join(", ")}`);
+  for (const [label, value] of [
+    ["Class", readString(card.class).trim()],
+    ["Abilities", stringArray(card.abilities).join(", ")],
+    ["Strengths", stringArray(card.strengths).join(", ")],
+    ["Weaknesses", stringArray(card.weaknesses).join(", ")],
+  ]) {
+    if (value) parts.push(`${label}: ${value}`);
+  }
   const extra = parseRecord(card.extra);
   for (const [key, value] of Object.entries(extra)) {
     const text = readString(value).trim();
@@ -748,13 +748,91 @@ function appendGameCardFields(parts: string[], card: JsonRecord | undefined): vo
   }
 }
 
-function characterCardText(character: GenerationCharacterContext, gameCard?: JsonRecord): string {
+interface GamePromptPresetCoverage {
+  characterIds: Set<string>;
+  characterFields: Set<string>;
+  sections: Set<"persona" | "worldBefore" | "worldAfter">;
+}
+
+type GameCardRenderContext = readonly [
+  coverage: GamePromptPresetCoverage,
+  macros: MacroContext,
+  groupScenarioOverride: GroupScenarioOverride,
+  emittedGroupScenarioValues: Set<string>,
+];
+
+function normalizedCharacterFieldName(fieldName: string): string {
+  return fieldName.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+}
+
+function coverGameCharacterFields(coverage: GamePromptPresetCoverage, fields: string[]): void {
+  for (const field of fields) coverage.characterFields.add(field);
+}
+
+function coverGameSection(
+  coverage: GamePromptPresetCoverage,
+  section: "persona" | "worldBefore" | "worldAfter",
+): boolean {
+  const covered = coverage.sections.has(section);
+  coverage.sections.add(section);
+  return covered;
+}
+
+function gameCardFieldCovered(
+  coverage: GamePromptPresetCoverage,
+  character: GenerationCharacterContext,
+  fieldName: string,
+): boolean {
+  return coverage.characterIds.has(character.id) && coverage.characterFields.has(fieldName);
+}
+
+function characterCardText(
+  character: GenerationCharacterContext,
+  gameCard: JsonRecord | undefined,
+  [coverage, macros, groupScenarioOverride, emittedGroupScenarioValues]: GameCardRenderContext,
+): string {
   const parts = [`Name: ${character.name}`];
-  if (character.personality) parts.push(`Personality: ${character.personality}`);
-  if (character.description) parts.push(`Description: ${character.description}`);
-  if (character.backstory) parts.push(`Backstory: ${character.backstory}`);
-  if (character.appearance) parts.push(`Appearance: ${character.appearance}`);
-  if (character.scenario) parts.push(`Scenario: ${character.scenario}`);
+  const addField = (fieldName: string) => {
+    if (gameCardFieldCovered(coverage, character, fieldName)) return;
+    const value =
+      fieldName === "scenario" && groupScenarioOverride.enabled
+        ? resolveMacros(
+            groupScenarioOverride.text,
+            macroContextForCharacter(macros, character, groupScenarioOverride),
+            { trimResult: false },
+          )
+        : characterMarkerFieldValue(
+            character,
+            fieldName,
+            macros,
+            groupScenarioOverride.enabled ? NO_GROUP_SCENARIO_OVERRIDE : groupScenarioOverride,
+          );
+    if (fieldName === "scenario" && groupScenarioOverride.enabled) {
+      if (emittedGroupScenarioValues.has(value)) return;
+      emittedGroupScenarioValues.add(value);
+    }
+    if (value) parts.push(`${CHARACTER_FIELD_LABELS[fieldName] ?? fieldName}: ${value}`);
+  };
+  for (const field of ["personality", "description", "backstory", "appearance", "scenario"]) addField(field);
+  if (!gameCardFieldCovered(coverage, character, "public_profile")) {
+    const rawPublicProfile = characterPublicProfileText(character.publicProfile);
+    const resolvedPublicProfile = rawPublicProfile
+      ? resolveMacros(rawPublicProfile, macroContextForCharacter(macros, character), { trimResult: false })
+      : "";
+    if (resolvedPublicProfile) parts.push(`Public Profile:\n${resolvedPublicProfile}`);
+  }
+  for (const field of [
+    "first_mes",
+    "mes_example",
+    "creator_notes",
+    "system_prompt",
+    "post_history_instructions",
+  ]) {
+    addField(field);
+  }
+  if (!gameCardFieldCovered(coverage, character, "memories") && character.memories?.length) {
+    parts.push(`Memories:\n${character.memories.join("\n")}`);
+  }
   appendGameCardFields(parts, gameCard);
   return parts.join("\n");
 }
@@ -764,14 +842,20 @@ function groupScenarioOverride(meta: JsonRecord): GroupScenarioOverride {
   return { enabled: true, text: cleanPromptText(readString(meta.groupScenarioText).trim()) };
 }
 
-function personaCardText(persona: GenerationPersonaContext | null, gameCard?: JsonRecord): string | null {
+function personaCardText(
+  persona: GenerationPersonaContext | null,
+  gameCard: JsonRecord | undefined,
+  [coverage, macros]: GameCardRenderContext,
+): string | null {
   if (!persona) return null;
   const parts = [`Name: ${persona.name}`];
-  if (persona.description) parts.push(`Description: ${persona.description}`);
-  if (persona.personality) parts.push(`Personality: ${persona.personality}`);
-  if (persona.backstory) parts.push(`Backstory: ${persona.backstory}`);
-  if (persona.appearance) parts.push(`Appearance: ${persona.appearance}`);
-  if (persona.scenario) parts.push(`Scenario: ${persona.scenario}`);
+  if (!coverage.sections.has("persona")) {
+    for (const field of ["description", "personality", "backstory", "appearance", "scenario"] as const) {
+      const value = persona[field];
+      const resolved = value ? resolvePromptMacros(value, macros, false) : "";
+      if (resolved) parts.push(`${CHARACTER_FIELD_LABELS[field]}: ${resolved}`);
+    }
+  }
   appendGameCardFields(parts, gameCard);
   return parts.join("\n");
 }
@@ -908,7 +992,9 @@ async function buildGamePromptMessages(
   persona: GenerationPersonaContext | null,
   worldBefore: string,
   worldAfter: string,
+  renderContext: GameCardRenderContext,
 ): Promise<ChatMLMessage[]> {
+  const [coverage] = renderContext;
   const meta = parseRecord(input.chat.metadata);
   const setup = parseRecord(meta.gameSetupConfig);
   const blueprint = parseRecord(meta.gameBlueprint);
@@ -935,7 +1021,7 @@ async function buildGamePromptMessages(
     spriteSubjects.push({ id: character.id, name: character.name });
     partyCards.push({
       name: character.name,
-      card: characterCardText(character, gameCardMap.get(character.name.toLowerCase())),
+      card: characterCardText(character, gameCardMap.get(character.name.toLowerCase()), renderContext),
     });
   }
 
@@ -944,7 +1030,7 @@ async function buildGamePromptMessages(
   if (gmCharacterId) {
     const gmCharacter = await loadCharacterById(storage, gmCharacterId, characterById);
     if (gmCharacter) {
-      gmCharacterCard = characterCardText(gmCharacter, gameCardMap.get(gmCharacter.name.toLowerCase()));
+      gmCharacterCard = characterCardText(gmCharacter, gameCardMap.get(gmCharacter.name.toLowerCase()), renderContext);
     }
   }
 
@@ -973,7 +1059,11 @@ async function buildGamePromptMessages(
     partyNames,
     partyCards,
     playerName: persona?.name || "Player",
-    playerCard: personaCardText(persona, persona ? gameCardMap.get(persona.name.toLowerCase()) : undefined),
+    playerCard: personaCardText(
+      persona,
+      persona ? gameCardMap.get(persona.name.toLowerCase()) : undefined,
+      renderContext,
+    ),
     gmCharacterCard,
     difficulty: readString(setup.difficulty, "normal") || "normal",
     genre: readString(setup.genre, "fantasy") || "fantasy",
@@ -1006,7 +1096,11 @@ async function buildGamePromptMessages(
     .trim()
     .replace(/<\/?special_instructions>/gi, "");
   if (extraPrompt) systemPrompt = `${systemPrompt}\n\n<special_instructions>\n${extraPrompt}\n</special_instructions>`;
-  systemPrompt = mergeGameLoreIntoPrompt(systemPrompt, worldBefore, worldAfter);
+  systemPrompt = mergeGameLoreIntoPrompt(
+    systemPrompt,
+    coverage.sections.has("worldBefore") ? "" : worldBefore,
+    coverage.sections.has("worldAfter") ? "" : worldAfter,
+  );
 
   const formatReminder = buildGmFormatReminder({
     hasSceneModel: gmCtx.hasSceneModel,
@@ -1429,9 +1523,7 @@ const TARGETED_CONVERSATION_PEER_FIELDS = ["description", "personality", "scenar
 
 const COMPACT_MERGED_ROLEPLAY_OMITTED_CHARACTER_FIELDS = new Set([
   "first_mes",
-  "firstMes",
   "mes_example",
-  "mesExample",
 ]);
 
 const CHARACTER_FIELD_LABELS: Record<string, string> = {
@@ -1442,20 +1534,15 @@ const CHARACTER_FIELD_LABELS: Record<string, string> = {
   backstory: "Backstory",
   appearance: "Appearance",
   first_mes: "First Message",
-  firstMes: "First Message",
   mes_example: "Example Dialogue",
-  mesExample: "Example Dialogue",
   creator_notes: "Creator Notes",
-  creatorNotes: "Creator Notes",
   system_prompt: "System Prompt",
-  systemPrompt: "System Prompt",
   post_history_instructions: "Post History Instructions",
-  postHistoryInstructions: "Post History Instructions",
   memories: "Memories",
 };
 
 function characterFieldValue(character: GenerationCharacterContext, fieldName: string): string {
-  switch (fieldName) {
+  switch (normalizedCharacterFieldName(fieldName)) {
     case "name":
       return character.name;
     case "description":
@@ -1469,19 +1556,14 @@ function characterFieldValue(character: GenerationCharacterContext, fieldName: s
     case "appearance":
       return character.appearance ?? "";
     case "first_mes":
-    case "firstMes":
       return character.firstMes ?? "";
     case "mes_example":
-    case "mesExample":
       return character.mesExample ?? "";
     case "creator_notes":
-    case "creatorNotes":
       return character.creatorNotes ?? "";
     case "system_prompt":
-    case "systemPrompt":
       return character.systemPrompt ?? "";
     case "post_history_instructions":
-    case "postHistoryInstructions":
       return character.postHistoryInstructions ?? "";
     case "memories":
       return character.memories?.join("\n") ?? "";
@@ -1505,7 +1587,7 @@ function characterMarkerFieldValue(
 
 function characterMarkerFields(marker: MarkerConfig | null, compactCharacterCards = false): string[] {
   const fields = marker?.characterFields?.filter((fieldName) => typeof fieldName === "string" && fieldName.trim());
-  const resolvedFields = fields?.length ? fields : [...DEFAULT_CHARACTER_MARKER_FIELDS];
+  const resolvedFields = (fields?.length ? fields : DEFAULT_CHARACTER_MARKER_FIELDS).map(normalizedCharacterFieldName);
   return compactCharacterCards
     ? resolvedFields.filter((fieldName) => !COMPACT_MERGED_ROLEPLAY_OMITTED_CHARACTER_FIELDS.has(fieldName))
     : resolvedFields;
@@ -1561,9 +1643,16 @@ function renderCharacters(
   marker: MarkerConfig | null,
   macros: MacroContext | null = null,
   groupScenarioOverride: GroupScenarioOverride = NO_GROUP_SCENARIO_OVERRIDE,
-  options: { compactCharacterCards?: boolean; conversationTargetId?: string | null } = {},
+  options: {
+    compactCharacterCards?: boolean;
+    conversationTargetId?: string | null;
+    omittedFields?: Set<string>;
+  } = {},
 ): string {
-  const defaultFields = characterMarkerFields(marker, options.compactCharacterCards === true);
+  const omittedFields = options.omittedFields;
+  const defaultFields = characterMarkerFields(marker, options.compactCharacterCards === true).filter(
+    (field) => !omittedFields?.has(field),
+  );
   const compactTargetedConversation = !!options.conversationTargetId && !hasExplicitCharacterMarkerFields(marker);
   const characterBlocks = characters
     .map((character) => {
@@ -1573,14 +1662,26 @@ function renderCharacters(
         : defaultFields;
       const content = renderNamedFields(
         [
-          ["Name", character.name],
-          ["Public Profile", compactTargetedConversation ? "" : characterPublicProfileText(character.publicProfile)],
+          ["Name", omittedFields?.has("name") ? "" : character.name],
+          [
+            "Public Profile",
+            compactTargetedConversation || omittedFields?.has("public_profile")
+              ? ""
+              : characterPublicProfileText(character.publicProfile),
+          ],
           ...fields.map((fieldName): [string, string] => [
             CHARACTER_FIELD_LABELS[fieldName] ?? fieldName,
             characterMarkerFieldValue(character, fieldName, macros, groupScenarioOverride),
           ]),
-          ["Behavioral Interpretation", compactTargetedConversation ? "" : (character.behavioralInterpretation ?? "")],
-          ...(fields.includes("memories") || (compactTargetedConversation && !isConversationTarget)
+          [
+            "Behavioral Interpretation",
+            compactTargetedConversation || omittedFields?.has("behavioral_interpretation")
+              ? ""
+              : (character.behavioralInterpretation ?? ""),
+          ],
+          ...(fields.includes("memories") ||
+          omittedFields?.has("memories") ||
+          (compactTargetedConversation && !isConversationTarget)
             ? []
             : ([["Memories", character.memories?.join("\n") ?? ""]] as Array<[string, string]>)),
         ],
@@ -2201,9 +2302,17 @@ function summaryContextBudgetTokens(meta: JsonRecord, maxContext: number | null)
   return Math.min(4096, Math.max(768, Math.floor(maxContext * 0.08)));
 }
 
-function summaryProjectionForGeneration(chat: JsonRecord, maxContext: number | null = null): SummaryContextProjection {
+function summaryProjectionForGeneration(
+  chat: JsonRecord,
+  maxContext: number | null = null,
+  includeSceneSummary?: boolean,
+): SummaryContextProjection {
   const meta = parseRecord(chat.metadata);
-  return buildSummaryContextProjection({ chat, budgetTokens: summaryContextBudgetTokens(meta, maxContext) });
+  return buildSummaryContextProjection({
+    chat,
+    budgetTokens: summaryContextBudgetTokens(meta, maxContext),
+    includeSceneSummary,
+  });
 }
 
 export function chatSummaryForGeneration(chat: JsonRecord): string | null {
@@ -2846,6 +2955,49 @@ function recentVisibleMessageLines(messages: JsonRecord[], characterNames: Map<s
     .map((message) => historyLine(message, characterNames));
 }
 
+const MIN_CONVERSATION_TRANSITION_GAP_MS = 30 * 60 * 1000;
+
+function conversationTransitionLines(input: PromptAssemblyInput, timeZone?: string): string[] {
+  const latestInput = input.latestUserInput.trim();
+  if (
+    readString(input.request.regenerateMessageId).trim() ||
+    boolish(input.request.impersonate, false) ||
+    !latestInput
+  ) {
+    return [];
+  }
+
+  let latestUserMessage: JsonRecord | undefined;
+  let previousMessage: JsonRecord | undefined;
+  for (let index = input.storedMessages.length - 1; index >= 0; index -= 1) {
+    const message = input.storedMessages[index]!;
+    const role = readString(message.role).trim();
+    if (hiddenFromAi(message) || (role !== "user" && role !== "assistant")) continue;
+    if (!latestUserMessage) {
+      if (role === "user" && readString(message.content).trim() === latestInput) latestUserMessage = message;
+      continue;
+    }
+    previousMessage = message;
+    break;
+  }
+  if (!previousMessage || !latestUserMessage) return [];
+
+  const previousAtMs = Date.parse(readString(previousMessage.createdAt).trim());
+  const latestUserAtMs = Date.parse(readString(latestUserMessage.createdAt).trim());
+  if (!Number.isFinite(previousAtMs) || !Number.isFinite(latestUserAtMs)) return [];
+  const elapsedMs = latestUserAtMs - previousAtMs;
+  if (elapsedMs < MIN_CONVERSATION_TRANSITION_GAP_MS) return [];
+  const elapsedMinutes = Math.max(1, Math.round(elapsedMs / 60_000));
+
+  const previousAt = new Date(previousAtMs);
+  const latestUserAt = new Date(latestUserAtMs);
+  const previousDate = formatZonedDate(previousAt, timeZone);
+  const latestUserDate = formatZonedDate(latestUserAt, timeZone);
+  return [
+    `Conversation resumed ${Math.floor(elapsedMinutes / 60)}h ${elapsedMinutes % 60}m after the previous visible message (${previousDate} ${formatZonedTime(previousAt, timeZone)} -> ${latestUserDate} ${formatZonedTime(latestUserAt, timeZone)}${previousDate !== latestUserDate ? "; local date changed" : ""}). Treat this as a later interaction; reflect elapsed time naturally without exposing this note.`,
+  ];
+}
+
 function buildConversationPresenceBlock(input: PromptAssemblyInput, wrapFormat: WrapFormat): ChatMLMessage | null {
   const chatMode = modeOf(input.chat);
   if (chatMode !== "conversation") return null;
@@ -2861,6 +3013,7 @@ function buildConversationPresenceBlock(input: PromptAssemblyInput, wrapFormat: 
     `Current time of day: ${conversationTimeOfDay(now, timeZone)}`,
     `Current weekday: ${getZonedWeekdayName(now, timeZone)}`,
     timeZone ? `Time zone: ${timeZone}` : "",
+    ...conversationTransitionLines(input, timeZone),
   ].filter(Boolean);
   if (parts.length === 0) return null;
   return {
@@ -4042,19 +4195,22 @@ function sectionContent(args: {
   groupScenarioOverride: GroupScenarioOverride;
   compactCharacterCards: boolean;
   conversationTargetId: string | null;
+  omittedCharacterFields?: Set<string>;
+  omitDialogueExamples?: boolean;
 }) {
   switch (args.marker?.type) {
     case "character":
       return renderCharacters(args.characters, args.wrapFormat, args.marker, args.macros, args.groupScenarioOverride, {
         compactCharacterCards: args.compactCharacterCards,
         conversationTargetId: args.conversationTargetId,
+        omittedFields: args.omittedCharacterFields,
       });
     case "persona":
       return renderPersona(args.persona, args.wrapFormat);
     case "dialogue_examples":
       return renderDialogueExamples(args.characters, {
         compactCharacterCards: args.compactCharacterCards,
-        omit: !!args.conversationTargetId,
+        omit: !!args.conversationTargetId || args.omitDialogueExamples === true,
       });
     case "chat_summary":
       return args.summary ?? "";
@@ -4340,7 +4496,7 @@ export async function assembleGenerationPrompt(
         text: reusableContext.summary,
         coversPriorHistory: reusableContext.summaryCoversPriorHistory,
       }
-    : summaryProjectionForGeneration(input.chat, maxContext);
+    : summaryProjectionForGeneration(input.chat, maxContext, chatMode === "roleplay" ? false : undefined);
   const summary = summaryProjection.text;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
@@ -4446,6 +4602,11 @@ export async function assembleGenerationPrompt(
   let usedFallbackSystemPrompt = false;
   let presetDepthEntries: PromptDepthEntry[] = [];
   let hasPresetPromptContent = false;
+  const gameCoverage: GamePromptPresetCoverage = {
+    characterIds: new Set(promptCharacters.map((character) => character.id)),
+    characterFields: new Set(),
+    sections: new Set(),
+  };
 
   if (selectedPreset) {
     const groupsById = promptGroupLookup(selectedPreset.groups);
@@ -4465,13 +4626,46 @@ export async function assembleGenerationPrompt(
         insertedHistory = true;
         continue;
       }
+      let sectionPersona = persona;
+      let sectionWorldBefore = processedLore.worldInfoBefore;
+      let sectionWorldAfter = processedLore.worldInfoAfter;
+      let omittedCharacterFields: Set<string> | undefined;
+      let omitDialogueExamples = false;
+      if (chatMode === "game") {
+        switch (marker?.type) {
+          case "character": {
+            const requestedFields = characterMarkerFields(marker);
+            const supplementalFields = ["name", "public_profile", "behavioral_interpretation", "memories"];
+            omittedCharacterFields = new Set(gameCoverage.characterFields);
+            coverGameCharacterFields(gameCoverage, [...requestedFields, ...supplementalFields]);
+            break;
+          }
+          case "dialogue_examples":
+            omitDialogueExamples = gameCoverage.characterFields.has("mes_example");
+            coverGameCharacterFields(gameCoverage, ["mes_example"]);
+            break;
+          case "persona":
+            if (coverGameSection(gameCoverage, "persona")) sectionPersona = null;
+            break;
+          case "world_info_before":
+            if (coverGameSection(gameCoverage, "worldBefore")) sectionWorldBefore = "";
+            break;
+          case "world_info_after":
+            if (coverGameSection(gameCoverage, "worldAfter")) sectionWorldAfter = "";
+            break;
+          case "lorebook":
+            if (coverGameSection(gameCoverage, "worldBefore")) sectionWorldBefore = "";
+            if (coverGameSection(gameCoverage, "worldAfter")) sectionWorldAfter = "";
+            break;
+        }
+      }
       const rawContent = sectionContent({
         section,
         marker,
         characters: promptCharacters,
-        persona,
-        worldBefore: processedLore.worldInfoBefore,
-        worldAfter: processedLore.worldInfoAfter,
+        persona: sectionPersona,
+        worldBefore: sectionWorldBefore,
+        worldAfter: sectionWorldAfter,
         summary,
         agentData,
         wrapFormat,
@@ -4479,6 +4673,8 @@ export async function assembleGenerationPrompt(
         groupScenarioOverride: activeGroupScenarioOverride,
         compactCharacterCards: compactMergedRoleplayCards,
         conversationTargetId: targetedConversationCharacterId,
+        omittedCharacterFields,
+        omitDialogueExamples,
       });
       const resolvedContent =
         marker?.type === "character" ? rawContent : resolvePromptMacros(rawContent, macros, deferCharacterMacros);
@@ -4594,10 +4790,16 @@ export async function assembleGenerationPrompt(
       persona,
       processedLore.worldInfoBefore,
       processedLore.worldInfoAfter,
+      [gameCoverage, macros, activeGroupScenarioOverride, new Set()],
     );
-    const firstSystemIndex = messages.findIndex((message) => message.role === "system");
-    if (firstSystemIndex >= 0) {
-      messages[firstSystemIndex] = gameSystem!;
+    if (usedFallbackSystemPrompt) {
+      const firstSystemIndex = messages.findIndex((message) => message.role === "system");
+      if (firstSystemIndex >= 0) {
+        messages[firstSystemIndex] = gameSystem!;
+      } else {
+        messages.unshift(gameSystem!);
+      }
+      appendSummaryToSystemPrompt(messages, summary, wrapFormat);
     } else {
       messages.unshift(gameSystem!);
     }

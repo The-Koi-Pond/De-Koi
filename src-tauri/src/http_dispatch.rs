@@ -873,6 +873,14 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
+        "chat_summary_maps_patch" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::chat_summary_maps_patch,
+            )
+            .await
+        }
         "tracker_snapshot_latest" => {
             dispatch_blocking_http_storage(
                 state,
@@ -1795,6 +1803,7 @@ mod tests {
         "agent_toggle_by_type",
         "chat_autonomous_unread_clear",
         "chat_autonomous_unread_mark",
+        "chat_summary_maps_patch",
         "chat_branch",
         "chat_connect",
         "chat_disconnect",
@@ -2218,6 +2227,257 @@ mod tests {
 
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("limit"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_chat_summary_maps_patch_merges_concurrent_day_and_week_deltas() {
+        let state = test_state("chat-summary-maps-concurrent");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Summary chat",
+                    "metadata": {
+                        "daySummaries": {
+                            "07.07.2025": { "summary": "Monday", "keyDetails": [] }
+                        }
+                    }
+                }),
+            )
+            .expect("chat should be created");
+
+        let (day_result, week_result) = tokio::join!(
+            dispatch(
+                &state,
+                InvokeRequest {
+                    command: "chat_summary_maps_patch".to_string(),
+                    args: Some(json!({
+                        "chatId": "chat-1",
+                        "patch": {
+                            "daySummaries": {
+                                "13.07.2025": { "summary": "Sunday", "keyDetails": [] }
+                            }
+                        }
+                    })),
+                },
+            ),
+            dispatch(
+                &state,
+                InvokeRequest {
+                    command: "chat_summary_maps_patch".to_string(),
+                    args: Some(json!({
+                        "chatId": "chat-1",
+                        "patch": {
+                            "weekSummaries": {
+                                "07.07.2025": { "summary": "Week", "keyDetails": [] }
+                            }
+                        }
+                    })),
+                },
+            ),
+        );
+
+        day_result.expect("day delta should dispatch");
+        week_result.expect("week delta should dispatch");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert_eq!(
+            chat["metadata"]["daySummaries"]["07.07.2025"]["summary"],
+            "Monday"
+        );
+        assert_eq!(
+            chat["metadata"]["daySummaries"]["13.07.2025"]["summary"],
+            "Sunday"
+        );
+        assert_eq!(
+            chat["metadata"]["weekSummaries"]["07.07.2025"]["summary"],
+            "Week"
+        );
+    }
+
+    #[tokio::test]
+    async fn ordinary_chat_metadata_patch_cannot_overwrite_a_summary_checkpoint() {
+        let state = test_state("chat-summary-vs-metadata-concurrent");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Summary chat",
+                    "characterIds": ["char-1", "char-2"],
+                    "metadata": {
+                        "daySummaries": {
+                            "07.07.2025": { "summary": "Monday", "keyDetails": [] }
+                        }
+                    }
+                }),
+            )
+            .expect("chat should be created");
+
+        let (summary_result, metadata_result) = tokio::join!(
+            dispatch(
+                &state,
+                InvokeRequest {
+                    command: "chat_summary_maps_patch".to_string(),
+                    args: Some(json!({
+                        "chatId": "chat-1",
+                        "patch": {
+                            "daySummaries": {
+                                "13.07.2025": { "summary": "Sunday", "keyDetails": [] }
+                            }
+                        }
+                    })),
+                },
+            ),
+            dispatch(
+                &state,
+                InvokeRequest {
+                    command: "storage_update".to_string(),
+                    args: Some(json!({
+                        "entity": "chats",
+                        "id": "chat-1",
+                        "patch": {
+                            "metadata": {
+                                "narratorStyleInstructions": "Dry noir",
+                                "daySummaries": {
+                                    "07.07.2025": { "summary": "Monday", "keyDetails": [] }
+                                }
+                            }
+                        }
+                    })),
+                },
+            ),
+        );
+
+        summary_result.expect("summary checkpoint should dispatch");
+        metadata_result.expect("ordinary metadata patch should dispatch");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert_eq!(
+            chat["metadata"]["daySummaries"]["07.07.2025"]["summary"],
+            "Monday"
+        );
+        assert_eq!(
+            chat["metadata"]["daySummaries"]["13.07.2025"]["summary"],
+            "Sunday"
+        );
+        assert_eq!(chat["metadata"]["narratorStyleInstructions"], "Dry noir");
+    }
+
+    #[tokio::test]
+    async fn dispatch_chat_summary_maps_patch_rejects_malformed_deltas() {
+        let state = test_state("chat-summary-maps-invalid-delta");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "name": "Summary chat" }))
+            .expect("chat should be created");
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "chat_summary_maps_patch".to_string(),
+                args: Some(json!({
+                    "chatId": "chat-1",
+                    "patch": { "daySummaries": [] }
+                })),
+            },
+        )
+        .await
+        .expect_err("array deltas should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "chat_summary_maps_patch".to_string(),
+                args: Some(json!({
+                    "chatId": "chat-1",
+                    "patch": { "unrelatedMetadata": {} }
+                })),
+            },
+        )
+        .await
+        .expect_err("non-summary patch fields should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+
+        for invalid_entry in [
+            json!({ "summary": [], "keyDetails": [] }),
+            json!({ "summary": "Valid summary", "keyDetails": [42] }),
+            json!({ "summary": "Missing details" }),
+        ] {
+            let error = dispatch(
+                &state,
+                InvokeRequest {
+                    command: "chat_summary_maps_patch".to_string(),
+                    args: Some(json!({
+                        "chatId": "chat-1",
+                        "patch": { "daySummaries": { "13.07.2025": invalid_entry } }
+                    })),
+                },
+            )
+            .await
+            .expect_err("malformed summary entries should be rejected");
+
+            assert_eq!(error.code, "invalid_input");
+        }
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "chat_summary_maps_patch".to_string(),
+                args: Some(json!({
+                    "chatId": "chat-1",
+                    "patch": {
+                        "weekSummaries": {
+                            "07.07.2025": { "summary": "Week", "keyDetails": [false] }
+                        }
+                    }
+                })),
+            },
+        )
+        .await
+        .expect_err("malformed weekly summary entries should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "storage_update".to_string(),
+                args: Some(json!({
+                    "entity": "chats",
+                    "id": "chat-1",
+                    "patch": {
+                        "metadata": {
+                            "daySummaries": {
+                                "13.07.2025": { "summary": 42, "keyDetails": [] }
+                            }
+                        }
+                    }
+                })),
+            },
+        )
+        .await
+        .expect_err("generic chat metadata patches should reject malformed summary entries");
+
+        assert_eq!(error.code, "invalid_input");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert!(chat.get("metadata").is_none());
     }
 
     #[tokio::test]

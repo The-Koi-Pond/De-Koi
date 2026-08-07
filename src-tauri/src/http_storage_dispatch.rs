@@ -303,6 +303,14 @@ pub fn chat_autonomous_unread_clear(
     chats::clear_autonomous_unread(state, required_string(args, "chatId")?)
 }
 
+pub fn chat_summary_maps_patch(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    chats::patch_chat_summary_maps(
+        state,
+        required_string(args, "chatId")?,
+        optional_value(args, "patch"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

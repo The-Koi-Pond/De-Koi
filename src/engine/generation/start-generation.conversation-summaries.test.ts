@@ -140,7 +140,6 @@ describe("startGeneration conversation summary preparation", () => {
               keyDetails: ["timezone bucket respected"],
             },
           },
-          weekSummaries: {},
         }),
       );
     } finally {

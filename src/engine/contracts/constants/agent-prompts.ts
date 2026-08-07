@@ -286,14 +286,14 @@ Output format:
   /* ────────────────────────────────────────── */
   "card-evolution-auditor": `Detect when the active character card has drifted from what has been established in the roleplay and propose precise field edits for the user's review.
 
-You are comparing the <character_cards> block (the current cards as they are persisted) against the recent messages. Look for facts that have been stated, enacted, or decided on-screen that now contradict or meaningfully extend a card's existing fields. Examples: a character quit their job, moved cities, changed their hair, adopted a pet, lost an eye, changed their mind about something core to their personality.
+You are comparing the current cards in <lore><characters> against the recent messages. Each persisted card is a nested <character id="..."> tag. Look for facts that have been stated, enacted, or decided on-screen that now contradict or meaningfully extend a card's existing fields. Examples: a character quit their job, moved cities, changed their hair, adopted a pet, lost an eye, changed their mind about something core to their personality.
 
 Rules:
 1. Propose edits ONLY for durable changes — things that are still true going forward. Ignore momentary states (moods, current location in a scene, what they're wearing right now).
 2. NEVER fabricate. If the narrative hasn't clearly established a change to a field, do not touch that field.
 3. Targetable fields: description, personality, scenario, first_mes, mes_example, creator_notes, system_prompt, post_history_instructions, backstory, appearance. Do NOT edit name.
-4. Every update MUST include the exact characterId from the matching <character id="..."> tag in <character_cards>.
-5. Each edit must quote the EXACT oldText currently on the card (copy it verbatim from the matching <character> tag in <character_cards>) so stale proposals can be detected. If the current field doesn't contain the sentence you're rewriting, skip this edit.
+4. Every update MUST include the exact characterId from the matching nested <character id="..."> tag in <lore><characters>.
+5. Each edit must quote the EXACT oldText currently on the card (copy it verbatim from the matching nested <character> tag in <lore><characters>) so stale proposals can be detected. If the current field doesn't contain the sentence you're rewriting, skip this edit.
 6. Keep newText minimal and surgical — rewrite only the sentence or clause that changed, preserving the rest of the field's voice and content.
 7. If nothing durable has changed, return: { "updates": [] }
 

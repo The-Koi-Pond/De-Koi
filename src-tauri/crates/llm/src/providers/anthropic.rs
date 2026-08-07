@@ -7,6 +7,12 @@ pub(crate) fn build_anthropic_body(request: &LlmRequest, stream: bool) -> Value 
     let mut system = Vec::new();
     let mut anthropic_messages = Vec::new();
     let messages = request_messages(request);
+    let cache_message_index = request.connection.enable_caching.then(|| {
+        let non_system_count = messages.iter().filter(|message| message.role != "system").count();
+        let depth = usize::try_from(request.connection.caching_at_depth.unwrap_or(5))
+            .unwrap_or(usize::MAX);
+        non_system_count.checked_sub(1 + depth.min(non_system_count.saturating_sub(1)))
+    }).flatten();
     for message in messages {
         if message.role == "system" {
             system.push(message.content);
@@ -16,25 +22,15 @@ pub(crate) fn build_anthropic_body(request: &LlmRequest, stream: bool) -> Value 
             } else {
                 "user"
             };
-            if message.images.is_empty() {
+            let message_index = anthropic_messages.len();
+            if Some(message_index) == cache_message_index {
+                let mut content = anthropic_content_blocks(&message);
+                add_anthropic_cache_breakpoint(&mut content);
+                anthropic_messages.push(json!({ "role": role, "content": content }));
+            } else if message.images.is_empty() {
                 anthropic_messages.push(json!({ "role": role, "content": message.content }));
             } else {
-                let mut content = Vec::new();
-                if !message.content.is_empty() {
-                    content.push(json!({ "type": "text", "text": message.content }));
-                }
-                for image in &message.images {
-                    if let Some((media_type, data)) = data_url_image(image) {
-                        content.push(json!({
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": data
-                            }
-                        }));
-                    }
-                }
+                let content = anthropic_content_blocks(&message);
                 anthropic_messages.push(json!({ "role": role, "content": content }));
             }
         }
@@ -47,7 +43,16 @@ pub(crate) fn build_anthropic_body(request: &LlmRequest, stream: bool) -> Value 
     if stream {
         body["stream"] = json!(true);
     }
-    if !system.is_empty() {
+    if request.connection.enable_caching {
+        let mut system_blocks = system
+            .into_iter()
+            .map(|text| json!({ "type": "text", "text": text }))
+            .collect::<Vec<_>>();
+        add_anthropic_cache_breakpoint(&mut system_blocks);
+        if !system_blocks.is_empty() {
+            body["system"] = json!(system_blocks);
+        }
+    } else if !system.is_empty() {
         body["system"] = json!(system.join("\n\n"));
     }
     let sampling_restricted = is_anthropic_sampling_restricted_model(&request.connection.model);
@@ -101,6 +106,39 @@ pub(crate) fn build_anthropic_body(request: &LlmRequest, stream: bool) -> Value 
         &[],
     );
     body
+}
+
+fn anthropic_content_blocks(message: &LlmMessage) -> Vec<Value> {
+    let mut content = Vec::new();
+    if !message.content.is_empty() {
+        content.push(json!({ "type": "text", "text": message.content }));
+    }
+    for image in &message.images {
+        if let Some((media_type, data)) = data_url_image(image) {
+            content.push(json!({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": data
+                }
+            }));
+        }
+    }
+    content
+}
+
+fn add_anthropic_cache_breakpoint(content: &mut [Value]) {
+    if let Some(block) = content.iter_mut().rev().find(|block| {
+        block.get("type").and_then(Value::as_str) == Some("image")
+            || (block.get("type").and_then(Value::as_str) == Some("text")
+                && block
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| !text.is_empty()))
+    }) {
+        block["cache_control"] = json!({ "type": "ephemeral" });
+    }
 }
 
 pub(crate) async fn anthropic_request(
