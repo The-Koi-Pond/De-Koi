@@ -25,8 +25,7 @@ fn tracker_selection_target(value: Option<&Value>) -> Option<(String, i64)> {
 }
 
 fn tracker_row_matches_target(row: &Value, target: &(String, i64)) -> bool {
-    row.get("messageId").and_then(Value::as_str) == Some(target.0.as_str())
-        && non_negative_i64_value(row.get("swipeIndex")) == Some(target.1)
+    tracker_selection_target(Some(row)).as_ref() == Some(target)
 }
 
 fn tracker_committed_value(value: Option<&Value>) -> bool {
@@ -43,7 +42,9 @@ pub(crate) fn select_tracker_snapshot_from_rows(
 ) -> Option<Value> {
     let mut eligible_rows = rows
         .iter()
-        .filter(|row| row_matches_tracker_chat(row, chat_id))
+        .filter(|row| {
+            row_matches_tracker_chat(row, chat_id) && tracker_selection_target(Some(row)).is_some()
+        })
         .cloned()
         .collect::<Vec<_>>();
     sort_newest_first(&mut eligible_rows);
@@ -865,6 +866,68 @@ mod tests {
         )
         .expect("fallback membership should take precedence over exclusion");
         assert_eq!(fallback["id"], "visible");
+    }
+
+    #[test]
+    fn tracker_generation_selector_skips_rows_without_a_target() {
+        let rows = vec![
+            json!({
+                "id": "malformed",
+                "kind": "tracker",
+                "chatId": "chat-1",
+                "swipeIndex": 0,
+                "committed": true,
+                "createdAt": "2026-08-08T12:02:00Z"
+            }),
+            json!({
+                "id": "valid",
+                "kind": "tracker",
+                "chatId": "chat-1",
+                "messageId": "message-1",
+                "swipeIndex": 0,
+                "committed": true,
+                "createdAt": "2026-08-08T12:01:00Z"
+            }),
+        ];
+
+        let selected = select_tracker_snapshot_from_rows(&rows, "chat-1", &json!({}))
+            .expect("the valid committed snapshot should remain eligible");
+
+        assert_eq!(selected["id"], "valid");
+    }
+
+    #[test]
+    fn tracker_generation_selector_matches_trimmed_legacy_message_ids() {
+        let rows = vec![
+            json!({
+                "id": "newest",
+                "kind": "tracker",
+                "chatId": "chat-1",
+                "messageId": "message-2",
+                "swipeIndex": 0,
+                "createdAt": "2026-08-08T12:02:00Z"
+            }),
+            json!({
+                "id": "visible",
+                "kind": "tracker",
+                "chatId": "chat-1",
+                "messageId": " message-1 ",
+                "swipeIndex": 1,
+                "createdAt": "2026-08-08T12:01:00Z"
+            }),
+        ];
+
+        let selected = select_tracker_snapshot_from_rows(
+            &rows,
+            "chat-1",
+            &json!({
+                "preferLatestVisible": true,
+                "visibleAnchor": { "messageId": "message-1", "swipeIndex": 1 }
+            }),
+        )
+        .expect("the normalized visible target should win");
+
+        assert_eq!(selected["id"], "visible");
     }
 
     #[test]

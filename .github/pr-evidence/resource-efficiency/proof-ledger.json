@@ -186,7 +186,38 @@
       "No before-and-after target-device latency benchmark was performed; exact-image Pi deployment and health proof are post-merge gates."
     ]
   },
-  "reviewThreadLedger": [],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny found that malformed tracker rows could remain eligible in the new Rust-side selector.",
+      "disposition": "fixed",
+      "fix": "The Rust selector now requires the same parseable messageId and swipeIndex target as the previous TypeScript list path and compares normalized target tuples. Focused tests prove malformed rows are skipped and whitespace-padded legacy message ids still match visible anchors.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny suggested converting a rejected image resolver into a partial-success warning.",
+      "disposition": "proven-and-clarified",
+      "fix": "The pre-optimization sequential implementation propagated any resolver rejection. The concurrent implementation intentionally preserves that contract while collecting outcomes first so the earliest rejected input, not the fastest rejection, is thrown.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny questioned whether deduplicated image references preserve group-local images and warnings.",
+      "disposition": "proven-and-clarified",
+      "fix": "Each group is reconstructed from its original attachment positions after shared resolution. The focused jagged-group test proves a repeated resolved image is delivered to both groups and a missing image warns only in the group containing it.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny suggested the concurrent resolver could surface the fastest failure instead of the earliest input failure.",
+      "disposition": "proven-and-clarified",
+      "fix": "Workers record outcomes without rejecting Promise.all, then delivery walks groups and attachments in input order. A focused controlled-race test proves a slower first input failure is surfaced before a faster later failure.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny suggested adding fallback and row filtering to the extracted regex-script loader.",
+      "disposition": "proven-and-clarified",
+      "fix": "The previous implementation used the same storage.list result and propagated storage errors; invalid regex expressions were and remain ignored at application time. Adding a fallback would hide a storage failure and change the lossless refactor contract.",
+      "humanResolutionRequired": false
+    }
+  ],
   "manualBlockers": [],
   "verification": {
     "originalReproPassed": true,
