@@ -5,7 +5,7 @@
     "title": "Reduce redundant generation and runtime work",
     "source": "Direct user request to implement all high-impact lossless De-Koi optimizations.",
     "classification": "prompt assembly, storage reads, integration availability, attachment delivery, and bundle loading",
-    "status": "ready_for_review"
+    "status": "waiting_on_ci"
   },
   "coreClaim": "De-Koi performs less repeated storage, bridge, provider, attachment, and bundle work without changing generated text, tracker precedence, attachment ordering, compatibility behavior, or user-visible capabilities.",
   "rootCause": "Several hot paths independently reloaded immutable turn data, transferred full histories to select one row, probed Spotify through the provider, resolved duplicate images sequentially, or coupled drag-and-drop with broadly used motion code.",
@@ -214,8 +214,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1224,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1224",
     "headRefName": "perf/resource-efficiency-20260808",
     "baseRefName": "main",
     "healthStatus": "pending",
