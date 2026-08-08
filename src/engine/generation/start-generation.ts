@@ -103,6 +103,7 @@ import {
   deletePreparedManagedImageAttachments,
   isImageAttachment,
   prepareManagedImageAttachmentBatch,
+  resolveImageAttachmentDeliveries,
   resolveImageAttachmentDelivery,
   type ImageAttachmentDeliveryWarning,
   type PreparedManagedImageAttachments,
@@ -127,7 +128,7 @@ import { assembleGenerationPrompt, chatSummaryForGeneration } from "./prompt-ass
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { buildGenerationTurnUsage } from "./usage-ledger";
-import { applyRuntimeRegexScripts } from "./regex-runtime";
+import { applyRuntimeRegexScriptSnapshot, loadRuntimeRegexScripts } from "./regex-runtime";
 import { roleplayQualityReasonsForSignals, validateRoleplayQualityAudit } from "./roleplay-quality-audit";
 import { analyzeRoleplayResponse, type RoleplayQualitySignal } from "./roleplay-quality-signals";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
@@ -394,10 +395,11 @@ function shouldPauseForAgentInjectionReview(
   return parseRecord(chat.metadata).reviewWriterAgentOutputs === true;
 }
 
-async function spotifyPlaybackAvailableForConversationCommand(integrations: IntegrationGateway): Promise<boolean> {
+export async function spotifyPlaybackAvailableForConversationCommand(
+  integrations: IntegrationGateway,
+): Promise<boolean> {
   try {
-    const player = await integrations.spotify.player<JsonRecord>({});
-    return parseRecord(player).connected !== false;
+    return await integrations.spotify.playbackAvailable();
   } catch {
     return false;
   }
@@ -472,6 +474,7 @@ async function prepareUserInput(
   storage: StorageGateway,
   input: StartGenerationInput,
   chat: JsonRecord,
+  loadRegexScripts: () => Promise<JsonRecord[]>,
 ): Promise<PreparedUserInput> {
   const raw = inputUserMessage(input).trim();
   const attachments = inputAttachments(input);
@@ -481,7 +484,9 @@ async function prepareUserInput(
     const managedAttachments = preparedAttachments.attachments;
     const mentionedCharacterNames = stringArray(input.mentionedCharacterNames).filter((name) => name.trim().length > 0);
     const regexed = raw
-      ? await applyRuntimeRegexScripts(storage, "user_input", raw, { chatCharacterIds: activeCharacterIds(chat) })
+      ? applyRuntimeRegexScriptSnapshot(await loadRegexScripts(), "user_input", raw, {
+          chatCharacterIds: activeCharacterIds(chat),
+        })
       : "";
     const withReadableAttachments = appendReadableAttachmentsToContent(regexed, managedAttachments);
     return {
@@ -508,12 +513,13 @@ async function prepareUserInput(
 async function prepareDryRunUserInput(
   storage: StorageGateway,
   input: StartGenerationInput,
+  loadRegexScripts: () => Promise<JsonRecord[]>,
 ): Promise<PreparedUserInput> {
   const raw = inputUserMessage(input).trim();
   const attachments = inputAttachments(input);
   const imageDelivery = await resolveImageAttachmentDelivery(storage, attachments);
   const mentionedCharacterNames = stringArray(input.mentionedCharacterNames).filter((name) => name.trim().length > 0);
-  const regexed = raw ? await applyRuntimeRegexScripts(storage, "user_input", raw) : "";
+  const regexed = raw ? applyRuntimeRegexScriptSnapshot(await loadRegexScripts(), "user_input", raw) : "";
   const withReadableAttachments = appendReadableAttachmentsToContent(regexed, attachments);
   return {
     content: collapseExcessBlankLines(withReadableAttachments),
@@ -1590,8 +1596,24 @@ async function resolveStoredImageAttachmentsForPrompt(
   const warnings: ImageAttachmentDeliveryWarning[] = [];
   let changed = false;
   const resolvedMessages: JsonRecord[] = [];
+  const eligibleAttachments: PromptAttachment[][] = [];
+  const deliveryIndexByMessage = new Map<number, number>();
 
-  for (const message of messages) {
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+    const message = messages[messageIndex]!;
+    const messageId = readString(message.id).trim();
+    const role = readString(message.role).trim();
+    const attachments = promptAttachmentsFromExtra(message.extra);
+    if (role !== "user" || (messageId && skipMessageIds.has(messageId)) || !attachments?.some(isImageAttachment)) {
+      continue;
+    }
+    deliveryIndexByMessage.set(messageIndex, eligibleAttachments.length);
+    eligibleAttachments.push(attachments);
+  }
+  const deliveries = await resolveImageAttachmentDeliveries(storage, eligibleAttachments);
+
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+    const message = messages[messageIndex]!;
     const messageId = readString(message.id).trim();
     const role = readString(message.role).trim();
     const attachments = promptAttachmentsFromExtra(message.extra);
@@ -1600,7 +1622,7 @@ async function resolveStoredImageAttachmentsForPrompt(
       continue;
     }
 
-    const delivery = await resolveImageAttachmentDelivery(storage, attachments);
+    const delivery = deliveries[deliveryIndexByMessage.get(messageIndex) ?? -1] ?? { images: [], warnings: [] };
     warnings.push(...delivery.warnings);
     if (delivery.images.length === 0) {
       resolvedMessages.push(message);
@@ -4415,10 +4437,12 @@ export async function* dryRunGeneration(
   input = (await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input)) as GenerationDryRunInput;
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
+  let regexScriptsPromise: Promise<JsonRecord[]> | null = null;
+  const loadTurnRegexScripts = () => (regexScriptsPromise ??= loadRuntimeRegexScripts(deps.storage));
 
   yield { type: "dry_run_start", data: { runId } };
   yield { type: "phase", data: "Preparing dry run..." };
-  const preparedUserInput = await prepareDryRunUserInput(deps.storage, input);
+  const preparedUserInput = await prepareDryRunUserInput(deps.storage, input, loadTurnRegexScripts);
   throwIfAborted(signal);
   const connection = await resolveGenerationConnection(deps.storage, chat, input);
   throwIfAborted(signal);
@@ -4471,6 +4495,7 @@ export async function* dryRunGeneration(
     embeddingSource: generationEmbeddingSource(deps.llm, connection),
     visuals: deps.visuals,
     persistPromptVariables: false,
+    regexScripts: await loadTurnRegexScripts(),
   });
   throwIfAborted(signal);
 
@@ -4577,7 +4602,7 @@ export async function* dryRunGeneration(
   }));
   throwIfAborted(signal);
 
-  let content = await applyRuntimeRegexScripts(deps.storage, "ai_output", streamedContent);
+  let content = applyRuntimeRegexScriptSnapshot(await loadTurnRegexScripts(), "ai_output", streamedContent);
   content = finalAssistantContent(input, content);
   if (content !== streamedContent) {
     yield { type: "content_replace", data: content };
@@ -4657,6 +4682,8 @@ async function* startGenerationImpl(
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
+  let regexScriptsPromise: Promise<JsonRecord[]> | null = null;
+  const loadTurnRegexScripts = () => (regexScriptsPromise ??= loadRuntimeRegexScripts(deps.storage));
 
   const generationTimingStartedAt = () => Date.now();
   const reportPerformanceTiming = (
@@ -4703,7 +4730,7 @@ async function* startGenerationImpl(
 
   const saveUserMessageStartedAt = generationTimingStartedAt();
   yield { type: "phase", data: "Saving message..." };
-  const preparedUserInput = await prepareUserInput(deps.storage, input, chat);
+  const preparedUserInput = await prepareUserInput(deps.storage, input, chat, loadTurnRegexScripts);
   let savesUserMessage = false;
   let savedUserMessage: unknown | null = null;
   let storedMessages: JsonRecord[] | null = null;
@@ -4929,6 +4956,7 @@ async function* startGenerationImpl(
       embeddingSource: turnEmbeddingSource,
       visuals: deps.visuals,
       persistPromptVariables: true,
+      regexScripts: await loadTurnRegexScripts(),
     });
   } catch (error) {
     reportPerformanceTiming("generation.prompt_assembly", assemblePromptStartedAt, "error");
@@ -5013,6 +5041,7 @@ async function* startGenerationImpl(
         visuals: deps.visuals,
         persistPromptVariables: true,
         reusableContext: assembly.reusableContext,
+        regexScripts: await loadTurnRegexScripts(),
       });
       throwIfAborted(signal);
     }
@@ -5183,7 +5212,7 @@ async function* startGenerationImpl(
             personaCharacterIds: preSavePersonaId ? new Set([preSavePersonaId]) : undefined,
           },
         );
-    content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content, {
+    content = applyRuntimeRegexScriptSnapshot(await loadTurnRegexScripts(), "ai_output", content, {
       chatCharacterIds: activeCharacterIds(chat),
       targetCharacterId: assistantMessageCharacterId(chat, input),
     });
@@ -5632,7 +5661,7 @@ async function* startGenerationImpl(
   }
   throwIfAborted(signal);
   let content = streamedContentDirect;
-  content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content, {
+  content = applyRuntimeRegexScriptSnapshot(await loadTurnRegexScripts(), "ai_output", content, {
     chatCharacterIds: activeCharacterIds(chat),
     targetCharacterId: assistantMessageCharacterId(chat, input),
   });

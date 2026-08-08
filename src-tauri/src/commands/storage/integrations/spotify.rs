@@ -138,6 +138,9 @@ pub(crate) async fn spotify_call(
                 .map(|_| json!({ "success": true }))
         }
         ("GET", ["status"]) | ("POST", ["status"]) => status(state, route, &body),
+        ("GET", ["playback-available"]) | ("POST", ["playback-available"]) => {
+            playback_available(state)
+        }
         ("GET", ["access-token"]) => access_token(state, route, &body).await,
         ("GET", ["player"]) => player(state, route, &body).await,
         ("GET", ["devices"]) => devices(state, route, &body).await,
@@ -1542,6 +1545,35 @@ fn status(state: &AppState, route: &ParsedPath, body: &Value) -> AppResult<Value
         "scopes": scopes,
         "missingScopes": missing_scopes
     }))
+}
+
+fn playback_available(state: &AppState) -> AppResult<Value> {
+    let Some(agent) = find_by_field(state, "agents", "type", "spotify")? else {
+        return Ok(json!({ "available": false }));
+    };
+    let agent_id = agent
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if agent_id.is_empty() {
+        return Ok(json!({ "available": false }));
+    }
+    let mut settings = agent_settings(&agent);
+    migrate_legacy_spotify_tokens(state, &agent_id, &mut settings)?;
+    let has_client_id = settings
+        .get("spotifyClientId")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty());
+    let has_refresh_token = spotify_stored_token(
+        state,
+        &settings,
+        "spotifyRefreshToken",
+        SPOTIFY_REFRESH_TOKEN_ENCRYPTED_KEY,
+    )?
+    .is_some_and(|value| !value.trim().is_empty());
+    Ok(json!({ "available": has_client_id && has_refresh_token }))
 }
 
 async fn access_token(state: &AppState, route: &ParsedPath, body: &Value) -> AppResult<Value> {
@@ -4386,6 +4418,36 @@ mod tests {
             "any"
         );
         assert_eq!(spotify_source_type(&json!({})), "any");
+    }
+
+    #[test]
+    fn spotify_playback_availability_uses_local_credentials() {
+        let (_root, state) = test_state("playback-availability");
+        assert_eq!(
+            playback_available(&state).expect("missing agent should be readable")["available"],
+            false
+        );
+
+        state
+            .storage
+            .upsert_with_id(
+                "agents",
+                "spotify",
+                json!({
+                    "id": "spotify",
+                    "type": "spotify",
+                    "settings": {
+                        "spotifyRefreshToken": "refresh-secret",
+                        "spotifyClientId": "client-id"
+                    }
+                }),
+            )
+            .expect("spotify agent should be stored");
+
+        assert_eq!(
+            playback_available(&state).expect("configured agent should be readable")["available"],
+            true
+        );
     }
 
     #[test]

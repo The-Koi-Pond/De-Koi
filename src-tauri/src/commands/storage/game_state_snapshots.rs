@@ -17,6 +17,89 @@ pub(crate) fn latest_tracker_snapshot(state: &AppState, chat_id: &str) -> AppRes
     Ok(rows.into_iter().next())
 }
 
+fn tracker_selection_target(value: Option<&Value>) -> Option<(String, i64)> {
+    let target = value?.as_object()?;
+    let message_id = target.get("messageId")?.as_str()?.trim().to_string();
+    let swipe_index = non_negative_i64_value(target.get("swipeIndex")).unwrap_or(0);
+    Some((message_id, swipe_index))
+}
+
+fn tracker_row_matches_target(row: &Value, target: &(String, i64)) -> bool {
+    row.get("messageId").and_then(Value::as_str) == Some(target.0.as_str())
+        && non_negative_i64_value(row.get("swipeIndex")) == Some(target.1)
+}
+
+fn tracker_committed_value(value: Option<&Value>) -> bool {
+    bool_value(value)
+        || value
+            .and_then(Value::as_str)
+            .is_some_and(|raw| matches!(raw.trim().to_ascii_lowercase().as_str(), "yes" | "on"))
+}
+
+pub(crate) fn select_tracker_snapshot_from_rows(
+    rows: &[Value],
+    chat_id: &str,
+    query: &Value,
+) -> Option<Value> {
+    let mut eligible_rows = rows
+        .iter()
+        .filter(|row| row_matches_tracker_chat(row, chat_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    sort_newest_first(&mut eligible_rows);
+
+    let prefer_latest_visible = bool_value(query.get("preferLatestVisible"));
+    let visible_anchor = tracker_selection_target(query.get("visibleAnchor"));
+    let fallback_targets = query
+        .get("fallbackTargets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|target| tracker_selection_target(Some(target)))
+        .collect::<std::collections::HashSet<_>>();
+    let exclude_message_id = query
+        .get("excludeMessageId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+
+    if prefer_latest_visible {
+        if let Some(anchor) = visible_anchor.filter(|target| !target.0.is_empty()) {
+            if let Some(row) = eligible_rows
+                .iter()
+                .find(|row| tracker_row_matches_target(row, &anchor))
+            {
+                return Some(row.clone());
+            }
+        }
+    }
+
+    let eligible = |row: &&Value| {
+        if !fallback_targets.is_empty() {
+            return tracker_selection_target(Some(row))
+                .is_some_and(|target| fallback_targets.contains(&target));
+        }
+        exclude_message_id.is_empty()
+            || row.get("messageId").and_then(Value::as_str) != Some(exclude_message_id)
+    };
+
+    eligible_rows
+        .iter()
+        .filter(eligible)
+        .find(|row| tracker_committed_value(row.get("committed")))
+        .cloned()
+        .or_else(|| eligible_rows.iter().find(eligible).cloned())
+}
+
+pub(crate) fn select_tracker_snapshot(
+    state: &AppState,
+    chat_id: &str,
+    query: &Value,
+) -> AppResult<Option<Value>> {
+    let rows = tracker_snapshots_for_chat(state, chat_id)?;
+    Ok(select_tracker_snapshot_from_rows(&rows, chat_id, query))
+}
+
 pub(crate) fn bootstrap_tracker_snapshot(
     state: &AppState,
     chat_id: &str,
@@ -719,6 +802,69 @@ mod tests {
         assert!(snapshot["personaStats"].is_array());
         assert!(snapshot["manualOverrides"].is_object());
         assert_eq!(snapshot["committed"], true);
+    }
+
+    #[test]
+    fn tracker_generation_selector_preserves_visible_committed_and_fallback_precedence() {
+        let rows = vec![
+            json!({
+                "id": "newest-uncommitted",
+                "kind": "tracker",
+                "chatId": "chat-1",
+                "messageId": "message-3",
+                "swipeIndex": 0,
+                "committed": false,
+                "createdAt": "2026-08-08T12:03:00Z"
+            }),
+            json!({
+                "id": "visible",
+                "kind": "tracker",
+                "chatId": "chat-1",
+                "messageId": "message-2",
+                "swipeIndex": 1,
+                "committed": false,
+                "createdAt": "2026-08-08T12:02:00Z"
+            }),
+            json!({
+                "id": "committed",
+                "kind": "tracker",
+                "chatId": "chat-1",
+                "messageId": "message-1",
+                "swipeIndex": 0,
+                "committed": "yes",
+                "createdAt": "2026-08-08T12:01:00Z"
+            }),
+        ];
+
+        let visible = select_tracker_snapshot_from_rows(
+            &rows,
+            "chat-1",
+            &json!({
+                "preferLatestVisible": true,
+                "visibleAnchor": { "messageId": "message-2", "swipeIndex": 1 }
+            }),
+        )
+        .expect("visible target should win");
+        assert_eq!(visible["id"], "visible");
+
+        let committed = select_tracker_snapshot_from_rows(
+            &rows,
+            "chat-1",
+            &json!({ "excludeMessageId": "message-3" }),
+        )
+        .expect("committed target should win after exclusion");
+        assert_eq!(committed["id"], "committed");
+
+        let fallback = select_tracker_snapshot_from_rows(
+            &rows,
+            "chat-1",
+            &json!({
+                "excludeMessageId": "message-2",
+                "fallbackTargets": [{ "messageId": "message-2", "swipeIndex": 1 }]
+            }),
+        )
+        .expect("fallback membership should take precedence over exclusion");
+        assert_eq!(fallback["id"], "visible");
     }
 
     #[test]

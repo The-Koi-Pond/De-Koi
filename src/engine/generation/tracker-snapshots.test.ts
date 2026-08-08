@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { StorageGateway } from "../capabilities/storage";
 import type { AgentResult } from "../contracts/types/agent";
-import { persistTrackerSnapshotForTurn } from "./tracker-snapshots";
+import {
+  getTrackerSnapshotForTarget,
+  persistTrackerSnapshotForTurn,
+  selectTrackerSnapshotForGeneration,
+} from "./tracker-snapshots";
 
 function createTrackerStorage(): StorageGateway {
   const storage = {
@@ -59,5 +63,53 @@ describe("persistTrackerSnapshotForTurn", () => {
 
     expect(snapshot?.presentCharacters.map((character) => character.name)).toEqual(["Mira"]);
     expect(snapshot?.presentCharacters[0]).toMatchObject({ characterId: "Mira", mood: "watchful" });
+  });
+});
+
+describe("targeted tracker snapshot reads", () => {
+  it("uses the exact-target capability without listing tracker history", async () => {
+    const list = vi.fn(async () => {
+      throw new Error("generic list should not be called");
+    });
+    const getTrackerSnapshot = vi.fn(async () => ({
+      id: "snapshot-1",
+      chatId: "chat-1",
+      messageId: "message-1",
+      swipeIndex: 2,
+      location: "Harbor",
+    }));
+    const storage = { list, getTrackerSnapshot } as unknown as StorageGateway;
+
+    const result = await getTrackerSnapshotForTarget(storage, "chat-1", { messageId: "message-1", swipeIndex: 2 });
+
+    expect(result).toMatchObject({ messageId: "message-1", swipeIndex: 2, location: "Harbor" });
+    expect(getTrackerSnapshot).toHaveBeenCalledWith("chat-1", { messageId: "message-1", swipeIndex: 2 });
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("uses the focused selector without transferring irrelevant history", async () => {
+    const list = vi.fn(async () => {
+      throw new Error("generic list should not be called");
+    });
+    const selectTrackerSnapshot = vi.fn(async () => ({
+      id: "snapshot-visible",
+      chatId: "chat-1",
+      messageId: "visible-message",
+      swipeIndex: 1,
+      committed: false,
+    }));
+    const storage = { list, selectTrackerSnapshot } as unknown as StorageGateway;
+    const options = {
+      preferLatestVisible: true,
+      visibleAnchor: { messageId: "visible-message", swipeIndex: 1 },
+      excludeMessageId: "regenerated-message",
+      fallbackTargets: [{ messageId: "visible-message", swipeIndex: 1 }],
+    };
+
+    const result = await selectTrackerSnapshotForGeneration(storage, "chat-1", options);
+
+    expect(result).toMatchObject({ id: "snapshot-visible", messageId: "visible-message", swipeIndex: 1 });
+    expect(selectTrackerSnapshot).toHaveBeenCalledWith("chat-1", options);
+    expect(list).not.toHaveBeenCalled();
   });
 });

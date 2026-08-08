@@ -95,6 +95,9 @@ function testStorage(agentRows: JsonRecord[], connections: JsonRecord[]): Storag
 
 const noopIntegrations: IntegrationGateway = {
   spotify: {
+    async playbackAvailable() {
+      return false;
+    },
     async player<T = unknown>() {
       return asStorageValue<T>({});
     },

@@ -126,6 +126,9 @@ function storageFor(args: {
 function integrations(): IntegrationGateway {
   return {
     spotify: {
+      async playbackAvailable() {
+        return false;
+      },
       async player<T = unknown>() {
         return asValue<T>({});
       },
