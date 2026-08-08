@@ -81,6 +81,9 @@ function invoke(command: string, args: JsonRecord): { status?: number; value: un
       value: collection(String(args.entity ?? "")).find((item) => item.id === args.id) ?? null,
     };
   }
+  if (command === "tracker_snapshot_select") {
+    return { value: null };
+  }
   if (command === "storage_create") {
     const entity = String(args.entity ?? "");
     if (entity === "chats" && failChatCreation) {
