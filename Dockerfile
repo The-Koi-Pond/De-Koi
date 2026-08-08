@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server --no-default-features --features server \
     && cp /app/src-tauri/target/release/de-koi-server /usr/local/bin/de-koi-server
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:25-bookworm-slim AS runtime
 
 ARG DE_KOI_IMAGE_VERSION=prealpha
 ARG DE_KOI_SOURCE_COMMIT=unknown
