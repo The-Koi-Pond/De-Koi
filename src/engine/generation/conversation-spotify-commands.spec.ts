@@ -5,6 +5,7 @@ import { assembleGenerationPrompt } from "./prompt-assembly";
 import { persistConnectedCommandTags } from "./connected-commands";
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import type { JsonRecord } from "./runtime-records";
+import { spotifyPlaybackAvailableForConversationCommand } from "./start-generation";
 
 function asStorageValue<T>(value: unknown): T {
   return value as T;
@@ -161,6 +162,9 @@ function commandStorage(): StorageGateway {
 function spotifyIntegrations(searchTracks: IntegrationGateway["spotify"]["searchTracks"]): IntegrationGateway {
   return {
     spotify: {
+      async playbackAvailable() {
+        return false;
+      },
       async player() {
         return asStorageValue({});
       },
@@ -365,6 +369,17 @@ describe("conversation Spotify command prompting", () => {
     await expect(conversationPromptText({ spotifyPlaybackAvailable: true, spotify: false })).resolves.not.toContain(
       '[spotify: title="Song title", artist="Artist"]',
     );
+  });
+
+  it("uses local playback availability without probing the live player", async () => {
+    const integrations = spotifyIntegrations(async () => asStorageValue({ tracks: [] }));
+    const playbackAvailable = vi.fn(async () => true);
+    const player = vi.fn(async () => asStorageValue({ connected: true }));
+    Object.assign(integrations.spotify, { playbackAvailable, player });
+
+    await expect(spotifyPlaybackAvailableForConversationCommand(integrations)).resolves.toBe(true);
+    expect(playbackAvailable).toHaveBeenCalledTimes(1);
+    expect(player).not.toHaveBeenCalled();
   });
 });
 

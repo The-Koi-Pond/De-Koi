@@ -19,6 +19,7 @@ export interface PreparedManagedImageAttachments {
 }
 
 const IMAGE_ATTACHMENT_PROVIDER_BYTE_LIMIT = 6 * 1024 * 1024;
+const IMAGE_ATTACHMENT_RESOLUTION_CONCURRENCY = 4;
 
 export interface ImageAttachmentDeliveryWarning {
   code: "image_attachment_delivery";
@@ -60,6 +61,18 @@ function hasResolvableImageReference(attachment: PromptAttachment): boolean {
     !!readString(attachment.url).trim() ||
     !!readString(attachment.imageUrl).trim()
   );
+}
+
+function imageAttachmentReferenceKey(attachment: PromptAttachment): string {
+  const galleryId = readString(attachment.galleryId).trim();
+  if (galleryId) return `gallery:${galleryId}`;
+  const filePath = readString(attachment.filePath).trim();
+  if (filePath) return `file:${filePath}`;
+  const url = readString(attachment.url).trim();
+  if (url && !inlineImageDataUrl(url)) return `url:${url}`;
+  const imageUrl = readString(attachment.imageUrl).trim();
+  if (imageUrl && !inlineImageDataUrl(imageUrl)) return `url:${imageUrl}`;
+  return "";
 }
 
 function estimateDataUrlBytes(dataUrl: string): number {
@@ -223,39 +236,91 @@ export async function resolveImageAttachmentDataUrls(
   return (await resolveImageAttachmentDelivery(storage, attachments)).images;
 }
 
+type ImageAttachmentResolution =
+  | { status: "fulfilled"; value: string | null }
+  | { status: "rejected"; reason: unknown };
+
+export async function resolveImageAttachmentDeliveries(
+  storage: StorageGateway,
+  groups: ReadonlyArray<readonly PromptAttachment[] | undefined>,
+): Promise<ImageAttachmentDelivery[]> {
+  const resolver = storage.resolveImageAttachmentDataUrl?.bind(storage);
+  const work = new Map<string, PromptAttachment>();
+  if (resolver) {
+    for (const attachments of groups) {
+      for (const attachment of attachments ?? []) {
+        if (!isImageAttachment(attachment) || attachmentInlineImageDataUrl(attachment)) continue;
+        const key = imageAttachmentReferenceKey(attachment);
+        if (key && !work.has(key)) work.set(key, attachment);
+      }
+    }
+  }
+
+  const entries = Array.from(work.entries());
+  const resolutions = new Map<string, ImageAttachmentResolution>();
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < entries.length) {
+      const entry = entries[nextIndex];
+      nextIndex += 1;
+      if (!entry) return;
+      const [key, attachment] = entry;
+      try {
+        resolutions.set(key, { status: "fulfilled", value: (await resolver?.(attachment)) ?? null });
+      } catch (reason) {
+        resolutions.set(key, { status: "rejected", reason });
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(IMAGE_ATTACHMENT_RESOLUTION_CONCURRENCY, entries.length) }, () => worker()),
+  );
+
+  const deliveries: ImageAttachmentDelivery[] = [];
+  for (const attachments of groups) {
+    const images: string[] = [];
+    const warnings: ImageAttachmentDeliveryWarning[] = [];
+    const normalizedAttachments = attachments ?? [];
+    for (let index = 0; index < normalizedAttachments.length; index += 1) {
+      const attachment = normalizedAttachments[index]!;
+      if (!isImageAttachment(attachment)) continue;
+      const filename = attachmentFilename(attachment, index);
+      const inline = attachmentInlineImageDataUrl(attachment);
+      if (inline) {
+        if (isProviderSizedImageDataUrl(inline)) {
+          images.push(inline);
+        } else {
+          warnings.push(
+            imageDeliveryWarning(filename, `it is larger than ${providerSizeMegabytes()} MB after preparation.`),
+          );
+        }
+        continue;
+      }
+
+      const resolution = resolutions.get(imageAttachmentReferenceKey(attachment));
+      if (resolution?.status === "rejected") throw resolution.reason;
+      const resolved = resolution?.status === "fulfilled" ? resolution.value : null;
+      if (resolved) {
+        if (isProviderSizedImageDataUrl(resolved)) {
+          images.push(resolved);
+        } else {
+          warnings.push(
+            imageDeliveryWarning(filename, `it is larger than ${providerSizeMegabytes()} MB after resolution.`),
+          );
+        }
+      } else if (hasResolvableImageReference(attachment)) {
+        warnings.push(imageDeliveryWarning(filename, "the saved image data could not be resolved."));
+      }
+    }
+    deliveries.push({ images, warnings });
+  }
+  return deliveries;
+}
+
+
 export async function resolveImageAttachmentDelivery(
   storage: StorageGateway,
   attachments: PromptAttachment[] | undefined,
 ): Promise<ImageAttachmentDelivery> {
-  const images: string[] = [];
-  const warnings: ImageAttachmentDeliveryWarning[] = [];
-  const normalizedAttachments = attachments ?? [];
-  for (let index = 0; index < normalizedAttachments.length; index += 1) {
-    const attachment = normalizedAttachments[index]!;
-    if (!isImageAttachment(attachment)) continue;
-    const filename = attachmentFilename(attachment, index);
-    const inline = attachmentInlineImageDataUrl(attachment);
-    if (inline) {
-      if (isProviderSizedImageDataUrl(inline)) {
-        images.push(inline);
-      } else {
-        warnings.push(imageDeliveryWarning(filename, `it is larger than ${providerSizeMegabytes()} MB after preparation.`));
-      }
-      continue;
-    }
-
-    const resolved = await storage.resolveImageAttachmentDataUrl?.(attachment);
-    if (resolved) {
-      if (isProviderSizedImageDataUrl(resolved)) {
-        images.push(resolved);
-      } else {
-        warnings.push(imageDeliveryWarning(filename, `it is larger than ${providerSizeMegabytes()} MB after resolution.`));
-      }
-    } else if (hasResolvableImageReference(attachment)) {
-      warnings.push(imageDeliveryWarning(filename, "the saved image data could not be resolved."));
-    }
-  }
-  return { images, warnings };
+  return (await resolveImageAttachmentDeliveries(storage, [attachments]))[0] ?? { images: [], warnings: [] };
 }
-
-

@@ -10,6 +10,8 @@ import type {
   StorageGateway,
   StorageDeleteOptions,
   StorageListOptions,
+  TrackerSnapshotSelectionQuery,
+  TrackerSnapshotTargetQuery,
 } from "../../engine/capabilities/storage";
 import {
   getStorageCollectionMetadata,
@@ -472,6 +474,10 @@ export const storageApi: StorageGateway = {
     const chat = await storageApi.get<Record<string, unknown>>("chats", chatId);
     return (chat?.gameState as never) ?? null;
   },
+  getTrackerSnapshot: <T = unknown>(chatId: string, target: TrackerSnapshotTargetQuery) =>
+    trackerSnapshotApi.get(chatId, target) as Promise<T | null>,
+  selectTrackerSnapshot: <T = unknown>(chatId: string, query: TrackerSnapshotSelectionQuery) =>
+    trackerSnapshotApi.select(chatId, query) as Promise<T | null>,
   saveTrackerSnapshot: <T = unknown>(chatId: string, snapshot: Record<string, unknown>) =>
     trackerSnapshotApi.save(chatId, snapshot as unknown as TrackerSnapshotInput) as Promise<T>,
   listLorebookEntries: (lorebookId) => storageApi.list("lorebook-entries", { filters: { lorebookId } }),

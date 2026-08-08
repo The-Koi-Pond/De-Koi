@@ -1,4 +1,5 @@
 export interface SpotifyGateway {
+  playbackAvailable(): Promise<boolean>;
   player<T = unknown>(input: { agentId?: string | null }): Promise<T>;
   playlists<T = unknown>(input: { agentId?: string | null; limit?: number | null }): Promise<T>;
   playlistTracks<T = unknown>(input: Record<string, unknown>): Promise<T>;

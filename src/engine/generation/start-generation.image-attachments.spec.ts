@@ -200,6 +200,28 @@ describe("startGeneration image attachments", () => {
     );
   });
 
+  it("deduplicates the same saved image reference across historical messages", async () => {
+    const { storage, messages } = imageAttachmentStorage();
+    messages.push({
+      ...messages[0]!,
+      id: "message-2",
+      extra: {
+        attachments: [{ type: "image/png", galleryId: "gallery-1", filename: "cat-again.png" }],
+      },
+    });
+    const originalResolver = storage.resolveImageAttachmentDataUrl!.bind(storage);
+    storage.resolveImageAttachmentDataUrl = vi.fn((attachment) => originalResolver(attachment));
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm: capturingLlm([]), integrations: {} as IntegrationGateway },
+        { chatId: "chat-1", connectionId: "conn-1", impersonateBlockAgents: true },
+      ),
+    );
+
+    expect(storage.resolveImageAttachmentDataUrl).toHaveBeenCalledTimes(1);
+  });
+
   it("routes an image-bearing foreground request through the configured vision connection", async () => {
     const { storage } = imageAttachmentStorage(
       { capabilities: { vision: false } },
@@ -250,6 +272,30 @@ describe("startGeneration image attachments", () => {
     );
 
     expect(requests.at(-1)?.connectionId).toBe("conn-1");
+  });
+
+  it("loads regex scripts once across input, prompt, and output processing", async () => {
+    const { storage } = imageAttachmentStorage({}, { storedImage: false });
+    const originalList = storage.list.bind(storage);
+    let regexListCalls = 0;
+    storage.list = async (entity, options) => {
+      if (entity === "regex-scripts") regexListCalls += 1;
+      return originalList(entity, options);
+    };
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm: capturingLlm([]), integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "hello",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(regexListCalls).toBe(1);
   });
 
   it("routes rehydrated stored image prompts through the configured vision connection", async () => {

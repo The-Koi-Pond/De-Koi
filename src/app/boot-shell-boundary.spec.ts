@@ -9,6 +9,10 @@ function readAppSource() {
   return readFileSync(join(currentDir, "App.tsx"), "utf8");
 }
 
+function readViteConfigSource() {
+  return readFileSync(join(currentDir, "../../vite.config.ts"), "utf8");
+}
+
 function readChatHooksSource() {
   return readFileSync(join(currentDir, "../features/catalog/chats/hooks/use-chats.ts"), "utf8");
 }
@@ -38,6 +42,14 @@ function readMemoryMaintenanceStartupSource() {
 }
 
 describe("app boot shell boundary", () => {
+  it("keeps lazy drag-and-drop dependencies separate from eager motion dependencies", () => {
+    const source = readViteConfigSource();
+
+    expect(source).toContain('"vendor-motion": ["framer-motion", "motion"]');
+    expect(source).toContain('"vendor-dnd": ["@dnd-kit"]');
+    expect(source).not.toContain('"vendor-ui": ["framer-motion", "motion", "@dnd-kit"]');
+  });
+
   it("keeps the root App module free of deferred shell and feature imports", () => {
     const source = readAppSource();
 

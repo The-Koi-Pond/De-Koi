@@ -301,6 +301,10 @@ export async function getTrackerSnapshotForTarget(
   context?: TrackerSnapshotReadContext,
 ): Promise<GameState | null> {
   if (!target) return null;
+  if (!context && storage.getTrackerSnapshot) {
+    const row = await storage.getTrackerSnapshot<Record<string, unknown>>(chatId, target);
+    return row ? normalizeTrackerSnapshotRow(parseRecord(row), chatId) : null;
+  }
   const rows = context?.rows ?? (await listTrackerSnapshotRows(storage, chatId));
   return newestMatchingSnapshot(rows, chatId, (row) => targetMatches(row, target));
 }
@@ -370,6 +374,10 @@ export async function selectTrackerSnapshotForGeneration(
   options: TrackerSnapshotSelectionOptions = {},
   context?: TrackerSnapshotReadContext,
 ): Promise<GameState | null> {
+  if (!context && storage.selectTrackerSnapshot) {
+    const row = await storage.selectTrackerSnapshot<Record<string, unknown>>(chatId, options);
+    return row ? normalizeTrackerSnapshotRow(parseRecord(row), chatId) : null;
+  }
   const rows = context?.rows ?? (await listTrackerSnapshotRows(storage, chatId));
   const fallbackTargets = new Set(
     (options.fallbackTargets ?? []).filter((target) => target?.messageId !== undefined).map(trackerTargetKey),

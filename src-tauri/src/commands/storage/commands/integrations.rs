@@ -113,6 +113,11 @@ async fn spotify_direct(
 }
 
 #[tauri::command]
+pub async fn spotify_playback_available(state: State<'_, AppState>) -> Result<Value, AppError> {
+    spotify_direct(state, "POST", &["playback-available"], Value::Null).await
+}
+
+#[tauri::command]
 pub async fn spotify_status(
     state: State<'_, AppState>,
     body: Option<Value>,

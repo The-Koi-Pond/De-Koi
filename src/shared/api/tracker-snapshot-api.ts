@@ -1,4 +1,5 @@
 import type { GameState } from "../../engine/contracts/types/game-state";
+import type { TrackerSnapshotSelectionQuery } from "../../engine/capabilities/storage";
 import { invokeTauri } from "./tauri-client";
 
 export interface TrackerSnapshotTarget {
@@ -26,6 +27,10 @@ export const trackerSnapshotApi = {
       messageId: target.messageId,
       swipeIndex: target.swipeIndex ?? 0,
     });
+  },
+
+  select(chatId: string, query: TrackerSnapshotSelectionQuery): Promise<TrackerSnapshot | null> {
+    return invokeTauri<TrackerSnapshot | null>("tracker_snapshot_select", { chatId, query });
   },
 
   save(chatId: string, snapshot: TrackerSnapshotInput): Promise<TrackerSnapshot> {

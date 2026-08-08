@@ -170,6 +170,18 @@ export interface ChatSummaryMapsPatch {
   weekSummaries?: Record<string, WeekSummaryEntry>;
 }
 
+export interface TrackerSnapshotTargetQuery {
+  messageId: string;
+  swipeIndex: number;
+}
+
+export interface TrackerSnapshotSelectionQuery {
+  preferLatestVisible?: boolean;
+  visibleAnchor?: TrackerSnapshotTargetQuery | null;
+  excludeMessageId?: string | null;
+  fallbackTargets?: TrackerSnapshotTargetQuery[] | null;
+}
+
 export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPort, ChatMetadataPort {
   createMemory?(body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
   updateMemory?(memoryId: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord>;
@@ -184,6 +196,8 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   previewChatMemoryCapture?(chatId: string, sourceMessageIds: string[]): Promise<ChatMemoryCapturePreview>;
   commitChatMemoryCapture?(body: CommitChatMemoryCaptureInput): Promise<CommitChatMemoryCaptureResult>;
   getWorldState<T = unknown>(chatId: string): Promise<T | null>;
+  getTrackerSnapshot?<T = unknown>(chatId: string, target: TrackerSnapshotTargetQuery): Promise<T | null>;
+  selectTrackerSnapshot?<T = unknown>(chatId: string, query: TrackerSnapshotSelectionQuery): Promise<T | null>;
   saveTrackerSnapshot<T = unknown>(chatId: string, snapshot: Record<string, unknown>): Promise<T>;
   listLorebookEntries<T = unknown>(lorebookId: string): Promise<T[]>;
   listLorebookEntriesByLorebookIds?<T = unknown>(lorebookIds: string[]): Promise<T[]>;

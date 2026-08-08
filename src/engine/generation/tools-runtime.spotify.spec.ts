@@ -110,6 +110,9 @@ function storageFor(chat: Record<string, unknown>): StorageGateway {
 
 function spotifyIntegrations(overrides: Partial<IntegrationGateway["spotify"]>): IntegrationGateway {
   const spotify: IntegrationGateway["spotify"] = {
+    async playbackAvailable() {
+      return false;
+    },
     async player<T = unknown>() {
       return asValue<T>({});
     },

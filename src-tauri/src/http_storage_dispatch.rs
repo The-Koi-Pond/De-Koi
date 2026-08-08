@@ -61,6 +61,15 @@ pub fn tracker_snapshot_get(state: &AppState, args: &Map<String, Value>) -> AppR
     .unwrap_or(Value::Null))
 }
 
+pub fn tracker_snapshot_select(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    Ok(game_state_snapshots::select_tracker_snapshot(
+        state,
+        required_string(args, "chatId")?,
+        &optional_value(args, "query"),
+    )?
+    .unwrap_or(Value::Null))
+}
+
 pub fn tracker_snapshot_save(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     game_state_snapshots::save_tracker_snapshot(
         state,

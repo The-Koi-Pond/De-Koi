@@ -39,6 +39,23 @@ pub async fn tracker_snapshot_get(
 }
 
 #[tauri::command]
+pub async fn tracker_snapshot_select(
+    state: State<'_, AppState>,
+    chat_id: String,
+    query: Value,
+) -> Result<Value, AppError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(
+            game_state_snapshots::select_tracker_snapshot(&state, &chat_id, &query)?
+                .unwrap_or(Value::Null),
+        )
+    })
+    .await
+    .map_err(|error| AppError::new("task_join_error", error.to_string()))?
+}
+
+#[tauri::command]
 pub async fn tracker_snapshot_save(
     state: State<'_, AppState>,
     chat_id: String,

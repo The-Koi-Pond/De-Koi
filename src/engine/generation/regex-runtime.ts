@@ -8,6 +8,10 @@ type RuntimeRegexScopeOptions = {
   chatCharacterIds?: string[];
 };
 
+export async function loadRuntimeRegexScripts(storage: StorageGateway): Promise<JsonRecord[]> {
+  return (await storage.list<JsonRecord>("regex-scripts")).sort(bySortOrder);
+}
+
 function placements(value: unknown): RegexPlacement[] {
   const raw = stringArray(value);
   if (raw.length > 0) {
@@ -41,15 +45,14 @@ function scriptAppliesToScope(script: JsonRecord, options?: RuntimeRegexScopeOpt
   return chatCharacterIds.size > 0 && targetIds.some((id) => chatCharacterIds.has(id));
 }
 
-export async function applyRuntimeRegexScripts(
-  storage: StorageGateway,
+export function applyRuntimeRegexScriptSnapshot(
+  scripts: readonly JsonRecord[],
   placement: RegexPlacement,
   input: string,
   options?: RuntimeRegexScopeOptions,
-): Promise<string> {
+): string {
   if (!input) return input;
 
-  const scripts = (await storage.list<JsonRecord>("regex-scripts")).sort(bySortOrder);
   let output = input;
 
   for (const script of scripts) {
@@ -71,4 +74,13 @@ export async function applyRuntimeRegexScripts(
   }
 
   return output;
+}
+
+export async function applyRuntimeRegexScripts(
+  storage: StorageGateway,
+  placement: RegexPlacement,
+  input: string,
+  options?: RuntimeRegexScopeOptions,
+): Promise<string> {
+  return applyRuntimeRegexScriptSnapshot(await loadRuntimeRegexScripts(storage), placement, input, options);
 }
