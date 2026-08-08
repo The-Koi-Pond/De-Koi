@@ -51,6 +51,7 @@ export const integrationGateway: IntegrationGateway = {
     freshPick: (input) => musicApi.freshPick(input),
   },
   spotify: {
+    playbackAvailable: () => spotifyApi.playbackAvailable(),
     player: (input) => spotifyApi.player(input),
     playlists: (input) =>
       spotifyApi.playlists({

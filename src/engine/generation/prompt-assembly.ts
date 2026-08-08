@@ -204,6 +204,7 @@ export interface PromptAssemblyInput {
   visuals?: VisualAssetGateway;
   persistPromptVariables?: boolean;
   reusableContext?: PromptAssemblyReusableContext;
+  regexScripts?: JsonRecord[];
 }
 
 interface PromptAssemblyReusableContext {
@@ -4306,7 +4307,7 @@ export async function assembleGenerationPrompt(
   let input = rawInput;
   let promptRegexScripts: JsonRecord[] | null = null;
   const loadPromptRegexScripts = async () => {
-    promptRegexScripts ??= (await storage.list<JsonRecord>("regex-scripts")).sort(bySortOrder);
+    promptRegexScripts ??= input.regexScripts ?? (await storage.list<JsonRecord>("regex-scripts")).sort(bySortOrder);
     return promptRegexScripts;
   };
   const reusableContext = input.reusableContext;

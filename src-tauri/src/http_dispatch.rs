@@ -494,6 +494,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
+        "spotify_playback_available" => {
+            spotify_direct(state, "POST", &["playback-available"], Value::Null).await
+        }
         "spotify_status" => {
             spotify_direct(state, "POST", &["status"], optional_value(&args, "body")).await
         }
@@ -894,6 +897,14 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 state,
                 &args,
                 http_storage_dispatch::tracker_snapshot_get,
+            )
+            .await
+        }
+        "tracker_snapshot_select" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::tracker_snapshot_select,
             )
             .await
         }
@@ -1870,6 +1881,7 @@ mod tests {
         "storage_update",
         "tracker_snapshot_get",
         "tracker_snapshot_latest",
+        "tracker_snapshot_select",
         "tracker_snapshot_save",
     ];
 

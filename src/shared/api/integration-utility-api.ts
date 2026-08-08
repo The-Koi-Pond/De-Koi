@@ -61,6 +61,10 @@ export const gifsApi = {
 };
 
 export const spotifyApi = {
+  playbackAvailable: async () => {
+    const response = await invokeTauri<{ available?: unknown }>("spotify_playback_available");
+    return response.available === true;
+  },
   status: (agentId: string) => invokeTauri<SpotifyStatus>("spotify_status", { body: { agentId } }),
   authorize: async (input: { clientId: string; agentId: string }) => {
     const shouldOpenClientSide = Boolean(remoteRuntimeTarget());

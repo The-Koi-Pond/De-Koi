@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { StorageGateway } from "../capabilities/storage";
-import { applyRuntimeRegexScripts } from "./regex-runtime";
+import {
+  applyRuntimeRegexScriptSnapshot,
+  applyRuntimeRegexScripts,
+  loadRuntimeRegexScripts,
+} from "./regex-runtime";
 
 function storageWithRegexScripts(regexScripts: Record<string, unknown>[]): StorageGateway {
   return {
@@ -39,6 +43,25 @@ const baseScript = {
 };
 
 describe("applyRuntimeRegexScripts", () => {
+  it("loads one ordered snapshot that can be reused without storage", async () => {
+    let listCalls = 0;
+    const storage = storageWithRegexScripts([
+      { ...baseScript, id: "second", order: 2, findRegex: "middle", replaceString: "done" },
+      { ...baseScript, id: "first", order: 1, findRegex: "secret", replaceString: "middle" },
+    ]);
+    const originalList = storage.list.bind(storage);
+    storage.list = async (entity, options) => {
+      listCalls += entity === "regex-scripts" ? 1 : 0;
+      return originalList(entity, options);
+    };
+
+    const scripts = await loadRuntimeRegexScripts(storage);
+
+    expect(applyRuntimeRegexScriptSnapshot(scripts, "ai_output", "secret")).toBe("done");
+    expect(applyRuntimeRegexScriptSnapshot(scripts, "ai_output", "secret")).toBe("done");
+    expect(listCalls).toBe(1);
+  });
+
   it("applies unscoped display scripts", async () => {
     const storage = storageWithRegexScripts([baseScript]);
 

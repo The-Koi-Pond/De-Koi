@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "performance-refactor",
+    "title": "Reduce redundant generation and runtime work",
+    "source": "Direct user request to implement all high-impact lossless De-Koi optimizations.",
+    "classification": "prompt assembly, storage reads, integration availability, attachment delivery, and bundle loading",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "De-Koi performs less repeated storage, bridge, provider, attachment, and bundle work without changing generated text, tracker precedence, attachment ordering, compatibility behavior, or user-visible capabilities.",
+  "rootCause": "Several hot paths independently reloaded immutable turn data, transferred full histories to select one row, probed Spotify through the provider, resolved duplicate images sequentially, or coupled drag-and-drop with broadly used motion code.",
+  "scope": {
+    "inScope": [
+      "Separate motion and drag-and-drop vendor chunks",
+      "Reuse one ordered regex-script snapshot per generation",
+      "Check Spotify playback availability from local credentials",
+      "Select tracker snapshots at the Rust storage boundary",
+      "Deduplicate and bound stored image attachment resolution"
+    ],
+    "outOfScope": [
+      "Changing generated prompt text or regex ordering",
+      "Changing Spotify authorization or playback behavior",
+      "Changing tracker persistence or snapshot schema",
+      "Changing attachment size limits or warning copy",
+      "Adding new user-facing settings or workflows"
+    ],
+    "intendedFiles": [
+      "vite.config.ts",
+      "src/engine/generation/regex-runtime.ts",
+      "src/engine/generation/prompt-assembly.ts",
+      "src/engine/generation/start-generation.ts",
+      "src/engine/generation/tracker-snapshots.ts",
+      "src/engine/shared/attachments/image-attachments.ts",
+      "src/engine/capabilities/integrations.ts",
+      "src/engine/capabilities/storage.ts",
+      "src/shared/api/integration-gateway.ts",
+      "src/shared/api/integration-utility-api.ts",
+      "src/shared/api/storage-api.ts",
+      "src/shared/api/tracker-snapshot-api.ts",
+      "src/shared/api/remote-runtime.ts",
+      "src-tauri/src/commands/storage/game_state_snapshots.rs",
+      "src-tauri/src/commands/storage/integrations/spotify.rs",
+      "src-tauri/src/http_dispatch.rs",
+      "src-tauri/src/http_storage_dispatch.rs",
+      "src-tauri/src/lib.rs",
+      "focused adjacent test files",
+      ".github/pr-evidence/resource-efficiency/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly consistency",
+      "legacy tracker compatibility",
+      "desktop and remote runtime parity",
+      "attachment ordering and failure semantics",
+      "integration credential handling"
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Generation and runtime consumers repeatedly paid for data or dependencies whose value was stable for the operation, while selection logic crossed owner boundaries with full histories.",
+    "producer": "Engine generation orchestration, Rust tracker and Spotify capabilities, attachment delivery, and Vite vendor chunk configuration",
+    "consumer": "Foreground and dry-run generation, conversation command prompting, tracker restoration, historical image prompts, and lazy application surfaces",
+    "impliedContract": "An operation should reuse one stable snapshot or return one owner-selected result without changing ordering, fallbacks, compatibility, warnings, or visible behavior.",
+    "actualEnforcement": "Generation caches one ordered regex snapshot, Rust returns focused availability and tracker selection results, attachment resolution deduplicates references behind a four-worker pool, and motion and drag-and-drop build into separate chunks.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src/engine owns per-turn snapshot lifetime and attachment delivery ordering; src-tauri owns local tracker selection and Spotify credential facts; docs/workflow owns only the evidence ledger.",
+    "consumerOnlyLanes": [
+      "src/shared/api",
+      "src/features",
+      "src-tauri"
+    ],
+    "wrongLaneFixToAvoid": "Do not add per-caller caches, UI flags, provider probes, or mode-specific selection copies; each optimization belongs at the stable producer or owner boundary.",
+    "regressionProof": [
+      "One regex list call is asserted across input, prompt, reassembly, and output.",
+      "Spotify availability asserts the focused local capability is called and the player is not.",
+      "Rust tracker tests cover visible, committed, exclusion, fallback, and legacy yes precedence.",
+      "Attachment tests cover deduplication, four-worker bounds, stable ordering, warnings, and earliest failure.",
+      "The production manifest proves AppExperience imports motion without drag-and-drop."
+    ]
+  },
+  "riskClaimMatrix": {
+    "coreClaim": "The optimized paths preserve existing results and fallbacks while removing redundant work.",
+    "riskType": "generation, storage, integration, and compatibility behavior",
+    "entrypoints": [
+      "Foreground and dry-run generation",
+      "Conversation Spotify command prompting",
+      "Desktop Tauri and hostable remote runtime",
+      "Tracker restoration and regeneration",
+      "Historical image-bearing prompts"
+    ],
+    "currentPathsOrFormats": [
+      "Ordered regex-script rows",
+      "Encrypted Spotify refresh tokens and client ids",
+      "Typed tracker snapshot rows",
+      "Managed gallery, file, URL, and inline image references",
+      "Lazy AppExperience and GameInventory chunks"
+    ],
+    "legacyPathsOrFormats": [
+      "Legacy plaintext Spotify refresh tokens",
+      "String and numeric tracker committed values including yes and on",
+      "StorageGateway test doubles without production-only targeted reads",
+      "Missing or unresolvable saved image references"
+    ],
+    "outOfScopeClaims": [
+      "This PR does not claim a measured target-device latency reduction.",
+      "This PR does not change stored schemas, delete records, or migrate tracker snapshots.",
+      "This PR does not change Spotify authorization, token refresh, or playback commands."
+    ],
+    "positiveRowsTested": [
+      "One regex snapshot is reused across input, prompt, reassembly, and output",
+      "Configured Spotify credentials report availability without calling the player",
+      "Visible and committed tracker precedence is preserved in Rust",
+      "Duplicate gallery references resolve once across historical messages",
+      "Four attachment workers run concurrently and preserve output order"
+    ],
+    "negativeRowsTested": [
+      "Missing Spotify agent reports unavailable",
+      "Legacy tracker committed yes remains committed",
+      "Fallback tracker targets override exclusion exactly as before",
+      "Missing images retain warnings and earliest-input failures remain first",
+      "AppExperience imports motion without importing drag-and-drop"
+    ],
+    "groundTruthFacts": [
+      {
+        "description": "The final production manifest separates motion and drag-and-drop and keeps drag-and-drop out of AppExperience imports.",
+        "sourceType": "artifact-derived",
+        "evidence": "pnpm perf:size emitted vendor-motion and vendor-dnd separately; manifest inspection showed only GameInventory imports vendor-dnd."
+      },
+      {
+        "description": "Spotify availability can be determined from locally stored client id and refresh-token credentials without a provider request.",
+        "sourceType": "harness-proven",
+        "evidence": "The focused Rust capability and TypeScript gateway tests cover configured and missing local credentials while asserting the player is not called."
+      }
+    ],
+    "userActionCopy": [
+      {
+        "description": "No migration or cleanup is required. Optional rollback protection before Pi deployment is a stopped-app copy of the existing De-Koi data directory.",
+        "source": "/home/chai/de-koi-data on the Pi",
+        "destination": "A user-controlled backup directory outside /home/chai/de-koi-data",
+        "files": [
+          "The complete /home/chai/de-koi-data directory, including collections and companion journal files"
+        ],
+        "action": "Stop De-Koi only if making the optional backup, recursively copy the source directory to the external destination, verify the copy exists, and restart De-Koi. Do not delete, move, or overwrite the source directory.",
+        "detectedLayouts": [
+          "Current Pi bind mount /home/chai/de-koi-data -> /data",
+          "Existing collection JSON and companion journal files are preserved in place; this PR creates no replacement layout"
+        ]
+      }
+    ],
+    "manualBlockers": []
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Focused cross-boundary optimization behavior passes.",
+        "evidence": "Thirteen Vitest files passed 108 tests on the final implementation."
+      },
+      {
+        "claim": "Frontend and Rust regressions remain clean.",
+        "evidence": "The full frontend suite passed 2702 tests and the serialized Rust workspace suite passed."
+      },
+      {
+        "claim": "Repository policy and production bundle budgets pass.",
+        "evidence": "pnpm check, strict Clippy, ESLint with zero errors, pnpm perf:size, and git diff --check passed."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Optimization must not reorder attachment output or failures.",
+        "evidence": "Bounded-concurrency tests assert stable image order and earliest-input error ordering."
+      },
+      {
+        "claim": "Optimization must not change tracker fallback precedence or legacy truthy values.",
+        "evidence": "Rust selector tests cover visible, committed, exclusion, fallback, and legacy yes rows."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Mock or alternate storage gateways without targeted capabilities keep the generic-list path.",
+        "evidence": "Targeted reads are optional StorageGateway capabilities and existing full suites pass."
+      },
+      {
+        "claim": "Legacy Spotify tokens remain usable.",
+        "evidence": "The local availability capability runs the existing legacy token migration before checking stored credentials."
+      }
+    ],
+    "untestedRows": [
+      "No before-and-after target-device latency benchmark was performed; exact-image Pi deployment and health proof are post-merge gates."
+    ]
+  },
+  "reviewThreadLedger": [],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check; pnpm test; serialized cargo test --workspace; pnpm check:rust:clippy; pnpm perf:size; focused Vitest; git diff --check",
+    "baselineEvidence": "2702 frontend tests, the full serialized Rust workspace, 108 focused tests, repository checks, strict Clippy, production bundle budgets, and whitespace validation passed.",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Missing Spotify agent",
+      "Legacy tracker yes value",
+      "Tracker fallback and exclusion precedence",
+      "Missing image warning",
+      "Attachment failure ordering",
+      "Non-DnD AppExperience chunk"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1224,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1224",
+    "headRefName": "perf/resource-efficiency-20260808",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "No UI behavior changes, so browser screenshots are not required.",
+    "No user data, private prompts, provider secrets, or API keys are included.",
+    "Production Pi deployment waits for the exact merged revision's matched image batch."
+  ]
+}
