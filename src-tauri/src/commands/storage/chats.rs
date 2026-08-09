@@ -906,9 +906,10 @@ fn journal_backed_message_patch(
         let base_extra = clear_swipe_scoped_extra(patch.get("extra"));
         patch.insert("extra".to_string(), base_extra);
     }
-    let mut updated = state
-        .storage
-        .patch("messages", message_id, Value::Object(patch))?;
+    let mut updated =
+        state
+            .storage
+            .patch_journaled("messages", message_id, Value::Object(patch))?;
     message_swipe_storage::materialize_message(state, &mut updated, true)?;
     Ok(updated)
 }

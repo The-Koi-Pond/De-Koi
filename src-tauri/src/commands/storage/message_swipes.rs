@@ -432,7 +432,7 @@ where
         })
 }
 
-fn append_created_message_and_swipes_if_uncached(
+fn append_created_message_and_swipes_if_possible(
     state: &AppState,
     message: &Value,
     swipes: &[Value],
@@ -455,22 +455,6 @@ fn append_created_message_and_swipes_if_uncached(
     Ok(Some(materialized))
 }
 
-fn journal_created_message_with_embedded_swipes(
-    state: &AppState,
-    mut message: Value,
-    swipes: Vec<Value>,
-) -> AppResult<Value> {
-    let embedded_swipes = public_swipes_from_rows(&swipe_rows_for_message(&message, &swipes)?);
-    let object = message
-        .as_object_mut()
-        .ok_or_else(|| AppError::invalid_input("Message is not an object"))?;
-    object.insert("swipes".to_string(), Value::Array(embedded_swipes));
-    let mut created = state.storage.create("messages", message)?;
-    preserve_embedded_parent_active_extra(&mut created);
-    materialize_message_swipe_fields(&mut created);
-    Ok(created)
-}
-
 fn persist_created_message_with_swipes(
     state: &AppState,
     mut message: Value,
@@ -480,11 +464,13 @@ fn persist_created_message_with_swipes(
     clamp_message_active_swipe_index(&mut message, swipes.len());
     if !caller_supplied_id {
         if let Some(updated) =
-            append_created_message_and_swipes_if_uncached(state, &message, &swipes)?
+            append_created_message_and_swipes_if_possible(state, &message, &swipes)?
         {
             return Ok(updated);
         }
-        return journal_created_message_with_embedded_swipes(state, message, swipes);
+        let mut updated = write_message_and_swipes(state, message, swipes, false)?;
+        materialize_message(state, &mut updated, true)?;
+        return Ok(updated);
     }
 
     let mut updated = write_message_and_swipes(state, message, swipes, false)?;
@@ -2067,7 +2053,7 @@ mod tests {
         let fast_swipes = vec![initial_swipe_for_message(&fast_message)];
         clamp_message_active_swipe_index(&mut fast_message, fast_swipes.len());
         let fast_created =
-            append_created_message_and_swipes_if_uncached(&fast_state, &fast_message, &fast_swipes)
+            append_created_message_and_swipes_if_possible(&fast_state, &fast_message, &fast_swipes)
                 .expect("fast append should not fail")
                 .expect("clean generated message should use append fast path");
         let fast_id = value_id(&fast_created);
@@ -2134,6 +2120,7 @@ mod tests {
     fn generated_message_create_with_dirty_cache_stays_journal_backed() {
         let state = test_state("create-dirty-cache-journal");
         let data_dir = state.data_dir.clone();
+        let prompt_snapshot = "x".repeat(256 * 1024);
         state
             .storage
             .replace_all(
@@ -2181,7 +2168,15 @@ mod tests {
                 "chatId": "chat-1",
                 "role": "assistant",
                 "content": "new reply",
-                "extra": { "generationInfo": { "model": "test-model" } }
+                "extra": { "generationInfo": { "model": "test-model" } },
+                "swipes": [{
+                    "content": "new reply",
+                    "extra": {
+                        "generationPromptSnapshot": {
+                            "messages": [{ "role": "system", "content": prompt_snapshot }]
+                        }
+                    }
+                }]
             }),
         )
         .expect("generated-id message should create");
@@ -2189,26 +2184,31 @@ mod tests {
 
         assert_eq!(created["content"], json!("new reply"));
         assert_eq!(created["swipes"][0]["content"], json!("new reply"));
-        assert_eq!(
+        assert_ne!(
             std::fs::read(&messages_path).expect("messages should remain readable"),
             messages_before,
-            "a dirty cache must not force a full messages-primary rewrite"
+            "the generated message should append to the messages primary"
         );
-        assert_eq!(
+        assert_ne!(
             std::fs::read(&swipes_path).expect("sidecars should remain readable"),
             swipes_before,
-            "a generated message create must not rewrite unrelated sidecars"
+            "the generated swipe should append to the sidecar primary"
         );
         assert!(
             collections.join("messages.pending.jsonl").is_file(),
             "the generated message and earlier metadata patch should remain durable in the journal"
         );
 
-        let mut stored = state
+        let base_stored = state
             .storage
             .get("messages", &created_id)
             .expect("created message lookup should not fail")
             .expect("created message should exist");
+        assert!(
+            base_stored.get("swipes").is_none(),
+            "large swipe prompt snapshots must not be embedded in the parent message journal"
+        );
+        let mut stored = base_stored;
         materialize_message(&state, &mut stored, true).expect("created message should materialize");
         assert_eq!(stored["swipeCount"], json!(1));
         assert_eq!(stored["swipes"][0]["content"], json!("new reply"));
@@ -2218,8 +2218,8 @@ mod tests {
                 .list(COLLECTION)
                 .expect("sidecars should list")
                 .len(),
-            1,
-            "the journal fallback should not create a partial sidecar"
+            2,
+            "the generated swipe should remain externalized beside the existing swipe"
         );
 
         drop(state);
