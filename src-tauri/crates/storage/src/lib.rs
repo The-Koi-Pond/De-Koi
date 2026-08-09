@@ -1300,6 +1300,26 @@ impl FileStorage {
         // materialized. Readers can keep using the authoritative dirty cache,
         // so this potentially slow disk work must stay outside the global lock.
         self.flush_dirty_collections_for(FlushKind::Shutdown, &target_collections)?;
+        // Record-local journal patches deliberately keep large cold collections
+        // out of the cache. Materialize those journals before an atomic rewrite so
+        // its prepared rows include every acknowledged mutation and the replacement
+        // retires the earlier journal just like the dirty-cache path does.
+        let collections_dir = self.root.join("collections");
+        let mut journaled_targets = Vec::new();
+        for collection in &target_collections {
+            if collection_journal_exists(&collections_dir, collection)? {
+                journaled_targets.push(collection);
+            }
+        }
+        if journaled_targets
+            .iter()
+            .any(|collection| append_journal::checkpoint_tracks(collection))
+        {
+            append_journal::recover(&collections_dir)?;
+        }
+        for collection in journaled_targets {
+            recover_collection_journal_if_present(&collections_dir, collection)?;
+        }
         // Load the rows and capture each collection's file stamp under the SAME
         // write lock, so the conflict baseline reflects exactly the bytes the rows
         // were read from. Sampling the stamp after the lock is released would let a
@@ -6570,6 +6590,48 @@ mod tests {
             reopened.get("messages", "message-2").unwrap().unwrap()["content"],
             json!("x".repeat(512 * 1024))
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_update_materializes_an_uncached_record_journal_first() {
+        let root = temp_storage_root("record-local-before-atomic-update");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "content": "before" })],
+            )
+            .unwrap();
+        storage.clear_collection_cache().unwrap();
+        storage
+            .patch_journaled(
+                "messages",
+                "message-1",
+                json!({ "extra": { "status": "completed" } }),
+            )
+            .unwrap();
+        let journal = root.join("collections/messages.pending.jsonl");
+        assert!(journal.exists());
+
+        storage
+            .update_collections_atomically(vec!["messages"], |collections| {
+                let row = collections[0]
+                    .rows_mut()
+                    .iter_mut()
+                    .find(|row| row["id"] == json!("message-1"))
+                    .expect("patched message should be present in atomic rows");
+                row["content"] = json!("after");
+                Ok(())
+            })
+            .unwrap();
+
+        assert!(!journal.exists());
+        drop(storage);
+        let reopened = FileStorage::new(&root).unwrap();
+        let message = reopened.get("messages", "message-1").unwrap().unwrap();
+        assert_eq!(message["content"], json!("after"));
+        assert_eq!(message["extra"]["status"], json!("completed"));
         fs::remove_dir_all(root).unwrap();
     }
 
