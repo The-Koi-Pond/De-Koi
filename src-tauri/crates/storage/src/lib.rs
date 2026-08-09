@@ -893,6 +893,103 @@ impl FileStorage {
         self.patch_with(collection, id, patch, |_, _| Ok(()))
     }
 
+    /// Applies a record-local patch through the durable collection journal without
+    /// materializing or replacing the full collection. This is reserved for the
+    /// checkpoint-tracked collections whose large histories stay journal-backed
+    /// during foreground activity.
+    pub fn patch_journaled(&self, collection: &str, id: &str, patch: Value) -> AppResult<Value> {
+        validate_collection_name(collection)?;
+        if !append_journal::checkpoint_tracks(collection) {
+            return Err(AppError::invalid_input(format!(
+                "Record-local journal patches are not supported for {collection}"
+            )));
+        }
+        let patch = ensure_object(patch)?;
+        if patch.contains_key("id") {
+            return Err(AppError::invalid_input(
+                "Record-local journal patches cannot change a record id",
+            ));
+        }
+
+        let _write_permit = self.write_gate.begin_write()?;
+        let _guard = self
+            .lock
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        let current = self
+            .read_collection_find_by_id_no_recovery(collection, id)?
+            .ok_or_else(|| AppError::not_found(format!("{collection}/{id} was not found")))?;
+        let mut object = current
+            .as_object()
+            .cloned()
+            .ok_or_else(|| AppError::invalid_input("Stored record is not an object"))?;
+        for (key, value) in patch {
+            object.insert(key, value);
+        }
+        object.insert("updatedAt".to_string(), Value::String(now_iso()));
+        let record = Value::Object(object);
+
+        // Keep the cache locked from the durability boundary through its update.
+        // A dirty cache is authoritative, so it must receive the same record before
+        // another reader can observe the journal acknowledgement.
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+        let dirty_cache_index = cache
+            .collections
+            .get(collection)
+            .filter(|cached| cached.dirty)
+            .map(|cached| {
+                cached.row_indices_by_id.get(id).copied().ok_or_else(|| {
+                    AppError::new(
+                        "storage_cache_error",
+                        format!("Dirty cached record disappeared: {collection}/{id}"),
+                    )
+                })
+            })
+            .transpose()?;
+        append_collection_mutation(
+            &self.root.join("collections"),
+            collection,
+            &CollectionMutation::UpsertMany {
+                records: vec![record.clone()],
+            },
+        )?;
+        cache.id_indexes.remove(collection);
+        cache
+            .projected_lists
+            .retain(|key, _| key.collection != collection);
+        let mut updated_dirty_cache = false;
+        if let Some(index) = dirty_cache_index {
+            let cached = cache
+                .collections
+                .get_mut(collection)
+                .expect("dirty cached collection should still exist");
+            let rows = Arc::make_mut(&mut cached.rows);
+            let previous_bytes = approximate_json_bytes(&rows[index]);
+            let next_bytes = approximate_json_bytes(&record);
+            rows[index] = record.clone();
+            cached.approx_bytes = cached
+                .approx_bytes
+                .saturating_sub(previous_bytes)
+                .saturating_add(next_bytes);
+            updated_dirty_cache = true;
+        } else {
+            // A clean cache would hide the pending journal entry. Dropping it keeps
+            // the large collection cold; targeted reads can resolve the journaled row.
+            cache.collections.remove(collection);
+        }
+        drop(cache);
+
+        self.compaction_activity
+            .defer_for(self.compaction_activity.grace);
+        if updated_dirty_cache {
+            self.schedule_dirty_flush();
+        }
+        Ok(record)
+    }
+
     pub fn patch_many(
         &self,
         collection: &str,
@@ -1172,10 +1269,6 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        if self.any_collection_dirty_cached(appends.iter().map(|(collection, _)| *collection))? {
-            return Ok(false);
-        }
-
         self.append_many_uncached_locked(appends)
     }
 
@@ -1207,6 +1300,26 @@ impl FileStorage {
         // materialized. Readers can keep using the authoritative dirty cache,
         // so this potentially slow disk work must stay outside the global lock.
         self.flush_dirty_collections_for(FlushKind::Shutdown, &target_collections)?;
+        // Record-local journal patches deliberately keep large cold collections
+        // out of the cache. Materialize those journals before an atomic rewrite so
+        // its prepared rows include every acknowledged mutation and the replacement
+        // retires the earlier journal just like the dirty-cache path does.
+        let collections_dir = self.root.join("collections");
+        let mut journaled_targets = Vec::new();
+        for collection in &target_collections {
+            if collection_journal_exists(&collections_dir, collection)? {
+                journaled_targets.push(collection);
+            }
+        }
+        if journaled_targets
+            .iter()
+            .any(|collection| append_journal::checkpoint_tracks(collection))
+        {
+            append_journal::recover(&collections_dir)?;
+        }
+        for collection in journaled_targets {
+            recover_collection_journal_if_present(&collections_dir, collection)?;
+        }
         // Load the rows and capture each collection's file stamp under the SAME
         // write lock, so the conflict baseline reflects exactly the bytes the rows
         // were read from. Sampling the stamp after the lock is released would let a
@@ -1442,27 +1555,6 @@ impl FileStorage {
         Ok(())
     }
 
-    fn any_collection_dirty_cached<'a>(
-        &self,
-        collections: impl IntoIterator<Item = &'a str>,
-    ) -> AppResult<bool> {
-        let cache = self
-            .cache
-            .read()
-            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
-        for collection in collections {
-            validate_collection_name(collection)?;
-            if cache
-                .collections
-                .get(collection)
-                .is_some_and(|cached| cached.dirty)
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
     fn append_cached_collection_rows(&self, appends: &[(&str, Vec<Value>)]) -> AppResult<()> {
         let mut cache = self
             .cache
@@ -1489,7 +1581,6 @@ impl FileStorage {
                         .entry(id.to_string())
                         .or_insert(next_index + offset);
                 }
-                cached.dirty = false;
             }
         }
         Ok(())
@@ -6335,20 +6426,212 @@ mod tests {
     }
 
     #[test]
-    fn append_many_uncached_refuses_dirty_cached_collections() {
+    fn append_many_uncached_preserves_dirty_cache_and_restart_recovery() {
         let root = temp_storage_root("append-many-dirty-cached");
         let storage = FileStorage::new(&root).unwrap();
         storage
-            .cache_collection("messages", &[json!({ "id": "message-1" })], true)
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "content": "before" })],
+            )
+            .unwrap();
+        storage.replace_all("message-swipes", Vec::new()).unwrap();
+        storage
+            .patch("messages", "message-1", json!({ "content": "after" }))
             .unwrap();
 
         let appended = storage
-            .append_many_uncached(vec![("messages", vec![json!({ "id": "message-2" })])])
+            .append_many_uncached(vec![
+                (
+                    "messages",
+                    vec![json!({ "id": "message-2", "content": "new" })],
+                ),
+                (
+                    "message-swipes",
+                    vec![json!({
+                        "id": "message-2::swipe::0",
+                        "messageId": "message-2",
+                        "content": "new"
+                    })],
+                ),
+            ])
             .unwrap();
 
-        assert!(!appended);
-        assert_eq!(storage.list("messages").unwrap().len(), 1);
+        assert!(appended);
+        assert_eq!(storage.list("messages").unwrap().len(), 2);
+        assert_eq!(
+            storage.get("messages", "message-1").unwrap().unwrap()["content"],
+            json!("after")
+        );
+        assert_eq!(storage.list("message-swipes").unwrap().len(), 1);
+        assert!(
+            storage
+                .cache
+                .read()
+                .unwrap()
+                .collections
+                .get("messages")
+                .is_some_and(|cached| cached.dirty),
+            "the append must not mark earlier journal-backed message mutations clean"
+        );
 
+        drop(storage);
+        let reopened = FileStorage::new(&root).unwrap();
+        assert_eq!(reopened.list("messages").unwrap().len(), 2);
+        assert_eq!(
+            reopened.get("messages", "message-1").unwrap().unwrap()["content"],
+            json!("after")
+        );
+        assert_eq!(reopened.list("message-swipes").unwrap().len(), 1);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn repeated_message_patch_keeps_dirty_collection_allocation_stable() {
+        let root = temp_storage_root("record-local-message-patch");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![
+                    json!({ "id": "message-1", "content": "target" }),
+                    json!({ "id": "message-2", "content": "x".repeat(512 * 1024) }),
+                ],
+            )
+            .unwrap();
+        storage
+            .patch(
+                "messages",
+                "message-1",
+                json!({ "extra": { "status": "pending" } }),
+            )
+            .unwrap();
+        let rows_before = {
+            let cache = storage.cache.read().unwrap();
+            let cached = cache.collections.get("messages").unwrap();
+            assert!(cached.dirty);
+            Arc::as_ptr(&cached.rows)
+        };
+
+        storage
+            .patch_journaled(
+                "messages",
+                "message-1",
+                json!({ "extra": { "status": "completed" } }),
+            )
+            .unwrap();
+
+        let rows_after = {
+            let cache = storage.cache.read().unwrap();
+            Arc::as_ptr(&cache.collections.get("messages").unwrap().rows)
+        };
+        assert_eq!(
+            rows_before, rows_after,
+            "a record-local metadata patch must not replace the full dirty collection"
+        );
+        assert_eq!(
+            storage.get("messages", "message-1").unwrap().unwrap()["extra"]["status"],
+            json!("completed")
+        );
+
+        drop(storage);
+        let reopened = FileStorage::new(&root).unwrap();
+        assert_eq!(
+            reopened.get("messages", "message-1").unwrap().unwrap()["extra"]["status"],
+            json!("completed")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journaled_message_patch_keeps_uncached_collection_cold() {
+        let root = temp_storage_root("record-local-message-patch-cold");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![
+                    json!({ "id": "message-1", "content": "target" }),
+                    json!({ "id": "message-2", "content": "x".repeat(512 * 1024) }),
+                ],
+            )
+            .unwrap();
+        storage.clear_collection_cache().unwrap();
+
+        storage
+            .patch_journaled(
+                "messages",
+                "message-1",
+                json!({ "extra": { "status": "completed" } }),
+            )
+            .unwrap();
+
+        assert!(!storage.is_collection_cached("messages").unwrap());
+        assert_eq!(
+            storage.get("messages", "message-1").unwrap().unwrap()["extra"]["status"],
+            json!("completed")
+        );
+        assert!(
+            fs::metadata(root.join("collections/messages.pending.jsonl"))
+                .unwrap()
+                .len()
+                < 4 * 1024,
+            "the target-record journal must not carry an unrelated large sibling"
+        );
+
+        drop(storage);
+        let reopened = FileStorage::new(&root).unwrap();
+        assert_eq!(
+            reopened.get("messages", "message-1").unwrap().unwrap()["extra"]["status"],
+            json!("completed")
+        );
+        assert_eq!(
+            reopened.get("messages", "message-2").unwrap().unwrap()["content"],
+            json!("x".repeat(512 * 1024))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_update_materializes_an_uncached_record_journal_first() {
+        let root = temp_storage_root("record-local-before-atomic-update");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "content": "before" })],
+            )
+            .unwrap();
+        storage.clear_collection_cache().unwrap();
+        storage
+            .patch_journaled(
+                "messages",
+                "message-1",
+                json!({ "extra": { "status": "completed" } }),
+            )
+            .unwrap();
+        let journal = root.join("collections/messages.pending.jsonl");
+        assert!(journal.exists());
+
+        storage
+            .update_collections_atomically(vec!["messages"], |collections| {
+                let row = collections[0]
+                    .rows_mut()
+                    .iter_mut()
+                    .find(|row| row["id"] == json!("message-1"))
+                    .expect("patched message should be present in atomic rows");
+                row["content"] = json!("after");
+                Ok(())
+            })
+            .unwrap();
+
+        assert!(!journal.exists());
+        drop(storage);
+        let reopened = FileStorage::new(&root).unwrap();
+        let message = reopened.get("messages", "message-1").unwrap().unwrap();
+        assert_eq!(message["content"], json!("after"));
+        assert_eq!(message["extra"]["status"], json!("completed"));
         fs::remove_dir_all(root).unwrap();
     }
 
