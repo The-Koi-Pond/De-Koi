@@ -1085,11 +1085,43 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             canonical_memory::query_memories_semantic(state, optional_value(&args, "body")).await
         }
         "memory_cleanup_apply" => {
-            memory_maintenance::apply_memory_cleanup(state, optional_value(&args, "body")).await
+            memory_maintenance::apply_memory_cleanup(
+                state,
+                optional_value(&args, "body"),
+                optional_string(&args, "leaseId").as_deref(),
+            )
+            .await
         }
         "memory_cleanup_undo" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 memory_maintenance::undo_memory_cleanup(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_maintenance_worker_acquire" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_maintenance::acquire_memory_maintenance_worker(
+                    state,
+                    optional_value(args, "body"),
+                )
+            })
+            .await
+        }
+        "memory_maintenance_worker_release" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_maintenance::release_memory_maintenance_worker(
+                    state,
+                    optional_value(args, "body"),
+                )
+            })
+            .await
+        }
+        "memory_maintenance_job_update" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_maintenance::update_memory_maintenance_job(
+                    state,
+                    optional_value(args, "body"),
+                )
             })
             .await
         }
@@ -1858,6 +1890,9 @@ mod tests {
         "lorebook_entry_reorder",
         "memory_create",
         "memory_cleanup_undo",
+        "memory_maintenance_worker_acquire",
+        "memory_maintenance_job_update",
+        "memory_maintenance_worker_release",
         "memory_delete",
         "memory_get",
         "memory_index_delete_for_memory",

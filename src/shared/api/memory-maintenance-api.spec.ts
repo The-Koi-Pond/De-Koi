@@ -44,6 +44,38 @@ describe("memoryMaintenanceApi", () => {
     });
   });
 
+  it("routes the automatic worker lease through focused commands", async () => {
+    mocks.invokeTauri
+      .mockResolvedValueOnce({ acquired: true, leaseId: "lease-a" })
+      .mockResolvedValueOnce({ acquired: true, leaseId: "lease-a" })
+      .mockResolvedValueOnce({ released: true });
+    const { memoryMaintenanceApi } = await import("./memory-maintenance-api");
+
+    await expect(memoryMaintenanceApi.acquireWorker("browser-a")).resolves.toBe("lease-a");
+    await expect(memoryMaintenanceApi.acquireWorker("browser-a", "lease-a")).resolves.toBe("lease-a");
+    await memoryMaintenanceApi.releaseWorker("browser-a", "lease-a");
+
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(1, "memory_maintenance_worker_acquire", {
+      body: { workerId: "browser-a" },
+    });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(2, "memory_maintenance_worker_acquire", {
+      body: { workerId: "browser-a", leaseId: "lease-a" },
+    });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(3, "memory_maintenance_worker_release", {
+      body: { workerId: "browser-a", leaseId: "lease-a" },
+    });
+  });
+
+  it("routes fenced maintenance job updates through a focused command", async () => {
+    const { memoryMaintenanceApi } = await import("./memory-maintenance-api");
+
+    await memoryMaintenanceApi.updateJob("lease-a", "job-1", { status: "processing" });
+
+    expect(mocks.invokeTauri).toHaveBeenCalledWith("memory_maintenance_job_update", {
+      body: { leaseId: "lease-a", jobId: "job-1", patch: { status: "processing" } },
+    });
+  });
+
   it("sends an explicit canonical scene target", async () => {
     const { memoryMaintenanceApi } = await import("./memory-maintenance-api");
     const body = {

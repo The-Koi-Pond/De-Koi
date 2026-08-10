@@ -33,6 +33,9 @@ describe("memory maintenance remote routing", () => {
   it("explicitly allows apply and undo through the hostable runtime", () => {
     expect(isRemoteCommand("memory_cleanup_apply")).toBe(true);
     expect(isRemoteCommand("memory_cleanup_undo")).toBe(true);
+    expect(isRemoteCommand("memory_maintenance_worker_acquire")).toBe(true);
+    expect(isRemoteCommand("memory_maintenance_job_update")).toBe(true);
+    expect(isRemoteCommand("memory_maintenance_worker_release")).toBe(true);
   });
 
   it("explicitly allows automatic memory capture preview and commit", () => {

@@ -124,6 +124,7 @@ function harness(
   let sourceIndex = 0;
   const canonicalSourcePages = options.canonicalSources ?? [];
   let canonicalSourceIndex = 0;
+  let maintenanceLease: { workerId: string; leaseId: string } | null = null;
   const storage = {
     list: vi.fn(async (entity: string) => (entity === "memory-maintenance-jobs" ? [...jobs.values()] : [])),
     get: vi.fn(async (_entity: string, id: string) => jobs.get(id) ?? null),
@@ -142,6 +143,26 @@ function harness(
     ),
   } as unknown as StorageGateway;
   const maintenance = {
+    acquireWorker: vi.fn(async (workerId: string, leaseId?: string) => {
+      if (leaseId) {
+        return maintenanceLease?.workerId === workerId && maintenanceLease.leaseId === leaseId ? leaseId : null;
+      }
+      if (maintenanceLease) return null;
+      const acquiredLeaseId = `lease-${workerId}`;
+      maintenanceLease = { workerId, leaseId: acquiredLeaseId };
+      return acquiredLeaseId;
+    }),
+    releaseWorker: vi.fn(async (workerId: string, leaseId: string) => {
+      if (maintenanceLease?.workerId === workerId && maintenanceLease.leaseId === leaseId) maintenanceLease = null;
+    }),
+    updateJob: vi.fn(async (leaseId: string, id: string, patch: Record<string, unknown>) => {
+      if (maintenanceLease?.leaseId !== leaseId) {
+        throw { code: "memory_maintenance_lease_lost" };
+      }
+      const updated = { ...jobs.get(id), ...patch };
+      jobs.set(id, updated);
+      return updated;
+    }),
     apply: options.applyError
       ? vi.fn(async () => {
           throw options.applyError;
@@ -160,6 +181,9 @@ function harness(
     jobs,
     storage,
     maintenance,
+    forceMaintenanceLeaseOwner: (workerId: string) => {
+      maintenanceLease = { workerId, leaseId: `lease-${workerId}` };
+    },
     dependencies: {
       storage,
       maintenance,
@@ -199,6 +223,63 @@ describe("automatic memory maintenance queue", () => {
       ["keep", true],
       ["combine", true],
     ]);
+  });
+
+  it("lets only one runtime process the durable maintenance queue", async () => {
+    const repeatedSources = [source("one"), source("two")];
+    const test = harness({ sources: [repeatedSources, repeatedSources, []] });
+    let releaseAnalysis = () => {};
+    const analysisBlocked = new Promise<void>((resolve) => {
+      releaseAnalysis = resolve;
+    });
+    let analysisCalls = 0;
+    analyzeMemoryCleanup.mockImplementation(async () => {
+      analysisCalls += 1;
+      if (analysisCalls === 1) await analysisBlocked;
+      return preview([]);
+    });
+
+    const first = processAutomaticMemoryMaintenanceQueue(test.dependencies, {
+      now: "2026-07-30T10:01:00.000Z",
+      workerId: "browser-a",
+    } as never);
+    await vi.waitFor(() => expect(analyzeMemoryCleanup).toHaveBeenCalledOnce());
+    const second = processAutomaticMemoryMaintenanceQueue(test.dependencies, {
+      now: "2026-07-30T10:01:00.000Z",
+      workerId: "browser-b",
+    } as never);
+
+    await second;
+    expect(analyzeMemoryCleanup).toHaveBeenCalledOnce();
+    releaseAnalysis();
+    await first;
+  });
+
+  it("stops an active analysis when another runtime takes over the worker lease", async () => {
+    const test = harness({ sources: [[source("one"), source("two")]] });
+    analyzeMemoryCleanup.mockImplementation(async ({ signal }) => {
+      await Promise.race([
+        new Promise((resolve) => setTimeout(resolve, 60)),
+        new Promise((_, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+      ]);
+      return preview([proposal("discard", "discard")]);
+    });
+
+    const processing = processAutomaticMemoryMaintenanceQueue(test.dependencies, {
+      now: "2026-07-30T10:01:00.000Z",
+      workerId: "browser-a",
+      leaseHeartbeatMs: 5,
+    } as never);
+    await vi.waitFor(() => expect(analyzeMemoryCleanup).toHaveBeenCalledOnce());
+    test.forceMaintenanceLeaseOwner("browser-b");
+
+    const result = await processing;
+
+    expect(test.maintenance.apply).not.toHaveBeenCalled();
+    expect(result.retryable).toBe(0);
+    expect(test.jobs.get("job-1")?.status).toBe("processing");
   });
 
   it("analyzes manual pinned edited imported corrected and command sources", async () => {
@@ -386,6 +467,7 @@ describe("automatic memory maintenance queue", () => {
     expect(test.storage.listChatMemories).not.toHaveBeenCalled();
     expect(test.maintenance.apply).toHaveBeenCalledWith(
       expect.objectContaining({ version: 2, target: canonicalTarget }),
+      expect.any(String),
     );
   });
 

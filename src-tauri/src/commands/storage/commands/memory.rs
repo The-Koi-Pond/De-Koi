@@ -84,8 +84,33 @@ pub fn memory_index_query_batch(
 pub async fn memory_cleanup_apply(
     state: State<'_, AppState>,
     body: Value,
+    lease_id: Option<String>,
 ) -> Result<Value, AppError> {
-    memory_maintenance::apply_memory_cleanup(&state, body).await
+    memory_maintenance::apply_memory_cleanup(&state, body, lease_id.as_deref()).await
+}
+
+#[tauri::command]
+pub fn memory_maintenance_worker_acquire(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_maintenance::acquire_memory_maintenance_worker(&state, body)
+}
+
+#[tauri::command]
+pub fn memory_maintenance_worker_release(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_maintenance::release_memory_maintenance_worker(&state, body)
+}
+
+#[tauri::command]
+pub fn memory_maintenance_job_update(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_maintenance::update_memory_maintenance_job(&state, body)
 }
 
 #[tauri::command]
