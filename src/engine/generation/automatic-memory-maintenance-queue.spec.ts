@@ -258,13 +258,10 @@ describe("automatic memory maintenance queue", () => {
   it("stops an active analysis when another runtime takes over the worker lease", async () => {
     const test = harness({ sources: [[source("one"), source("two")]] });
     analyzeMemoryCleanup.mockImplementation(async ({ signal }) => {
-      await Promise.race([
-        new Promise((resolve) => setTimeout(resolve, 60)),
-        new Promise((_, reject) => {
-          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
-        }),
-      ]);
-      return preview([proposal("discard", "discard")]);
+      await new Promise((_, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+      return preview([]);
     });
 
     const processing = processAutomaticMemoryMaintenanceQueue(test.dependencies, {
@@ -386,6 +383,65 @@ describe("automatic memory maintenance queue", () => {
       attempts: 1,
       nextAttemptAt: null,
       lastErrorCode: "configuration_error",
+    });
+  });
+
+  it("pauses the queue after a transient provider outage instead of trying every pending job", async () => {
+    const test = harness();
+    const secondTarget: MemoryCleanupTarget = { store: "chat", scope: { kind: "chat", id: "chat-2" } };
+    test.jobs.set("job-2", {
+      id: "job-2",
+      target: secondTarget,
+      targetKey: "chat:chat:chat-2",
+      status: "pending",
+      attempts: 0,
+      maxAttempts: 3,
+      totalPasses: 0,
+      recentFingerprints: [],
+      nextAttemptAt: "2026-07-30T10:00:00.000Z",
+      createdAt: "2026-07-30T10:00:01.000Z",
+      updatedAt: "2026-07-30T10:00:01.000Z",
+    });
+    analyzeMemoryCleanup.mockRejectedValue(new Error("provider host did not resolve"));
+
+    const failedPass = await processAutomaticMemoryMaintenanceQueue(test.dependencies, {
+      now: "2026-07-30T10:01:00.000Z",
+    });
+
+    expect(failedPass).toMatchObject({ processed: 1, retryable: 1, failed: 0 });
+    expect(analyzeMemoryCleanup).toHaveBeenCalledOnce();
+    expect(test.jobs.get("job-1")).toMatchObject({
+      status: "retryable",
+      attempts: 1,
+      nextAttemptAt: "2026-07-30T10:02:00.000Z",
+      lastErrorCode: "provider_unavailable",
+    });
+    expect(test.jobs.get("job-2")).toMatchObject({ status: "pending", attempts: 0 });
+
+    const cooldownPass = await processAutomaticMemoryMaintenanceQueue(test.dependencies, {
+      now: "2026-07-30T10:01:30.000Z",
+    });
+
+    expect(cooldownPass.processed).toBe(0);
+    expect(analyzeMemoryCleanup).toHaveBeenCalledOnce();
+    expect(test.jobs.get("job-2")).toMatchObject({ status: "pending", attempts: 0 });
+  });
+
+  it("keeps transient provider outages retryable after the ordinary attempt limit", async () => {
+    const test = harness();
+    test.jobs.get("job-1")!.attempts = 2;
+    analyzeMemoryCleanup.mockRejectedValue(new Error("provider host did not resolve"));
+
+    const result = await processAutomaticMemoryMaintenanceQueue(test.dependencies, {
+      now: "2026-07-30T10:01:00.000Z",
+    });
+
+    expect(result).toMatchObject({ retryable: 1, failed: 0 });
+    expect(test.jobs.get("job-1")).toMatchObject({
+      status: "retryable",
+      attempts: 3,
+      nextAttemptAt: "2026-07-30T10:31:00.000Z",
+      lastErrorCode: "provider_unavailable",
     });
   });
 

@@ -76,6 +76,7 @@ describe("automatic memory maintenance startup discovery", () => {
         async () => connections,
       ),
     ).resolves.toBe("background-connection");
+    expect(storage.get).toHaveBeenCalledWith("chats", "chat-1", { fields: ["connectionId"] });
   });
 
   it("discovers existing targets in bounded resumable pages", async () => {
