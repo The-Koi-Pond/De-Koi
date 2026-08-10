@@ -10,6 +10,7 @@ services:
       DE_KOI_DATA_DIR: /data
       DE_KOI_REPO_ROOT: /app
       MALLOC_ARENA_MAX: "2"
+      DE_KOI_TRIM_AFTER_LLM_REQUEST: "1"
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       CLAUDE_CONFIG_DIR: ${CLAUDE_CONFIG_DIR:-/data/claude-config}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://pi:7860,http://pi.local:7860}
