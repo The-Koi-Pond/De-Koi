@@ -145,6 +145,61 @@ pub(crate) fn enqueue_memory_maintenance(
     )
 }
 
+fn worker_id(body: &Value) -> AppResult<&str> {
+    let worker_id = body
+        .get("workerId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| AppError::invalid_input("Memory maintenance worker id is required"))?;
+    Ok(worker_id)
+}
+
+fn lease_id(body: &Value) -> AppResult<&str> {
+    body.get("leaseId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| AppError::invalid_input("Memory maintenance lease id is required"))
+}
+
+pub(crate) fn acquire_memory_maintenance_worker(state: &AppState, body: Value) -> AppResult<Value> {
+    let worker_id = worker_id(&body)?;
+    let requested_lease = body.get("leaseId").and_then(Value::as_str);
+    let acquired = state.acquire_memory_maintenance_worker(worker_id, requested_lease)?;
+    Ok(json!({
+        "acquired": acquired.is_some(),
+        "leaseId": acquired,
+    }))
+}
+
+pub(crate) fn release_memory_maintenance_worker(state: &AppState, body: Value) -> AppResult<Value> {
+    let worker_id = worker_id(&body)?;
+    let lease_id = lease_id(&body)?;
+    let released = state.release_memory_maintenance_worker(worker_id, lease_id)?;
+    Ok(json!({ "released": released }))
+}
+
+pub(crate) fn update_memory_maintenance_job(state: &AppState, body: Value) -> AppResult<Value> {
+    let lease_id = lease_id(&body)?;
+    let job_id = body
+        .get("jobId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("Memory maintenance job id is required"))?;
+    let patch = body
+        .get("patch")
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or_else(|| AppError::invalid_input("Memory maintenance job patch is required"))?;
+    state.with_memory_maintenance_lease(lease_id, || {
+        state
+            .storage
+            .patch(COLLECTION, job_id, Value::Object(patch))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,5 +273,89 @@ mod tests {
         assert_eq!(pending["status"], json!("pending"));
         assert_eq!(pending["totalPasses"], json!(0));
         assert_eq!(pending["recentFingerprints"], json!([]));
+    }
+
+    #[test]
+    fn maintenance_worker_lease_excludes_other_runtimes_until_release() {
+        let state = test_state("worker-lease");
+
+        let first =
+            acquire_memory_maintenance_worker(&state, json!({ "workerId": "browser-a" })).unwrap();
+        let first_lease = first["leaseId"].as_str().unwrap().to_string();
+        assert_eq!(first["acquired"], json!(true));
+        assert_eq!(
+            acquire_memory_maintenance_worker(&state, json!({ "workerId": "browser-b" })).unwrap()
+                ["acquired"],
+            json!(false)
+        );
+        assert_eq!(
+            release_memory_maintenance_worker(
+                &state,
+                json!({ "workerId": "browser-b", "leaseId": first_lease }),
+            )
+            .unwrap()["released"],
+            json!(false)
+        );
+        assert_eq!(
+            release_memory_maintenance_worker(
+                &state,
+                json!({ "workerId": "browser-a", "leaseId": first_lease }),
+            )
+            .unwrap()["released"],
+            json!(true)
+        );
+        assert_eq!(
+            acquire_memory_maintenance_worker(&state, json!({ "workerId": "browser-b" })).unwrap()
+                ["acquired"],
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn stale_worker_token_cannot_mutate_a_maintenance_job_after_takeover() {
+        let state = test_state("worker-fence");
+        let target = target(CleanupStore::Chat, "chat", "chat-1");
+        let job = enqueue_memory_maintenance(&state, target, Trigger::Manual).unwrap();
+        let job_id = job["id"].as_str().unwrap().to_string();
+        let first =
+            acquire_memory_maintenance_worker(&state, json!({ "workerId": "browser-a" })).unwrap();
+        let first_lease = first["leaseId"].as_str().unwrap().to_string();
+        release_memory_maintenance_worker(
+            &state,
+            json!({ "workerId": "browser-a", "leaseId": first_lease }),
+        )
+        .unwrap();
+        let second =
+            acquire_memory_maintenance_worker(&state, json!({ "workerId": "browser-b" })).unwrap();
+        let second_lease = second["leaseId"].as_str().unwrap().to_string();
+
+        let stale = update_memory_maintenance_job(
+            &state,
+            json!({
+                "leaseId": first_lease,
+                "jobId": job_id,
+                "patch": { "status": "processing" }
+            }),
+        )
+        .expect_err("a stale worker token must be fenced out");
+        assert_eq!(stale.code, "memory_maintenance_lease_lost");
+        assert_eq!(
+            state.storage.get(COLLECTION, &job_id).unwrap().unwrap()["status"],
+            json!("pending")
+        );
+
+        update_memory_maintenance_job(
+            &state,
+            json!({
+                "leaseId": second_lease,
+                "jobId": job_id,
+                "patch": { "status": "processing" }
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            state.storage.get(COLLECTION, &job_id).unwrap().unwrap()["status"],
+            json!("processing")
+        );
     }
 }

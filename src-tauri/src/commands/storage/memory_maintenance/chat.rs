@@ -397,9 +397,18 @@ fn apply_validated_chat_batch(
     }))
 }
 
+#[cfg(test)]
 pub(crate) async fn apply_chat_cleanup(
     state: &AppState,
     request: ApplyCleanupRequest,
+) -> AppResult<Value> {
+    apply_chat_cleanup_with_lease(state, request, None).await
+}
+
+pub(crate) async fn apply_chat_cleanup_with_lease(
+    state: &AppState,
+    request: ApplyCleanupRequest,
+    lease_id: Option<&str>,
 ) -> AppResult<Value> {
     if !matches!(request.scope.kind.as_str(), "chat" | "scene") {
         return Err(AppError::invalid_input(
@@ -448,25 +457,26 @@ pub(crate) async fn apply_chat_cleanup(
     let chat_id = request.scope.id.clone();
     let batch_id_for_write = batch_id.clone();
     let applied_at_for_write = applied_at.clone();
-    state
-        .storage
-        .update_collections_atomically(vec!["chats"], move |collections| {
-            let chats = collections[0].rows_mut();
-            let chat = chats
-                .iter_mut()
-                .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id.as_str()))
-                .ok_or_else(|| AppError::not_found("Chat was not found"))?;
-            let mut current_memories = chat_memories_from_row(chat)?;
-            let result = apply_validated_chat_batch(
-                &mut current_memories,
-                &request,
-                &prepared,
-                &batch_id_for_write,
-                &applied_at_for_write,
-            )?;
-            set_chat_memories_on_row(chat, current_memories)?;
-            Ok(result)
-        })
+    let operation = || {
+        state
+            .storage
+            .update_record_journaled("chats", &chat_id, move |chat| {
+                let mut current_memories = chat_memories_from_row(chat)?;
+                let result = apply_validated_chat_batch(
+                    &mut current_memories,
+                    &request,
+                    &prepared,
+                    &batch_id_for_write,
+                    &applied_at_for_write,
+                )?;
+                set_chat_memories_on_row(chat, current_memories)?;
+                Ok(result)
+            })
+    };
+    match lease_id {
+        Some(lease_id) => state.with_memory_maintenance_lease(lease_id, operation),
+        None => operation(),
+    }
 }
 
 fn remove_embedding_fields(memory: &mut Map<String, Value>) {
@@ -492,12 +502,7 @@ pub(crate) fn undo_chat_cleanup(state: &AppState, request: UndoCleanupRequest) -
     let batch_id = request.batch_id.clone();
     state
         .storage
-        .update_collections_atomically(vec!["chats"], move |collections| {
-            let chats = collections[0].rows_mut();
-            let chat = chats
-                .iter_mut()
-                .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id.as_str()))
-                .ok_or_else(|| AppError::not_found("Chat was not found"))?;
+        .update_record_journaled("chats", &chat_id, move |chat| {
             let mut memories = chat_memories_from_row(chat)?;
             let source_indexes = memories
                 .iter()
@@ -945,6 +950,120 @@ mod tests {
         let error = validate_referenced_memories(&[pinned, winner], &scope, &proposal)
             .expect_err("an unpinned winner must not consume pinned memory");
         assert!(error.message.contains("pinned winner"));
+    }
+
+    #[tokio::test]
+    async fn chat_cleanup_journals_the_target_without_replacing_the_chat_collection() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("de-koi-memory-cleanup-record-local-{nonce}"));
+        let state = AppState::from_data_dir(path.clone(), Vec::new())
+            .expect("test app state should initialize");
+        let mut memory_a = automatic_memory("memory-a", "Mira has the brass key.");
+        memory_a["status"] = json!("pinned");
+        memory_a["pinned"] = json!(true);
+        memory_a["source"] = json!("manual");
+        memory_a["userEdited"] = json!(true);
+        state
+            .storage
+            .replace_all(
+                "chats",
+                vec![json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        memory_a,
+                        automatic_memory("memory-b", "Mira keeps the brass key.")
+                    ]
+                })],
+            )
+            .expect("chat should seed");
+        let collection = path.join("data").join("collections").join("chats.json");
+        let primary_before = std::fs::read(&collection).expect("chat collection should exist");
+
+        let applied = apply_chat_cleanup(&state, apply_request())
+            .await
+            .expect("cleanup should apply");
+
+        assert_eq!(applied["combined"], json!(1));
+        assert_eq!(
+            std::fs::read(&collection).expect("chat collection should remain readable"),
+            primary_before,
+            "cleanup of one chat must not rewrite the full chat collection"
+        );
+        assert!(
+            path.join("data")
+                .join("collections")
+                .join("chats.pending.jsonl")
+                .exists(),
+            "the target-row update should remain durably journaled"
+        );
+        let updated = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should work")
+            .expect("chat should exist");
+        assert!(updated["memories"]
+            .as_array()
+            .expect("memories should be an array")
+            .iter()
+            .any(|memory| memory.get("cleanupBatchId").is_some()));
+        drop(state);
+        let reopened = AppState::from_data_dir(path, Vec::new())
+            .expect("test app state should reopen after a journaled cleanup");
+        let recovered = reopened
+            .storage
+            .get("chats", "chat-1")
+            .expect("recovered chat read should work")
+            .expect("recovered chat should exist");
+        assert!(recovered["memories"]
+            .as_array()
+            .expect("recovered memories should be an array")
+            .iter()
+            .any(|memory| memory.get("cleanupBatchId").is_some()));
+    }
+
+    #[tokio::test]
+    async fn stale_worker_lease_cannot_apply_chat_cleanup_after_takeover() {
+        let state = test_state("worker-fence");
+        let mut memory_a = automatic_memory("memory-a", "Mira has the brass key.");
+        memory_a["status"] = json!("pinned");
+        memory_a["pinned"] = json!(true);
+        memory_a["source"] = json!("manual");
+        memory_a["userEdited"] = json!(true);
+        state
+            .storage
+            .replace_all(
+                "chats",
+                vec![json!({
+                    "id": "chat-1",
+                    "memories": [
+                        memory_a,
+                        automatic_memory("memory-b", "Mira keeps the brass key.")
+                    ]
+                })],
+            )
+            .expect("chat should seed");
+        let stale_lease = state
+            .acquire_memory_maintenance_worker("browser-a", None)
+            .expect("first lease should be available")
+            .expect("first worker should acquire");
+        state
+            .release_memory_maintenance_worker("browser-a", &stale_lease)
+            .expect("first lease should release");
+        state
+            .acquire_memory_maintenance_worker("browser-b", None)
+            .expect("second lease should be available")
+            .expect("second worker should acquire");
+
+        let error = apply_chat_cleanup_with_lease(&state, apply_request(), Some(&stale_lease))
+            .await
+            .expect_err("a stale worker must be fenced out before the storage mutation");
+
+        assert_eq!(error.code, "memory_maintenance_lease_lost");
+        assert_eq!(active_memory_ids(&state), vec!["memory-a", "memory-b"]);
     }
 
     #[tokio::test]

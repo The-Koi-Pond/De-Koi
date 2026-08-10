@@ -27,6 +27,8 @@ const MAX_MAINTENANCE_ATTEMPTS = 3;
 const MAX_PASSES_PER_DRAIN = 3;
 const MAX_TOTAL_PASSES = 12;
 const HEARTBEAT_MS = 30_000;
+const LEASE_HEARTBEAT_MS = 30_000;
+const LEASE_RENEWAL_TIMEOUT_MS = 10_000;
 const MAINTENANCE_POLICY_VERSION = 2;
 const MAX_CLARITY_REVIEWED_FINGERPRINTS = 512;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
@@ -41,6 +43,9 @@ export interface AutomaticMemoryMaintenanceDependencies {
 export interface AutomaticMemoryMaintenanceProcessOptions {
   now?: string;
   limit?: number;
+  workerId?: string;
+  leaseHeartbeatMs?: number;
+  leaseRenewalTimeoutMs?: number;
 }
 
 export interface AutomaticMemoryMaintenanceResult {
@@ -52,6 +57,7 @@ export interface AutomaticMemoryMaintenanceResult {
 }
 
 class ForegroundPause extends Error {}
+class MaintenanceLeaseLost extends Error {}
 
 const activeWorkers = new WeakSet<StorageGateway>();
 const pendingWorkerReruns = new WeakSet<StorageGateway>();
@@ -59,6 +65,9 @@ const cancelledWorkers = new WeakSet<StorageGateway>();
 const scheduledWorkerTimers = new WeakMap<StorageGateway, ReturnType<typeof setTimeout>>();
 const registeredDependencies = new WeakMap<StorageGateway, AutomaticMemoryMaintenanceDependencies>();
 const maintenanceWorkerKey = {};
+const automaticMaintenanceWorkerId = `memory-maintenance-${
+  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}`;
 
 function targetFromJob(job: JsonRecord): MemoryCleanupTarget | null {
   const target = parseRecord(job.target);
@@ -250,12 +259,19 @@ function safeErrorMessage(code: string): string {
   return "Automatic memory maintenance could not finish.";
 }
 
-async function updateJob(storage: StorageGateway, id: string, patch: Record<string, unknown>): Promise<JsonRecord> {
-  return storage.update<JsonRecord>(JOBS_COLLECTION, id, patch);
+async function updateJob(
+  maintenance: MemoryMaintenanceGateway,
+  leaseId: string,
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<JsonRecord> {
+  return (await maintenance.updateJob(leaseId, id, patch)) as JsonRecord;
 }
 
 async function completeJob(
   storage: StorageGateway,
+  maintenance: MemoryMaintenanceGateway,
+  leaseId: string,
   id: string,
   now: string,
   lastResult: MemoryCleanupApplyResult | null,
@@ -263,7 +279,7 @@ async function completeJob(
 ): Promise<"completed" | "pending"> {
   const current = await storage.get<JsonRecord>(JOBS_COLLECTION, id);
   if (current?.dirty === true) {
-    await updateJob(storage, id, {
+    await updateJob(maintenance, leaseId, id, {
       status: "pending",
       dirty: false,
       attempts: 0,
@@ -276,7 +292,7 @@ async function completeJob(
     });
     return "pending";
   }
-  await updateJob(storage, id, {
+  await updateJob(maintenance, leaseId, id, {
     status: "completed",
     dirty: false,
     nextAttemptAt: null,
@@ -288,6 +304,47 @@ async function completeJob(
     updatedAt: now,
   });
   return "completed";
+}
+
+async function renewWorkerLease(
+  maintenance: MemoryMaintenanceGateway,
+  workerId: string,
+  leaseId: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), Math.max(1, timeoutMs));
+    void maintenance
+      .acquireWorker(workerId, leaseId)
+      .then((renewed) => finish(renewed))
+      .catch(() => finish(null));
+  });
+}
+
+async function releaseWorkerLease(
+  maintenance: MemoryMaintenanceGateway,
+  workerId: string,
+  leaseId: string,
+  timeoutMs: number,
+): Promise<void> {
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, Math.max(1, timeoutMs));
+    void maintenance.releaseWorker(workerId, leaseId).then(finish).catch(finish);
+  });
 }
 
 function deferWorker(dependencies: AutomaticMemoryMaintenanceDependencies): void {
@@ -312,216 +369,291 @@ export async function processAutomaticMemoryMaintenanceQueue(
     deferWorker(dependencies);
     return result;
   }
-  const jobs = await dependencies.storage.list<JsonRecord>(JOBS_COLLECTION).catch(() => []);
-  const due = jobs
-    .filter((job) => jobDue(job, now))
-    .sort((left, right) => readString(left.createdAt).localeCompare(readString(right.createdAt)))
-    .slice(0, options.limit ?? 10);
+  const workerId = options.workerId ?? automaticMaintenanceWorkerId;
+  const leaseId = await dependencies.maintenance.acquireWorker(workerId);
+  if (!leaseId) return result;
+  const leaseAbort = new AbortController();
+  let leaseLost: MaintenanceLeaseLost | null = null;
+  let leaseRenewal: Promise<void> | null = null;
+  const loseLease = () => {
+    if (leaseLost) return;
+    leaseLost = new MaintenanceLeaseLost("Another runtime owns automatic memory maintenance.");
+    leaseAbort.abort(leaseLost);
+  };
+  const renewLease = () => {
+    if (leaseRenewal) return;
+    leaseRenewal = renewWorkerLease(
+      dependencies.maintenance,
+      workerId,
+      leaseId,
+      options.leaseRenewalTimeoutMs ?? LEASE_RENEWAL_TIMEOUT_MS,
+    )
+      .then((renewed) => {
+        if (renewed !== leaseId) loseLease();
+      })
+      .catch(() => loseLease())
+      .finally(() => {
+        leaseRenewal = null;
+      });
+  };
+  const leaseHeartbeat = setInterval(renewLease, Math.max(1, options.leaseHeartbeatMs ?? LEASE_HEARTBEAT_MS));
+  const assertLease = () => {
+    if (leaseLost) throw leaseLost;
+  };
+  try {
+    const jobs = await dependencies.storage.list<JsonRecord>(JOBS_COLLECTION).catch(() => []);
+    const due = jobs
+      .filter((job) => jobDue(job, now))
+      .sort((left, right) => readString(left.createdAt).localeCompare(readString(right.createdAt)))
+      .slice(0, options.limit ?? 10);
 
-  for (const job of due) {
-    if (foregroundGenerationActive(dependencies.storage)) {
-      deferWorker(dependencies);
-      break;
-    }
-    const id = readString(job.id).trim();
-    const target = targetFromJob(job);
-    if (!id || !target) continue;
-    const attempts = readNumber(job.attempts, 0) + 1;
-    const maxAttempts = Math.max(1, readNumber(job.maxAttempts, MAX_MAINTENANCE_ATTEMPTS));
-    let totalPasses = Math.max(0, readNumber(job.totalPasses, 0));
-    let recentFingerprints = parseArray(job.recentFingerprints)
-      .map((value) => readString(value).trim())
-      .filter(Boolean);
-    let clarityReviewedFingerprints = parseArray(job.clarityReviewedFingerprints)
-      .map((value) => readString(value).trim())
-      .filter(Boolean)
-      .slice(-MAX_CLARITY_REVIEWED_FINGERPRINTS);
-    let lastResult: MemoryCleanupApplyResult | null = null;
-    let lastBatchId: string | null = readString(job.lastBatchId).trim() || null;
-    result.processed += 1;
-    await updateJob(dependencies.storage, id, {
-      status: "processing",
-      attempts,
-      startedAt: now,
-      updatedAt: now,
-      lastError: null,
-      lastErrorCode: null,
-    });
-
-    try {
-      const connectionId = await dependencies.resolveConnectionId(target);
-      if (!connectionId.trim()) throw new Error("No text connection is available");
-      let settled = false;
-      for (let pass = 0; pass < MAX_PASSES_PER_DRAIN; pass += 1) {
-        if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
-        const sources = eligibleSources(await loadAutomaticMemoryMaintenanceSources(dependencies.storage, target));
-        if (sources.length === 0) {
-          settled = true;
-          break;
-        }
-        const fingerprint = sourceFingerprint(sources);
-        if (recentFingerprints.includes(fingerprint)) {
-          await updateJob(dependencies.storage, id, {
-            status: "failed",
-            failedAt: now,
-            nextAttemptAt: null,
-            lastError: "Automatic memory maintenance stopped after repeated state.",
-            lastErrorCode: "maintenance_oscillation",
-            updatedAt: now,
-          });
-          result.failed += 1;
-          settled = true;
-          break;
-        }
-        recentFingerprints = [...recentFingerprints.slice(-5), fingerprint];
-        if (target.store === "canonical") {
-          const clarity = await analyzeAutomaticMemoryClarity({
-            storage: dependencies.storage,
-            llm: dependencies.llm,
-            scope: target.scope,
-            sources,
-            connectionId,
-            alreadyReviewed: new Set(clarityReviewedFingerprints),
-          });
-          if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
-          clarityReviewedFingerprints = boundedClarityFingerprints(
-            clarityReviewedFingerprints,
-            clarity.reviewedFingerprints,
-          );
-          await updateJob(dependencies.storage, id, {
-            status: "processing",
-            clarityReviewedFingerprints,
-            updatedAt: now,
-          });
-          const clarityProposals = clarity.proposals.map((proposal) => ({ ...proposal, selected: true }));
-          if (clarityProposals.length > 0) {
-            lastResult = await dependencies.maintenance.apply({
-              version: 2,
-              target,
-              proposals: clarityProposals,
-            });
-            lastBatchId = lastResult.batchId;
-            result.applied += 1;
-            totalPasses += 1;
-            await updateJob(dependencies.storage, id, {
-              status: "processing",
-              totalPasses,
-              recentFingerprints,
-              clarityReviewedFingerprints,
-              lastBatchId,
-              lastResult,
-              updatedAt: now,
-            });
-            if (totalPasses >= MAX_TOTAL_PASSES) {
-              await updateJob(dependencies.storage, id, {
-                status: "failed",
-                failedAt: now,
-                nextAttemptAt: null,
-                lastError: "Automatic memory maintenance reached its pass limit.",
-                lastErrorCode: "maintenance_pass_limit",
-                updatedAt: now,
-              });
-              result.failed += 1;
-              settled = true;
-              break;
-            }
-            continue;
-          }
-        }
-        const analysis = await analyzeMemoryCleanup({
-          scope: target.scope,
-          sources,
-          connectionId,
-          llm: dependencies.llm,
-          onProgress: () => {
-            if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
-          },
-        });
-        if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
-        const proposals: MemoryCleanupProposal[] = analysis.proposals
-          .filter((proposal) => proposal.type !== "conflict")
-          .map((proposal) => ({ ...proposal, selected: true }));
-        if (proposals.length === 0) {
-          settled = true;
-          break;
-        }
-        lastResult = await dependencies.maintenance.apply({
-          version: 2,
-          target,
-          proposals,
-        });
-        lastBatchId = lastResult.batchId;
-        result.applied += 1;
-        totalPasses += 1;
-        await updateJob(dependencies.storage, id, {
-          status: "processing",
-          totalPasses,
-          recentFingerprints,
-          lastBatchId,
-          lastResult,
-          updatedAt: now,
-        });
-        if (totalPasses >= MAX_TOTAL_PASSES) {
-          await updateJob(dependencies.storage, id, {
-            status: "failed",
-            failedAt: now,
-            nextAttemptAt: null,
-            lastError: "Automatic memory maintenance reached its pass limit.",
-            lastErrorCode: "maintenance_pass_limit",
-            updatedAt: now,
-          });
-          result.failed += 1;
-          settled = true;
-          break;
-        }
-      }
-      const current = await dependencies.storage.get<JsonRecord>(JOBS_COLLECTION, id);
-      if (readString(current?.status).trim() === "failed") continue;
-      if (settled) {
-        if ((await completeJob(dependencies.storage, id, now, lastResult, lastBatchId)) === "completed") {
-          result.completed += 1;
-        }
-      } else {
-        await updateJob(dependencies.storage, id, {
-          status: "pending",
-          attempts: 0,
-          totalPasses,
-          recentFingerprints,
-          clarityReviewedFingerprints,
-          nextAttemptAt: now,
-          lastResult,
-          lastBatchId,
-          updatedAt: now,
-        });
-      }
-    } catch (error) {
-      if (error instanceof ForegroundPause) {
-        await updateJob(dependencies.storage, id, {
-          status: "pending",
-          attempts: Math.max(0, attempts - 1),
-          nextAttemptAt: now,
-          updatedAt: now,
-        });
+    for (const job of due) {
+      if (foregroundGenerationActive(dependencies.storage)) {
         deferWorker(dependencies);
         break;
       }
-      const configurationFailure = isTerminalBackgroundGenerationError(error);
-      const code = configurationFailure ? "configuration_error" : errorCode(error);
-      const terminal = configurationFailure || attempts >= maxAttempts;
-      const nextAttemptAt = terminal ? null : retryTime(now, attempts);
-      await updateJob(dependencies.storage, id, {
-        status: terminal ? "failed" : "retryable",
-        failedAt: terminal ? now : null,
-        nextAttemptAt,
-        lastError: safeErrorMessage(code),
-        lastErrorCode: code,
+      if ((await dependencies.maintenance.acquireWorker(workerId, leaseId)) !== leaseId) {
+        loseLease();
+        break;
+      }
+      assertLease();
+      const id = readString(job.id).trim();
+      const target = targetFromJob(job);
+      if (!id || !target) continue;
+      const attempts = readNumber(job.attempts, 0) + 1;
+      const maxAttempts = Math.max(1, readNumber(job.maxAttempts, MAX_MAINTENANCE_ATTEMPTS));
+      let totalPasses = Math.max(0, readNumber(job.totalPasses, 0));
+      let recentFingerprints = parseArray(job.recentFingerprints)
+        .map((value) => readString(value).trim())
+        .filter(Boolean);
+      let clarityReviewedFingerprints = parseArray(job.clarityReviewedFingerprints)
+        .map((value) => readString(value).trim())
+        .filter(Boolean)
+        .slice(-MAX_CLARITY_REVIEWED_FINGERPRINTS);
+      let lastResult: MemoryCleanupApplyResult | null = null;
+      let lastBatchId: string | null = readString(job.lastBatchId).trim() || null;
+      result.processed += 1;
+      await updateJob(dependencies.maintenance, leaseId, id, {
+        status: "processing",
+        attempts,
+        startedAt: now,
         updatedAt: now,
+        lastError: null,
+        lastErrorCode: null,
       });
-      if (terminal) result.failed += 1;
-      else result.retryable += 1;
+
+      try {
+        const connectionId = await dependencies.resolveConnectionId(target);
+        assertLease();
+        if (!connectionId.trim()) throw new Error("No text connection is available");
+        let settled = false;
+        for (let pass = 0; pass < MAX_PASSES_PER_DRAIN; pass += 1) {
+          assertLease();
+          if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
+          const sources = eligibleSources(await loadAutomaticMemoryMaintenanceSources(dependencies.storage, target));
+          assertLease();
+          if (sources.length === 0) {
+            settled = true;
+            break;
+          }
+          const fingerprint = sourceFingerprint(sources);
+          if (recentFingerprints.includes(fingerprint)) {
+            await updateJob(dependencies.maintenance, leaseId, id, {
+              status: "failed",
+              failedAt: now,
+              nextAttemptAt: null,
+              lastError: "Automatic memory maintenance stopped after repeated state.",
+              lastErrorCode: "maintenance_oscillation",
+              updatedAt: now,
+            });
+            result.failed += 1;
+            settled = true;
+            break;
+          }
+          recentFingerprints = [...recentFingerprints.slice(-5), fingerprint];
+          if (target.store === "canonical") {
+            const clarity = await analyzeAutomaticMemoryClarity({
+              storage: dependencies.storage,
+              llm: dependencies.llm,
+              scope: target.scope,
+              sources,
+              connectionId,
+              alreadyReviewed: new Set(clarityReviewedFingerprints),
+              signal: leaseAbort.signal,
+            });
+            assertLease();
+            if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
+            clarityReviewedFingerprints = boundedClarityFingerprints(
+              clarityReviewedFingerprints,
+              clarity.reviewedFingerprints,
+            );
+            await updateJob(dependencies.maintenance, leaseId, id, {
+              status: "processing",
+              clarityReviewedFingerprints,
+              updatedAt: now,
+            });
+            const clarityProposals = clarity.proposals.map((proposal) => ({ ...proposal, selected: true }));
+            if (clarityProposals.length > 0) {
+              lastResult = await dependencies.maintenance.apply(
+                {
+                  version: 2,
+                  target,
+                  proposals: clarityProposals,
+                },
+                leaseId,
+              );
+              assertLease();
+              lastBatchId = lastResult.batchId;
+              result.applied += 1;
+              totalPasses += 1;
+              await updateJob(dependencies.maintenance, leaseId, id, {
+                status: "processing",
+                totalPasses,
+                recentFingerprints,
+                clarityReviewedFingerprints,
+                lastBatchId,
+                lastResult,
+                updatedAt: now,
+              });
+              if (totalPasses >= MAX_TOTAL_PASSES) {
+                await updateJob(dependencies.maintenance, leaseId, id, {
+                  status: "failed",
+                  failedAt: now,
+                  nextAttemptAt: null,
+                  lastError: "Automatic memory maintenance reached its pass limit.",
+                  lastErrorCode: "maintenance_pass_limit",
+                  updatedAt: now,
+                });
+                result.failed += 1;
+                settled = true;
+                break;
+              }
+              continue;
+            }
+          }
+          const analysis = await analyzeMemoryCleanup({
+            scope: target.scope,
+            sources,
+            connectionId,
+            llm: dependencies.llm,
+            signal: leaseAbort.signal,
+            onProgress: () => {
+              if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
+            },
+          });
+          assertLease();
+          if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
+          const proposals: MemoryCleanupProposal[] = analysis.proposals
+            .filter((proposal) => proposal.type !== "conflict")
+            .map((proposal) => ({ ...proposal, selected: true }));
+          if (proposals.length === 0) {
+            settled = true;
+            break;
+          }
+          lastResult = await dependencies.maintenance.apply(
+            {
+              version: 2,
+              target,
+              proposals,
+            },
+            leaseId,
+          );
+          assertLease();
+          lastBatchId = lastResult.batchId;
+          result.applied += 1;
+          totalPasses += 1;
+          await updateJob(dependencies.maintenance, leaseId, id, {
+            status: "processing",
+            totalPasses,
+            recentFingerprints,
+            lastBatchId,
+            lastResult,
+            updatedAt: now,
+          });
+          if (totalPasses >= MAX_TOTAL_PASSES) {
+            await updateJob(dependencies.maintenance, leaseId, id, {
+              status: "failed",
+              failedAt: now,
+              nextAttemptAt: null,
+              lastError: "Automatic memory maintenance reached its pass limit.",
+              lastErrorCode: "maintenance_pass_limit",
+              updatedAt: now,
+            });
+            result.failed += 1;
+            settled = true;
+            break;
+          }
+        }
+        const current = await dependencies.storage.get<JsonRecord>(JOBS_COLLECTION, id);
+        assertLease();
+        if (readString(current?.status).trim() === "failed") continue;
+        if (settled) {
+          if (
+            (await completeJob(
+              dependencies.storage,
+              dependencies.maintenance,
+              leaseId,
+              id,
+              now,
+              lastResult,
+              lastBatchId,
+            )) === "completed"
+          ) {
+            result.completed += 1;
+          }
+        } else {
+          await updateJob(dependencies.maintenance, leaseId, id, {
+            status: "pending",
+            attempts: 0,
+            totalPasses,
+            recentFingerprints,
+            clarityReviewedFingerprints,
+            nextAttemptAt: now,
+            lastResult,
+            lastBatchId,
+            updatedAt: now,
+          });
+        }
+      } catch (error) {
+        if (errorCode(error) === "memory_maintenance_lease_lost") loseLease();
+        if (leaseLost) break;
+        if (error instanceof ForegroundPause) {
+          await updateJob(dependencies.maintenance, leaseId, id, {
+            status: "pending",
+            attempts: Math.max(0, attempts - 1),
+            nextAttemptAt: now,
+            updatedAt: now,
+          });
+          deferWorker(dependencies);
+          break;
+        }
+        const configurationFailure = isTerminalBackgroundGenerationError(error);
+        const code = configurationFailure ? "configuration_error" : errorCode(error);
+        const terminal = configurationFailure || attempts >= maxAttempts;
+        const nextAttemptAt = terminal ? null : retryTime(now, attempts);
+        await updateJob(dependencies.maintenance, leaseId, id, {
+          status: terminal ? "failed" : "retryable",
+          failedAt: terminal ? now : null,
+          nextAttemptAt,
+          lastError: safeErrorMessage(code),
+          lastErrorCode: code,
+          updatedAt: now,
+        });
+        if (terminal) result.failed += 1;
+        else result.retryable += 1;
+      }
     }
+    return result;
+  } finally {
+    clearInterval(leaseHeartbeat);
+    await leaseRenewal;
+    await releaseWorkerLease(
+      dependencies.maintenance,
+      workerId,
+      leaseId,
+      options.leaseRenewalTimeoutMs ?? LEASE_RENEWAL_TIMEOUT_MS,
+    );
   }
-  return result;
 }
 
 function clearScheduledWorker(storage: StorageGateway): void {
@@ -555,10 +687,11 @@ async function scheduleNextPass(dependencies: AutomaticMemoryMaintenanceDependen
   for (const job of jobs) {
     if (!targetFromJob(job)) continue;
     const status = readString(job.status).trim();
-    if (status === "pending" || status === "processing") {
+    if (status === "pending") {
       delay = 0;
       break;
     }
+    if (status === "processing") continue;
     if (status !== "retryable") continue;
     const parsed = Date.parse(readString(job.nextAttemptAt).trim());
     delay = Math.min(delay, Math.max(0, (Number.isFinite(parsed) ? parsed : now) - now));

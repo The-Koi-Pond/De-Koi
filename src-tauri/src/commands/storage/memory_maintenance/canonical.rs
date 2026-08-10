@@ -392,9 +392,18 @@ fn source_cleanup_metadata(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn apply_canonical_cleanup(
     state: &AppState,
     request: ApplyCleanupRequest,
+) -> AppResult<Value> {
+    apply_canonical_cleanup_with_lease(state, request, None)
+}
+
+pub(crate) fn apply_canonical_cleanup_with_lease(
+    state: &AppState,
+    request: ApplyCleanupRequest,
+    lease_id: Option<&str>,
 ) -> AppResult<Value> {
     if !matches!(request.scope.kind.as_str(), "chat" | "scene" | "character") {
         return Err(AppError::invalid_input(
@@ -405,137 +414,145 @@ pub(crate) fn apply_canonical_cleanup(
     let applied_at = now_iso();
     let batch_id_for_write = batch_id.clone();
     let applied_at_for_write = applied_at.clone();
-    state.storage.update_collections_atomically(
-        vec!["canonical-memories", "memory-index-rows"],
-        move |collections| {
-            let (memory_collections, index_collections) = collections.split_at_mut(1);
-            let memories = memory_collections[0].rows_mut();
-            let index_rows = index_collections[0].rows_mut();
-            let selected = request
-                .proposals
-                .iter()
-                .filter(|proposal| {
-                    proposal.selected && proposal.proposal_type != ProposalType::Conflict
-                })
-                .collect::<Vec<_>>();
-            for proposal in &selected {
-                validate_referenced_memories(memories, &request.scope, proposal)?;
-            }
-            let replacements = selected
-                .iter()
-                .map(|proposal| {
-                    build_replacement(
-                        memories,
-                        &request.scope,
-                        proposal,
-                        &batch_id_for_write,
-                        &applied_at_for_write,
-                    )
-                    .map(|replacement| (proposal.id.as_str(), replacement))
-                })
-                .collect::<AppResult<Vec<_>>>()?;
-            let mut combined = 0usize;
-            let mut clarified = 0usize;
-            let mut superseded = 0usize;
-            let mut discarded = 0usize;
-            let mut created = 0usize;
-            for proposal in selected {
-                let discard = proposal.proposal_type == ProposalType::Discard;
-                let replacement = replacements
+    let operation = || {
+        state.storage.update_collections_atomically(
+            vec!["canonical-memories", "memory-index-rows"],
+            move |collections| {
+                let (memory_collections, index_collections) = collections.split_at_mut(1);
+                let memories = memory_collections[0].rows_mut();
+                let index_rows = index_collections[0].rows_mut();
+                let selected = request
+                    .proposals
                     .iter()
-                    .find(|(proposal_id, _)| *proposal_id == proposal.id)
-                    .and_then(|(_, replacement)| replacement.clone());
-                let superseded_by = if discard {
-                    None
-                } else {
-                    Some(
-                        replacement
-                            .as_ref()
-                            .and_then(|memory| memory.get("id"))
-                            .and_then(Value::as_str)
-                            .or(proposal.winner_id.as_deref())
-                            .ok_or_else(|| {
-                                AppError::invalid_input("Cleanup proposal has no retained result")
-                            })?
-                            .to_string(),
-                    )
-                };
-                for source_id in &proposal.source_ids {
-                    let source = memory_by_id_mut(memories, source_id)?;
-                    let previous_status =
-                        value_string(source, "status").unwrap_or_else(|| "active".to_string());
-                    let previous_updated_at = value_string(source, "updatedAt");
-                    let previous_superseded_by = value_string(source, "supersededByMemoryId");
-                    let previous_memory_cleanup = source
-                        .get("payload")
-                        .and_then(Value::as_object)
-                        .and_then(|payload| payload.get("memoryCleanup"))
-                        .cloned();
-                    let source_object = source.as_object_mut().ok_or_else(|| {
-                        AppError::invalid_input("Stored canonical memory is not an object")
-                    })?;
-                    let source_payload = source_object
-                        .entry("payload".to_string())
-                        .or_insert_with(|| json!({}))
-                        .as_object_mut()
-                        .ok_or_else(|| {
-                            AppError::invalid_input("Canonical memory payload is not an object")
-                        })?;
-                    source_payload.insert(
-                        "memoryCleanup".to_string(),
-                        source_cleanup_metadata(
+                    .filter(|proposal| {
+                        proposal.selected && proposal.proposal_type != ProposalType::Conflict
+                    })
+                    .collect::<Vec<_>>();
+                for proposal in &selected {
+                    validate_referenced_memories(memories, &request.scope, proposal)?;
+                }
+                let replacements = selected
+                    .iter()
+                    .map(|proposal| {
+                        build_replacement(
+                            memories,
+                            &request.scope,
+                            proposal,
                             &batch_id_for_write,
                             &applied_at_for_write,
-                            if discard {
-                                "discard"
-                            } else if proposal.proposal_type == ProposalType::Clarify {
-                                "clarify"
-                            } else {
-                                "consolidate"
-                            },
-                            &previous_status,
-                            previous_updated_at,
-                            previous_superseded_by,
-                            previous_memory_cleanup,
-                        ),
-                    );
-                    if discard {
-                        source_object.insert("status".to_string(), json!("deleted"));
-                        source_object.insert("supersededByMemoryId".to_string(), Value::Null);
-                        discarded += 1;
+                        )
+                        .map(|replacement| (proposal.id.as_str(), replacement))
+                    })
+                    .collect::<AppResult<Vec<_>>>()?;
+                let mut combined = 0usize;
+                let mut clarified = 0usize;
+                let mut superseded = 0usize;
+                let mut discarded = 0usize;
+                let mut created = 0usize;
+                for proposal in selected {
+                    let discard = proposal.proposal_type == ProposalType::Discard;
+                    let replacement = replacements
+                        .iter()
+                        .find(|(proposal_id, _)| *proposal_id == proposal.id)
+                        .and_then(|(_, replacement)| replacement.clone());
+                    let superseded_by = if discard {
+                        None
                     } else {
-                        source_object.insert("status".to_string(), json!("superseded"));
-                        source_object.insert(
-                            "supersededByMemoryId".to_string(),
-                            json!(superseded_by.as_deref()),
+                        Some(
+                            replacement
+                                .as_ref()
+                                .and_then(|memory| memory.get("id"))
+                                .and_then(Value::as_str)
+                                .or(proposal.winner_id.as_deref())
+                                .ok_or_else(|| {
+                                    AppError::invalid_input(
+                                        "Cleanup proposal has no retained result",
+                                    )
+                                })?
+                                .to_string(),
+                        )
+                    };
+                    for source_id in &proposal.source_ids {
+                        let source = memory_by_id_mut(memories, source_id)?;
+                        let previous_status =
+                            value_string(source, "status").unwrap_or_else(|| "active".to_string());
+                        let previous_updated_at = value_string(source, "updatedAt");
+                        let previous_superseded_by = value_string(source, "supersededByMemoryId");
+                        let previous_memory_cleanup = source
+                            .get("payload")
+                            .and_then(Value::as_object)
+                            .and_then(|payload| payload.get("memoryCleanup"))
+                            .cloned();
+                        let source_object = source.as_object_mut().ok_or_else(|| {
+                            AppError::invalid_input("Stored canonical memory is not an object")
+                        })?;
+                        let source_payload = source_object
+                            .entry("payload".to_string())
+                            .or_insert_with(|| json!({}))
+                            .as_object_mut()
+                            .ok_or_else(|| {
+                                AppError::invalid_input("Canonical memory payload is not an object")
+                            })?;
+                        source_payload.insert(
+                            "memoryCleanup".to_string(),
+                            source_cleanup_metadata(
+                                &batch_id_for_write,
+                                &applied_at_for_write,
+                                if discard {
+                                    "discard"
+                                } else if proposal.proposal_type == ProposalType::Clarify {
+                                    "clarify"
+                                } else {
+                                    "consolidate"
+                                },
+                                &previous_status,
+                                previous_updated_at,
+                                previous_superseded_by,
+                                previous_memory_cleanup,
+                            ),
                         );
-                        superseded += 1;
+                        if discard {
+                            source_object.insert("status".to_string(), json!("deleted"));
+                            source_object.insert("supersededByMemoryId".to_string(), Value::Null);
+                            discarded += 1;
+                        } else {
+                            source_object.insert("status".to_string(), json!("superseded"));
+                            source_object.insert(
+                                "supersededByMemoryId".to_string(),
+                                json!(superseded_by.as_deref()),
+                            );
+                            superseded += 1;
+                        }
+                        source_object.insert("updatedAt".to_string(), json!(applied_at_for_write));
+                        let changed = Value::Object(source_object.clone());
+                        canonical_memory::replace_memory_lexical_index(index_rows, &changed)?;
                     }
-                    source_object.insert("updatedAt".to_string(), json!(applied_at_for_write));
-                    let changed = Value::Object(source_object.clone());
-                    canonical_memory::replace_memory_lexical_index(index_rows, &changed)?;
+                    if let Some(replacement) = replacement {
+                        canonical_memory::replace_memory_lexical_index(index_rows, &replacement)?;
+                        memories.push(replacement);
+                        created += 1;
+                    }
+                    match proposal.proposal_type {
+                        ProposalType::Combine => combined += 1,
+                        ProposalType::Clarify => clarified += 1,
+                        ProposalType::KeepOne | ProposalType::Discard | ProposalType::Conflict => {}
+                    }
                 }
-                if let Some(replacement) = replacement {
-                    canonical_memory::replace_memory_lexical_index(index_rows, &replacement)?;
-                    memories.push(replacement);
-                    created += 1;
-                }
-                match proposal.proposal_type {
-                    ProposalType::Combine => combined += 1,
-                    ProposalType::Clarify => clarified += 1,
-                    ProposalType::KeepOne | ProposalType::Discard | ProposalType::Conflict => {}
-                }
-            }
-            Ok(json!({
-                "batchId": batch_id_for_write,
-                "combined": combined,
-                "clarified": clarified,
-                "superseded": superseded,
-                "discarded": discarded,
-                "created": created
-            }))
-        },
-    )
+                Ok(json!({
+                    "batchId": batch_id_for_write,
+                    "combined": combined,
+                    "clarified": clarified,
+                    "superseded": superseded,
+                    "discarded": discarded,
+                    "created": created
+                }))
+            },
+        )
+    };
+    match lease_id {
+        Some(lease_id) => state.with_memory_maintenance_lease(lease_id, operation),
+        None => operation(),
+    }
 }
 
 pub(crate) fn undo_canonical_cleanup(

@@ -6,6 +6,9 @@ import type {
 } from "../contracts/types/memory-maintenance";
 
 export interface MemoryMaintenanceGateway {
-  apply(body: MemoryCleanupApplyRequestV2): Promise<MemoryCleanupApplyResult>;
+  acquireWorker(workerId: string, leaseId?: string): Promise<string | null>;
+  releaseWorker(workerId: string, leaseId: string): Promise<void>;
+  updateJob(leaseId: string, jobId: string, patch: Record<string, unknown>): Promise<Record<string, unknown>>;
+  apply(body: MemoryCleanupApplyRequestV2, leaseId?: string): Promise<MemoryCleanupApplyResult>;
   undo(body: MemoryCleanupUndoRequestV2): Promise<MemoryCleanupUndoResult>;
 }

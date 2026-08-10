@@ -893,22 +893,23 @@ impl FileStorage {
         self.patch_with(collection, id, patch, |_, _| Ok(()))
     }
 
-    /// Applies a record-local patch through the durable collection journal without
-    /// materializing or replacing the full collection. This is reserved for the
-    /// checkpoint-tracked collections whose large histories stay journal-backed
-    /// during foreground activity.
-    pub fn patch_journaled(&self, collection: &str, id: &str, patch: Value) -> AppResult<Value> {
+    /// Mutates one record through the durable collection journal without
+    /// materializing or replacing the full collection. The existing write gate
+    /// keeps the read/validate/write transition atomic with other storage writes.
+    pub fn update_record_journaled<F, T>(
+        &self,
+        collection: &str,
+        id: &str,
+        update: F,
+    ) -> AppResult<T>
+    where
+        F: FnOnce(&mut Value) -> AppResult<T>,
+    {
         validate_collection_name(collection)?;
-        if !append_journal::checkpoint_tracks(collection) {
+        if collection != "chats" && !append_journal::checkpoint_tracks(collection) {
             return Err(AppError::invalid_input(format!(
-                "Record-local journal patches are not supported for {collection}"
+                "Record-local journal updates are not supported for {collection}"
             )));
-        }
-        let patch = ensure_object(patch)?;
-        if patch.contains_key("id") {
-            return Err(AppError::invalid_input(
-                "Record-local journal patches cannot change a record id",
-            ));
         }
 
         let _write_permit = self.write_gate.begin_write()?;
@@ -916,18 +917,20 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        let current = self
+        let mut record = self
             .read_collection_find_by_id_no_recovery(collection, id)?
             .ok_or_else(|| AppError::not_found(format!("{collection}/{id} was not found")))?;
-        let mut object = current
-            .as_object()
-            .cloned()
-            .ok_or_else(|| AppError::invalid_input("Stored record is not an object"))?;
-        for (key, value) in patch {
-            object.insert(key, value);
+        let output = update(&mut record)?;
+        if record.get("id").and_then(Value::as_str) != Some(id) {
+            return Err(AppError::invalid_input(
+                "Record-local journal updates cannot change a record id",
+            ));
         }
-        object.insert("updatedAt".to_string(), Value::String(now_iso()));
-        let record = Value::Object(object);
+        let chat_source_stamp = if collection == "chats" {
+            chat_summary_source_stamp(&self.collection_path(collection)?)?
+        } else {
+            None
+        };
 
         // Keep the cache locked from the durability boundary through its update.
         // A dirty cache is authoritative, so it must receive the same record before
@@ -982,12 +985,57 @@ impl FileStorage {
         }
         drop(cache);
 
+        if collection == "chats" {
+            if let Err(error) =
+                upsert_chat_summary_if_current(&self.root, chat_source_stamp.as_deref(), &record)
+            {
+                eprintln!(
+                    "[storage] chat summary update failed after durable record update; invalidating read model: {}",
+                    error.message
+                );
+                if let Err(invalidation_error) = remove_chat_summary_read_model(&self.root) {
+                    eprintln!(
+                        "[storage] chat summary read model invalidation failed after durable record update: {}",
+                        invalidation_error.message
+                    );
+                }
+            }
+        }
         self.compaction_activity
             .defer_for(self.compaction_activity.grace);
         if updated_dirty_cache {
             self.schedule_dirty_flush();
         }
-        Ok(record)
+        Ok(output)
+    }
+
+    /// Applies a record-local patch through the durable collection journal without
+    /// materializing or replacing the full collection. This is reserved for the
+    /// checkpoint-tracked collections whose large histories stay journal-backed
+    /// during foreground activity.
+    pub fn patch_journaled(&self, collection: &str, id: &str, patch: Value) -> AppResult<Value> {
+        validate_collection_name(collection)?;
+        if !append_journal::checkpoint_tracks(collection) {
+            return Err(AppError::invalid_input(format!(
+                "Record-local journal patches are not supported for {collection}"
+            )));
+        }
+        let patch = ensure_object(patch)?;
+        if patch.contains_key("id") {
+            return Err(AppError::invalid_input(
+                "Record-local journal patches cannot change a record id",
+            ));
+        }
+        self.update_record_journaled(collection, id, move |current| {
+            let object = current
+                .as_object_mut()
+                .ok_or_else(|| AppError::invalid_input("Stored record is not an object"))?;
+            for (key, value) in patch {
+                object.insert(key, value);
+            }
+            object.insert("updatedAt".to_string(), Value::String(now_iso()));
+            Ok(current.clone())
+        })
     }
 
     pub fn patch_many(

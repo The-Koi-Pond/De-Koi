@@ -1,5 +1,5 @@
 use marinara_assets::AssetService;
-use marinara_core::{AppError, AppResult};
+use marinara_core::{new_id, AppError, AppResult};
 use marinara_security::{assert_inside_dir, assert_relative_safe_path};
 use marinara_storage::FileStorage;
 use serde_json::{json, Map, Value};
@@ -38,12 +38,21 @@ pub struct AppState {
     pub resource_dir: Option<PathBuf>,
     pub default_data_roots: Vec<PathBuf>,
     llm_stream_cancellations: Arc<Mutex<LlmStreamCancellations>>,
+    memory_maintenance_worker: Arc<Mutex<Option<MemoryMaintenanceWorkerLease>>>,
 }
 
 #[derive(Default)]
 struct LlmStreamCancellations {
     active: HashMap<String, watch::Sender<bool>>,
     pending: HashMap<String, Instant>,
+}
+
+struct MemoryMaintenanceWorkerLease {
+    worker_id: String,
+    lease_id: String,
+    expires_at: Instant,
+    active_operations: usize,
+    release_requested: bool,
 }
 
 const STARTUP_MIGRATIONS_SETTINGS_ID: &str = "startup-migrations";
@@ -58,6 +67,7 @@ const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
 const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInlineMediaV3";
 const CHARACTER_VERSION_RETENTION_MIGRATION_KEY: &str = "characterVersionRetentionV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
+const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
 const USER_BACKGROUND_GAME_ASSET_PREFIX: &str = "__user_bg__/";
 
 impl AppState {
@@ -99,6 +109,7 @@ impl AppState {
             resource_dir,
             default_data_roots,
             llm_stream_cancellations: Arc::new(Mutex::new(LlmStreamCancellations::default())),
+            memory_maintenance_worker: Arc::new(Mutex::new(None)),
         };
         let character_version_media_ready = match run_startup_migration_once(
             &state.storage,
@@ -287,6 +298,138 @@ impl AppState {
 
     pub fn bundled_background_path(&self, path: &str) -> AppResult<Option<PathBuf>> {
         bundled_default_file_path(&self.default_data_roots, "backgrounds", path)
+    }
+
+    pub(crate) fn acquire_memory_maintenance_worker(
+        &self,
+        worker_id: &str,
+        lease_id: Option<&str>,
+    ) -> AppResult<Option<String>> {
+        let now = Instant::now();
+        let mut active = self.memory_maintenance_worker.lock().map_err(|_| {
+            AppError::new(
+                "memory_maintenance_lease_error",
+                "Memory maintenance worker lease is unavailable",
+            )
+        })?;
+        if let Some(requested_lease) = lease_id {
+            let Some(current) = active.as_mut() else {
+                return Ok(None);
+            };
+            if current.worker_id != worker_id
+                || current.lease_id != requested_lease
+                || (current.expires_at <= now && current.active_operations == 0)
+            {
+                return Ok(None);
+            }
+            current.expires_at = now + MEMORY_MAINTENANCE_WORKER_LEASE_TTL;
+            current.release_requested = false;
+            return Ok(Some(current.lease_id.clone()));
+        }
+        if active
+            .as_ref()
+            .is_some_and(|current| current.expires_at > now || current.active_operations > 0)
+        {
+            return Ok(None);
+        }
+        let lease_id = new_id();
+        *active = Some(MemoryMaintenanceWorkerLease {
+            worker_id: worker_id.to_string(),
+            lease_id: lease_id.clone(),
+            expires_at: now + MEMORY_MAINTENANCE_WORKER_LEASE_TTL,
+            active_operations: 0,
+            release_requested: false,
+        });
+        Ok(Some(lease_id))
+    }
+
+    pub(crate) fn release_memory_maintenance_worker(
+        &self,
+        worker_id: &str,
+        lease_id: &str,
+    ) -> AppResult<bool> {
+        let mut active = self.memory_maintenance_worker.lock().map_err(|_| {
+            AppError::new(
+                "memory_maintenance_lease_error",
+                "Memory maintenance worker lease is unavailable",
+            )
+        })?;
+        let Some(current) = active.as_mut() else {
+            return Ok(false);
+        };
+        if current.worker_id != worker_id || current.lease_id != lease_id {
+            return Ok(false);
+        }
+        if current.active_operations == 0 {
+            *active = None;
+        } else {
+            current.release_requested = true;
+        }
+        Ok(true)
+    }
+
+    pub(crate) fn assert_memory_maintenance_lease(&self, lease_id: &str) -> AppResult<()> {
+        let active = self.memory_maintenance_worker.lock().map_err(|_| {
+            AppError::new(
+                "memory_maintenance_lease_error",
+                "Memory maintenance worker lease is unavailable",
+            )
+        })?;
+        let valid = active.as_ref().is_some_and(|current| {
+            current.lease_id == lease_id && current.expires_at > Instant::now()
+        });
+        if !valid {
+            return Err(AppError::new(
+                "memory_maintenance_lease_lost",
+                "Automatic memory maintenance is owned by another runtime",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn with_memory_maintenance_lease<T>(
+        &self,
+        lease_id: &str,
+        operation: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        {
+            let mut active = self.memory_maintenance_worker.lock().map_err(|_| {
+                AppError::new(
+                    "memory_maintenance_lease_error",
+                    "Memory maintenance worker lease is unavailable",
+                )
+            })?;
+            let Some(current) = active.as_mut() else {
+                return Err(AppError::new(
+                    "memory_maintenance_lease_lost",
+                    "Automatic memory maintenance is owned by another runtime",
+                ));
+            };
+            if current.lease_id != lease_id || current.expires_at <= Instant::now() {
+                return Err(AppError::new(
+                    "memory_maintenance_lease_lost",
+                    "Automatic memory maintenance is owned by another runtime",
+                ));
+            }
+            current.active_operations += 1;
+        }
+        let result = operation();
+        let mut active = self.memory_maintenance_worker.lock().map_err(|_| {
+            AppError::new(
+                "memory_maintenance_lease_error",
+                "Memory maintenance worker lease is unavailable",
+            )
+        })?;
+        if let Some(current) = active
+            .as_mut()
+            .filter(|current| current.lease_id == lease_id)
+        {
+            current.active_operations = current.active_operations.saturating_sub(1);
+            if current.active_operations == 0 && current.release_requested {
+                *active = None;
+            }
+        }
+        result
     }
 
     pub fn register_llm_stream(&self, stream_id: &str) -> AppResult<watch::Receiver<bool>> {
@@ -1227,6 +1370,59 @@ mod tests {
                 .join(format!("{collection}.json")),
         )
         .expect("collection bytes should exist")
+    }
+
+    #[test]
+    fn active_memory_maintenance_operation_does_not_block_lease_renewal() {
+        let root = temp_root("memory-maintenance-renewal");
+        let state = AppState::from_data_dir(root.0.clone(), Vec::new())
+            .expect("test app state should initialize");
+        let lease_id = state
+            .acquire_memory_maintenance_worker("browser-a", None)
+            .expect("lease acquisition should work")
+            .expect("worker should acquire the lease");
+        let operation_state = state.clone();
+        let operation_lease = lease_id.clone();
+        let (operation_started_tx, operation_started_rx) = std::sync::mpsc::channel();
+        let (finish_operation_tx, finish_operation_rx) = std::sync::mpsc::channel();
+        let operation = std::thread::spawn(move || {
+            operation_state.with_memory_maintenance_lease(&operation_lease, || {
+                operation_started_tx
+                    .send(())
+                    .expect("operation start should be observed");
+                finish_operation_rx
+                    .recv()
+                    .expect("operation finish should be signalled");
+                Ok(())
+            })
+        });
+        operation_started_rx
+            .recv()
+            .expect("fenced operation should start");
+        let renewal_state = state.clone();
+        let renewal_lease = lease_id.clone();
+        let (renewed_tx, renewed_rx) = std::sync::mpsc::channel();
+        let renewal = std::thread::spawn(move || {
+            let renewed =
+                renewal_state.acquire_memory_maintenance_worker("browser-a", Some(&renewal_lease));
+            renewed_tx
+                .send(renewed)
+                .expect("renewal should be observed");
+        });
+
+        let renewed = renewed_rx
+            .recv_timeout(Duration::from_millis(250))
+            .expect("renewal must not wait for the fenced storage operation")
+            .expect("lease renewal should work");
+        assert_eq!(renewed.as_deref(), Some(lease_id.as_str()));
+        finish_operation_tx
+            .send(())
+            .expect("operation should be released");
+        operation
+            .join()
+            .expect("operation thread should finish")
+            .expect("fenced operation should succeed");
+        renewal.join().expect("renewal thread should finish");
     }
 
     fn collection_hash(root: &Path, collection: &str) -> u64 {
