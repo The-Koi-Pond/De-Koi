@@ -1,5 +1,7 @@
 use super::*;
 use super::{prompts, sidecar};
+#[cfg(any(test, all(target_os = "linux", target_env = "gnu")))]
+use crate::performance_diagnostics::enabled_env_flag_value;
 use marinara_security::{
     is_allowed_provider_url, is_forbidden_provider_resolved_ip, is_loopback_provider_host,
     redact_sensitive_text,
@@ -8,7 +10,33 @@ use std::net::{IpAddr, SocketAddr};
 
 const PROVIDER_LOCAL_URLS_ENABLED_FLAG: &str = "PROVIDER_LOCAL_URLS_ENABLED";
 const IMAGE_LOCAL_URLS_ENABLED_FLAG: &str = "IMAGE_LOCAL_URLS_ENABLED";
+const TRIM_AFTER_LLM_REQUEST_FLAG: &str = "DE_KOI_TRIM_AFTER_LLM_REQUEST";
 const PROVIDER_CONFIG_MAX_RESPONSE_BYTES: usize = 5 * 1024 * 1024;
+
+#[cfg(any(test, all(target_os = "linux", target_env = "gnu")))]
+fn run_allocator_trim_if_enabled(
+    value: Option<&str>,
+    trim: impl FnOnce() -> std::ffi::c_int,
+) -> bool {
+    if !enabled_env_flag_value(value) {
+        return false;
+    }
+    let _ = trim();
+    true
+}
+
+fn release_unused_llm_request_memory() {
+    let configured = std::env::var(TRIM_AFTER_LLM_REQUEST_FLAG).ok();
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    run_allocator_trim_if_enabled(configured.as_deref(), || {
+        // SAFETY: malloc_trim is a process-wide glibc allocator operation. It does not
+        // invalidate live allocations and is called only after the LLM request future
+        // has dropped its transient prompt and provider buffers.
+        unsafe { libc::malloc_trim(0) }
+    });
+    #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+    let _ = configured;
+}
 
 pub(crate) fn resolve_llm_connection_for_request(
     state: &AppState,
@@ -182,7 +210,10 @@ pub(crate) async fn llm_complete(state: &AppState, body: Value) -> AppResult<Val
     } else {
         None
     };
-    let completion = marinara_llm::complete_rich(llm_request_from_body(state, body).await?).await?;
+    let request = llm_request_from_body(state, body).await?;
+    let completion = marinara_llm::complete_rich(request).await;
+    release_unused_llm_request_memory();
+    let completion = completion?;
     serde_json::to_value(completion)
         .map_err(|error| AppError::new("llm_response_error", error.to_string()))
 }
@@ -357,6 +388,7 @@ pub(crate) async fn llm_stream_events(
         result = marinara_llm::stream_events(request, &mut emit) => result,
         _ = cancellation.changed() => Ok(()),
     };
+    release_unused_llm_request_memory();
     result
 }
 
@@ -1977,6 +2009,7 @@ fn sanitize_provider_body(body: &str) -> String {
 mod tests {
     use super::*;
     use crate::state::AppState;
+    use std::cell::Cell;
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -1984,6 +2017,33 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    #[test]
+    fn llm_allocator_release_runs_only_for_enabled_values() {
+        for value in ["1", "true", "yes", "on", " TRUE "] {
+            let called = Cell::new(false);
+            assert!(run_allocator_trim_if_enabled(Some(value), || {
+                called.set(true);
+                1
+            }));
+            assert!(
+                called.get(),
+                "enabled value {value:?} must run allocator trim"
+            );
+        }
+
+        for value in [None, Some(""), Some("0"), Some("false"), Some("off")] {
+            let called = Cell::new(false);
+            assert!(!run_allocator_trim_if_enabled(value, || {
+                called.set(true);
+                1
+            }));
+            assert!(
+                !called.get(),
+                "disabled value {value:?} must skip allocator trim"
+            );
+        }
+    }
 
     fn test_state(label: &str) -> AppState {
         let nonce = SystemTime::now()
