@@ -258,6 +258,7 @@ const vdsCompose = read("docker-compose.vds.yml");
 assertContains("docker-compose.pi.yml", compose, "ghcr.io/the-koi-pond/de-koi-server:prealpha");
 assertContains("docker-compose.pi.yml", compose, "ghcr.io/the-koi-pond/de-koi-web:prealpha");
 assertContains("docker-compose.pi.yml", compose, "DE_KOI_REPO_ROOT: /app");
+assertContains("docker-compose.pi.yml", compose, 'MALLOC_ARENA_MAX: "2"');
 assertContains("docker-compose.pi.yml", compose, '"7860:80"');
 assertNotContains("docker-compose.pi.yml", compose, '"8787:8787"');
 assertNotMatch("docker-compose.pi.yml", compose, /ADMIN_SECRET:\s*["'][^$]/);
