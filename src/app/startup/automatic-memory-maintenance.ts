@@ -134,7 +134,7 @@ export async function resolveAutomaticMemoryMaintenanceConnectionId(
 ): Promise<string> {
   let fallbackConnectionId: string | null = null;
   if (target.scope.kind === "chat" || target.scope.kind === "scene") {
-    const chat = (await storage.get<JsonRecord>("chats", target.scope.id)) ?? {};
+    const chat = (await storage.get<JsonRecord>("chats", target.scope.id, { fields: ["connectionId"] })) ?? {};
     fallbackConnectionId = readString(chat.connectionId).trim() || null;
   }
   const connection = selectBackgroundTextConnection(await listConnections(), fallbackConnectionId);

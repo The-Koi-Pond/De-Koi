@@ -58,6 +58,11 @@ export interface AutomaticMemoryMaintenanceResult {
 
 class ForegroundPause extends Error {}
 class MaintenanceLeaseLost extends Error {}
+class MaintenanceProviderFailure extends Error {
+  constructor(readonly originalError: unknown) {
+    super("Automatic memory maintenance provider operation failed.");
+  }
+}
 
 const activeWorkers = new WeakSet<StorageGateway>();
 const pendingWorkerReruns = new WeakSet<StorageGateway>();
@@ -92,10 +97,36 @@ function jobDue(job: JsonRecord, now: string): boolean {
   return !nextAttemptAt || nextAttemptAt <= now;
 }
 
+function isProviderRetry(job: JsonRecord): boolean {
+  return (
+    readString(job.status).trim() === "retryable" && readString(job.lastErrorCode).trim() === "provider_unavailable"
+  );
+}
+
+function providerCooldownDeadline(jobs: JsonRecord[], now: number): number | null {
+  let deadline: number | null = null;
+  for (const job of jobs) {
+    if (!targetFromJob(job) || !isProviderRetry(job)) continue;
+    const parsed = Date.parse(readString(job.nextAttemptAt).trim());
+    if (!Number.isFinite(parsed) || parsed <= now) continue;
+    deadline = deadline === null ? parsed : Math.max(deadline, parsed);
+  }
+  return deadline;
+}
+
 function retryTime(now: string, attempts: number): string {
   const delay = RETRY_BACKOFF_MS[Math.min(Math.max(attempts - 1, 0), RETRY_BACKOFF_MS.length - 1)];
   const parsed = Date.parse(now);
   return new Date((Number.isFinite(parsed) ? parsed : Date.now()) + delay).toISOString();
+}
+
+async function runProviderOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof ForegroundPause || error instanceof MaintenanceLeaseLost) throw error;
+    throw new MaintenanceProviderFailure(error);
+  }
 }
 
 function stableHash(value: string): string {
@@ -402,9 +433,14 @@ export async function processAutomaticMemoryMaintenanceQueue(
   };
   try {
     const jobs = await dependencies.storage.list<JsonRecord>(JOBS_COLLECTION).catch(() => []);
+    const parsedNow = Date.parse(now);
+    if (providerCooldownDeadline(jobs, Number.isFinite(parsedNow) ? parsedNow : Date.now()) !== null) return result;
     const due = jobs
       .filter((job) => jobDue(job, now))
-      .sort((left, right) => readString(left.createdAt).localeCompare(readString(right.createdAt)))
+      .sort((left, right) => {
+        const providerPriority = Number(isProviderRetry(right)) - Number(isProviderRetry(left));
+        return providerPriority || readString(left.createdAt).localeCompare(readString(right.createdAt));
+      })
       .slice(0, options.limit ?? 10);
 
     for (const job of due) {
@@ -472,15 +508,17 @@ export async function processAutomaticMemoryMaintenanceQueue(
           }
           recentFingerprints = [...recentFingerprints.slice(-5), fingerprint];
           if (target.store === "canonical") {
-            const clarity = await analyzeAutomaticMemoryClarity({
-              storage: dependencies.storage,
-              llm: dependencies.llm,
-              scope: target.scope,
-              sources,
-              connectionId,
-              alreadyReviewed: new Set(clarityReviewedFingerprints),
-              signal: leaseAbort.signal,
-            });
+            const clarity = await runProviderOperation(() =>
+              analyzeAutomaticMemoryClarity({
+                storage: dependencies.storage,
+                llm: dependencies.llm,
+                scope: target.scope,
+                sources,
+                connectionId,
+                alreadyReviewed: new Set(clarityReviewedFingerprints),
+                signal: leaseAbort.signal,
+              }),
+            );
             assertLease();
             if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
             clarityReviewedFingerprints = boundedClarityFingerprints(
@@ -531,16 +569,18 @@ export async function processAutomaticMemoryMaintenanceQueue(
               continue;
             }
           }
-          const analysis = await analyzeMemoryCleanup({
-            scope: target.scope,
-            sources,
-            connectionId,
-            llm: dependencies.llm,
-            signal: leaseAbort.signal,
-            onProgress: () => {
-              if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
-            },
-          });
+          const analysis = await runProviderOperation(() =>
+            analyzeMemoryCleanup({
+              scope: target.scope,
+              sources,
+              connectionId,
+              llm: dependencies.llm,
+              signal: leaseAbort.signal,
+              onProgress: () => {
+                if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
+              },
+            }),
+          );
           assertLease();
           if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
           const proposals: MemoryCleanupProposal[] = analysis.proposals
@@ -627,9 +667,15 @@ export async function processAutomaticMemoryMaintenanceQueue(
           deferWorker(dependencies);
           break;
         }
-        const configurationFailure = isTerminalBackgroundGenerationError(error);
-        const code = configurationFailure ? "configuration_error" : errorCode(error);
-        const terminal = configurationFailure || attempts >= maxAttempts;
+        const providerFailure = error instanceof MaintenanceProviderFailure;
+        const originalError = providerFailure ? error.originalError : error;
+        const configurationFailure = providerFailure && isTerminalBackgroundGenerationError(originalError);
+        const code = configurationFailure
+          ? "configuration_error"
+          : providerFailure
+            ? "provider_unavailable"
+            : errorCode(originalError);
+        const terminal = configurationFailure || (!providerFailure && attempts >= maxAttempts);
         const nextAttemptAt = terminal ? null : retryTime(now, attempts);
         await updateJob(dependencies.maintenance, leaseId, id, {
           status: terminal ? "failed" : "retryable",
@@ -641,6 +687,7 @@ export async function processAutomaticMemoryMaintenanceQueue(
         });
         if (terminal) result.failed += 1;
         else result.retryable += 1;
+        if (providerFailure) break;
       }
     }
     return result;
@@ -683,18 +730,23 @@ async function scheduleNextPass(dependencies: AutomaticMemoryMaintenanceDependen
   }
   const jobs = await dependencies.storage.list<JsonRecord>(JOBS_COLLECTION).catch(() => []);
   const now = Date.now();
+  const cooldownDeadline = providerCooldownDeadline(jobs, now);
   let delay = HEARTBEAT_MS;
-  for (const job of jobs) {
-    if (!targetFromJob(job)) continue;
-    const status = readString(job.status).trim();
-    if (status === "pending") {
-      delay = 0;
-      break;
+  if (cooldownDeadline !== null) {
+    delay = cooldownDeadline - now;
+  } else {
+    for (const job of jobs) {
+      if (!targetFromJob(job)) continue;
+      const status = readString(job.status).trim();
+      if (status === "pending") {
+        delay = 0;
+        break;
+      }
+      if (status === "processing") continue;
+      if (status !== "retryable") continue;
+      const parsed = Date.parse(readString(job.nextAttemptAt).trim());
+      delay = Math.min(delay, Math.max(0, (Number.isFinite(parsed) ? parsed : now) - now));
     }
-    if (status === "processing") continue;
-    if (status !== "retryable") continue;
-    const parsed = Date.parse(readString(job.nextAttemptAt).trim());
-    delay = Math.min(delay, Math.max(0, (Number.isFinite(parsed) ? parsed : now) - now));
   }
   clearScheduledWorker(dependencies.storage);
   const timer = setTimeout(() => {
