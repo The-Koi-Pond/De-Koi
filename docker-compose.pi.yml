@@ -9,6 +9,7 @@ services:
       DE_KOI_SERVER_ADDR: 0.0.0.0:8787
       DE_KOI_DATA_DIR: /data
       DE_KOI_REPO_ROOT: /app
+      MALLOC_ARENA_MAX: "2"
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       CLAUDE_CONFIG_DIR: ${CLAUDE_CONFIG_DIR:-/data/claude-config}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://pi:7860,http://pi.local:7860}
