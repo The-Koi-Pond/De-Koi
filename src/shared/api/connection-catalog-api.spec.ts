@@ -60,6 +60,14 @@ describe("connectionCatalogApi", () => {
     ]);
   });
 
+  it("loads the dedicated embedding selection needed by Memory Recall guidance", async () => {
+    await connectionCatalogApi.listAvailable();
+
+    expect(vi.mocked(storageApi.list).mock.calls[0]?.[1]).toMatchObject({
+      fields: expect.arrayContaining(["embeddingModel", "embeddingConnectionId"]),
+    });
+  });
+
   it("keeps a configured stored default ahead of the runtime-only fallback", () => {
     expect(
       connectionCatalogApi.selectDefaultTextConnectionId([

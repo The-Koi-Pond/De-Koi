@@ -25,7 +25,7 @@ import {
   prepareManagedImageAttachmentBatch,
   type PreparedManagedImageAttachments,
 } from "../../../../../shared/api/message-attachment-api";
-import { useGenerate } from "../../../../runtime/generation/index";
+import { GenerationFailureNotice, useGenerate } from "../../../../runtime/generation/index";
 import { readScopedRegexMode, useApplyRegex } from "../../../../catalog/regex-scripts/regex-application";
 import { useCreateMessage, useDeleteMessage, useUpdateMessageExtra, chatKeys } from "../../../../catalog/chats/index";
 import { characterKeys } from "../../../../catalog/characters/index";
@@ -1409,6 +1409,8 @@ export const ChatInput = memo(function ChatInput({
           ))}
         </div>
       )}
+
+      <GenerationFailureNotice chatId={activeChatId} onRetry={() => void handleSend()} />
 
       {/* Feedback toast */}
       {feedback && <SlashCommandFeedback feedback={feedback} onDismiss={() => setFeedback(null)} className="mb-2" />}

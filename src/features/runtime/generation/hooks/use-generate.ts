@@ -70,6 +70,10 @@ import {
 import { filterPlayerPersonaPresentCharacters } from "../../../../engine/shared/game-state/present-character-filter";
 import type { AgentDebugEntry } from "../../../../engine/contracts/types/agent";
 import type { GenerationDiagnosticEventData } from "../../../../engine/contracts/types/generation";
+import {
+  MEMORY_EMBEDDING_UNAVAILABLE_DESCRIPTION,
+  MEMORY_EMBEDDING_UNAVAILABLE_TITLE,
+} from "../lib/memory-embedding-guidance";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
 
 export type GenerateArgs = GenerationReplayInput & {
@@ -100,6 +104,7 @@ const AGENT_DEBUG_FLUSH_CONTINUE_DELAY_MS = 16;
 const MANUAL_WORLD_STATE_FIELDS = ["date", "time", "location", "weather", "temperature"] as const;
 const TRACKER_PATCH_AGENT_IDS = new Set(["world-state", "character-tracker", "persona-stats", "custom-tracker"]);
 const scheduledChatRefreshTimers = new Map<string, number>();
+const shownMemoryEmbeddingWarningKeys = new Set<string>();
 const queuedAgentDebugEntries: Array<Omit<AgentDebugEntry, "timestamp"> & { timestamp?: number }> = [];
 const activeGenerateLocks = new Set<string>();
 const AGENT_WARNING_DISMISSAL_STORAGE_PREFIX = "de-koi:agent-warning-dismissed:";
@@ -581,10 +586,33 @@ function dismissAgentWarning(data: Record<string, unknown>): void {
   }
 }
 
-export function showAgentWarningToast(rawData: unknown, shownKeys: Set<string>): void {
+export function showAgentWarningToast(
+  rawData: unknown,
+  shownKeys: Set<string>,
+  context: { chatId?: string | null } = {},
+): void {
   const data = parseMaybeRecord(rawData);
   const message = readString(data.message).trim();
   if (!message || isAgentWarningDismissed(data)) return;
+  if (data.code === "memory_embedding_unavailable") {
+    const connectionId = readString(data.connectionId).trim();
+    const sessionKey = [context.chatId ?? "", connectionId, readString(data.reason).trim()].join("\0");
+    if (shownMemoryEmbeddingWarningKeys.has(sessionKey)) return;
+    shownMemoryEmbeddingWarningKeys.add(sessionKey);
+    toast.warning(MEMORY_EMBEDDING_UNAVAILABLE_TITLE, {
+      description: MEMORY_EMBEDDING_UNAVAILABLE_DESCRIPTION,
+      duration: 12_000,
+      action: {
+        label: "Open Connections",
+        onClick: () => {
+          const ui = useUIStore.getState();
+          ui.openRightPanel("connections");
+          if (connectionId) ui.openConnectionDetail(connectionId);
+        },
+      },
+    });
+    return;
+  }
   const dismissalStorageKey = agentWarningDismissalStorageKey(data);
   const key = dismissalStorageKey || `${readString(data.code).trim()}\0${message}`;
   if (shownKeys.has(key)) return;
@@ -1453,6 +1481,7 @@ export async function runGenerationWithUi(
     }
 
     controller = new AbortController();
+    chatStore.setGenerationFailure(chatId, null);
     chatStore.setAbortController(chatId, controller);
     chatStore.setStreaming(true, chatId);
     chatStore.setRegenerateMessageId(regenerateMessageId, chatId);
@@ -1908,7 +1937,7 @@ export async function runGenerationWithUi(
           queueAgentResultEffect(event.data);
           break;
         case "agent_warning": {
-          showAgentWarningToast(event.data, shownAgentWarningKeys);
+          showAgentWarningToast(event.data, shownAgentWarningKeys, { chatId });
           break;
         }
         case "tool_call": {
@@ -2009,6 +2038,7 @@ export async function runGenerationWithUi(
     if (!isAbortError(error)) {
       const message = errorMessage(error);
       const toastMessage = generationFailureToastMessage(args, message);
+      useChatStore.getState().setGenerationFailure(chatId, { message: toastMessage, failedAt: Date.now() });
       dispatchGenerationFailureEvent(chatId, toastMessage);
       showGenerationFailureToast(toastMessage);
     }
@@ -2189,7 +2219,7 @@ export function useGenerate() {
         }
         for (const event of events) {
           if (event.type === "agent_warning") {
-            showAgentWarningToast(event.data, shownAgentWarningKeys);
+            showAgentWarningToast(event.data, shownAgentWarningKeys, { chatId });
           } else if (event.type === "message" || event.type === "assistant_message" || event.type === "user_message") {
             if (event.data && typeof event.data === "object") {
               upsertCachedMessage(queryClient, chatId, event.data);

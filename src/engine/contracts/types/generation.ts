@@ -20,10 +20,18 @@ interface GenerationImageAttachmentDeliveryWarning extends GenerationAgentConnec
   code: "image_attachment_delivery";
 }
 
-type GenerationAgentConnectionWarning =
+export interface GenerationMemoryEmbeddingUnavailableWarning extends GenerationAgentConnectionWarningBase {
+  code: "memory_embedding_unavailable";
+  connectionId: string | null;
+  connectionName: string;
+  reason: "missing_connection" | "missing_model" | "unsupported_provider";
+}
+
+export type GenerationAgentConnectionWarning =
   | GenerationDefaultAgentConnectionWarning
   | GenerationLocalSidecarUnavailableWarning
-  | GenerationImageAttachmentDeliveryWarning;
+  | GenerationImageAttachmentDeliveryWarning
+  | GenerationMemoryEmbeddingUnavailableWarning;
 
 export interface GenerationDiagnosticEventData {
   kind: "timing";
@@ -73,4 +81,3 @@ export type GenerationEvent =
   | { type: "illustration_error"; data: unknown }
   | { type: "scene_created"; data: unknown }
   | { type: "done"; data?: unknown };
-

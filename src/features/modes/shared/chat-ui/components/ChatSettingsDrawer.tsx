@@ -116,7 +116,12 @@ import { usePersonaSummaries } from "../../../../catalog/personas/index";
 import { useLorebooks } from "../../../../catalog/lorebooks/index";
 import { usePresetFull, usePresetSummaries } from "../../../../catalog/presets/index";
 import { useConnections } from "../../../../catalog/connections/index";
-import { useGenerate } from "../../../../runtime/generation/index";
+import {
+  MEMORY_EMBEDDING_UNAVAILABLE_DESCRIPTION,
+  MEMORY_EMBEDDING_UNAVAILABLE_TITLE,
+  resolveMemoryEmbeddingGuidance,
+  useGenerate,
+} from "../../../../runtime/generation/index";
 import {
   useUpdateChat,
   useUpdateChatMetadata,
@@ -483,6 +488,11 @@ function ChatSettingsDrawerInner({
     if (!chat.connectionId || chat.connectionId === "random") return null;
     return connections?.find((connection) => connection.id === chat.connectionId) ?? null;
   }, [chat.connectionId, connections]);
+  const memoryEmbeddingGuidance = useMemo(
+    () => resolveMemoryEmbeddingGuidance(chat as unknown as Record<string, unknown>, connections ?? []),
+    [chat, connections],
+  );
+  const memoryEmbeddingGuidanceIsDefinitive = !!chat.connectionId && chat.connectionId !== "random";
   const connectionPromptPresetId = isRoleplayMode ? nonEmptyString(activeTextConnection?.promptPresetId) : null;
   const defaultPromptPresetId = useMemo(
     () =>
@@ -1959,6 +1969,37 @@ function ChatSettingsDrawerInner({
             />
           </div>
         </button>
+        {effectiveValue &&
+          memoryEmbeddingGuidanceIsDefinitive &&
+          !connectionsLoading &&
+          !memoryEmbeddingGuidance.available && (
+          <div
+            role="alert"
+            className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2.5 text-[0.625rem] text-[var(--foreground)]"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle size="0.8rem" className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">{MEMORY_EMBEDDING_UNAVAILABLE_TITLE}</p>
+                <p className="mt-0.5 text-[var(--muted-foreground)]">{MEMORY_EMBEDDING_UNAVAILABLE_DESCRIPTION}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    const ui = useUIStore.getState();
+                    ui.openRightPanel("connections");
+                    if (memoryEmbeddingGuidance.connectionId) {
+                      ui.openConnectionDetail(memoryEmbeddingGuidance.connectionId);
+                    }
+                  }}
+                  className="mt-1.5 rounded-md bg-amber-400/15 px-2 py-1 font-medium text-amber-300 transition-colors hover:bg-amber-400/25"
+                >
+                  Open Connections
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <label className="flex min-w-0 flex-col gap-1 text-[0.625rem] text-[var(--muted-foreground)]">
           <span className="font-medium text-[var(--foreground)]">Read Behind</span>
           <input

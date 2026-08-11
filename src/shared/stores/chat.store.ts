@@ -18,6 +18,11 @@ export type NewChatSetupIntent = {
   shortcutMode: boolean;
 };
 
+export interface GenerationFailureState {
+  message: string;
+  failedAt: number;
+}
+
 /** Read the last active chat so reloads reopen the selected transcript. */
 function loadActiveChatId(): string | null {
   try {
@@ -95,6 +100,8 @@ interface ChatState {
   perChatTyping: Map<string, string>;
   /** Per-chat delayed state so switching chats restores the correct indicator. */
   perChatDelayed: Map<string, { name: string; status: string }>;
+  /** Durable per-chat provider failure feedback, cleared by retry or explicit dismissal. */
+  generationFailures: Map<string, GenerationFailureState>;
   swipeIndex: Map<string, number>; // messageId → active swipe index
   /** When true, ChatArea should open the settings drawer on next render. */
   shouldOpenSettings: boolean;
@@ -151,6 +158,7 @@ interface ChatState {
   setDelayedCharacterInfo: (info: { name: string; status: string } | null) => void;
   setPerChatTyping: (chatId: string, name: string | null) => void;
   setPerChatDelayed: (chatId: string, info: { name: string; status: string } | null) => void;
+  setGenerationFailure: (chatId: string, failure: GenerationFailureState | null) => void;
   clearPerChatState: (chatId: string) => void;
   setSwipeIndex: (messageId: string, index: number) => void;
   setShouldOpenSettings: (v: boolean, chatId?: string) => void;
@@ -208,6 +216,7 @@ export const useChatStore = create<ChatState>()(
     delayedCharacterInfo: null,
     perChatTyping: new Map(),
     perChatDelayed: new Map(),
+    generationFailures: new Map(),
     swipeIndex: new Map(),
     shouldOpenSettings: false,
     shouldOpenWizard: false,
@@ -473,6 +482,14 @@ export const useChatStore = create<ChatState>()(
         return { perChatDelayed: d, perChatTyping: t };
       }),
 
+    setGenerationFailure: (chatId, failure) =>
+      set((state) => {
+        const failures = new Map(state.generationFailures);
+        if (failure) failures.set(chatId, failure);
+        else failures.delete(chatId);
+        return { generationFailures: failures };
+      }),
+
     clearPerChatState: (chatId: string) =>
       set((state) => {
         const t = new Map(state.perChatTyping);
@@ -694,6 +711,7 @@ export const useChatStore = create<ChatState>()(
         delayedCharacterInfo: null,
         perChatTyping: new Map(),
         perChatDelayed: new Map(),
+        generationFailures: new Map(),
         swipeIndex: new Map(),
         shouldOpenSettings: false,
         shouldOpenWizard: false,

@@ -201,6 +201,8 @@ export interface PromptAssemblyInput {
       request?: { connectionId?: string | null; model?: string | null },
     ): Promise<number[][] | null>;
   } | null;
+  /** Explicit null disables semantic retrieval while preserving lexical recall. */
+  semanticConnectionId?: string | null;
   visuals?: VisualAssetGateway;
   persistPromptVariables?: boolean;
   reusableContext?: PromptAssemblyReusableContext;
@@ -4566,7 +4568,9 @@ export async function assembleGenerationPrompt(
             })),
             personaName: persona?.name ?? null,
             connectionId:
-              readString(input.chat.embeddingConnectionId).trim() || readString(input.connection.id).trim() || null,
+              input.semanticConnectionId === undefined
+                ? readString(input.chat.embeddingConnectionId).trim() || readString(input.connection.id).trim() || null
+                : input.semanticConnectionId,
             maxContext,
           }),
       buildConversationContextBlocks(storage, input, characters, wrapFormat),
