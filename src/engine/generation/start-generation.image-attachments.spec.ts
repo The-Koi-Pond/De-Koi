@@ -252,6 +252,37 @@ describe("startGeneration image attachments", () => {
     );
   });
 
+  it("falls back to the chat connection when the configured vision connection has no model", async () => {
+    const { storage } = imageAttachmentStorage(
+      { name: "Nano", capabilities: { vision: true } },
+      { visionConnection: { name: "Terra", model: "", capabilities: { vision: true } } },
+    );
+    const requests: LlmRequest[] = [];
+
+    const events = await collectEvents(
+      startGeneration(
+        { storage, llm: capturingLlm(requests), integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "keep going",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    expect(requests.at(-1)?.connectionId).toBe("conn-1");
+    expect(events).toContainEqual({
+      type: "agent_warning",
+      data: {
+        code: "image_attachment_delivery",
+        severity: "warning",
+        agentNames: [],
+        message: "Terra has no model configured, so De-Koi used Nano for this image instead.",
+      },
+    });
+  });
+
   it("keeps text-only foreground requests on the normal chat connection", async () => {
     const { storage } = imageAttachmentStorage(
       { capabilities: { vision: true } },

@@ -4816,18 +4816,20 @@ async function* startGenerationImpl(
     skippedStoredImageMessageIds,
   );
   generationMessages = storedImageDelivery.messages;
-  const connection = await resolveForegroundGenerationConnection(
+  const foregroundConnection = await resolveForegroundGenerationConnection(
     deps.storage,
     chat,
     primaryConnection,
     preparedUserInput.images.length > 0 || generationMessages.some((message) => parseArray(message.images).length > 0),
   );
+  const connection = foregroundConnection.connection;
   const embeddingConfiguration = await resolveEffectiveEmbeddingConfiguration(deps.storage, chat, connection);
   throwIfAborted(signal);
   if (!embeddingConfiguration.available && shouldRefreshMemoryRecall(chat)) {
     yield { type: "agent_warning", data: memoryEmbeddingUnavailableWarning(embeddingConfiguration) };
   }
   for (const warning of [
+    ...foregroundConnection.warnings,
     ...preparedUserInput.imageWarnings,
     ...applyImageAttachmentConnectionSupport(preparedUserInput, connection),
   ]) {
@@ -5872,17 +5874,29 @@ async function resolveForegroundGenerationConnection(
   chat: JsonRecord,
   primaryConnection: JsonRecord,
   hasImageAttachments: boolean,
-): Promise<JsonRecord> {
-  if (!hasImageAttachments) return primaryConnection;
+): Promise<{ connection: JsonRecord; warnings: ImageAttachmentDeliveryWarning[] }> {
+  if (!hasImageAttachments) return { connection: primaryConnection, warnings: [] };
 
   const visionConnectionId = readString(parseRecord(chat.metadata).visionConnectionId).trim();
-  if (!visionConnectionId) return primaryConnection;
+  if (!visionConnectionId) return { connection: primaryConnection, warnings: [] };
 
   const visionConnection = await storage.get<unknown>("connections", visionConnectionId);
   if (!isRecord(visionConnection) || readString(visionConnection.provider).trim() === "image_generation") {
-    return primaryConnection;
+    return { connection: primaryConnection, warnings: [] };
   }
-  return visionConnection;
+  if (!readString(visionConnection.model).trim()) {
+    const visionConnectionName = readString(visionConnection.name).trim() || "The vision connection";
+    const primaryConnectionName = readString(primaryConnection.name).trim() || "the chat connection";
+    return {
+      connection: primaryConnection,
+      warnings: [
+        imageAttachmentConnectionWarning(
+          `${visionConnectionName} has no model configured, so De-Koi used ${primaryConnectionName} for this image instead.`,
+        ),
+      ],
+    };
+  }
+  return { connection: visionConnection, warnings: [] };
 }
 
 function generationGuideMessages(
