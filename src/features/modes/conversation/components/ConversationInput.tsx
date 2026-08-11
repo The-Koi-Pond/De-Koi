@@ -28,7 +28,7 @@ import {
   prepareManagedImageAttachmentBatch,
   type PreparedManagedImageAttachments,
 } from "../../../../shared/api/message-attachment-api";
-import { useGenerate } from "../../../runtime/generation/index";
+import { GenerationFailureNotice, useGenerate } from "../../../runtime/generation/index";
 import { readScopedRegexMode, useApplyRegex } from "../../../catalog/regex-scripts/regex-application";
 import {
   useCreateMessage,
@@ -1643,6 +1643,8 @@ export function ConversationInput({
           ))}
         </div>
       )}
+
+      <GenerationFailureNotice chatId={activeChatId} onRetry={() => void handleSend()} />
 
       {/* @mention autocomplete */}
       {mentionCompletions.length > 0 && (

@@ -25,6 +25,7 @@ export type AvailableConnectionSummary = {
   defaultParameters?: Record<string, unknown> | null;
   promptPresetId?: string | null;
   embeddingModel?: string | null;
+  embeddingConnectionId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -51,6 +52,7 @@ const CONNECTION_SUMMARY_OPTIONS = {
     "defaultParameters",
     "promptPresetId",
     "embeddingModel",
+    "embeddingConnectionId",
     "createdAt",
     "updatedAt",
   ],

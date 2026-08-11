@@ -85,4 +85,33 @@ describe("useGenerate regeneration", () => {
     ).resolves.toBeUndefined();
     expect(mocks.startGeneration).toHaveBeenCalledOnce();
   });
+
+  it("keeps a provider failure attached to the chat until retry or dismissal", async () => {
+    queryClient.setQueryData(chatKeys.detail("chat-1"), {
+      id: "chat-1",
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+    mocks.startGeneration.mockImplementation(async function* () {
+      yield* [] as StreamEvent[];
+      throw new Error("The model connection timed out.");
+    });
+
+    act(() => {
+      root?.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness />
+        </QueryClientProvider>,
+      );
+    });
+
+    await expect(
+      act(async () => {
+        await generate?.({ chatId: "chat-1", connectionId: null });
+      }),
+    ).rejects.toThrow("The model connection timed out.");
+    expect(useChatStore.getState().generationFailures.get("chat-1")).toEqual(
+      expect.objectContaining({ message: "The model connection timed out." }),
+    );
+  });
 });

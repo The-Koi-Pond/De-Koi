@@ -429,6 +429,33 @@ describe("isTrackerPatchRetryRequest", () => {
 });
 
 describe("showAgentWarningToast", () => {
+  it("opens the affected connection from an actionable missing-embedding warning and dedupes it for the session", () => {
+    const warning = {
+      code: "memory_embedding_unavailable",
+      severity: "warning",
+      message: "Memory Recall is using local matching.",
+      agentNames: [],
+      connectionId: "conn-memory",
+      connectionName: "Memory connection",
+      reason: "missing_model",
+    };
+
+    showAgentWarningToast(warning, new Set(), { chatId: "chat-memory" });
+    showAgentWarningToast(warning, new Set(), { chatId: "chat-memory" });
+
+    expect(vi.mocked(toast.warning)).toHaveBeenCalledTimes(1);
+    const options = vi.mocked(toast.warning).mock.calls[0]?.[1] as
+      | { action?: { label?: string; onClick?: () => void } }
+      | undefined;
+    expect(options?.action?.label).toBe("Open Connections");
+    options?.action?.onClick?.();
+    expect(useUIStore.getState()).toMatchObject({
+      rightPanelOpen: true,
+      rightPanel: "connections",
+      connectionDetailId: "conn-memory",
+    });
+  });
+
   it("shows image delivery warnings as visible toasts", () => {
     showAgentWarningToast(
       {

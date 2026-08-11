@@ -40,7 +40,9 @@ function tokenVector(text: string): number[] {
   ];
 }
 
-function memoryRecallStorage(options: { mode?: string; metadata?: Record<string, unknown> } = {}) {
+function memoryRecallStorage(
+  options: { mode?: string; metadata?: Record<string, unknown>; embeddingModel?: string } = {},
+) {
   const chat: StoredChat = {
     id: "chat-1",
     mode: options.mode ?? "conversation",
@@ -51,7 +53,13 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
   };
   const records: Record<string, Record<string, unknown>> = {
     "chat-1": chat,
-    "conn-1": { id: "conn-1", provider: "test-provider", model: "test-model" },
+    "conn-1": {
+      id: "conn-1",
+      name: "Test connection",
+      provider: "test-provider",
+      model: "test-model",
+      embeddingModel: options.embeddingModel ?? "test-embedding-model",
+    },
     "char-1": { id: "char-1", name: "Mira", data: { name: "Mira", personality: "attentive" } },
   };
   const messages: StoredMessage[] = [];
@@ -59,6 +67,7 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
   const canonicalMemories = new Map<string, CanonicalMemoryRecord>();
   let nextMessageId = 1;
   const previewCalls: Array<{ chatId: string; sourceMessageIds: string[] }> = [];
+  const semanticQueries = vi.fn(async () => []);
 
   function seedLegacyImportedChat(): void {
     chat.memories = [
@@ -334,6 +343,7 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
           (!query?.statuses || query.statuses.includes(memory.status)),
       );
     },
+    querySemanticMemories: semanticQueries,
     async rebuildMemoryIndex(): Promise<{ rebuilt: number }> {
       return { rebuilt: canonicalMemories.size };
     },
@@ -363,6 +373,7 @@ function memoryRecallStorage(options: { mode?: string; metadata?: Record<string,
     memoryCaptureJobs,
     canonicalMemories,
     previewCalls,
+    semanticQueries,
     seedLegacyImportedChat,
     migrateLegacyImportedChat,
   };
@@ -403,6 +414,50 @@ async function collectEvents(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration Memory Recall preflight", () => {
+  it("skips unavailable semantic recall, warns once, and keeps lexical recall working", async () => {
+    const calls: LlmRequest[] = [];
+    const harness = memoryRecallStorage({ embeddingModel: "" });
+    harness.seedLegacyImportedChat();
+    harness.migrateLegacyImportedChat();
+    const llm = memoryAwareLlm(calls);
+
+    const events = await collectEvents(
+      startGeneration(
+        {
+          storage: harness.storage,
+          llm,
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "What tea does Mira keep for me after patrols?",
+        },
+      ),
+    );
+
+    expect(llm.embed).not.toHaveBeenCalled();
+    expect(harness.semanticQueries).not.toHaveBeenCalled();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "agent_warning",
+          data: expect.objectContaining({
+            code: "memory_embedding_unavailable",
+            connectionId: "conn-1",
+            reason: "missing_model",
+          }),
+        }),
+      ]),
+    );
+    expect(
+      calls
+        .at(-1)
+        ?.messages.map((message) => message.content)
+        .join("\n"),
+    ).toContain("jasmine tea");
+  });
+
   it("passes the saved user and assistant messages to automatic memory refresh", async () => {
     const calls: LlmRequest[] = [];
     const harness = memoryRecallStorage();

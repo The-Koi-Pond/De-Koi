@@ -109,6 +109,7 @@ import {
   type PreparedManagedImageAttachments,
 } from "../shared/attachments/image-attachments";
 import type { GenerationEvent } from "./generation-events";
+import type { GenerationMemoryEmbeddingUnavailableWarning } from "../contracts/types/generation";
 import {
   enqueueAndScheduleAutomaticMemoryCapture,
   scheduleAutomaticMemoryCaptureQueueProcessing,
@@ -126,6 +127,10 @@ import {
 import { loadPersonaSnapshotForChat } from "./persona-snapshot";
 import { assembleGenerationPrompt, chatSummaryForGeneration } from "./prompt-assembly";
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
+import {
+  resolveEffectiveEmbeddingConfiguration,
+  type EffectiveEmbeddingConfiguration,
+} from "./effective-embedding-configuration";
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { buildGenerationTurnUsage } from "./usage-ledger";
 import { applyRuntimeRegexScriptSnapshot, loadRuntimeRegexScripts } from "./regex-runtime";
@@ -428,10 +433,10 @@ function reviewableAgentInjections(injections: AgentInjectionOverride[]): AgentI
   return injections.filter((injection) => REVIEWABLE_WRITER_AGENT_TYPES.has(injection.agentType));
 }
 
-function generationEmbeddingSource(llm: LlmGateway, connection: JsonRecord) {
-  if (!llm.embed) return null;
-  const connectionId = readString(connection.id).trim() || null;
-  const model = readString(connection.embeddingModel).trim() || null;
+function generationEmbeddingSource(llm: LlmGateway, configuration: EffectiveEmbeddingConfiguration) {
+  if (!llm.embed || !configuration.available) return null;
+  const connectionId = configuration.connectionId;
+  const model = configuration.model;
   const cache = new Map<string, Promise<number[][] | null>>();
   return {
     embed: (texts: string[], request?: { connectionId?: string | null; model?: string | null }) => {
@@ -447,6 +452,21 @@ function generationEmbeddingSource(llm: LlmGateway, connection: JsonRecord) {
       cache.set(key, embedding);
       return embedding;
     },
+  };
+}
+
+function memoryEmbeddingUnavailableWarning(
+  configuration: Extract<EffectiveEmbeddingConfiguration, { available: false }>,
+): GenerationMemoryEmbeddingUnavailableWarning {
+  return {
+    code: "memory_embedding_unavailable",
+    severity: "warning",
+    message:
+      "Memory Recall is using local matching because no usable Embedding Model is configured. Open Connections to configure one for semantic recall.",
+    agentNames: [],
+    connectionId: configuration.connectionId,
+    connectionName: configuration.connectionName,
+    reason: configuration.reason,
   };
 }
 
@@ -4106,13 +4126,16 @@ async function runGenerationAgentsForTarget(args: {
   const chatForAgents =
     (targetSnapshot ?? retryBaseline) ? { ...chat, gameState: targetSnapshot ?? retryBaseline } : chat;
   const contextMessages = messagesBeforeTarget(storedMessages, target);
+  const embeddingConfiguration = await resolveEffectiveEmbeddingConfiguration(deps.storage, chatForAgents, connection);
+  const embeddingSource = generationEmbeddingSource(deps.llm, embeddingConfiguration);
   const assembly = await assembleGenerationPrompt(deps.storage, {
     chat: chatForAgents,
     storedMessages: contextMessages,
     connection,
     request: input,
     latestUserInput: "",
-    embeddingSource: generationEmbeddingSource(deps.llm, connection),
+    embeddingSource,
+    semanticConnectionId: embeddingConfiguration.available ? embeddingConfiguration.semanticConnectionId : null,
     visuals: deps.visuals,
     persistPromptVariables: true,
   });
@@ -4128,7 +4151,7 @@ async function runGenerationAgentsForTarget(args: {
       persona: assembly.persona,
       activatedLorebookEntries: assembly.activatedLorebookEntries,
       chatSummary: assembly.chatSummary,
-      embeddingSource: generationEmbeddingSource(deps.llm, connection),
+      embeddingSource,
       agentTypes,
       bypassCustomAgentActivation: retryBypassesCustomAgentActivation(input),
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
@@ -4446,6 +4469,12 @@ export async function* dryRunGeneration(
   throwIfAborted(signal);
   const connection = await resolveGenerationConnection(deps.storage, chat, input);
   throwIfAborted(signal);
+  const embeddingConfiguration = await resolveEffectiveEmbeddingConfiguration(deps.storage, chat, connection);
+  throwIfAborted(signal);
+  if (!embeddingConfiguration.available && shouldRefreshMemoryRecall(chat)) {
+    yield { type: "agent_warning", data: memoryEmbeddingUnavailableWarning(embeddingConfiguration) };
+  }
+  const embeddingSource = generationEmbeddingSource(deps.llm, embeddingConfiguration);
   for (const warning of [
     ...preparedUserInput.imageWarnings,
     ...applyImageAttachmentConnectionSupport(preparedUserInput, connection),
@@ -4492,7 +4521,8 @@ export async function* dryRunGeneration(
     request: input,
     latestUserInput,
     userRegenerationSourceMessage,
-    embeddingSource: generationEmbeddingSource(deps.llm, connection),
+    embeddingSource,
+    semanticConnectionId: embeddingConfiguration.available ? embeddingConfiguration.semanticConnectionId : null,
     visuals: deps.visuals,
     persistPromptVariables: false,
     regexScripts: await loadTurnRegexScripts(),
@@ -4525,7 +4555,7 @@ export async function* dryRunGeneration(
     persona: assembly.persona,
     activatedLorebookEntries: assembly.activatedLorebookEntries,
     chatSummary: assembly.chatSummary,
-    embeddingSource: generationEmbeddingSource(deps.llm, connection),
+    embeddingSource,
     debugMode: input.debugMode === true,
     debugSink: input.debugSink,
     hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
@@ -4792,6 +4822,11 @@ async function* startGenerationImpl(
     primaryConnection,
     preparedUserInput.images.length > 0 || generationMessages.some((message) => parseArray(message.images).length > 0),
   );
+  const embeddingConfiguration = await resolveEffectiveEmbeddingConfiguration(deps.storage, chat, connection);
+  throwIfAborted(signal);
+  if (!embeddingConfiguration.available && shouldRefreshMemoryRecall(chat)) {
+    yield { type: "agent_warning", data: memoryEmbeddingUnavailableWarning(embeddingConfiguration) };
+  }
   for (const warning of [
     ...preparedUserInput.imageWarnings,
     ...applyImageAttachmentConnectionSupport(preparedUserInput, connection),
@@ -4935,7 +4970,7 @@ async function* startGenerationImpl(
   const agentEvents: AgentResult[] = [];
   const continueAssistantResponse = shouldContinueAssistantResponse(input, preparedUserInput, generationMessages);
   const agentInjectionOverrides = normalizedAgentInjectionOverrides(input);
-  const turnEmbeddingSource = generationEmbeddingSource(deps.llm, connection);
+  const turnEmbeddingSource = generationEmbeddingSource(deps.llm, embeddingConfiguration);
 
   yield { type: "phase", data: "Assembling prompt..." };
   let prompt = directMessages;
@@ -4954,6 +4989,7 @@ async function* startGenerationImpl(
       latestUserInput,
       userRegenerationSourceMessage,
       embeddingSource: turnEmbeddingSource,
+      semanticConnectionId: embeddingConfiguration.available ? embeddingConfiguration.semanticConnectionId : null,
       visuals: deps.visuals,
       persistPromptVariables: true,
       regexScripts: await loadTurnRegexScripts(),
@@ -5038,6 +5074,7 @@ async function* startGenerationImpl(
         userRegenerationSourceMessage,
         agentData: runtime.agentData,
         embeddingSource: turnEmbeddingSource,
+        semanticConnectionId: embeddingConfiguration.available ? embeddingConfiguration.semanticConnectionId : null,
         visuals: deps.visuals,
         persistPromptVariables: true,
         reusableContext: assembly.reusableContext,
