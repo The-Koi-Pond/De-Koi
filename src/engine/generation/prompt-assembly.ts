@@ -68,6 +68,7 @@ import {
 } from "./behavioral-example-pool";
 import { packBehavioralInterpretation } from "./behavioral-interpretation";
 import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPrioritySkipped } from "./context-priority";
+import { conversationContextFocus, isFocusedConversationVoiceExamples } from "./conversation-context-focus";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
 import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
 import {
@@ -1661,7 +1662,12 @@ function renderCharacters(
     .map((character) => {
       const isConversationTarget = character.id === options.conversationTargetId;
       const fields = compactTargetedConversation
-        ? [...(isConversationTarget ? TARGETED_CONVERSATION_TARGET_FIELDS : TARGETED_CONVERSATION_PEER_FIELDS)]
+        ? [
+            ...(isConversationTarget ? TARGETED_CONVERSATION_TARGET_FIELDS : TARGETED_CONVERSATION_PEER_FIELDS),
+            ...(isConversationTarget && isFocusedConversationVoiceExamples(character.mesExample)
+              ? (["mes_example"] as const)
+              : []),
+          ]
         : defaultFields;
       const content = renderNamedFields(
         [
@@ -1704,6 +1710,32 @@ function renderCharacters(
         )
       : "";
   return [...characterBlocks, groupScenarioBlock].filter(Boolean).join("\n\n");
+}
+
+function renderFocusedConversationCharacters(
+  characters: GenerationCharacterContext[],
+  wrapFormat: WrapFormat,
+  macros: MacroContext,
+  groupScenarioOverride: GroupScenarioOverride,
+): string {
+  const blocks = characters.map((character) => {
+    const fieldValue = (fieldName: string) =>
+      characterMarkerFieldValue(character, fieldName, macros, groupScenarioOverride).trim();
+    const parts = [
+      `IDENTITY — ${character.name}: ${fieldValue("description")}`,
+      fieldValue("backstory") ? `RELEVANT BACKSTORY: ${fieldValue("backstory")}` : "",
+      fieldValue("personality") ? `TEMPERAMENT: ${fieldValue("personality")}` : "",
+      fieldValue("system_prompt") ? `VOICE: ${fieldValue("system_prompt")}` : "",
+      fieldValue("scenario") ? `CURRENT SITUATION: ${fieldValue("scenario")}` : "",
+      fieldValue("memories") ? `OLDER CONTINUITY: ${fieldValue("memories")}` : "",
+      fieldValue("post_history_instructions")
+        ? `REQUIRED CHARACTER INSTRUCTIONS: ${fieldValue("post_history_instructions")}`
+        : "",
+      fieldValue("mes_example") ? `MODE-MATCHED VOICE EXAMPLES:\n${fieldValue("mes_example")}` : "",
+    ].filter(Boolean);
+    return parts.join("\n\n");
+  });
+  return wrapContent(blocks.join("\n\n"), "conversation_character_core", wrapFormat);
 }
 
 function renderDialogueExamples(
@@ -2111,16 +2143,24 @@ function fallbackSystemPrompt(
     groupScenarioOverride: GroupScenarioOverride;
     compactCharacterCards: boolean;
     conversationTargetId: string | null;
+    focusedConversation: boolean;
   },
 ): { content: string; contextSegments: NonNullable<ChatMLMessage["contextSegments"]> } {
   const mode = readString(input.chat.mode || input.chat.chatMode, "conversation");
   const meta = parseRecord(input.chat.metadata);
   const common: NonNullable<ChatMLMessage["contextSegments"]> = [
     {
-      content: renderCharacters(args.characters, args.wrapFormat, null, args.macros, args.groupScenarioOverride, {
-        compactCharacterCards: args.compactCharacterCards,
-        conversationTargetId: args.conversationTargetId,
-      }),
+      content: args.focusedConversation
+        ? renderFocusedConversationCharacters(
+            args.characters,
+            args.wrapFormat,
+            args.macros,
+            args.groupScenarioOverride,
+          )
+        : renderCharacters(args.characters, args.wrapFormat, null, args.macros, args.groupScenarioOverride, {
+            compactCharacterCards: args.compactCharacterCards,
+            conversationTargetId: args.conversationTargetId,
+          }),
       contextKind: "prompt",
       displayName: "Characters",
     },
@@ -2177,9 +2217,30 @@ function fallbackSystemPrompt(
   const defaultConversationPrompt = groupConversation
     ? DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT
     : DEFAULT_CONVERSATION_SYSTEM_PROMPT;
-  const rawConversationPrompt = readString(meta.customSystemPrompt).trim() || defaultConversationPrompt;
+  const customConversationPrompt = readString(meta.customSystemPrompt).trim();
+  const focusedSpeaker =
+    args.conversationCharacters.find((character) => character.id === args.conversationTargetId)?.name.trim() ||
+    args.characters[0]?.name.trim() ||
+    "Character";
+  const focusedUser = args.persona?.name.trim() || "User";
+  const focusedConversationPrompt = [
+    "<conversation_focus_contract>",
+    `You are ${focusedSpeaker}, texting privately with ${focusedUser} in an ongoing conversation.`,
+    `Write only ${focusedSpeaker}'s natural message text. Never answer as an assistant, analyst, narrator, therapist, or writing partner.`,
+    `Make the reply identifiable in isolation as ${focusedSpeaker}. Speak from ${focusedSpeaker}'s personal history, desires, loyalties, grudges, fears, and stakes rather than offering neutral commentary.`,
+    `Respond from inside ${focusedSpeaker}'s world. When the user discusses its people or events, answer as a participant with personal knowledge and opinions, not as an outsider discussing fiction or source material. Use first person when ${focusedSpeaker} is personally implicated.`,
+    "React directly to the newest message. Preserve concrete continuity, but do not recap the conversation or explain your characterization.",
+    "Text naturally in the character's established diction, casing, cadence, humor, and degree of formality. Let brevity, hesitation, bluntness, or subtext stand when they fit.",
+    "No roleplay formatting, action narration, stage directions, speaker label, forced closing question, canned validation, or metadata.",
+    "Adult fictional topics may continue naturally when the conversation and character support them and no stated boundary is crossed.",
+    "</conversation_focus_contract>",
+  ].join("\n");
+  const rawConversationPrompt =
+    customConversationPrompt || (args.focusedConversation ? focusedConversationPrompt : defaultConversationPrompt);
   const conversationPrompt = cleanPromptText(
-    resolveConversationSystemPrompt(rawConversationPrompt, args.macros, args.conversationCharacters),
+    customConversationPrompt || !args.focusedConversation
+      ? resolveConversationSystemPrompt(rawConversationPrompt, args.macros, args.conversationCharacters)
+      : rawConversationPrompt,
   );
   return finalize([
     { content: conversationPrompt, contextKind: "prompt" },
@@ -3264,6 +3325,7 @@ function buildConversationCommandBlock(
   characters: GenerationCharacterContext[],
   connectedMode: string | null,
   wrapFormat: WrapFormat,
+  focused = false,
 ): ChatMLMessage | null {
   const meta = parseRecord(chat.metadata);
   if (!conversationCommandPromptEnabled(chat)) return null;
@@ -3291,21 +3353,29 @@ function buildConversationCommandBlock(
   const canSpotify =
     spotifyPlaybackAvailable && commandCapabilityEnabled(capabilities, ["spotify", "canSpotify", "canPlaySpotify"]);
   const instructions = [
-    "When useful, append one hidden command tag after the visible reply. Hidden tags are parsed by De-Koi and stripped before the user sees the message. Never describe the tag in visible prose.",
+    focused
+      ? "When useful, append at most one hidden command tag after the visible reply. De-Koi strips tags before display; never mention them visibly."
+      : "When useful, append one hidden command tag after the visible reply. Hidden tags are parsed by De-Koi and stripped before the user sees the message. Never describe the tag in visible prose.",
     hasSchedules
       ? '- Update availability with [schedule_update: status="online|idle|dnd|offline", activity="short activity"] when the character is correcting their current status or plans.'
       : "",
     canCrossPost
-      ? '- Cross-post a message with [cross_post: target="group or chat name"] when the character naturally wants to move or share a message across conversations.'
+      ? focused
+        ? '- Cross-post with [cross_post: target="group or chat name"] when naturally sharing elsewhere.'
+        : '- Cross-post a message with [cross_post: target="group or chat name"] when the character naturally wants to move or share a message across conversations.'
       : "",
     canSelfie
-      ? '- Request an image with [selfie] or [selfie: context="brief visual context"] when a casual conversation selfie is appropriate and image generation is configured. If you say you are sending, sharing, taking, or attaching a selfie/photo/pic, include [selfie] in that same response; do not only narrate the action.'
+      ? focused
+        ? '- Send an appropriate image with [selfie] or [selfie: context="brief visual context"]. Any claim of sending, taking, or attaching a photo must include the tag in that response.'
+        : '- Request an image with [selfie] or [selfie: context="brief visual context"] when a casual conversation selfie is appropriate and image generation is configured. If you say you are sending, sharing, taking, or attaching a selfie/photo/pic, include [selfie] in that same response; do not only narrate the action.'
       : "",
     hasCharacters && canMemory
       ? '- Save a durable character memory with [memory: target="Character Name", summary="brief memory"] when the character learns something they should remember later.'
       : "",
     canStartScene
-      ? '- Start a linked roleplay scene with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when the conversation clearly calls for a scene.'
+      ? focused
+        ? '- Start roleplay with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when clearly called for.'
+        : '- Start a linked roleplay scene with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when the conversation clearly calls for a scene.'
       : "",
     canSpotify
       ? '- Play music on the user\'s active Spotify player with [spotify: title="Song title", artist="Artist"] when a specific song naturally fits the conversation.'
@@ -3327,6 +3397,7 @@ async function buildConversationContextBlocks(
   input: PromptAssemblyInput,
   characters: GenerationCharacterContext[],
   wrapFormat: WrapFormat,
+  focused = false,
 ): Promise<ChatMLMessage[]> {
   if (modeOf(input.chat) !== "conversation") return [];
   const [linked, crossChat] = await Promise.all([
@@ -3339,7 +3410,7 @@ async function buildConversationContextBlocks(
     buildConversationScheduleBlock(input.chat, characters, wrapFormat),
     crossChat,
     linked.block,
-    buildConversationCommandBlock(input.chat, characters, linked.connectedMode, wrapFormat),
+    buildConversationCommandBlock(input.chat, characters, linked.connectedMode, wrapFormat, focused),
   ].filter((block): block is ChatMLMessage => block !== null);
 }
 
@@ -3494,6 +3565,7 @@ function historyMessageSelection(
   storedMessages: JsonRecord[],
   limit: number,
   includePastReasoning = false,
+  includeAssistantMessages = true,
 ): HistoryPromptSelection {
   const requestedLimit = Math.max(0, limit);
   if (requestedLimit <= 0) {
@@ -3516,6 +3588,7 @@ function historyMessageSelection(
       continue;
     }
     const role = normalizeRole(message.role);
+    if (!includeAssistantMessages && role === "assistant") continue;
     const content = historyMessageContent(message, includePastReasoning);
     const images = Array.isArray(message.images)
       ? message.images.filter((image): image is string => typeof image === "string" && image.trim().length > 0)
@@ -4371,6 +4444,15 @@ export async function assembleGenerationPrompt(
     reusableContext && canReuseMacroSensitiveContext
       ? reusableContext.promptCharacters
       : promptCharactersForGeneration(input, characters);
+  const conversationFocus = conversationContextFocus({
+    mode: chatMode,
+    impersonate: input.request.impersonate === true,
+    characters: promptCharacters,
+    targetCharacterId: targetedConversationCharacterId,
+    storedMessages: input.storedMessages,
+    userName: persona?.name,
+  });
+  if (conversationFocus) promptCharacters = conversationFocus.characters;
   const compactMergedRoleplayCards = shouldCompactMergedRoleplayCharacterCards(input, promptCharacters);
   const canonicalMemoryCharacters = sourceSensitiveGroupTarget
     ? characters.filter((character) => character.id === sourceSensitiveGroupTarget)
@@ -4424,9 +4506,9 @@ export async function assembleGenerationPrompt(
     ? (reusableContext?.contextAttributionItems.filter((item) => item.kind === "behavioral_example") ?? [])
     : [];
   if (!canReuseSourceSensitiveContext) {
-    const authoredPromptCharacters = promptCharactersForGeneration(input, characters);
+    const authoredPromptCharacters = conversationFocus?.characters ?? promptCharactersForGeneration(input, characters);
     const behavioralExampleSelection =
-      chatMode === "game" || compactMergedRoleplayCards || !!targetedConversationCharacterId
+      conversationFocus || chatMode === "game" || compactMergedRoleplayCards || !!targetedConversationCharacterId
         ? null
         : await selectBehavioralExamples({
             candidates: buildBehavioralExamplePool(authoredPromptCharacters),
@@ -4499,20 +4581,30 @@ export async function assembleGenerationPrompt(
         text: reusableContext.summary,
         coversPriorHistory: reusableContext.summaryCoversPriorHistory,
       }
-    : summaryProjectionForGeneration(input.chat, maxContext, chatMode === "roleplay" ? false : undefined);
+    : summaryProjectionForGeneration(
+        input.chat,
+        conversationFocus
+          ? Math.min(maxContext ?? conversationFocus.summaryMaxContext, conversationFocus.summaryMaxContext)
+          : maxContext,
+        chatMode === "roleplay" ? false : undefined,
+      );
   const summary = summaryProjection.text;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
-  const selectedHistoryLimit = compactedHistoryLimit(
+  const summaryHistoryLimit = compactedHistoryLimit(
     chatMeta,
     historyLimit,
     shouldCompactHistoryForSummary(input.chat, selectedPreset, summary, summaryProjection.coversPriorHistory),
   );
+  const selectedHistoryLimit = conversationFocus
+    ? Math.min(summaryHistoryLimit, conversationFocus.historyLimit)
+    : summaryHistoryLimit;
   const sourceHistorySelection = historyMessageSelection(
     input.storedMessages,
     selectedHistoryLimit,
     chatMeta.excludePastReasoning === false,
+    conversationFocus?.includeAssistantHistory ?? true,
   );
   const historySelection: HistoryPromptSelection = reusableContext
     ? {
@@ -4542,7 +4634,13 @@ export async function assembleGenerationPrompt(
             input.storedMessages,
             input.latestUserInput,
             maxContext || undefined,
-            readNumber(input.request.memoryRecallTokenBudget, 0) || undefined,
+            conversationFocus
+              ? Math.min(
+                  readNumber(input.request.memoryRecallTokenBudget, conversationFocus.memoryRecallTokenBudget) ||
+                    conversationFocus.memoryRecallTokenBudget,
+                  conversationFocus.memoryRecallTokenBudget,
+                )
+              : readNumber(input.request.memoryRecallTokenBudget, 0) || undefined,
             embeddingSource,
             characters.flatMap((character) => character.memories ?? []),
             historySelection.sourceMessages,
@@ -4571,9 +4669,14 @@ export async function assembleGenerationPrompt(
               input.semanticConnectionId === undefined
                 ? readString(input.chat.embeddingConnectionId).trim() || readString(input.connection.id).trim() || null
                 : input.semanticConnectionId,
-            maxContext,
+            maxContext: conversationFocus
+              ? Math.min(
+                  maxContext ?? conversationFocus.canonicalMemoryMaxContext,
+                  conversationFocus.canonicalMemoryMaxContext,
+                )
+              : maxContext,
           }),
-      buildConversationContextBlocks(storage, input, characters, wrapFormat),
+      buildConversationContextBlocks(storage, input, characters, wrapFormat, !!conversationFocus),
       loadPromptRegexScripts(),
     ]);
   let loreScan = initialLoreScan;
@@ -4751,6 +4854,7 @@ export async function assembleGenerationPrompt(
       groupScenarioOverride: activeGroupScenarioOverride,
       compactCharacterCards: compactMergedRoleplayCards,
       conversationTargetId: targetedConversationCharacterId,
+      focusedConversation: !!conversationFocus,
     });
     messages.push({
       role: "system",
