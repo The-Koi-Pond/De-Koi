@@ -34,6 +34,7 @@ import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { urlBinaryApi } from "../../../../shared/api/url-binary-api";
 import { requestImagePromptReview } from "../../../../shared/components/ui/ImagePromptReviewHost";
 import { recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
+import { requestChatScrollToBottom } from "../../../../shared/lib/chat-scroll-events";
 import { reportPerformanceStageTiming } from "../../../../shared/lib/performance-diagnostics";
 import { showLocalChatNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
@@ -1836,7 +1837,11 @@ export async function runGenerationWithUi(
         case "assistant_message":
           if (event.data && typeof event.data === "object") {
             await flushLiveGenerationBuffers(true);
+            await queryClient.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true });
             upsertCachedMessage(queryClient, chatId, event.data, { replaceMessageId: regenerateMessageId });
+            if (useChatStore.getState().activeChatId === chatId) {
+              requestChatScrollToBottom({ chatId, behavior: "auto" });
+            }
             scheduleChatQueryRefresh(queryClient, chatId);
             await notifyOffChatAssistantMessage(queryClient, chatId, event.data);
             const trackerTarget = trackerTargetFromMessagePayload(event.data);
