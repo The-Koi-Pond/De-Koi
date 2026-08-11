@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { chatKeys } from "../../../catalog/chats/index";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { getRecentClientDiagnostics } from "../../../../shared/lib/client-diagnostics";
+import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../../../shared/lib/chat-scroll-events";
 import { MUSIC_PLAYBACK_EVENT, type MusicPlaybackEventDetail } from "../../../../shared/lib/music-playback-events";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -479,6 +480,103 @@ describe("showAgentWarningToast", () => {
   });
 });
 describe("runGenerationWithUi", () => {
+  it("keeps a saved assistant reply visible when an older timeline request finishes late", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-late-timeline-response";
+    const existingMessage = {
+      id: "message-before-reply",
+      chatId,
+      role: "user",
+      characterId: null,
+      content: "Are you there?",
+      activeSwipeIndex: 0,
+      createdAt: "2026-08-10T00:00:00.000Z",
+      extra: {},
+    } as Message;
+    const savedReply = {
+      id: "assistant-saved-reply",
+      chatId,
+      role: "assistant",
+      characterId: "char-1",
+      content: "I am here.",
+      activeSwipeIndex: 0,
+      createdAt: "2026-08-10T00:00:01.000Z",
+      extra: {},
+    } as Message;
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+    queryClient.setQueryData(chatKeys.messages(chatId), {
+      pages: [[existingMessage]],
+      pageParams: [undefined],
+    });
+    useChatStore.getState().setActiveChatId(chatId);
+
+    let markStaleQueryStarted!: () => void;
+    const staleQueryStarted = new Promise<void>((resolve) => {
+      markStaleQueryStarted = resolve;
+    });
+    let releaseStaleQuery!: () => void;
+    const staleQuery = queryClient.fetchInfiniteQuery({
+      queryKey: chatKeys.messages(chatId),
+      initialPageParam: undefined as string | undefined,
+      getNextPageParam: () => undefined,
+      queryFn: async ({ signal }) => {
+        await new Promise<void>((resolve, reject) => {
+          releaseStaleQuery = resolve;
+          signal.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), {
+            once: true,
+          });
+          markStaleQueryStarted();
+        });
+        return [existingMessage];
+      },
+    });
+    await staleQueryStarted;
+
+    const scrollRequests: ChatScrollToBottomDetail[] = [];
+    const onScrollRequest = (event: Event) => {
+      scrollRequests.push((event as CustomEvent<ChatScrollToBottomDetail>).detail);
+    };
+    window.addEventListener(CHAT_SCROLL_TO_BOTTOM_EVENT, onScrollRequest);
+
+    let markReplyHandled!: () => void;
+    const replyHandled = new Promise<void>((resolve) => {
+      markReplyHandled = resolve;
+    });
+    let finishGeneration!: () => void;
+    const waitToFinish = new Promise<void>((resolve) => {
+      finishGeneration = resolve;
+    });
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: "assistant_message", data: savedReply } as StreamEvent;
+      markReplyHandled();
+      await waitToFinish;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId }, stream);
+    try {
+      await replyHandled;
+      releaseStaleQuery();
+      await staleQuery.catch(() => undefined);
+
+      const cachedRows = queryClient
+        .getQueryData<{ pages: Message[][] }>(chatKeys.messages(chatId))
+        ?.pages.flat();
+      expect(cachedRows).toEqual(expect.arrayContaining([expect.objectContaining({ id: savedReply.id })]));
+      expect(scrollRequests).toContainEqual({ chatId, behavior: "auto" });
+    } finally {
+      window.removeEventListener(CHAT_SCROLL_TO_BOTTOM_EVENT, onScrollRequest);
+      releaseStaleQuery();
+      finishGeneration();
+      await Promise.allSettled([staleQuery, run]);
+      queryClient.clear();
+    }
+  });
+
   it("shows an optimistic user message for an image-only send", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-image-only-optimistic";
