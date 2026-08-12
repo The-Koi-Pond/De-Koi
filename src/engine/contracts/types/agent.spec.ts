@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BUILT_IN_AGENTS,
   BUILT_IN_AGENT_IDS,
+  DEFAULT_AGENT_TOOLS,
   enabledChatAgentIds,
   filterAgentIdsForChatMode,
   getDefaultBuiltInAgentSettings,
@@ -32,49 +33,40 @@ describe("built-in agent chat mode availability", () => {
     expect(enabledChatAgentIds({ activeAgentIds: ["music-dj"] }, "conversation")).toEqual(["music-dj"]);
   });
 
-  it("exposes Narrative Craft as the only current built-in prose director", () => {
-    expect(BUILT_IN_AGENT_IDS.NARRATIVE_CRAFT).toBe("narrative-craft");
-    expect(BUILT_IN_AGENTS.find((agent) => agent.id === "narrative-craft")).toMatchObject({
-      name: "Narrative Craft",
-      phase: "post_processing",
-      enabledByDefault: false,
-      defaultInjectAsSection: true,
-      category: "writer",
-      modeAllowlist: ["conversation", "roleplay", "visual_novel"],
-    });
+  it("does not expose a built-in narrative director", () => {
+    expect(BUILT_IN_AGENT_IDS).not.toHaveProperty("NARRATIVE_CRAFT");
+    expect(BUILT_IN_AGENTS.find((agent) => agent.id === "narrative-craft")).toBeUndefined();
     expect(BUILT_IN_AGENTS.map((agent) => agent.id)).not.toEqual(
-      expect.arrayContaining(["prose-guardian", "director", "secret-plot-driver"]),
+      expect.arrayContaining(["narrative-craft", "prose-guardian", "director", "secret-plot-driver"]),
     );
-    expect(getDefaultBuiltInAgentSettings("narrative-craft")).toEqual({
-      maxTokens: 2500,
-      temperature: 0,
-      injectAsSection: true,
-      runInterval: 4,
-    });
+    expect(getDefaultBuiltInAgentSettings("narrative-craft")).toEqual({ maxTokens: 4096 });
+    expect(DEFAULT_AGENT_TOOLS).not.toHaveProperty("narrative-craft");
   });
 
-  it("reuses the hidden craft critic in Conversation mode", () => {
-    expect(isBuiltInAgentAvailableInChatMode("conversation", "narrative-craft")).toBe(true);
+  it("keeps retired narrative agent IDs unavailable in every mode", () => {
+    expect(isBuiltInAgentAvailableInChatMode("conversation", "narrative-craft")).toBe(false);
     expect(isBuiltInAgentHiddenFromChatSettingsPicker("conversation", "narrative-craft")).toBe(true);
     expect(isBuiltInAgentAvailableInChatMode("game", "narrative-craft")).toBe(false);
+    expect(isBuiltInAgentAvailableInChatMode("roleplay", "director")).toBe(false);
   });
 
-  it("maps retired narrative agents to one Narrative Craft activation", () => {
+  it("drops retired narrative agent IDs from existing chats without disturbing other agents", () => {
     expect(
       enabledChatAgentIds(
         {
-          activeAgentIds: ["prose-guardian", "builtin:director", "secret-plot-driver", "builtin:narrative-craft"],
+          activeAgentIds: [
+            "prose-guardian",
+            "builtin:director",
+            "secret-plot-driver",
+            "builtin:narrative-craft",
+            "illustrator",
+          ],
         },
         "roleplay",
       ),
-    ).toEqual(["narrative-craft"]);
-  });
-
-  it("does not make Narrative Craft available to Game", () => {
-    expect(isBuiltInAgentAvailableInChatMode("roleplay", "narrative-craft")).toBe(true);
-    expect(isBuiltInAgentAvailableInChatMode("conversation", "narrative-craft")).toBe(true);
-    expect(isBuiltInAgentAvailableInChatMode("game", "narrative-craft")).toBe(false);
-    expect(enabledChatAgentIds({ activeAgentIds: ["director"] }, "conversation")).toEqual(["narrative-craft"]);
-    expect(enabledChatAgentIds({ activeAgentIds: ["secret-plot-driver"] }, "game")).toEqual([]);
+    ).toEqual(["illustrator"]);
+    expect(
+      [...filterAgentIdsForChatMode(["narrative-craft", "builtin:narrative-craft", "continuity"], "roleplay")],
+    ).toEqual(["continuity"]);
   });
 });

@@ -50,7 +50,6 @@ interface ActionsGroupProps {
   failedAgentTypes: string[];
   failedAgentFailures: AgentFailure[];
   showInjectionsTab?: boolean;
-  showNarrativeCraftTab?: boolean;
 }
 
 export function ActionsGroup({
@@ -73,7 +72,6 @@ export function ActionsGroup({
   failedAgentTypes,
   failedAgentFailures,
   showInjectionsTab,
-  showNarrativeCraftTab,
 }: ActionsGroupProps) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -180,7 +178,6 @@ export function ActionsGroup({
             failedAgentFailures={failedAgentFailures}
             onClose={() => setAgentsOpen(false)}
             showInjectionsTab={showInjectionsTab}
-            showNarrativeCraftTab={showNarrativeCraftTab}
           />
         </Suspense>
       </div>,

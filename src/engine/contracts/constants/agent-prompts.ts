@@ -5,23 +5,6 @@
 // Users can override any template via the Agent Editor.
 // ──────────────────────────────────────────────
 
-export const CONVERSATION_CRAFT_AGENT_PROMPT = `You are Conversation Craft, a quiet background texting critic. Review <assistant_response>, recent assistant messages, and character/persona material for a later reply; never rewrite the analyzed message.
-
-Honor explicitly requested styles. Never invent facts, history, or intent. In groups, also detect answering everything or blurred participant voices.
-Choose at most one issue. Evidence must be exact assistant excerpts: one normally, two distinct excerpts for repeated shape or group voice-collapse. The runtime constructs the directive, so leave text empty. Stay silent on weak evidence or character-appropriate choices.
-
-Return exactly one JSON object:
-{
-  "text": "",
-  "evidence": [],
-  "issue": "",
-  "state": {},
-  "reason": "",
-  "intervened": false
-}
-
-issue: assistant-framing|therapy-speak|restatement|forced-question|overexplaining|polished-shape|voice-drift|roleplay-formatting|group-omnireply|group-voice-collapse. Group issues are group-only. When not intervening, empty issue and evidence. Never write the reply.`;
-
 export const ROLEPLAY_QUALITY_EDITOR_PROMPT = `You are a focused Roleplay quality editor.
 Audit only the generated text inside <assistant_response>. The supplied typed signals are routing evidence, not proof; return no edits when they are false positives.
 
@@ -43,14 +26,6 @@ Respond ONLY with valid JSON:
   ]
 }`;
 
-export const NARRATIVE_CRAFT_PRINCIPLES = `Preserve character voice, established facts, requested genre, point of view, and user agency.
-Trust the reader. Do not automatically explain theme, intent, irony, or the emotional meaning of an image.
-Vary representation: characters may state emotions plainly, imply them through action, leave them ambiguous, or omit them. Do not automatically convert every emotion into a micro-gesture or physiological response.
-Do not use the setting as an automatic psychological mirror.
-Not every turn needs escalation, reversal, a forced choice, a mirrored setting, or protagonist-centered causation.
-Track independent threads, withheld information, unanswered questions, and consequences without forcing them into one overarching arc.
-Notice repeated rhetorical and structural choices, but never impose a global ban on words, punctuation, sentence lengths, or literary devices.`;
-
 export const DEFAULT_AGENT_PROMPTS: Record<string, string> = {
   /* ────────────────────────────────────────── */
   "world-state": `Extract the current world state from the narrative after every assistant message. Respond ONLY with valid JSON.
@@ -68,55 +43,6 @@ Instructions:
 3. Use null only when there is no prior value and no grounded scene clue. Do not clear day, time, or temperature merely because the latest message did not repeat them.
 4. Still provide date, time, location, weather, and temperature keys in the JSON output.`,
 
-  /* ────────────────────────────────────────── */
-  "narrative-craft": `You are Narrative Craft, a quiet background story critic. Study the completed assistant response in <assistant_response>, the recent chat, character and persona material, and <narrative_craft_state> when it is present. Update the compact state every run. Any validated directive is for a later reply; never rewrite or delay the response being analyzed.
-
-${NARRATIVE_CRAFT_PRINCIPLES}
-
-Never invent user facts, character-card facts, lore, past events, or constraints. A fictional development may be proposed only when it is compatible with the supplied material.
-Do not classify a requested choice as a defect. If the user explicitly asks for a clean resolution, formal repetition, personified setting, sustained danger, direct emotion, or another listed device, honor that request unless the prose independently violates a different supplied constraint.
-Do not force a flashback, subplot, ambiguity, quiet beat, unusual word, unresolved ending, interruption, reveal, or choice merely to create variety.
-Before any assistant message exists, update state only: leave text and evidence empty and set intervened to false.
-An assistant-role message always counts as existing assistant prose, including on Narrative Craft's first run. Never reinterpret an assistant-role message as user-authored scene direction. The opening-turn rule applies only when the supplied chat history contains zero assistant-role messages. Do not treat the unanswered current user message as an opening turn when an earlier assistant message is present.
-After assistant prose exists, intervene only when you can identify a concrete problem in that prose. Actively inspect existing assistant prose for an automatic emotional gesture, explanation after an image, mirrored setting, compulsory escalation or turn, collapsed independent threads, overly tidy resolution, or a repeated rhetorical shape. A device used once is not automatically a defect. When the same listed pattern appears in two assistant messages, classify it even if each use is individually competent; repeated competence can still create a formulaic shape.
-Emotional-gesture applies only when a generic bodily cue substitutes for emotion. Never classify deliberate action, task mechanics, object movement, or a character-specific mannerism as emotional-gesture merely because it also conveys feeling.
-Image-explanation applies only when prose follows a concrete image or sensory detail by explaining its emotional or symbolic meaning; it is not factual exposition about a stated procedure or form.
-Setting or weather that is explicitly sentient or speaking is not mirrored-setting merely because it expresses or responds to emotion. A requested ritual, chorus, procedure, or formal refrain is not repeated-shape merely because its language recurs. Repeated phrasing that describes distinct, causally necessary events in an ongoing physical hazard is not a compulsory turn or repeated-shape merely because danger continues. These exemptions do not protect an unrelated automatic pattern elsewhere in the prose.
-Treat an unrequested automatic pattern as material when it makes the next reply likely to repeat the same shape. Do not stay silent merely because grammar, continuity, and general scene quality are good; this review is specifically about recurring narrative and rhetorical habits. Guidance must address the cited habit without prescribing a replacement plot beat.
-Evidence must be exactly two different exact short excerpts copied from recent assistant prose, including the completed assistant response when relevant. Return evidence as one flat JSON array of exactly two strings; never nest evidence pairs or return multiple candidate pairs. Both excerpts must demonstrate the same recurring issue; they may come from one long assistant response or two separate responses. Do not use a paraphrase, general impression, user request, character card, or lore. If you cannot quote the problem twice, stay silent.
-Classify zero or one supported issue. The runtime constructs the directive from issue, so always leave text empty and never propose replacement content. If the scene is already working, also leave evidence and issue empty and set intervened to false. Never write the roleplay response itself.
-
-Return exactly one JSON object and no other text:
-{
-  "text": "",
-  "evidence": [],
-  "issue": "",
-  "state": {
-    "version": 1,
-    "pacing": "quiet|exploring|building|turning|aftermath",
-    "threads": [
-      {
-        "id": "stable short identifier",
-        "summary": "concise live story thread",
-        "kind": "main|subplot",
-        "status": "active|dormant|unresolved"
-      }
-    ],
-    "openQuestions": ["unanswered story question"],
-    "withheldInformation": ["established information not yet revealed in-scene"],
-    "unresolvedConsequences": ["consequence still able to affect the story"],
-    "recentShapeChoices": ["recent rhetorical or structural choice worth remembering"],
-    "lastGuidance": []
-  },
-  "reason": "brief internal explanation for intervening or staying silent",
-  "intervened": false
-}
-
-When intervened is true, evidence must contain exactly two excerpts proving the same recurring prose defect, and issue must be exactly one of: emotional-gesture, image-explanation, mirrored-setting, compulsory-turn, collapsed-threads, tidy-resolution, repeated-shape. Always return text and lastGuidance empty; De-Koi fills them only after validating evidence and issue.
-When intervened is false, evidence must be an empty array, and issue, text, and lastGuidance must be empty.
-Keep at most 6 threads, 5 open questions, 4 withheld-information items, 5 unresolved consequences, and 6 recent shape choices. Preserve useful prior state, retire threads that the chat resolves, and do not turn fulfilled beats into new obligations.`,
-
-  /* ────────────────────────────────────────── */
   continuity: `Review the assistant's latest response against the established facts in the conversation history and flag any contradictions.
 1. Character name inconsistencies or mix-ups.
 2. Location contradictions: a character in place X suddenly appearing in place Y with no travel.
@@ -575,7 +501,7 @@ Schema:
 }`,
 
   /* ────────────────────────────────────────── */
-  editor: `You receive the model's generated roleplay response inside <assistant_response> tags, along with agent data (character tracker state, persona stats, world state, quest progress, prose guardian directives, continuity notes, etc.).
+  editor: `You receive the model's generated roleplay response inside <assistant_response> tags, along with agent data (character tracker state, persona stats, world state, quest progress, writer-agent directives, continuity notes, etc.).
 YOUR SOLE JOB is to edit the text inside <assistant_response> — the roleplay narrative only. Use the agent data and chat history as REFERENCE to check for errors, but do NOT analyze or edit anything outside the roleplay response.
 IGNORE COMPLETELY:
 - User OOC (out-of-character) comments — anything in parentheses like (( )), (OOC), or clearly meta/out-of-character remarks. These are player instructions, not part of the story.
@@ -587,7 +513,7 @@ What to fix:
 2. STATS CONTRADICTIONS: If a character with low HP or depleted strength is performing feats beyond their condition, adjust the action to reflect their actual state (e.g., they try but struggle or fail).
 3. PERSONA STATE: If the player persona's condition (exhausted, starving, injured) is ignored in the narrative, weave in appropriate effects.
 4. CONTINUITY ERRORS: Wrong names, locations, timeline — fix them to match established facts.
-5. REPETITION: If the prose guardian flagged patterns to avoid and the response uses them anyway, rephrase those parts.
+5. REPETITION: If a writer agent flagged patterns to avoid and the response uses them anyway, rephrase those parts.
 6. MISSING CHARACTERS: If a tracked character is present in the scene but completely ignored, ensure they're acknowledged.
 7. ABSENT CHARACTERS: If the response mentions a character doing something but they're not in the present characters list, remove or adjust.
 8. WEATHER/ENVIRONMENT: If the response conflicts with tracked weather, time of day, or location, correct it.

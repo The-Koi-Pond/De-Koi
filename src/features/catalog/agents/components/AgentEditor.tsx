@@ -415,8 +415,7 @@ export function AgentEditor() {
   // Lorebook Keeper agent — run interval setting
   const isLorebookKeeperAgent = agentDetailId === "lorebook-keeper" || dbConfig?.type === "lorebook-keeper";
 
-  // Built-in writer / image cadence
-  const isNarrativeCraftAgent = agentDetailId === "narrative-craft" || dbConfig?.type === "narrative-craft";
+  // Built-in image cadence
   const isIllustratorAgent = agentDetailId === "illustrator" || dbConfig?.type === "illustrator";
 
   // Chat Summary agent — uses "Triggers After" instead of context size
@@ -1596,7 +1595,7 @@ export function AgentEditor() {
           )}
 
           {/* Built-in assistant-message cadence */}
-          {(isNarrativeCraftAgent || isIllustratorAgent) && builtInRunIntervalMeta && (
+          {isIllustratorAgent && builtInRunIntervalMeta && (
             <FieldGroup
               label={builtInRunIntervalMeta.label}
               icon={<Clock size="0.875rem" className="text-[var(--primary)]" />}
@@ -1621,9 +1620,8 @@ export function AgentEditor() {
                 <span className="text-[0.6875rem] text-[var(--muted-foreground)]">{builtInRunIntervalMeta.unit}</span>
               </div>
               <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                {isIllustratorAgent
-                  ? "The Illustrator can only create a new image once every N assistant messages. If it decides not to draw, the timer does not reset. Default: 5."
-                  : `Narrative Craft analyzes once every N assistant messages. Default: ${builtInRunIntervalMeta.defaultValue}.`}
+                The Illustrator can only create a new image once every N assistant messages. If it decides not to draw,
+                the timer does not reset. Default: 5.
               </p>
             </FieldGroup>
           )}

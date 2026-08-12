@@ -21,24 +21,10 @@ struct BuiltInAgentDefinition {
 
 const BUILT_IN_AGENT_DEFINITIONS: &[BuiltInAgentDefinition] = &[
     BuiltInAgentDefinition {
-        agent_type: "prose-guardian",
-        name: "Prose Guardian",
-        description: "Analyzes recent messages for repetition, rhetorical patterns, and sentence structure - then generates strict writing directives to force variety and freshness.",
-        phase: "pre_generation",
-        enabled_by_default: false,
-    },
-    BuiltInAgentDefinition {
         agent_type: "continuity",
         name: "Continuity Checker",
         description: "Detects contradictions with established lore and facts.",
         phase: "post_processing",
-        enabled_by_default: false,
-    },
-    BuiltInAgentDefinition {
-        agent_type: "director",
-        name: "Narrative Director",
-        description: "Introduces events, NPCs, and plot beats to keep the story moving.",
-        phase: "pre_generation",
         enabled_by_default: false,
     },
     BuiltInAgentDefinition {
@@ -200,13 +186,6 @@ const BUILT_IN_AGENT_DEFINITIONS: &[BuiltInAgentDefinition] = &[
         name: "CYOA Choices",
         description: "Generates interactive Choose Your Own Adventure choices after each assistant message. Click a choice to send it as your response. Roleplay mode only.",
         phase: "post_processing",
-        enabled_by_default: false,
-    },
-    BuiltInAgentDefinition {
-        agent_type: "secret-plot-driver",
-        name: "Secret Plot Driver",
-        description: "Secretly develops an overarching story arc and scene directions behind the scenes. The user never sees the actual plot - only a hint that something is unfolding. Creates long-term narrative structure with protagonist growth, mysteries, and pacing control.",
-        phase: "pre_generation",
         enabled_by_default: false,
     },
 ];
@@ -1508,11 +1487,11 @@ mod tests {
     fn cadence_status_still_reports_known_builtin_without_config_row() {
         let state = test_state("known-builtin-cadence");
 
-        let status = agent_cadence_status(&state, "director", "chat-1")
+        let status = agent_cadence_status(&state, "continuity", "chat-1")
             .expect("known built-in cadence status should use defaults");
 
-        assert_eq!(status["agentType"], "director");
-        assert_eq!(status["runInterval"], 5);
+        assert_eq!(status["agentType"], "continuity");
+        assert_eq!(status["runInterval"], 1);
         assert_eq!(status["remainingAssistantMessages"], 0);
         assert_eq!(status["runsNextAssistantMessage"], true);
     }

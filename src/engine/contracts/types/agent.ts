@@ -203,7 +203,6 @@ export interface AgentContext {
 /** Built-in agent type identifiers. */
 export const BUILT_IN_AGENT_IDS = {
   WORLD_STATE: "world-state",
-  NARRATIVE_CRAFT: "narrative-craft",
   CONTINUITY: "continuity",
   EXPRESSION: "expression",
   ECHO_CHAMBER: "echo-chamber",
@@ -230,13 +229,17 @@ export const BUILT_IN_AGENT_IDS = {
   CYOA: "cyoa",
 } as const;
 
-const LEGACY_NARRATIVE_AGENT_IDS = ["prose-guardian", "director", "secret-plot-driver"] as const;
+const RETIRED_NARRATIVE_AGENT_IDS = [
+  "narrative-craft",
+  "prose-guardian",
+  "director",
+  "secret-plot-driver",
+] as const;
 
 export type AgentCategory = "writer" | "tracker" | "misc";
 export type AgentChatMode = "conversation" | "roleplay" | "game" | "visual_novel";
 
 const CONVERSATION_BUILT_IN_AGENT_IDS = [
-  "narrative-craft",
   "schedule-planner",
   "response-orchestrator",
   "autonomous-messenger",
@@ -244,7 +247,7 @@ const CONVERSATION_BUILT_IN_AGENT_IDS = [
   "music-dj",
 ] as const;
 
-const CONVERSATION_AGENT_PICKER_HIDDEN_IDS = new Set(["narrative-craft"]);
+const CONVERSATION_AGENT_PICKER_HIDDEN_IDS = new Set<string>();
 
 const GAME_BUILT_IN_AGENT_IDS = ["world-state", "quest", "expression", "combat"] as const;
 
@@ -270,17 +273,6 @@ export interface BuiltInAgentMeta {
 
 const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
   // ── Writer Agents ──
-  {
-    id: "narrative-craft",
-    name: "Narrative Craft",
-    description:
-      "Tracks story threads and recent prose choices, then offers sparse guidance when the next reply would benefit.",
-    phase: "post_processing",
-    enabledByDefault: false,
-    defaultInjectAsSection: true,
-    category: "writer",
-    modeAllowlist: ["conversation", "roleplay", "visual_novel"],
-  },
   {
     id: "continuity",
     name: "Continuity Checker",
@@ -514,7 +506,7 @@ export const BUILT_IN_AGENTS: BuiltInAgentMeta[] = BUILT_IN_AGENT_DEFINITIONS.ma
 
 const BUILT_IN_AGENT_ID_PREFIX = "builtin:";
 const BUILT_IN_AGENT_ID_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
-const LEGACY_NARRATIVE_AGENT_ID_SET = new Set<string>(LEGACY_NARRATIVE_AGENT_IDS);
+const RETIRED_NARRATIVE_AGENT_ID_SET = new Set<string>(RETIRED_NARRATIVE_AGENT_IDS);
 const CONVERSATION_BUILT_IN_AGENT_ID_SET = new Set<string>(CONVERSATION_BUILT_IN_AGENT_IDS);
 const GAME_BUILT_IN_AGENT_ID_SET = new Set<string>(GAME_BUILT_IN_AGENT_IDS);
 const ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET = new Set<string>(ROLEPLAY_AGENT_PICKER_HIDDEN_IDS);
@@ -542,29 +534,24 @@ function boolishFalse(value: unknown): boolean {
 
 function canonicalAgentActiveId(
   value: unknown,
-  options: { remapLegacySpotify?: boolean; remapLegacyNarrativeAgents?: boolean } = {},
+  options: { remapLegacySpotify?: boolean } = {},
 ): string {
   const id = typeof value === "string" ? value.trim() : "";
   const remapSpotify = options.remapLegacySpotify === true;
-  const remapNarrative = options.remapLegacyNarrativeAgents === true;
   if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) {
     if (remapSpotify && id === "spotify") return "music-dj";
-    if (remapNarrative && LEGACY_NARRATIVE_AGENT_ID_SET.has(id)) return "narrative-craft";
+    if (RETIRED_NARRATIVE_AGENT_ID_SET.has(id)) return "";
     return id;
   }
   const rawType = id.slice(BUILT_IN_AGENT_ID_PREFIX.length).trim();
-  const type =
-    remapSpotify && rawType === "spotify"
-      ? "music-dj"
-      : remapNarrative && LEGACY_NARRATIVE_AGENT_ID_SET.has(rawType)
-        ? "narrative-craft"
-        : rawType;
+  if (RETIRED_NARRATIVE_AGENT_ID_SET.has(rawType)) return "";
+  const type = remapSpotify && rawType === "spotify" ? "music-dj" : rawType;
   return BUILT_IN_AGENT_ID_SET.has(type) ? type : id;
 }
 
 function canonicalAgentActiveIds(
   value: unknown,
-  options: { remapLegacySpotify?: boolean; remapLegacyNarrativeAgents?: boolean } = {},
+  options: { remapLegacySpotify?: boolean } = {},
 ): string[] {
   if (!Array.isArray(value)) return [];
   return Array.from(new Set(value.map((id) => canonicalAgentActiveId(id, options)).filter(Boolean)));
@@ -582,7 +569,8 @@ function modeAllowlistIncludes(
 }
 
 export function isBuiltInAgentAvailableInChatMode(mode: unknown, agentId: string): boolean {
-  const id = canonicalAgentActiveId(agentId, { remapLegacyNarrativeAgents: true });
+  const id = canonicalAgentActiveId(agentId);
+  if (!id) return false;
   const meta = BUILT_IN_AGENTS.find((agent) => agent.id === id) ?? null;
   if (!meta) return true;
   const chatMode = normalizeAgentChatMode(mode);
@@ -606,7 +594,6 @@ export function enabledChatAgentIds(metadata: unknown, mode: unknown): string[] 
   const chatMode = normalizeAgentChatMode(mode);
   return canonicalAgentActiveIds(record.activeAgentIds, {
     remapLegacySpotify: chatMode === "roleplay",
-    remapLegacyNarrativeAgents: true,
   }).filter((id) => isBuiltInAgentAvailableInChatMode(chatMode, id));
 }
 
@@ -617,14 +604,13 @@ export function enabledChatAgentIdSet(metadata: unknown, mode: unknown): Set<str
 export function filterAgentIdsForChatMode(agentIds: Iterable<string>, mode: unknown): Set<string> {
   const filtered = new Set<string>();
   for (const id of agentIds) {
-    const canonical = canonicalAgentActiveId(id, { remapLegacyNarrativeAgents: true });
+    const canonical = canonicalAgentActiveId(id);
     if (canonical && isBuiltInAgentAvailableInChatMode(mode, canonical)) filtered.add(canonical);
   }
   return filtered;
 }
 
 export const BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS: Readonly<Record<string, number>> = {
-  "narrative-craft": 4,
   illustrator: 5,
   "lorebook-keeper": 8,
   "card-evolution-auditor": 8,
@@ -646,11 +632,6 @@ export function getDefaultBuiltInAgentSettings(agentType: string): Record<string
     settings.injectAsSection = true;
   }
 
-  if (agentType === "narrative-craft") {
-    settings.maxTokens = 2500;
-    settings.temperature = 0;
-  }
-
   const runInterval = BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS[agentType];
   if (runInterval !== undefined) {
     settings.runInterval = runInterval;
@@ -666,7 +647,6 @@ export function getDefaultBuiltInAgentSettings(agentType: string): Record<string
 /** Recommended default tools for each built-in agent type. */
 export const DEFAULT_AGENT_TOOLS: Record<string, string[]> = {
   "world-state": ["update_game_state"],
-  "narrative-craft": [],
   continuity: ["search_lorebook"],
   expression: ["set_expression"],
   "echo-chamber": [],

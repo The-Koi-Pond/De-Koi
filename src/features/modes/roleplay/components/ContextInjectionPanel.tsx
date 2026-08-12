@@ -55,10 +55,7 @@ function normalizeContextInjections(raw: unknown): CachedInjection[] {
   if (!Array.isArray(raw)) return [];
   const normalized: CachedInjection[] = [];
   for (const entry of raw) {
-    if (typeof entry === "string") {
-      normalized.push({ agentType: "narrative-craft", text: entry });
-      continue;
-    }
+    if (typeof entry === "string") continue;
     if (!entry || typeof entry !== "object") continue;
     const candidate = entry as { agentType?: unknown; agentName?: unknown; text?: unknown };
     if (typeof candidate.agentType !== "string" || typeof candidate.text !== "string") continue;

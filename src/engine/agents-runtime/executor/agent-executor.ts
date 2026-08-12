@@ -10,7 +10,6 @@ import type {
 } from "../../generation-core/llm/base-provider.js";
 import type { AgentResult, AgentContext, AgentResultType } from "../../contracts/types/agent";
 import { getDefaultAgentPrompt } from "../../contracts/constants/agent-prompts";
-import { conversationCraftDirectiveForIssue } from "../../contracts/constants/conversation-craft";
 import {
   DEFAULT_AGENT_CONTEXT_SIZE,
   DEFAULT_AGENT_MAX_TOKENS,
@@ -350,7 +349,7 @@ export async function executeAgent(
       agentId: config.id,
       agentType: config.type,
       type: parsed.type,
-      data: applyCraftGuidanceGates(config, context, fallback.data),
+      data: fallback.data,
       tokensUsed: totalTokens,
       durationMs,
       success: fallback.error === null,
@@ -442,7 +441,7 @@ async function executeAgentWithTools(
         agentId: config.id,
         agentType: config.type,
         type: parsed.type,
-        data: applyCraftGuidanceGates(config, context, fallback.data),
+        data: fallback.data,
         tokensUsed: totalTokens,
         durationMs: Date.now() - startTime,
         success: fallback.error === null,
@@ -590,7 +589,7 @@ async function executeAgentWithTools(
     agentId: config.id,
     agentType: config.type,
     type: parsed.type,
-    data: applyCraftGuidanceGates(config, context, fallback.data),
+    data: fallback.data,
     tokensUsed: totalTokens,
     durationMs: Date.now() - startTime,
     success: fallback.error === null,
@@ -601,155 +600,6 @@ async function executeAgentWithTools(
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
-
-function normalizedEvidenceText(value: string): string {
-  return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
-}
-
-function narrativeCraftEvidenceCandidates(value: unknown): string[][] {
-  if (!Array.isArray(value)) return [];
-  const flat = value
-    .filter((entry): entry is string => typeof entry === "string")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (flat.length > 0) return [flat];
-  return value
-    .filter(Array.isArray)
-    .map((candidate) =>
-      candidate
-        .filter((entry): entry is string => typeof entry === "string")
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-    )
-    .filter((candidate) => candidate.length > 0);
-}
-
-const NARRATIVE_CRAFT_DIRECTIVE_BY_ISSUE: Readonly<Record<string, string>> = {
-  "emotional-gesture":
-    "Avoid defaulting to another generic micro-gesture or physiological cue solely to imply emotion; preserve task mechanics, requested scene content, live threads, and character agency.",
-  "image-explanation":
-    "Do not explain the meaning of images or sensory details in the next reply; let them stand. Preserve the requested scene content, live threads, and character agency.",
-  "mirrored-setting":
-    "Do not use setting or weather as an automatic mirror of emotion in the next reply. Preserve the requested scene content, live threads, and character agency.",
-  "compulsory-turn":
-    "Do not force an escalation, reversal, choice, or new turn merely to advance the next reply. Preserve the requested scene content, live threads, and character agency.",
-  "collapsed-threads":
-    "Keep established threads causally independent unless story facts connect them. Preserve the requested scene content, live threads, and character agency.",
-  "tidy-resolution":
-    "Avoid forcing a tidy resolution or summarizing closure in the next reply. Preserve the requested scene content, live threads, and character agency.",
-  "repeated-shape":
-    "Avoid repeating the cited rhetorical or structural shape in the next reply. Preserve the requested scene content, live threads, and character agency.",
-};
-
-function withoutNarrativeCraftGuidance(data: Record<string, unknown>, reason: string): Record<string, unknown> {
-  const state = isJsonRecord(data.state)
-    ? {
-        ...data.state,
-        lastGuidance: [],
-      }
-    : data.state;
-
-  return {
-    ...data,
-    text: "",
-    evidence: [],
-    issue: "",
-    ...(state === undefined ? {} : { state }),
-    reason,
-    intervened: false,
-  };
-}
-
-function withoutConversationCraftGuidance(data: Record<string, unknown>, reason: string): Record<string, unknown> {
-  return {
-    ...data,
-    text: "",
-    evidence: [],
-    issue: "",
-    state: {},
-    reason,
-    intervened: false,
-  };
-}
-
-function applyCraftGuidanceGates(
-  config: Pick<AgentExecConfig, "type">,
-  context: Pick<AgentContext, "chatMode" | "mainResponse" | "recentMessages" | "characters">,
-  data: unknown,
-): unknown {
-  if (config.type !== "narrative-craft" || !isJsonRecord(data)) return data;
-  const conversation = context.chatMode === "conversation";
-  if (data.intervened !== true && (conversation || typeof data.text !== "string" || !data.text.trim())) {
-    const reason =
-      (typeof data.reason === "string" && data.reason.trim()) ||
-      `${conversation ? "Conversation" : "Narrative"} Craft found no material intervention.`;
-    return conversation ? withoutConversationCraftGuidance(data, reason) : withoutNarrativeCraftGuidance(data, reason);
-  }
-  const reject = (reason: string) =>
-    conversation ? withoutConversationCraftGuidance(data, reason) : withoutNarrativeCraftGuidance(data, reason);
-  const assistantProse = context.recentMessages
-    .filter((message) => message.role === "assistant")
-    .map((message) => message.content.trim())
-    .filter(Boolean);
-  const completedResponse = (context.mainResponse ?? "").trim();
-  if (completedResponse) assistantProse.push(completedResponse);
-  if (assistantProse.length === 0) {
-    return reject(
-      conversation ? "No grounded intervention." : "No existing assistant prose supports an intervention.",
-    );
-  }
-
-  const issue = typeof data.issue === "string" ? data.issue.trim() : "";
-  const directive = conversation
-    ? conversationCraftDirectiveForIssue(issue, context.characters.length > 1 ? "group" : "solo")
-    : NARRATIVE_CRAFT_DIRECTIVE_BY_ISSUE[issue];
-  if (!directive) {
-    return reject(
-      conversation ? "Invalid issue." : "Narrative Craft did not select a supported prose issue.",
-    );
-  }
-
-  if (conversation) {
-    const evidence = Array.isArray(data.evidence)
-      ? data.evidence
-          .filter((entry): entry is string => typeof entry === "string")
-          .map((entry) => entry.trim())
-          .filter(Boolean)
-          .slice(0, 2)
-      : [];
-    const required = issue === "polished-shape" || issue === "group-voice-collapse" ? 2 : 1;
-    const normalized = evidence.map(normalizedEvidenceText);
-    if (
-      evidence.length !== required ||
-      new Set(normalized).size !== required ||
-      !normalized.every(
-        (excerpt) =>
-          excerpt.length >= 4 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
-      )
-    ) {
-      return reject("Ungrounded evidence.");
-    }
-    return { ...data, text: directive, evidence, issue, state: {}, intervened: true };
-  }
-
-  const evidence = narrativeCraftEvidenceCandidates(data.evidence).find((candidate) => {
-    const normalized = candidate.map(normalizedEvidenceText);
-    return (
-      normalized.length === 2 &&
-      normalized[0] !== normalized[1] &&
-      normalized.every(
-        (excerpt) =>
-          excerpt.length >= 8 && assistantProse.some((prose) => normalizedEvidenceText(prose).includes(excerpt)),
-      )
-    );
-  });
-  if (!evidence) {
-    return reject("Narrative Craft did not cite two different exact excerpts from existing assistant prose.");
-  }
-  const state = isJsonRecord(data.state) ? { ...data.state, lastGuidance: [directive] } : data.state;
-  return { ...data, text: directive, evidence, issue, ...(state === undefined ? {} : { state }), intervened: true };
-}
-
 function normalizeSpotifyTrackUri(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const uri = value.trim();
@@ -2715,19 +2565,12 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
     parts.push(`</previous_cyoa_choices>`);
   }
 
-  if (context.memory._narrativeCraftState) {
-    parts.push(`<narrative_craft_state>`);
-    parts.push(JSON.stringify(context.memory._narrativeCraftState));
-    parts.push(`</narrative_craft_state>`);
-  }
-
   return parts.join("\n");
 }
 
 /** Map agent type → its primary result type. */
 const AGENT_RESULT_TYPE_MAP: Record<string, AgentResultType> = {
   "world-state": "game_state_update",
-  "narrative-craft": "context_injection",
   continuity: "continuity_check",
   expression: "sprite_change",
   "echo-chamber": "echo_message",
@@ -2808,7 +2651,6 @@ function isTextOutputAgentType(agentType: string): boolean {
 /** Agents that return structured JSON. */
 const JSON_AGENTS = new Set([
   "world-state",
-  "narrative-craft",
   "continuity",
   "expression",
   "echo-chamber",

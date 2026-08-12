@@ -13,7 +13,8 @@ export interface ChatModeDefinition {
 }
 
 export function defaultBackgroundAgentIdsForNewChat(mode: ChatMode): string[] {
-  return mode === "roleplay" ? ["narrative-craft"] : [];
+  void mode;
+  return [];
 }
 
 export const CHAT_MODES: Record<ChatMode, ChatModeDefinition> = {

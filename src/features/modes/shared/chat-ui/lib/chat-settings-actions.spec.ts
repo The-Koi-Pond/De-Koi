@@ -5,11 +5,6 @@ import {
   buildModePromptMetadataPatch,
   chatToolStatusDescription,
   chatToolSelectionMode,
-  hasNarrativeCraftMemory,
-  hasSecretPlotMemory,
-  narrativeCraftPanelMetadataPatch,
-  narrativeCraftTabVisible,
-  narrativeCraftPanelVisible,
   toggleChatAgent,
   toggleConversationStatusMessages,
 } from "./chat-settings-actions";
@@ -50,8 +45,6 @@ describe("chat settings actions", () => {
       activeAgentIds: [],
       readLatestChat: () => undefined,
       updateMeta,
-      agentMemory: { getMemory: vi.fn(), clearMemory: vi.fn() },
-      confirmNarrativeCraftRemoval: vi.fn(),
       showMutationFailure,
     });
 
@@ -60,72 +53,6 @@ describe("chat settings actions", () => {
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
     expect(showMutationFailure).not.toHaveBeenCalled();
-  });
-
-  it("removes Narrative Craft and clears current and legacy memory best-effort", async () => {
-    let latestChat = chatWithAgents(["narrative-craft"]);
-    const updateMeta = {
-      mutateAsync: vi.fn(async (_patch: unknown, options?: { onSuccess?: () => Promise<void> | void }) => {
-        latestChat = chatWithAgents([]);
-        if (options?.onSuccess) await options.onSuccess();
-      }),
-    };
-    const showMutationFailure = vi.fn();
-    const clearMemory = vi.fn(async (agentId: string) => {
-      if (agentId === "secret-plot-driver") throw new Error("legacy clear failed");
-    });
-
-    await toggleChatAgent({
-      agentId: "narrative-craft",
-      chat: chatWithAgents(["narrative-craft"]),
-      activeAgentIds: ["narrative-craft"],
-      readLatestChat: () => latestChat,
-      updateMeta,
-      agentMemory: {
-        getMemory: vi.fn(async (agentId: string) => ({
-          memory: agentId === "narrative-craft" ? { state: { pacing: "steady" } } : null,
-        })),
-        clearMemory,
-      },
-      confirmNarrativeCraftRemoval: vi.fn().mockResolvedValue(true),
-      showMutationFailure,
-    });
-
-    expect(updateMeta.mutateAsync).toHaveBeenCalledOnce();
-    expect(updateMeta.mutateAsync).toHaveBeenCalledWith(
-      { id: "chat-1", activeAgentIds: [] },
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
-    );
-    expect(clearMemory).toHaveBeenCalledWith("narrative-craft", "chat-1");
-    expect(clearMemory).toHaveBeenCalledWith("secret-plot-driver", "chat-1");
-    expect(showMutationFailure).not.toHaveBeenCalled();
-  });
-
-  it("keeps removal intent when latest metadata changes before mutation", async () => {
-    let latestChat = chatWithAgents(["narrative-craft"]);
-    const updateMeta = { mutateAsync: vi.fn().mockResolvedValue(undefined) };
-
-    await toggleChatAgent({
-      agentId: "narrative-craft",
-      chat: chatWithAgents(["narrative-craft"]),
-      activeAgentIds: ["narrative-craft"],
-      readLatestChat: () => latestChat,
-      updateMeta,
-      agentMemory: {
-        getMemory: vi.fn().mockImplementation(async () => {
-          latestChat = chatWithAgents([]);
-          return { memory: { state: { pacing: "steady" } } };
-        }),
-        clearMemory: vi.fn(),
-      },
-      confirmNarrativeCraftRemoval: vi.fn().mockResolvedValue(true),
-      showMutationFailure: vi.fn(),
-    });
-
-    expect(updateMeta.mutateAsync).toHaveBeenCalledWith(
-      { id: "chat-1", activeAgentIds: [] },
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
-    );
   });
 
   it("refreshes status blurbs immediately after enabling the setting", async () => {
@@ -235,35 +162,5 @@ describe("chat settings actions", () => {
         stored: "scene",
       }),
     ).toEqual({ sceneSystemPrompt: "" });
-  });
-
-  it("detects non-empty Secret Plot Driver memory shapes", () => {
-    expect(hasSecretPlotMemory({ sceneDirections: [{ direction: "Reveal clue" }] })).toBe(true);
-    expect(hasSecretPlotMemory({ overarchingArc: { completed: true } })).toBe(true);
-    expect(hasSecretPlotMemory({ sceneDirections: ["  "], recentlyFulfilled: [] })).toBe(false);
-  });
-
-  it("detects current Narrative Craft state", () => {
-    expect(hasNarrativeCraftMemory({ state: { pacing: "steady" } })).toBe(true);
-    expect(hasNarrativeCraftMemory({ state: {} })).toBe(false);
-    expect(hasNarrativeCraftMemory({ state: null })).toBe(false);
-  });
-
-  it("reads the legacy panel flag only when the Narrative Craft flag is absent", () => {
-    expect(narrativeCraftPanelVisible({ showSecretPlotPanel: true })).toBe(true);
-    expect(narrativeCraftPanelVisible({ showNarrativeCraftPanel: false, showSecretPlotPanel: true })).toBe(false);
-    expect(narrativeCraftPanelVisible({ showNarrativeCraftPanel: true })).toBe(true);
-  });
-
-  it("writes only the current Narrative Craft panel flag on the next settings save", () => {
-    expect(narrativeCraftPanelMetadataPatch({ showSecretPlotPanel: true }, false)).toEqual({
-      showNarrativeCraftPanel: false,
-    });
-  });
-
-  it("shows the Narrative Craft tab only when the panel is enabled and the agent is active", () => {
-    expect(narrativeCraftTabVisible({ showNarrativeCraftPanel: true }, new Set(["narrative-craft"]))).toBe(true);
-    expect(narrativeCraftTabVisible({ showNarrativeCraftPanel: true }, new Set())).toBe(false);
-    expect(narrativeCraftTabVisible({ showNarrativeCraftPanel: false }, new Set(["narrative-craft"]))).toBe(false);
   });
 });

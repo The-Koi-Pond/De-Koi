@@ -810,8 +810,6 @@ export function formatAgentBubble(result: AgentResult, agentName: string): strin
       return (
         readString(data.text).trim() || (result.agentType === "secret-plot-driver" ? "Secret plotline active." : null)
       );
-    case "narrative-craft":
-      return readString(data.reason).trim() || readString(data.text).trim() || "No intervention needed.";
     case "quest": {
       const updates = Array.isArray(data.updates) ? data.updates : [];
       return (

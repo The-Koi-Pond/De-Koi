@@ -15,7 +15,6 @@ import type {
   ScenePlanRequest,
   ScenePlanResponse,
 } from "../../../contracts/types/scene";
-import { NARRATIVE_CRAFT_PRINCIPLES } from "../../../contracts/constants/agent-prompts";
 import { defaultBackgroundAgentIdsForNewChat } from "../../../contracts/constants/chat-modes";
 import {
   copyTrackerSnapshotsForRebasedMessages,
@@ -141,7 +140,6 @@ export async function planRoleplayScene(
             "Do not add policy, safety, consent-protocol, participation, or preset-selection instructions. De-Koi applies those settings separately.",
             "Write firstMessage in the origin chat's narration style. If characters speak, use quotation marks.",
             "Honor the requested premise, cast, genre, and opening situation.",
-            NARRATIVE_CRAFT_PRINCIPLES,
             "For firstMessage specifically: Do not force a cinematic opening. Do not use setting as an emotional mirror. Do not add automatic micro-gestures. Do not explain the scene's theme. Do not force an interruption, reveal, or choice into the greeting.",
           ].join("\n"),
         },
