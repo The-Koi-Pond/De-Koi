@@ -2094,7 +2094,7 @@ mod tests {
             &state,
             InvokeRequest {
                 command: "agent_patch_by_type".to_string(),
-                args: Some(json!({ "agentType": "director", "patch": { "enabled": false } })),
+                args: Some(json!({ "agentType": "illustrator", "patch": { "enabled": false } })),
             },
         )
         .await
@@ -2103,7 +2103,7 @@ mod tests {
             &state,
             InvokeRequest {
                 command: "agent_cadence_status".to_string(),
-                args: Some(json!({ "agentType": "director", "chatId": "chat-1" })),
+                args: Some(json!({ "agentType": "illustrator", "chatId": "chat-1" })),
             },
         )
         .await
@@ -2111,10 +2111,10 @@ mod tests {
 
         assert_eq!(
             patched.get("type").and_then(Value::as_str),
-            Some("director")
+            Some("illustrator")
         );
         assert_eq!(patched.get("enabled").and_then(Value::as_bool), Some(false));
-        assert_eq!(status["agentType"], "director");
+        assert_eq!(status["agentType"], "illustrator");
         assert_eq!(status["runInterval"], 5);
 
         let uploaded = dispatch(

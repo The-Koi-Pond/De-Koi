@@ -1202,7 +1202,7 @@ mod tests {
     fn by_type_mutations_create_full_known_builtin_agent_rows() {
         let state = test_state("known-builtin-agent-mutations");
 
-        let patched = patch_agent_type(&state, "director", json!({ "enabled": false }))
+        let patched = patch_agent_type(&state, "world-state", json!({ "enabled": false }))
             .expect("known built-in patch should create a config row");
         let toggled = toggle_agent_type(&state, "illustrator")
             .expect("known built-in toggle should create a config row");
@@ -1211,15 +1211,15 @@ mod tests {
 
         assert_eq!(
             patched.get("type").and_then(Value::as_str),
-            Some("director")
+            Some("world-state")
         );
         assert_eq!(
             patched.get("name").and_then(Value::as_str),
-            Some("Narrative Director")
+            Some("World State")
         );
         assert_eq!(
             patched.get("phase").and_then(Value::as_str),
-            Some("pre_generation")
+            Some("post_processing")
         );
         assert_eq!(patched.get("enabled").and_then(Value::as_bool), Some(false));
         assert_eq!(patched["connectionId"], Value::Null);
@@ -1229,10 +1229,9 @@ mod tests {
         );
         assert_eq!(patched["settings"]["maxTokens"], json!(4096));
         assert_eq!(patched["settings"]["injectAsSection"], json!(true));
-        assert_eq!(patched["settings"]["runInterval"], json!(5));
         assert_eq!(
             patched["settings"]["enabledTools"],
-            json!(["trigger_event"])
+            json!(["update_game_state"])
         );
         assert_eq!(
             toggled.get("type").and_then(Value::as_str),
@@ -1318,10 +1317,10 @@ mod tests {
             .storage
             .upsert_with_id(
                 "agents",
-                "sparse-director",
+                "sparse-world-state",
                 json!({
-                    "id": "sparse-director",
-                    "type": "director",
+                    "id": "sparse-world-state",
+                    "type": "world-state",
                     "enabled": true,
                     "settings": {
                         "runInterval": 2
@@ -1332,7 +1331,7 @@ mod tests {
 
         let patched = patch_agent_type(
             &state,
-            "director",
+            "world-state",
             json!({
                 "settings": {
                     "sourceLorebookIds": ["lorebook-1"]
@@ -1343,11 +1342,11 @@ mod tests {
 
         assert_eq!(
             patched.get("name").and_then(Value::as_str),
-            Some("Narrative Director")
+            Some("World State")
         );
         assert_eq!(
             patched.get("phase").and_then(Value::as_str),
-            Some("pre_generation")
+            Some("post_processing")
         );
         assert_eq!(patched.get("enabled").and_then(Value::as_bool), Some(true));
         assert_eq!(patched["settings"]["maxTokens"], json!(4096));
@@ -1355,7 +1354,7 @@ mod tests {
         assert_eq!(patched["settings"]["runInterval"], json!(2));
         assert_eq!(
             patched["settings"]["enabledTools"],
-            json!(["trigger_event"])
+            json!(["update_game_state"])
         );
         assert_eq!(
             patched["settings"]["sourceLorebookIds"],
@@ -1364,7 +1363,7 @@ mod tests {
 
         let stored = state
             .storage
-            .get("agents", "sparse-director")
+            .get("agents", "sparse-world-state")
             .expect("agent lookup should succeed")
             .expect("hydrated agent should still exist");
         assert_eq!(stored["settings"]["runInterval"], json!(2));
