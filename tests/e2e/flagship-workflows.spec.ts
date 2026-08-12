@@ -181,16 +181,7 @@ function runtimeServer() {
       response.write(
         `data: ${JSON.stringify({
           type: "token",
-          text: isConversationCraft
-            ? JSON.stringify({
-                text: "",
-                evidence: [],
-                issue: "",
-                state: {},
-                reason: "No material intervention is needed.",
-                intervened: false,
-              })
-            : `Deterministic streamed reply ${streamCount}`,
+          text: `Deterministic streamed reply ${streamCount}`,
         })}\n\n`,
       );
       response.end(`data: ${JSON.stringify({ type: "done", finishReason: "stop" })}\n\n`);
