@@ -3,6 +3,7 @@ import { insertGenerationGuideBeforeFinalUser } from "../../../shared/text/gener
 
 const ROLEPLAY_PROSE_SHAPE_GUIDANCE = [
   "Keep prose specific to this character and moment. Avoid automatic contrast pivots, symmetrical lists, generic gestures, explanatory restatements, and summary endings unless the requested voice or scene calls for them. Preserve events, facts, intensity, point of view, and user agency.",
+  "Do not ask the user to describe a plainly observable detail just because the transcript left it unspecified. Instead, infer a non-conflicting detail or write around it without breaking scene continuity.",
   "",
   "Examples preserving the same beat:",
   "Automatic: It wasn't fear. Not exactly.",

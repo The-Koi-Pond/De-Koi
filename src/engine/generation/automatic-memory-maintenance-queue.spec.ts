@@ -360,6 +360,40 @@ describe("automatic memory maintenance queue", () => {
     expect(analyzeMemoryCleanup).not.toHaveBeenCalled();
   });
 
+  it("interrupts active provider work and returns the job to pending when foreground generation starts", async () => {
+    const test = harness({ sources: [[source("one"), source("two")]] });
+    let observedSignal: AbortSignal | undefined;
+    let unblockAnalysis = () => {};
+    analyzeMemoryCleanup.mockImplementation(async ({ signal }) => {
+      observedSignal = signal;
+      await new Promise<void>((resolve) => {
+        unblockAnalysis = resolve;
+        signal?.addEventListener("abort", resolve, { once: true });
+      });
+      if (signal?.aborted) throw signal.reason;
+      return preview([]);
+    });
+
+    const processing = processAutomaticMemoryMaintenanceQueue(test.dependencies, {
+      now: "2026-07-30T10:01:00.000Z",
+    });
+    await vi.waitFor(() => expect(analyzeMemoryCleanup).toHaveBeenCalledOnce());
+    const releaseForeground = beginForegroundGeneration(test.storage);
+
+    let result;
+    try {
+      await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true), { timeout: 100 });
+    } finally {
+      unblockAnalysis();
+      result = await processing;
+      releaseForeground();
+    }
+
+    expect(test.maintenance.apply).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ retryable: 0, failed: 0, applied: 0 });
+    expect(test.jobs.get("job-1")).toMatchObject({ status: "pending", attempts: 0 });
+  });
+
   it("retries malformed analysis without applying anything", async () => {
     const test = harness();
     analyzeMemoryCleanup.mockResolvedValue({});

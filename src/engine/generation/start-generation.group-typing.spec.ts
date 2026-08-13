@@ -399,6 +399,35 @@ describe("startGeneration group typing", () => {
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-b", "char-a"]);
   });
 
+  it("does not reuse stale user input for ordinary no-input group selection", async () => {
+    const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
+    await storage.createChatMessage("chat-1", { role: "user", content: "Bea, finish that thought." });
+    await storage.createChatMessage("chat-1", {
+      role: "assistant",
+      content: "Bea starts to answer.",
+      characterId: "char-b",
+    });
+    const llm = groupTypingLlm('{"characterIds":["char-b"],"reason":"continue Bea"}');
+
+    await collectEvents(
+      startGeneration(
+        { storage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    const selectorPrompt = vi
+      .mocked(llm.complete!)
+      .mock.calls[0]?.[0].messages.map((message) => message.content)
+      .join("\n");
+    expect(selectorPrompt?.match(/<latest_user_message>\s*([\s\S]*?)\s*<\/latest_user_message>/)?.[1]?.trim()).toBe("");
+    expect(messages.filter((message) => message.role === "assistant").at(-1)?.characterId).toBe("char-b");
+  });
+
   it("stops a later smart responder when an earlier mentioned character answered fully", async () => {
     const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
     const continuationRequests: LlmRequest[] = [];

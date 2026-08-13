@@ -5,9 +5,28 @@ import {
   beginForegroundGeneration,
   deferUntilForegroundGenerationCompletes,
   foregroundGenerationActive,
+  interruptWhenForegroundGenerationStarts,
 } from "./background-generation-coordinator";
 
 describe("background generation coordinator", () => {
+  it("aborts each registered background operation once when foreground generation starts", () => {
+    const storage = {} as StorageGateway;
+    const workerKey = {};
+    const controller = new AbortController();
+    const reason = new Error("foreground generation started");
+    const unregister = interruptWhenForegroundGenerationStarts(storage, workerKey, controller, reason);
+
+    const releaseA = beginForegroundGeneration(storage);
+    const releaseB = beginForegroundGeneration(storage);
+    unregister();
+
+    expect(controller.signal.aborted).toBe(true);
+    expect(controller.signal.reason).toBe(reason);
+
+    releaseA();
+    releaseB();
+  });
+
   it("resumes every deferred worker once after the outermost foreground lease ends", () => {
     const storage = {} as StorageGateway;
     const captureKey = {};
