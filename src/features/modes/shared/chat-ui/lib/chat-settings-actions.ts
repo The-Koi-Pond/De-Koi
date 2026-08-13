@@ -53,64 +53,6 @@ export function chatActiveAgentIds(chat: Chat): string[] {
   return enabledChatAgentIds(metadata, chat.mode as ChatMode);
 }
 
-export function hasSecretPlotMemory(memory: Record<string, unknown> | null | undefined): boolean {
-  if (!memory) return false;
-  const arc = memory.overarchingArc;
-  if (typeof arc === "string" && arc.trim()) return true;
-  if (arc && typeof arc === "object") {
-    const arcRecord = arc as Record<string, unknown>;
-    if (
-      String(arcRecord.description ?? "").trim() ||
-      String(arcRecord.protagonistArc ?? "").trim() ||
-      arcRecord.completed === true
-    ) {
-      return true;
-    }
-  }
-
-  const sceneDirections = memory.sceneDirections;
-  if (
-    Array.isArray(sceneDirections) &&
-    sceneDirections.some((entry) =>
-      typeof entry === "string"
-        ? entry.trim()
-        : !!(entry && typeof entry === "object" && String((entry as Record<string, unknown>).direction ?? "").trim()),
-    )
-  ) {
-    return true;
-  }
-
-  const pacing = memory.pacing;
-  if (typeof pacing === "string" ? pacing.trim() : pacing != null) return true;
-  const recentlyFulfilled = memory.recentlyFulfilled;
-  return Array.isArray(recentlyFulfilled) && recentlyFulfilled.some((entry) => String(entry ?? "").trim());
-}
-
-export function hasNarrativeCraftMemory(memory: Record<string, unknown> | null | undefined): boolean {
-  if (!memory) return false;
-  const state = memory.state;
-  return !!state && typeof state === "object" && !Array.isArray(state) && Object.keys(state).length > 0;
-}
-
-export function narrativeCraftPanelVisible(metadata: Record<string, unknown>): boolean {
-  if (typeof metadata.showNarrativeCraftPanel === "boolean") return metadata.showNarrativeCraftPanel;
-  return metadata.showSecretPlotPanel === true;
-}
-
-export function narrativeCraftTabVisible(
-  metadata: Record<string, unknown>,
-  enabledAgentTypes: ReadonlySet<string>,
-): boolean {
-  return narrativeCraftPanelVisible(metadata) && enabledAgentTypes.has("narrative-craft");
-}
-
-export function narrativeCraftPanelMetadataPatch(
-  _metadata: Record<string, unknown>,
-  visible: boolean,
-): ChatSettingsMetadataPatch {
-  return { showNarrativeCraftPanel: visible };
-}
-
 type UpdateMetadataMutation = {
   mutateAsync: (
     patch: ChatSettingsMetadataPatch & { id: string },
@@ -161,19 +103,12 @@ export async function toggleConversationStatusMessages({
     await showRefreshFailure(error instanceof Error ? error.message : "Status blurb generation failed.");
   }
 }
-type AgentMemoryApi = {
-  getMemory: (agentId: string, chatId: string) => Promise<{ memory?: Record<string, unknown> | null }>;
-  clearMemory: (agentId: string, chatId: string) => Promise<unknown>;
-};
-
 export async function toggleChatAgent({
   agentId,
   chat,
   activeAgentIds,
   readLatestChat,
   updateMeta,
-  agentMemory,
-  confirmNarrativeCraftRemoval,
   showMutationFailure,
 }: {
   agentId: string;
@@ -181,8 +116,6 @@ export async function toggleChatAgent({
   activeAgentIds: string[];
   readLatestChat: () => Chat | undefined;
   updateMeta: UpdateMetadataMutation;
-  agentMemory: AgentMemoryApi;
-  confirmNarrativeCraftRemoval: (message: string) => Promise<boolean>;
   showMutationFailure: (options: { removing: boolean; message: string }) => Promise<void>;
 }): Promise<void> {
   const readLatestActiveAgentIds = () => {
@@ -190,25 +123,6 @@ export async function toggleChatAgent({
     return latestChat ? chatActiveAgentIds(latestChat) : [...activeAgentIds];
   };
   const wasRemoving = readLatestActiveAgentIds().includes(agentId);
-  if (wasRemoving && agentId === "narrative-craft") {
-    let shouldWarn: boolean;
-    try {
-      const [current, legacy] = await Promise.all([
-        agentMemory.getMemory("narrative-craft", chat.id),
-        agentMemory.getMemory("secret-plot-driver", chat.id),
-      ]);
-      shouldWarn = hasNarrativeCraftMemory(current.memory) || hasSecretPlotMemory(legacy.memory);
-    } catch {
-      shouldWarn = true;
-    }
-    if (shouldWarn) {
-      const ok = await confirmNarrativeCraftRemoval(
-        "Remove Narrative Craft from this chat? This will clear its current craft state and any legacy Secret Plot memory for this chat. This cannot be undone.",
-      );
-      if (!ok) return;
-    }
-  }
-
   const current = readLatestActiveAgentIds();
   const isRemoving = wasRemoving;
   const nextAgentIds = isRemoving ? current.filter((id) => id !== agentId) : Array.from(new Set([...current, agentId]));
@@ -216,17 +130,7 @@ export async function toggleChatAgent({
   try {
     await updateMeta.mutateAsync(
       { id: chat.id, activeAgentIds: nextAgentIds },
-      {
-        onSuccess: async () => {
-          metadataSaved = true;
-          if (isRemoving && agentId === "narrative-craft") {
-            await Promise.allSettled([
-              agentMemory.clearMemory("narrative-craft", chat.id),
-              agentMemory.clearMemory("secret-plot-driver", chat.id),
-            ]);
-          }
-        },
-      },
+      { onSuccess: () => { metadataSaved = true; } },
     );
   } catch (error) {
     if (metadataSaved && isRemoving) {

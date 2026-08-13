@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CONVERSATION_CRAFT_AGENT_PROMPT,
-  DEFAULT_AGENT_PROMPTS,
-  ROLEPLAY_QUALITY_EDITOR_PROMPT,
-} from "./agent-prompts";
+import { DEFAULT_AGENT_PROMPTS, ROLEPLAY_QUALITY_EDITOR_PROMPT } from "./agent-prompts";
 
 describe("default agent prompts", () => {
   it("constrains focused Roleplay quality corrections to exact bounded edits", () => {
@@ -71,67 +67,8 @@ describe("default agent prompts", () => {
     expect(prompt).not.toContain('"chosen": "filename.ext or null"');
   });
 
-  it("makes Narrative Craft structured, sparse, and non-formulaic", () => {
-    const prompt = DEFAULT_AGENT_PROMPTS["narrative-craft"];
-
-    expect(prompt).toContain("Return exactly one JSON object");
-    expect(prompt).toContain('"text": ""');
-    expect(prompt).toContain("zero or one");
-    expect(prompt).toContain("Preserve character voice");
-    expect(prompt).toContain("Trust the reader");
-    expect(prompt).toContain("state emotions plainly");
-    expect(prompt).toContain("setting as an automatic psychological mirror");
-    expect(prompt).toContain("Not every turn needs escalation");
-    expect(prompt).toContain("independent threads");
-    expect(prompt).toContain("Never invent user facts");
-    expect(prompt).toContain("Do not classify a requested choice as a defect");
-    expect(prompt).toContain('"evidence": []');
-    expect(prompt).toContain('"issue": ""');
-    expect(prompt).toContain("The runtime constructs the directive");
-    expect(prompt).toContain("different exact short excerpts copied from recent assistant prose");
-    expect(prompt).toContain("one flat JSON array of exactly two strings; never nest evidence pairs");
-    expect(prompt).toContain("Before any assistant message exists");
-    expect(prompt).toContain("An assistant-role message always counts as existing assistant prose");
-    expect(prompt).toContain("Never reinterpret an assistant-role message as user-authored scene direction");
-    expect(prompt).toContain("Do not treat the unanswered current user message as an opening turn");
-    expect(prompt).toContain("Actively inspect existing assistant prose");
-    expect(prompt).toContain("explanation after an image");
-    expect(prompt).toContain("concrete image or sensory detail");
-    expect(prompt).toContain("not factual exposition about a stated procedure");
-    expect(prompt).toContain("Never classify deliberate action, task mechanics, object movement");
-    expect(prompt).toContain("When the same listed pattern appears in two assistant messages");
-    expect(prompt).toContain("explicitly sentient or speaking");
-    expect(prompt).toContain("requested ritual, chorus, procedure, or formal refrain");
-    expect(prompt).toContain("distinct, causally necessary events in an ongoing physical hazard");
-    expect(prompt).toContain(
-      "Do not stay silent merely because grammar, continuity, and general scene quality are good",
-    );
-    expect(prompt).toContain("If you cannot quote the problem twice, stay silent");
-    expect(prompt).toContain("<assistant_response>");
-    expect(prompt).toContain("completed assistant response");
-    expect(prompt).toContain("later reply");
-    expect(prompt).not.toContain("pre-generation story editor");
-    expect(prompt).not.toMatch(/AI detector|undetectable/i);
-    expect(prompt).not.toContain("Rotate which senses you emphasize");
-  });
-
-  it("makes Conversation Craft structured, mode-aware, and unable to author directives", () => {
-    const prompt = CONVERSATION_CRAFT_AGENT_PROMPT;
-
-    expect(prompt).toContain("quiet background texting critic");
-    expect(prompt).toContain("<assistant_response>");
-    expect(prompt).toContain('"text": ""');
-    expect(prompt).toContain('"issue": ""');
-    expect(prompt).toContain('"state": {}');
-    expect(prompt).toContain("The runtime constructs the directive");
-    expect(prompt).toContain("exact assistant excerpts");
-    expect(prompt).toContain("Honor explicitly requested styles");
-    expect(prompt).toContain("group-omnireply");
-    expect(prompt).toContain("group-voice-collapse");
-    expect(prompt).not.toMatch(/AI detector|undetectable/i);
-  });
-
-  it("retires the three overlapping narrative prompts", () => {
+  it("retires the removed narrative agents", () => {
+    expect(DEFAULT_AGENT_PROMPTS).not.toHaveProperty("narrative-craft");
     expect(DEFAULT_AGENT_PROMPTS).not.toHaveProperty("prose-guardian");
     expect(DEFAULT_AGENT_PROMPTS).not.toHaveProperty("director");
     expect(DEFAULT_AGENT_PROMPTS).not.toHaveProperty("secret-plot-driver");

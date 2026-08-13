@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const candidatePathPattern =
@@ -70,7 +70,7 @@ const failures = [];
 let checked = 0;
 
 for (const filePath of result.stdout.split("\0")) {
-  if (!filePath || !candidatePathPattern.test(filePath.replaceAll("\\", "/"))) {
+  if (!filePath || !existsSync(filePath) || !candidatePathPattern.test(filePath.replaceAll("\\", "/"))) {
     continue;
   }
 

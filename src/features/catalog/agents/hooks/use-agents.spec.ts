@@ -19,7 +19,7 @@ describe("agent author metadata", () => {
     expect(agentCreditLabel("  Celia  ")).toBe("Celia");
   });
 
-  it.each(["prose-guardian", "director", "secret-plot-driver"])(
+  it.each(["narrative-craft", "prose-guardian", "director", "secret-plot-driver"])(
     "keeps retired built-in type %s out of custom-agent surfaces",
     (type) => {
       expect(isBuiltInOrLegacyAgentType(type)).toBe(true);

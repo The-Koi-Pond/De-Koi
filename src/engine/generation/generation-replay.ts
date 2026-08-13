@@ -6,7 +6,6 @@ import {
 import type { AgentInjectionOverride } from "./start-generation-input";
 
 type GenerationReplayGuideSource = GenerationGuideSource;
-const LEGACY_STRING_INJECTION_AGENT_TYPE = "prose-guardian";
 const NON_REPLAYABLE_NARRATIVE_AGENT_TYPES = new Set([
   "narrative-craft",
   "prose-guardian",
@@ -69,13 +68,7 @@ function normalizeCachedContextInjections(value: unknown): AgentInjectionOverrid
   if (!Array.isArray(value)) return [];
   const injections: AgentInjectionOverride[] = [];
   for (const entry of value) {
-    if (typeof entry === "string") {
-      // The original string-only cache format was exclusively Prose Guardian output.
-      // Give it its real legacy type so the same replayability check applies to every format.
-      const normalized = normalizeReplayableInjection(LEGACY_STRING_INJECTION_AGENT_TYPE, entry);
-      if (normalized) injections.push(normalized);
-      continue;
-    }
+    if (typeof entry === "string") continue;
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const raw = entry as Record<string, unknown>;
     const normalized = normalizeReplayableInjection(raw.agentType, raw.text, raw.agentName);

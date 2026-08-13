@@ -81,8 +81,6 @@ import {
 import {
   chatToolSelectionMode,
   chatToolStatusDescription,
-  narrativeCraftPanelMetadataPatch,
-  narrativeCraftPanelVisible,
   toggleChatAgent,
 } from "../lib/chat-settings-actions";
 import {
@@ -133,7 +131,6 @@ import {
 } from "../../../../catalog/chats/index";
 import { generateConversationSchedules as runGenerateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
 import { conversationCommandPromptEnabled } from "../../../../../engine/modes/chat/commands/activation";
-import { agentApi } from "../../../../../shared/api/agent-api";
 import { coreModulesApi } from "../../../../../shared/api/core-modules-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
@@ -1312,14 +1309,6 @@ function ChatSettingsDrawerInner({
       activeAgentIds,
       readLatestChat: () => qc.getQueryData<Chat>(chatKeys.detail(chat.id)),
       updateMeta,
-      agentMemory: agentApi,
-      confirmNarrativeCraftRemoval: (message) =>
-        showConfirmDialog({
-          title: "Remove Narrative Craft",
-          message,
-          confirmLabel: "Remove Agent",
-          tone: "destructive",
-        }),
       showMutationFailure: ({ removing, message }) =>
         showAlertDialog({
           title: removing ? "Couldn't Remove Agent" : "Couldn't Add Agent",
@@ -1608,11 +1597,6 @@ function ChatSettingsDrawerInner({
         await updateMeta.mutateAsync({
           id: chat.id,
           activeAgentIds: Array.from(new Set([...activeAgentIds, agent.id])),
-          ...(agent.id === "narrative-craft"
-            ? {
-                showNarrativeCraftPanel: true,
-              }
-            : {}),
         });
       }
       setAgentAddPreview(null);
@@ -4952,7 +4936,7 @@ function ChatSettingsDrawerInner({
                                     title={
                                       metadata.reviewWriterAgentOutputs === true
                                         ? "Stop pausing before the main reply to review writer agent output."
-                                        : "Pause before the main reply so Prose Guardian, Narrative Director, and similar writer outputs can be reviewed and edited."
+                                        : "Pause before the main reply so writer-agent output can be reviewed and edited."
                                     }
                                   >
                                     <span className="flex min-w-0 items-center gap-1.5">
@@ -4987,8 +4971,8 @@ function ChatSettingsDrawerInner({
                                     className="flex max-w-full items-center gap-2 rounded-md bg-[var(--background)]/20 px-1.5 py-1 text-left text-[0.5625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]/35 hover:text-[var(--foreground)]"
                                     title={
                                       metadata.showInjectionsPanel === true
-                                        ? "Hide the Injections tab in the roleplay Agents menu. This is mainly for troubleshooting Prose Guardian, Narrative Director, or custom injected text before regenerating the current reply."
-                                        : "Show the Injections tab in the roleplay Agents menu. This is mainly for troubleshooting Prose Guardian, Narrative Director, or custom injected text before regenerating the current reply."
+                                        ? "Hide the Injections tab in the roleplay Agents menu. This is mainly for troubleshooting custom injected text before regenerating the current reply."
+                                        : "Show the Injections tab in the roleplay Agents menu. This is mainly for troubleshooting custom injected text before regenerating the current reply."
                                     }
                                   >
                                     <span className="flex min-w-0 items-center gap-1.5">
@@ -5018,8 +5002,6 @@ function ChatSettingsDrawerInner({
                                 <div className="flex flex-col gap-1 mb-1.5">
                                   {activeInCat.map((agent) => {
                                     const tokenEst = agentLoadCost.tokensByType.get(agent.id);
-                                    const isNarrativeCraft = agent.id === "narrative-craft";
-                                    const showNarrativeCraftPanel = narrativeCraftPanelVisible(metadata);
                                     return (
                                       <div
                                         key={agent.id}
@@ -5064,45 +5046,6 @@ function ChatSettingsDrawerInner({
                                             <Trash2 size="0.6875rem" />
                                           </button>
                                         </div>
-                                        {isNarrativeCraft && (
-                                          <button
-                                            type="button"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              updateMeta.mutate({
-                                                id: chat.id,
-                                                ...narrativeCraftPanelMetadataPatch(metadata, !showNarrativeCraftPanel),
-                                              });
-                                            }}
-                                            aria-pressed={showNarrativeCraftPanel}
-                                            className="ml-auto mt-1.5 flex w-fit max-w-full items-center gap-2 rounded-md bg-[var(--background)]/20 px-1.5 py-1 text-left text-[0.5625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]/35 hover:text-[var(--foreground)]"
-                                            title={
-                                              showNarrativeCraftPanel
-                                                ? "Hide the Narrative Craft tab in the roleplay Agents menu."
-                                                : "Show the Narrative Craft tab in the roleplay Agents menu to inspect its current guidance and story state."
-                                            }
-                                          >
-                                            <span className="flex min-w-0 items-center gap-1.5">
-                                              <Brain size="0.625rem" className="shrink-0 text-[var(--primary)]" />
-                                              <span className="truncate font-medium">Narrative Craft tab</span>
-                                            </span>
-                                            <span
-                                              className={cn(
-                                                "h-3.5 w-6 shrink-0 rounded-full p-0.5 transition-colors",
-                                                showNarrativeCraftPanel
-                                                  ? "bg-[var(--primary)]"
-                                                  : "bg-[var(--muted-foreground)]/50",
-                                              )}
-                                            >
-                                              <span
-                                                className={cn(
-                                                  "block h-2.5 w-2.5 rounded-full bg-white shadow-sm transition-transform",
-                                                  showNarrativeCraftPanel && "translate-x-2.5",
-                                                )}
-                                              />
-                                            </span>
-                                          </button>
-                                        )}
                                       </div>
                                     );
                                   })}

@@ -938,6 +938,7 @@ describe("user-message regeneration review guards", () => {
     const llmRequests: Array<{ messages: Array<{ role: string; content: string; contextKind?: unknown; displayName?: unknown }> }> = [];
     const storage = generationStorage({
       getTarget: (_call, target) => target,
+      chatMode: "roleplay",
       onSwipe: () => {
         writeCalls.push("addChatMessageSwipe");
       },
@@ -957,7 +958,14 @@ describe("user-message regeneration review guards", () => {
       },
       async *stream(request) {
         modelCalls += 1;
-        llmRequests.push({ messages: request.messages.map((message) => ({ role: message.role, content: message.content })) });
+        llmRequests.push({
+          messages: request.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+            contextKind: message.contextKind,
+            displayName: message.displayName,
+          })),
+        });
         yield { type: "token", text: "dry response" };
         yield { type: "usage", data: { promptTokens: 12, completionTokens: 2 } };
       },
@@ -995,6 +1003,15 @@ describe("user-message regeneration review guards", () => {
     expect(llmRequests[0]?.messages.some((message) => message.content.includes("Fresh dry-run user input."))).toBe(
       true,
     );
+    const proseGuideIndex = llmRequests[0]?.messages.findIndex(
+      (message) => message.displayName === "Roleplay Prose Guidance",
+    );
+    const finalUserIndex = llmRequests[0]?.messages.map((message) => message.role).lastIndexOf("user");
+    expect(proseGuideIndex).toBe((finalUserIndex ?? -1) - 1);
+    expect(llmRequests[0]?.messages[proseGuideIndex ?? -1]).toMatchObject({
+      role: "system",
+      contextKind: "injection",
+    });
     expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "token", data: "dry response" })]));
     expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "user_message" })]));
     expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "assistant_message" })]));

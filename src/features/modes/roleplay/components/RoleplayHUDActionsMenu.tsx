@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -27,10 +27,6 @@ import {
 import { ContinuityIssueChecklist } from "../../../catalog/agents/activity";
 import { ContextInjectionPanel } from "./ContextInjectionPanel";
 
-const NarrativeCraftPanel = lazy(async () =>
-  import("./NarrativeCraftPanel").then((module) => ({ default: module.NarrativeCraftPanel })),
-);
-
 interface ThoughtBubble {
   agentId: string;
   agentName: string;
@@ -38,7 +34,7 @@ interface ThoughtBubble {
   timestamp: number;
 }
 
-type AgentsMenuTab = "activity" | "injections" | "craft";
+type AgentsMenuTab = "activity" | "injections";
 
 function customAgentRunIdentity(run: {
   agentType?: string | null;
@@ -72,7 +68,6 @@ interface RoleplayHUDActionsMenuProps {
   failedAgentFailures?: AgentFailure[];
   onClose: () => void;
   showInjectionsTab?: boolean;
-  showNarrativeCraftTab?: boolean;
 }
 
 export function RoleplayHUDActionsMenu({
@@ -99,7 +94,6 @@ export function RoleplayHUDActionsMenu({
   failedAgentFailures,
   onClose,
   showInjectionsTab,
-  showNarrativeCraftTab,
 }: RoleplayHUDActionsMenuProps) {
   const [tab, setTab] = useState<AgentsMenuTab>("activity");
   const uniqueAgentCount = new Set([
@@ -129,7 +123,6 @@ export function RoleplayHUDActionsMenu({
   const tabs = [
     { id: "activity" as const, label: "Activity" },
     ...(showInjectionsTab ? [{ id: "injections" as const, label: "Injections" }] : []),
-    ...(showNarrativeCraftTab ? [{ id: "craft" as const, label: "Narrative Craft" }] : []),
   ] as const;
   const currentTabIndex = tabs.findIndex((t) => t.id === tab);
   const safeTabIndex = currentTabIndex >= 0 ? currentTabIndex : 0;
@@ -155,10 +148,7 @@ export function RoleplayHUDActionsMenu({
       setTab("activity");
       return;
     }
-    if (!showNarrativeCraftTab && tab === "craft") {
-      setTab("activity");
-    }
-  }, [showInjectionsTab, showNarrativeCraftTab, tab]);
+  }, [showInjectionsTab, tab]);
 
   return (
     <>
@@ -172,11 +162,6 @@ export function RoleplayHUDActionsMenu({
                   key={item.id}
                   type="button"
                   onClick={() => setTab(item.id)}
-                  title={
-                    item.id === "craft"
-                      ? "Inspect Narrative Craft's current guidance and compact story state."
-                      : undefined
-                  }
                   className={
                     active
                       ? "min-h-6 min-w-0 flex-1 rounded-md bg-[var(--primary)]/15 px-1.5 py-0.5 text-center text-[0.5625rem] font-semibold text-[var(--primary)] ring-1 ring-[var(--primary)]/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] max-md:min-h-7"
@@ -288,19 +273,6 @@ export function RoleplayHUDActionsMenu({
             />
           )}
         </>
-      )}
-
-      {activeTab === "craft" && showNarrativeCraftTab && (
-        <Suspense
-          fallback={<div className="px-3 py-4 text-center text-[0.625rem] text-white/35">Loading craft state...</div>}
-        >
-          <NarrativeCraftPanel
-            chatId={chatId}
-            messages={injectionSourceMessages}
-            isAgentProcessing={isAgentProcessing}
-            isGenerationBusy={isGenerationBusy}
-          />
-        </Suspense>
       )}
 
       {showFooterActions && (

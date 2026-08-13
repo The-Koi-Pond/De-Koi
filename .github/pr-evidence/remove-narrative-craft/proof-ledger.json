@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Remove Narrative Craft and replace it with bounded Roleplay prose guidance",
+    "source": "Direct user request after live Narrative Craft regressions and a fixed-model prompt experiment.",
+    "classification": "prompt assembly, legacy configuration compatibility, agent removal, and Roleplay behavior",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Narrative Craft no longer plans, analyzes, repairs, stores, or controls generated scenes, while Roleplay receives one bounded prose-shape guide that cannot choose plot beats and does not affect Conversation or Game.",
+  "rootCause": "Narrative Craft combined hidden beat planning, background analysis, deterministic rewriting, memory, and UI state. Its high-priority private guidance could contradict the user's requested scene direction, and its broader intervention made prose feel more automated rather than less.",
+  "scope": {
+    "inScope": [
+      "Narrative Craft and Conversation Craft runtime removal",
+      "Built-in and legacy craft-agent contract cleanup",
+      "Roleplay UI and settings removal",
+      "Roleplay-only contrastive prose guidance at the writer prompt boundary",
+      "Obsolete evaluation tooling and documentation removal"
+    ],
+    "outOfScope": [
+      "Changing the writer model or provider",
+      "Adding another agent, critic, detector, planner, or rewrite pass",
+      "Changing Conversation or Game prose behavior",
+      "Deleting existing user chat messages or agent-run history"
+    ],
+    "intendedFiles": [
+      "src/engine",
+      "src/features/catalog/agents",
+      "src/features/modes/roleplay",
+      "src/features/modes/shared/chat-ui",
+      "src-tauri/src/commands/storage/agents.rs",
+      "src/features/shell/discovery/discovery-entries.json",
+      "docs",
+      "scripts",
+      ".github/pr-evidence/remove-narrative-craft/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "legacy compatibility",
+      "cross-entrypoint generation",
+      "user-visible Roleplay behavior",
+      "Bunny review"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "All Roleplay writer entrypoints receive exactly one bounded prose-shape guide immediately before the final user instruction; retired craft behavior cannot re-enter through saved agent IDs, replay caches, retries, or UI controls.",
+    "riskType": "prompt assembly and legacy configuration compatibility",
+    "entrypoints": [
+      "Normal Roleplay generation",
+      "Direct Roleplay generation",
+      "Roleplay dry run and preview",
+      "Generation replay and agent retry",
+      "Agent catalog and Roleplay settings UI"
+    ],
+    "currentPathsOrFormats": [
+      "Roleplay prompts assembled from engine messages and generation guides",
+      "Structured context injections with agentType and text",
+      "Built-in agent definitions and activeAgentIds"
+    ],
+    "legacyPathsOrFormats": [
+      "Saved narrative-craft, prose-guardian, director, and secret-plot-driver IDs",
+      "String-only cached Prose Guardian injections",
+      "Older structured craft context injections"
+    ],
+    "outOfScopeClaims": [
+      "The guide eliminates every possible AI-shaped phrase",
+      "The guide improves every model or every writing style",
+      "Post-merge Pi runtime behavior before exact images are deployed"
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Hidden craft machinery could override explicit Roleplay steering and mutate output after the writer response.",
+    "producer": "src/engine Roleplay prompt assembly and generation orchestration",
+    "consumer": "Writer-model requests across normal, direct, preview, and dry-run paths",
+    "impliedContract": "User scene direction owns what happens; internal prose guidance may shape phrasing but may not choose beats or rewrite completed output.",
+    "actualEnforcement": "A pure Roleplay-only helper inserts one static style block before the final user message, while all craft planner, analysis, repair, memory, retry, and UI paths are removed or retired.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Engine generation owns prompt semantics and mode-specific writer guidance.",
+    "consumerOnlyLanes": [
+      "src/features",
+      "src-tauri"
+    ],
+    "wrongLaneFixToAvoid": "Do not recreate prose correction in React, Rust, provider transport, or a post-generation agent.",
+    "regressionProof": [
+      "withRoleplayProseShapeGuidance inserts one system message immediately before the final Roleplay user message",
+      "Conversation and Game negative controls receive no prose-shape guide",
+      "A dry-run model request proves the guide reaches the real writer boundary"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The bounded guide reaches the real Roleplay model request at the intended priority.",
+        "evidence": "Focused generation-guide and dry-run tests passed; the dry-run request contains one Roleplay Prose Guidance system message immediately before the final user message."
+      },
+      {
+        "claim": "The replacement improves the evaluated prose direction without changing models.",
+        "evidence": "A private fixed-model A/B/C harness produced 120 non-empty held-out outputs after invalid empty streams were rejected and rerun; the contrastive condition reduced heuristic shape flags versus baseline, and the user selected contrastive 5/5 in blinded comparisons."
+      },
+      {
+        "claim": "The complete removal and replacement satisfy repository contracts.",
+        "evidence": "pnpm check passed, including frontend types, Rust workspace, architecture, security, storage contracts, docs, discovery, workflow guards, and warning-only unused reporting."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The guide must not leak into Conversation or Game.",
+        "evidence": "Pure helper negative controls return the original prompt unchanged for both modes."
+      },
+      {
+        "claim": "The guide must not suppress intentionally lyrical prose.",
+        "evidence": "The instruction explicitly exempts requested voice/scene shapes; the user preferred the contrastive output for the lyrical three-part-list control."
+      },
+      {
+        "claim": "Retired injection formats must not restore hidden craft authority.",
+        "evidence": "Replay and runtime normalization discard legacy string injections and structured injections from retired craft agent types."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing chats with retired craft IDs remain usable without reactivating those agents.",
+        "evidence": "Legacy built-in IDs remain recognized for catalog filtering while runtime overrides, retries, replay injections, defaults, and controls no longer execute them."
+      },
+      {
+        "claim": "New chats no longer opt into background craft agents.",
+        "evidence": "Chat schema tests prove Roleplay, Conversation, and Game creation adds no background-agent metadata by default."
+      }
+    ],
+    "untestedRows": [
+      "Live Pi behavior remains pending until the exact merge SHA's server and web images are published and deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The fixed experiment used one writer model, one connection, and one parameter hash across all 120 held-out runs.",
+      "sourceType": "harness-proven",
+      "evidence": "Private matrix invariant validation reported 120 unique non-empty runs, 40 per condition, one model, and one parameter hash."
+    },
+    {
+      "description": "The final treatment contains only prose-shape instruction and contrastive examples, with no beat or plot directive.",
+      "sourceType": "derived",
+      "evidence": "The checked-in constant and focused assertion reject plot, beat-plan, and what-happens-next language."
+    }
+  ],
+  "userActionCopy": [],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny checked for non-Roleplay leakage, placement after explicit user steering, and reintroduction of hidden plot authority.",
+      "disposition": "passed",
+      "fix": "No corrective change required; mode isolation, prompt order, and guidance content are directly covered by focused tests.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check; focused generation-guide and start-generation tests; pnpm typecheck; pnpm check:architecture; git diff --check",
+    "baselineEvidence": "28 focused tests and the full repository gate passed on the final local product commit.",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Conversation prompt",
+      "Game prompt",
+      "Explicit lyrical style request",
+      "Legacy string and structured craft injections",
+      "Existing chats with retired craft IDs"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "passed_local",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1234,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1234",
+    "headRefName": "fix/remove-narrative-craft",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "passed_local",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": true,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "No private chat text, private experiment corpus, provider secrets, or API keys are included.",
+    "Bunny reviewed the complete product diff before the PR and found no blocking issue.",
+    "Production Pi deployment must wait for the exact merge revision's matched server and web image batch."
+  ]
+}

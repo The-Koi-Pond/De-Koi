@@ -408,7 +408,7 @@ async function runPreGenerationAgents(
   for (const result of results) {
     if (!result.success) continue;
 
-    // Narrative Craft and compatible custom agents produce text to inject.
+    // Writer and compatible custom agents produce text to inject.
     if (result.type === "context_injection" || result.type === "director_event") {
       const text = getAgentResultText(result.data);
       const agentName = agents.find((agent) => agent.type === result.agentType)?.name;

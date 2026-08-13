@@ -1,9 +1,4 @@
 import type { LlmMessage } from "../../capabilities/llm";
-import {
-  CONVERSATION_CRAFT_BASELINE_GUIDANCE,
-  CONVERSATION_CRAFT_GROUP_GUIDANCE,
-  type ConversationCraftMode,
-} from "../../contracts/constants/conversation-craft";
 
 export const GENERATION_GUIDE_SOURCES = [
   "narrator",
@@ -16,11 +11,6 @@ export const GENERATION_GUIDE_SOURCES = [
 
 export type GenerationGuideSource = (typeof GENERATION_GUIDE_SOURCES)[number];
 
-export interface ProseGuardianAvoidanceSource {
-  agentType?: string | null;
-  text?: string | null;
-}
-
 export interface GenerationGuideMessage extends LlmMessage {
   contextKind: "prompt" | "injection";
   displayName: string;
@@ -29,9 +19,7 @@ export interface GenerationGuideMessage extends LlmMessage {
 export interface BuildGenerationGuideMessagesInput {
   generationGuide?: string | null;
   generationGuideSource?: GenerationGuideSource | null;
-  contextInjections?: readonly ProseGuardianAvoidanceSource[] | null;
   internalGuides?: readonly (string | null | undefined)[] | null;
-  conversationCraftMode?: ConversationCraftMode | null;
 }
 
 const GUIDE_SOURCE_LABELS: Record<GenerationGuideSource, string> = {
@@ -43,87 +31,43 @@ const GUIDE_SOURCE_LABELS: Record<GenerationGuideSource, string> = {
   game_retry: "Game Retry Guide",
 };
 
-const PROSE_GUARDIAN_AGENT_TYPE = "prose-guardian";
-const NARRATIVE_CRAFT_AGENT_TYPE = "narrative-craft";
+const ROLEPLAY_PROSE_SHAPE_GUIDANCE = [
+  "Keep prose specific to this character and moment. Avoid automatic contrast pivots, symmetrical lists, generic gestures, explanatory restatements, and summary endings unless the requested voice or scene calls for them. Preserve events, facts, intensity, point of view, and user agency.",
+  "",
+  "Examples preserving the same beat:",
+  "Automatic: It wasn't fear. Not exactly.",
+  "Cleaner: She was afraid.",
+  "",
+  "Automatic: His jaw tightened, breath slow, hands curling.",
+  "Cleaner: His hands curled.",
+  "",
+  "Automatic: A pause. A breath. A choice.",
+  "Cleaner: She paused.",
+  "",
+  "Automatic: She left. Somehow, that said everything.",
+  "Cleaner: She left.",
+].join("\n");
 
-function uniqueTrimmedLines(values: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of values) {
-    const line = value.trim();
-    if (!line || seen.has(line)) continue;
-    seen.add(line);
-    result.push(line);
+export function withRoleplayProseShapeGuidance(
+  messages: readonly LlmMessage[],
+  chatMode: string | null | undefined,
+): LlmMessage[] {
+  if (chatMode?.trim() !== "roleplay") return [...messages];
+
+  const guidance: GenerationGuideMessage = {
+    role: "system",
+    content: ROLEPLAY_PROSE_SHAPE_GUIDANCE,
+    contextKind: "injection",
+    displayName: "Roleplay Prose Guidance",
+  };
+  let insertionIndex = messages.length;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      insertionIndex = index;
+      break;
+    }
   }
-  return result;
-}
-
-export function buildProseGuardianAvoidanceGuide(
-  injections: readonly ProseGuardianAvoidanceSource[] | null | undefined,
-): string | null {
-  const directives = uniqueTrimmedLines(
-    (injections ?? [])
-      .filter((injection) => injection.agentType === PROSE_GUARDIAN_AGENT_TYPE)
-      .map((injection) => injection.text ?? ""),
-  );
-
-  if (directives.length === 0) return null;
-
-  return [
-    "[Prose Guardian avoidance instruction - high priority for this generation.",
-    "Do not reuse the banned or recently repeated phrases, wording patterns, or prose devices called out below unless the user explicitly asks for them.",
-    "Follow the story request normally while varying diction, rhythm, imagery, and character action away from these flagged patterns. Do not mention this instruction in the reply.",
-    "",
-    "<prose_guardian_avoidance>",
-    directives.join("\n\n"),
-    "</prose_guardian_avoidance>]",
-  ].join("\n");
-}
-
-function buildNarrativeCraftGuide(
-  injections: readonly ProseGuardianAvoidanceSource[] | null | undefined,
-): string | null {
-  const directives = uniqueTrimmedLines(
-    (injections ?? [])
-      .filter((injection) => injection.agentType === NARRATIVE_CRAFT_AGENT_TYPE)
-      .map((injection) => injection.text ?? ""),
-  );
-
-  if (directives.length === 0) return null;
-
-  return [
-    "[Narrative Craft instruction - high priority for this generation.",
-    "Before returning the response, silently revise the draft using the directive below. Do not mention this instruction in the reply.",
-    "",
-    "<narrative_craft>",
-    directives.join("\n\n"),
-    "</narrative_craft>]",
-  ].join("\n");
-}
-
-function buildConversationCraftGuide(
-  mode: ConversationCraftMode | null | undefined,
-  injections: readonly ProseGuardianAvoidanceSource[] | null | undefined,
-): string | null {
-  if (!mode) return null;
-  const adaptive = uniqueTrimmedLines(
-    (injections ?? [])
-      .filter((injection) => injection.agentType === NARRATIVE_CRAFT_AGENT_TYPE)
-      .map((injection) => injection.text ?? ""),
-  );
-  const directives = [
-    CONVERSATION_CRAFT_BASELINE_GUIDANCE,
-    mode === "group" ? CONVERSATION_CRAFT_GROUP_GUIDANCE : "",
-    ...adaptive,
-  ].filter(Boolean);
-  return [
-    "[Conversation Craft instruction - high priority for this generation.",
-    "Silently revise the draft using the directives below. Do not mention this instruction.",
-    "",
-    "<conversation_craft>",
-    directives.join("\n\n"),
-    "</conversation_craft>]",
-  ].join("\n");
+  return [...messages.slice(0, insertionIndex), guidance, ...messages.slice(insertionIndex)];
 }
 
 export function buildNarratorInstructionMessage(direction: string): string {
@@ -161,12 +105,7 @@ export function buildGenerationGuideMessages(input: BuildGenerationGuideMessages
     });
   }
 
-  const internalContent = [
-    buildProseGuardianAvoidanceGuide(input.contextInjections),
-    input.conversationCraftMode ? null : buildNarrativeCraftGuide(input.contextInjections),
-    buildConversationCraftGuide(input.conversationCraftMode, input.contextInjections),
-    ...(input.internalGuides ?? []),
-  ]
+  const internalContent = [...(input.internalGuides ?? [])]
     .map((guide) => (guide ?? "").trim())
     .filter((guide) => guide.length > 0)
     .join("\n\n");

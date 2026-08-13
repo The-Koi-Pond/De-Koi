@@ -163,18 +163,8 @@ function runtimeServer() {
       return;
     }
     if (request.url === "/api/llm/stream" && request.method === "POST") {
-      const body = await readBody(request);
-      const llmRequest = body.request && typeof body.request === "object" ? (body.request as JsonRecord) : {};
-      const messages = Array.isArray(llmRequest.messages) ? llmRequest.messages : [];
-      const promptText = messages
-        .map((message) =>
-          message && typeof message === "object" && typeof (message as JsonRecord).content === "string"
-            ? String((message as JsonRecord).content)
-            : "",
-        )
-        .join("\n");
-      const isConversationCraft = promptText.includes("You are Conversation Craft");
-      if (!isConversationCraft) streamCount += 1;
+      await readBody(request);
+      streamCount += 1;
       response.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
@@ -191,16 +181,7 @@ function runtimeServer() {
       response.write(
         `data: ${JSON.stringify({
           type: "token",
-          text: isConversationCraft
-            ? JSON.stringify({
-                text: "",
-                evidence: [],
-                issue: "",
-                state: {},
-                reason: "No material intervention is needed.",
-                intervened: false,
-              })
-            : `Deterministic streamed reply ${streamCount}`,
+          text: `Deterministic streamed reply ${streamCount}`,
         })}\n\n`,
       );
       response.end(`data: ${JSON.stringify({ type: "done", finishReason: "stop" })}\n\n`);
