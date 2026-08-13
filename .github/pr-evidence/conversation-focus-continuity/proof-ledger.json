@@ -170,8 +170,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": null,
-    "url": "",
+    "number": 1236,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1236",
     "headRefName": "fix/conversation-focus-continuity",
     "baseRefName": "main",
     "healthStatus": "pending",
