@@ -143,8 +143,7 @@ describe("long Conversation context focus", () => {
 
     const text = promptText(result.messages);
     const history = result.messages.filter((message) => message.contextKind === "history");
-    expect(history).toHaveLength(2);
-    expect(history.every((message) => message.role === "user")).toBe(true);
+    expect(history.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
     expect(text).toContain("<conversation_focus_contract>");
     expect(text).toContain("<conversation_character_core>");
     expect(text).toContain("Respond from inside Mira's world");
@@ -159,10 +158,48 @@ describe("long Conversation context focus", () => {
     expect(text).toContain('[memory: target="Character Name", summary="brief memory"]');
     expect(text).not.toContain("CARD_ROLEPLAY_SENTINEL");
     expect(text).not.toContain("CARD_FIRST_MESSAGE_SENTINEL");
-    expect(text).toContain("old user turn 17");
+    expect(text).toContain("old user turn 19");
+    expect(text).toContain("OLD_ASSISTANT_DRIFT_19");
+    expect(text).toContain("OLD_ASSISTANT_DRIFT_20");
     expect(text).not.toContain("OLD_ASSISTANT_DRIFT_17");
     expect(text.match(/BLOATED_DESCRIPTION_MIDDLE/g)?.length ?? 0).toBeLessThan(25);
     expect(text.length).toBeLessThan(7_000);
+  });
+
+  it("keeps the assistant replies that give follow-up questions their referents", async () => {
+    const storedMessages = conversationMessages(20);
+    storedMessages.splice(
+      -5,
+      5,
+      { id: "user-19", role: "user", content: "why would you even do that" },
+      {
+        id: "assistant-19",
+        role: "assistant",
+        characterId: "mira",
+        content: "because I want to see your face before I decide whether going quiet is worth it",
+      },
+      { id: "user-20", role: "user", content: "if what's worth it" },
+      {
+        id: "assistant-20",
+        role: "assistant",
+        characterId: "mira",
+        content: "going quiet long enough to see whether you start checking my eyes",
+      },
+      { id: "current-user", role: "user", content: "you're not making sense" },
+    );
+
+    const result = await assembleGenerationPrompt(focusStorage([longCharacter()]), {
+      chat: { id: "chat-continuity", mode: "conversation", characterIds: ["mira"], metadata: {} },
+      storedMessages,
+      connection: { provider: "openai", model: "qa-model", maxContext: 128_000 },
+      request: {},
+      latestUserInput: "you're not making sense",
+    });
+
+    const history = result.messages.filter((message) => message.contextKind === "history");
+    expect(history.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
+    expect(promptText(history)).toContain("before I decide whether going quiet is worth it");
+    expect(promptText(history)).toContain("going quiet long enough to see whether you start checking my eyes");
   });
 
   it("leaves a 19-reply Conversation on the normal prompt path", async () => {
@@ -236,12 +273,12 @@ describe("long Conversation context focus", () => {
     });
 
     const text = promptText(result.messages);
-    expect(result.messages.filter((message) => message.contextKind === "history")).toHaveLength(2);
+    expect(result.messages.filter((message) => message.contextKind === "history")).toHaveLength(5);
     expect(
       result.messages
         .filter((message) => message.contextKind === "history")
-        .every((message) => message.role === "user"),
-    ).toBe(true);
+        .map((message) => message.role),
+    ).toEqual(["user", "assistant", "user", "assistant", "user"]);
     expect(text).toContain("<conversation_voice_examples>");
     expect(text).toContain("Respond only as Mira");
   });

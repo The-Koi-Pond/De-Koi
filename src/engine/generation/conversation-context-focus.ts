@@ -217,7 +217,7 @@ export function conversationContextFocus<T extends FocusableConversationCharacte
       focusedCharacter(character, input.storedMessages, targetCharacterId, userName),
     ),
     historyLimit: HISTORY_MESSAGE_LIMIT,
-    includeAssistantHistory: false,
+    includeAssistantHistory: true,
     summaryMaxContext: SUMMARY_MAX_CONTEXT,
     memoryRecallTokenBudget: MEMORY_RECALL_TOKEN_BUDGET,
     canonicalMemoryMaxContext: CANONICAL_MEMORY_MAX_CONTEXT,

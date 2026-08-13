@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Preserve continuity in focused Conversations",
+    "source": "Live Harlequin transcript and saved generation prompt snapshots",
+    "classification": "conversation prompt continuity",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Long focused Conversations keep the newest five transcript messages, including the assistant answers needed to interpret user follow-ups, without changing shorter chats or sibling modes.",
+  "rootCause": "The long-Conversation focus policy activated after twenty assistant replies and deliberately removed every assistant message from recent history, merging several user follow-ups into a causally incomplete provider prompt.",
+  "scope": {
+    "inScope": [
+      "Long single-speaker Conversation prompt history",
+      "Explicitly targeted long group-Conversation prompt history",
+      "Focused prompt assembly contract and design documentation"
+    ],
+    "outOfScope": [
+      "Model or provider selection",
+      "Generation parameters",
+      "Conversation focus activation threshold or prompt budgets",
+      "Roleplay, Visual Novel, Game, impersonation, or untargeted group behavior",
+      "Guaranteeing identical stochastic output"
+    ],
+    "riskFlags": [
+      "prompt-agent-lorebook",
+      "conversation generation",
+      "mode separation"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Once Conversation focus activates, its bounded tail preserves the actual newest five visible transcript messages rather than deleting the assistant side of the dialogue.",
+    "riskType": "conversation prompt behavior",
+    "entrypoints": [
+      "conversationContextFocus",
+      "assembleGenerationPrompt"
+    ],
+    "currentPathsOrFormats": [
+      "Focused single-character Conversation generation after twenty visible assistant replies.",
+      "Focused explicitly targeted group-Conversation generation after twenty visible assistant replies.",
+      "The shared history selector remains capped at five messages and preserves existing images and assistant provider metadata."
+    ],
+    "outOfScopeClaims": [
+      "This change does not promise that every generated reply will be stylistically perfect.",
+      "This change does not enlarge history beyond five messages.",
+      "This change does not alter stored transcripts or memories."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Recent user follow-ups reached the model without the assistant statements they referred to.",
+    "producer": "src/engine/generation/conversation-context-focus.ts",
+    "consumer": "src/engine/generation/prompt-assembly.ts history selection",
+    "impliedContract": "A bounded Conversation history must still preserve enough turn causality for the newest user message to be interpreted.",
+    "actualEnforcement": "The Conversation-owned focus policy now includes assistant history while retaining the existing five-message cap.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Conversation prompt-focus policy is owned by the TypeScript engine generation layer.",
+    "consumerOnlyLanes": [],
+    "wrongLaneFixToAvoid": "Do not patch the UI, change the provider, enlarge all mode histories, or inject a fallback explanation into the prompt.",
+    "regressionProof": [
+      "The Harlequin-shaped follow-up test fails under user-only history and passes when the two immediately preceding assistant replies are preserved.",
+      "Focused single and targeted-group tests assert the five-message user/assistant/user/assistant/user tail.",
+      "Short Conversation, impersonation, untargeted group, Roleplay, and Game negative controls pass."
+    ]
+  },
+  "riskClaimMatrix": {
+    "coreClaim": "Focused Conversation prompts preserve recent causal turn pairs within the existing five-message budget.",
+    "riskType": "prompt assembly",
+    "entrypoints": [
+      "single-character Conversation",
+      "explicitly targeted group Conversation"
+    ],
+    "currentPathsOrFormats": [
+      "twenty-or-more-reply focused Conversation"
+    ],
+    "legacyPathsOrFormats": [],
+    "positiveRowsTested": [
+      "single-character focus at twenty replies",
+      "Harlequin-shaped follow-up and referent chain",
+      "explicitly targeted group focus at twenty replies"
+    ],
+    "negativeRowsTested": [
+      "nineteen-reply Conversation",
+      "impersonation",
+      "untargeted group Conversation",
+      "Roleplay",
+      "Game prompt assembly"
+    ],
+    "groundTruthFacts": [
+      {
+        "description": "The live saved prompt contained five user messages and no intervening Harlequin replies after the focus threshold.",
+        "sourceType": "artifact-derived",
+        "evidence": "The Pi's saved generation snapshot for the affected Harlequin reply showed the five user messages with no assistant turns."
+      },
+      {
+        "description": "The provider remained NanoGPT GLM-5.2 and completed normally, isolating prompt assembly as the broken boundary.",
+        "sourceType": "artifact-derived",
+        "evidence": "The same saved generation snapshot recorded NanoGPT GLM-5.2 and a normal stop finish reason."
+      }
+    ],
+    "userActionCopy": [],
+    "manualBlockers": []
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The newest assistant replies remain in the focused provider history.",
+        "evidence": "prompt-assembly.conversation-focus.spec.ts asserts an exact user/assistant/user/assistant/user role sequence and both causal assistant statements."
+      },
+      {
+        "claim": "The prompt remains bounded and character-focused.",
+        "evidence": "The focused spec retains the five-message cap, compact character sentinels, voice examples, memory command contract, and prompt-size ceiling."
+      },
+      {
+        "claim": "Shared generation and repository contracts remain valid.",
+        "evidence": "Sixty-three focused generation tests and pnpm check exited 0, including TypeScript, architecture, docs, security, frontend, and Rust workspace checks."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The correction must not activate in short Conversation chats.",
+        "evidence": "The nineteen-reply negative control retains the normal forty-one-message prompt path."
+      },
+      {
+        "claim": "Sibling modes and excluded Conversation paths must remain unchanged.",
+        "evidence": "Impersonation, untargeted group Conversation, Roleplay, and Game tests all pass."
+      },
+      {
+        "claim": "The repair must not restore unbounded assistant self-imitation.",
+        "evidence": "The focused history remains capped at exactly five visible transcript messages."
+      }
+    ],
+    "untestedRows": [
+      "No message was sent into the user's live Harlequin chat during verification.",
+      "Post-merge Pi deployment verification is pending the exact merged image."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The bug begins when focused history activates at twenty assistant replies.",
+      "sourceType": "artifact-derived",
+      "evidence": "The saved Harlequin transcript crossed reply twenty immediately before the user-only prompt policy appeared in generation snapshots."
+    },
+    {
+      "description": "The corrected provider history contains the two newest assistant answers within the five-message tail.",
+      "sourceType": "harness-proven",
+      "evidence": "The public prompt-assembly integration spec verifies exact roles and content."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi prompt generation",
+      "blockingCoreClaim": false,
+      "reason": "The deterministic prompt boundary is directly tested, and writing a synthetic message into the user's private live chat would be destructive verification."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "The regression first failed with only user/user history, then eight focused tests, sixty-three neighboring generation tests, and pnpm check passed after the owner fix.",
+    "githubValidationPassed": false,
+    "reviewIterationFastPath": false
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "local_pass",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1236,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1236",
+    "headRefName": "fix/conversation-focus-continuity",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}
