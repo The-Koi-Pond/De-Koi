@@ -2,9 +2,9 @@
 
 ## Problem
 
-Long Conversation chats keep accumulating two competing style sources: the complete character card and every prior assistant reply. Live GLM-5.2 replays showed that adding a near-boundary voice reminder, swapping examples, or merely shortening the alternating transcript did not stop generic writing. Even a generated, character-specific Dracula voice profile lost to one recent generic assistant reply. The reliable one-call fix was to retain recent user context while removing the model's own drifted replies as demonstrations.
+Long Conversation chats keep accumulating two competing style sources: the complete character card and every prior assistant reply. Live GLM-5.2 replays showed that adding a near-boundary voice reminder, swapping examples, or merely shortening the alternating transcript did not stop generic writing. Even a generated, character-specific Dracula voice profile lost to one recent generic assistant reply. Prompt concentration is still required, but removing every recent assistant reply also removes the answers that make follow-up user messages coherent.
 
-The problem is therefore prompt concentration plus self-imitation, not missing character data. Relevant identity and continuity are present, but they are diluted by thousands of tokens of appearance, roleplay-shaped examples, repeated assistant prose, and unrelated durable facts. Once bland assistant turns enter the visible tail, the model treats them as stronger style examples than the card and reproduces them.
+The problem is therefore balancing prompt concentration against conversational causality. Relevant identity and continuity are diluted by thousands of tokens of appearance, roleplay-shaped examples, repeated assistant prose, and unrelated durable facts. The focused tail must remain small enough to limit self-imitation while retaining the immediately preceding assistant answers that give user follow-ups their referents.
 
 ## Evidence
 
@@ -13,6 +13,7 @@ The problem is therefore prompt concentration plus self-imitation, not missing c
 - Dracula production-shaped focus with the latest five user messages, compact character core, existing continuity systems, and no prior assistant replies used 896 input tokens and replied from inside Dracula's viewpoint: "You perceive it clearly... I did not make her a beast. I made her free."
 - Harlequin baseline: 94 prompt messages and 7,984 input tokens.
 - Harlequin production-shaped focus without prior assistant replies used 2,249 input tokens and preserved his terse lowercase voice and hidden-memory behavior.
+- A later live Harlequin chat crossed the 20-reply focus threshold and exposed the missing causal contract: five user messages were merged without Harlequin's answers, so follow-ups such as "if what's worth it" reached the model without the statement they referred to.
 - A compact hidden-command contract still emitted a valid `[memory: ...]` tag when given a new durable fact.
 
 These were non-persisting `/api/invoke` completion calls. The saved chats were unchanged.
@@ -28,19 +29,19 @@ Focus context only for long single-speaker Conversation generations:
 
 Once active:
 
-- Keep the default/custom Conversation system prompt, preset instructions, depth instructions, lorebook context, presence/freshness/schedule context, linked-chat context, Conversation Craft injection, and hidden command contracts.
+- Keep the default/custom Conversation system prompt, preset instructions, depth instructions, lorebook context, presence/freshness/schedule context, linked-chat context, Conversation prose guidance, and hidden command contracts.
 - Replace the full prompt-facing character payload with bounded identity/voice fields. Preserve the beginning and end of long fields so typing rules at the end of a card survive.
 - Omit roleplay-shaped first messages, appearance-only material, creator notes, public profile, and behavioral interpretation from the focused character payload.
 - Prefer up to two clean card dialogue samples converted to plain Conversation dialogue; fill any remaining slots with early, non-roleplay Conversation pairs.
-- Keep the newest five visible user messages, including image attachments, but omit prior assistant history. This prevents drifted model output from recursively becoming the dominant style demonstration.
+- Keep the newest five visible transcript messages, including assistant replies and image attachments. This bounds self-imitation while normally preserving two complete recent user/assistant exchanges plus the newest user message.
 - Continue using existing rolling summary, chat-memory recall, and canonical-memory retrieval for older continuity. Give those projections bounded long-conversation budgets rather than introducing another summarizer or provider call.
-- Preserve image-bearing recent user history through the existing history selector. Assistant provider metadata is intentionally omitted with assistant history.
+- Preserve image-bearing recent history and assistant provider metadata through the existing history selector.
 
 Short Conversation chats, untargeted group generations, impersonation, Roleplay, Visual Novel, and Game keep their existing prompt behavior.
 
 ## Ownership
 
-`src/engine/generation/conversation-context-focus.ts` owns the pure activation, text compaction, Conversation-example selection, and user-only history policy. `src/engine/generation/prompt-assembly.ts` owns mode/target selection and applies focused history, summary, and memory budgets through existing assembly seams.
+`src/engine/generation/conversation-context-focus.ts` owns the pure activation, text compaction, Conversation-example selection, and bounded recent-history policy. `src/engine/generation/prompt-assembly.ts` owns mode/target selection and applies focused history, summary, and memory budgets through existing assembly seams.
 
 No storage, provider, Rust, shared API, React, or mode-routing boundary changes.
 
@@ -55,7 +56,7 @@ A focused prompt-assembly spec proves:
 - activation at the long-conversation threshold;
 - bounded prompt-facing character data with head/tail voice rules retained;
 - roleplay actions are stripped from card dialogue examples and early Conversation pairs remain available as fallback examples;
-- only the latest five user messages remain as recent history, with prior assistant drift omitted;
+- only the latest five transcript messages remain as recent history, retaining the assistant answers required by user follow-ups;
 - hidden command guidance and current user input survive;
 - short Conversation, impersonation, untargeted group, and Roleplay paths remain unchanged.
 

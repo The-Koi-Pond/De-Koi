@@ -13,8 +13,8 @@
 - Conversation mode only; Roleplay, Visual Novel, and Game behavior must not change.
 - Do not focus impersonation or untargeted multi-character Conversation turns.
 - Activate at 20 visible assistant replies in the current conversation segment.
-- Keep the latest five visible user messages and omit prior assistant history so drifted outputs cannot become recursive style examples.
-- Preserve custom/preset instructions, lorebooks, depth prompts, images, Conversation Craft, and hidden command contracts.
+- Keep the latest five visible transcript messages, including recent assistant replies, so the focused tail stays bounded without breaking follow-up causality.
+- Preserve custom/preset instructions, lorebooks, depth prompts, images, Conversation prose guidance, and hidden command contracts.
 - Do not add storage writes, provider calls, React imports, shared API adapters, or Rust changes.
 - Do not commit, push, or open a PR without Celia's explicit authorization.
 
@@ -71,7 +71,7 @@ Extract plain quoted dialogue from up to two card examples, stripping roleplay a
 **Interfaces:**
 
 - Consumes: `conversationContextFocus(...)` after character/persona loading.
-- Produces: focused prompt characters, the latest five user-only history messages, summary projection bounded through a 9,600-token effective context, chat-memory recall budget 512, and canonical-memory effective context 4,000.
+- Produces: focused prompt characters, the latest five transcript history messages, summary projection bounded through a 9,600-token effective context, chat-memory recall budget 512, and canonical-memory effective context 4,000.
 
 - [x] **Step 1: Apply focused characters before macro construction**
 
@@ -79,7 +79,7 @@ Select the single or explicitly targeted Conversation speaker, call the pure hel
 
 - [x] **Step 2: Apply existing bounded continuity seams**
 
-Use the focus policy's user-only history selection and smaller effective contexts when building summary, memory recall, and canonical memory blocks. Leave storage retrieval, attribution, and fallback behavior unchanged.
+Use the focus policy's bounded recent-history selection and smaller effective contexts when building summary, memory recall, and canonical memory blocks. Leave storage retrieval, attribution, and fallback behavior unchanged.
 
 - [x] **Step 3: Run the focused spec and confirm GREEN**
 
