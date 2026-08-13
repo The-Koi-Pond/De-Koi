@@ -16,6 +16,7 @@ import {
 import {
   deferUntilForegroundGenerationCompletes,
   foregroundGenerationActive,
+  interruptWhenForegroundGenerationStarts,
 } from "./background-generation-coordinator";
 import { analyzeAutomaticMemoryClarity } from "./memory-clarity";
 import { analyzeMemoryCleanup } from "./memory-cleanup";
@@ -403,13 +404,19 @@ export async function processAutomaticMemoryMaintenanceQueue(
   const workerId = options.workerId ?? automaticMaintenanceWorkerId;
   const leaseId = await dependencies.maintenance.acquireWorker(workerId);
   if (!leaseId) return result;
-  const leaseAbort = new AbortController();
+  const operationAbort = new AbortController();
+  const unregisterForegroundInterruption = interruptWhenForegroundGenerationStarts(
+    dependencies.storage,
+    maintenanceWorkerKey,
+    operationAbort,
+    new ForegroundPause("Foreground generation interrupted automatic memory maintenance."),
+  );
   let leaseLost: MaintenanceLeaseLost | null = null;
   let leaseRenewal: Promise<void> | null = null;
   const loseLease = () => {
     if (leaseLost) return;
     leaseLost = new MaintenanceLeaseLost("Another runtime owns automatic memory maintenance.");
-    leaseAbort.abort(leaseLost);
+    operationAbort.abort(leaseLost);
   };
   const renewLease = () => {
     if (leaseRenewal) return;
@@ -516,7 +523,7 @@ export async function processAutomaticMemoryMaintenanceQueue(
                 sources,
                 connectionId,
                 alreadyReviewed: new Set(clarityReviewedFingerprints),
-                signal: leaseAbort.signal,
+                signal: operationAbort.signal,
               }),
             );
             assertLease();
@@ -575,7 +582,7 @@ export async function processAutomaticMemoryMaintenanceQueue(
               sources,
               connectionId,
               llm: dependencies.llm,
-              signal: leaseAbort.signal,
+              signal: operationAbort.signal,
               onProgress: () => {
                 if (foregroundGenerationActive(dependencies.storage)) throw new ForegroundPause();
               },
@@ -692,6 +699,7 @@ export async function processAutomaticMemoryMaintenanceQueue(
     }
     return result;
   } finally {
+    unregisterForegroundInterruption();
     clearInterval(leaseHeartbeat);
     await leaseRenewal;
     await releaseWorkerLease(

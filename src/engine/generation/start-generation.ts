@@ -1132,7 +1132,7 @@ export async function generateIllustrationAttachments(args: {
             type: "illustration_error",
             data: { error: "No image generation connection configured for the Illustrator agent." },
           });
-        }
+      }
         continue;
       }
       const referenceData = await illustrationReferenceData({
@@ -3157,7 +3157,7 @@ interface AutomaticRoleplayQualityCorrectionResult {
   correction: RoleplayQualityCorrectionExtra | null;
 }
 
-function latestVisibleRoleplayUserInput(messages: JsonRecord[]): string {
+function latestVisibleUserInput(messages: JsonRecord[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
     if (hiddenFromAi(message) || readString(message.role).trim() !== "user") continue;
@@ -3165,6 +3165,14 @@ function latestVisibleRoleplayUserInput(messages: JsonRecord[]): string {
     if (content) return content;
   }
   return "";
+}
+
+function latestVisibleUserInputForAssistantRegeneration(
+  regenerationTarget: JsonRecord | null,
+  messages: JsonRecord[],
+): string {
+  if (!regenerationTarget || isUserRegenerationTarget(regenerationTarget)) return "";
+  return latestVisibleUserInput(messages);
 }
 
 function automaticRoleplayQualityCorrectionEnabled(chat: JsonRecord, input: StartGenerationInput): boolean {
@@ -3214,7 +3222,7 @@ async function applyAutomaticRoleplayQualityCorrection(args: {
   const analysis = analyzeRoleplayResponse({
     content: args.content,
     messages: args.runtimeInput.storedMessages,
-    latestUserInput: latestVisibleRoleplayUserInput(args.runtimeInput.storedMessages),
+    latestUserInput: latestVisibleUserInput(args.runtimeInput.storedMessages),
     personaName: args.runtimeInput.persona?.name ?? null,
     personaDescription: args.runtimeInput.persona?.description ?? null,
     characterNames: args.runtimeInput.characters.map((character) => character.name),
@@ -4428,7 +4436,10 @@ export async function* dryRunGeneration(
     yield { type: "agent_warning", data: warning };
   }
   const latestUserInput =
-    userRegenerationSourceMessage?.content || preparedUserInput.content || inputUserMessage(input);
+    userRegenerationSourceMessage?.content ||
+    preparedUserInput.content ||
+    inputUserMessage(input) ||
+    latestVisibleUserInputForAssistantRegeneration(regenerationTarget, generationMessages);
   const generationTrackerBaseline = await selectGenerationTrackerBaseline(
     deps.storage,
     chatId,
@@ -4756,7 +4767,8 @@ async function* startGenerationImpl(
     readString(internalOptions.latestUserInput).trim() ||
     userRegenerationSourceMessage?.content ||
     preparedUserInput.content ||
-    inputUserMessage(input);
+    inputUserMessage(input) ||
+    latestVisibleUserInputForAssistantRegeneration(regenerationTarget, generationMessages);
   if (internalOptions.groupTurnChild !== true) {
     const groupTurnIds = await resolveIndividualGroupTurnIds({
       deps,

@@ -177,6 +177,28 @@ describe("roleplay quality response signals", () => {
     );
   });
 
+  it("routes unmistakable editorial scene placeholders without treating ordinary capitals as malformed", () => {
+    const leakedDraftingMarker = analyzeRoleplayResponse({
+      content: "Harlequin watches the doorway.\n\n\u2014 CREATIVE BACKGROUND SKIP HERE \u2014\n\nThe music resumes.",
+    });
+
+    expect(leakedDraftingMarker).toEqual(
+      expect.objectContaining({
+        shouldAudit: true,
+        signals: expect.arrayContaining([
+          expect.objectContaining({
+            kind: "malformed_output",
+            severity: "high",
+            evidence: ["CREATIVE BACKGROUND SKIP HERE"],
+          }),
+        ]),
+      }),
+    );
+    expect(
+      analyzeRoleplayResponse({ content: "Mira reads the posted warning: BACKGROUND CHECK REQUIRED HERE." }).signals,
+    ).toEqual([]);
+  });
+
   it.each([
     ["dialogue", '"I accept," Celia says, taking the contract.'],
     ["speaker-labeled dialogue", "Celia: I accept the bargain."],

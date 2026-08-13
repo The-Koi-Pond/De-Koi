@@ -20,6 +20,8 @@ describe("withModeProseShapeGuidance", () => {
     });
     expect(messages[2]?.content).toContain("Keep prose specific to this character and moment.");
     expect(messages[2]?.content).toContain("unless the requested voice or scene calls for them");
+    expect(messages[2]?.content).toContain("plainly observable detail");
+    expect(messages[2]?.content).toContain("infer a non-conflicting detail or write around it");
     expect(messages[2]?.content).toContain("Automatic: It wasn't fear. Not exactly.");
     expect(messages[2]?.content).toContain("Cleaner: She was afraid.");
     expect(messages[2]?.content).not.toMatch(/plot|beat plan|what happens next/i);

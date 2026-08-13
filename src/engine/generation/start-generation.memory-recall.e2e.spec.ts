@@ -414,6 +414,62 @@ async function collectEvents(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration Memory Recall preflight", () => {
+  it("uses the preceding visible user turn for canonical recall during assistant regeneration", async () => {
+    const calls: LlmRequest[] = [];
+    const harness = memoryRecallStorage({
+      mode: "roleplay",
+      metadata: {
+        enableMemoryRecall: true,
+        memoryRecallReadBehindMessages: 1,
+        automaticRoleplayQualityCorrection: false,
+      },
+    });
+    await harness.storage.createChatMessage("chat-1", {
+      role: "user",
+      content: "Where did I hide the brass key after the storm?",
+    });
+    await harness.storage.createChatMessage("chat-1", {
+      role: "assistant",
+      content: "I cannot remember.",
+      characterId: "char-1",
+    });
+    await harness.storage.createMemory!({
+      id: "memory-brass-key",
+      kind: "fact",
+      scope: { kind: "chat", id: "chat-1" },
+      content: "{{user}} hid the brass key under the blue lantern after the storm.",
+      confidence: 0.99,
+      provenance: {
+        sourceChatId: "chat-1",
+        messageIds: ["older-source-message"],
+        characterId: "char-1",
+      },
+    });
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage: harness.storage,
+          llm: memoryAwareLlm(calls),
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          regenerateMessageId: "message-2",
+        },
+      ),
+    );
+
+    const regeneratedPrompt =
+      calls
+        .at(-1)
+        ?.messages.map((message) => message.content)
+        .join("\n") ?? "";
+    expect(regeneratedPrompt).toContain("<canonical_memories>");
+    expect(regeneratedPrompt).toContain("{{user}} hid the brass key under the blue lantern after the storm.");
+  });
+
   it("skips unavailable semantic recall, warns once, and keeps lexical recall working", async () => {
     const calls: LlmRequest[] = [];
     const harness = memoryRecallStorage({ embeddingModel: "" });

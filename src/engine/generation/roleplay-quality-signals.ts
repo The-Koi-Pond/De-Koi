@@ -67,6 +67,8 @@ const PERSONA_DELIBERATE_VERB_PATTERN =
   "(?:says?|said|asks?|asked|repl(?:y|ies|ied)|agrees?|agreed|decides?|decided|chooses?|chose|believes?|believed|thinks?|thought|wants?|wanted|intends?|intended|promises?|promised|crosses?|crossed|walks?|walked|opens?|opened|takes?|took|grabs?|grabbed|grips?|gripped|leans?|leaned|nods?|nodded|shakes?|shook|signs?|signed|accepts?|accepted|betrays?|betrayed)";
 const LONG_REQUEST_PATTERN = /\b(?:long|longer|full (?:scene|chapter)|scene draft|monologue|detailed)\b/i;
 const INTERNAL_OUTPUT_PATTERN = /<\/?(?:analysis|assistant_response|roleplay_quality|roleplay_quality_audit)\b/i;
+const EDITORIAL_DRAFT_PLACEHOLDER_PATTERN =
+  /\b(?:CREATIVE\s+BACKGROUND\s+SKIP|BACKGROUND\s+(?:SKIP|TRANSITION)|SCENE\s+(?:CHANGE|SKIP|TRANSITION))\s+HERE\b/;
 const MOJIBAKE_PATTERN = /(?:\uFFFD|\u00C3[\u0080-\u00BF]|\u00E2[\u0080-\u00BF]{2})/u;
 const MIXED_SCRIPT_WORD_PATTERN =
   /(?:\p{Script=Latin}{2,}\p{Script=Han}\p{Script=Latin}+|\p{Script=Latin}{2,}\p{Script=Cyrillic}\p{Script=Latin}+)/u;
@@ -404,6 +406,9 @@ function identityContradictionEvidence(
 }
 
 function malformedEvidence(content: string): string | null {
+  if (EDITORIAL_DRAFT_PLACEHOLDER_PATTERN.test(content)) {
+    return content.match(EDITORIAL_DRAFT_PLACEHOLDER_PATTERN)?.[0] ?? content;
+  }
   if (INTERNAL_OUTPUT_PATTERN.test(content)) return content.match(INTERNAL_OUTPUT_PATTERN)?.[0] ?? content;
   if (MOJIBAKE_PATTERN.test(content)) return content.match(MOJIBAKE_PATTERN)?.[0] ?? content;
   if (
