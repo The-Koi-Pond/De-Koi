@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Reduce automatic prose shapes in Conversation replies",
+    "source": "User report and blind A/B review of live Conversation prompt snapshots",
+    "classification": "conversation prompt quality",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Conversation generation receives the tested lightweight prose-shape guide in its existing provider call while Roleplay retains its prior guide and Game remains unchanged.",
+  "rootCause": "The previous prose-quality change deliberately applied only to Roleplay, so Conversation generation still had no bounded guidance against recurring contrast pivots, thesis restatements, and polished parallel structures.",
+  "scope": {
+    "inScope": [
+      "Conversation prose-shape guidance",
+      "Mode-owned prompt policy",
+      "Dry-run, preview, ordinary generation, regeneration, and direct fallback prompt handoff",
+      "Conversation, Roleplay, and Game routing regression coverage"
+    ],
+    "outOfScope": [
+      "Changing writer models or provider settings",
+      "Adding an agent, detector, retry, critic, or rewrite pass",
+      "Changing Roleplay guide wording",
+      "Changing Game prompts",
+      "Guaranteeing identical stochastic output for every character"
+    ],
+    "riskFlags": [
+      "prompt-agent-lorebook",
+      "conversation generation",
+      "mode separation"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "A Conversation request receives one compact mode-owned guide immediately before its final user message, without changing the existing Roleplay guide or Game prompts.",
+    "riskType": "conversation prompt behavior",
+    "entrypoints": [
+      "dryRunGeneration",
+      "startGenerationImpl",
+      "withModeProseShapeGuidance"
+    ],
+    "currentPathsOrFormats": [
+      "Conversation mode routes to src/engine/modes/chat/core/conversation-prose-guidance.ts.",
+      "Roleplay mode routes to src/engine/modes/roleplay/core/roleplay-prose-guidance.ts.",
+      "The neutral insertion primitive places the selected system guide immediately before the final user message."
+    ],
+    "outOfScopeClaims": [
+      "This change does not promise removal of every AI-shaped phrase.",
+      "This change does not alter model selection or generation parameters.",
+      "This change does not add a second generation call."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Conversation reply quality needed mode-specific prose guidance, but only the Roleplay path received a compact guide.",
+    "producer": "src/engine/modes/chat/core/conversation-prose-guidance.ts",
+    "consumer": "src/engine/generation/start-generation.ts prompt handoff",
+    "impliedContract": "Conversation may own a bounded message-writing policy without sharing Roleplay narration policy or affecting Game generation.",
+    "actualEnforcement": "The engine generation router selects a mode-owned guide, and the shared helper only inserts the selected system message before the final user turn.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Chat owns Conversation writing policy; Roleplay owns Roleplay writing policy; engine generation owns explicit dispatch.",
+    "consumerOnlyLanes": [],
+    "wrongLaneFixToAvoid": "Do not restore a writing agent, add a post-generation rewrite, or move mode-specific guide strings into a generic shared helper.",
+    "regressionProof": [
+      "Conversation routing test asserts its lighter message-shaped guide and final-user placement.",
+      "Roleplay routing test asserts its existing guide content and final-user placement.",
+      "Game routing test asserts the prompt remains unchanged.",
+      "The start-generation integration file and full repository gate pass."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Conversation receives the lightweight prose-shape guide at the final prompt boundary.",
+        "evidence": "prose-shape-guidance.spec.ts asserts the Conversation guide role, display name, message-shaped examples, exemption language, uniqueness, and insertion immediately before the final user message."
+      },
+      {
+        "claim": "The treatment improves the sampled live Conversation output without a model change.",
+        "evidence": "Five blinded matched pairs used real Conversation prompt snapshots with the same model and settings; the treatment won 4, tied 1, and lost 0."
+      },
+      {
+        "claim": "Prompt handoff callers remain valid.",
+        "evidence": "29 focused tests passed across generation-guide, mode routing, and start-generation integration."
+      },
+      {
+        "claim": "The repository shipping baseline remains green.",
+        "evidence": "pnpm check exited 0, including TypeScript, architecture, security, docs, workflow, frontend, and Rust workspace checks."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Game must not inherit Conversation or Roleplay prose policy.",
+        "evidence": "The Game negative-control test asserts the prompt is returned unchanged."
+      },
+      {
+        "claim": "Roleplay must not inherit the new Conversation wording.",
+        "evidence": "The Roleplay route asserts the prior Roleplay display name and representative guide text; line-by-line comparison found no guide-line changes."
+      },
+      {
+        "claim": "Character-appropriate rhetoric must remain allowed.",
+        "evidence": "The Conversation guide explicitly keeps targeted shapes when they fit the character, user wording, or requested style."
+      }
+    ],
+    "untestedRows": [
+      "No post-merge Pi generation has been run because the exact merged image does not exist yet.",
+      "The five-pair preference result is directional evidence, not a guarantee for every character or provider."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The blind Conversation comparison preferred the treatment 4 times with 1 tie and no baseline wins.",
+      "sourceType": "measured",
+      "evidence": "Five user-scored A/B pairs generated from live prompt snapshots with treatment identity hidden until scoring completed."
+    },
+    {
+      "description": "Conversation and Roleplay prompt strings are owned by separate mode modules.",
+      "sourceType": "derived",
+      "evidence": "Current diff places the strings under src/engine/modes/chat/core and src/engine/modes/roleplay/core; the generation router imports both explicit owners."
+    },
+    {
+      "description": "Game prompts do not receive either guide.",
+      "sourceType": "harness-proven",
+      "evidence": "The focused Game negative-control test passes and asserts exact prompt equality."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi generation",
+      "blockingCoreClaim": false,
+      "reason": "The deterministic routing contract and live A/B treatment behavior are already proven; deployment verification can only occur after merge."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "The Conversation test first failed because no guide was inserted; after implementation, 29 focused tests and the full pnpm check passed.",
+    "githubValidationPassed": false,
+    "reviewIterationFastPath": false
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "local_pass",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1235,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1235",
+    "headRefName": "fix/conversation-prose-guidance",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  }
+}
