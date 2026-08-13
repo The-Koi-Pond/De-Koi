@@ -18,7 +18,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { AddChatMessageSwipeOptions, ChatMessageListOptions, StorageGateway } from "../capabilities/storage";
 import type { SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual-assets";
-import { buildGenerationGuideMessages, withRoleplayProseShapeGuidance } from "../shared/text/generation-guide";
+import { buildGenerationGuideMessages } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { normalizeUserTimeZone } from "../shared/time/timezone";
@@ -116,6 +116,7 @@ import {
 } from "./generation-replay";
 import { loadPersonaSnapshotForChat } from "./persona-snapshot";
 import { assembleGenerationPrompt, chatSummaryForGeneration } from "./prompt-assembly";
+import { withModeProseShapeGuidance } from "./prose-shape-guidance";
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
 import {
   resolveEffectiveEmbeddingConfiguration,
@@ -4492,7 +4493,7 @@ export async function* dryRunGeneration(
     forCharacterId: readString(input.forCharacterId).trim() || null,
     regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
   };
-  const baseMessages: LlmMessage[] = withRoleplayProseShapeGuidance(
+  const baseMessages: LlmMessage[] = withModeProseShapeGuidance(
     withUserMessageRegenerationRewritePrompt(
       [...prompt, ...generationGuideMessages(input, chatForGeneration)].filter(
         (message): message is LlmMessage => !!message,
@@ -4528,7 +4529,7 @@ export async function* dryRunGeneration(
     chat: chatForGeneration,
     parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
     baseMessages,
-    previewMessages: withRoleplayProseShapeGuidance(
+    previewMessages: withModeProseShapeGuidance(
       withUserMessageRegenerationRewritePrompt(
         [...promptPreviewMessages, ...generationGuideMessages(input, chatForGeneration)].filter(
           (message): message is LlmMessage => !!message,
@@ -5031,7 +5032,7 @@ async function* startGenerationImpl(
       chatSummary: assembly.chatSummary,
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
     };
-    const baseMessages: LlmMessage[] = withRoleplayProseShapeGuidance(
+    const baseMessages: LlmMessage[] = withModeProseShapeGuidance(
       withUserMessageRegenerationRewritePrompt(
         [...prompt, ...generationGuideMessages(input, chatForGeneration)].filter(
           (message): message is LlmMessage => !!message,
@@ -5040,7 +5041,7 @@ async function* startGenerationImpl(
       ),
       readString(chatForGeneration.mode || chatForGeneration.chatMode),
     );
-    const previewMessages = withRoleplayProseShapeGuidance(
+    const previewMessages = withModeProseShapeGuidance(
       withUserMessageRegenerationRewritePrompt(
         [...promptPreviewMessages, ...generationGuideMessages(input, chatForGeneration)].filter(
           (message): message is LlmMessage => !!message,
@@ -5434,7 +5435,7 @@ async function* startGenerationImpl(
     regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
     agentInjectionOverrides,
   };
-  const baseMessagesDirect: LlmMessage[] = withRoleplayProseShapeGuidance(
+  const baseMessagesDirect: LlmMessage[] = withModeProseShapeGuidance(
     withUserMessageRegenerationRewritePrompt(
       [...(prompt ?? []), ...generationGuideMessages(input, chatForGeneration)].filter(
         (message): message is LlmMessage => !!message,
@@ -5443,7 +5444,7 @@ async function* startGenerationImpl(
     ),
     readString(chatForGeneration.mode || chatForGeneration.chatMode),
   );
-  const previewMessagesDirect = withRoleplayProseShapeGuidance(
+  const previewMessagesDirect = withModeProseShapeGuidance(
     withUserMessageRegenerationRewritePrompt(
       [
         ...(promptPreviewMessagesDirect ?? []),

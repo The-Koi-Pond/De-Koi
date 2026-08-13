@@ -31,35 +31,10 @@ const GUIDE_SOURCE_LABELS: Record<GenerationGuideSource, string> = {
   game_retry: "Game Retry Guide",
 };
 
-const ROLEPLAY_PROSE_SHAPE_GUIDANCE = [
-  "Keep prose specific to this character and moment. Avoid automatic contrast pivots, symmetrical lists, generic gestures, explanatory restatements, and summary endings unless the requested voice or scene calls for them. Preserve events, facts, intensity, point of view, and user agency.",
-  "",
-  "Examples preserving the same beat:",
-  "Automatic: It wasn't fear. Not exactly.",
-  "Cleaner: She was afraid.",
-  "",
-  "Automatic: His jaw tightened, breath slow, hands curling.",
-  "Cleaner: His hands curled.",
-  "",
-  "Automatic: A pause. A breath. A choice.",
-  "Cleaner: She paused.",
-  "",
-  "Automatic: She left. Somehow, that said everything.",
-  "Cleaner: She left.",
-].join("\n");
-
-export function withRoleplayProseShapeGuidance(
+export function insertGenerationGuideBeforeFinalUser(
   messages: readonly LlmMessage[],
-  chatMode: string | null | undefined,
+  guidance: GenerationGuideMessage,
 ): LlmMessage[] {
-  if (chatMode?.trim() !== "roleplay") return [...messages];
-
-  const guidance: GenerationGuideMessage = {
-    role: "system",
-    content: ROLEPLAY_PROSE_SHAPE_GUIDANCE,
-    contextKind: "injection",
-    displayName: "Roleplay Prose Guidance",
-  };
   let insertionIndex = messages.length;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === "user") {
