@@ -154,6 +154,7 @@ describe("SetupReadinessJourney", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   it("stays absent for a previously completed journey", () => {
@@ -168,6 +169,23 @@ describe("SetupReadinessJourney", () => {
     expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
     expect(container.textContent).toContain("Starting your conversation");
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("offers recovery when the runtime readiness check stalls", async () => {
+    vi.useFakeTimers();
+    mocks.health.mockReturnValue(new Promise(() => undefined));
+
+    await act(async () => root.render(<SetupReadinessJourney />));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(container.textContent).toContain("taking longer than expected");
+    const retry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+    expect(retry).toBeDefined();
+
+    await act(async () => retry?.click());
+
+    expect(mocks.health).toHaveBeenCalledTimes(2);
   });
 
   it("keeps progress visible while usable connections are still loading", async () => {
@@ -193,6 +211,24 @@ describe("SetupReadinessJourney", () => {
     expect(mocks.mutateAsync).toHaveBeenCalledOnce();
     expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
     expect(container.textContent).toContain("Starting your conversation");
+  });
+
+  it("retries a stalled launch without creating a second chat", async () => {
+    vi.useFakeTimers();
+    mocks.embedded.current = true;
+    mocks.mutateAsync.mockReturnValue(new Promise(() => undefined));
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    const retry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+
+    await act(async () => retry?.click());
+
+    expect(mocks.mutateAsync).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
   });
 
   it("shows setup after the web runtime is confirmed unhealthy", async () => {

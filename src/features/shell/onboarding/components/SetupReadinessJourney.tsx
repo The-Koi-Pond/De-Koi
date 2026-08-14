@@ -27,6 +27,7 @@ import {
 
 type Health = RemoteRuntimeHealthCheck | { status: "checking"; message: string };
 type CheckedHealth = { checkedUrl: string; result: Health };
+const SETUP_PROGRESS_TIMEOUT_MS = 15_000;
 
 function pendingLaunchLabel(mode: "conversation" | "roleplay" | "game"): string {
   if (mode === "roleplay") return "Starting your roleplay...";
@@ -38,6 +39,9 @@ export function SetupReadinessJourney() {
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
   const [checkedHealth, setCheckedHealth] = useState<CheckedHealth | null>(null);
   const [launchError, setLaunchError] = useState<{ message: string; canContinueWithDefaults: boolean } | null>(null);
+  const [healthCheckAttempt, setHealthCheckAttempt] = useState(0);
+  const [progressAttempt, setProgressAttempt] = useState(0);
+  const [timedOutProgressKey, setTimedOutProgressKey] = useState<string | null>(null);
   const intent = useSetupJourneyStore((state) => state.intent);
   const createChat = useCreateChat();
   const updateChat = useUpdateChat();
@@ -114,9 +118,11 @@ export function SetupReadinessJourney() {
   const runtimeTarget = remoteRuntimeUrl.trim() || sameOriginRemoteRuntimeUrl();
   const health = checkedHealth?.checkedUrl === runtimeTarget ? checkedHealth.result : null;
   const journeyActive = !!intent && !intent.completed;
-  const { data: connections, isPending: connectionsPending } = useConnections(
-    journeyActive && (embedded || health?.status === "ok"),
-  );
+  const {
+    data: connections,
+    isPending: connectionsPending,
+    refetch: refetchConnections,
+  } = useConnections(journeyActive && (embedded || health?.status === "ok"));
 
   useEffect(() => {
     if (!journeyActive || embedded || !runtimeTarget) {
@@ -137,7 +143,7 @@ export function SetupReadinessJourney() {
           });
       });
     return () => controller.abort();
-  }, [embedded, journeyActive, runtimeTarget]);
+  }, [embedded, healthCheckAttempt, journeyActive, runtimeTarget]);
 
   const languageConnections = useMemo(
     () =>
@@ -207,9 +213,51 @@ export function SetupReadinessJourney() {
     launchChat();
   }, [intent, launchChat, setupReady]);
 
+  const progressKey = intent ? `${intent.journeyId}:${progressAttempt}` : null;
+  const progressActive =
+    !!intent && !intent.dismissed && !intent.completed && !launchError && (!readinessKnown || setupReady);
+  useEffect(() => {
+    if (!progressActive || !progressKey) return;
+    const timeout = window.setTimeout(() => setTimedOutProgressKey(progressKey), SETUP_PROGRESS_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [progressActive, progressKey]);
+
+  const retryProgress = () => {
+    setProgressAttempt((attempt) => attempt + 1);
+    if (!readinessKnown) {
+      if (!embedded && health?.status !== "ok") setHealthCheckAttempt((attempt) => attempt + 1);
+      else void refetchConnections();
+      return;
+    }
+    launchChat();
+  };
+
   if (!intent || intent.completed) return null;
 
-  if (!readinessKnown || (setupReady && !launchError)) {
+  if (progressActive && timedOutProgressKey === progressKey) {
+    return (
+      <div role="alert" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm">
+        <p className="font-medium text-[var(--foreground)]">Chat setup is taking longer than expected.</p>
+        <p className="mt-1 text-[var(--muted-foreground)]">
+          De-Koi may still finish in the background. Retry the current step or cancel this setup.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className="rounded-lg bg-[var(--primary)] px-3 py-1.5" onClick={retryProgress}>
+            Retry
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5"
+            onClick={() => useSetupJourneyStore.getState().dismiss()}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!intent.dismissed && (!readinessKnown || (setupReady && !launchError))) {
     return (
       <div
         role="status"
