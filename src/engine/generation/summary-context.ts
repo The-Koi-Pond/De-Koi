@@ -4,6 +4,7 @@ export interface SummaryContextProjection {
   text: string | null;
   estimatedTokens: number;
   coversPriorHistory: boolean;
+  coveredMessageIds: string[];
   omittedDailyCount: number;
   deduplicatedDailyCount: number;
   budgetOmittedDailyCount: number;
@@ -153,6 +154,10 @@ export function buildSummaryContextProjection(input: {
     break;
   }
   const text = selected.map((entry) => entry.text).join("\n\n") || null;
+  const completeRollingProjection = selected.some((entry) => entry.block.kind === "rolling" && entry.complete);
+  const coveredMessageIds = completeRollingProjection
+    ? Array.from(new Set(rollingEntries.flatMap((entry) => entry.messageIds ?? [])))
+    : [];
   let selectedDailyCount = 0;
   let completeSelectedDailyCount = 0;
   let selectedWeeklyCount = 0;
@@ -166,10 +171,10 @@ export function buildSummaryContextProjection(input: {
   return {
     text,
     estimatedTokens: text ? Math.ceil(text.length / 4) : 0,
-    // Dated summary keys and partial rolling metadata do not prove a contiguous
-    // summarized range through the retained history tail. Fail closed until the
-    // caller can provide both boundaries and they can be verified here.
-    coversPriorHistory: false,
+    // Dated summaries and truncated rolling text never authorize compaction.
+    // Prompt assembly still verifies that these ids form a contiguous prefix.
+    coversPriorHistory: coveredMessageIds.length > 0,
+    coveredMessageIds,
     omittedDailyCount: allDailyEntries.length - selectedDailyCount,
     deduplicatedDailyCount: allDailyEntries.length - dailyEntries.length,
     budgetOmittedDailyCount: dailyEntries.length - completeSelectedDailyCount,

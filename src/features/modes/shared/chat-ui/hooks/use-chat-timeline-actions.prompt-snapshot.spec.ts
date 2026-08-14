@@ -67,4 +67,33 @@ describe("promptSnapshotToPeekPromptData", () => {
       expect.arrayContaining([expect.objectContaining({ kind: "character", label: "Character Context" })]),
     );
   });
+
+  it("reconstructs compact previews from request references and inline differences", () => {
+    const result = promptSnapshotToPeekPromptData({
+      messages: [
+        { role: "system", content: "Merged provider prompt", images: ["data:image/png;base64,large"] },
+        { role: "user", content: "Continue", contextKind: "history" },
+      ],
+      previewMessageRefs: [
+        { message: { role: "system", content: "Character card", contextKind: "character" } },
+        { messageIndex: 1 },
+      ],
+      parameters: { maxTokens: 400 },
+    });
+
+    expect(result?.previewMessages).toEqual([
+      { role: "system", content: "Character card", contextKind: "character" },
+      { role: "user", content: "Continue", contextKind: "history" },
+    ]);
+  });
+
+  it("continues reading legacy full preview arrays", () => {
+    const result = promptSnapshotToPeekPromptData({
+      messages: [{ role: "user", content: "Provider request" }],
+      previewMessages: [{ role: "user", content: "Legacy preview", contextKind: "history" }],
+      parameters: {},
+    });
+
+    expect(result?.previewMessages?.[0]?.content).toBe("Legacy preview");
+  });
 });

@@ -274,7 +274,7 @@ describe("buildSummaryContextProjection", () => {
     expect(projection.coversPriorHistory).toBe(false);
   });
 
-  it("does not compact from rolling source metadata without a retained-tail boundary", () => {
+  it("reports message-id coverage only when the complete rolling summary is projected", () => {
     const baseEntry = {
       kind: "rolling",
       title: "Continuity",
@@ -297,9 +297,28 @@ describe("buildSummaryContextProjection", () => {
       },
       budgetTokens: 512,
     });
+    const truncated = buildSummaryContextProjection({
+      chat: {
+        metadata: {
+          summaryEntries: [
+            {
+              ...baseEntry,
+              id: "truncated",
+              origin: "manual",
+              content: "long continuity ".repeat(100),
+              messageIds: ["message-1"],
+            },
+          ],
+        },
+      },
+      budgetTokens: 8,
+    });
 
     expect(uncovered.coversPriorHistory).toBe(false);
-    expect(covered.coversPriorHistory).toBe(false);
+    expect(covered.coversPriorHistory).toBe(true);
+    expect(covered.coveredMessageIds).toEqual(["message-1"]);
+    expect(truncated.coversPriorHistory).toBe(false);
+    expect(truncated.coveredMessageIds).toEqual([]);
   });
 
   it("deduplicates a synthetic twelve-week projection while staying under budget", () => {

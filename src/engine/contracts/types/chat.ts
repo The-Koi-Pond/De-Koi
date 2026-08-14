@@ -756,7 +756,10 @@ export interface GenerationContextAttribution {
 }
 export interface GenerationPromptSnapshot {
   messages: GenerationPromptSnapshotMessage[];
+  /** Legacy full preview payload retained for backward-compatible reads. */
   previewMessages?: GenerationPromptSnapshotMessage[];
+  /** Compact preview order: reuse a request message by index or store only a differing message inline. */
+  previewMessageRefs?: Array<{ messageIndex: number } | { message: GenerationPromptSnapshotMessage }>;
   parameters: Record<string, unknown>;
   generationProfile?: {
     profileId: string;

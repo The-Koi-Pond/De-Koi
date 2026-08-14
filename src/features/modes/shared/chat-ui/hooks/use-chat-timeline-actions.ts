@@ -16,6 +16,7 @@ import { BUILT_IN_AGENTS } from "../../../../../engine/contracts/types/agent";
 import { buildGuidedGenerationInstructionMessage } from "../../../../../engine/shared/text/generation-guide";
 import { buildPromptBudgetEstimate } from "../../../../../engine/generation/prompt-budget";
 import type { ContextFitDecision } from "../../../../../engine/generation/context-window";
+import { reconstructPromptSnapshotPreview } from "../../../../../engine/shared/prompt-snapshot-preview";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
@@ -137,7 +138,9 @@ function contextFitDecisionFromSnapshot(value: unknown): ContextFitDecision | nu
 export function promptSnapshotToPeekPromptData(value: unknown): PeekPromptData | null {
   const snapshot = readRecord(value);
   const messages = promptSnapshotMessagesToPeekMessages(snapshot.messages);
-  const previewMessages = promptSnapshotMessagesToPeekMessages(snapshot.previewMessages);
+  const previewMessages = promptSnapshotMessagesToPeekMessages(
+    reconstructPromptSnapshotPreview(snapshot.messages, snapshot.previewMessageRefs, snapshot.previewMessages),
+  );
   if (messages.length === 0) return null;
   const parameters = readRecord(snapshot.parameters);
   const contextFitDecision = contextFitDecisionFromSnapshot(snapshot.contextFitDecision);

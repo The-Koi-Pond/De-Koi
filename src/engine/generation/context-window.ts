@@ -11,8 +11,10 @@ const CONTEXT_OVERFLOW_MESSAGE =
 
 type ContextConnection = Record<string, unknown> | null | undefined;
 type ContextParameters = Record<string, unknown> | null | undefined;
-type ContextFitOptions = {
+export type ContextFitOptions = {
   tools?: LlmToolDefinition[] | null;
+  /** Optional caller policy cap applied in addition to the provider's hard limit. */
+  maxContextOverride?: number;
 };
 
 export type ContextFitDecision = {
@@ -339,7 +341,10 @@ export function fitLlmRequestToContextWindow(
   connection?: Record<string, unknown> | null,
   options: ContextFitOptions = {},
 ): ContextWindowFit {
-  const maxContext = effectiveMaxContext(connection, parameters);
+  const maxContext = minPositiveContext(
+    effectiveMaxContext(connection, parameters),
+    readPositiveContext(options.maxContextOverride),
+  );
   if (maxContext <= 0) return { messages, parameters, decision: null };
 
   const requestedMaxTokens = Math.max(1, Math.trunc(readNumber(parameters.maxTokens, DEFAULT_RESPONSE_TOKENS)));
