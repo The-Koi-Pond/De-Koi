@@ -124,7 +124,7 @@ function webResearchStorage(presentation: "quiet" | "visible", policy: "ask" | "
   return { storage, messages };
 }
 
-function scriptedWebResearchLlm(finalText = "Final sourced answer."): {
+function scriptedWebResearchLlm(finalText = "Final sourced answer.", searchTurns = 1): {
   llm: LlmGateway;
   requests: LlmRequest[];
 } {
@@ -143,15 +143,15 @@ function scriptedWebResearchLlm(finalText = "Final sourced answer."): {
         }),
       },
     },
-    {
+    ...Array.from({ length: searchTurns }, (_, index) => ({
       text: "Let me pull the sources. ",
       thinking: "I should use the approved exact query.",
       toolCall: {
-        id: "search-1",
+        id: `search-${index + 1}`,
         name: "search_character_web",
         arguments: JSON.stringify({ maxResults: 4 }),
       },
-    },
+    })),
     { text: finalText, thinking: "I am synthesizing the researched sources." },
   ];
   const llm: LlmGateway = {
@@ -182,7 +182,7 @@ function scriptedWebResearchLlm(finalText = "Final sourced answer."): {
 async function runWebResearchPresentation(
   presentation: "quiet" | "visible",
   policy: "ask" | "always" = "always",
-  options: { searchFailure?: boolean; finalText?: string; captureFailure?: boolean } = {},
+  options: { searchFailure?: boolean; finalText?: string; captureFailure?: boolean; searchTurns?: number } = {},
 ) {
   const { storage, messages } = webResearchStorage(presentation, policy);
   const events: GenerationEvent[] = [];
@@ -207,7 +207,7 @@ async function runWebResearchPresentation(
       },
     },
   } as unknown as IntegrationGateway;
-  const scripted = scriptedWebResearchLlm(options.finalText);
+  const scripted = scriptedWebResearchLlm(options.finalText, options.searchTurns);
 
   let failure: unknown = null;
   try {
@@ -310,5 +310,22 @@ describe("startGeneration character web research presentation", () => {
 
     expect(failure).toBeInstanceOf(Error);
     expect(messages.filter((message) => message.role === "assistant")).toEqual([]);
+  });
+
+  it("forces a final prose turn after the web research tool iteration cap", async () => {
+    const { events, failure, messages, requests } = await runWebResearchPresentation("quiet", "always", {
+      searchTurns: 7,
+      captureFailure: true,
+    });
+    const tokenText = events
+      .filter((event) => event.type === "token")
+      .map((event) => String(event.data))
+      .join("");
+
+    expect(failure).toBeNull();
+    expect(tokenText).toBe("Final sourced answer.");
+    expect(requests).toHaveLength(9);
+    expect(requests.at(-1)?.tools).toBeUndefined();
+    expect(messages.find((message) => message.role === "assistant")?.content).toBe("Final sourced answer.");
   });
 });
