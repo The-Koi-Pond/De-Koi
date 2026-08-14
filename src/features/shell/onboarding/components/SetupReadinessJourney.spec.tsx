@@ -173,7 +173,22 @@ describe("SetupReadinessJourney", () => {
 
   it("offers recovery when the runtime readiness check stalls", async () => {
     vi.useFakeTimers();
-    mocks.health.mockReturnValue(new Promise(() => undefined));
+    let resolveFirst!: (result: { status: "ok"; message: string; health: { ok: boolean; writable: boolean } }) => void;
+    let resolveSecond!: (result: { status: "unreachable"; message: string }) => void;
+    const signals: AbortSignal[] = [];
+    mocks.health
+      .mockImplementationOnce((_url: unknown, options: { signal: AbortSignal }) => {
+        signals.push(options.signal);
+        return new Promise((resolve) => {
+          resolveFirst = resolve;
+        });
+      })
+      .mockImplementationOnce((_url: unknown, options: { signal: AbortSignal }) => {
+        signals.push(options.signal);
+        return new Promise((resolve) => {
+          resolveSecond = resolve;
+        });
+      });
 
     await act(async () => root.render(<SetupReadinessJourney />));
     await act(async () => vi.advanceTimersByTimeAsync(15_000));
@@ -186,6 +201,17 @@ describe("SetupReadinessJourney", () => {
     await act(async () => retry?.click());
 
     expect(mocks.health).toHaveBeenCalledTimes(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+
+    await act(async () => resolveSecond({ status: "unreachable", message: "Still offline" }));
+    expect(container.textContent).toContain("Repair server connection");
+
+    await act(async () =>
+      resolveFirst({ status: "ok", message: "Stale success", health: { ok: true, writable: true } }),
+    );
+    expect(container.textContent).toContain("Repair server connection");
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
   });
 
   it("keeps progress visible while usable connections are still loading", async () => {
