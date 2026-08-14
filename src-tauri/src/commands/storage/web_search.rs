@@ -8,11 +8,16 @@ use std::time::{Duration, Instant};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 const THROTTLE_COOLDOWN: Duration = Duration::from_secs(60);
-const PROVIDERS: [WebSearchProvider; 2] = [WebSearchProvider::Brave, WebSearchProvider::Bing];
+const PROVIDERS: [WebSearchProvider; 3] = [
+    WebSearchProvider::Brave,
+    WebSearchProvider::DuckDuckGo,
+    WebSearchProvider::Bing,
+];
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum WebSearchProvider {
     Brave,
+    DuckDuckGo,
     Bing,
 }
 
@@ -151,6 +156,7 @@ impl WebSearchProvider {
     fn name(self) -> &'static str {
         match self {
             Self::Brave => "brave",
+            Self::DuckDuckGo => "duckduckgo",
             Self::Bing => "bing",
         }
     }
@@ -158,6 +164,7 @@ impl WebSearchProvider {
     fn parse(self, html: &str, max_results: usize) -> Vec<WebSearchResult> {
         match self {
             Self::Brave => extract_brave_results(html, max_results),
+            Self::DuckDuckGo => extract_duckduckgo_results(html, max_results),
             Self::Bing => extract_bing_results(html, max_results),
         }
     }
@@ -166,6 +173,7 @@ impl WebSearchProvider {
 fn provider_url(provider: WebSearchProvider, query: &str) -> AppResult<Url> {
     let endpoint = match provider {
         WebSearchProvider::Brave => "https://search.brave.com/search",
+        WebSearchProvider::DuckDuckGo => "https://html.duckduckgo.com/html/",
         WebSearchProvider::Bing => "https://www.bing.com/search",
     };
     Url::parse_with_params(endpoint, &[("q", query)])
@@ -311,6 +319,97 @@ fn extract_brave_results(html: &str, max_results: usize) -> Vec<WebSearchResult>
     results
 }
 
+fn extract_duckduckgo_results(html: &str, max_results: usize) -> Vec<WebSearchResult> {
+    const RESULT_MARKER: &str = "<div class=\"result results_links";
+    let mut results = Vec::new();
+    let mut rest = html;
+    while results.len() < max_results {
+        let Some(result_start) = rest.find(RESULT_MARKER) else {
+            break;
+        };
+        rest = &rest[result_start..];
+        let next_result = rest[RESULT_MARKER.len()..]
+            .find(RESULT_MARKER)
+            .map(|index| index + RESULT_MARKER.len())
+            .unwrap_or(rest.len());
+        let block = &rest[..next_result];
+        let Some(title_class) = block.find("class=\"result__a\"") else {
+            rest = &rest[next_result..];
+            continue;
+        };
+        let Some(anchor_start) = block[..title_class].rfind("<a") else {
+            rest = &rest[next_result..];
+            continue;
+        };
+        let anchor = &block[anchor_start..];
+        let Some(tag_end) = anchor.find('>') else {
+            rest = &rest[next_result..];
+            continue;
+        };
+        let href = html_attr_value(&anchor[..tag_end], "href").unwrap_or_default();
+        let title = anchor[tag_end + 1..]
+            .find("</a>")
+            .map(|end| decode_html_entities(&strip_html(&anchor[tag_end + 1..tag_end + 1 + end])))
+            .unwrap_or_default();
+        let snippet = html_anchor_class_text(block, "result__snippet");
+        let Some(url) = duckduckgo_source_url(&href) else {
+            rest = &rest[next_result..];
+            continue;
+        };
+        if !results
+            .iter()
+            .any(|result: &WebSearchResult| result.url == url)
+        {
+            results.push(WebSearchResult {
+                title,
+                url,
+                snippet,
+            });
+        }
+        rest = &rest[next_result..];
+    }
+    results
+}
+
+fn duckduckgo_source_url(href: &str) -> Option<String> {
+    let absolute = if href.starts_with("//") {
+        format!("https:{href}")
+    } else {
+        href.to_string()
+    };
+    let parsed = Url::parse(&absolute).ok()?;
+    if parsed
+        .host_str()
+        .is_some_and(|host| host == "duckduckgo.com" || host.ends_with(".duckduckgo.com"))
+    {
+        let target = parsed
+            .query_pairs()
+            .find_map(|(key, value)| (key == "uddg").then(|| value.into_owned()))?;
+        let target_url = Url::parse(&target).ok()?;
+        return matches!(target_url.scheme(), "http" | "https").then(|| target_url.to_string());
+    }
+    matches!(parsed.scheme(), "http" | "https").then(|| parsed.to_string())
+}
+
+fn html_anchor_class_text(value: &str, class_marker: &str) -> String {
+    let Some(class_start) = value.find(class_marker) else {
+        return String::new();
+    };
+    let anchor = &value[class_start..];
+    let Some(tag_end) = anchor.find('>') else {
+        return String::new();
+    };
+    let text = anchor[tag_end + 1..]
+        .find("</a>")
+        .map(|end| decode_html_entities(&strip_html(&anchor[tag_end + 1..tag_end + 1 + end])))
+        .unwrap_or_default();
+    [".", ",", ";", ":", "!", "?"]
+        .into_iter()
+        .fold(text, |value, punctuation| {
+            value.replace(&format!(" {punctuation}"), punctuation)
+        })
+}
+
 fn html_attr_value(tag: &str, attr: &str) -> Option<String> {
     let double_quote = format!("{attr}=\"");
     if let Some(start) = tag.find(&double_quote) {
@@ -395,8 +494,8 @@ fn strip_html(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_bing_results, extract_brave_results, request_failure_message, search_with_fetcher,
-        ProviderHttpResponse, WebSearchProvider,
+        extract_bing_results, extract_brave_results, extract_duckduckgo_results,
+        request_failure_message, search_with_fetcher, ProviderHttpResponse, WebSearchProvider,
     };
     use std::collections::{HashMap, VecDeque};
     use std::sync::{Arc, Mutex};
@@ -416,6 +515,16 @@ mod tests {
           <div class="title search-snippet-title">Eclipse &amp; Moon: 2 &lt; 3</div>
           <div class="generic-snippet">I&amp;#x27;m reading current eclipse facts.</div>
         </a>
+      </div>
+    "#;
+    const DUCKDUCKGO_FIXTURE: &str = r#"
+      <div class="result results_links results_links_deep web-result ">
+        <div class="links_main links_deep result__body">
+          <h2 class="result__title">
+            <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.librarything.com%2Fwork%2F27223013%2F234392062&amp;rut=tracking">Initiation | Alethea Faust | Work - LibraryThing</a>
+          </h2>
+          <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.librarything.com%2Fwork%2F27223013%2F234392062&amp;rut=tracking"><b>Book</b> information for <b>Initiation</b> by <b>Alethea Faust</b>.</a>
+        </div>
       </div>
     "#;
 
@@ -439,6 +548,25 @@ mod tests {
         assert_eq!(results[0].snippet, "I'm reading current eclipse facts.");
     }
 
+    #[test]
+    fn parses_duckduckgo_results_with_canonical_source_urls() {
+        let results = extract_duckduckgo_results(DUCKDUCKGO_FIXTURE, 4);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].title,
+            "Initiation | Alethea Faust | Work - LibraryThing"
+        );
+        assert_eq!(
+            results[0].url,
+            "https://www.librarything.com/work/27223013/234392062"
+        );
+        assert_eq!(
+            results[0].snippet,
+            "Book information for Initiation by Alethea Faust."
+        );
+    }
+
     #[tokio::test]
     async fn transport_error_summary_does_not_echo_the_query_url() {
         let error = reqwest::Client::new()
@@ -454,7 +582,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn throttled_brave_falls_through_to_bing() {
+    async fn throttled_brave_falls_through_to_duckduckgo() {
         let responses = Arc::new(Mutex::new(VecDeque::from([
             (
                 WebSearchProvider::Brave,
@@ -464,10 +592,10 @@ mod tests {
                 },
             ),
             (
-                WebSearchProvider::Bing,
+                WebSearchProvider::DuckDuckGo,
                 ProviderHttpResponse {
                     status: 200,
-                    body: BING_FIXTURE.to_string(),
+                    body: DUCKDUCKGO_FIXTURE.to_string(),
                 },
             ),
         ])));
@@ -491,10 +619,13 @@ mod tests {
             },
         )
         .await
-        .expect("Bing fallback should succeed");
+        .expect("DuckDuckGo fallback should succeed");
 
-        assert_eq!(response.provider, WebSearchProvider::Bing);
-        assert_eq!(response.results[0].url, "https://www.nasa.gov/gateway/");
+        assert_eq!(response.provider, WebSearchProvider::DuckDuckGo);
+        assert_eq!(
+            response.results[0].url,
+            "https://www.librarything.com/work/27223013/234392062"
+        );
     }
 
     #[tokio::test]
@@ -509,10 +640,10 @@ mod tests {
                 },
             ),
             (
-                WebSearchProvider::Bing,
+                WebSearchProvider::DuckDuckGo,
                 ProviderHttpResponse {
                     status: 200,
-                    body: BING_FIXTURE.to_string(),
+                    body: DUCKDUCKGO_FIXTURE.to_string(),
                 },
             ),
         ])));
@@ -544,7 +675,7 @@ mod tests {
                 Box::pin(async move {
                     Ok(ProviderHttpResponse {
                         status: 200,
-                        body: BING_FIXTURE.to_string(),
+                        body: DUCKDUCKGO_FIXTURE.to_string(),
                     })
                 })
             }
@@ -554,9 +685,9 @@ mod tests {
 
         assert_eq!(
             seen.lock().expect("seen provider lock").as_slice(),
-            &[WebSearchProvider::Bing]
+            &[WebSearchProvider::DuckDuckGo]
         );
-        assert_eq!(response.provider, WebSearchProvider::Bing);
+        assert_eq!(response.provider, WebSearchProvider::DuckDuckGo);
     }
 
     #[tokio::test]
@@ -567,6 +698,13 @@ mod tests {
                 ProviderHttpResponse {
                     status: 500,
                     body: BRAVE_FIXTURE.to_string(),
+                },
+            ),
+            (
+                WebSearchProvider::DuckDuckGo,
+                ProviderHttpResponse {
+                    status: 503,
+                    body: String::new(),
                 },
             ),
             (
@@ -619,17 +757,17 @@ mod tests {
                     } else {
                         Ok(ProviderHttpResponse {
                             status: 200,
-                            body: BING_FIXTURE.to_string(),
+                            body: DUCKDUCKGO_FIXTURE.to_string(),
                         })
                     }
                 })
             }
         })
         .await
-        .expect("Bing fallback should succeed");
+        .expect("DuckDuckGo fallback should succeed");
 
         assert_eq!(*calls.lock().expect("call count lock"), 2);
-        assert_eq!(response.provider, WebSearchProvider::Bing);
+        assert_eq!(response.provider, WebSearchProvider::DuckDuckGo);
     }
 
     #[tokio::test]
@@ -643,10 +781,10 @@ mod tests {
                 },
             ),
             (
-                WebSearchProvider::Bing,
+                WebSearchProvider::DuckDuckGo,
                 ProviderHttpResponse {
                     status: 200,
-                    body: BING_FIXTURE.to_string(),
+                    body: DUCKDUCKGO_FIXTURE.to_string(),
                 },
             ),
         ])));
@@ -670,9 +808,9 @@ mod tests {
             },
         )
         .await
-        .expect("Bing fallback should succeed");
+        .expect("DuckDuckGo fallback should succeed");
 
-        assert_eq!(response.provider, WebSearchProvider::Bing);
+        assert_eq!(response.provider, WebSearchProvider::DuckDuckGo);
         assert_eq!(response.results.len(), 1);
     }
 
