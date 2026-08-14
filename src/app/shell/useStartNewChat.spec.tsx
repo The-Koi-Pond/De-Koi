@@ -6,6 +6,14 @@ const mocks = vi.hoisted(() => ({
   begin: vi.fn(),
   closeAllDetails: vi.fn(),
   createChat: { mutate: vi.fn(), isPending: false },
+  intent: {
+    current: null as null | {
+      journeyId: string;
+      mode: "conversation" | "roleplay" | "game";
+      dismissed: boolean;
+      completed: boolean;
+    },
+  },
   setPendingNewChatMode: vi.fn(),
 }));
 
@@ -31,7 +39,9 @@ vi.mock("../../shared/stores/chat.store", () => {
   return { useChatStore };
 });
 vi.mock("../../shared/stores/setup-journey.store", () => ({
-  useSetupJourneyStore: { getState: () => ({ begin: mocks.begin }) },
+  useSetupJourneyStore: {
+    getState: () => ({ begin: mocks.begin, intent: mocks.intent.current }),
+  },
 }));
 vi.mock("../../shared/stores/ui.store", () => {
   const state = {
@@ -63,6 +73,7 @@ describe("useStartNewChat", () => {
     mocks.begin.mockReset();
     mocks.closeAllDetails.mockReset();
     mocks.createChat.mutate.mockReset();
+    mocks.intent.current = null;
     mocks.setPendingNewChatMode.mockReset();
   });
 
@@ -81,5 +92,21 @@ describe("useStartNewChat", () => {
     expect(mocks.begin).toHaveBeenCalledWith("conversation");
     expect(mocks.setPendingNewChatMode).toHaveBeenCalledWith("conversation");
     expect(mocks.createChat.mutate).not.toHaveBeenCalled();
+  });
+
+  it("ignores repeat starts while a setup journey is already active", async () => {
+    mocks.intent.current = {
+      journeyId: "journey-1",
+      mode: "conversation",
+      dismissed: false,
+      completed: false,
+    };
+    act(() => root.render(<Harness />));
+
+    await act(async () => startNewChat("conversation"));
+
+    expect(mocks.closeAllDetails).not.toHaveBeenCalled();
+    expect(mocks.begin).not.toHaveBeenCalled();
+    expect(mocks.setPendingNewChatMode).not.toHaveBeenCalled();
   });
 });

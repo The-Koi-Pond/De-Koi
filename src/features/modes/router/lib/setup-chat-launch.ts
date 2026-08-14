@@ -25,6 +25,8 @@ export class SetupPresetApplicationError extends Error {
   }
 }
 
+class SetupLaunchDismissedError extends Error {}
+
 export interface ClaimedSetupLaunch {
   token: number;
   journeyId: string;
@@ -136,6 +138,13 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
       let characterContext = effectiveClaim.originCharacterId && dependencies.resolveCharacterLaunchContext
         ? await dependencies.resolveCharacterLaunchContext(effectiveClaim.originCharacterId)
         : null;
+      const throwIfCurrentJourneyInactive = () => {
+        const currentIntent = dependencies.getCurrentLaunchRequest?.()?.intent;
+        if (currentIntent?.journeyId === effectiveClaim.journeyId && (currentIntent.dismissed || currentIntent.completed)) {
+          throw new SetupLaunchDismissedError();
+        }
+      };
+      throwIfCurrentJourneyInactive();
       const createInput = {
         name: characterContext?.characterName
           ? `${characterContext.characterName} - ${modeLabel(effectiveClaim.mode)}`
@@ -172,6 +181,7 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
 
       const stabilizeIdentity = async (cleanup?: () => Promise<void>): Promise<boolean> => {
         const currentRequest = dependencies.getCurrentLaunchRequest?.();
+        throwIfCurrentJourneyInactive();
         if (!currentRequest?.intent?.journeyId || currentRequest.intent.journeyId === effectiveClaim.journeyId) {
           return false;
         }
@@ -262,8 +272,9 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
     try {
       return await promise;
     } catch (error) {
-      if (chatCreated && !dependencies.getRecovery?.()) unrecoverableFailure = { error };
       for (const journeyId of journeyIds) claimedJourneyIds.delete(journeyId);
+      if (error instanceof SetupLaunchDismissedError) return null;
+      if (chatCreated && !dependencies.getRecovery?.()) unrecoverableFailure = { error };
       throw error;
     } finally {
       if (activeFlight?.promise === promise) activeFlight = null;

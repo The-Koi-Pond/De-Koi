@@ -174,6 +174,33 @@ describe("setup chat launch orchestration", () => {
     expect(complete).toHaveBeenCalledOnce();
   });
 
+  it("preserves recovery without finalizing a journey dismissed during creation", async () => {
+    let resolveCreate!: (chat: { id: string }) => void;
+    let currentIntent = intent();
+    let recovery = null as import("../../../../engine/onboarding").SetupJourneyRecovery | null;
+    const createChat = vi.fn(() => new Promise<{ id: string }>((resolve) => { resolveCreate = resolve; }));
+    const applyStarredPreset = vi.fn();
+    const complete = vi.fn();
+    const launch = createSetupChatLaunchOrchestrator({
+      createChat,
+      applyStarredPreset,
+      complete,
+      getCurrentLaunchRequest: () => ({ intent: currentIntent, ready: true, usableConnectionIds: ["conn-1"] }),
+      getRecovery: () => recovery,
+      recordRecovery: (next) => { recovery = next; },
+      clearRecovery: () => { recovery = null; },
+    });
+    const pending = launch.launch({ intent: currentIntent, ready: true, usableConnectionIds: ["conn-1"] });
+
+    currentIntent = { ...currentIntent, dismissed: true };
+    resolveCreate({ id: "chat-1" });
+
+    await expect(pending).resolves.toBeNull();
+    expect(recovery).toEqual(expect.objectContaining({ createdChatId: "chat-1", stage: "created" }));
+    expect(applyStarredPreset).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
   it("coalesces an intent replacement while creation is in flight without orphaning the chat", async () => {
     let resolveCreate!: (chat: { id: string }) => void;
     const createChat = vi.fn(() => new Promise<{ id: string }>((resolve) => { resolveCreate = resolve; }));

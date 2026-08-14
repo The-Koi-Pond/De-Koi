@@ -154,6 +154,7 @@ describe("SetupReadinessJourney", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   it("stays absent for a previously completed journey", () => {
@@ -162,21 +163,98 @@ describe("SetupReadinessJourney", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("does not offer or create chat before web runtime readiness", async () => {
+  it("shows immediate progress before web runtime readiness", async () => {
     mocks.health.mockReturnValue(new Promise(() => undefined));
     await act(async () => root.render(<SetupReadinessJourney />));
-    expect(container.textContent).toBe("");
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
+    expect(container.textContent).toContain("Starting your conversation");
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it("stays absent while usable connections are still loading", async () => {
+  it("offers recovery when the runtime readiness check stalls", async () => {
+    vi.useFakeTimers();
+    let resolveFirst!: (result: { status: "ok"; message: string; health: { ok: boolean; writable: boolean } }) => void;
+    let resolveSecond!: (result: { status: "unreachable"; message: string }) => void;
+    const signals: AbortSignal[] = [];
+    mocks.health
+      .mockImplementationOnce((_url: unknown, options: { signal: AbortSignal }) => {
+        signals.push(options.signal);
+        return new Promise((resolve) => {
+          resolveFirst = resolve;
+        });
+      })
+      .mockImplementationOnce((_url: unknown, options: { signal: AbortSignal }) => {
+        signals.push(options.signal);
+        return new Promise((resolve) => {
+          resolveSecond = resolve;
+        });
+      });
+
+    await act(async () => root.render(<SetupReadinessJourney />));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(container.textContent).toContain("taking longer than expected");
+    const retry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+    expect(retry).toBeDefined();
+
+    await act(async () => retry?.click());
+
+    expect(mocks.health).toHaveBeenCalledTimes(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+
+    await act(async () => resolveSecond({ status: "unreachable", message: "Still offline" }));
+    expect(container.textContent).toContain("Repair server connection");
+
+    await act(async () =>
+      resolveFirst({ status: "ok", message: "Stale success", health: { ok: true, writable: true } }),
+    );
+    expect(container.textContent).toContain("Repair server connection");
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("keeps progress visible while usable connections are still loading", async () => {
     mocks.embedded.current = true;
     mocks.connectionsPending.current = true;
 
     await act(async () => root.render(<SetupReadinessJourney />));
 
-    expect(container.textContent).toBe("");
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
+    expect(container.textContent).toContain("Starting your conversation");
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("keeps progress visible until the created chat is activated", async () => {
+    mocks.embedded.current = true;
+    mocks.mutateAsync.mockReturnValue(new Promise(() => undefined));
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+    });
+
+    expect(mocks.mutateAsync).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
+    expect(container.textContent).toContain("Starting your conversation");
+  });
+
+  it("retries a stalled launch without creating a second chat", async () => {
+    vi.useFakeTimers();
+    mocks.embedded.current = true;
+    mocks.mutateAsync.mockReturnValue(new Promise(() => undefined));
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    const retry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+
+    await act(async () => retry?.click());
+
+    expect(mocks.mutateAsync).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
   });
 
   it("shows setup after the web runtime is confirmed unhealthy", async () => {

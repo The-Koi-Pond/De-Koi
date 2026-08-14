@@ -48,6 +48,7 @@ import {
 } from "../../features/catalog/chats/sidebar";
 import { useChatSurfaceCharacterSummariesByIds } from "../../features/catalog/characters/index";
 import { useChatStore } from "../../shared/stores/chat.store";
+import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { confirmDiscardPendingAppWork } from "../../shared/lib/app-close-guard";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
@@ -60,7 +61,7 @@ import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import type { ChatFolder } from "../../engine/contracts/types/chat";
 import { Modal } from "../../shared/components/ui/Modal";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
-import { useStartNewChat } from "./useStartNewChat";
+import { isNewChatJourneyPending, useStartNewChat } from "./useStartNewChat";
 import { predictiveChatIntentHandlers } from "./predictive-chat-preload";
 import { usePredictiveChatPreload } from "./use-predictive-chat-preload";
 import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
@@ -262,6 +263,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const setSettingsTab = useUIStore((s) => s.setSettingsTab);
   const startNewChat = useStartNewChat();
+  const newChatJourneyPending = useSetupJourneyStore((state) => isNewChatJourneyPending(state.intent));
 
   // Folder hooks
   const { data: folders } = useChatFolders();
@@ -1248,10 +1250,14 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           <div className="grid grid-cols-2 gap-1.5">
             <button
               onClick={handleNewChatFromTab}
-              className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-2.5 text-[0.72rem] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 active:scale-[0.98]"
+              disabled={newChatJourneyPending}
+              aria-busy={newChatJourneyPending}
+              className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-2.5 text-[0.72rem] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
             >
-              <Plus size="0.8rem" />
-              New {activeTab === "conversation" ? "chat" : activeTab === "game" ? "game" : "RP"}
+              {newChatJourneyPending ? <Loader2 size="0.8rem" className="animate-spin" /> : <Plus size="0.8rem" />}
+              {newChatJourneyPending
+                ? "Starting..."
+                : `New ${activeTab === "conversation" ? "chat" : activeTab === "game" ? "game" : "RP"}`}
             </button>
             <button
               onClick={handleCreateFolder}
