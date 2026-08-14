@@ -4,6 +4,10 @@ import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 
+export function isNewChatJourneyPending(intent: { completed: boolean; dismissed: boolean } | null): boolean {
+  return !!intent && !intent.completed && !intent.dismissed;
+}
+
 export function useStartNewChat() {
   const setPendingNewChatMode = useChatStore((s) => s.setPendingNewChatMode);
   const hasAnyDetailOpen = useUIStore((s) => s.hasAnyDetailOpen);
@@ -11,10 +15,13 @@ export function useStartNewChat() {
 
   return useCallback(
     (mode: ChatMode) => {
+      const setupJourney = useSetupJourneyStore.getState();
+      if (isNewChatJourneyPending(setupJourney.intent)) return;
+
       if (hasAnyDetailOpen()) {
         closeAllDetails();
       }
-      useSetupJourneyStore.getState().begin(mode);
+      setupJourney.begin(mode);
       setPendingNewChatMode(mode);
     },
     [closeAllDetails, hasAnyDetailOpen, setPendingNewChatMode],

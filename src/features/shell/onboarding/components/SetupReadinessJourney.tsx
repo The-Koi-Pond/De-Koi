@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import { chatKeys, useCreateChat, useUpdateChat } from "../../../catalog/chats";
 import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets";
 import { useConnections } from "../../../catalog/connections";
@@ -26,6 +27,12 @@ import {
 
 type Health = RemoteRuntimeHealthCheck | { status: "checking"; message: string };
 type CheckedHealth = { checkedUrl: string; result: Health };
+
+function pendingLaunchLabel(mode: "conversation" | "roleplay" | "game"): string {
+  if (mode === "roleplay") return "Starting your roleplay...";
+  if (mode === "game") return "Starting your game...";
+  return "Starting your conversation...";
+}
 
 export function SetupReadinessJourney() {
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
@@ -200,7 +207,24 @@ export function SetupReadinessJourney() {
     launchChat();
   }, [intent, launchChat, setupReady]);
 
-  if (!intent || intent.completed || !readinessKnown) return null;
+  if (!intent || intent.completed) return null;
+
+  if (!readinessKnown || (setupReady && !launchError)) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        className="flex min-h-28 items-center justify-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 px-4 py-6 text-center"
+      >
+        <Loader2 size="1.1rem" className="shrink-0 animate-spin text-[var(--primary)]" aria-hidden="true" />
+        <div>
+          <p className="font-medium text-[var(--foreground)]">{pendingLaunchLabel(intent.mode)}</p>
+          <p className="mt-1 text-sm text-[var(--muted-foreground)]">Checking your setup and opening the chat.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex w-full justify-center" role="region" aria-label="Setup required">

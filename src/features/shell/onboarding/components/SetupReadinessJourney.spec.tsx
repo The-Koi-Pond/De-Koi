@@ -162,21 +162,37 @@ describe("SetupReadinessJourney", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("does not offer or create chat before web runtime readiness", async () => {
+  it("shows immediate progress before web runtime readiness", async () => {
     mocks.health.mockReturnValue(new Promise(() => undefined));
     await act(async () => root.render(<SetupReadinessJourney />));
-    expect(container.textContent).toBe("");
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
+    expect(container.textContent).toContain("Starting your conversation");
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it("stays absent while usable connections are still loading", async () => {
+  it("keeps progress visible while usable connections are still loading", async () => {
     mocks.embedded.current = true;
     mocks.connectionsPending.current = true;
 
     await act(async () => root.render(<SetupReadinessJourney />));
 
-    expect(container.textContent).toBe("");
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
+    expect(container.textContent).toContain("Starting your conversation");
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("keeps progress visible until the created chat is activated", async () => {
+    mocks.embedded.current = true;
+    mocks.mutateAsync.mockReturnValue(new Promise(() => undefined));
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+    });
+
+    expect(mocks.mutateAsync).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-busy")).toBe("true");
+    expect(container.textContent).toContain("Starting your conversation");
   });
 
   it("shows setup after the web runtime is confirmed unhealthy", async () => {
