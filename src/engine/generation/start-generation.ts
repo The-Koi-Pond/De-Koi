@@ -5902,6 +5902,13 @@ async function* streamMainGenerationLoop(args: {
     while (true) {
       throwIfAborted(signal);
       iteration++;
+      const forceFinalTurn = iteration > MAX_MAIN_TOOL_ITERATIONS;
+      if (forceFinalTurn) {
+        yield {
+          type: "phase",
+          data: `Tool-call iteration limit (${MAX_MAIN_TOOL_ITERATIONS}) reached; requesting a final response without tools.`,
+        };
+      }
       const pendingToolCalls: LLMToolCall[] = [];
       const streamUsages: unknown[] = [];
       let turnProviderMetadata: unknown = null;
@@ -5944,7 +5951,7 @@ async function* streamMainGenerationLoop(args: {
         }
       };
 
-      const requestTools = mainTools?.toolDefs;
+      const requestTools = forceFinalTurn ? undefined : mainTools?.toolDefs;
       const requestFit = fitLlmRequestToContextWindow(
         conversation,
         runtimeLlmParameters(connection, input, chat, parameters),
@@ -6051,7 +6058,7 @@ async function* streamMainGenerationLoop(args: {
       if (hideTurn) quietCharacterWebResearchOccurred = true;
       inFlightTurn = "";
 
-      if (!mainTools || pendingToolCalls.length === 0) break;
+      if (forceFinalTurn || !mainTools || pendingToolCalls.length === 0) break;
       const webRequestCall = mainTools.allowedToolNames.has(CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME)
         ? pendingToolCalls.find(
             (call) => (call.function?.name || call.name) === CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
@@ -6111,14 +6118,6 @@ async function* streamMainGenerationLoop(args: {
           // Let the bounded tool executor report malformed arguments to the model.
         }
       }
-      if (iteration >= MAX_MAIN_TOOL_ITERATIONS) {
-        yield {
-          type: "phase",
-          data: `Tool-call iteration limit (${MAX_MAIN_TOOL_ITERATIONS}) reached; finishing without further tool calls.`,
-        };
-        break;
-      }
-
       const turnMetadataRecord = providerMetadataRecord(turnProviderMetadata);
       conversation.push({
         role: "assistant",
