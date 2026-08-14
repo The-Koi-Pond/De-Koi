@@ -124,12 +124,22 @@ function webResearchStorage(presentation: "quiet" | "visible", policy: "ask" | "
   return { storage, messages };
 }
 
-function scriptedWebResearchLlm(finalText = "Final sourced answer.", searchTurns = 1): {
+function scriptedWebResearchLlm(
+  finalText = "Final sourced answer.",
+  searchTurns = 1,
+  emptyFinalTurns = 0,
+  toolOnlyFinalTurns = 0,
+  finalTextToolCall = false,
+): {
   llm: LlmGateway;
   requests: LlmRequest[];
 } {
   const requests: LlmRequest[] = [];
-  const turns = [
+  const turns: Array<{
+    text: string;
+    thinking: string;
+    toolCall?: { id: string; name: string; arguments: string };
+  }> = [
     {
       text: "I should check that. ",
       thinking: "I need current information.",
@@ -152,7 +162,29 @@ function scriptedWebResearchLlm(finalText = "Final sourced answer.", searchTurns
         arguments: JSON.stringify({ maxResults: 4 }),
       },
     })),
-    { text: finalText, thinking: "I am synthesizing the researched sources." },
+    ...Array.from({ length: emptyFinalTurns }, () => ({ text: "", thinking: "" })),
+    ...Array.from({ length: toolOnlyFinalTurns }, (_, index) => ({
+      text: "",
+      thinking: "",
+      toolCall: {
+        id: `forced-final-search-${index + 1}`,
+        name: "search_character_web",
+        arguments: JSON.stringify({ maxResults: 4 }),
+      },
+    })),
+    {
+      text: finalText,
+      thinking: "I am synthesizing the researched sources.",
+      ...(finalTextToolCall
+        ? {
+            toolCall: {
+              id: "forced-final-search-with-prose",
+              name: "search_character_web",
+              arguments: JSON.stringify({ maxResults: 4 }),
+            },
+          }
+        : {}),
+    },
   ];
   const llm: LlmGateway = {
     complete: vi.fn(async () => ""),
@@ -182,7 +214,15 @@ function scriptedWebResearchLlm(finalText = "Final sourced answer.", searchTurns
 async function runWebResearchPresentation(
   presentation: "quiet" | "visible",
   policy: "ask" | "always" = "always",
-  options: { searchFailure?: boolean; finalText?: string; captureFailure?: boolean; searchTurns?: number } = {},
+  options: {
+    searchFailure?: boolean;
+    finalText?: string;
+    captureFailure?: boolean;
+    searchTurns?: number;
+    emptyFinalTurns?: number;
+    toolOnlyFinalTurns?: number;
+    finalTextToolCall?: boolean;
+  } = {},
 ) {
   const { storage, messages } = webResearchStorage(presentation, policy);
   const events: GenerationEvent[] = [];
@@ -207,7 +247,13 @@ async function runWebResearchPresentation(
       },
     },
   } as unknown as IntegrationGateway;
-  const scripted = scriptedWebResearchLlm(options.finalText, options.searchTurns);
+  const scripted = scriptedWebResearchLlm(
+    options.finalText,
+    options.searchTurns,
+    options.emptyFinalTurns,
+    options.toolOnlyFinalTurns,
+    options.finalTextToolCall,
+  );
 
   let failure: unknown = null;
   try {
@@ -315,6 +361,62 @@ describe("startGeneration character web research presentation", () => {
   it("forces a final prose turn after the web research tool iteration cap", async () => {
     const { events, failure, messages, requests } = await runWebResearchPresentation("quiet", "always", {
       searchTurns: 7,
+      captureFailure: true,
+    });
+    const tokenText = events
+      .filter((event) => event.type === "token")
+      .map((event) => String(event.data))
+      .join("");
+
+    expect(failure).toBeNull();
+    expect(tokenText).toBe("Final sourced answer.");
+    expect(requests).toHaveLength(9);
+    expect(requests.at(-1)?.tools).toBeUndefined();
+    expect(messages.find((message) => message.role === "assistant")?.content).toBe("Final sourced answer.");
+  });
+
+  it("retries synthesis when the first forced final turn returns no prose", async () => {
+    const { events, failure, messages, requests } = await runWebResearchPresentation("quiet", "always", {
+      searchTurns: 7,
+      emptyFinalTurns: 1,
+      captureFailure: true,
+    });
+    const tokenText = events
+      .filter((event) => event.type === "token")
+      .map((event) => String(event.data))
+      .join("");
+
+    expect(failure).toBeNull();
+    expect(tokenText).toBe("Final sourced answer.");
+    expect(requests).toHaveLength(10);
+    expect(requests.at(-2)?.tools).toBeUndefined();
+    expect(requests.at(-1)?.tools).toBeUndefined();
+    expect(messages.find((message) => message.role === "assistant")?.content).toBe("Final sourced answer.");
+  });
+
+  it("does not execute a tool-only forced final turn and retries synthesis", async () => {
+    const { events, failure, messages, requests } = await runWebResearchPresentation("quiet", "always", {
+      searchTurns: 7,
+      toolOnlyFinalTurns: 1,
+      captureFailure: true,
+    });
+    const tokenText = events
+      .filter((event) => event.type === "token")
+      .map((event) => String(event.data))
+      .join("");
+
+    expect(failure).toBeNull();
+    expect(tokenText).toBe("Final sourced answer.");
+    expect(requests).toHaveLength(10);
+    expect(requests.at(-2)?.tools).toBeUndefined();
+    expect(requests.at(-1)?.tools).toBeUndefined();
+    expect(messages.find((message) => message.role === "assistant")?.content).toBe("Final sourced answer.");
+  });
+
+  it("keeps forced final prose even when the provider also emits a web tool call", async () => {
+    const { events, failure, messages, requests } = await runWebResearchPresentation("quiet", "always", {
+      searchTurns: 7,
+      finalTextToolCall: true,
       captureFailure: true,
     });
     const tokenText = events

@@ -5814,6 +5814,9 @@ function rerollSeedParameters(
  * from broken models that always emit a tool call.
  */
 const MAX_MAIN_TOOL_ITERATIONS = 8;
+const MAX_MAIN_FINALIZATION_ATTEMPTS = 2;
+const MAIN_TOOL_FINALIZATION_INSTRUCTION =
+  "Tool use is finished for this response. Do not request or call more tools. Answer the user's original message now in natural prose using only the tool results already present. If the evidence is insufficient, say what you could not verify without narrating tool mechanics.";
 
 function llmChunkText(chunk: { text?: unknown; data?: unknown; error?: unknown; message?: unknown }): string {
   if (typeof chunk.text === "string") return chunk.text;
@@ -5893,6 +5896,7 @@ async function* streamMainGenerationLoop(args: {
   let releaseAutomaticallyActivatedWebGrant: (() => Promise<void>) | null = null;
   let quietCharacterWebResearchOccurred = false;
   let iteration = 0;
+  let finalizationAttempts = 0;
   // Text streamed in the current turn but not yet committed to `content`.
   // Lets the abort `finally` recover an in-flight turn (the `content +=
   // turnContent` commit only runs once the turn's stream completes).
@@ -5904,6 +5908,7 @@ async function* streamMainGenerationLoop(args: {
       iteration++;
       const forceFinalTurn = iteration > MAX_MAIN_TOOL_ITERATIONS;
       if (forceFinalTurn) {
+        finalizationAttempts++;
         yield {
           type: "phase",
           data: `Tool-call iteration limit (${MAX_MAIN_TOOL_ITERATIONS}) reached; requesting a final response without tools.`,
@@ -5916,6 +5921,7 @@ async function* streamMainGenerationLoop(args: {
       let turnThinking = "";
       inFlightTurn = "";
       const deferResearchPresentation =
+        !forceFinalTurn &&
         mainTools?.characterWebResearchPresentation === "quiet" &&
         [...mainTools.allowedToolNames].some(isCharacterWebToolName);
       const deferredTurnEvents: GenerationEvent[] = [];
@@ -5952,8 +5958,18 @@ async function* streamMainGenerationLoop(args: {
       };
 
       const requestTools = forceFinalTurn ? undefined : mainTools?.toolDefs;
+      const requestConversation = forceFinalTurn
+        ? [
+            ...conversation,
+            {
+              role: "system" as const,
+              content: MAIN_TOOL_FINALIZATION_INSTRUCTION,
+              contextKind: "history" as const,
+            },
+          ]
+        : conversation;
       const requestFit = fitLlmRequestToContextWindow(
-        conversation,
+        requestConversation,
         runtimeLlmParameters(connection, input, chat, parameters),
         connection,
         { tools: requestTools },
@@ -6058,7 +6074,28 @@ async function* streamMainGenerationLoop(args: {
       if (hideTurn) quietCharacterWebResearchOccurred = true;
       inFlightTurn = "";
 
-      if (forceFinalTurn || !mainTools || pendingToolCalls.length === 0) break;
+      if (forceFinalTurn) {
+        if (turnContent.trim() || finalizationAttempts >= MAX_MAIN_FINALIZATION_ATTEMPTS) break;
+        if (pendingToolCalls.length > 0) {
+          conversation.push({
+            role: "assistant",
+            content: turnContent,
+            contextKind: "history",
+            tool_calls: pendingToolCalls,
+          });
+          for (const call of pendingToolCalls) {
+            conversation.push({
+              role: "tool",
+              content: MAIN_TOOL_FINALIZATION_INSTRUCTION,
+              contextKind: "history",
+              tool_call_id: call.id,
+              name: call.function?.name || call.name,
+            });
+          }
+        }
+        continue;
+      }
+      if (!mainTools || pendingToolCalls.length === 0) break;
       const webRequestCall = mainTools.allowedToolNames.has(CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME)
         ? pendingToolCalls.find(
             (call) => (call.function?.name || call.name) === CHARACTER_WEB_RESEARCH_REQUEST_TOOL_NAME,
