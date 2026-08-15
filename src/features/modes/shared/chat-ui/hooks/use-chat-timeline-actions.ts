@@ -16,6 +16,7 @@ import { BUILT_IN_AGENTS } from "../../../../../engine/contracts/types/agent";
 import { buildGuidedGenerationInstructionMessage } from "../../../../../engine/shared/text/generation-guide";
 import { buildPromptBudgetEstimate } from "../../../../../engine/generation/prompt-budget";
 import type { ContextFitDecision } from "../../../../../engine/generation/context-window";
+import { reconstructPromptSnapshotPreview } from "../../../../../engine/shared/prompt-snapshot-preview";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
@@ -103,6 +104,8 @@ function contextFitDecisionFromSnapshot(value: unknown): ContextFitDecision | nu
   const originalEstimatedTokens = Number(record.originalEstimatedTokens) || 0;
   const fittedEstimatedTokens = Number(record.fittedEstimatedTokens) || 0;
   const inputBudgetTokens = Number(record.inputBudgetTokens) || 0;
+  const softLimitTokens = Number(record.softLimitTokens) || 0;
+  const softLimitFallbackUsed = record.softLimitFallbackUsed === true;
   if (
     removedMessages.length === 0 &&
     truncatedMessages.length === 0 &&
@@ -131,13 +134,17 @@ function contextFitDecisionFromSnapshot(value: unknown): ContextFitDecision | nu
     originalEstimatedTokens,
     fittedEstimatedTokens,
     inputBudgetTokens,
+    ...(softLimitTokens > 0 ? { softLimitTokens } : {}),
+    ...(typeof record.softLimitFallbackUsed === "boolean" ? { softLimitFallbackUsed } : {}),
   };
 }
 
 export function promptSnapshotToPeekPromptData(value: unknown): PeekPromptData | null {
   const snapshot = readRecord(value);
   const messages = promptSnapshotMessagesToPeekMessages(snapshot.messages);
-  const previewMessages = promptSnapshotMessagesToPeekMessages(snapshot.previewMessages);
+  const previewMessages = promptSnapshotMessagesToPeekMessages(
+    reconstructPromptSnapshotPreview(snapshot.messages, snapshot.previewMessageRefs, snapshot.previewMessages),
+  );
   if (messages.length === 0) return null;
   const parameters = readRecord(snapshot.parameters);
   const contextFitDecision = contextFitDecisionFromSnapshot(snapshot.contextFitDecision);

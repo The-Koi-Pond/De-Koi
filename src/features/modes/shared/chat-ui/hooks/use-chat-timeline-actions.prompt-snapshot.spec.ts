@@ -20,6 +20,25 @@ describe("promptSnapshotToPeekPromptData", () => {
     expect(result?.budget?.remainingTokens).toBe(720 - result!.budget!.estimatedPromptTokens);
   });
 
+  it("propagates roleplay soft-limit fallback metadata into cached prompt data", () => {
+    const result = promptSnapshotToPeekPromptData({
+      messages: [{ role: "user", content: "Continue", contextKind: "history" }],
+      parameters: { maxTokens: 256 },
+      contextFitDecision: {
+        removedMessages: [],
+        truncatedMessages: [],
+        originalEstimatedTokens: 40,
+        fittedEstimatedTokens: 40,
+        inputBudgetTokens: 127_000,
+        softLimitTokens: 32_768,
+        softLimitFallbackUsed: true,
+      },
+    });
+
+    expect(result?.budget?.softLimitTokens).toBe(32_768);
+    expect(result?.budget?.softLimitFallbackUsed).toBe(true);
+  });
+
   it("preserves fitted context kinds and surfaces saved fit warnings for cached prompts", () => {
     const result = promptSnapshotToPeekPromptData({
       messages: [
@@ -66,5 +85,34 @@ describe("promptSnapshotToPeekPromptData", () => {
     expect(result?.budget?.sections).toEqual(
       expect.arrayContaining([expect.objectContaining({ kind: "character", label: "Character Context" })]),
     );
+  });
+
+  it("reconstructs compact previews from request references and inline differences", () => {
+    const result = promptSnapshotToPeekPromptData({
+      messages: [
+        { role: "system", content: "Merged provider prompt", images: ["data:image/png;base64,large"] },
+        { role: "user", content: "Continue", contextKind: "history" },
+      ],
+      previewMessageRefs: [
+        { message: { role: "system", content: "Character card", contextKind: "character" } },
+        { messageIndex: 1 },
+      ],
+      parameters: { maxTokens: 400 },
+    });
+
+    expect(result?.previewMessages).toEqual([
+      { role: "system", content: "Character card", contextKind: "character" },
+      { role: "user", content: "Continue", contextKind: "history" },
+    ]);
+  });
+
+  it("continues reading legacy full preview arrays", () => {
+    const result = promptSnapshotToPeekPromptData({
+      messages: [{ role: "user", content: "Provider request" }],
+      previewMessages: [{ role: "user", content: "Legacy preview", contextKind: "history" }],
+      parameters: {},
+    });
+
+    expect(result?.previewMessages?.[0]?.content).toBe("Legacy preview");
   });
 });

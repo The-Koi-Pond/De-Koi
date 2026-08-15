@@ -297,7 +297,7 @@ describe("prompt context priority", () => {
     );
   });
 
-  it("keeps full history when summary metadata cannot prove contiguous coverage", async () => {
+  it("compacts complete prefix coverage and rejects coverage with gaps", async () => {
     const storedMessages = Array.from({ length: 12 }, (_, index) => ({
       id: `message-${index + 1}`,
       role: index % 2 === 0 ? "user" : "assistant",
@@ -344,11 +344,16 @@ describe("prompt context priority", () => {
       ...summaryEntry,
       messageIds: storedMessages.slice(0, 10).map((message) => message.id),
     });
+    const coverageGap = await assemble({
+      ...summaryEntry,
+      messageIds: [storedMessages[0]!.id, storedMessages[2]!.id],
+    });
     const historyCount = (result: Awaited<ReturnType<typeof assembleGenerationPrompt>>) =>
       result.previewMessages.filter((message) => message.contextKind === "history").length;
 
     expect(historyCount(manual)).toBe(12);
-    expect(historyCount(covered)).toBe(12);
+    expect(historyCount(covered)).toBe(2);
+    expect(historyCount(coverageGap)).toBe(12);
     expect(covered.previewMessages.map((message) => message.content).join("\n")).toContain("history 12");
   });
 

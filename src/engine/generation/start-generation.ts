@@ -22,6 +22,7 @@ import { buildGenerationGuideMessages } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { normalizeUserTimeZone } from "../shared/time/timezone";
+import { compactPromptSnapshotPreview } from "../shared/prompt-snapshot-preview";
 import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-prompt";
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
@@ -53,7 +54,7 @@ import {
   persistConnectedCommandTags,
   type ConnectedCommandResult,
 } from "./connected-commands";
-import { fitLlmRequestToContextWindow } from "./context-window";
+import { fitGenerationRequestToContextWindow } from "./generation-context-fit";
 import type { LLMToolCall } from "../generation-core/llm/base-provider";
 import { createInlineThinkingStreamParser, extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import {
@@ -307,6 +308,9 @@ interface MainGenerationLoopResult {
 }
 
 type GenerationDryRunPromptSnapshot = MainGenerationPromptSnapshot;
+type SavedGenerationPromptSnapshot = Omit<GenerationPromptSnapshot, "previewMessages"> & {
+  previewMessages?: never;
+};
 
 export interface GenerationDryRunInput extends StartGenerationInput {
   runId?: string | null;
@@ -2755,16 +2759,17 @@ export function buildSavedGenerationPromptSnapshot(args: {
   connection: JsonRecord;
   promptSnapshot?: MainGenerationPromptSnapshot | null;
   usage?: unknown;
-}): GenerationPromptSnapshot | null {
+}): SavedGenerationPromptSnapshot | null {
   if (!args.promptSnapshot?.messages?.length) return null;
+  const messages = args.promptSnapshot.messages.map(clonePromptMessage);
+  const previewMessages = args.promptSnapshot.previewMessages?.map(clonePromptMessage);
+  const previewMessageRefs = compactPromptSnapshotPreview(messages, previewMessages);
   const parameters = cloneSerializableValue(args.promptSnapshot.parameters ?? {});
   const tools = Array.isArray(args.promptSnapshot.tools) ? cloneSerializableValue(args.promptSnapshot.tools) : null;
   const generationInfo = generationInfoFromVisibleParameters(args.connection, isRecord(parameters) ? parameters : {});
   return {
-    messages: args.promptSnapshot.messages.map(clonePromptMessage),
-    ...(args.promptSnapshot.previewMessages?.length
-      ? { previewMessages: args.promptSnapshot.previewMessages.map(clonePromptMessage) }
-      : {}),
+    messages,
+    ...(previewMessageRefs?.length ? { previewMessageRefs } : {}),
     parameters: isRecord(parameters) ? parameters : {},
     ...(args.promptSnapshot.generationProfile
       ? { generationProfile: cloneSerializableValue(args.promptSnapshot.generationProfile) }
@@ -5968,17 +5973,21 @@ async function* streamMainGenerationLoop(args: {
             },
           ]
         : conversation;
-      const requestFit = fitLlmRequestToContextWindow(
+      const requestChatMode = readString(chat.mode || chat.chatMode, "conversation");
+      const requestFit = fitGenerationRequestToContextWindow(
         requestConversation,
         runtimeLlmParameters(connection, input, chat, parameters),
         connection,
-        { tools: requestTools },
+        { chatMode: requestChatMode, tools: requestTools },
       );
       const requestMessages = requestFit.messages;
       const providerRequestMessages = requestMessages.map(providerRequestMessage);
       const requestParameters = requestFit.parameters;
       const requestPreviewMessages = previewMessages?.length
-        ? fitLlmRequestToContextWindow(previewMessages, requestParameters, connection, { tools: requestTools }).messages
+        ? fitGenerationRequestToContextWindow(previewMessages, requestParameters, connection, {
+            chatMode: requestChatMode,
+            tools: requestTools,
+          }).messages
         : null;
       const visibleRequestParameters = providerVisibleLlmParameters(connection, requestParameters, {
         stream: true,

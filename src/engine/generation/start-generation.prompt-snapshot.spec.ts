@@ -16,6 +16,8 @@ describe("buildSavedGenerationPromptSnapshot", () => {
       originalEstimatedTokens: 500,
       fittedEstimatedTokens: 180,
       inputBudgetTokens: 300,
+      softLimitTokens: 32_768,
+      softLimitFallbackUsed: true,
     };
     const snapshot = buildSavedGenerationPromptSnapshot({
       connection,
@@ -86,5 +88,37 @@ describe("buildSavedGenerationPromptSnapshot", () => {
       rationale: "Uses balanced sampling.",
       effectiveValues: { temperature: 0.7, max_tokens: 2048 },
     });
+  });
+
+  it("stores preview messages as request references plus only structurally distinct inline messages", () => {
+    const requestMessages = [
+      { role: "system" as const, content: "Merged provider prompt", images: ["data:image/png;base64,large"] },
+      { role: "user" as const, content: "Continue", contextKind: "history" },
+    ];
+    const snapshot = buildSavedGenerationPromptSnapshot({
+      connection,
+      promptSnapshot: {
+        messages: requestMessages,
+        previewMessages: [{ role: "system", content: "Character card", contextKind: "character" }, requestMessages[1]!],
+        parameters: { maxTokens: 400 },
+      },
+    });
+
+    expect(snapshot?.previewMessages).toBeUndefined();
+    expect(snapshot?.previewMessageRefs).toEqual([
+      { message: { role: "system", content: "Character card", contextKind: "character" } },
+      { messageIndex: 1 },
+    ]);
+  });
+
+  it("omits preview storage entirely when the preview is identical to the request", () => {
+    const messages = [{ role: "user" as const, content: "Continue", images: ["data:image/png;base64,large"] }];
+    const snapshot = buildSavedGenerationPromptSnapshot({
+      connection,
+      promptSnapshot: { messages, previewMessages: messages, parameters: {} },
+    });
+
+    expect(snapshot?.previewMessages).toBeUndefined();
+    expect(snapshot?.previewMessageRefs).toBeUndefined();
   });
 });

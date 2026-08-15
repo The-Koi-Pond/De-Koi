@@ -81,6 +81,7 @@ import { applyRecommendedPromptBudgetGuidance } from "./recommended-generation-p
 import { effectiveMaxContext } from "./context-window";
 import { buildGenerationPromptPresetCandidates } from "./prompt-preset-selection";
 import { buildSummaryContextProjection, type SummaryContextProjection } from "./summary-context";
+import { compactHistorySelectionForCoveredSummaries } from "./summary-history-compaction";
 import {
   bySortOrder,
   boolish,
@@ -2394,21 +2395,13 @@ function shouldCompactHistoryForSummary(
   chat: JsonRecord,
   selectedPreset: SelectedPromptPreset | null,
   summary: string | null,
-  coversPriorHistory: boolean,
 ): boolean {
   if (!summary?.trim()) return false;
-  if (!coversPriorHistory) return false;
   if (!selectedPreset) return true;
   return (
     presetCanInsertChatSummary(selectedPreset, summary) ||
     shouldFallbackInsertChatSummary(chat, selectedPreset, summary)
   );
-}
-
-function compactedHistoryLimit(meta: JsonRecord, fallbackLimit: number, shouldCompact: boolean): number {
-  if (!shouldCompact) return fallbackLimit;
-  const tail = Math.max(0, Math.min(50, Math.floor(readNumber(meta.summaryTailMessages, 10))));
-  return Math.min(fallbackLimit, tail);
 }
 
 const MEMORY_EMBEDDING_DIMS = 512;
@@ -4580,6 +4573,7 @@ export async function assembleGenerationPrompt(
     ? {
         text: reusableContext.summary,
         coversPriorHistory: reusableContext.summaryCoversPriorHistory,
+        coveredMessageIds: [],
       }
     : summaryProjectionForGeneration(
         input.chat,
@@ -4592,29 +4586,40 @@ export async function assembleGenerationPrompt(
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
-  const summaryHistoryLimit = compactedHistoryLimit(
-    chatMeta,
-    historyLimit,
-    shouldCompactHistoryForSummary(input.chat, selectedPreset, summary, summaryProjection.coversPriorHistory),
-  );
   const selectedHistoryLimit = conversationFocus
-    ? Math.min(summaryHistoryLimit, conversationFocus.historyLimit)
-    : summaryHistoryLimit;
+    ? Math.min(historyLimit, conversationFocus.historyLimit)
+    : historyLimit;
   const sourceHistorySelection = historyMessageSelection(
     input.storedMessages,
     selectedHistoryLimit,
     chatMeta.excludePastReasoning === false,
     conversationFocus?.includeAssistantHistory ?? true,
   );
+  const compactedSourceHistory =
+    !reusableContext && shouldCompactHistoryForSummary(input.chat, selectedPreset, summary)
+      ? compactHistorySelectionForCoveredSummaries({
+          messages: sourceHistorySelection.messages,
+          sourceMessages: sourceHistorySelection.sourceMessages,
+          coveredMessageIds: summaryProjection.coveredMessageIds,
+          tailMessages: Math.max(0, Math.min(50, Math.floor(readNumber(chatMeta.summaryTailMessages, 10)))),
+        })
+      : null;
+  const effectiveSourceHistorySelection: HistoryPromptSelection = compactedSourceHistory
+    ? {
+        ...sourceHistorySelection,
+        messages: compactedSourceHistory.messages,
+        sourceMessages: compactedSourceHistory.sourceMessages,
+      }
+    : sourceHistorySelection;
   const historySelection: HistoryPromptSelection = reusableContext
     ? {
         messages: reusableContext.history,
-        sourceMessages: sourceHistorySelection.sourceMessages,
+        sourceMessages: effectiveSourceHistorySelection.sourceMessages,
         hiddenFromAiCount: 0,
         skippedByLimitCount: 0,
         requestedLimit: selectedHistoryLimit,
       }
-    : sourceHistorySelection;
+    : effectiveSourceHistorySelection;
   const history = historySelection.messages;
   const [initialLoreScan, memoryRecallContext, canonicalMemoryContext, conversationContextBlocks, regexScripts] =
     await Promise.all([
@@ -5050,7 +5055,8 @@ export async function assembleGenerationPrompt(
     loreScan,
     processedLore,
     summary,
-    summaryCoversPriorHistory: summaryProjection.coversPriorHistory,
+    summaryCoversPriorHistory:
+      summaryProjection.coversPriorHistory || Boolean(compactedSourceHistory?.coversPriorHistory),
     memoryRecallBlock,
     canonicalMemoryBlock,
     contextAttributionItems,

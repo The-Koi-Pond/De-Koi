@@ -4,6 +4,7 @@ export interface SummaryContextProjection {
   text: string | null;
   estimatedTokens: number;
   coversPriorHistory: boolean;
+  coveredMessageIds: string[];
   omittedDailyCount: number;
   deduplicatedDailyCount: number;
   budgetOmittedDailyCount: number;
@@ -103,7 +104,9 @@ export function buildSummaryContextProjection(input: {
   includeSceneSummary?: boolean;
 }): SummaryContextProjection {
   const metadata = record(input.chat.metadata);
-  const rollingEntries = normalizeChatSummaryMetadata(metadata).entries.filter((entry) => entry.enabled);
+  const rollingEntries = normalizeChatSummaryMetadata(metadata).entries.filter(
+    (entry) => entry.enabled && entry.content.trim().length > 0,
+  );
   const weeklyEntries = summaryMapEntries("Week", metadata.weekSummaries);
   const weeklyRanges = weeklyEntries
     .filter(
@@ -121,10 +124,7 @@ export function buildSummaryContextProjection(input: {
   const includeSceneSummary =
     input.includeSceneSummary ??
     (requestedMode === "roleplay" || requestedMode === "game" || metadata.crossChatAwareness !== false);
-  const rollingText = rollingEntries
-    .map((entry) => entry.content.trim())
-    .filter(Boolean)
-    .join("\n\n");
+  const rollingText = rollingEntries.map((entry) => entry.content.trim()).join("\n\n");
   const blocks: ProjectionBlock[] = [];
   if (rollingText) blocks.push({ text: rollingText, kind: "rolling", truncateFromEnd: true });
   const sceneSummary = textValue(metadata.lastRoleplaySceneSummary);
@@ -153,6 +153,10 @@ export function buildSummaryContextProjection(input: {
     break;
   }
   const text = selected.map((entry) => entry.text).join("\n\n") || null;
+  const completeRollingProjection = selected.some((entry) => entry.block.kind === "rolling" && entry.complete);
+  const coveredMessageIds = completeRollingProjection
+    ? Array.from(new Set(rollingEntries.flatMap((entry) => entry.messageIds ?? [])))
+    : [];
   let selectedDailyCount = 0;
   let completeSelectedDailyCount = 0;
   let selectedWeeklyCount = 0;
@@ -166,10 +170,10 @@ export function buildSummaryContextProjection(input: {
   return {
     text,
     estimatedTokens: text ? Math.ceil(text.length / 4) : 0,
-    // Dated summary keys and partial rolling metadata do not prove a contiguous
-    // summarized range through the retained history tail. Fail closed until the
-    // caller can provide both boundaries and they can be verified here.
-    coversPriorHistory: false,
+    // Dated summaries and truncated rolling text never authorize compaction.
+    // Prompt assembly still verifies that these ids form a contiguous prefix.
+    coversPriorHistory: coveredMessageIds.length > 0,
+    coveredMessageIds,
     omittedDailyCount: allDailyEntries.length - selectedDailyCount,
     deduplicatedDailyCount: allDailyEntries.length - dailyEntries.length,
     budgetOmittedDailyCount: dailyEntries.length - completeSelectedDailyCount,

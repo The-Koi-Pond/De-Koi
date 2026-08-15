@@ -274,7 +274,7 @@ describe("buildSummaryContextProjection", () => {
     expect(projection.coversPriorHistory).toBe(false);
   });
 
-  it("does not compact from rolling source metadata without a retained-tail boundary", () => {
+  it("reports message-id coverage only when the complete rolling summary is projected", () => {
     const baseEntry = {
       kind: "rolling",
       title: "Continuity",
@@ -297,9 +297,67 @@ describe("buildSummaryContextProjection", () => {
       },
       budgetTokens: 512,
     });
+    const truncated = buildSummaryContextProjection({
+      chat: {
+        metadata: {
+          summaryEntries: [
+            {
+              ...baseEntry,
+              id: "truncated",
+              origin: "manual",
+              content: "long continuity ".repeat(100),
+              messageIds: ["message-1"],
+            },
+          ],
+        },
+      },
+      budgetTokens: 8,
+    });
 
     expect(uncovered.coversPriorHistory).toBe(false);
-    expect(covered.coversPriorHistory).toBe(false);
+    expect(covered.coversPriorHistory).toBe(true);
+    expect(covered.coveredMessageIds).toEqual(["message-1"]);
+    expect(truncated.coversPriorHistory).toBe(false);
+    expect(truncated.coveredMessageIds).toEqual([]);
+  });
+
+  it("reports coverage only for nonblank rolling entries represented in the projection", () => {
+    const entry = {
+      kind: "rolling",
+      title: "Continuity",
+      enabled: true,
+      sourceMode: "last",
+      tokenEstimate: 7,
+      origin: "manual",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+    const blankOnly = buildSummaryContextProjection({
+      chat: {
+        metadata: {
+          summaryEntries: [{ ...entry, id: "blank", content: "   ", messageIds: ["message-1"] }],
+        },
+      },
+      budgetTokens: 512,
+    });
+    const mixed = buildSummaryContextProjection({
+      chat: {
+        metadata: {
+          summaryEntries: [
+            { ...entry, id: "blank", content: "   ", messageIds: ["message-1"] },
+            { ...entry, id: "rendered", content: "Remember the lantern promise.", messageIds: ["message-2"] },
+          ],
+        },
+      },
+      budgetTokens: 512,
+    });
+
+    expect(blankOnly.text).toBeNull();
+    expect(blankOnly.coversPriorHistory).toBe(false);
+    expect(blankOnly.coveredMessageIds).toEqual([]);
+    expect(mixed.text).toBe("Remember the lantern promise.");
+    expect(mixed.coversPriorHistory).toBe(true);
+    expect(mixed.coveredMessageIds).toEqual(["message-2"]);
   });
 
   it("deduplicates a synthetic twelve-week projection while staying under budget", () => {
