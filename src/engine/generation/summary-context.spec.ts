@@ -321,6 +321,45 @@ describe("buildSummaryContextProjection", () => {
     expect(truncated.coveredMessageIds).toEqual([]);
   });
 
+  it("reports coverage only for nonblank rolling entries represented in the projection", () => {
+    const entry = {
+      kind: "rolling",
+      title: "Continuity",
+      enabled: true,
+      sourceMode: "last",
+      tokenEstimate: 7,
+      origin: "manual",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+    const blankOnly = buildSummaryContextProjection({
+      chat: {
+        metadata: {
+          summaryEntries: [{ ...entry, id: "blank", content: "   ", messageIds: ["message-1"] }],
+        },
+      },
+      budgetTokens: 512,
+    });
+    const mixed = buildSummaryContextProjection({
+      chat: {
+        metadata: {
+          summaryEntries: [
+            { ...entry, id: "blank", content: "   ", messageIds: ["message-1"] },
+            { ...entry, id: "rendered", content: "Remember the lantern promise.", messageIds: ["message-2"] },
+          ],
+        },
+      },
+      budgetTokens: 512,
+    });
+
+    expect(blankOnly.text).toBeNull();
+    expect(blankOnly.coversPriorHistory).toBe(false);
+    expect(blankOnly.coveredMessageIds).toEqual([]);
+    expect(mixed.text).toBe("Remember the lantern promise.");
+    expect(mixed.coversPriorHistory).toBe(true);
+    expect(mixed.coveredMessageIds).toEqual(["message-2"]);
+  });
+
   it("deduplicates a synthetic twelve-week projection while staying under budget", () => {
     const daySummaries: Record<string, unknown> = {};
     const weekSummaries: Record<string, unknown> = {};

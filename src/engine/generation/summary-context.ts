@@ -104,7 +104,9 @@ export function buildSummaryContextProjection(input: {
   includeSceneSummary?: boolean;
 }): SummaryContextProjection {
   const metadata = record(input.chat.metadata);
-  const rollingEntries = normalizeChatSummaryMetadata(metadata).entries.filter((entry) => entry.enabled);
+  const rollingEntries = normalizeChatSummaryMetadata(metadata).entries.filter(
+    (entry) => entry.enabled && entry.content.trim().length > 0,
+  );
   const weeklyEntries = summaryMapEntries("Week", metadata.weekSummaries);
   const weeklyRanges = weeklyEntries
     .filter(
@@ -122,10 +124,7 @@ export function buildSummaryContextProjection(input: {
   const includeSceneSummary =
     input.includeSceneSummary ??
     (requestedMode === "roleplay" || requestedMode === "game" || metadata.crossChatAwareness !== false);
-  const rollingText = rollingEntries
-    .map((entry) => entry.content.trim())
-    .filter(Boolean)
-    .join("\n\n");
+  const rollingText = rollingEntries.map((entry) => entry.content.trim()).join("\n\n");
   const blocks: ProjectionBlock[] = [];
   if (rollingText) blocks.push({ text: rollingText, kind: "rolling", truncateFromEnd: true });
   const sceneSummary = textValue(metadata.lastRoleplaySceneSummary);
