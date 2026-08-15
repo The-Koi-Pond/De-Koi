@@ -29,6 +29,8 @@ describe("fitGenerationRequestToContextWindow", () => {
     const text = result.messages.map((message) => message.content).join("\n");
 
     expect(result.decision?.inputBudgetTokens).toBeLessThan(ROLEPLAY_SOFT_CONTEXT_TOKENS);
+    expect(result.decision?.softLimitTokens).toBe(ROLEPLAY_SOFT_CONTEXT_TOKENS);
+    expect(result.decision?.softLimitFallbackUsed).toBe(false);
     expect(result.messages.length).toBeLessThan(messages.length);
     expect(text).toContain("history-46");
     expect(text).toContain("history-47");
@@ -56,6 +58,9 @@ describe("fitGenerationRequestToContextWindow", () => {
     });
 
     expect(result.messages).toBe(messages);
-    expect(result.decision).toBeNull();
+    expect(result.decision).toMatchObject({
+      softLimitTokens: ROLEPLAY_SOFT_CONTEXT_TOKENS,
+      softLimitFallbackUsed: true,
+    });
   });
 });

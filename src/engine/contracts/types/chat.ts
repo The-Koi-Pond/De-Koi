@@ -779,6 +779,8 @@ export interface GenerationPromptSnapshot {
     originalEstimatedTokens: number;
     fittedEstimatedTokens: number;
     inputBudgetTokens: number;
+    softLimitTokens?: number;
+    softLimitFallbackUsed?: boolean;
   } | null;
   createdAt?: string;
 }

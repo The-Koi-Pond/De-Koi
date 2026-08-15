@@ -16,6 +16,8 @@ describe("buildSavedGenerationPromptSnapshot", () => {
       originalEstimatedTokens: 500,
       fittedEstimatedTokens: 180,
       inputBudgetTokens: 300,
+      softLimitTokens: 32_768,
+      softLimitFallbackUsed: true,
     };
     const snapshot = buildSavedGenerationPromptSnapshot({
       connection,

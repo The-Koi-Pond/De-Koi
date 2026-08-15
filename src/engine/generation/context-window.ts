@@ -23,6 +23,8 @@ export type ContextFitDecision = {
   originalEstimatedTokens: number;
   fittedEstimatedTokens: number;
   inputBudgetTokens: number;
+  softLimitTokens?: number;
+  softLimitFallbackUsed?: boolean;
 };
 
 export type ContextWindowFit = {
