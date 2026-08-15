@@ -297,7 +297,7 @@ describe("prompt context priority", () => {
     );
   });
 
-  it("compacts only the contiguous history prefix proven by summary message ids", async () => {
+  it("compacts complete prefix coverage and rejects coverage with gaps", async () => {
     const storedMessages = Array.from({ length: 12 }, (_, index) => ({
       id: `message-${index + 1}`,
       role: index % 2 === 0 ? "user" : "assistant",
@@ -353,7 +353,7 @@ describe("prompt context priority", () => {
 
     expect(historyCount(manual)).toBe(12);
     expect(historyCount(covered)).toBe(2);
-    expect(historyCount(coverageGap)).toBe(11);
+    expect(historyCount(coverageGap)).toBe(12);
     expect(covered.previewMessages.map((message) => message.content).join("\n")).toContain("history 12");
   });
 

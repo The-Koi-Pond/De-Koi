@@ -30,11 +30,12 @@ describe("compactHistorySelectionForCoveredSummaries", () => {
     expect(result.coversPriorHistory).toBe(true);
   });
 
-  it("stops at the first coverage gap instead of deleting later covered messages", () => {
+  it("leaves history untouched when summary coverage has a gap", () => {
     const result = compact(["m1", "m2", "m3", "m4"], ["m1", "m3"], 1);
 
-    expect(result.messages.map((entry) => entry.content)).toEqual(["m2", "m3", "m4"]);
-    expect(result.compactedCount).toBe(1);
+    expect(result.messages.map((entry) => entry.content)).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(result.compactedCount).toBe(0);
+    expect(result.coversPriorHistory).toBe(false);
   });
 
   it("combines projected coverage ids", () => {

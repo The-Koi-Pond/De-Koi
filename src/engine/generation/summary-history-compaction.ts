@@ -29,9 +29,14 @@ export function compactHistorySelectionForCoveredSummaries(input: {
   if (coveredIds.size === 0) return unchanged;
 
   let coveredPrefixLength = 0;
+  let coveredPrefixEnded = false;
   for (const sourceMessage of input.sourceMessages) {
     const id = typeof sourceMessage.id === "string" ? sourceMessage.id.trim() : "";
-    if (!id || !coveredIds.has(id)) break;
+    if (!id || !coveredIds.has(id)) {
+      coveredPrefixEnded = true;
+      continue;
+    }
+    if (coveredPrefixEnded) return unchanged;
     coveredPrefixLength += 1;
   }
   if (coveredPrefixLength === 0) return unchanged;
