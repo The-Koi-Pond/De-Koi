@@ -28,17 +28,15 @@ export function compactHistorySelectionForCoveredSummaries(input: {
   const coveredIds = new Set(input.coveredMessageIds.map((id) => id.trim()).filter(Boolean));
   if (coveredIds.size === 0) return unchanged;
 
-  let coveredPrefixLength = 0;
-  let coveredPrefixEnded = false;
-  for (const sourceMessage of input.sourceMessages) {
-    const id = typeof sourceMessage.id === "string" ? sourceMessage.id.trim() : "";
-    if (!id || !coveredIds.has(id)) {
-      coveredPrefixEnded = true;
-      continue;
-    }
-    if (coveredPrefixEnded) return unchanged;
-    coveredPrefixLength += 1;
-  }
+  const sourceMessageIds = input.sourceMessages.map((sourceMessage) =>
+    typeof sourceMessage.id === "string" ? sourceMessage.id.trim() : "",
+  );
+  const firstUncoveredIndex = sourceMessageIds.findIndex((id) => !id || !coveredIds.has(id));
+  const coveredPrefixLength = firstUncoveredIndex < 0 ? sourceMessageIds.length : firstUncoveredIndex;
+  const hasCoverageAfterGap =
+    firstUncoveredIndex >= 0 &&
+    sourceMessageIds.slice(firstUncoveredIndex + 1).some((id) => id && coveredIds.has(id));
+  if (hasCoverageAfterGap) return unchanged;
   if (coveredPrefixLength === 0) return unchanged;
 
   const tailMessages = Math.max(0, Math.floor(input.tailMessages));

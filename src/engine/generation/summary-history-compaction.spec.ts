@@ -38,6 +38,14 @@ describe("compactHistorySelectionForCoveredSummaries", () => {
     expect(result.coversPriorHistory).toBe(false);
   });
 
+  it("rejects covered prefix plus gap even when the requested tail starts after the gap", () => {
+    const result = compact(["m1", "m2", "m3", "m4", "m5"], ["m1", "m2", "m4"], 2);
+
+    expect(result.messages.map((entry) => entry.content)).toEqual(["m1", "m2", "m3", "m4", "m5"]);
+    expect(result.compactedCount).toBe(0);
+    expect(result.coversPriorHistory).toBe(false);
+  });
+
   it("combines projected coverage ids", () => {
     const result = compact(["m1", "m2", "m3", "m4"], ["m1", "m2"], 1);
 
