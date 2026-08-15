@@ -2,8 +2,14 @@ import type { GenerationPromptSnapshotMessage } from "../contracts/types/chat";
 
 export type CompactPromptPreviewEntry = { messageIndex: number } | { message: GenerationPromptSnapshotMessage };
 
-function serializedMessage(message: GenerationPromptSnapshotMessage): string {
-  return JSON.stringify(message);
+function serializedMessageKey(message: GenerationPromptSnapshotMessage): string | null {
+  try {
+    const serialized = JSON.stringify(message);
+    return typeof serialized === "string" ? serialized : null;
+  } catch {
+    // Values outside the persisted-message contract stay inline instead of being matched by an ambiguous key.
+    return null;
+  }
 }
 
 /** Encode preview order using canonical request messages wherever the payload is identical. */
@@ -14,21 +20,28 @@ export function compactPromptSnapshotPreview(
   if (!previewMessages?.length) return undefined;
   if (
     previewMessages.length === messages.length &&
-    previewMessages.every((message, index) => serializedMessage(message) === serializedMessage(messages[index]!))
+    previewMessages.every((message, index) => {
+      const previewKey = serializedMessageKey(message);
+      const messageKey = serializedMessageKey(messages[index]!);
+      return previewKey !== null && messageKey !== null && previewKey === messageKey;
+    })
   ) {
     return undefined;
   }
 
   const availableIndices = new Map<string, number[]>();
   messages.forEach((message, index) => {
-    const key = serializedMessage(message);
+    const key = serializedMessageKey(message);
+    if (key === null) return;
     const indices = availableIndices.get(key) ?? [];
     indices.push(index);
     availableIndices.set(key, indices);
   });
 
   return previewMessages.map((message) => {
-    const indices = availableIndices.get(serializedMessage(message));
+    const key = serializedMessageKey(message);
+    if (key === null) return { message };
+    const indices = availableIndices.get(key);
     const messageIndex = indices?.shift();
     return messageIndex === undefined ? { message } : { messageIndex };
   });
