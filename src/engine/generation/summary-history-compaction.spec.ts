@@ -46,6 +46,14 @@ describe("compactHistorySelectionForCoveredSummaries", () => {
     expect(result.coversPriorHistory).toBe(false);
   });
 
+  it("leaves history untouched when summary coverage ids are out of order", () => {
+    const result = compact(["m1", "m2", "m3", "m4"], ["m2", "m1"], 1);
+
+    expect(result.messages.map((entry) => entry.content)).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(result.compactedCount).toBe(0);
+    expect(result.coversPriorHistory).toBe(false);
+  });
+
   it("combines projected coverage ids", () => {
     const result = compact(["m1", "m2", "m3", "m4"], ["m1", "m2"], 1);
 

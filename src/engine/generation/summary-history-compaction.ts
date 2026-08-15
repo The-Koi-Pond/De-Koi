@@ -25,8 +25,11 @@ export function compactHistorySelectionForCoveredSummaries(input: {
   };
   if (input.messages.length !== input.sourceMessages.length || input.messages.length === 0) return unchanged;
 
-  const coveredIds = new Set(input.coveredMessageIds.map((id) => id.trim()).filter(Boolean));
+  const orderedCoveredIds = input.coveredMessageIds.map((id) => id.trim()).filter(Boolean);
+  const coveredIds = new Set(orderedCoveredIds);
   if (coveredIds.size === 0) return unchanged;
+  if (coveredIds.size !== orderedCoveredIds.length) return unchanged;
+  const coveredOrder = new Map(orderedCoveredIds.map((id, index) => [id, index]));
 
   const sourceMessageIds = input.sourceMessages.map((sourceMessage) =>
     typeof sourceMessage.id === "string" ? sourceMessage.id.trim() : "",
@@ -38,6 +41,12 @@ export function compactHistorySelectionForCoveredSummaries(input: {
     sourceMessageIds.slice(firstUncoveredIndex + 1).some((id) => id && coveredIds.has(id));
   if (hasCoverageAfterGap) return unchanged;
   if (coveredPrefixLength === 0) return unchanged;
+  let priorCoverageIndex = -1;
+  for (const id of sourceMessageIds.slice(0, coveredPrefixLength)) {
+    const coverageIndex = coveredOrder.get(id);
+    if (coverageIndex === undefined || coverageIndex <= priorCoverageIndex) return unchanged;
+    priorCoverageIndex = coverageIndex;
+  }
 
   const tailMessages = Math.max(0, Math.floor(input.tailMessages));
   const firstTailIndex = Math.max(0, input.messages.length - tailMessages);
