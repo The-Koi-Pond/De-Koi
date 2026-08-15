@@ -58,6 +58,8 @@ export interface PromptBudgetEstimate {
   remainingTokens: number | null;
   sections: PromptBudgetSection[];
   warnings: PromptBudgetWarning[];
+  softLimitTokens: number | null;
+  softLimitFallbackUsed: boolean;
 }
 
 type PromptBudgetMessage = LlmMessage;
@@ -484,5 +486,7 @@ export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudge
     remainingTokens,
     sections,
     warnings,
+    softLimitTokens: input.contextFitDecision?.softLimitTokens ?? null,
+    softLimitFallbackUsed: input.contextFitDecision?.softLimitFallbackUsed === true,
   };
 }

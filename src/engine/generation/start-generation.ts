@@ -308,6 +308,9 @@ interface MainGenerationLoopResult {
 }
 
 type GenerationDryRunPromptSnapshot = MainGenerationPromptSnapshot;
+type SavedGenerationPromptSnapshot = Omit<GenerationPromptSnapshot, "previewMessages"> & {
+  previewMessages?: never;
+};
 
 export interface GenerationDryRunInput extends StartGenerationInput {
   runId?: string | null;
@@ -2756,7 +2759,7 @@ export function buildSavedGenerationPromptSnapshot(args: {
   connection: JsonRecord;
   promptSnapshot?: MainGenerationPromptSnapshot | null;
   usage?: unknown;
-}): GenerationPromptSnapshot | null {
+}): SavedGenerationPromptSnapshot | null {
   if (!args.promptSnapshot?.messages?.length) return null;
   const messages = args.promptSnapshot.messages.map(clonePromptMessage);
   const previewMessages = args.promptSnapshot.previewMessages?.map(clonePromptMessage);

@@ -104,6 +104,8 @@ function contextFitDecisionFromSnapshot(value: unknown): ContextFitDecision | nu
   const originalEstimatedTokens = Number(record.originalEstimatedTokens) || 0;
   const fittedEstimatedTokens = Number(record.fittedEstimatedTokens) || 0;
   const inputBudgetTokens = Number(record.inputBudgetTokens) || 0;
+  const softLimitTokens = Number(record.softLimitTokens) || 0;
+  const softLimitFallbackUsed = record.softLimitFallbackUsed === true;
   if (
     removedMessages.length === 0 &&
     truncatedMessages.length === 0 &&
@@ -132,6 +134,8 @@ function contextFitDecisionFromSnapshot(value: unknown): ContextFitDecision | nu
     originalEstimatedTokens,
     fittedEstimatedTokens,
     inputBudgetTokens,
+    ...(softLimitTokens > 0 ? { softLimitTokens } : {}),
+    ...(typeof record.softLimitFallbackUsed === "boolean" ? { softLimitFallbackUsed } : {}),
   };
 }
 

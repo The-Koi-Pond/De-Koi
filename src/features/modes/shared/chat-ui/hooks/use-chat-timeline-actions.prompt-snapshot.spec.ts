@@ -20,6 +20,25 @@ describe("promptSnapshotToPeekPromptData", () => {
     expect(result?.budget?.remainingTokens).toBe(720 - result!.budget!.estimatedPromptTokens);
   });
 
+  it("propagates roleplay soft-limit fallback metadata into cached prompt data", () => {
+    const result = promptSnapshotToPeekPromptData({
+      messages: [{ role: "user", content: "Continue", contextKind: "history" }],
+      parameters: { maxTokens: 256 },
+      contextFitDecision: {
+        removedMessages: [],
+        truncatedMessages: [],
+        originalEstimatedTokens: 40,
+        fittedEstimatedTokens: 40,
+        inputBudgetTokens: 127_000,
+        softLimitTokens: 32_768,
+        softLimitFallbackUsed: true,
+      },
+    });
+
+    expect(result?.budget?.softLimitTokens).toBe(32_768);
+    expect(result?.budget?.softLimitFallbackUsed).toBe(true);
+  });
+
   it("preserves fitted context kinds and surfaces saved fit warnings for cached prompts", () => {
     const result = promptSnapshotToPeekPromptData({
       messages: [
