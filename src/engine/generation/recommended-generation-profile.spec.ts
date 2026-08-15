@@ -129,6 +129,124 @@ describe("resolveRecommendedGenerationProfile", () => {
     expect(profile.rationale).toMatch(/metadata.*unavailable/i);
   });
 
+  it.each([
+    {
+      mode: "conversation" as const,
+      expected: {
+        profileId: "conversation-balanced",
+        parameters: { temperature: 1, topP: 0.95, maxTokens: 2048 },
+      },
+    },
+    {
+      mode: "roleplay" as const,
+      expected: {
+        profileId: "roleplay-expressive",
+        parameters: { temperature: 1, topP: 0.95, maxTokens: 2048 },
+      },
+    },
+    {
+      mode: "visual_novel" as const,
+      expected: {
+        profileId: "roleplay-expressive",
+        parameters: { temperature: 1, topP: 0.95, maxTokens: 2048 },
+      },
+    },
+  ])("uses maintained GLM-5.2 sampling for NanoGPT $mode", ({ mode, expected }) => {
+    const profile = resolveRecommendedGenerationProfile({
+      mode,
+      provider: "nanogpt",
+      model: "zai-org/glm-5.2",
+      capabilities: null,
+      maxContext: 128_000,
+      executionTarget: "remote",
+    });
+
+    expect(profile).toMatchObject({ ...expected, source: "recommended" });
+    expect(profile.parameters).not.toHaveProperty("reasoningEffort");
+  });
+
+  it("does not treat unrelated NanoGPT models as maintained GLM-5.2 metadata", () => {
+    expect(
+      resolveRecommendedGenerationProfile({
+        mode: "roleplay",
+        provider: "nanogpt",
+        model: "zai-org/glm-4.7",
+        capabilities: null,
+        maxContext: 128_000,
+        executionTarget: "remote",
+      }),
+    ).toMatchObject({ profileId: "provider-neutral-fallback", source: "provider-neutral-fallback" });
+  });
+
+  it.each(["game", "structured"] as const)("does not change NanoGPT GLM-5.2 defaults for %s mode", (mode) => {
+    expect(
+      resolveRecommendedGenerationProfile({
+        mode,
+        provider: "nanogpt",
+        model: "zai-org/glm-5.2",
+        capabilities: null,
+        maxContext: 128_000,
+        executionTarget: "remote",
+      }),
+    ).toMatchObject({ profileId: "provider-neutral-fallback", source: "provider-neutral-fallback" });
+  });
+
+  it.each([
+    { mode: "conversation" as const, profileId: "conversation-balanced" },
+    { mode: "roleplay" as const, profileId: "roleplay-expressive" },
+    { mode: "visual_novel" as const, profileId: "roleplay-expressive" },
+  ])("uses Gemini-native LinkAPI defaults for $mode", ({ mode, profileId }) => {
+    const profile = resolveRecommendedGenerationProfile({
+      mode,
+      provider: "custom",
+      model: "gemini-3.5-flash",
+      baseUrl: "https://linkapi.ai/v1",
+      capabilities: null,
+      maxContext: 1_050_000,
+      executionTarget: "remote",
+    });
+
+    expect(profile).toMatchObject({
+      profileId,
+      source: "recommended",
+      parameters: {
+        maxTokens: 8192,
+        reasoningEffort: "low",
+        verbosity: "medium",
+      },
+    });
+    expect(profile.parameters).not.toHaveProperty("temperature");
+    expect(profile.parameters).not.toHaveProperty("topP");
+  });
+
+  it("does not treat unrelated custom Gemini models as maintained LinkAPI metadata", () => {
+    expect(
+      resolveRecommendedGenerationProfile({
+        mode: "roleplay",
+        provider: "custom",
+        model: "gemini-3.0-flash",
+        baseUrl: "https://linkapi.ai/v1",
+        capabilities: null,
+        maxContext: 1_050_000,
+        executionTarget: "remote",
+      }),
+    ).toMatchObject({ profileId: "provider-neutral-fallback", source: "provider-neutral-fallback" });
+  });
+
+  it.each(["game", "structured"] as const)("does not change LinkAPI Gemini 3.5 defaults for %s mode", (mode) => {
+    expect(
+      resolveRecommendedGenerationProfile({
+        mode,
+        provider: "custom",
+        model: "gemini-3.5-flash",
+        baseUrl: "https://linkapi.ai/v1",
+        capabilities: null,
+        maxContext: 1_050_000,
+        executionTarget: "remote",
+      }),
+    ).toMatchObject({ profileId: "provider-neutral-fallback", source: "provider-neutral-fallback" });
+  });
+
   it("resolves equivalent embedded and remote inputs to the same profile", () => {
     const input = {
       mode: "conversation" as const,
