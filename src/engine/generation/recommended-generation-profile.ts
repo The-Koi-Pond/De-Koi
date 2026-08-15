@@ -113,6 +113,14 @@ function hasAdvertisedModelMetadata(capabilities: Record<string, unknown> | null
   );
 }
 
+function isGlm52Model(model: string): boolean {
+  return /(?:^|[/:\s-])glm[-_.]?5[._-]?2(?:$|[/:\s-])/.test(model);
+}
+
+function isGemini35Model(model: string): boolean {
+  return /(?:^|[/:\s-])gemini[-_.]?3[._-]?5(?:$|[/:\s-])/.test(model);
+}
+
 function modelMatchesMaintainedFamily(provider: string, model: string): boolean {
   if (!model) return false;
   switch (provider) {
@@ -134,6 +142,29 @@ function modelMatchesMaintainedFamily(provider: string, model: string): boolean 
     default:
       return false;
   }
+}
+
+function isNanoGlm52(input: RecommendedGenerationProfileInput): boolean {
+  return normalized(input.provider) === "nanogpt" && isGlm52Model(normalized(input.model));
+}
+
+function isSupportedNanoGlm52Mode(input: RecommendedGenerationProfileInput): boolean {
+  const mode = normalized(input.mode);
+  return isNanoGlm52(input) && (mode === "conversation" || mode === "roleplay" || mode === "visual_novel");
+}
+
+function isLinkApiGemini35(input: RecommendedGenerationProfileInput): boolean {
+  const baseUrl = normalized(input.baseUrl);
+  return (
+    normalized(input.provider) === "custom" &&
+    /^(?:https?:\/\/)?(?:www\.)?linkapi\.ai(?::|\/|$)/.test(baseUrl) &&
+    isGemini35Model(normalized(input.model))
+  );
+}
+
+function isSupportedLinkApiGemini35Mode(input: RecommendedGenerationProfileInput): boolean {
+  const mode = normalized(input.mode);
+  return isLinkApiGemini35(input) && (mode === "conversation" || mode === "roleplay" || mode === "visual_novel");
 }
 
 function reasoningCapable(input: RecommendedGenerationProfileInput): boolean {
@@ -161,7 +192,12 @@ function knownModelMetadata(input: RecommendedGenerationProfileInput): boolean {
   if (input.metadataStale === true) return false;
   const provider = normalized(input.provider);
   const model = normalized(input.model);
-  return hasAdvertisedModelMetadata(input.capabilities) || modelMatchesMaintainedFamily(provider, model);
+  return (
+    hasAdvertisedModelMetadata(input.capabilities) ||
+    modelMatchesMaintainedFamily(provider, model) ||
+    isSupportedNanoGlm52Mode(input) ||
+    isSupportedLinkApiGemini35Mode(input)
+  );
 }
 
 function withReasoning(
@@ -212,6 +248,20 @@ export function resolveRecommendedGenerationProfile(
 
   const mode = normalized(input.mode);
   if (mode === "roleplay" || mode === "visual_novel") {
+    if (isLinkApiGemini35(input)) {
+      return {
+        profileId: "roleplay-expressive",
+        profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
+        source: "recommended",
+        rationale: "Uses Gemini-native sampling and low reasoning for natural LinkAPI roleplay output.",
+        parameters: {
+          maxTokens: boundedOutputTokens(8192, maxContext),
+          reasoningEffort: "low",
+          verbosity: "medium",
+        },
+        promptBudgetGuidance: {},
+      };
+    }
     return {
       profileId: "roleplay-expressive",
       profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
@@ -221,7 +271,7 @@ export function resolveRecommendedGenerationProfile(
         {
           temperature: 1,
           topP: 0.95,
-          maxTokens: boundedOutputTokens(4096, maxContext),
+          maxTokens: boundedOutputTokens(isNanoGlm52(input) ? 2048 : 4096, maxContext),
           verbosity: "medium",
         },
         input,
@@ -268,6 +318,21 @@ export function resolveRecommendedGenerationProfile(
     };
   }
 
+  if (isLinkApiGemini35(input)) {
+    return {
+      profileId: "conversation-balanced",
+      profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
+      source: "recommended",
+      rationale: "Uses Gemini-native sampling and low reasoning for natural LinkAPI conversation output.",
+      parameters: {
+        maxTokens: boundedOutputTokens(8192, maxContext),
+        reasoningEffort: "low",
+        verbosity: "medium",
+      },
+      promptBudgetGuidance: {},
+    };
+  }
+
   return {
     profileId: "conversation-balanced",
     profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
@@ -275,7 +340,7 @@ export function resolveRecommendedGenerationProfile(
     rationale: "Uses balanced sampling and avoids maximum reasoning effort for routine conversation.",
     parameters: withReasoning(
       {
-        temperature: 0.7,
+        temperature: isNanoGlm52(input) ? 1 : 0.7,
         topP: 0.95,
         maxTokens: boundedOutputTokens(2048, maxContext),
         verbosity: "medium",
