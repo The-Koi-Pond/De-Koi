@@ -228,8 +228,8 @@
     "rustSuite": "The full parallel workspace run passed 1423 tests before two unrelated sprite temp-directory race failures; both failing tests and their sibling passed immediately with test-threads=1. All 160 storage tests and all 18 swipe-adjacent tests pass."
   },
   "pr": {
-    "url": null,
-    "evidencePublished": false,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1244",
+    "evidencePublished": true,
     "checks": "Local focused tests, full frontend tests, all storage tests, Rust workspace check, architecture checks, and pnpm check passed; hosted checks pending.",
     "automatedReview": "Local Bunny passed after two in-scope findings were fixed; hosted current-head Bunny pending."
   },
