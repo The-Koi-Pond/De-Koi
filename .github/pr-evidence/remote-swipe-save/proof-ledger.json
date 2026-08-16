@@ -1,0 +1,242 @@
+{
+  "coreClaim": "Remote regenerated-message swipe saves no longer report a false 30-second failure and no longer rewrite large message, swipe, and chat collections in the foreground request.",
+  "scope": {
+    "inScope": [
+      "chat_message_add_swipe remote request deadline",
+      "Append-only message swipe persistence",
+      "Atomic message, message-swipe, and affected chat-memory record upserts",
+      "Crash recovery and cache acknowledgement"
+    ],
+    "outOfScope": [
+      "Swipe deletion or reordering",
+      "Arbitrary message replacement",
+      "The global remote runtime deadline",
+      "Model or web-research execution time"
+    ],
+    "intendedFiles": [
+      "src/shared/api/storage-api.ts",
+      "src/shared/api/storage-api.spec.ts",
+      "src-tauri/crates/storage/src/lib.rs",
+      "src-tauri/crates/storage/src/upsert_transaction.rs",
+      "src-tauri/src/commands/storage/chat_memory.rs",
+      "src-tauri/src/commands/storage/chats.rs",
+      "src-tauri/src/commands/storage/message_swipes.rs",
+      "docs/superpowers/specs/2026-08-16-remote-swipe-save-design.md",
+      "docs/superpowers/plans/2026-08-16-remote-swipe-save.md",
+      ".github/pr-evidence/remote-swipe-save/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent storage",
+      "cross-collection atomicity",
+      "remote runtime behavior",
+      "chat memory invalidation",
+      "existing user histories"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The add-swipe command commits related record upserts through a short-lived durable marker and record journals, while the remote caller waits for the real result without a finite client deadline.",
+    "riskType": "persistent storage and remote runtime contract",
+    "entrypoints": [
+      "storageApi.addChatMessageSwipe in embedded Tauri and remote HTTP runtimes",
+      "chat_message_add_swipe Rust command",
+      "FileStorage grouped journal recovery during runtime and startup"
+    ],
+    "currentPathsOrFormats": [
+      "collections/messages.json and messages.pending.jsonl",
+      "collections/message-swipes.json and message-swipes.pending.jsonl",
+      "collections/chats.json and chats.pending.jsonl",
+      "collections/.collection-upsert-transaction.json"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing JSON-array primary collections",
+      "Existing pending JSONL record journals",
+      "Existing messages with embedded or sidecar swipe representations"
+    ],
+    "positiveRowsTested": [
+      "Active appended swipe with per-swipe metadata",
+      "Affected chat-memory pruning",
+      "Clean and dirty collection caches",
+      "Restart after journal-backed persistence",
+      "Partial grouped-transaction application followed by idempotent recovery"
+    ],
+    "negativeRowsTested": [
+      "Injected memory-cleanup failure commits nothing",
+      "Poisoned cache acknowledgement fails before durable commit",
+      "Inactive append preserves the current visible swipe",
+      "Legacy embedded and noncanonical sidecars retain full cleanup",
+      "Unrelated large message remains unchanged",
+      "Primary collection files remain byte-identical during the foreground save"
+    ],
+    "groundTruthFacts": [
+      "The live Pi completed chat_message_add_swipe in 30016 ms after a 31317 ms LLM stream.",
+      "The mobile browser aborted at its 30000 ms finite remote deadline and nginx recorded HTTP 499.",
+      "The saved message contains the final 442-character response as swipe index 1 despite the UI failure.",
+      "The Pi message and swipe primary collections were approximately 26.6 MB and 27.3 MB."
+    ],
+    "userActionCopy": "No user action or migration is required.",
+    "manualBlockers": [
+      "Exact target-device latency can only be measured after the merged Pi images are published and deployed."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A durable server mutation continued after the browser's finite timeout, while the storage owner rewrote complete large collections for one appended swipe.",
+    "producer": "src-tauri chat_message_add_swipe and FileStorage",
+    "consumer": "src/shared/api storageApi.addChatMessageSwipe over remote-runtime HTTP",
+    "impliedContract": "A durable swipe save returns its real result and performs work proportional to the changed records.",
+    "actualEnforcement": "The wrapper opts this command out of the finite client deadline, and storage commits a grouped marker before exposing record-local upserts and removing the marker.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src-tauri owns durable grouped persistence; src/shared/api owns the remote request deadline.",
+    "consumerOnlyLanes": [
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not fake success in React, retry a non-idempotent mutation, or merely increase the global timeout.",
+    "regressionProof": [
+      "Vitest asserts the exact timeoutMs null invocation option.",
+      "Rust command proof asserts active content, swipe metadata, memory pruning, unrelated-row preservation, byte-identical primaries, and restart recovery.",
+      "Storage proof forces partial transaction recovery and a cache acknowledgement failure."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The remote wrapper waits for the durable swipe result.",
+        "evidence": "pnpm vitest run src/shared/api/storage-api.spec.ts passed with the exact timeoutMs null assertion."
+      },
+      {
+        "claim": "Appending a swipe avoids foreground primary rewrites and survives restart.",
+        "evidence": "message_swipes_append_uses_record_local_journals_and_survives_restart passed."
+      },
+      {
+        "claim": "A crash between per-collection journal applications remains recoverable.",
+        "evidence": "partial_application_keeps_commit_marker_and_recovers_idempotently passed in the full 160-test storage suite."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "A pre-commit memory cleanup error must not partially save the swipe.",
+        "evidence": "message_swipes_rolls_back_when_memory_cleanup_fails passed."
+      },
+      {
+        "claim": "A cache acknowledgement failure must not durably save and then report failure.",
+        "evidence": "journaled_upsert_cache_failure_does_not_commit passed."
+      },
+      {
+        "claim": "The fast path must not change inactive-swipe or metadata behavior.",
+        "evidence": "All 18 message_swipes_ Rust tests passed, including inactive, metadata, prompt snapshot, cross-chat, legacy cleanup, and rollback rows."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing primary JSON arrays and pending journals remain readable and recoverable.",
+        "evidence": "All 160 marinara-storage tests passed, including legacy append checkpoint, pending journal, cache, backup, and recovery rows."
+      },
+      {
+        "claim": "Legacy embedded or noncanonical swipe rows retain stale-sidecar cleanup.",
+        "evidence": "message_swipes_legacy_embedded_rows_keep_full_cleanup_path passed."
+      }
+    ],
+    "untestedRows": [
+      "A non-destructive live Pi timing sample after exact merged images are deployed."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The false failure was a client abort, not a server failure.",
+      "sourceType": "measured",
+      "evidence": "Live logs show chat_message_add_swipe ok in 30016 ms and nginx HTTP 499 at the same request boundary."
+    },
+    {
+      "description": "The generated response was durably present after the error.",
+      "sourceType": "measured",
+      "evidence": "The latest All Five assistant message has two swipes with lengths 0 and 442."
+    },
+    {
+      "description": "Message and swipe primary rewrites dominated the post-generation save.",
+      "sourceType": "derived",
+      "evidence": "The add-swipe path used update_collections_atomically across primary collections whose live sizes totaled roughly 54 MB."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or cleanup is required. An optional rollback copy can be made while De-Koi is stopped.",
+      "source": "/home/chai/de-koi-data/data/collections",
+      "destination": "A user-controlled backup directory outside /home/chai/de-koi-data",
+      "files": [
+        "*.json",
+        "*.pending.jsonl",
+        ".collection-append-journal.jsonl",
+        ".collection-upsert-transaction.json"
+      ],
+      "action": "Stop De-Koi, copy the listed files, verify the copies exist, and restart De-Koi. Do not delete or move the source files.",
+      "detectedLayouts": [
+        "Current JSON-array primary collections",
+        "Current pending JSONL record journals",
+        "Current append journal and new short-lived grouped-upsert marker"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Post-merge Pi timing and deployment verification",
+      "blockingCoreClaim": false,
+      "reason": "The deterministic storage and runtime contracts are proven locally; exact ARM image timing requires the merged deployment."
+    }
+  ],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny found that acquiring the cache only after durable commit could save successfully and then return a cache-lock error.",
+      "disposition": "fixed",
+      "fix": "The grouped path now acquires and holds the cache lock before writing the commit marker, with journaled_upsert_cache_failure_does_not_commit proving no marker or data change on preflight failure.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Bunny found that legacy embedded or noncanonical swipe rows could retain stale sidecars under an upsert-only fast path.",
+      "disposition": "fixed",
+      "fix": "The fast path now requires canonical deterministic sidecar IDs; legacy rows retain full replacement cleanup and have a focused regression.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Large unrelated message",
+      "Dirty cache",
+      "Changed chat memory",
+      "Partial journal application",
+      "Restart recovery"
+    ],
+    "negativeRowsTested": [
+      "Cache lock poison",
+      "Injected memory cleanup failure",
+      "Inactive swipe",
+      "Cross-chat read rejection",
+      "Legacy embedded swipe with stale sidecar"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run src/shared/api/storage-api.spec.ts",
+      "cargo test --manifest-path src-tauri/crates/storage/Cargo.toml",
+      "cargo test --manifest-path src-tauri/Cargo.toml message_swipes_",
+      "pnpm test",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "cargo check --manifest-path src-tauri/Cargo.toml --workspace",
+      "pnpm check"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true,
+    "frontendSuite": "482 files passed, 1 skipped; 2668 tests passed, 1 skipped.",
+    "rustSuite": "The full parallel workspace run passed 1423 tests before two unrelated sprite temp-directory race failures; both failing tests and their sibling passed immediately with test-threads=1. All 160 storage tests and all 18 swipe-adjacent tests pass."
+  },
+  "pr": {
+    "url": null,
+    "evidencePublished": false,
+    "checks": "Local focused tests, full frontend tests, all storage tests, Rust workspace check, architecture checks, and pnpm check passed; hosted checks pending.",
+    "automatedReview": "Local Bunny passed after two in-scope findings were fixed; hosted current-head Bunny pending."
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "bunnyReviewClean": true,
+    "hostedChecksClean": false,
+    "piDeploymentVerified": false
+  }
+}

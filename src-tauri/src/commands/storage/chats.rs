@@ -706,6 +706,8 @@ pub(crate) fn message_swipes(
 ) -> AppResult<Value> {
     let mut message = get_required(state, "messages", message_id)?;
     message_swipe_storage::materialize_message(state, &mut message, true)?;
+    let append_only_storage_compatible =
+        message_swipe_storage::has_canonical_append_only_swipes(&message);
     let owner_chat_id = owned_message_chat_id(&message, chat_id)?;
     if body.is_null() {
         return Ok(message.get("swipes").cloned().unwrap_or_else(|| json!([])));
@@ -802,15 +804,35 @@ pub(crate) fn message_swipes(
         object.insert("characterId".to_string(), character_id);
     }
     let swipes = message_swipe_storage::take_swipes_for_storage(&mut message)?.unwrap_or_default();
-    let updated = replace_message_with_swipes_and_chat_cleanup(
-        state,
-        &owner_chat_id,
-        message_id,
-        message,
-        swipes,
-        visible_content_changed,
-        None,
-    )?;
+    let updated = if append_only_storage_compatible {
+        let message_for_memory_cleanup = message.clone();
+        message_swipe_storage::append_message_with_swipes_and_update_record(
+            state,
+            message,
+            swipes,
+            "chats",
+            &owner_chat_id,
+            move |chat| {
+                if visible_content_changed {
+                    chat_memory::apply_chat_memory_invalidation_from_message(
+                        chat,
+                        &message_for_memory_cleanup,
+                    )?;
+                }
+                Ok(())
+            },
+        )?
+    } else {
+        replace_message_with_swipes_and_chat_cleanup(
+            state,
+            &owner_chat_id,
+            message_id,
+            message,
+            swipes,
+            visible_content_changed,
+            None,
+        )?
+    };
     Ok(updated)
 }
 
@@ -3931,6 +3953,168 @@ mod tests {
 
         assert_eq!(updated["content"], json!(content));
         assert_eq!(updated["swipes"][1]["content"], json!(content));
+    }
+
+    #[test]
+    fn message_swipes_legacy_embedded_rows_keep_full_cleanup_path() {
+        let state = test_state("swipe-legacy-cleanup");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "first",
+                    "activeSwipeIndex": 0,
+                    "swipes": [{ "content": "first" }]
+                }),
+            )
+            .expect("legacy embedded message should seed");
+        state
+            .storage
+            .create(
+                "message-swipes",
+                json!({
+                    "id": "message-1::swipe::9",
+                    "messageId": "message-1",
+                    "index": 9,
+                    "content": "stale"
+                }),
+            )
+            .expect("stale sidecar should seed");
+
+        let updated = message_swipes(
+            &state,
+            "POST",
+            "chat-1",
+            "message-1",
+            json!({ "content": "second" }),
+        )
+        .expect("legacy swipe should append through cleanup path");
+        let persisted_swipes = message_swipe_storage::swipes_for_message(&state, "message-1")
+            .expect("sidecars should read");
+
+        assert_eq!(updated["swipeCount"], json!(2));
+        assert_eq!(updated["content"], json!("second"));
+        assert_eq!(persisted_swipes.len(), 2);
+        assert!(persisted_swipes
+            .iter()
+            .all(|swipe| swipe["content"] != json!("stale")));
+    }
+
+    #[test]
+    fn message_swipes_append_uses_record_local_journals_and_survives_restart() {
+        let state = test_state("swipe-journal-fast-path");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Large history",
+                    "memories": [
+                        {
+                            "id": "drop-active",
+                            "messageIds": ["message-1"],
+                            "lastMessageAt": "2026-06-01T10:00:00.000Z"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+        message_swipe_storage::create_message(
+            &state,
+            json!({
+                "id": "message-1",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "first",
+                "createdAt": "2026-06-01T10:00:00.000Z",
+                "activeSwipeIndex": 0,
+                "swipes": [{ "content": "first", "extra": { "model": "one" } }]
+            }),
+        )
+        .expect("target message should seed");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-unrelated",
+                    "chatId": "chat-1",
+                    "role": "user",
+                    "content": "x".repeat(256 * 1024)
+                }),
+            )
+            .expect("unrelated message should seed");
+
+        let data_root = state.storage.root().to_path_buf();
+        state.storage.flush().expect("seed data should flush");
+        let collections = data_root.join("collections");
+        let primary_before = ["messages", "message-swipes", "chats"].map(|collection| {
+            (
+                collection,
+                std::fs::read(collections.join(format!("{collection}.json"))).unwrap(),
+            )
+        });
+
+        let updated = message_swipes(
+            &state,
+            "POST",
+            "chat-1",
+            "message-1",
+            json!({ "content": "second", "extra": { "model": "two" } }),
+        )
+        .expect("swipe should append");
+
+        assert_eq!(updated["swipeCount"], json!(2));
+        assert_eq!(updated["content"], json!("second"));
+        assert_eq!(updated["swipes"][0]["extra"]["model"], json!("one"));
+        assert_eq!(updated["swipes"][1]["extra"]["model"], json!("two"));
+        assert_eq!(
+            memory_ids(&stored_chat(&state)["memories"]),
+            Vec::<String>::new()
+        );
+        assert_eq!(stored_chat(&state)["name"], json!("Large history"));
+        for (collection, before) in &primary_before {
+            assert_eq!(
+                std::fs::read(collections.join(format!("{collection}.json"))).unwrap(),
+                *before,
+                "{collection} primary should not be rewritten while adding a swipe"
+            );
+        }
+
+        let app_data_dir = state.data_dir.clone();
+        drop(state);
+        let reopened = AppState::from_data_dir(app_data_dir, Vec::new())
+            .expect("state should recover the committed journal transaction");
+        let mut persisted = reopened
+            .storage
+            .get("messages", "message-1")
+            .expect("message lookup should succeed")
+            .expect("message should exist");
+        message_swipe_storage::materialize_message(&reopened, &mut persisted, true)
+            .expect("message should materialize after restart");
+        assert_eq!(persisted["swipeCount"], json!(2));
+        assert_eq!(persisted["content"], json!("second"));
+        assert_eq!(persisted["swipes"][1]["extra"]["model"], json!("two"));
+        assert_eq!(
+            reopened
+                .storage
+                .get("messages", "message-unrelated")
+                .expect("unrelated lookup should succeed")
+                .expect("unrelated message should remain")["content"]
+                .as_str()
+                .map(str::len),
+            Some(256 * 1024)
+        );
+        assert_eq!(
+            memory_ids(&stored_chat(&reopened)["memories"]),
+            Vec::<String>::new()
+        );
+        assert_eq!(stored_chat(&reopened)["name"], json!("Large history"));
     }
     #[test]
     fn message_swipes_projects_dialogue_attributions_from_active_swipe() {

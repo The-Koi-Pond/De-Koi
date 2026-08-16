@@ -4,7 +4,7 @@
 
 **Goal:** Make regenerated-message swipe saves fast on large Pi histories and prevent a completed durable remote save from being reported as a timeout.
 
-**Architecture:** Extend the existing cross-collection append journal so replacement IDs are applied through record-local upsert journals while new IDs retain the append fast path. Route only add-swipe mutations through that fast path, and opt that durable remote command out of the finite client deadline.
+**Architecture:** Add a grouped record-upsert path whose global journal atomically commits message, swipe, and affected chat-memory rows, while record-local journals expose them without foreground primary rewrites. Route only add-swipe mutations through that fast path, and opt that durable remote command out of the finite client deadline.
 
 **Tech Stack:** Rust, serde_json storage journals, TypeScript, Vitest, Tauri/HTTP shared runtime adapters.
 
@@ -17,37 +17,41 @@
 
 ---
 
-### Task 1: Make cross-collection journal appends support replacement IDs
+### Task 1: Add grouped journal upserts for related records
 
 **Files:**
+
 - Modify: `src-tauri/crates/storage/src/lib.rs`
 
 **Interfaces:**
+
 - Consumes: `FileStorage::append_many_uncached`, `append_journal::append_transaction`, `append_collection_mutation`, and `CollectionMutation::UpsertMany`.
-- Produces: `append_many_uncached` behavior that appends new IDs, journals replacement IDs, updates caches without duplicates, and retains restart recovery.
+- Produces: `upsert_many_journaled_with_record` behavior that updates the current related record under the write gate, atomically commits all rows, exposes them through record-local journals, updates caches without duplicates, and retains restart recovery.
 
 - [ ] **Step 1: Write the failing storage regression**
 
-Add a focused test that seeds `messages/message-1`, warms its cache, calls:
+Add a focused test that seeds related message, swipe, and chat records, warms their caches, calls:
 
 ```rust
-storage.append_many_uncached(vec![(
-    "messages",
-    vec![json!({ "id": "message-1", "content": "after" })],
-)])?;
+storage.upsert_many_journaled_with_record(
+    vec![("messages", vec![updated_message]), ("message-swipes", updated_swipes)],
+    "chats",
+    chat_id,
+    update_chat,
+)?;
 ```
 
-Assert the live list contains one updated row, the primary still contains only the original row before journal application, and reopening storage yields one updated row.
+Assert live reads contain the updated rows, all primary files remain byte-identical, and reopening storage yields the same records without duplicates.
 
 - [ ] **Step 2: Run the regression and verify RED**
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml append_many_uncached_upserts_existing_rows_without_duplicates`
+Run: `cargo test --manifest-path src-tauri/crates/storage/Cargo.toml upsert_many_journaled_commits_related_records_without_rewriting_primaries`
 
-Expected: FAIL because the current append application adds a duplicate existing ID and leaves the live cache pointing at the old row.
+Expected: FAIL because the grouped journal-upsert API does not exist.
 
 - [ ] **Step 3: Implement journal-backed replacement application**
 
-Partition each committed collection's rows by whether the ID already exists. Apply new IDs with `append_to_collection_file_in_place`; apply replacement IDs with:
+Add `upsert_many_journaled_with_record`. Validate the complete write set, write one short-lived grouped commit marker, then expose each collection through:
 
 ```rust
 append_collection_mutation(
@@ -57,27 +61,29 @@ append_collection_mutation(
 )?;
 ```
 
-Update `append_cached_collection_rows` so an existing ID replaces its cached row and adjusts `approx_bytes`; append only genuinely new IDs. Keep the global append journal as the crash-recovery commit record and retain synchronous recovery on an application error.
+Update dirty cached rows in place and invalidate clean caches. Remove the grouped marker only after every record journal is durable, preserve chat-summary read-model handling, and retain synchronous recovery on an application error.
 
 - [ ] **Step 4: Run the storage regression and verify GREEN**
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml append_many_uncached_upserts_existing_rows_without_duplicates`
+Run: `cargo test --manifest-path src-tauri/crates/storage/Cargo.toml upsert_many_journaled_commits_related_records_without_rewriting_primaries`
 
 Expected: PASS with one current row before and after restart.
 
 ### Task 2: Route add-swipe persistence through the journal fast path
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/message_swipes.rs`
 - Modify: `src-tauri/src/commands/storage/chats.rs`
 
 **Interfaces:**
+
 - Consumes: the upsert-capable `FileStorage::append_many_uncached` contract from Task 1.
-- Produces: `message_swipe_storage::append_message_with_swipes(state, message, swipes) -> AppResult<Value>` for append-only swipe mutations.
+- Produces: `message_swipe_storage::append_message_with_swipes_and_update_record(...) -> AppResult<Value>` for append-only swipe mutations.
 
 - [ ] **Step 1: Write the failing swipe persistence regression**
 
-Add a focused `message_swipes` test with a target message, an unrelated large sibling, and one existing swipe. Capture `messages.json`, append a new active swipe through the public storage command helper, then assert:
+Add a focused `message_swipes` test with a chat memory, target message, unrelated large sibling, and one existing swipe. Capture all three primary files, append a new active swipe through the public storage command helper, then assert:
 
 ```rust
 assert_eq!(fs::read(&messages_path)?, messages_before);
@@ -89,20 +95,20 @@ Drop and reopen storage, materialize the message, and assert both swipes, active
 
 - [ ] **Step 2: Run the swipe regression and verify RED**
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml message_swipes_append_uses_record_local_journal`
+Run: `cargo test --manifest-path src-tauri/Cargo.toml message_swipes_append_uses_record_local_journals_and_survives_restart`
 
 Expected: FAIL because `replace_message_with_swipes` rewrites the complete `messages` and `message-swipes` collections.
 
 - [ ] **Step 3: Implement the append-only helper**
 
-Add `append_message_with_swipes` beside `replace_message_with_swipes`. It prepares the updated parent and sidecars with the existing normalization helpers, attempts one `append_many_uncached` call for both collections, materializes the result, and falls back to the existing full replacement only if the storage files cannot use the journal path. Change only the add-swipe branch in `chats::message_swipes` to call it.
+Add `append_message_with_swipes_and_update_record` beside `replace_message_with_swipes`. It prepares the updated parent and sidecars with the existing normalization helpers, updates the current chat record inside the same storage write gate, commits all changed rows through the grouped journal, and materializes the result. Change only the add-swipe branch in `chats::message_swipes` to supply the memory-invalidation callback. Gate the fast path to canonical sidecar IDs; retain full replacement cleanup for legacy embedded or noncanonical rows.
 
 - [ ] **Step 4: Run the swipe and adjacent Rust tests**
 
 Run:
 
 ```powershell
-cargo test --manifest-path src-tauri/Cargo.toml message_swipes_append_uses_record_local_journal
+cargo test --manifest-path src-tauri/Cargo.toml message_swipes_append_uses_record_local_journals_and_survives_restart
 cargo test --manifest-path src-tauri/Cargo.toml message_swipes_preserves_blank_lines_in_new_swipe_content
 cargo test --manifest-path src-tauri/Cargo.toml message_swipes_store_per_swipe_extra_and_preserve_previous_active_extra
 ```
@@ -112,10 +118,12 @@ Expected: all PASS.
 ### Task 3: Remove the false client deadline for durable swipe saves
 
 **Files:**
+
 - Modify: `src/shared/api/storage-api.spec.ts`
 - Modify: `src/shared/api/storage-api.ts`
 
 **Interfaces:**
+
 - Consumes: `invokeTauri(command, args, { timeoutMs?: number | null })`.
 - Produces: `storageApi.addChatMessageSwipe` with unchanged arguments/result and `{ timeoutMs: null }` for remote execution.
 
@@ -151,7 +159,7 @@ invokeTauri(
   "chat_message_add_swipe",
   { chatId, messageId, body: chatMessageSwipeBody(content, options) },
   { timeoutMs: null },
-)
+);
 ```
 
 - [ ] **Step 4: Run the TypeScript regression and verify GREEN**
@@ -163,10 +171,12 @@ Expected: PASS.
 ### Task 4: Validate, review, and ship the coupled fix
 
 **Files:**
+
 - Create: `.github/pr-evidence/remote-swipe-save/proof-ledger.json`
 - Review: all changed source, tests, design, and plan files.
 
 **Interfaces:**
+
 - Consumes: completed Tasks 1-3.
 - Produces: a reviewable PR proving the live symptom, storage performance boundary, remote deadline behavior, and recovery invariants.
 
@@ -176,7 +186,7 @@ Run:
 
 ```powershell
 pnpm vitest run src/shared/api/storage-api.spec.ts
-cargo test --manifest-path src-tauri/Cargo.toml append_many_uncached_upserts_existing_rows_without_duplicates
+cargo test --manifest-path src-tauri/crates/storage/Cargo.toml upsert_many_journaled_commits_related_records_without_rewriting_primaries
 cargo test --manifest-path src-tauri/Cargo.toml message_swipes
 pnpm typecheck
 pnpm check:architecture

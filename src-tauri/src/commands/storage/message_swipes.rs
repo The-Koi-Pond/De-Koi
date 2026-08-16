@@ -93,6 +93,23 @@ fn sidecar_row_id(message_id: &str, index: usize) -> String {
     format!("{message_id}::swipe::{index}")
 }
 
+pub(crate) fn has_canonical_append_only_swipes(message: &Value) -> bool {
+    let Some(message_id) = message
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return false;
+    };
+    let Some(swipes) = message.get("swipes").and_then(Value::as_array) else {
+        return true;
+    };
+    swipes.iter().enumerate().all(|(index, swipe)| {
+        swipe.get("id").and_then(Value::as_str) == Some(sidecar_row_id(message_id, index).as_str())
+    })
+}
+
 fn sidecar_index(row: &Value) -> usize {
     row.get("index")
         .and_then(Value::as_u64)
@@ -595,6 +612,36 @@ pub(crate) fn replace_message_with_swipes(
     swipes: Vec<Value>,
 ) -> AppResult<Value> {
     write_message_and_swipes(state, message, swipes, true)
+}
+
+pub(crate) fn append_message_with_swipes_and_update_record<F>(
+    state: &AppState,
+    message: Value,
+    swipes: Vec<Value>,
+    collection: &str,
+    id: &str,
+    update: F,
+) -> AppResult<Value>
+where
+    F: FnOnce(&mut Value) -> AppResult<()>,
+{
+    let (_, stored_message) = message_row_for_write(message, true)?;
+    let sidecars = swipe_rows_for_message(&stored_message, &swipes)?;
+    let upserts = vec![
+        ("messages", vec![stored_message.clone()]),
+        (COLLECTION, sidecars.clone()),
+    ];
+    state
+        .storage
+        .upsert_many_journaled_with_record(upserts, collection, id, update)?;
+
+    let mut materialized = stored_message;
+    apply_sidecar_swipes(
+        &mut materialized,
+        &sidecars,
+        MessageSwipeMaterialization::full(),
+    );
+    Ok(materialized)
 }
 
 pub(crate) fn replace_message_with_swipes_and_update_collections<F>(

@@ -107,11 +107,16 @@ describe("storageApi chat message writes", () => {
       },
       { timeoutMs: null },
     );
-    expect(invokeTauriMock).toHaveBeenNthCalledWith(2, "chat_message_add_swipe", {
-      chatId: "chat-1",
-      messageId: "message-blank",
-      body: expect.objectContaining({ content: "Alt 1\n\n\nAlt 2" }),
-    });
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(
+      2,
+      "chat_message_add_swipe",
+      {
+        chatId: "chat-1",
+        messageId: "message-blank",
+        body: expect.objectContaining({ content: "Alt 1\n\n\nAlt 2" }),
+      },
+      { timeoutMs: null },
+    );
   });
 });
 
