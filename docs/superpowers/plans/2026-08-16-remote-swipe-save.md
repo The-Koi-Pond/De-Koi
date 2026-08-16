@@ -206,4 +206,4 @@ Stage only the intended files and commit with subject `Fix remote swipe save tim
 
 - [ ] **Step 4: Merge and deploy exact images**
 
-After required hosted checks and final-head Bunny pass, merge to `main`, wait for both exact merge-SHA images, update `/home/chai/de-koi-src` with `scripts/pi-update.sh --trusted-lan`, and verify both image labels, root HTTP, writable health, zero restart/OOM state, and preserved `/data` plus `/root/.codex` mounts. Do not mutate a real chat merely to prove deployment.
+After required hosted checks and final-head Bunny pass, merge to `main`, wait for both exact merge-SHA images, update the Pi's De-Koi checkout with `scripts/pi-update.sh --trusted-lan`, and verify both image labels, root HTTP, writable health, zero restart/OOM state, and preserved `/data` plus `/root/.codex` mounts. Do not mutate a real chat merely to prove deployment.

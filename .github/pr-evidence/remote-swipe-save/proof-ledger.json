@@ -108,7 +108,7 @@
       },
       {
         "claim": "A crash between per-collection journal applications remains recoverable.",
-        "evidence": "partial_application_keeps_commit_marker_and_recovers_idempotently passed in the full 160-test storage suite."
+        "evidence": "partial_application_keeps_commit_marker_and_recovers_idempotently passed in the full 161-test storage suite."
       }
     ],
     "contradictionRows": [
@@ -128,7 +128,7 @@
     "legacyDefaultRows": [
       {
         "claim": "Existing primary JSON arrays and pending journals remain readable and recoverable.",
-        "evidence": "All 160 marinara-storage tests passed, including legacy append checkpoint, pending journal, cache, backup, and recovery rows."
+        "evidence": "All 161 marinara-storage tests passed, including legacy append checkpoint, pending journal, cache, backup, and recovery rows."
       },
       {
         "claim": "Legacy embedded or noncanonical swipe rows retain stale-sidecar cleanup.",
@@ -148,7 +148,7 @@
     {
       "description": "The generated response was durably present after the error.",
       "sourceType": "measured",
-      "evidence": "The latest All Five assistant message has two swipes with lengths 0 and 442."
+      "evidence": "The latest assistant message in the measured live chat has two swipes with lengths 0 and 442."
     },
     {
       "description": "Message and swipe primary rewrites dominated the post-generation save.",
@@ -159,8 +159,8 @@
   "userActionCopy": [
     {
       "description": "No migration or cleanup is required. An optional rollback copy can be made while De-Koi is stopped.",
-      "source": "/home/chai/de-koi-data/data/collections",
-      "destination": "A user-controlled backup directory outside /home/chai/de-koi-data",
+      "source": "<data-dir>/data/collections",
+      "destination": "<backup-dir>",
       "files": [
         "*.json",
         "*.pending.jsonl",
@@ -194,6 +194,24 @@
       "disposition": "fixed",
       "fix": "The fast path now requires canonical deterministic sidecar IDs; legacy rows retain full replacement cleanup and have a focused regression.",
       "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny found machine-local Pi paths in durable rollback evidence.",
+      "disposition": "fixed",
+      "fix": "Tracked evidence now uses <data-dir>/data/collections and <backup-dir> placeholders while retaining the exact collection and recovery artifact names.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny found the live chat title in tracked repro evidence.",
+      "disposition": "fixed",
+      "fix": "The spec and ledger now use sanitized live-chat descriptions while retaining the measured timing, response length, swipe count, and collection sizes.",
+      "humanResolutionRequired": false
+    },
+    {
+      "finding": "Hosted Bunny noted that a missing required chat record could still allow related grouped upserts to commit.",
+      "disposition": "fixed",
+      "fix": "The grouped helper now rejects a missing required record before durable commit, with a restart-level regression proving neither the message nor sidecar changes persist.",
+      "humanResolutionRequired": false
     }
   ],
   "verification": {
@@ -210,7 +228,8 @@
       "Injected memory cleanup failure",
       "Inactive swipe",
       "Cross-chat read rejection",
-      "Legacy embedded swipe with stale sidecar"
+      "Legacy embedded swipe with stale sidecar",
+      "Missing required chat record"
     ],
     "afterEvidence": [
       "pnpm vitest run src/shared/api/storage-api.spec.ts",
@@ -225,7 +244,7 @@
     "baselineCommand": "pnpm check",
     "baselinePassed": true,
     "frontendSuite": "482 files passed, 1 skipped; 2668 tests passed, 1 skipped.",
-    "rustSuite": "The full parallel workspace run passed 1423 tests before two unrelated sprite temp-directory race failures; both failing tests and their sibling passed immediately with test-threads=1. All 160 storage tests and all 18 swipe-adjacent tests pass."
+    "rustSuite": "The full parallel workspace run passed 1423 tests before two unrelated sprite temp-directory race failures; both failing tests and their sibling passed immediately with test-threads=1. All 161 storage tests and all 18 swipe-adjacent tests pass."
   },
   "pr": {
     "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1244",

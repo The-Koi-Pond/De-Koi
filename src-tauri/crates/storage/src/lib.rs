@@ -1329,6 +1329,7 @@ impl FileStorage {
         mut upserts: Vec<(&'a str, Vec<Value>)>,
         collection: &'a str,
         id: &str,
+        require_related_record: bool,
         update: F,
     ) -> AppResult<()>
     where
@@ -1347,17 +1348,25 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        if let Some(mut record) = self.read_collection_find_by_id_no_recovery(collection, id)? {
-            let before = record.clone();
-            update(&mut record)?;
-            if record.get("id").and_then(Value::as_str) != Some(id) {
-                return Err(AppError::invalid_input(
-                    "Journaled atomic record updates cannot change a record id",
-                ));
+        match self.read_collection_find_by_id_no_recovery(collection, id)? {
+            Some(mut record) => {
+                let before = record.clone();
+                update(&mut record)?;
+                if record.get("id").and_then(Value::as_str) != Some(id) {
+                    return Err(AppError::invalid_input(
+                        "Journaled atomic record updates cannot change a record id",
+                    ));
+                }
+                if record != before {
+                    upserts.push((collection, vec![record]));
+                }
             }
-            if record != before {
-                upserts.push((collection, vec![record]));
+            None if require_related_record => {
+                return Err(AppError::not_found(format!(
+                    "{collection}/{id} was not found"
+                )));
             }
+            None => {}
         }
         if upserts.is_empty() {
             return Ok(());
@@ -6709,6 +6718,7 @@ mod tests {
                 ],
                 "chats",
                 "chat-1",
+                true,
                 |chat| {
                     chat.as_object_mut()
                         .expect("chat should be an object")
@@ -6764,6 +6774,67 @@ mod tests {
     }
 
     #[test]
+    fn journaled_upsert_missing_required_record_does_not_commit_related_records() {
+        let root = temp_storage_root("journaled-upsert-missing-required-record");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "content": "before" })],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "message-swipes",
+                vec![json!({
+                    "id": "message-1::swipe::0",
+                    "messageId": "message-1",
+                    "content": "before"
+                })],
+            )
+            .unwrap();
+        storage.replace_all("chats", Vec::new()).unwrap();
+        storage.flush().unwrap();
+
+        let error = storage
+            .upsert_many_journaled_with_record(
+                vec![
+                    (
+                        "messages",
+                        vec![json!({ "id": "message-1", "content": "after" })],
+                    ),
+                    (
+                        "message-swipes",
+                        vec![json!({
+                            "id": "message-1::swipe::1",
+                            "messageId": "message-1",
+                            "content": "after"
+                        })],
+                    ),
+                ],
+                "chats",
+                "missing-chat",
+                true,
+                |_| Ok(()),
+            )
+            .expect_err("a missing required record should reject the grouped upsert");
+        assert_eq!(error.code, "not_found");
+
+        drop(storage);
+        let reopened = FileStorage::new(&root).unwrap();
+        assert_eq!(
+            reopened.get("messages", "message-1").unwrap().unwrap()["content"],
+            json!("before")
+        );
+        assert!(reopened
+            .get("message-swipes", "message-1::swipe::1")
+            .unwrap()
+            .is_none());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn journaled_upsert_cache_failure_does_not_commit() {
         let root = temp_storage_root("journaled-upsert-cache-failure");
         let storage = FileStorage::new(&root).unwrap();
@@ -6812,6 +6883,7 @@ mod tests {
                 ],
                 "chats",
                 "chat-1",
+                true,
                 |_| Ok(()),
             )
             .expect_err("cache preflight should fail before commit");

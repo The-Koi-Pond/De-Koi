@@ -620,6 +620,7 @@ pub(crate) fn append_message_with_swipes_and_update_record<F>(
     swipes: Vec<Value>,
     collection: &str,
     id: &str,
+    require_related_record: bool,
     update: F,
 ) -> AppResult<Value>
 where
@@ -633,7 +634,13 @@ where
     ];
     state
         .storage
-        .upsert_many_journaled_with_record(upserts, collection, id, update)?;
+        .upsert_many_journaled_with_record(
+            upserts,
+            collection,
+            id,
+            require_related_record,
+            update,
+        )?;
 
     let mut materialized = stored_message;
     apply_sidecar_swipes(

@@ -812,6 +812,7 @@ pub(crate) fn message_swipes(
             swipes,
             "chats",
             &owner_chat_id,
+            visible_content_changed,
             move |chat| {
                 if visible_content_changed {
                     chat_memory::apply_chat_memory_invalidation_from_message(
