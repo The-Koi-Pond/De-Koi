@@ -35,6 +35,10 @@ Api -> Invoke : invoke "deki_prompt"
 Invoke -> Runtime : deki_prompt(state, request)
 
 Runtime -> Runtime : resolve connection\nvalidate request and session context
+note right of Runtime
+  This sequence covers read-only requests. Existing write-capability
+  requests remain on the current native-tool compatibility path.
+end note
 Runtime -> Prompt : build system + task prompt\ninclude approved chat/web grants\ninclude JSON protocol instructions
 Prompt --> Runtime : prompt parts + initial context
 Runtime -> Loop : run bounded JSON command loop

@@ -46,6 +46,12 @@ stable unless the implementation exposes a missing optional field.
 - Prompt text and request context assembly should live in `deki/prompt.rs`.
   Keep persona text, attachments, approved chat grants, approved web grants,
   repository guidance, and command-protocol instructions in one prompt owner.
+- The Slice 2 JSON path is read-only. Requests whose selected capability set
+  includes an existing write tool remain on the current native-tool path during
+  this transition so rebasing Slice 2 does not remove current-main behavior.
+  That compatibility lane is not part of the JSON command registry and should
+  be migrated only with a separately reviewed approval design.
+
 - The bounded command loop should live in `deki/loop.rs`. It owns max rounds,
   wall-clock timeout checks, optional cancellation checks, internal trace
   collection, command result compaction, and stop-condition handling.
@@ -63,14 +69,17 @@ stable unless the implementation exposes a missing optional field.
 - Existing creative-library approval parsing should move toward a focused
   `deki/action_parser.rs` owner. Until it is split, the Slice 2 loop must treat
   `<deki_action>` blocks as final visible output, not as command protocol JSON.
+  The JSON path uses that focused owner; the native compatibility lane retains
+  its current-main parser until the legacy path can be migrated without losing
+  newer validation behavior.
 - Existing web research is in scope for Slice 2 as a read-only command family
   only when a matching approved web research grant exists. Web commands must use
   the same consent, public URL, allowed-domain, timeout, and result-size
   constraints as the current main-branch behavior.
 - Exact code edits, extension creation, custom-agent creation, raw shell, and
-  app-data mutation are not JSON-runtime commands in Slice 2. Keep them disabled
-  or routed through existing approval-card behavior until later approval slices
-  deliberately reintroduce them.
+  app-data mutation are not JSON-runtime commands in Slice 2. Existing selected
+  write capabilities may remain on the native compatibility path; do not add
+  them to the JSON registry before the later approval slices.
 - Workspace status routing must match the chosen runtime shape. If Slice 2 makes
   workspace status meaningful, add explicit embedded and remote routing for
   `deki_workspace_status`. Add `deki_workspace_abort` only with a real
@@ -100,9 +109,11 @@ to narrow the next command. Silent truncation is not acceptable.
 - Provider boundary: no Slice 2 code path should require
   `ensure_connection_supports_native_tools`; JSON runtime model calls go through
   `deki/model_client.rs`.
+  Native write compatibility requests are outside that read-only JSON path.
 - Module split: `deki.rs` stays a facade. Prompt assembly, loop control,
   protocol parsing, budget enforcement, action parsing, command execution, web
   research, and status DTOs have focused owners.
+  Legacy native write behavior remains colocated until its approval migration.
 - Typed commands: command input and output should use Rust structs/enums at the
   command boundary. Raw `serde_json::Value` should be limited to JSON protocol
   ingress/egress and returned storage payloads that are already JSON-shaped.

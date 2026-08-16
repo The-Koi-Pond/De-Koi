@@ -58,6 +58,7 @@ enum DekiCommand {
     ReadCodeFile(code::ReadDekiCodeFileArgs),
     ReadChats(super::chat_access::ReadDekiChatsArgs),
     ReadChatMessages(super::chat_access::ReadDekiChatMessagesArgs),
+    ReadMemories(super::memory_access::ReadDekiMemoriesArgs),
     SearchWeb(web::SearchDekiWebArgs),
     ReadWebPage(web::ReadDekiWebPageArgs),
 }
@@ -85,6 +86,9 @@ impl DekiCommand {
             "read_deki_chats" => parse_command_args("read_deki_chats", args).map(Self::ReadChats),
             "read_deki_chat_messages" => {
                 parse_command_args("read_deki_chat_messages", args).map(Self::ReadChatMessages)
+            }
+            "read_deki_memories" => {
+                parse_command_args("read_deki_memories", args).map(Self::ReadMemories)
             }
             "search_deki_web" => parse_command_args("search_deki_web", args).map(Self::SearchWeb),
             "read_deki_web_page" => {
@@ -185,6 +189,9 @@ async fn run_command(
         DekiCommand::ReadChatMessages(args) => {
             read_deki_chat_messages(state, chat_access_grants, args)
         }
+        DekiCommand::ReadMemories(args) => {
+            super::memory_access::read(state, chat_access_grants, args)
+        }
         DekiCommand::SearchWeb(args) => search_deki_web(web_research_grants, args).await,
         DekiCommand::ReadWebPage(args) => {
             turn_state.reserve_web_page_read()?;
@@ -280,6 +287,7 @@ fn trace_tool_name(name: &str) -> &str {
         | "read_deki_code_file"
         | "read_deki_chats"
         | "read_deki_chat_messages"
+        | "read_deki_memories"
         | "search_deki_web"
         | "read_deki_web_page" => name,
         _ => "deki_code",

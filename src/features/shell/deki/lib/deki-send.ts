@@ -22,8 +22,6 @@ type DekiHistoryWriter = {
     role: "user" | "assistant";
     content: string;
     action?: DekiEntryAction | null;
-    workspaceTrace?: DekiMessage["workspaceTrace"];
-    workspaceHistory?: DekiMessage["workspaceHistory"];
   }): Promise<DekiMessage>;
   saveCompaction(sessionId: string | null | undefined, compaction: DekiCompactionState): Promise<DekiCompactionState>;
 };
@@ -100,8 +98,6 @@ export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise
     role: "assistant",
     content: response.content,
     action: response.action,
-    ...(response.workspaceTrace?.length ? { workspaceTrace: response.workspaceTrace } : {}),
-    ...(response.workspaceHistory?.length ? { workspaceHistory: response.workspaceHistory } : {}),
   });
   const messagesWithAssistant = [...messagesWithUser, assistant];
   await input.onAssistantMessagePersisted?.(assistant, messagesWithAssistant);

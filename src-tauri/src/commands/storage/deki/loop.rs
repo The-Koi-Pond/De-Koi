@@ -1,6 +1,7 @@
 use super::budget::{truncate_to_chars, DekiEvidenceBudget, DekiRuntimeBudget};
 use super::model_client::{DekiModelClient, DekiModelMessage};
 use super::protocol::{extract_command_frame, DekiCommandFrame, JSON_PROTOCOL_PROMPT};
+use super::status::DekiRuntimeCancellation;
 use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
@@ -12,11 +13,13 @@ pub(super) struct DekiJsonRuntimeInput<'a> {
     pub(super) task_prompt: String,
     pub(super) chat_access_grants: Vec<super::chat_access::DekiChatAccessGrant>,
     pub(super) web_research_grants: Vec<super::commands::web::DekiWebResearchGrant>,
+    pub(super) cancellation: DekiRuntimeCancellation,
 }
 
 pub(super) struct DekiJsonRuntimeOutput {
     pub(super) content: String,
     pub(super) workspace_trace: Vec<Value>,
+    pub(super) usage: Vec<Value>,
 }
 
 struct DekiCommandRoundContext<'a> {
@@ -25,6 +28,7 @@ struct DekiCommandRoundContext<'a> {
     web_research_grants: &'a [super::commands::web::DekiWebResearchGrant],
     command_state: &'a mut super::commands::DekiCommandTurnState,
     budget: &'a DekiRuntimeBudget,
+    cancellation: &'a DekiRuntimeCancellation,
     evidence_budget: &'a mut DekiEvidenceBudget,
     trace: &'a mut Vec<Value>,
     trace_chars: &'a mut usize,
@@ -45,21 +49,32 @@ pub(super) async fn run_json_command_runtime(
         DekiModelMessage::user(input.task_prompt),
     ];
     let mut trace = Vec::new();
+    let mut usage = Vec::new();
     let mut trace_chars = 0usize;
     let mut last_say = String::new();
     let mut command_state =
         super::commands::DekiCommandTurnState::new(budget.max_web_pages_per_turn());
 
     for round_index in 0..budget.max_rounds() {
+        input.cancellation.ensure_not_cancelled()?;
         budget.ensure_can_start_round(round_index)?;
         let max_tokens = if round_index == 0 {
             super::DEKI_INITIAL_MAX_TOKENS
         } else {
             super::DEKI_POST_TOOL_MAX_TOKENS
         };
-        let raw = model
-            .complete(&messages, max_tokens, budget.remaining_timeout())
+        let response = model
+            .complete(
+                &messages,
+                max_tokens,
+                budget.remaining_timeout(),
+                &input.cancellation,
+            )
             .await?;
+        if let Some(round_usage) = response.usage {
+            usage.push(round_usage);
+        }
+        let raw = response.content;
         let frame = match extract_command_frame(&raw) {
             Ok(frame) => frame,
             Err(error) => {
@@ -84,6 +99,7 @@ pub(super) async fn run_json_command_runtime(
             return Ok(DekiJsonRuntimeOutput {
                 content: final_content_from_frame(&frame, &last_say),
                 workspace_trace: trace,
+                usage,
             });
         }
 
@@ -97,6 +113,7 @@ pub(super) async fn run_json_command_runtime(
                 web_research_grants: &input.web_research_grants,
                 command_state: &mut command_state,
                 budget: &budget,
+                cancellation: &input.cancellation,
                 evidence_budget: &mut evidence_budget,
                 trace: &mut trace,
                 trace_chars: &mut trace_chars,
@@ -120,6 +137,7 @@ pub(super) async fn run_json_command_runtime(
     Ok(DekiJsonRuntimeOutput {
         content: max_rounds_fallback(&last_say),
         workspace_trace: trace,
+        usage,
     })
 }
 
@@ -134,6 +152,7 @@ async fn execute_command_round(
         web_research_grants,
         command_state,
         budget,
+        cancellation,
         evidence_budget,
         trace,
         trace_chars,
@@ -142,6 +161,7 @@ async fn execute_command_round(
     let command_limit = budget.max_commands_per_round();
     let mut results = Vec::new();
     for (command_index, command) in frame.commands.into_iter().take(command_limit).enumerate() {
+        cancellation.ensure_not_cancelled()?;
         budget.ensure_not_expired()?;
         let id = format!("deki_r{}_c{}", round_index + 1, command_index + 1);
         let execution = super::commands::execute(
@@ -153,6 +173,7 @@ async fn execute_command_round(
             command,
         )
         .await;
+        cancellation.ensure_not_cancelled()?;
         push_trace(
             trace,
             trace_chars,
@@ -299,5 +320,40 @@ impl EmptyStringFallback for String {
         } else {
             self
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_rounds_fallback_preserves_last_visible_text_and_reports_the_limit() {
+        let content = max_rounds_fallback("Still checking.");
+
+        assert!(content.starts_with("Still checking."));
+        assert!(content.contains("workspace command limit"));
+    }
+
+    #[test]
+    fn max_rounds_fallback_is_useful_without_prior_visible_text() {
+        let content = max_rounds_fallback("");
+
+        assert!(content.contains("workspace command limit"));
+        assert!(!content.trim().is_empty());
+    }
+
+    #[test]
+    fn final_content_uses_only_visible_frame_text() {
+        let frame = DekiCommandFrame {
+            say: "Visible answer.".to_string(),
+            commands: Vec::new(),
+            stop: true,
+        };
+
+        let content = final_content_from_frame(&frame, "Earlier progress.");
+
+        assert_eq!(content, "Visible answer.");
+        assert!(!content.contains("\"commands\""));
     }
 }

@@ -1,3 +1,4 @@
+use super::status::DekiRuntimeCancellation;
 use marinara_core::{AppError, AppResult};
 use serde_json::json;
 use std::time::Duration;
@@ -11,6 +12,12 @@ pub(super) struct DekiModelMessage {
 #[derive(Debug, Clone)]
 pub(super) struct DekiModelClient {
     connection: marinara_llm::LlmConnection,
+}
+
+#[derive(Debug)]
+pub(super) struct DekiModelResponse {
+    pub(super) content: String,
+    pub(super) usage: Option<serde_json::Value>,
 }
 
 impl DekiModelMessage {
@@ -46,7 +53,8 @@ impl DekiModelClient {
         messages: &[DekiModelMessage],
         max_tokens: u64,
         timeout_for: Duration,
-    ) -> AppResult<String> {
+        cancellation: &DekiRuntimeCancellation,
+    ) -> AppResult<DekiModelResponse> {
         let timeout_for = if timeout_for.is_zero() {
             Duration::from_millis(1)
         } else {
@@ -73,14 +81,24 @@ impl DekiModelClient {
             }),
             tools: Vec::new(),
         };
-        let response = tokio::time::timeout(timeout_for, marinara_llm::complete_rich(request))
-            .await
-            .map_err(|_| {
-                AppError::new(
-                    "deki_model_timeout",
-                    "Deki-senpai's selected model did not finish before the workspace time limit.",
-                )
-            })??;
-        Ok(response.content)
+        let completion = tokio::time::timeout(timeout_for, marinara_llm::complete_rich(request));
+        let response = tokio::select! {
+            result = completion => result.map_err(|_| {
+                    AppError::new(
+                        "deki_model_timeout",
+                        "Deki-senpai's selected model did not finish before the workspace time limit.",
+                    )
+                })??,
+            _ = cancellation.cancelled() => {
+                return Err(AppError::new(
+                    "deki_workspace_aborted",
+                    "Deki-senpai's workspace run was cancelled.",
+                ));
+            }
+        };
+        Ok(DekiModelResponse {
+            content: response.content,
+            usage: response.usage,
+        })
     }
 }

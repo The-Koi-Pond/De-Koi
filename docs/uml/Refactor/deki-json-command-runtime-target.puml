@@ -53,7 +53,7 @@ package "Embedded and hostable Rust entrypoints" {
 }
 
 package "Deki Rust runtime owner" {
-    component "src-tauri/src/commands/storage/deki.rs\nthin public facade:\nrequest parse, state wiring,\nfinal response return" as DekiRuntime <<rust>>
+    component "src-tauri/src/commands/storage/deki.rs\nJSON facade + routing;\ncurrent native write lane\nretained during transition" as DekiRuntime <<rust>>
     component "deki/prompt.rs\nsystem/task prompt assembly,\npersona, attachments,\napproved context" as Prompt <<module>>
     component "deki/model_client.rs\nplain chat-completion adapter\nthrough marinara_llm;\nno native tool-call dependency" as ModelClient <<module>>
     component "deki/loop.rs\nbounded command-loop coordinator,\nstop handling, cancellation checks,\ninternal trace collection" as Loop <<module>>
@@ -127,9 +127,10 @@ DekiApi -[#C62828,dashed]-> Streaming : keep final response path
 CommandRegistry -[#C62828,dashed]-> RawShell : forbidden
 
 note right of DekiRuntime
-  Slice 2 keeps deki.rs boring:
-  public request/response glue only.
-  Major behavior lives in focused modules.
+  Read-only requests use focused Slice 2 modules.
+  Existing write-capability requests remain on the current
+  native-tool path until a separately reviewed approval
+  migration can replace it without removing behavior.
 end note
 
 note bottom of Protocol

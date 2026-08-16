@@ -80,7 +80,16 @@ pub(in crate::storage_commands::deki) async fn search_deki_web(
         .text()
         .await
         .map_err(|error| AppError::new("deki_web_search_body_failed", error.to_string()))?;
-    let results = deki_web_results_or_parse_error(&html, query, max_results)?;
+    let results = deki_web_results_for_grant(
+        deki_web_results_or_parse_error(&html, query, max_results)?,
+        grant,
+    );
+    if results.is_empty() {
+        return Err(AppError::new(
+            "deki_web_search_no_results",
+            format!("No web search results inside the approved scope were returned for '{query}'."),
+        ));
+    }
     Ok(json!({
         "query": query,
         "grantId": grant.id,
@@ -462,6 +471,18 @@ fn deki_web_effective_query(query: &str, allowed_domains: &[String]) -> String {
     }
 }
 
+fn deki_web_results_for_grant(results: Vec<Value>, grant: &DekiWebResearchGrant) -> Vec<Value> {
+    results
+        .into_iter()
+        .filter(|result| {
+            result
+                .get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| deki_web_page_url_for_grant(url, grant).is_ok())
+        })
+        .collect()
+}
+
 pub(in crate::storage_commands::deki) fn deki_web_results_or_parse_error(
     html: &str,
     query: &str,
@@ -666,4 +687,69 @@ fn strip_deki_html(value: &str) -> String {
         }
     }
     output.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_search_results_stay_inside_the_approved_domain_scope() {
+        let grant = DekiWebResearchGrant {
+            id: "grant-1".to_string(),
+            action_message_id: "message-1".to_string(),
+            scope: DekiWebResearchScope {
+                scope_type: "query".to_string(),
+                query: "Ghostface Dead by Daylight".to_string(),
+                allowed_domains: vec!["deadbydaylight.fandom.com".to_string()],
+            },
+            granted_at: "2026-07-19T12:00:00Z".to_string(),
+            expires_at: None,
+        };
+        let results = vec![
+            json!({
+                "title": "Ghost Face",
+                "url": "https://deadbydaylight.fandom.com/wiki/Ghost_Face",
+                "snippet": "Approved result",
+            }),
+            json!({
+                "title": "Unapproved mirror",
+                "url": "https://example.com/ghost-face",
+                "snippet": "Outside the grant",
+            }),
+        ];
+
+        let filtered = deki_web_results_for_grant(results, &grant);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(
+            filtered[0]["url"],
+            "https://deadbydaylight.fandom.com/wiki/Ghost_Face"
+        );
+    }
+
+    #[test]
+    fn web_search_parser_respects_the_requested_result_cap() {
+        let html = r#"
+            <a class="result__a" href="https://example.com/one">One</a>
+            <div class="result__snippet">First result</div>
+            <a class="result__a" href="https://example.com/two">Two</a>
+            <div class="result__snippet">Second result</div>
+        "#;
+
+        let results = deki_web_results_or_parse_error(html, "query", 1)
+            .expect("one parseable result should be returned");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["url"], "https://example.com/one");
+    }
+
+    #[test]
+    fn web_search_parser_reports_an_unusable_provider_response() {
+        let error = deki_web_results_or_parse_error("<html>interstitial</html>", "query", 5)
+            .expect_err("provider interstitial should be reported");
+
+        assert_eq!(error.code, "deki_web_search_no_results");
+        assert!(error.message.contains("interstitial"));
+    }
 }
