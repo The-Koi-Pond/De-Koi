@@ -130,7 +130,7 @@
       },
       {
         "claim": "Unsupported or blocked runtime-cache APIs must not block navigation recovery.",
-        "evidence": "browser-runtime.spec.ts proves missing and rejected Service Worker/Cache Storage reads resolve without an error."
+        "evidence": "browser-runtime.spec.ts proves missing and rejected Service Worker/Cache Storage reads resolve without an error, blocked sessionStorage access cannot throw during startup registration, and storage becoming blocked after registration lets the preload failure surface without reloading."
       }
     ],
     "legacyDefaultRows": [
@@ -166,7 +166,7 @@
     {
       "description": "The shared recovery behavior is covered by focused public-function tests.",
       "sourceType": "harness-proven",
-      "evidence": "src/shared/lib/browser-runtime.spec.ts passed 4 tests in the final focused run."
+      "evidence": "src/shared/lib/browser-runtime.spec.ts and src/app/GlobalErrorBoundary.spec.ts passed 10 tests in the review-fix focused run."
     }
   ],
   "userActionCopy": [

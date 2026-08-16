@@ -44,6 +44,15 @@ function currentCacheStorage(): CacheStorageLike | null {
   return window.caches;
 }
 
+function currentSessionStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
 export async function clearBrowserRuntimeCaches({
   serviceWorker = currentServiceWorkerContainer(),
   cacheStorage = currentCacheStorage(),
@@ -86,7 +95,7 @@ export async function forceRefreshSpa({
 
 export function registerPreloadErrorRecovery({
   eventTarget = typeof window === "undefined" ? undefined : window,
-  sessionStorage: storage = typeof window === "undefined" ? null : window.sessionStorage,
+  sessionStorage: storage = currentSessionStorage(),
   now = Date.now,
   refreshSpa = forceRefreshSpa,
 }: RegisterPreloadErrorRecoveryOptions = {}) {

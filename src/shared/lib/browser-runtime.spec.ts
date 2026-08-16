@@ -73,6 +73,41 @@ describe("forceRefreshSpa", () => {
 });
 
 describe("registerPreloadErrorRecovery", () => {
+  it("does not throw during registration when session storage access is blocked", () => {
+    const sessionStorageGetter = vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+
+    try {
+      let unregister: (() => void) | undefined;
+      expect(() => {
+        unregister = registerPreloadErrorRecovery();
+      }).not.toThrow();
+      expect(unregister).toBeTypeOf("function");
+    } finally {
+      sessionStorageGetter.mockRestore();
+    }
+  });
+
+  it("lets preload failures surface if storage becomes blocked after registration", () => {
+    const eventTarget = new EventTarget();
+    const refreshSpa = vi.fn().mockResolvedValue(undefined);
+    const storage = {
+      getItem: vi.fn(() => {
+        throw new Error("blocked");
+      }),
+      setItem: vi.fn(),
+    } as unknown as Storage;
+    const unregister = registerPreloadErrorRecovery({ eventTarget, sessionStorage: storage, refreshSpa });
+
+    const event = new Event("vite:preloadError", { cancelable: true });
+    expect(() => eventTarget.dispatchEvent(event)).not.toThrow();
+    expect(event.defaultPrevented).toBe(false);
+    expect(refreshSpa).not.toHaveBeenCalled();
+
+    unregister();
+  });
+
   it("recovers once per cooldown and lets repeated failures surface", () => {
     const eventTarget = new EventTarget();
     const refreshSpa = vi.fn().mockResolvedValue(undefined);
