@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Recover Chrome from stale Pi frontend assets",
+    "source": "Direct user report",
+    "classification": "browser upgrade compatibility and Pi static asset delivery",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Chrome recovers from stale Vite chunks after a Pi deployment, and the Pi web server no longer returns index.html with HTTP 200 for missing hashed assets.",
+  "rootCause": "The Pi Nginx SPA fallback treated missing /assets files as navigation requests and returned index.html, while the current De-Koi client had lost its guarded stale-chunk recovery and its manual Refresh App action only performed an ordinary reload.",
+  "scope": {
+    "inScope": [
+      "Shared browser runtime cache cleanup and cache-busted reload",
+      "Guarded vite:preloadError recovery before React startup",
+      "Existing Settings and crash-screen reload actions",
+      "Pi Nginx document and hashed-asset cache policy"
+    ],
+    "outOfScope": [
+      "Changing chats, settings, IndexedDB, server storage, or user data",
+      "Changing desktop update installation behavior",
+      "Adding offline/PWA behavior",
+      "Changing runtime APIs, generation, providers, or Rust storage"
+    ],
+    "intendedFiles": [
+      "src/shared/lib/browser-runtime.ts",
+      "src/shared/lib/browser-runtime.spec.ts",
+      "src/app/main.tsx",
+      "src/app/GlobalErrorBoundary.tsx",
+      "src/app/GlobalErrorBoundary.spec.ts",
+      "src/features/shell/settings/components/settings/SettingsSurfaces.tsx",
+      "docker/nginx/pi-web.conf",
+      "docs/superpowers/specs/2026-08-16-phone-stale-runtime-cache-design.md",
+      "docs/superpowers/plans/2026-08-16-phone-stale-runtime-cache.md",
+      ".github/pr-evidence/phone-stale-runtime-cache/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src/shared/lib/browser-runtime.ts",
+      "src/shared/lib/browser-runtime.spec.ts",
+      "src/app/main.tsx",
+      "src/app/GlobalErrorBoundary.tsx",
+      "src/app/GlobalErrorBoundary.spec.ts",
+      "src/features/shell/settings/components/settings/SettingsSurfaces.tsx",
+      "docker/nginx/pi-web.conf",
+      "docs/superpowers/specs/2026-08-16-phone-stale-runtime-cache-design.md",
+      "docs/superpowers/plans/2026-08-16-phone-stale-runtime-cache.md",
+      ".github/pr-evidence/phone-stale-runtime-cache/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "upgrade compatibility",
+      "cross-entrypoint browser startup",
+      "Pi web deployment"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Existing Chrome tabs and profiles recover from deleted Vite chunks without clearing persisted De-Koi content, while fresh navigations revalidate the HTML shell.",
+    "riskType": "upgrade compatibility cross-entrypoint browser startup and Pi web delivery",
+    "entrypoints": [
+      "src/app/main.tsx browser startup",
+      "Vite vite:preloadError event",
+      "Advanced Settings Refresh App button",
+      "GlobalErrorBoundary Reload De-Koi button",
+      "Pi Nginx /assets/ and SPA navigation routes"
+    ],
+    "currentPathsOrFormats": [
+      "Vite content-hashed JavaScript and CSS under /assets/",
+      "index.html SPA document with current chunk names",
+      "Cache Storage and Service Worker registrations when browser APIs are available",
+      "sessionStorage de-koi-preload-recovery-at cooldown marker"
+    ],
+    "legacyPathsOrFormats": [
+      "An already-open page referencing deleted hashed chunks from the preceding Pi image",
+      "A normal Chrome profile with a heuristically cached older index.html",
+      "A legacy service-worker registration or Cache Storage entry from an earlier build"
+    ],
+    "outOfScopeClaims": [
+      "This PR does not add offline support or register a new service worker.",
+      "This PR does not clear localStorage, IndexedDB, chats, settings, or server data.",
+      "This PR does not claim the fix is live until the exact merge-SHA web image is deployed and probed on the Pi."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Browser navigations and module requests shared one SPA fallback, so a missing JavaScript module received a successful HTML response and failed before React could render recovery UI.",
+    "producer": "Pi Nginx static-file delivery plus Vite content-hashed build output",
+    "consumer": "Chrome module loader and De-Koi app startup/reload controls",
+    "impliedContract": "Navigation requests may fall back to index.html, but missing assets must fail as assets and stale clients must get one guarded cache-clearing recovery attempt.",
+    "actualEnforcement": "docker/nginx/pi-web.conf returns 404 for missing /assets files and revalidates HTML; src/shared/lib/browser-runtime.ts clears disposable runtime caches and handles vite:preloadError once per 20-second cooldown.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src/features and the app shell own browser recovery actions, while the Pi Docker Nginx configuration owns static asset and SPA document delivery.",
+    "consumerOnlyLanes": [
+      "src/features",
+      "docs/workflow"
+    ],
+    "wrongLaneFixToAvoid": "Do not hide the failure with a React-only blank-screen guard; the module load can fail before React starts, and Nginx must not return HTML for asset paths.",
+    "regressionProof": [
+      "pnpm vitest run src/shared/lib/browser-runtime.spec.ts src/app/GlobalErrorBoundary.spec.ts",
+      "pnpm vitest run --reporter=dot",
+      "pnpm check",
+      "pnpm build",
+      "Temporary Pi Nginx config contract assertion"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "The first Vite preload failure is handled by a cache-busted runtime refresh.",
+        "evidence": "browser-runtime.spec.ts dispatches a cancelable vite:preloadError event and proves forceRefreshSpa receives chunk_reload."
+      },
+      {
+        "claim": "Manual and crash-screen reloads use the shared stale-cache recovery owner.",
+        "evidence": "GlobalErrorBoundary.spec.ts proves Reload De-Koi calls forceRefreshSpa; SettingsSurfaces.tsx awaits the same function."
+      },
+      {
+        "claim": "Missing Pi assets stop falling through to SPA HTML.",
+        "evidence": "The Nginx config contract assertion failed before the change and passed after /assets/ gained try_files $uri =404."
+      },
+      {
+        "claim": "The repository remains buildable and passes its full local gate.",
+        "evidence": "pnpm build, pnpm check, and the full Vitest suite exited 0; Vitest reported 2666 passed and 1 skipped."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "A genuinely broken build must not enter an infinite automatic reload loop.",
+        "evidence": "browser-runtime.spec.ts proves a second preload error within 20 seconds is not prevented and does not trigger another refresh."
+      },
+      {
+        "claim": "Recovery must not erase persisted De-Koi content.",
+        "evidence": "browser-runtime.spec.ts preserves an existing localStorage value while unregistering service workers and deleting Cache Storage entries; production code never references IndexedDB or storage deletion APIs."
+      },
+      {
+        "claim": "Unsupported or blocked runtime-cache APIs must not block navigation recovery.",
+        "evidence": "browser-runtime.spec.ts proves missing and rejected Service Worker/Cache Storage reads resolve without an error, blocked sessionStorage access cannot throw during startup registration, and storage becoming blocked after registration lets the preload failure surface without reloading."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "A normal Chrome profile holding stale runtime state receives the recovery path.",
+        "evidence": "Recovery is registered at app startup and clears legacy service-worker/cache state when those APIs are available before replacing the current URL."
+      },
+      {
+        "claim": "Fresh/incognito navigation keeps ordinary SPA routing.",
+        "evidence": "The Nginx location / route retains try_files $uri $uri/ /index.html while index.html receives no-cache, must-revalidate."
+      },
+      {
+        "claim": "Desktop/Tauri startup remains compatible.",
+        "evidence": "Browser runtime APIs are feature-detected, pnpm build and pnpm check passed, and no Tauri/Rust command boundary changed."
+      }
+    ],
+    "untestedRows": [
+      "A post-fix phone browser session cannot be run until the exact merged web image is published and deployed to the Pi.",
+      "Docker Desktop was stopped locally, so the changed Nginx config was not exercised in a local container; exact image HTTP behavior is a required deployment proof."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The currently deployed Pi returns HTTP 200 and Content-Type text/html for a nonexistent /assets/de-koi-stale-proof.js request.",
+      "sourceType": "measured",
+      "evidence": "curl.exe -D - -o NUL http://pi:7860/assets/de-koi-stale-proof.js on 2026-08-16."
+    },
+    {
+      "description": "The previous Refresh App handler only called window.location.reload even though its help text claimed cache and service-worker cleanup.",
+      "sourceType": "derived",
+      "evidence": "Pre-change SettingsSurfaces.tsx handleForceRefreshSpa implementation."
+    },
+    {
+      "description": "The shared recovery behavior is covered by focused public-function tests.",
+      "sourceType": "harness-proven",
+      "evidence": "src/shared/lib/browser-runtime.spec.ts and src/app/GlobalErrorBoundary.spec.ts passed 10 tests in the review-fix focused run."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No migration or destructive user action is required. Before deployment, an affected Chrome user can temporarily use incognito or clear only the pi:7860 site cache; De-Koi chats and server data remain on the Pi.",
+      "action": "none",
+      "source": "Chrome site runtime cache for http://pi:7860",
+      "destination": "No backup destination required",
+      "folders": [],
+      "detectedLayouts": [
+        "normal Chrome profile with stale HTTP/runtime cache",
+        "fresh incognito profile"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Exact merge-SHA Pi web image deployment and phone-profile confirmation",
+      "blockingCoreClaim": false,
+      "reason": "The owner behavior and pre-fix live mechanism are proven locally. Exact post-fix HTTP and phone behavior are required before declaring the Pi deployment complete, not before PR review."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check exited 0; the full Vitest suite separately reported 2666 passed and 1 skipped; pnpm build exited 0.",
+    "githubValidationPassed": false,
+    "reviewIterationFastPath": false
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1243,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1243",
+    "headRefName": "fix/phone-stale-runtime-cache",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "The PR must not merge until hosted CI and current-head Bunny are green.",
+    "Deployment completion requires exact merge-SHA labels on both Pi containers plus root, health, and mount proof."
+  ]
+}

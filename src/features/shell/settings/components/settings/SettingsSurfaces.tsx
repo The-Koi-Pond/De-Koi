@@ -22,6 +22,7 @@ import { cn } from "../../../../../shared/lib/utils";
 import { useSetupJourneyStore } from "../../../../../shared/stores/setup-journey.store";
 import { restoreSetupJourneyFocus } from "../../../onboarding/shell";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
+import { forceRefreshSpa } from "../../../../../shared/lib/browser-runtime";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
 import {
@@ -3678,7 +3679,7 @@ export function AdvancedSettings() {
 
     try {
       toast.info("Refreshing app...");
-      window.location.reload();
+      await forceRefreshSpa();
     } catch (err) {
       setRefreshingSpa(false);
       toast.error(toUserMessage(err, "refreshApp"));
@@ -3851,7 +3852,8 @@ export function AdvancedSettings() {
             <div className="space-y-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
               <div>Current build: {formatUpdateIdentity(updateInfo.currentVersion, updateInfo.currentCommit)}</div>
               <div>
-                Latest {updateInfo.targetChannel || "release"}: {formatUpdateIdentity(updateInfo.latestVersion, updateInfo.targetCommit)}
+                Latest {updateInfo.targetChannel || "release"}:{" "}
+                {formatUpdateIdentity(updateInfo.latestVersion, updateInfo.targetCommit)}
               </div>
               <div>{updateInfo.manualUpdateHint}</div>
             </div>

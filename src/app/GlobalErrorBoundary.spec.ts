@@ -3,9 +3,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { describeWindowErrorEvent, GlobalErrorBoundary } from "./GlobalErrorBoundary";
 import { openBugReport } from "../shared/lib/support-report";
+import { forceRefreshSpa } from "../shared/lib/browser-runtime";
 
 vi.mock("../shared/lib/support-report", () => ({
   openBugReport: vi.fn(() => Promise.resolve("https://github.com/The-Koi-Pond/De-Koi/issues/new")),
+}));
+
+vi.mock("../shared/lib/browser-runtime", () => ({
+  forceRefreshSpa: vi.fn(() => Promise.resolve()),
 }));
 
 function ThrowingChild() {
@@ -99,5 +104,27 @@ describe("GlobalErrorBoundary", () => {
         reportText: expect.stringContaining("invoke failed"),
       }),
     );
+  });
+
+  it("clears stale browser runtime caches before reloading", async () => {
+    act(() => {
+      root = createRoot(container);
+      root.render(
+        createElement(GlobalErrorBoundary, {
+          children: createElement(ThrowingChild),
+        }),
+      );
+    });
+
+    const reloadButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Reload De-Koi"),
+    );
+    expect(reloadButton).toBeTruthy();
+
+    await act(async () => {
+      reloadButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(forceRefreshSpa).toHaveBeenCalledOnce();
   });
 });
