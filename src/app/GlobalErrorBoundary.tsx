@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { recordClientDiagnostic } from "../shared/lib/client-diagnostics";
+import { forceRefreshSpa } from "../shared/lib/browser-runtime";
 import { buildSupportReportText, openBugReport } from "../shared/lib/support-report";
 
 type GlobalErrorBoundaryState = {
@@ -170,7 +171,7 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
       return;
     }
 
-    window.location.reload();
+    void forceRefreshSpa();
   };
 
   private copyDebugDetails = () => {
