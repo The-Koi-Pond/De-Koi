@@ -1,0 +1,39 @@
+# Remote Swipe Save Design
+
+## Problem
+
+On the live Pi, the latest `The Freak Circus - All Five` regeneration finished its model and web-research work, then spent 30.016 seconds in `chat_message_add_swipe`. The mobile browser's 30-second finite remote-runtime deadline aborted the HTTP request, so nginx recorded `499` while the Rust server completed the save. The final 442-character reply was present as the second swipe even though De-Koi reported failure.
+
+The delay is caused by the add-swipe path calling `update_collections_atomically` for `messages` and `message-swipes`. On the Pi those files are approximately 26.6 MB and 27.3 MB. A one-message mutation therefore materializes, serializes, backs up, and replaces both complete collections. Normal generated-message creation already uses the append checkpoint/journal path and does not pay this cost.
+
+## Design
+
+Add an upsert-capable journal application path to `FileStorage::append_many_uncached`. The global append journal remains the crash-recovery commit record across `messages` and `message-swipes`. Rows with new IDs continue to append to their collection file; rows replacing existing IDs are written to the existing record-local pending journal. In-memory caches must replace existing IDs rather than appending duplicate rows. Recovery remains idempotent because both journal formats already use `CollectionMutation::UpsertMany` semantics.
+
+Add a message-swipe-specific fast path that uses this journal transaction only for appending a swipe. It writes the updated parent message and deterministic sidecar rows together, then materializes the public message result. Other swipe operations that can remove or reorder sidecars keep the existing full atomic replacement path.
+
+At the TypeScript runtime wrapper, call `chat_message_add_swipe` with `{ timeoutMs: null }`. This durable mutation cannot be rolled back by a browser abort; if storage is unusually slow again, the UI must wait for the real result instead of inventing a failure. The global timeout and all unrelated commands remain unchanged.
+
+## Data And Error Flow
+
+1. Generation finishes and calls `storageApi.addChatMessageSwipe`.
+2. The remote request has no client deadline but still reports genuine HTTP, network, and server errors.
+3. Rust materializes the target message, appends the new swipe, and prepares the updated parent plus deterministic sidecar rows.
+4. The global append journal durably commits both collection mutations.
+5. New sidecars append to the primary file; the existing parent and existing sidecars use record-local upsert journals.
+6. Reads apply pending mutations immediately. Startup recovery replays the global transaction idempotently if the process stops between commit and application.
+
+## Compatibility And Scope
+
+- Preserve command name, payload, return shape, active-swipe behavior, per-swipe metadata, blank lines, embedded Tauri behavior, and remote HTTP dispatch.
+- Preserve full atomic replacement for deletion, reordering, and arbitrary replacement paths.
+- Do not retry, fake success, swallow errors, change the global remote deadline, or modify user chat content during live verification.
+- No discovery or user documentation update is needed because this restores expected save behavior without adding a discoverable feature.
+
+## Verification
+
+- TypeScript regression: `storageApi.addChatMessageSwipe` forwards the exact command payload with `{ timeoutMs: null }`.
+- Storage regression: journal upserts replace an existing cached/disk row without duplicates and survive restart recovery.
+- Swipe regression: appending a swipe leaves the large `messages.json` primary unchanged, preserves unrelated rows, materializes both swipes, and survives reopening storage.
+- Focused Vitest and Rust tests, `pnpm typecheck`, `pnpm check:architecture`, `cargo check --manifest-path src-tauri/Cargo.toml`, and full `pnpm check` before push.
+- After merge and exact-image publication, verify Pi image revisions, health, mounts, restart/OOM state, and non-destructively confirm the deployed runtime contract.
