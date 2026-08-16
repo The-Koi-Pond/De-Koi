@@ -5,7 +5,7 @@
     "title": "Recover Chrome from stale Pi frontend assets",
     "source": "Direct user report",
     "classification": "browser upgrade compatibility and Pi static asset delivery",
-    "status": "ready_for_pr"
+    "status": "waiting_on_ci"
   },
   "coreClaim": "Chrome recovers from stale Vite chunks after a Pi deployment, and the Pi web server no longer returns index.html with HTTP 200 for missing hashed assets.",
   "rootCause": "The Pi Nginx SPA fallback treated missing /assets files as navigation requests and returned index.html, while the current De-Koi client had lost its guarded stale-chunk recovery and its manual Refresh App action only performed an ordinary reload.",
@@ -206,8 +206,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1243,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1243",
     "headRefName": "fix/phone-stale-runtime-cache",
     "baseRefName": "main",
     "healthStatus": "pending",
