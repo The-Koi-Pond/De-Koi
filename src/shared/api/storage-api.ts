@@ -454,11 +454,15 @@ export const storageApi: StorageGateway = {
   },
   resolveImageAttachmentDataUrl,
   addChatMessageSwipe: (chatId, messageId, content, options) =>
-    invokeTauri("chat_message_add_swipe", {
-      chatId,
-      messageId,
-      body: chatMessageSwipeBody(content, options),
-    }),
+    invokeTauri(
+      "chat_message_add_swipe",
+      {
+        chatId,
+        messageId,
+        body: chatMessageSwipeBody(content, options),
+      },
+      { timeoutMs: null },
+    ),
   evictPromptSnapshots: (chatId, keepLast) =>
     invokeTauri("chat_evict_prompt_snapshots", { chatId, keepLast }) as Promise<{ evicted: number }>,
   patchChatMetadata: (chatId, patch) => storageApi.update("chats", chatId, { metadata: patch }),

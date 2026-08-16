@@ -6,6 +6,7 @@ mod messages;
 mod projection;
 mod streaming;
 mod transaction;
+mod upsert_transaction;
 mod write_gate;
 
 pub use cache::CollectionContentStamp;
@@ -383,6 +384,7 @@ impl FileStorage {
             journal_compaction_counter,
         };
         recover_pending_collection_transactions(&collections)?;
+        upsert_transaction::recover(&collections)?;
         if let Err(error) = append_journal::recover(&collections) {
             storage.write_gate.mark_recovery_required()?;
             return Err(error);
@@ -1320,6 +1322,58 @@ impl FileStorage {
         self.append_many_uncached_locked(appends)
     }
 
+    /// Updates one current record and durably commits it with related record
+    /// upserts without rewriting primary JSON files in the foreground request.
+    pub fn upsert_many_journaled_with_record<'a, F>(
+        &self,
+        mut upserts: Vec<(&'a str, Vec<Value>)>,
+        collection: &'a str,
+        id: &str,
+        require_related_record: bool,
+        update: F,
+    ) -> AppResult<()>
+    where
+        F: FnOnce(&mut Value) -> AppResult<()>,
+    {
+        upserts.retain(|(_, rows)| !rows.is_empty());
+        validate_collection_name(collection)?;
+        if !matches!(collection, "messages" | "message-swipes" | "chats") {
+            return Err(AppError::invalid_input(format!(
+                "Journaled atomic record updates are not supported for {collection}"
+            )));
+        }
+
+        let _write_permit = self.write_gate.begin_write()?;
+        let _guard = self
+            .lock
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        match self.read_collection_find_by_id_no_recovery(collection, id)? {
+            Some(mut record) => {
+                let before = record.clone();
+                update(&mut record)?;
+                if record.get("id").and_then(Value::as_str) != Some(id) {
+                    return Err(AppError::invalid_input(
+                        "Journaled atomic record updates cannot change a record id",
+                    ));
+                }
+                if record != before {
+                    upserts.push((collection, vec![record]));
+                }
+            }
+            None if require_related_record => {
+                return Err(AppError::not_found(format!(
+                    "{collection}/{id} was not found"
+                )));
+            }
+            None => {}
+        }
+        if upserts.is_empty() {
+            return Ok(());
+        }
+        self.upsert_many_journaled_locked(upserts)
+    }
+
     pub fn update_collections_atomically<F, T>(
         &self,
         collections: Vec<&str>,
@@ -1632,6 +1686,57 @@ impl FileStorage {
             }
         }
         Ok(())
+    }
+
+    fn upsert_cached_collection_rows(
+        cache: &mut StorageCache,
+        upserts: &[(&str, Vec<Value>)],
+    ) {
+        for (collection, rows) in upserts {
+            cache.id_indexes.remove(*collection);
+            cache
+                .projected_lists
+                .retain(|key, _| key.collection != *collection);
+            let Some(is_dirty) = cache
+                .collections
+                .get(*collection)
+                .map(|cached| cached.dirty)
+            else {
+                continue;
+            };
+            if !is_dirty {
+                cache.collections.remove(*collection);
+                continue;
+            }
+            let cached = cache
+                .collections
+                .get_mut(*collection)
+                .expect("dirty cached collection should still exist");
+
+            for row in rows {
+                let id = row
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .expect("journal validation requires every upsert row to have an id");
+                if let Some(index) = cached.row_indices_by_id.get(id).copied() {
+                    let cached_rows = Arc::make_mut(&mut cached.rows);
+                    let previous_bytes = approximate_json_bytes(&cached_rows[index]);
+                    let next_bytes = approximate_json_bytes(row);
+                    cached_rows[index] = row.clone();
+                    cached.approx_bytes = cached
+                        .approx_bytes
+                        .saturating_sub(previous_bytes)
+                        .saturating_add(next_bytes);
+                } else {
+                    let index = cached.rows.len();
+                    cached.approx_bytes = cached
+                        .approx_bytes
+                        .saturating_add(approximate_json_bytes(row));
+                    Arc::make_mut(&mut cached.rows).push(row.clone());
+                    cached.row_indices_by_id.insert(id.to_string(), index);
+                }
+            }
+        }
     }
 
     fn invalidate_read_indexes_for_collection(&self, collection: &str) -> AppResult<()> {
@@ -3239,6 +3344,76 @@ impl FileStorage {
         sync_directory(&collections_dir)?;
         self.append_cached_collection_rows(&appends)?;
         Ok(true)
+    }
+
+    fn upsert_many_journaled_locked(&self, upserts: Vec<(&str, Vec<Value>)>) -> AppResult<()> {
+        if upserts.iter().any(|(collection, _)| {
+            !matches!(*collection, "messages" | "message-swipes" | "chats")
+        })
+        {
+            return Err(AppError::invalid_input(
+                "Journaled atomic upserts require checkpoint-tracked collections",
+            ));
+        }
+
+        let mut seen_paths = HashSet::new();
+        for (collection, _) in &upserts {
+            let path = self.collection_path(collection)?;
+            if !seen_paths.insert(path) {
+                return Err(AppError::invalid_input(format!(
+                    "Duplicate collection upsert: {collection}"
+                )));
+            }
+        }
+
+        // Fail before recording the durable grouped transaction if its cache
+        // acknowledgement cannot be installed. Keep the cache locked through
+        // commit so no reader can observe a stale clean or dirty cache.
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+
+        let collections_dir = self.root.join("collections");
+        if let Err(error) = upsert_transaction::commit(&collections_dir, &upserts) {
+            if error.code != "invalid_input" {
+                self.write_gate.mark_recovery_required()?;
+            }
+            return Err(error);
+        }
+        if let Err(error) = upsert_transaction::recover(&collections_dir) {
+            self.write_gate.mark_recovery_required()?;
+            return Err(error);
+        }
+
+        Self::upsert_cached_collection_rows(&mut cache, &upserts);
+        drop(cache);
+        for (collection, rows) in &upserts {
+            if *collection != "chats" {
+                continue;
+            }
+            let source_stamp = chat_summary_source_stamp(&self.collection_path(collection)?)?;
+            for record in rows {
+                if let Err(error) =
+                    upsert_chat_summary_if_current(&self.root, source_stamp.as_deref(), record)
+                {
+                    eprintln!(
+                        "[storage] chat summary update failed after durable grouped upsert; invalidating read model: {}",
+                        error.message
+                    );
+                    if let Err(invalidation_error) = remove_chat_summary_read_model(&self.root) {
+                        eprintln!(
+                            "[storage] chat summary read model invalidation failed after durable grouped upsert: {}",
+                            invalidation_error.message
+                        );
+                    }
+                    break;
+                }
+            }
+        }
+        self.compaction_activity
+            .defer_for(self.compaction_activity.grace);
+        Ok(())
     }
 
     fn recover_collection_after_read_error(
@@ -6469,6 +6644,265 @@ mod tests {
             .len(),
             2
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn upsert_many_journaled_commits_related_records_without_rewriting_primaries() {
+        let root = temp_storage_root("journaled-related-upserts");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "content": "before" })],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "message-swipes",
+                vec![json!({
+                    "id": "message-1::swipe::0",
+                    "messageId": "message-1",
+                    "content": "before"
+                })],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "chats",
+                vec![json!({ "id": "chat-1", "memories": ["before"] })],
+            )
+            .unwrap();
+        assert_eq!(storage.list("messages").unwrap().len(), 1);
+        assert_eq!(storage.list("message-swipes").unwrap().len(), 1);
+        assert_eq!(storage.list("chats").unwrap().len(), 1);
+        storage
+            .patch("messages", "message-1", json!({ "draft": true }))
+            .unwrap();
+
+        let collections = root.join("collections");
+        let primary_before = ["messages", "message-swipes", "chats"].map(|collection| {
+            (
+                collection,
+                fs::read(collections.join(format!("{collection}.json"))).unwrap(),
+            )
+        });
+
+        storage
+            .upsert_many_journaled_with_record(
+                vec![
+                    (
+                        "messages",
+                        vec![json!({
+                            "id": "message-1",
+                            "content": "after",
+                            "draft": true
+                        })],
+                    ),
+                    (
+                        "message-swipes",
+                        vec![
+                            json!({
+                                "id": "message-1::swipe::0",
+                                "messageId": "message-1",
+                                "content": "before"
+                            }),
+                            json!({
+                                "id": "message-1::swipe::1",
+                                "messageId": "message-1",
+                                "content": "after"
+                            }),
+                        ],
+                    ),
+                ],
+                "chats",
+                "chat-1",
+                true,
+                |chat| {
+                    chat.as_object_mut()
+                        .expect("chat should be an object")
+                        .insert("memories".to_string(), json!([]));
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        assert_eq!(storage.list("messages").unwrap().len(), 1);
+        assert_eq!(
+            storage.get("messages", "message-1").unwrap().unwrap()["content"],
+            json!("after")
+        );
+        assert_eq!(storage.list("message-swipes").unwrap().len(), 2);
+        assert!(storage
+            .cache
+            .read()
+            .unwrap()
+            .collections
+            .get("messages")
+            .is_some_and(|cached| cached.dirty));
+        assert_eq!(
+            storage.get("chats", "chat-1").unwrap().unwrap()["memories"],
+            json!([])
+        );
+        for (collection, before) in &primary_before {
+            assert_eq!(
+                fs::read(collections.join(format!("{collection}.json"))).unwrap(),
+                *before,
+                "{collection} primary should remain unchanged in the foreground path"
+            );
+        }
+
+        drop(storage);
+        let reopened = FileStorage::new(&root).unwrap();
+        assert_eq!(reopened.list("messages").unwrap().len(), 1);
+        assert_eq!(
+            reopened.get("messages", "message-1").unwrap().unwrap()["content"],
+            json!("after")
+        );
+        assert_eq!(reopened.list("message-swipes").unwrap().len(), 2);
+        assert_eq!(
+            reopened.get("messages", "message-1").unwrap().unwrap()["draft"],
+            json!(true)
+        );
+        assert_eq!(
+            reopened.get("chats", "chat-1").unwrap().unwrap()["memories"],
+            json!([])
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journaled_upsert_missing_required_record_does_not_commit_related_records() {
+        let root = temp_storage_root("journaled-upsert-missing-required-record");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "content": "before" })],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "message-swipes",
+                vec![json!({
+                    "id": "message-1::swipe::0",
+                    "messageId": "message-1",
+                    "content": "before"
+                })],
+            )
+            .unwrap();
+        storage.replace_all("chats", Vec::new()).unwrap();
+        storage.flush().unwrap();
+
+        let error = storage
+            .upsert_many_journaled_with_record(
+                vec![
+                    (
+                        "messages",
+                        vec![json!({ "id": "message-1", "content": "after" })],
+                    ),
+                    (
+                        "message-swipes",
+                        vec![json!({
+                            "id": "message-1::swipe::1",
+                            "messageId": "message-1",
+                            "content": "after"
+                        })],
+                    ),
+                ],
+                "chats",
+                "missing-chat",
+                true,
+                |_| Ok(()),
+            )
+            .expect_err("a missing required record should reject the grouped upsert");
+        assert_eq!(error.code, "not_found");
+
+        drop(storage);
+        let reopened = FileStorage::new(&root).unwrap();
+        assert_eq!(
+            reopened.get("messages", "message-1").unwrap().unwrap()["content"],
+            json!("before")
+        );
+        assert!(reopened
+            .get("message-swipes", "message-1::swipe::1")
+            .unwrap()
+            .is_none());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journaled_upsert_cache_failure_does_not_commit() {
+        let root = temp_storage_root("journaled-upsert-cache-failure");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "content": "before" })],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "message-swipes",
+                vec![json!({
+                    "id": "message-1::swipe::0",
+                    "messageId": "message-1",
+                    "content": "before"
+                })],
+            )
+            .unwrap();
+        storage
+            .replace_all("chats", vec![json!({ "id": "chat-1", "memories": [] })])
+            .unwrap();
+        storage.flush().unwrap();
+
+        let cache = Arc::clone(&storage.cache);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = cache.write().unwrap();
+            panic!("poison cache for acknowledgement preflight");
+        });
+
+        let error = storage
+            .upsert_many_journaled_with_record(
+                vec![
+                    (
+                        "messages",
+                        vec![json!({ "id": "message-1", "content": "after" })],
+                    ),
+                    (
+                        "message-swipes",
+                        vec![json!({
+                            "id": "message-1::swipe::1",
+                            "messageId": "message-1",
+                            "content": "after"
+                        })],
+                    ),
+                ],
+                "chats",
+                "chat-1",
+                true,
+                |_| Ok(()),
+            )
+            .expect_err("cache preflight should fail before commit");
+        assert_eq!(error.code, "lock_error");
+        assert!(!root
+            .join("collections")
+            .join(".collection-upsert-transaction.json")
+            .exists());
+
+        drop(storage);
+        let reopened = FileStorage::new(&root).unwrap();
+        assert_eq!(
+            reopened.get("messages", "message-1").unwrap().unwrap()["content"],
+            json!("before")
+        );
+        assert!(reopened
+            .get("message-swipes", "message-1::swipe::1")
+            .unwrap()
+            .is_none());
 
         fs::remove_dir_all(root).unwrap();
     }

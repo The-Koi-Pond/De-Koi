@@ -859,7 +859,10 @@ fn retained_chat_memories_after_message_change(
     Ok(Some(retained))
 }
 
-fn apply_chat_memory_invalidation_from_message(chat: &mut Value, message: &Value) -> AppResult<()> {
+pub(crate) fn apply_chat_memory_invalidation_from_message(
+    chat: &mut Value,
+    message: &Value,
+) -> AppResult<()> {
     let message_id = message
         .get("id")
         .and_then(Value::as_str)
