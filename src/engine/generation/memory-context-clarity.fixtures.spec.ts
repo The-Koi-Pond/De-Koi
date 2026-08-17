@@ -223,6 +223,33 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
+  it("rejects class-wide subject drift without relying on a candidate verb cue", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "Returned Machinas possess one brass crown.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-machina"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The returned Machina has one brass crown.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("accepts a candidate that preserves the cited observation's explicit scope", async () => {
     const candidate = {
       kind: "plot_state",
@@ -325,6 +352,33 @@ describe("memory context clarity semantic fixtures", () => {
     });
 
     expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
+  });
+
+  it("treats direct-object that as demonstrative scope", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "fact",
+          content: "Celia remembers the room.",
+          confidence: 0.95,
+          evidence: "direct_user_assertion",
+          sourceMessageIds: ["user-current"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "user-current",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "I remember that room.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Celia",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
   it("resolves a vague topic only when the cited context names it", async () => {

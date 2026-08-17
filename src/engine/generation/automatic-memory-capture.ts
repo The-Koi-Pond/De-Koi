@@ -494,37 +494,90 @@ function specificityClauseMatchesCandidate(sourceClause: string, candidateClause
   return overlap >= 2;
 }
 
+const NOMINAL_SCOPE_DETERMINERS = new Set(["a", "an", "one", "single", "that", "the", "this"]);
+const SINGULAR_AGREEMENT = new Set(["does", "has", "is", "was"]);
+
 function broadensSingularEvidence(sourceClause: string, candidateClause: string): boolean {
-  const sourceWords = new Set(sourceClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+  const sourceWordList = sourceClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const scopedSingularNouns = new Set(
+    sourceWordList.filter((_word, index) => {
+      const precedingWords = sourceWordList.slice(Math.max(0, index - 2), index);
+      return (
+        NOMINAL_SCOPE_DETERMINERS.has(precedingWords[0] ?? "") ||
+        NOMINAL_SCOPE_DETERMINERS.has(precedingWords[1] ?? "") ||
+        SINGULAR_AGREEMENT.has(sourceWordList[index + 1] ?? "")
+      );
+    }),
+  );
+  const sourceWords = new Set(sourceWordList);
   const candidateWords = candidateClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   return candidateWords.some(
-    (word, index) =>
-      word.length > 4 &&
-      word.endsWith("s") &&
-      !sourceWords.has(word) &&
-      sourceWords.has(word.slice(0, -1)) &&
-      candidateWords
-        .slice(index + 1, index + 4)
-        .some((followingWord) =>
-          /^(?:all|are|do|each|generally|have|often|typically|usually|were)$/.test(followingWord),
-        ),
+    (word) =>
+      word.length > 4 && word.endsWith("s") && !sourceWords.has(word) && scopedSingularNouns.has(word.slice(0, -1)),
   );
 }
 
-const COMPLEMENTIZER_THAT_PREDECESSOR = new RegExp(
-  "^(?:agrees?|agreed|assumes?|assumed|believes?|believed|claims?|claimed|confirms?|confirmed|" +
-    "discovers?|discovered|expects?|expected|explains?|explained|feels?|felt|finds?|found|hears?|heard|" +
-    "hopes?|hoped|indicates?|indicated|knows?|knew|known|learns?|learned|learnt|means?|meant|" +
-    "mentions?|mentioned|notices?|noticed|observes?|observed|promises?|promised|realizes?|realized|" +
-    "remembers?|remembered|reports?|reported|says?|said|sees?|saw|seen|shows?|showed|shown|" +
-    "states?|stated|suggests?|suggested|thinks?|thought|understands?|understood)$",
-);
+const FINITE_CLAUSE_MARKERS = new Set([
+  "are",
+  "can",
+  "could",
+  "did",
+  "do",
+  "does",
+  "had",
+  "has",
+  "have",
+  "is",
+  "may",
+  "might",
+  "must",
+  "shall",
+  "should",
+  "was",
+  "were",
+  "will",
+  "would",
+]);
+const CLEAR_CLAUSE_SUBJECTS = new Set([
+  "a",
+  "an",
+  "he",
+  "her",
+  "his",
+  "i",
+  "it",
+  "my",
+  "our",
+  "she",
+  "the",
+  "their",
+  "they",
+  "we",
+  "you",
+  "your",
+]);
+
+function thatStartsClearFiniteClause(content: string, afterThat: number): boolean {
+  const words =
+    content
+      .slice(afterThat)
+      .trimStart()
+      .match(/[\p{L}\p{N}]+/gu) ?? [];
+  const finiteIndex = words.slice(0, 4).findIndex((word) => FINITE_CLAUSE_MARKERS.has(word.toLowerCase()));
+  if (finiteIndex === 0) return true;
+  if (finiteIndex < 1) return false;
+  const firstWord = words[0] ?? "";
+  const normalizedFirst = firstWord.toLowerCase();
+  return (
+    CLEAR_CLAUSE_SUBJECTS.has(normalizedFirst) ||
+    /^\p{Lu}/u.test(firstWord) ||
+    (normalizedFirst.endsWith("s") && /^(?:are|do|have|were)$/.test(words[finiteIndex]?.toLowerCase() ?? ""))
+  );
+}
 
 function hasDemonstrativeThat(content: string): boolean {
   for (const match of content.matchAll(/\bthat\b/giu)) {
-    const before = content.slice(0, match.index).trimEnd();
-    const previousWord = before.match(/[\p{L}\p{N}]+$/u)?.[0]?.toLowerCase() ?? "";
-    if (!COMPLEMENTIZER_THAT_PREDECESSOR.test(previousWord)) return true;
+    if (!thatStartsClearFiniteClause(content, match.index + match[0].length)) return true;
   }
   return false;
 }
