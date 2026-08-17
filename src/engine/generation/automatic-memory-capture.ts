@@ -362,6 +362,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
     "Preserve conditions, tense, uncertainty, and modality, including which clause is conditional; never turn if, will, may, might, could, probably, seems, or similar qualified wording into an asserted fact.",
     "Preserve each direct subject's identity; never replace one known participant with another.",
+    "Bind first-person forms anywhere in a cited row to that row's named speaker; never bind second-person you to the speaker.",
     "Preserve reporting acts and their certainty; never replace claimed with confirmed or another different act.",
     "Older reference messages may resolve only a bare name or antecedent identity; they cannot prove descriptors, appositives, relative clauses, or a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
@@ -427,7 +428,7 @@ function materialModality(content: string): string {
   return MATERIAL_MODALITY.map((pattern, index) => (pattern.test(normalized) ? String(index) : "")).join("");
 }
 
-function claimSupportingEvidenceClauses(claim: string, evidence: string): string[] {
+function claimSupportingEvidenceClauses(claim: string, evidence: string, evidenceSpeakerLabel?: string): string[] {
   const evidencePropositionList = evidencePropositions(evidence);
   const supportingPropositions = new Set<string>();
   for (const claimProposition of evidencePropositions(claim)) {
@@ -435,6 +436,9 @@ function claimSupportingEvidenceClauses(claim: string, evidence: string): string
     if (claimTokens.size === 0) return [];
     const matches = evidencePropositionList.filter((evidenceProposition) => {
       const evidenceTokenSet = evidenceTokens(evidenceProposition);
+      if (evidenceSpeakerLabel && /\b(?:i|me|mine|my|myself|our|ours|ourselves|us|we)\b/i.test(evidenceProposition)) {
+        evidenceTokens(evidenceSpeakerLabel).forEach((token) => evidenceTokenSet.add(token));
+      }
       return (
         hasNegativePolarity(evidenceProposition) === hasNegativePolarity(claimProposition) &&
         [...claimTokens].every((token) => evidenceTokenSet.has(token))
@@ -528,7 +532,7 @@ function namedReportingClausesSupportedByEvidence(
       if (
         speakerEvidence.length === 0 ||
         !speakerEvidence.some((message) => {
-          const supportingClauses = claimSupportingEvidenceClauses(claim, message.content);
+          const supportingClauses = claimSupportingEvidenceClauses(claim, message.content, message.speakerLabel);
           return supportingClauses.some(
             (clause) => !COMMITMENT_REPORTING_VERB.test(reportingVerb) || hasCommitmentActEvidence(clause),
           );
@@ -550,7 +554,9 @@ function namedReportingClausesSupportedByEvidence(
     );
     if (
       speakerEvidence.length === 0 ||
-      !speakerEvidence.some((message) => claimSupportingEvidenceClauses(claim, message.content).length > 0)
+      !speakerEvidence.some(
+        (message) => claimSupportingEvidenceClauses(claim, message.content, message.speakerLabel).length > 0,
+      )
     ) {
       return false;
     }
@@ -628,6 +634,19 @@ const LEADING_REPORTING_FRAME_WORDS = new Set([
   "vows",
 ]);
 
+const FIRST_PERSON_REFERENCE_WORDS = new Set([
+  "i",
+  "me",
+  "mine",
+  "my",
+  "myself",
+  "our",
+  "ours",
+  "ourselves",
+  "us",
+  "we",
+]);
+
 function propositionReportingFrame(value: string, ignoredSpeakerTokens: Set<string>): string | null {
   const words = value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const reportingIndex = words.findIndex((word) => LEADING_REPORTING_FRAME_WORDS.has(word));
@@ -646,6 +665,7 @@ function propositionContentTokens(
   value: string,
   ignoredSpeakerTokens: Set<string>,
   resolvedSpeakerLabel?: string,
+  omitFirstPersonSubjects = false,
 ): string[] {
   const tokenizable = value
     .toLowerCase()
@@ -662,11 +682,14 @@ function propositionContentTokens(
     contentStart = 1;
     while (contentStart < words.length && ignoredSpeakerTokens.has(words[contentStart] ?? "")) contentStart += 1;
   }
-  const tokens: string[] =
-    resolvedSpeakerLabel && /^\s*(?:I|my|we|our|please)\b/i.test(value)
-      ? (resolvedSpeakerLabel.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
-      : [];
+  const resolvedSpeakerTokens = resolvedSpeakerLabel?.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const tokens: string[] = resolvedSpeakerTokens.length > 0 && words[0] === "please" ? [...resolvedSpeakerTokens] : [];
   for (const token of words.slice(contentStart)) {
+    if (resolvedSpeakerTokens.length > 0 && FIRST_PERSON_REFERENCE_WORDS.has(token)) {
+      if (omitFirstPersonSubjects && (token === "i" || token === "we")) continue;
+      tokens.push(...resolvedSpeakerTokens);
+      continue;
+    }
     if (ignoredSpeakerTokens.has(token)) {
       tokens.push(token);
       continue;
@@ -772,6 +795,41 @@ function sameSurfaceTokenMultiset(left: string[], right: string[]): boolean {
     unmatched.splice(index, 1);
   }
   return true;
+}
+
+function sameSurfaceTokenMultisetIgnoringTense(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const unmatched = [...right];
+  for (const leftToken of left) {
+    const index = unmatched.findIndex((rightToken) =>
+      [...surfaceForms(leftToken)].some((form) => surfaceForms(rightToken).has(form)),
+    );
+    if (index < 0) return false;
+    unmatched.splice(index, 1);
+  }
+  return true;
+}
+
+function roleTokens(value: string): string[] {
+  return (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
+    (token) => token.length >= 2 && token !== "the" && token !== "an",
+  );
+}
+
+function firstPersonActivePassiveParaphrase(
+  candidate: string,
+  evidence: string,
+  evidenceSpeakerLabel: string,
+): boolean {
+  const passive = candidate.match(/^\s*(.+?)\s+(am|is|are|was|were)\s+([\p{L}]+ed)\s+by\s+(.+?)[.!?]*\s*$/iu);
+  const active = evidence.match(/^\s*(.+?)\s+([\p{L}]+(?:s|ed))\s+(?:me|us|myself|ourselves)[.!?]*\s*$/iu);
+  if (!passive || !active) return false;
+  const passiveIsPast = /^(?:was|were)$/i.test(passive[2] ?? "");
+  const activeIsPast = (active[2] ?? "").endsWith("ed");
+  if (passiveIsPast !== activeIsPast) return false;
+  if (roleTokens(passive[1] ?? "").join("\u0000") !== roleTokens(evidenceSpeakerLabel).join("\u0000")) return false;
+  if (roleTokens(passive[4] ?? "").join("\u0000") !== roleTokens(active[1] ?? "").join("\u0000")) return false;
+  return [...surfaceForms(passive[3] ?? "")].some((form) => surfaceForms(active[2] ?? "").has(form));
 }
 
 function possessiveCopularNamingParaphrase(candidate: string, evidence: string): boolean {
@@ -890,6 +948,7 @@ function propositionSupported(
   const candidateConditions = conditionBindings(candidate, ignoredSpeakerTokens);
   const evidenceConditions = conditionBindings(evidence, ignoredSpeakerTokens);
   if (candidateConditions.join("\u0000") !== evidenceConditions.join("\u0000")) return false;
+  const activePassiveParaphrase = firstPersonActivePassiveParaphrase(candidate, evidence, evidenceSpeakerLabel);
   const candidateCopula = /\b(?:was|were)\b/i.test(candidate)
     ? "past"
     : /\b(?:am|is|are)\b/i.test(candidate)
@@ -900,7 +959,7 @@ function propositionSupported(
     : /\b(?:am|is|are)\b/i.test(evidence)
       ? "present"
       : "";
-  if (candidateCopula !== evidenceCopula) return false;
+  if (candidateCopula !== evidenceCopula && !activePassiveParaphrase) return false;
   const candidateReportingAct = propositionReportingFrame(candidate, ignoredSpeakerTokens);
   const evidenceReportingAct = propositionReportingFrame(evidence, ignoredSpeakerTokens);
   if (evidenceReportingAct !== null && evidenceReportingAct !== candidateReportingAct) return false;
@@ -909,11 +968,15 @@ function propositionSupported(
   const evidenceTokensForProposition = propositionContentTokens(
     evidence,
     ignoredSpeakerTokens,
-    candidateReportingAct !== null ? undefined : evidenceSpeakerLabel,
+    evidenceSpeakerLabel,
+    candidateReportingAct !== null,
   );
   if (namingParaphrase) {
     const speakerTokens = evidenceSpeakerLabel.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-    if (!speakerTokens.every((token, index) => evidenceTokensForProposition[index] === token)) {
+    const alreadyContainsSpeaker = evidenceTokensForProposition.some((_token, start) =>
+      speakerTokens.every((token, offset) => evidenceTokensForProposition[start + offset] === token),
+    );
+    if (!alreadyContainsSpeaker) {
       evidenceTokensForProposition.unshift(...speakerTokens);
     }
   }
@@ -922,6 +985,9 @@ function propositionSupported(
     return unresolvedReferenceSupported(candidate, candidateTokens, evidenceTokensForProposition, resolutionContext);
   }
   if (namingParaphrase && sameSurfaceTokenMultiset(candidateTokens, evidenceTokensForProposition)) {
+    return true;
+  }
+  if (activePassiveParaphrase && sameSurfaceTokenMultisetIgnoringTense(candidateTokens, evidenceTokensForProposition)) {
     return true;
   }
   if (preferenceRequestEquivalent(candidateTokens, evidenceTokensForProposition, evidence)) return true;
@@ -1120,11 +1186,12 @@ function specificityBindings(content: string): SpecificityBinding[] {
   for (const [index, match] of words.entries()) {
     const marker = match[0].toLowerCase();
     let kind: SpecificityBinding["kind"] | null = null;
-    const followingWords = words.slice(index + 1, index + 6);
+    const followingWords = words.slice(index + 1);
     const articleIntroducesSingularScope =
       marker === "a" ||
       marker === "an" ||
-      (marker === "the" && followingWords.some((wordMatch) => SINGULAR_AGREEMENT.has(wordMatch[0].toLowerCase())));
+      (marker === "the" &&
+        followingWords.slice(0, 5).some((wordMatch) => SINGULAR_AGREEMENT.has(wordMatch[0].toLowerCase())));
     if (articleIntroducesSingularScope || marker === "one" || marker === "single") kind = "singular";
     if (marker === "this") kind = "demonstrative";
     if (marker === "that" && !thatStartsClearFiniteClause(content, match.index + match[0].length)) {
@@ -1133,7 +1200,8 @@ function specificityBindings(content: string): SpecificityBinding[] {
     if (!kind) continue;
     const orderedTokens = followingWords
       .map((wordMatch) => evidenceToken(wordMatch[0].toLowerCase()))
-      .filter((token) => token.length >= 3 && token !== "one" && token !== "single" && !EVIDENCE_STOP_WORDS.has(token));
+      .filter((token) => token.length >= 3 && token !== "one" && token !== "single" && !EVIDENCE_STOP_WORDS.has(token))
+      .slice(0, 5);
     bindings.push({ anchor: orderedTokens.at(-1) ?? null, kind, tokens: new Set(orderedTokens) });
   }
   return bindings;

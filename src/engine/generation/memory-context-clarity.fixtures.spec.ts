@@ -1129,6 +1129,175 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result.candidates.map((memory) => memory.content)).toEqual([content]);
   });
 
+  it("binds a first-person object to the cited row speaker", async () => {
+    const content = "Agent Cobalt is frightened by the east gate.";
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "relationship_state",
+          content,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-cobalt"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-cobalt",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The east gate frightens me.",
+          characterId: "agent-cobalt",
+          createdAt: timestamp,
+          speakerLabel: "Agent Cobalt",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([content]);
+  });
+
+  it("binds a first-person object inside a named reporting clause", async () => {
+    const content = "Agent Cobalt said the east gate frightens Agent Cobalt.";
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "relationship_state",
+          content,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-cobalt"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-cobalt",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The east gate frightens me.",
+          characterId: "agent-cobalt",
+          createdAt: timestamp,
+          speakerLabel: "Agent Cobalt",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([content]);
+  });
+
+  it.each([
+    {
+      label: "me",
+      source: "The key belongs to me.",
+      candidate: "The key belongs to Agent Cobalt.",
+      kind: "plot_state" as const,
+    },
+    {
+      label: "my own",
+      source: "The key is my own.",
+      candidate: "The key is Agent Cobalt's own.",
+      kind: "plot_state" as const,
+    },
+    {
+      label: "us",
+      source: "The key belongs to us.",
+      candidate: "The key belongs to Agent Cobalt.",
+      kind: "plot_state" as const,
+    },
+    {
+      label: "mine",
+      source: "The key is mine.",
+      candidate: "The key is Agent Cobalt's.",
+      kind: "plot_state" as const,
+    },
+    {
+      label: "ours",
+      source: "The key is ours.",
+      candidate: "The key is Agent Cobalt's.",
+      kind: "plot_state" as const,
+    },
+    {
+      label: "myself",
+      source: "I blamed myself.",
+      candidate: "Agent Cobalt blamed Agent Cobalt.",
+      kind: "relationship_state" as const,
+    },
+    {
+      label: "ourselves",
+      source: "We blamed ourselves.",
+      candidate: "Agent Cobalt blamed Agent Cobalt.",
+      kind: "relationship_state" as const,
+    },
+  ])("binds first-person $label anywhere in the clause", async ({ source, candidate, kind }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind,
+          content: candidate,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-cobalt"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-cobalt",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: source,
+          characterId: "agent-cobalt",
+          createdAt: timestamp,
+          speakerLabel: "Agent Cobalt",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate]);
+  });
+
+  it.each([
+    {
+      label: "another named participant",
+      source: "The east gate frightens me.",
+      candidate: "Pierrot is frightened by the east gate.",
+    },
+    {
+      label: "second-person evidence",
+      source: "The east gate frightens you.",
+      candidate: "Agent Cobalt is frightened by the east gate.",
+    },
+    {
+      label: "reversed active and passive roles",
+      source: "The east gate frightens me.",
+      candidate: "The east gate is frightened by Agent Cobalt.",
+    },
+  ])("does not bind $label to the row speaker", async ({ source, candidate }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "relationship_state",
+          content: candidate,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-cobalt"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-cobalt",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: source,
+          characterId: "agent-cobalt",
+          createdAt: timestamp,
+          speakerLabel: "Agent Cobalt",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("does not import a referenced predicate into an unresolved antecedent", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
