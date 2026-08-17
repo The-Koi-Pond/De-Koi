@@ -4166,7 +4166,7 @@ mod tests {
 
     #[test]
     fn deki_runtime_owner_uses_the_authenticated_resolved_host() {
-        let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0xffff00000001)), 54321);
+        let addr = SocketAddr::new(IpAddr::V6(Ipv4Addr::LOCALHOST.to_ipv6_mapped()), 54321);
 
         assert_eq!(
             deki_runtime_owner(addr),
