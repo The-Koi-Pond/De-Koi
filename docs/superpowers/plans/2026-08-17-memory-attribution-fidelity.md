@@ -71,4 +71,3 @@
 - [ ] Mark ready, wait for hosted CI and final-head Bunny, then merge.
 - [ ] Wait for the merge SHA's matched server/web `:prealpha` images.
 - [ ] Update `/home/chai/de-koi-src` on the Pi with `pi-update.sh --trusted-lan` and verify exact labels, HTTP, writable health, container state, and persistent mounts.
-

@@ -37,4 +37,3 @@ This is shared TypeScript generation behavior used by Conversation, Roleplay, Vi
 - Add exact regression fixtures for wrong pronouns, false speaker attribution, and singular-to-general drift.
 - Preserve positive fixtures for named, correctly attributed, specificity-preserving memories.
 - Run focused Vitest, `pnpm typecheck`, `pnpm check:architecture`, and full `pnpm check` before shipping.
-
