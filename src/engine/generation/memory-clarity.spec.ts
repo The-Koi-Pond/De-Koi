@@ -89,7 +89,7 @@ describe("automatic memory clarity review", () => {
       alreadyReviewed: new Set(),
       sources: [
         source({ id: "risky", content: "He said he would return." }),
-        source({ id: "clear", content: "Pierrot promised Celia that Pierrot would return." }),
+        source({ id: "clear", content: "Pierrot promised Celia that he would return." }),
         source({ id: "manual", origin: "manual", automaticLineage: false }),
         source({ id: "imported", origin: "imported", automaticLineage: false }),
         source({ id: "correction", origin: "correction", automaticLineage: false }),

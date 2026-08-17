@@ -71,8 +71,9 @@ export interface AutomaticMemoryValueGateResult {
 export type StandaloneMemoryFailure =
   | "generic_speaker_label"
   | "unresolved_opening_reference"
-  | "dangling_topic_reference"
-  | "third_person_personal_pronoun";
+  | "dangling_topic_reference";
+
+export type AutomaticCaptureMemoryFailure = StandaloneMemoryFailure | "third_person_personal_pronoun";
 
 export function standaloneMemoryFailure(content: string): StandaloneMemoryFailure | null {
   const normalized = content.trim();
@@ -86,7 +87,13 @@ export function standaloneMemoryFailure(content: string): StandaloneMemoryFailur
   if (/\b(?:talk|speak|discuss|argue|ask|worry)\w*\s+(?:about\s+)?(?:it|this|that)\b/i.test(normalized)) {
     return "dangling_topic_reference";
   }
-  if (/\b(?:he|him|his|himself|she|her|hers|herself|they|them|their|theirs|themself|themselves)\b/i.test(normalized)) {
+  return null;
+}
+
+export function automaticCaptureMemoryFailure(content: string): AutomaticCaptureMemoryFailure | null {
+  const standaloneFailure = standaloneMemoryFailure(content);
+  if (standaloneFailure) return standaloneFailure;
+  if (/\b(?:he|him|his|himself|she|her|hers|herself|they|them|their|theirs|themself|themselves)\b/i.test(content)) {
     return "third_person_personal_pronoun";
   }
   return null;
@@ -394,12 +401,11 @@ function evidenceTokens(value: string): Set<string> {
   );
 }
 
-function meaningfulEvidenceOverlap(claim: string, evidence: string): boolean {
+function claimSupportedByEvidence(claim: string, evidence: string): boolean {
   const claimTokens = evidenceTokens(claim);
   if (claimTokens.size === 0) return false;
   const evidenceTokenSet = evidenceTokens(evidence);
-  const overlap = [...claimTokens].filter((token) => evidenceTokenSet.has(token)).length;
-  return overlap >= Math.min(2, claimTokens.size);
+  return [...claimTokens].every((token) => evidenceTokenSet.has(token));
 }
 
 function escapeRegExp(value: string): string {
@@ -410,6 +416,10 @@ const REPORTING_OR_COMMITMENT_VERB =
   "(?:said|says|stated|states|reported|reports|told|tells|explained|explains|confirmed|confirms|" +
   "believed|believes|discussed|discusses|promised|promises|committed|commits|agreed|agrees|" +
   "vowed|vows|pledged|pledges|swore|swears|claimed|claims|mentioned|mentions|asked|asks|warned|warns)";
+const COMMITMENT_REPORTING_VERB =
+  /^(?:promised|promises|committed|commits|agreed|agrees|vowed|vows|pledged|pledges|swore|swears)$/i;
+const COMMITMENT_ACT_EVIDENCE =
+  /\b(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b|\bI(?:'ll|\s+(?:will|shall|am\s+going\s+to))\b/i;
 
 function knownSpeakerLabels(request: CanonicalConsequenceExtractionRequest): string[] {
   return Array.from(
@@ -450,12 +460,13 @@ function namedReportingClausesSupportedByEvidence(
   const namedSpeaker = `(?:${speakerAlternation})`;
   const reportingSubject = `(${namedSpeaker}(?:(?:\\s*,\\s*(?:and\\s+)?|\\s+and\\s+)${namedSpeaker})*)`;
   const pattern = new RegExp(
-    `(?:^|[^\\p{L}\\p{N}_])${reportingSubject}\\s+(?:(?:has|have|had)\\s+)?${REPORTING_OR_COMMITMENT_VERB}\\b([^.!?;]*)`,
+    `(?:^|[^\\p{L}\\p{N}_])${reportingSubject}\\s+(?:(?:has|have|had)\\s+)?(${REPORTING_OR_COMMITMENT_VERB})\\b([^.!?;]*)`,
     "giu",
   );
   for (const match of content.matchAll(pattern)) {
     const subject = match[1]?.trim() ?? "";
-    const claim = match[2]?.trim() ?? "";
+    const reportingVerb = match[2]?.trim() ?? "";
+    const claim = match[3]?.trim() ?? "";
     const subjectLabelPattern = new RegExp(`(?:^|[^\\p{L}\\p{N}_])(${speakerAlternation})(?![\\p{L}\\p{N}_])`, "giu");
     const subjectLabels = [...subject.matchAll(subjectLabelPattern)].map((labelMatch) => labelMatch[1]?.trim() ?? "");
     for (const speakerLabel of subjectLabels) {
@@ -464,10 +475,31 @@ function namedReportingClausesSupportedByEvidence(
       );
       if (
         speakerEvidence.length === 0 ||
-        !speakerEvidence.some((message) => meaningfulEvidenceOverlap(claim, message.content))
+        !speakerEvidence.some(
+          (message) =>
+            claimSupportedByEvidence(claim, message.content) &&
+            (!COMMITMENT_REPORTING_VERB.test(reportingVerb) || COMMITMENT_ACT_EVIDENCE.test(message.content)),
+        )
       ) {
         return false;
       }
+    }
+  }
+  const attributedFrame = new RegExp(
+    `(?:^|[^\\p{L}\\p{N}_])(?:According\\s+to|Per)\\s+(${speakerAlternation})\\s*,?\\s*([^.!?;]*)`,
+    "giu",
+  );
+  for (const match of content.matchAll(attributedFrame)) {
+    const speakerLabel = match[1]?.trim() ?? "";
+    const claim = match[2]?.trim() ?? "";
+    const speakerEvidence = evidenceMessages.filter((message) =>
+      messageBelongsToSpeaker(message, speakerLabel, request),
+    );
+    if (
+      speakerEvidence.length === 0 ||
+      !speakerEvidence.some((message) => claimSupportedByEvidence(claim, message.content))
+    ) {
+      return false;
     }
   }
   return true;
@@ -496,6 +528,20 @@ function specificityClauseMatchesCandidate(sourceClause: string, candidateClause
 
 const NOMINAL_SCOPE_DETERMINERS = new Set(["a", "an", "one", "single", "that", "the", "this"]);
 const SINGULAR_AGREEMENT = new Set(["does", "has", "is", "was"]);
+const IRREGULAR_PLURAL_TO_SINGULAR = new Map([
+  ["children", "child"],
+  ["feet", "foot"],
+  ["geese", "goose"],
+  ["men", "man"],
+  ["mice", "mouse"],
+  ["people", "person"],
+  ["teeth", "tooth"],
+  ["women", "woman"],
+]);
+
+function candidateSingularForm(word: string): string | null {
+  return IRREGULAR_PLURAL_TO_SINGULAR.get(word) ?? (word.length > 4 && word.endsWith("s") ? word.slice(0, -1) : null);
+}
 
 function broadensSingularEvidence(sourceClause: string, candidateClause: string): boolean {
   const sourceWordList = sourceClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -511,10 +557,10 @@ function broadensSingularEvidence(sourceClause: string, candidateClause: string)
   );
   const sourceWords = new Set(sourceWordList);
   const candidateWords = candidateClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-  return candidateWords.some(
-    (word) =>
-      word.length > 4 && word.endsWith("s") && !sourceWords.has(word) && scopedSingularNouns.has(word.slice(0, -1)),
-  );
+  return candidateWords.some((word) => {
+    const singular = candidateSingularForm(word);
+    return singular !== null && !sourceWords.has(word) && scopedSingularNouns.has(singular);
+  });
 }
 
 const FINITE_CLAUSE_MARKERS = new Set([
@@ -575,36 +621,53 @@ function thatStartsClearFiniteClause(content: string, afterThat: number): boolea
   );
 }
 
-function hasDemonstrativeThat(content: string): boolean {
-  for (const match of content.matchAll(/\bthat\b/giu)) {
-    if (!thatStartsClearFiniteClause(content, match.index + match[0].length)) return true;
-  }
-  return false;
+interface SpecificityBinding {
+  kind: "singular" | "demonstrative";
+  tokens: Set<string>;
 }
 
-function explicitSpecificityKinds(content: string): Set<"singular" | "demonstrative"> {
-  const kinds = new Set<"singular" | "demonstrative">();
-  if (/\b(?:one|single)\b/i.test(content)) kinds.add("singular");
-  if (/\bthis\b/i.test(content) || hasDemonstrativeThat(content)) kinds.add("demonstrative");
-  return kinds;
+function specificityBindings(content: string): SpecificityBinding[] {
+  const words = [...content.matchAll(/[\p{L}\p{N}]+/gu)];
+  const bindings: SpecificityBinding[] = [];
+  for (const [index, match] of words.entries()) {
+    const marker = match[0].toLowerCase();
+    let kind: SpecificityBinding["kind"] | null = null;
+    if (marker === "one" || marker === "single") kind = "singular";
+    if (marker === "this") kind = "demonstrative";
+    if (marker === "that" && !thatStartsClearFiniteClause(content, match.index + match[0].length)) {
+      kind = "demonstrative";
+    }
+    if (!kind) continue;
+    const tokens = new Set(
+      words
+        .slice(index + 1, index + 4)
+        .map((wordMatch) => evidenceToken(wordMatch[0].toLowerCase()))
+        .filter(
+          (token) => token.length >= 3 && token !== "one" && token !== "single" && !EVIDENCE_STOP_WORDS.has(token),
+        ),
+    );
+    bindings.push({ kind, tokens });
+  }
+  return bindings;
+}
+
+function specificityBindingSupported(source: SpecificityBinding, candidates: SpecificityBinding[]): boolean {
+  return candidates.some((candidate) => {
+    if (candidate.kind !== source.kind || source.tokens.size === 0 || candidate.tokens.size === 0) return false;
+    const overlap = [...source.tokens].filter((token) => candidate.tokens.has(token)).length;
+    return overlap >= Math.min(2, source.tokens.size);
+  });
 }
 
 function evidenceSpecificityPreserved(content: string, evidenceMessages: CanonicalConsequenceSourceMessage[]): boolean {
   const candidateClauses = evidenceClauses(content);
   for (const sourceClause of evidenceMessages.flatMap((message) => evidenceClauses(message.content))) {
-    const sourceSpecificity = explicitSpecificityKinds(sourceClause);
-    if (sourceSpecificity.size === 0) continue;
-    if (
-      candidateClauses.some((candidateClause) => {
-        const candidateSpecificity = explicitSpecificityKinds(candidateClause);
-        return (
-          specificityClauseMatchesCandidate(sourceClause, candidateClause) &&
-          ([...sourceSpecificity].some((kind) => !candidateSpecificity.has(kind)) ||
-            broadensSingularEvidence(sourceClause, candidateClause))
-        );
-      })
-    ) {
-      return false;
+    const sourceBindings = specificityBindings(sourceClause);
+    for (const candidateClause of candidateClauses) {
+      if (!specificityClauseMatchesCandidate(sourceClause, candidateClause)) continue;
+      if (broadensSingularEvidence(sourceClause, candidateClause)) return false;
+      const candidateBindings = specificityBindings(candidateClause);
+      if (sourceBindings.some((binding) => !specificityBindingSupported(binding, candidateBindings))) return false;
     }
   }
   return true;
@@ -697,7 +760,7 @@ export async function extractCanonicalMemoryConsequences(input: {
     if (
       !kind ||
       !content ||
-      standaloneMemoryFailure(content) !== null ||
+      automaticCaptureMemoryFailure(content) !== null ||
       content.length > MAX_CONSEQUENCE_CONTENT_LENGTH ||
       !Number.isFinite(confidence) ||
       confidence < 0 ||

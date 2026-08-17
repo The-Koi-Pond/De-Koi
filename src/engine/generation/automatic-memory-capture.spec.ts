@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import {
+  automaticCaptureMemoryFailure,
   extractCanonicalMemoryConsequences,
   standaloneMemoryFailure,
   type CanonicalConsequenceExtractionRequest,
@@ -107,7 +108,10 @@ describe("automatic memory consequence extraction", () => {
     expect(standaloneMemoryFailure("Pierrot said he does not want to talk about it.")).toBe("dangling_topic_reference");
     expect(standaloneMemoryFailure("{{user}}'s cat is named Miso.")).toBeNull();
     expect(standaloneMemoryFailure("{{UserName}} prefers tea.")).toBeNull();
-    expect(standaloneMemoryFailure("Pierrot told Celia that he would return.")).toBe("third_person_personal_pronoun");
+    expect(standaloneMemoryFailure("Pierrot told Celia that he would return.")).toBeNull();
+    expect(automaticCaptureMemoryFailure("Pierrot told Celia that he would return.")).toBe(
+      "third_person_personal_pronoun",
+    );
     expect(standaloneMemoryFailure("Pierrot does not want to discuss the circus accident.")).toBeNull();
   });
 

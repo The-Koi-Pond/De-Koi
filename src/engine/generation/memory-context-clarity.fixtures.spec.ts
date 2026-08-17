@@ -142,6 +142,158 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
+  it("rejects a named commitment without same-speaker commitment-act evidence", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "promise",
+          content: "Shlo promised to wait at the east gate.",
+          confidence: 0.95,
+          evidence: "explicit_promise",
+          sourceMessageIds: ["user-shlo", "assistant-cobalt"],
+        },
+      ]),
+      request: request("Shlo", [
+        {
+          id: "user-shlo",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "The east gate is rusty.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Shlo",
+        },
+        {
+          id: "assistant-cobalt",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "I will wait at the east gate.",
+          characterId: "cobalt",
+          createdAt: timestamp,
+          speakerLabel: "Agent Cobalt",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects a named commitment with the wrong same-speaker action", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "promise",
+          content: "Shlo promised to wait at the east gate.",
+          confidence: 0.95,
+          evidence: "explicit_promise",
+          sourceMessageIds: ["user-shlo"],
+        },
+      ]),
+      request: request("Shlo", [
+        {
+          id: "user-shlo",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "I will inspect the east gate.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Shlo",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("requires speaker-local support for an according-to frame", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "According to Shlo, the returned Machina has a brass crown.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["user-shlo", "assistant-cobalt"],
+        },
+      ]),
+      request: request("Shlo", [
+        {
+          id: "user-shlo",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "The east gate is rusty.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Shlo",
+        },
+        {
+          id: "assistant-cobalt",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The returned Machina has a brass crown.",
+          characterId: "cobalt",
+          createdAt: timestamp,
+          speakerLabel: "Agent Cobalt",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects an according-to frame with only topical speaker overlap", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "According to Shlo, the east gate is locked.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["user-shlo"],
+        },
+      ]),
+      request: request("Shlo", [
+        {
+          id: "user-shlo",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "The east gate is rusty.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Shlo",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("accepts an according-to frame supported by that speaker", async () => {
+    const candidate = {
+      kind: "plot_state",
+      content: "According to Shlo, the east gate is locked.",
+      confidence: 0.95,
+      evidence: "explicit_exchange",
+      sourceMessageIds: ["user-shlo"],
+    };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([candidate]),
+      request: request("Shlo", [
+        {
+          id: "user-shlo",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "The east gate is locked.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Shlo",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
+  });
+
   it("rejects an unsupported participant in a compound reporting subject", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -240,6 +392,114 @@ describe("memory context clarity semantic fixtures", () => {
           chatId: "fixture-chat",
           role: "assistant",
           content: "The returned Machina has one brass crown.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects class-wide drift from an article-scoped singular observation", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "Returned Machinas have brass crowns.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-machina"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "A returned Machina has a brass crown.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects irregular singular-to-class drift when another one remains", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "People carry one brass key.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-person"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-person",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "One person carries one brass key.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects moving demonstrative scope to a different local noun", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "The returned Machina waits at this gate.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-machina"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "This returned Machina waits at the east gate.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects laundering a moved scope through one shared binding token", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "The returned gate waits beside this Machina.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-machina"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "This returned Machina waits at the east gate.",
           characterId: "pierrot",
           createdAt: timestamp,
           speakerLabel: "Pierrot",
