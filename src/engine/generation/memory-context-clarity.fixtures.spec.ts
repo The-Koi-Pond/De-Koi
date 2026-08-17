@@ -527,6 +527,97 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
+  it.each([
+    {
+      label: "changed gate predicate",
+      source: "East Gate is open.",
+      candidate: "East Gate is locked.",
+    },
+    {
+      label: "changed Machina predicate",
+      source: "Returned Machina is friendly.",
+      candidate: "Returned Machina is hostile.",
+    },
+  ])("rejects $label despite a matching subject", async ({ source, candidate }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: candidate,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-state"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-state",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: source,
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects a negative predicate when its material object changed", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "relationship_state",
+          content: "Mira does not trust Celia.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-mira"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-mira",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "Mira distrusts the east gate near Celia.",
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("accepts equivalent negative predicates with the same material object", async () => {
+    const candidate = {
+      kind: "relationship_state",
+      content: "Mira does not trust Celia.",
+      confidence: 0.95,
+      evidence: "explicit_exchange",
+      sourceMessageIds: ["assistant-mira"],
+    };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([candidate]),
+      request: request("Celia", [
+        {
+          id: "assistant-mira",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "Mira distrusts Celia.",
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
+  });
+
   it("accepts a direct claim whose evidence has matching negative polarity", async () => {
     const candidate = {
       kind: "plot_state",

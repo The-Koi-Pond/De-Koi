@@ -559,6 +559,7 @@ const PROPOSITION_FRAME_WORDS = new Set([
   "according",
   "agreed",
   "agrees",
+  "another",
   "asked",
   "asks",
   "believed",
@@ -616,19 +617,26 @@ const PROPOSITION_FRAME_WORDS = new Set([
 ]);
 
 function propositionContentTokens(value: string, ignoredSpeakerTokens: Set<string>): string[] {
-  return (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
-    (token) =>
-      token.length >= 3 &&
-      token !== "one" &&
-      token !== "single" &&
-      !EVIDENCE_STOP_WORDS.has(token) &&
-      !PROPOSITION_FRAME_WORDS.has(token) &&
-      !ignoredSpeakerTokens.has(token),
-  );
+  const tokens: string[] = [];
+  for (const token of value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
+    if (
+      token.length < 3 ||
+      token === "one" ||
+      token === "single" ||
+      EVIDENCE_STOP_WORDS.has(token) ||
+      PROPOSITION_FRAME_WORDS.has(token)
+    ) {
+      continue;
+    }
+    if (tokens.length === 0 && ignoredSpeakerTokens.has(token)) continue;
+    tokens.push(token);
+  }
+  return tokens;
 }
 
 function surfaceForms(token: string): Set<string> {
   const forms = new Set([token]);
+  if (token === "kept") forms.add("keep");
   if (token.length > 4 && token.endsWith("ies")) forms.add(`${token.slice(0, -3)}y`);
   if (/(?:ches|shes|sses|xes|zes|oes)$/.test(token)) forms.add(token.slice(0, -2));
   if (token.length > 4 && token.endsWith("s")) forms.add(token.slice(0, -1));
@@ -649,13 +657,34 @@ function propositionSupported(candidate: string, evidence: string, ignoredSpeake
   const candidateTokens = propositionContentTokens(candidate, ignoredSpeakerTokens);
   const evidenceTokensForProposition = propositionContentTokens(evidence, ignoredSpeakerTokens);
   if (candidateTokens.length === 0) return true;
-  const leadingTokenSupported = evidenceTokensForProposition.some((token) =>
-    surfaceTokensMatch(candidateTokens[0] ?? "", token),
+  if (
+    /\bit\b/i.test(evidence) &&
+    candidateTokens.some((candidateToken) =>
+      evidenceTokensForProposition.some((evidenceTokenValue) => surfaceTokensMatch(candidateToken, evidenceTokenValue)),
+    )
+  ) {
+    return true;
+  }
+  const leadingCandidateToken = candidateTokens[0] ?? "";
+  const evidenceLeadIndex = evidenceTokensForProposition.findIndex(
+    (token) =>
+      surfaceTokensMatch(leadingCandidateToken, token) ||
+      (hasNegativePolarity(candidate) && evidenceToken(leadingCandidateToken) === evidenceToken(token)),
   );
-  const negativePredicateSupported =
-    hasNegativePolarity(candidate) &&
-    evidenceTokensForProposition.some((token) => evidenceToken(candidateTokens[0] ?? "") === evidenceToken(token));
-  return leadingTokenSupported || negativePredicateSupported;
+  if (evidenceLeadIndex < 0) return false;
+  if (
+    !candidateTokens
+      .slice(1)
+      .every((candidateToken) =>
+        evidenceTokensForProposition.some((evidenceTokenValue) =>
+          surfaceTokensMatch(candidateToken, evidenceTokenValue),
+        ),
+      )
+  ) {
+    return false;
+  }
+  if (evidenceLeadIndex !== 0 || candidateTokens.length < 2 || evidenceTokensForProposition.length < 2) return true;
+  return surfaceTokensMatch(candidateTokens[1] ?? "", evidenceTokensForProposition[1] ?? "");
 }
 
 function evidencePolarityPreserved(
