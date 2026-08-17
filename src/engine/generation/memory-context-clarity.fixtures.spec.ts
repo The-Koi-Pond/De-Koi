@@ -871,6 +871,116 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
+  it.each([
+    {
+      label: "a source condition",
+      source: "If the alarm sounds, the east gate is locked.",
+      candidate: "The east gate is locked.",
+      kind: "plot_state" as const,
+      role: "assistant" as const,
+      speakerLabel: "Mira",
+    },
+    {
+      label: "future tense",
+      source: "East Gate will be locked.",
+      candidate: "East Gate is locked.",
+      kind: "plot_state" as const,
+      role: "assistant" as const,
+      speakerLabel: "Mira",
+    },
+    {
+      label: "probability",
+      source: "East Gate is probably locked.",
+      candidate: "East Gate is locked.",
+      kind: "plot_state" as const,
+      role: "assistant" as const,
+      speakerLabel: "Mira",
+    },
+    {
+      label: "seeming",
+      source: "East Gate seems locked.",
+      candidate: "East Gate is locked.",
+      kind: "plot_state" as const,
+      role: "assistant" as const,
+      speakerLabel: "Mira",
+    },
+    {
+      label: "a shared talk prefix",
+      source: "I discussed plans.",
+      candidate: "Celia is talkative about plans.",
+      kind: "preference" as const,
+      role: "user" as const,
+      speakerLabel: "Celia",
+    },
+  ])("rejects dropping or replacing $label", async ({ source, candidate, kind, role, speakerLabel }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind,
+          content: candidate,
+          confidence: 0.95,
+          evidence: role === "user" ? "direct_user_assertion" : "explicit_exchange",
+          sourceMessageIds: ["source-material"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "source-material",
+          chatId: "fixture-chat",
+          role,
+          content: source,
+          characterId: role === "assistant" ? "mira" : null,
+          createdAt: timestamp,
+          speakerLabel,
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("uses reference context only for an unresolved antecedent identity", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "The brass crown that was stolen yesterday was kept near the east gate.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-event"],
+          referenceMessageIds: ["assistant-reference"],
+        },
+      ]),
+      request: request(
+        "Celia",
+        [
+          {
+            id: "assistant-event",
+            chatId: "fixture-chat",
+            role: "assistant",
+            content: "I kept it near the east gate.",
+            characterId: "mira",
+            createdAt: timestamp,
+            speakerLabel: "Mira",
+          },
+        ],
+        [
+          {
+            id: "assistant-reference",
+            chatId: "fixture-chat",
+            role: "assistant",
+            content: "The brass crown was stolen yesterday.",
+            characterId: "mira",
+            createdAt: timestamp,
+            speakerLabel: "Mira",
+          },
+        ],
+      ),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("accepts a direct claim whose evidence has matching negative polarity", async () => {
     const candidate = {
       kind: "plot_state",

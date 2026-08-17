@@ -356,7 +356,7 @@ describe("automatic canonical-memory consequence extraction", () => {
           },
           {
             kind: "promise",
-            content: "Mira promised to keep the door closed.",
+            content: "Mira promised to keep the archive door closed.",
             confidence: 0.88,
             evidence: "explicit_promise",
             sourceMessageIds: ["assistant-1"],
@@ -502,7 +502,7 @@ describe("automatic canonical-memory consequence extraction", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
-  it("keeps low-confidence supported evidence stale and rejects unsupported inference or invented supersession IDs", async () => {
+  it("rejects low-confidence role reversal, unsupported inference, and invented supersession IDs", async () => {
     const llm = llmReturning(
       JSON.stringify({
         memories: [
@@ -568,7 +568,7 @@ describe("automatic canonical-memory consequence extraction", () => {
       },
     });
 
-    expect(result.candidates).toEqual([expect.objectContaining({ status: "stale", confidence: 0.52 })]);
-    expect(result.skippedCount).toBe(2);
+    expect(result.candidates).toEqual([]);
+    expect(result.skippedCount).toBe(3);
   });
 });

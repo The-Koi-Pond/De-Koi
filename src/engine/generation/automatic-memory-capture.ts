@@ -360,7 +360,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "A commitment requires direct first-person intent such as I promise or I will; refusal or inability is not a commitment.",
     "Preserve explicit one, single, this, or that scope; never broaden a specific observation into an unqualified class-wide statement.",
     "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
-    "Preserve uncertainty and modality; never turn may, might, could, or similar qualified wording into an asserted fact.",
+    "Preserve conditions, tense, uncertainty, and modality; never turn if, will, may, might, could, probably, seems, or similar qualified wording into an asserted fact.",
     "Older reference messages may resolve names or antecedents but cannot prove a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
     "Each item may include referenceMessageIds in addition to sourceMessageIds.",
@@ -412,11 +412,12 @@ function hasNegativePolarity(content: string): boolean {
 }
 
 const MATERIAL_MODALITY = [
-  /\b(?:may|might|could|perhaps|possibly)\b|\bnot\s+sure\s+(?:if|whether)\b/i,
+  /\b(?:may|might|could|perhaps|possibly|probably|likely|seems?|appears?)\b|\bnot\s+sure\s+(?:if|whether)\b/i,
   /\b(?:can|cannot|can't)\b/i,
   /\bmust\b/i,
   /\bshould\b/i,
   /\bwould\b/i,
+  /\b(?:will|shall|promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b/i,
 ] as const;
 
 function materialModality(content: string): string {
@@ -661,8 +662,8 @@ function surfaceForms(token: string): Set<string> {
     forms.add(token.slice(0, -2));
     forms.add(token.slice(0, -1));
   }
-  if (/^discuss/.test(token)) forms.add("talk");
-  if (/^talk/.test(token)) forms.add("discuss");
+  if (forms.has("discuss")) forms.add("talk");
+  if (forms.has("talk")) forms.add("discuss");
   return forms;
 }
 
@@ -747,18 +748,57 @@ function possessiveCopularNamingParaphrase(candidate: string, evidence: string):
 function unresolvedReferenceSupported(
   candidateTokens: string[],
   evidenceTokensForProposition: string[],
-  resolutionContextTokens: string[],
+  resolutionContext: string,
 ): boolean {
   const evidenceIndexes = evidenceTokenMatchIndexes(evidenceTokensForProposition, candidateTokens);
   if (!evidenceIndexes) return false;
   const matchedCandidateIndexes = new Set(evidenceIndexes);
   const unresolvedCandidateTokens = candidateTokens.filter((_, index) => !matchedCandidateIndexes.has(index));
-  const availableContextTokens = [...resolutionContextTokens];
-  for (const evidenceTokenValue of evidenceTokensForProposition) {
-    const index = availableContextTokens.findIndex((token) => surfaceTokensMatch(token, evidenceTokenValue));
-    if (index >= 0) availableContextTokens.splice(index, 1);
+  if (unresolvedCandidateTokens.length === 0) return false;
+  const resolutionWords = resolutionContext.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  for (let start = 0; start <= resolutionWords.length - unresolvedCandidateTokens.length; start += 1) {
+    if (
+      unresolvedCandidateTokens.every((candidateToken, offset) =>
+        surfaceTokensMatch(candidateToken, resolutionWords[start + offset] ?? ""),
+      )
+    ) {
+      return true;
+    }
   }
-  return evidenceTokenMatchIndexes(unresolvedCandidateTokens, availableContextTokens) !== null;
+  return false;
+}
+
+function preferenceRequestEquivalent(
+  candidateTokens: string[],
+  evidenceTokensForProposition: string[],
+  evidence: string,
+): boolean {
+  if (!/^prefer/.test(candidateTokens[0] ?? "") || !/\bplease\b/i.test(evidence)) return false;
+  const normalizedCandidate = candidateTokens
+    .filter((token, index) => index === 0 || token !== "kept")
+    .map((token, index) => (index === 0 ? "keep" : token));
+  return (
+    normalizedCandidate.length === evidenceTokensForProposition.length &&
+    normalizedCandidate.every((token, index) => surfaceTokensMatch(token, evidenceTokensForProposition[index] ?? ""))
+  );
+}
+
+const COMMITMENT_CONTENT_TOKEN =
+  /^(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)$/i;
+
+function directCommitmentEquivalent(
+  candidate: string,
+  evidence: string,
+  candidateTokens: string[],
+  evidenceTokensForProposition: string[],
+): boolean {
+  if (!/\b(?:promised|committed|vowed|pledged|swore|agreed)\b/i.test(candidate)) return false;
+  if (!hasCommitmentActEvidence(evidence)) return false;
+  const evidenceClaimTokens = evidenceTokensForProposition.filter((token) => !COMMITMENT_CONTENT_TOKEN.test(token));
+  return (
+    candidateTokens.length === evidenceClaimTokens.length &&
+    candidateTokens.every((token, index) => surfaceTokensMatch(token, evidenceClaimTokens[index] ?? ""))
+  );
 }
 
 function propositionSupported(
@@ -773,11 +813,7 @@ function propositionSupported(
   const evidenceTokensForProposition = propositionContentTokens(evidence, ignoredSpeakerTokens);
   if (candidateTokens.length === 0) return true;
   if (/\bit\b/i.test(evidence)) {
-    return unresolvedReferenceSupported(
-      candidateTokens,
-      evidenceTokensForProposition,
-      propositionContentTokens(resolutionContext, ignoredSpeakerTokens),
-    );
+    return unresolvedReferenceSupported(candidateTokens, evidenceTokensForProposition, resolutionContext);
   }
   if (
     possessiveCopularNamingParaphrase(candidate, evidence) &&
@@ -787,8 +823,9 @@ function propositionSupported(
   }
   const matchIndexes = orderedSurfaceMatchIndexes(candidateTokens, evidenceTokensForProposition, candidate, evidence);
   if (!matchIndexes) return false;
-  if ((matchIndexes[0] ?? -1) !== 0 || matchIndexes.length < 2 || evidenceTokensForProposition.length < 2) return true;
-  return matchIndexes[1] === 1;
+  if (preferenceRequestEquivalent(candidateTokens, evidenceTokensForProposition, evidence)) return true;
+  if (directCommitmentEquivalent(candidate, evidence, candidateTokens, evidenceTokensForProposition)) return true;
+  return orderedSurfaceMatchIndexes(evidenceTokensForProposition, candidateTokens, evidence, candidate) !== null;
 }
 
 function evidencePolarityPreserved(
