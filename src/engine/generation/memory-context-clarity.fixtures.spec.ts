@@ -737,6 +737,140 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
+  it("rejects candidate details that are not proved while resolving it", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "The brass crown, previously stolen, was kept near the east gate.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-event"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-event",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "I kept it near the east gate.",
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects reversed roles in a material naming predicate", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "relationship_state",
+          content: "The scout named the guard captain.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-naming"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-naming",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The guard named the scout captain.",
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it.each([
+    {
+      label: "curly isn't",
+      source: "The east gate isn’t locked.",
+      candidate: "The east gate is locked.",
+      kind: "plot_state" as const,
+    },
+    {
+      label: "curly can't",
+      source: "Mira can’t trust Celia.",
+      candidate: "Mira trusts Celia.",
+      kind: "relationship_state" as const,
+    },
+  ])("rejects dropping negative polarity from $label evidence", async ({ source, candidate, kind }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind,
+          content: candidate,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-negative"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-negative",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: source,
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it.each([
+    {
+      label: "might",
+      source: "The east gate might be locked.",
+      candidate: "The east gate is locked.",
+      kind: "plot_state" as const,
+    },
+    {
+      label: "could",
+      source: "Mira could trust Celia.",
+      candidate: "Mira trusts Celia.",
+      kind: "relationship_state" as const,
+    },
+  ])("rejects dropping $label modality", async ({ source, candidate, kind }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind,
+          content: candidate,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-modal"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-modal",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: source,
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("accepts a direct claim whose evidence has matching negative polarity", async () => {
     const candidate = {
       kind: "plot_state",

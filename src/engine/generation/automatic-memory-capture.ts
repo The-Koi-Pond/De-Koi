@@ -360,6 +360,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "A commitment requires direct first-person intent such as I promise or I will; refusal or inability is not a commitment.",
     "Preserve explicit one, single, this, or that scope; never broaden a specific observation into an unqualified class-wide statement.",
     "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
+    "Preserve uncertainty and modality; never turn may, might, could, or similar qualified wording into an asserted fact.",
     "Older reference messages may resolve names or antecedents but cannot prove a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
     "Each item may include referenceMessageIds in addition to sourceMessageIds.",
@@ -407,7 +408,20 @@ const NEGATIVE_POLARITY =
   /\b(?:cannot|never|no|not|without|distrust(?:s|ed|ing)?|won't|wouldn't|can't|couldn't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|shouldn't|mustn't)\b/i;
 
 function hasNegativePolarity(content: string): boolean {
-  return NEGATIVE_POLARITY.test(content);
+  return NEGATIVE_POLARITY.test(content.replaceAll("’", "'"));
+}
+
+const MATERIAL_MODALITY = [
+  /\b(?:may|might|could|perhaps|possibly)\b|\bnot\s+sure\s+(?:if|whether)\b/i,
+  /\b(?:can|cannot|can't)\b/i,
+  /\bmust\b/i,
+  /\bshould\b/i,
+  /\bwould\b/i,
+] as const;
+
+function materialModality(content: string): string {
+  const normalized = content.replaceAll("’", "'");
+  return MATERIAL_MODALITY.map((pattern, index) => (pattern.test(normalized) ? String(index) : "")).join("");
 }
 
 function claimSupportingEvidenceClauses(claim: string, evidence: string): string[] {
@@ -694,23 +708,22 @@ function orderedSurfaceMatchIndexes(
   return indexes;
 }
 
-function evidenceTokensMatchCandidateInOrder(
-  evidenceTokensForProposition: string[],
-  candidateTokens: string[],
-): boolean {
+function evidenceTokenMatchIndexes(evidenceTokensForProposition: string[], candidateTokens: string[]): number[] | null {
+  const indexes: number[] = [];
   let candidateIndex = 0;
   for (const evidenceTokenValue of evidenceTokensForProposition) {
     let matched = false;
     for (; candidateIndex < candidateTokens.length; candidateIndex += 1) {
       if (surfaceTokensMatch(evidenceTokenValue, candidateTokens[candidateIndex] ?? "")) {
+        indexes.push(candidateIndex);
         candidateIndex += 1;
         matched = true;
         break;
       }
     }
-    if (!matched) return false;
+    if (!matched) return null;
   }
-  return true;
+  return indexes;
 }
 
 function sameSurfaceTokenMultiset(left: string[], right: string[]): boolean {
@@ -724,15 +737,52 @@ function sameSurfaceTokenMultiset(left: string[], right: string[]): boolean {
   return true;
 }
 
-function propositionSupported(candidate: string, evidence: string, ignoredSpeakerTokens: Set<string>): boolean {
+function possessiveCopularNamingParaphrase(candidate: string, evidence: string): boolean {
+  return (
+    /(?:\}\}|[\p{L}\p{N}]+)['’]s\b[^.!?;]*\bis\s+named\b/iu.test(candidate) &&
+    /\b(?:my|your|his|her|our|their)\b/iu.test(evidence)
+  );
+}
+
+function unresolvedReferenceSupported(
+  candidateTokens: string[],
+  evidenceTokensForProposition: string[],
+  resolutionContextTokens: string[],
+): boolean {
+  const evidenceIndexes = evidenceTokenMatchIndexes(evidenceTokensForProposition, candidateTokens);
+  if (!evidenceIndexes) return false;
+  const matchedCandidateIndexes = new Set(evidenceIndexes);
+  const unresolvedCandidateTokens = candidateTokens.filter((_, index) => !matchedCandidateIndexes.has(index));
+  const availableContextTokens = [...resolutionContextTokens];
+  for (const evidenceTokenValue of evidenceTokensForProposition) {
+    const index = availableContextTokens.findIndex((token) => surfaceTokensMatch(token, evidenceTokenValue));
+    if (index >= 0) availableContextTokens.splice(index, 1);
+  }
+  return evidenceTokenMatchIndexes(unresolvedCandidateTokens, availableContextTokens) !== null;
+}
+
+function propositionSupported(
+  candidate: string,
+  evidence: string,
+  ignoredSpeakerTokens: Set<string>,
+  resolutionContext: string,
+): boolean {
   if (hasNegativePolarity(candidate) !== hasNegativePolarity(evidence)) return false;
+  if (materialModality(candidate) !== materialModality(evidence)) return false;
   const candidateTokens = propositionContentTokens(candidate, ignoredSpeakerTokens);
   const evidenceTokensForProposition = propositionContentTokens(evidence, ignoredSpeakerTokens);
   if (candidateTokens.length === 0) return true;
   if (/\bit\b/i.test(evidence)) {
-    return evidenceTokensMatchCandidateInOrder(evidenceTokensForProposition, candidateTokens);
+    return unresolvedReferenceSupported(
+      candidateTokens,
+      evidenceTokensForProposition,
+      propositionContentTokens(resolutionContext, ignoredSpeakerTokens),
+    );
   }
-  if (/\bnamed?\b/i.test(candidate) && sameSurfaceTokenMultiset(candidateTokens, evidenceTokensForProposition)) {
+  if (
+    possessiveCopularNamingParaphrase(candidate, evidence) &&
+    sameSurfaceTokenMultiset(candidateTokens, evidenceTokensForProposition)
+  ) {
     return true;
   }
   const matchIndexes = orderedSurfaceMatchIndexes(candidateTokens, evidenceTokensForProposition, candidate, evidence);
@@ -745,11 +795,13 @@ function evidencePolarityPreserved(
   content: string,
   evidenceMessages: CanonicalConsequenceSourceMessage[],
   ignoredSpeakerTokens: Set<string>,
+  referenceMessages: CanonicalConsequenceSourceMessage[],
 ): boolean {
+  const resolutionContext = [...evidenceMessages, ...referenceMessages].map((message) => message.content).join(" ");
   const evidencePropositionList = evidenceMessages.flatMap((message) => evidencePropositions(message.content));
   return evidencePropositions(content).every((candidateProposition) =>
     evidencePropositionList.some((evidenceProposition) =>
-      propositionSupported(candidateProposition, evidenceProposition, ignoredSpeakerTokens),
+      propositionSupported(candidateProposition, evidenceProposition, ignoredSpeakerTokens, resolutionContext),
     ),
   );
 }
@@ -1060,7 +1112,7 @@ export async function extractCanonicalMemoryConsequences(input: {
       !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
       !contentSupportedByEvidence(content, evidenceMessages) ||
       !contentSupportedByEvidence(content, [...evidenceMessages, ...referenceMessages]) ||
-      !evidencePolarityPreserved(content, evidenceMessages, knownSpeakerTokens(request)) ||
+      !evidencePolarityPreserved(content, evidenceMessages, knownSpeakerTokens(request), referenceMessages) ||
       !namedReportingClausesSupportedByEvidence(content, evidenceMessages, request) ||
       !evidenceSpecificityPreserved(content, evidenceMessages) ||
       (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
