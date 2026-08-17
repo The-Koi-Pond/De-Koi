@@ -1281,6 +1281,16 @@ describe("memory context clarity semantic fixtures", () => {
       source: "I trust your judgment about Pierrot.",
       candidate: "Agent Cobalt trusts Pierrot about judgment.",
     },
+    {
+      label: "swapped second-person object and topic roles",
+      source: "I spoke to you about Pierrot.",
+      candidate: "Agent Cobalt spoke about you to Pierrot.",
+    },
+    {
+      label: "swapped second-person possessive and topic roles",
+      source: "I argued with your guard about Pierrot.",
+      candidate: "Agent Cobalt argued about your guard with Pierrot.",
+    },
   ])("does not bind $label to the row speaker", async ({ source, candidate }) => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -1318,6 +1328,16 @@ describe("memory context clarity semantic fixtures", () => {
       label: "an unrelated second-person proposition",
       source: "I trust Pierrot. You can wait outside.",
       candidate: "Agent Cobalt trusts Pierrot.",
+    },
+    {
+      label: "the second-person object and topic roles",
+      source: "I spoke to you about Pierrot.",
+      candidate: "Agent Cobalt spoke to you about Pierrot.",
+    },
+    {
+      label: "the second-person possessive and topic roles",
+      source: "I argued with your guard about Pierrot.",
+      candidate: "Agent Cobalt argued with your guard about Pierrot.",
     },
   ])("accepts first-person evidence while preserving $label", async ({ source, candidate }) => {
     const result = await extractCanonicalMemoryConsequences({

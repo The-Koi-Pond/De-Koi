@@ -364,6 +364,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "Preserve each direct subject's identity; never replace one known participant with another.",
     "Bind first-person forms anywhere in a cited row to that row's named speaker; never bind second-person you to the speaker.",
     "Preserve unresolved second-person argument slots such as you or your; never replace them with another name or topic without explicit addressee evidence.",
+    "Preserve role prepositions around second-person slots; never swap who is addressed with what is discussed.",
     "Preserve reporting acts and their certainty; never replace claimed with confirmed or another different act.",
     "Older reference messages may resolve only a bare name or antecedent identity; they cannot prove descriptors, appositives, relative clauses, or a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
@@ -648,6 +649,30 @@ const FIRST_PERSON_REFERENCE_WORDS = new Set([
   "we",
 ]);
 const SECOND_PERSON_REFERENCE_WORDS = new Set(["you", "your", "yours", "yourself", "yourselves"]);
+const SECOND_PERSON_ROLE_PREPOSITIONS = new Set([
+  "about",
+  "against",
+  "among",
+  "around",
+  "at",
+  "between",
+  "by",
+  "for",
+  "from",
+  "into",
+  "near",
+  "of",
+  "on",
+  "onto",
+  "over",
+  "through",
+  "to",
+  "toward",
+  "towards",
+  "under",
+  "with",
+  "without",
+]);
 
 function propositionReportingFrame(value: string, ignoredSpeakerTokens: Set<string>): string | null {
   const words = value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -684,6 +709,7 @@ function propositionContentTokens(
     contentStart = 1;
     while (contentStart < words.length && ignoredSpeakerTokens.has(words[contentStart] ?? "")) contentStart += 1;
   }
+  const hasSecondPersonReference = words.slice(contentStart).some((token) => SECOND_PERSON_REFERENCE_WORDS.has(token));
   const resolvedSpeakerTokens = resolvedSpeakerLabel?.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const tokens: string[] = resolvedSpeakerTokens.length > 0 && words[0] === "please" ? [...resolvedSpeakerTokens] : [];
   for (const token of words.slice(contentStart)) {
@@ -693,6 +719,10 @@ function propositionContentTokens(
       continue;
     }
     if (SECOND_PERSON_REFERENCE_WORDS.has(token)) {
+      tokens.push(token);
+      continue;
+    }
+    if (hasSecondPersonReference && SECOND_PERSON_ROLE_PREPOSITIONS.has(token)) {
       tokens.push(token);
       continue;
     }
