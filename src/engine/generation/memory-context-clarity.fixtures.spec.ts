@@ -618,6 +618,125 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
   });
 
+  it.each([
+    {
+      label: "destroyed key from left-it evidence",
+      source: "I left it at the east gate.",
+      candidate: "The silver key was destroyed at the east gate.",
+    },
+    {
+      label: "exploded crown from kept-it evidence",
+      source: "I kept it near the east gate.",
+      candidate: "The brass crown exploded near the east gate.",
+    },
+  ])("rejects $label", async ({ source, candidate }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: candidate,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-event"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-event",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: source,
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects a claim that reverses material argument roles", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "scene_event",
+          content: "The guard moved the brass vault from the east gate to the silver key.",
+          confidence: 0.95,
+          evidence: "explicit_screen_event",
+          sourceMessageIds: ["assistant-move"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-move",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The guard moved the silver key from the east gate to the brass vault.",
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects replacing a material asked predicate with warned", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "Mira warned Celia about the east gate.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-mira"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-mira",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "Mira asked Celia about the east gate.",
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects replacing a material discussed predicate with prefers", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "preference",
+          content: "Celia prefers tea.",
+          confidence: 0.95,
+          evidence: "direct_user_assertion",
+          sourceMessageIds: ["user-celia"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "user-celia",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "I discussed tea.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Celia",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("accepts a direct claim whose evidence has matching negative polarity", async () => {
     const candidate = {
       kind: "plot_state",
