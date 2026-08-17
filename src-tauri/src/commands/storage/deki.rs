@@ -1380,6 +1380,7 @@ pub(crate) async fn deki_prompt(
 ) -> AppResult<Value> {
     let input: DekiPromptRequest = serde_json::from_value(body.clone())
         .map_err(|error| AppError::invalid_input(error.to_string()))?;
+    status::validate_runtime_owner(runtime_owner)?;
     let Some(connection_id) = input
         .connection_id
         .as_deref()

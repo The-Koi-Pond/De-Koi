@@ -3,7 +3,6 @@ use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::watch;
@@ -29,7 +28,7 @@ pub(super) struct DekiRuntimeGuard {
 pub(crate) enum DekiRuntimeOwner {
     Embedded,
     Authenticated(String),
-    Network(IpAddr),
+    UnauthenticatedRemote,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -138,6 +137,7 @@ fn runtime_is_active(scope: &DekiRuntimeScope) -> bool {
 }
 
 fn runtime_scope(owner: &DekiRuntimeOwner, session_id: &str) -> AppResult<DekiRuntimeScope> {
+    validate_runtime_owner(owner)?;
     let session_id = session_id.trim();
     if session_id.is_empty() || session_id.chars().count() > 256 {
         return Err(AppError::invalid_input(
@@ -148,6 +148,16 @@ fn runtime_scope(owner: &DekiRuntimeOwner, session_id: &str) -> AppResult<DekiRu
         owner: owner.clone(),
         session_id: session_id.to_string(),
     })
+}
+
+pub(super) fn validate_runtime_owner(owner: &DekiRuntimeOwner) -> AppResult<()> {
+    if matches!(owner, DekiRuntimeOwner::UnauthenticatedRemote) {
+        return Err(AppError::new(
+            "deki_workspace_remote_owner_unavailable",
+            "Deki remote workspace commands require De-Koi Basic Auth so prompt, status, and abort share an isolated owner.",
+        ));
+    }
+    Ok(())
 }
 
 pub(super) const DEKI_WORKSPACE_TOOLS: &[&str] = &[
@@ -354,6 +364,14 @@ mod tests {
 
         drop(first);
         drop(second);
+    }
+
+    #[test]
+    fn unauthenticated_remote_runtime_ownership_is_rejected() {
+        let error = begin_runtime(&DekiRuntimeOwner::UnauthenticatedRemote, "shared-session")
+            .expect_err("remote auth bypass cannot provide an isolated owner");
+
+        assert_eq!(error.code, "deki_workspace_remote_owner_unavailable");
     }
 
     #[tokio::test]

@@ -89,10 +89,12 @@ stable unless the implementation exposes a missing optional field.
   runtime state, status, and abort routing must share a scope made from the
   server-owned runtime owner plus the Deki session id. Embedded calls use the
   trusted app owner; HTTP security middleware attaches the verified Basic Auth
-  principal as an explicit server-owned identity before dispatch. Requests
-  admitted through an intentional auth bypass use the proxy-resolved client
-  network identity instead. Request JSON and the raw transport peer cannot
-  choose either scope. Keep
+  principal as an explicit server-owned identity before dispatch. Remote Deki
+  prompt, status, and abort requests admitted through an intentional auth
+  bypass must fail with an explicit owner-unavailable error because an address
+  is not a principal. Optional Authorization headers must not change that
+  rejected bypass scope. Request JSON and the raw transport peer cannot choose
+  the owner. Keep
   `approve`/`reject` as explicit Slice 3 not-implemented routes if the shared
   API remains callable.
 
