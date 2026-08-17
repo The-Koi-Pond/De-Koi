@@ -97,6 +97,7 @@ describe("automatic memory consequence extraction", () => {
     expect(prompt).toContain("Do not use third-person personal pronouns");
     expect(prompt).toContain("must be supported by cited source rows from that named speaker");
     expect(prompt).toContain("Preserve explicit one, single, this, or that scope");
+    expect(prompt).toContain("Preserve each proposition's positive or negative polarity");
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.content).toBe("Celia's cat is named Miso.");
   });

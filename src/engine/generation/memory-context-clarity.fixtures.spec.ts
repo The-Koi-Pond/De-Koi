@@ -261,6 +261,36 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
   });
 
+  it.each(["I didn't promise to wait at the east gate.", "I cannot promise to wait at the east gate."])(
+    "rejects a negative promise from a negated commitment act: %s",
+    async (sourceContent) => {
+      const result = await extractCanonicalMemoryConsequences({
+        llm: gateway([
+          {
+            kind: "promise",
+            content: "Shlo promised not to wait at the east gate.",
+            confidence: 0.95,
+            evidence: "explicit_promise",
+            sourceMessageIds: ["user-shlo"],
+          },
+        ]),
+        request: request("Shlo", [
+          {
+            id: "user-shlo",
+            chatId: "fixture-chat",
+            role: "user",
+            content: sourceContent,
+            characterId: null,
+            createdAt: timestamp,
+            speakerLabel: "Shlo",
+          },
+        ]),
+      });
+
+      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    },
+  );
+
   it("requires speaker-local support for an according-to frame", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -349,6 +379,86 @@ describe("memory context clarity semantic fixtures", () => {
     });
 
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects coordinated attribution claims whose proposition polarities are inverted", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "According to Shlo, the east gate is locked and the west gate is not open.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["user-shlo"],
+        },
+      ]),
+      request: request("Shlo", [
+        {
+          id: "user-shlo",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "The east gate is not locked and the west gate is open.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Shlo",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects a direct claim whose evidence has opposite polarity", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "The east gate is locked.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-gate"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-gate",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The east gate is not locked.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("accepts a direct claim whose evidence has matching negative polarity", async () => {
+    const candidate = {
+      kind: "plot_state",
+      content: "The east gate is not locked.",
+      confidence: 0.95,
+      evidence: "explicit_exchange",
+      sourceMessageIds: ["assistant-gate"],
+    };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([candidate]),
+      request: request("Celia", [
+        {
+          id: "assistant-gate",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The east gate is not locked.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
   });
 
   it("accepts an according-to frame supported by that speaker", async () => {
@@ -570,6 +680,21 @@ describe("memory context clarity semantic fixtures", () => {
       source: "A silver fish has one red fin.",
       candidate: "Silver fish generally have one red fin.",
     },
+    {
+      label: "heroes without morphology assumptions",
+      source: "A red hero has one silver bell.",
+      candidate: "Red heroes have one silver bell.",
+    },
+    {
+      label: "unlisted same-form moose",
+      source: "A silver moose has one red tag.",
+      candidate: "Silver moose generally have one red tag.",
+    },
+    {
+      label: "agreement-only unlisted same-form moose",
+      source: "Silver moose has one red tag.",
+      candidate: "Silver moose generally have one red tag.",
+    },
   ])("rejects $label singular-to-class morphology", async ({ source, candidate }) => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -721,6 +846,32 @@ describe("memory context clarity semantic fixtures", () => {
           chatId: "fixture-chat",
           role: "assistant",
           content: "The returned Machina has one brass crown.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
+  });
+
+  it("accepts an article-scoped candidate that preserves the same singular subject", async () => {
+    const candidate = {
+      kind: "plot_state",
+      content: "One red hero has one silver bell.",
+      confidence: 0.95,
+      evidence: "explicit_exchange",
+      sourceMessageIds: ["assistant-hero"],
+    };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([candidate]),
+      request: request("Celia", [
+        {
+          id: "assistant-hero",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "A red hero has one silver bell.",
           characterId: "pierrot",
           createdAt: timestamp,
           speakerLabel: "Pierrot",

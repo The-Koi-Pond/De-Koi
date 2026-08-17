@@ -358,6 +358,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "Replace context-dependent it, this, or that with the actual supported subject when the subject matters.",
     "Any reporting or commitment clause naming a speaker must be supported by cited source rows from that named speaker.",
     "Preserve explicit one, single, this, or that scope; never broaden a specific observation into an unqualified class-wide statement.",
+    "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
     "Older reference messages may resolve names or antecedents but cannot prove a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
     "Each item may include referenceMessageIds in addition to sourceMessageIds.",
@@ -409,15 +410,22 @@ function hasNegativePolarity(content: string): boolean {
 }
 
 function claimSupportingEvidenceClauses(claim: string, evidence: string): string[] {
-  const claimTokens = evidenceTokens(claim);
-  if (claimTokens.size === 0) return [];
-  const claimIsNegative = hasNegativePolarity(claim);
-  return evidenceClauses(evidence).filter((clause) => {
-    const evidenceTokenSet = evidenceTokens(clause);
-    return (
-      hasNegativePolarity(clause) === claimIsNegative && [...claimTokens].every((token) => evidenceTokenSet.has(token))
-    );
-  });
+  const evidencePropositionList = evidencePropositions(evidence);
+  const supportingPropositions = new Set<string>();
+  for (const claimProposition of evidencePropositions(claim)) {
+    const claimTokens = evidenceTokens(claimProposition);
+    if (claimTokens.size === 0) return [];
+    const matches = evidencePropositionList.filter((evidenceProposition) => {
+      const evidenceTokenSet = evidenceTokens(evidenceProposition);
+      return (
+        hasNegativePolarity(evidenceProposition) === hasNegativePolarity(claimProposition) &&
+        [...claimTokens].every((token) => evidenceTokenSet.has(token))
+      );
+    });
+    if (matches.length === 0) return [];
+    matches.forEach((match) => supportingPropositions.add(match));
+  }
+  return [...supportingPropositions];
 }
 
 function escapeRegExp(value: string): string {
@@ -433,7 +441,7 @@ const COMMITMENT_REPORTING_VERB =
 const COMMITMENT_ACT_EVIDENCE =
   /\b(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b|\bI(?:'ll|\s+(?:will|shall|am\s+going\s+to))\b/i;
 const NEGATED_EXPLICIT_COMMITMENT_ACT =
-  /\b(?:not|never)\s+(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b/i;
+  /\b(?:cannot|never|not|can't|couldn't|didn't|doesn't|don't|won't|wouldn't)\s+(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b/i;
 
 function hasCommitmentActEvidence(content: string): boolean {
   return COMMITMENT_ACT_EVIDENCE.test(content) && !NEGATED_EXPLICIT_COMMITMENT_ACT.test(content);
@@ -531,6 +539,44 @@ function evidenceClauses(content: string): string[] {
     .filter(Boolean);
 }
 
+function evidencePropositions(content: string): string[] {
+  return content
+    .split(/[.!?;:]+|\s+(?:and|or|but|while|whereas)\s+/i)
+    .map((proposition) => proposition.trim())
+    .filter(Boolean);
+}
+
+function polarityTopicTokens(value: string): Set<string> {
+  return new Set(
+    (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+      .map((token) => (token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token))
+      .filter((token) => token.length >= 3 && !EVIDENCE_STOP_WORDS.has(token)),
+  );
+}
+
+function propositionTopicsOverlap(candidate: string, evidence: string): boolean {
+  const candidateTokens = polarityTopicTokens(candidate);
+  const evidenceTokenSet = polarityTopicTokens(evidence);
+  const requiredOverlap = Math.min(2, candidateTokens.size, evidenceTokenSet.size);
+  if (requiredOverlap === 0) return false;
+  return [...candidateTokens].filter((token) => evidenceTokenSet.has(token)).length >= requiredOverlap;
+}
+
+function evidencePolarityPreserved(content: string, evidenceMessages: CanonicalConsequenceSourceMessage[]): boolean {
+  const evidencePropositionList = evidenceMessages.flatMap((message) => evidencePropositions(message.content));
+  return evidencePropositions(content).every((candidateProposition) => {
+    const topicalEvidence = evidencePropositionList.filter((evidenceProposition) =>
+      propositionTopicsOverlap(candidateProposition, evidenceProposition),
+    );
+    return (
+      topicalEvidence.length === 0 ||
+      topicalEvidence.some(
+        (evidenceProposition) => hasNegativePolarity(candidateProposition) === hasNegativePolarity(evidenceProposition),
+      )
+    );
+  });
+}
+
 function specificityComparisonTokens(content: string): Set<string> {
   const tokens = evidenceTokens(content);
   tokens.delete("one");
@@ -560,6 +606,12 @@ const IRREGULAR_PLURAL_TO_SINGULAR = new Map([
 ]);
 const SAME_FORM_PLURALS = new Set(["deer", "fish", "series", "sheep", "species"]);
 const PLURAL_AGREEMENT = new Set(["are", "do", "have", "were"]);
+const PLURAL_AGREEMENT_FOR_SINGULAR = new Map<string, string>([
+  ["does", "do"],
+  ["has", "have"],
+  ["is", "are"],
+  ["was", "were"],
+]);
 
 function candidateSingularForms(word: string): string[] {
   const irregular = IRREGULAR_PLURAL_TO_SINGULAR.get(word);
@@ -586,7 +638,15 @@ function broadensSingularEvidence(sourceClause: string, candidateClause: string)
     }),
   );
   const sourceWords = new Set(sourceWordList);
-  const candidateWords = candidateClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const candidateWords: string[] = candidateClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (
+    [...PLURAL_AGREEMENT_FOR_SINGULAR].some(
+      ([singular, plural]) =>
+        sourceWords.has(singular) && !candidateWords.includes(singular) && candidateWords.includes(plural),
+    )
+  ) {
+    return true;
+  }
   return candidateWords.some((word, index) => {
     if (
       SAME_FORM_PLURALS.has(word) &&
@@ -668,14 +728,17 @@ function specificityBindings(content: string): SpecificityBinding[] {
   for (const [index, match] of words.entries()) {
     const marker = match[0].toLowerCase();
     let kind: SpecificityBinding["kind"] | null = null;
-    if (marker === "one" || marker === "single") kind = "singular";
+    const followingWords = words.slice(index + 1, index + 6);
+    const articleIntroducesSingularSubject =
+      (marker === "a" || marker === "an" || marker === "the") &&
+      followingWords.some((wordMatch) => SINGULAR_AGREEMENT.has(wordMatch[0].toLowerCase()));
+    if (articleIntroducesSingularSubject || marker === "one" || marker === "single") kind = "singular";
     if (marker === "this") kind = "demonstrative";
     if (marker === "that" && !thatStartsClearFiniteClause(content, match.index + match[0].length)) {
       kind = "demonstrative";
     }
     if (!kind) continue;
-    const orderedTokens = words
-      .slice(index + 1, index + 6)
+    const orderedTokens = followingWords
       .map((wordMatch) => evidenceToken(wordMatch[0].toLowerCase()))
       .filter((token) => token.length >= 3 && token !== "one" && token !== "single" && !EVIDENCE_STOP_WORDS.has(token));
     bindings.push({ anchor: orderedTokens.at(-1) ?? null, kind, tokens: new Set(orderedTokens) });
@@ -804,6 +867,7 @@ export async function extractCanonicalMemoryConsequences(input: {
       !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
       !contentSupportedByEvidence(content, evidenceMessages) ||
       !contentSupportedByEvidence(content, [...evidenceMessages, ...referenceMessages]) ||
+      !evidencePolarityPreserved(content, evidenceMessages) ||
       !namedReportingClausesSupportedByEvidence(content, evidenceMessages, request) ||
       !evidenceSpecificityPreserved(content, evidenceMessages) ||
       (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
