@@ -8,6 +8,7 @@ use super::super::budget::truncate_to_chars;
 
 const DEKI_WEB_SEARCH_MAX_RESULTS: usize = 5;
 const DEKI_WEB_SEARCH_TIMEOUT_SECS: u64 = 12;
+const DEKI_WEB_SEARCH_MAX_BYTES: usize = 256 * 1024;
 const DEKI_WEB_PAGE_MAX_BYTES: usize = 768 * 1024;
 const DEKI_WEB_PAGE_MAX_CHARS: usize = 12 * 1024;
 
@@ -65,22 +66,33 @@ pub(in crate::storage_commands::deki) async fn search_deki_web(
         .clamp(1, DEKI_WEB_SEARCH_MAX_RESULTS);
     let effective_query = deki_web_effective_query(query, &grant.scope.allowed_domains);
     let url = deki_web_search_url(&effective_query)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(DEKI_WEB_SEARCH_TIMEOUT_SECS))
-        .user_agent("De-Koi Deki-senpai web research/1.0")
-        .redirect(reqwest::redirect::Policy::limited(4))
-        .build()
-        .map_err(|error| AppError::new("deki_web_search_client_failed", error.to_string()))?;
-    let html = client
+    let client = deki_web_search_client()?;
+    let response = client
         .get(url)
         .send()
         .await
-        .map_err(|error| AppError::new("deki_web_search_request_failed", error.to_string()))?
+        .map_err(|error| AppError::new("deki_web_search_request_failed", error.to_string()))?;
+    if response.status().is_redirection() {
+        return Err(AppError::new(
+            "deki_web_search_redirect_rejected",
+            "The web search provider redirected outside the approved request.",
+        ));
+    }
+    let response = response
         .error_for_status()
-        .map_err(|error| AppError::new("deki_web_search_status_failed", error.to_string()))?
-        .text()
-        .await
-        .map_err(|error| AppError::new("deki_web_search_body_failed", error.to_string()))?;
+        .map_err(|error| AppError::new("deki_web_search_status_failed", error.to_string()))?;
+    let (html, truncated) = read_deki_web_response_body(
+        response,
+        DEKI_WEB_SEARCH_MAX_BYTES,
+        "deki_web_search_body_failed",
+    )
+    .await?;
+    if truncated {
+        return Err(AppError::new(
+            "deki_web_search_body_too_large",
+            "The web search provider response exceeded the bounded response size.",
+        ));
+    }
     let results = deki_web_results_for_grant(
         deki_web_results_or_parse_error(&html, query, max_results)?,
         grant,
@@ -164,35 +176,66 @@ pub(in crate::storage_commands::deki) async fn read_deki_web_page(
     }))
 }
 
+fn deki_web_search_client() -> AppResult<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(DEKI_WEB_SEARCH_TIMEOUT_SECS))
+        .user_agent("De-Koi Deki-senpai web research/1.0")
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| AppError::new("deki_web_search_client_failed", error.to_string()))
+}
+
 async fn fetch_deki_web_page_body(
     client: &reqwest::Client,
     url: &reqwest::Url,
 ) -> AppResult<(String, bool)> {
-    let mut response = client
+    let response = client
         .get(url.clone())
         .send()
         .await
         .map_err(|error| AppError::new("deki_web_page_request_failed", error.to_string()))?
         .error_for_status()
         .map_err(|error| AppError::new("deki_web_page_status_failed", error.to_string()))?;
-    let mut bytes = Vec::with_capacity(DEKI_WEB_PAGE_MAX_BYTES.min(64 * 1024));
+    read_deki_web_response_body(
+        response,
+        DEKI_WEB_PAGE_MAX_BYTES,
+        "deki_web_page_body_failed",
+    )
+    .await
+}
+
+async fn read_deki_web_response_body(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+    body_error_code: &str,
+) -> AppResult<(String, bool)> {
+    let mut bytes = Vec::with_capacity(max_bytes.min(64 * 1024));
     let mut truncated = false;
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|error| AppError::new("deki_web_page_body_failed", error.to_string()))?
+        .map_err(|error| AppError::new(body_error_code, error.to_string()))?
     {
-        let remaining = DEKI_WEB_PAGE_MAX_BYTES.saturating_sub(bytes.len());
-        if chunk.len() > remaining {
-            bytes.extend_from_slice(&chunk[..remaining]);
+        if append_deki_web_body_chunk(&mut bytes, &chunk, max_bytes) {
             truncated = true;
             break;
         }
-        bytes.extend_from_slice(&chunk);
     }
     let body = String::from_utf8_lossy(&bytes).to_string();
     Ok((body, truncated))
 }
+
+fn append_deki_web_body_chunk(bytes: &mut Vec<u8>, chunk: &[u8], max_bytes: usize) -> bool {
+    let remaining = max_bytes.saturating_sub(bytes.len());
+    if chunk.len() > remaining {
+        bytes.extend_from_slice(&chunk[..remaining]);
+        true
+    } else {
+        bytes.extend_from_slice(chunk);
+        false
+    }
+}
+
 async fn deki_web_page_client(url: &reqwest::Url) -> AppResult<reqwest::Client> {
     let host = url.host_str().ok_or_else(|| {
         AppError::new(
@@ -755,6 +798,51 @@ fn strip_deki_html(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn web_search_client_does_not_follow_redirects() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("redirect test listener should bind");
+        let address = listener
+            .local_addr()
+            .expect("redirect test listener should have an address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("redirect test request should connect");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request).await;
+            stream
+                .write_all(
+                    b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("redirect test response should write");
+        });
+
+        let response = deki_web_search_client()
+            .expect("search client should build")
+            .get(format!("http://{address}/search"))
+            .send()
+            .await
+            .expect("the initial redirect response should be returned");
+        server.await.expect("redirect test server should finish");
+
+        assert!(response.status().is_redirection());
+    }
+
+    #[test]
+    fn web_body_chunk_cap_stops_at_the_byte_boundary() {
+        let mut bytes = Vec::new();
+
+        assert!(!append_deki_web_body_chunk(&mut bytes, b"abc", 5));
+        assert!(append_deki_web_body_chunk(&mut bytes, b"def", 5));
+        assert_eq!(bytes, b"abcde");
+    }
 
     #[test]
     fn web_page_addresses_must_resolve_to_public_networks() {

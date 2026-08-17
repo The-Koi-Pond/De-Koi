@@ -961,11 +961,62 @@ fn normalize_deki_chat_access_window(window: Option<&Value>) -> AppResult<Value>
     })?;
     let message_count = match window.get("messageCount") {
         Some(Value::Null) => DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT,
-        Some(value) => value
+        Some(Value::Number(value)) => value
             .as_u64()
-            .map(|value| value.clamp(1, DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT))
-            .unwrap_or(50),
+            .ok_or_else(|| {
+                AppError::new(
+                    "deki_action_invalid",
+                    "Deki-senpai chat access messageCount must be a positive integer.",
+                )
+            })?
+            .clamp(1, DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT),
+        Some(_) => {
+            return Err(AppError::new(
+                "deki_action_invalid",
+                "Deki-senpai chat access messageCount must be an integer or null.",
+            ));
+        }
         None => 50,
     };
     Ok(json!({ "messageCount": message_count }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_access_window_rejects_explicit_malformed_counts() {
+        for message_count in [
+            json!(-1),
+            json!(1.5),
+            json!("50"),
+            json!(true),
+            json!({ "count": 50 }),
+        ] {
+            let window = json!({ "messageCount": message_count });
+            let error = normalize_deki_chat_access_window(Some(&window))
+                .expect_err("malformed explicit counts must not receive a default");
+
+            assert_eq!(error.code, "deki_action_invalid");
+        }
+    }
+
+    #[test]
+    fn chat_access_window_keeps_documented_default_and_bounded_all_semantics() {
+        assert_eq!(
+            normalize_deki_chat_access_window(None).expect("omitted windows should default"),
+            json!({ "messageCount": 50 })
+        );
+        assert_eq!(
+            normalize_deki_chat_access_window(Some(&json!({ "messageCount": null })))
+                .expect("null requests the bounded maximum"),
+            json!({ "messageCount": DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT })
+        );
+        assert_eq!(
+            normalize_deki_chat_access_window(Some(&json!({ "messageCount": 25 })))
+                .expect("valid counts should remain exact"),
+            json!({ "messageCount": 25 })
+        );
+    }
 }

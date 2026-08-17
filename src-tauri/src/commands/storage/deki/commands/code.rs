@@ -90,19 +90,29 @@ pub(super) enum DekiCodeCommand {
 }
 
 pub(super) fn parse_deki_code_command(args: Value) -> AppResult<DekiCodeCommand> {
-    let object = args.as_object().cloned().unwrap_or_default();
-    let has_query = object
-        .get("query")
-        .or_else(|| object.get("pattern"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_some();
-    if has_query {
-        super::parse_command_args("deki_code", Value::Object(object)).map(DekiCodeCommand::Search)
-    } else {
-        super::parse_command_args("deki_code", Value::Object(object)).map(DekiCodeCommand::Read)
+    let object = args
+        .as_object()
+        .cloned()
+        .ok_or_else(|| AppError::invalid_input("deki_code arguments must be a JSON object"))?;
+    let search_discriminator = match (object.get("query"), object.get("pattern")) {
+        (Some(_), Some(_)) => {
+            return Err(AppError::invalid_input(
+                "deki_code accepts query or pattern, not both",
+            ));
+        }
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    };
+    if let Some(value) = search_discriminator {
+        value
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| AppError::invalid_input("deki_code query must be a non-empty string"))?;
+        return super::parse_command_args("deki_code", Value::Object(object))
+            .map(DekiCodeCommand::Search);
     }
+    super::parse_command_args("deki_code", Value::Object(object)).map(DekiCodeCommand::Read)
 }
 
 pub(super) fn read_repo_file(args: ReadRepoFileArgs) -> AppResult<Value> {
@@ -138,13 +148,14 @@ pub(super) fn list_repo_path(args: ListRepoPathArgs) -> AppResult<Value> {
         .limit
         .unwrap_or(LIST_DEFAULT_LIMIT)
         .clamp(1, LIST_MAX_LIMIT);
+    let scan_limit = limit.saturating_add(1);
     let mut entries = fs::read_dir(&target)?
         .filter_map(Result::ok)
         .collect::<Vec<_>>();
     entries.sort_by_key(|entry| entry.path());
     let mut output = Vec::new();
     for entry in entries {
-        if output.len() >= limit {
+        if output.len() >= scan_limit {
             break;
         }
         let file_type = match entry.file_type() {
@@ -178,7 +189,7 @@ pub(super) fn list_repo_path(args: ListRepoPathArgs) -> AppResult<Value> {
             "bytes": bytes,
         }));
     }
-    let truncated = output.len() >= limit;
+    let (output, truncated) = finish_limited_results(output, limit);
     Ok(json!({
         "path": display_path,
         "entries": output,
@@ -196,10 +207,11 @@ pub(super) fn find_repo_paths(args: FindRepoPathArgs) -> AppResult<Value> {
         .max_results
         .unwrap_or(FIND_DEFAULT_LIMIT)
         .clamp(1, FIND_MAX_LIMIT);
+    let scan_limit = max_results.saturating_add(1);
     let (root, start, display_path) = resolve_runtime_repo_path(args.path.as_deref())?;
     let mut results = Vec::new();
-    find_repo_paths_inner(&root, &start, &query, max_results, &mut results)?;
-    let truncated = results.len() >= max_results;
+    find_repo_paths_inner(&root, &start, &query, scan_limit, &mut results)?;
+    let (results, truncated) = finish_limited_results(results, max_results);
     Ok(json!({
         "query": query,
         "path": display_path,
@@ -214,6 +226,7 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
         return Err(AppError::invalid_input("Search query is required"));
     }
     let max_results = args.max_results.unwrap_or(32).clamp(1, 80);
+    let scan_limit = max_results.saturating_add(1);
     let context_lines = args
         .context_lines
         .unwrap_or(0)
@@ -242,7 +255,7 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
             &root,
             &start,
             &query_lower,
-            max_results,
+            scan_limit,
             context_lines,
             &mut searched_files,
             &mut results,
@@ -252,19 +265,20 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
             &root,
             &start,
             &query_lower,
-            max_results,
+            scan_limit,
             context_lines,
             &mut searched_files,
             &mut results,
         )?;
     }
+    let (results, truncated) = finish_limited_results(results, max_results);
 
     Ok(json!({
         "query": query,
         "path": display_root,
         "searchedFiles": searched_files,
         "contextLines": context_lines,
-        "truncated": results.len() >= max_results,
+        "truncated": truncated,
         "results": results,
     }))
 }
@@ -524,6 +538,12 @@ fn find_repo_paths_inner(
     Ok(())
 }
 
+fn finish_limited_results(mut results: Vec<Value>, limit: usize) -> (Vec<Value>, bool) {
+    let truncated = results.len() > limit;
+    results.truncate(limit);
+    (results, truncated)
+}
+
 fn display_child_path(parent_display: &str, child: &Path) -> String {
     let child_name = child
         .file_name()
@@ -632,6 +652,20 @@ mod tests {
         assert_eq!(context[0], json!({ "line": 2, "text": "one" }));
         assert_eq!(context[1], json!({ "line": 3, "text": "match" }));
         assert_eq!(context[2], json!({ "line": 4, "text": "three" }));
+    }
+
+    #[test]
+    fn exact_limit_results_are_not_truncated_until_one_more_is_observed() {
+        let exact = vec![json!("one"), json!("two")];
+        let overflow = vec![json!("one"), json!("two"), json!("three")];
+
+        let (exact, exact_truncated) = finish_limited_results(exact, 2);
+        let (overflow, overflow_truncated) = finish_limited_results(overflow, 2);
+
+        assert_eq!(exact, vec![json!("one"), json!("two")]);
+        assert!(!exact_truncated);
+        assert_eq!(overflow, vec![json!("one"), json!("two")]);
+        assert!(overflow_truncated);
     }
 
     #[test]

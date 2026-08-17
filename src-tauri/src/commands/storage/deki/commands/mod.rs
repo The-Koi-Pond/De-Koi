@@ -350,6 +350,22 @@ mod tests {
     }
 
     #[test]
+    fn deki_code_command_rejects_malformed_search_discriminators() {
+        for args in [
+            json!({ "query": 123, "path": "src/app/App.tsx" }),
+            json!({ "query": "   ", "path": "src/app/App.tsx" }),
+            json!({ "pattern": false, "path": "src/app/App.tsx" }),
+        ] {
+            let error = match code::parse_deki_code_command(args) {
+                Err(error) => error,
+                Ok(_) => panic!("present-but-invalid search fields must fail closed"),
+            };
+
+            assert_eq!(error.code, "invalid_input");
+        }
+    }
+
+    #[test]
     fn json_command_guide_documents_repository_argument_contracts() {
         assert!(JSON_COMMAND_GUIDE.contains(r#"read: {"path":"relative/file"}"#));
         assert!(JSON_COMMAND_GUIDE.contains(r#"grep: {"query":"text""#));
