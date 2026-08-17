@@ -362,7 +362,8 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
     "Preserve conditions, tense, uncertainty, and modality; never turn if, will, may, might, could, probably, seems, or similar qualified wording into an asserted fact.",
     "Preserve each direct subject's identity; never replace one known participant with another.",
-    "Older reference messages may resolve names or antecedents but cannot prove a new claim.",
+    "Preserve reporting acts and their certainty; never replace claimed with confirmed or another different act.",
+    "Older reference messages may resolve only a bare name or antecedent identity; they cannot prove descriptors, appositives, relative clauses, or a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
     "Each item may include referenceMessageIds in addition to sourceMessageIds.",
     "Allowed kinds: fact, preference, promise, relationship_state, scene_event, plot_state, contradiction.",
@@ -627,15 +628,18 @@ const LEADING_REPORTING_FRAME_WORDS = new Set([
   "vows",
 ]);
 
-function propositionHasReportingFrame(value: string, ignoredSpeakerTokens: Set<string>): boolean {
+function propositionReportingFrame(value: string, ignoredSpeakerTokens: Set<string>): string | null {
   const words = value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const reportingIndex = words.findIndex((word) => LEADING_REPORTING_FRAME_WORDS.has(word));
-  return (
+  if (
     reportingIndex > 0 &&
     words
       .slice(0, reportingIndex)
       .every((word) => ignoredSpeakerTokens.has(word) || word === "and" || word === "has" || word === "have")
-  );
+  ) {
+    return words[reportingIndex] ?? null;
+  }
+  return null;
 }
 
 function propositionContentTokens(
@@ -646,10 +650,11 @@ function propositionContentTokens(
   const tokenizable = value
     .toLowerCase()
     .replace(/\b(?:aren|couldn|didn|doesn|don|hadn|hasn|haven|isn|mustn|shouldn|wasn|weren|won|wouldn)['’]t\b/gu, " ");
-  const words = tokenizable.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const words: string[] = tokenizable.match(/[\p{L}\p{N}]+/gu) ?? [];
   let contentStart = 0;
-  if (propositionHasReportingFrame(value, ignoredSpeakerTokens)) {
-    contentStart = words.findIndex((word) => LEADING_REPORTING_FRAME_WORDS.has(word)) + 1;
+  const reportingFrame = propositionReportingFrame(value, ignoredSpeakerTokens);
+  if (reportingFrame !== null) {
+    contentStart = words.indexOf(reportingFrame) + 1;
   } else if (words[0] === "according" && words[1] === "to") {
     contentStart = 2;
     while (contentStart < words.length && ignoredSpeakerTokens.has(words[contentStart] ?? "")) contentStart += 1;
@@ -782,12 +787,24 @@ function unresolvedReferenceSupported(
   evidenceTokensForProposition: string[],
   resolutionContext: string,
 ): boolean {
-  if (/\b(?:that|which|who)\b/i.test(candidate)) return false;
+  if (/[,;:\u2013\u2014]|\b(?:that|which|who)\b/i.test(candidate)) return false;
   const evidenceIndexes = evidenceTokenMatchIndexes(evidenceTokensForProposition, candidateTokens);
   if (!evidenceIndexes) return false;
   const matchedCandidateIndexes = new Set(evidenceIndexes);
   const unresolvedCandidateTokens = candidateTokens.filter((_, index) => !matchedCandidateIndexes.has(index));
   if (unresolvedCandidateTokens.length === 0) return false;
+  if (
+    unresolvedCandidateTokens.length > 4 ||
+    unresolvedCandidateTokens.some(
+      (token) =>
+        (token.length > 4 && /(?:ed|ing|ly)$/.test(token)) ||
+        /^(?:been|broken|done|found|gone|known|lost|seen|stolen|taken|torn|written|yesterday|today|tonight|tomorrow)$/.test(
+          token,
+        ),
+    )
+  ) {
+    return false;
+  }
   const resolutionWords = resolutionContext.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   for (let start = 0; start <= resolutionWords.length - unresolvedCandidateTokens.length; start += 1) {
     if (
@@ -844,11 +861,9 @@ function propositionSupported(
 ): boolean {
   if (hasNegativePolarity(candidate) !== hasNegativePolarity(evidence)) return false;
   if (materialModality(candidate) !== materialModality(evidence)) return false;
-  if (
-    /^\s*(?:if|unless|when|provided|assuming)\b/i.test(candidate) !==
-    /^\s*(?:if|unless|when|provided|assuming)\b/i.test(evidence)
-  )
-    return false;
+  const candidateConditions = candidate.toLowerCase().match(/\b(?:if|unless|when|provided|assuming)\b/g) ?? [];
+  const evidenceConditions = evidence.toLowerCase().match(/\b(?:if|unless|when|provided|assuming)\b/g) ?? [];
+  if (candidateConditions.join("\u0000") !== evidenceConditions.join("\u0000")) return false;
   const candidateCopula = /\b(?:was|were)\b/i.test(candidate)
     ? "past"
     : /\b(?:am|is|are)\b/i.test(candidate)
@@ -860,13 +875,15 @@ function propositionSupported(
       ? "present"
       : "";
   if (candidateCopula !== evidenceCopula) return false;
-  const candidateReportingFrame = propositionHasReportingFrame(candidate, ignoredSpeakerTokens);
+  const candidateReportingAct = propositionReportingFrame(candidate, ignoredSpeakerTokens);
+  const evidenceReportingAct = propositionReportingFrame(evidence, ignoredSpeakerTokens);
+  if (evidenceReportingAct !== null && evidenceReportingAct !== candidateReportingAct) return false;
   const namingParaphrase = possessiveCopularNamingParaphrase(candidate, evidence);
   const candidateTokens = propositionContentTokens(candidate, ignoredSpeakerTokens);
   const evidenceTokensForProposition = propositionContentTokens(
     evidence,
     ignoredSpeakerTokens,
-    candidateReportingFrame ? undefined : evidenceSpeakerLabel,
+    candidateReportingAct !== null ? undefined : evidenceSpeakerLabel,
   );
   if (namingParaphrase) {
     const speakerTokens = evidenceSpeakerLabel.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];

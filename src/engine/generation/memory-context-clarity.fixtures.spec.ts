@@ -1022,6 +1022,22 @@ describe("memory context clarity semantic fixtures", () => {
       role: "assistant" as const,
       speakerLabel: "Mira",
     },
+    {
+      label: "a trailing source condition",
+      source: "East Gate is locked if so.",
+      candidate: "East Gate is locked.",
+      kind: "plot_state" as const,
+      role: "assistant" as const,
+      speakerLabel: "Mira",
+    },
+    {
+      label: "a changed reporting act",
+      source: "Mira claimed East Gate is locked.",
+      candidate: "Mira confirmed East Gate is locked.",
+      kind: "plot_state" as const,
+      role: "assistant" as const,
+      speakerLabel: "Mira",
+    },
   ])("rejects $label", async ({ source, candidate, kind, role, speakerLabel }) => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -1047,6 +1063,34 @@ describe("memory context clarity semantic fixtures", () => {
     });
 
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("accepts an unchanged reporting act and trailing condition", async () => {
+    const content = "Mira claimed East Gate is locked if so.";
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-claim"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-claim",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content,
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([content]);
   });
 
   it("does not import a referenced predicate into an unresolved antecedent", async () => {
@@ -1089,6 +1133,91 @@ describe("memory context clarity semantic fixtures", () => {
     });
 
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("does not import a referenced reduced relative into an unresolved antecedent", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "Mira kept the brass crown, stolen yesterday, near the east gate.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-event"],
+          referenceMessageIds: ["assistant-reference"],
+        },
+      ]),
+      request: request(
+        "Celia",
+        [
+          {
+            id: "assistant-event",
+            chatId: "fixture-chat",
+            role: "assistant",
+            content: "I kept it near the east gate.",
+            characterId: "mira",
+            createdAt: timestamp,
+            speakerLabel: "Mira",
+          },
+        ],
+        [
+          {
+            id: "assistant-reference",
+            chatId: "fixture-chat",
+            role: "assistant",
+            content: "Brass crown stolen yesterday.",
+            characterId: "mira",
+            createdAt: timestamp,
+            speakerLabel: "Mira",
+          },
+        ],
+      ),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("accepts a bare antecedent identity resolved from reference context", async () => {
+    const content = "Mira kept the brass crown near the east gate.";
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-event"],
+          referenceMessageIds: ["assistant-reference"],
+        },
+      ]),
+      request: request(
+        "Celia",
+        [
+          {
+            id: "assistant-event",
+            chatId: "fixture-chat",
+            role: "assistant",
+            content: "I kept it near the east gate.",
+            characterId: "mira",
+            createdAt: timestamp,
+            speakerLabel: "Mira",
+          },
+        ],
+        [
+          {
+            id: "assistant-reference",
+            chatId: "fixture-chat",
+            role: "assistant",
+            content: "The brass crown was stolen yesterday.",
+            characterId: "mira",
+            createdAt: timestamp,
+            speakerLabel: "Mira",
+          },
+        ],
+      ),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([content]);
   });
 
   it("accepts a direct claim whose evidence has matching negative polarity", async () => {
