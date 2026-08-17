@@ -360,7 +360,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "A commitment requires direct first-person intent such as I promise or I will; refusal or inability is not a commitment.",
     "Preserve explicit one, single, this, or that scope; never broaden a specific observation into an unqualified class-wide statement.",
     "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
-    "Preserve conditions, tense, uncertainty, and modality; never turn if, will, may, might, could, probably, seems, or similar qualified wording into an asserted fact.",
+    "Preserve conditions, tense, uncertainty, and modality, including which clause is conditional; never turn if, will, may, might, could, probably, seems, or similar qualified wording into an asserted fact.",
     "Preserve each direct subject's identity; never replace one known participant with another.",
     "Preserve reporting acts and their certainty; never replace claimed with confirmed or another different act.",
     "Older reference messages may resolve only a bare name or antecedent identity; they cannot prove descriptors, appositives, relative clauses, or a new claim.",
@@ -852,6 +852,32 @@ function directCommitmentEquivalent(
   );
 }
 
+const CONDITION_MARKERS = new Set(["if", "unless", "when", "provided", "assuming"]);
+
+function conditionBindings(value: string, ignoredSpeakerTokens: Set<string>): string[] {
+  const words = value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const bindings: string[] = [];
+  let materialTokenCount = 0;
+  for (const word of words) {
+    if (CONDITION_MARKERS.has(word)) {
+      bindings.push(`${word}:${materialTokenCount}`);
+      continue;
+    }
+    if (
+      word.length < 3 ||
+      word === "one" ||
+      word === "single" ||
+      ignoredSpeakerTokens.has(word) ||
+      EVIDENCE_STOP_WORDS.has(word) ||
+      PROPOSITION_FILLER_WORDS.has(word)
+    ) {
+      continue;
+    }
+    materialTokenCount += 1;
+  }
+  return bindings;
+}
+
 function propositionSupported(
   candidate: string,
   evidence: string,
@@ -861,8 +887,8 @@ function propositionSupported(
 ): boolean {
   if (hasNegativePolarity(candidate) !== hasNegativePolarity(evidence)) return false;
   if (materialModality(candidate) !== materialModality(evidence)) return false;
-  const candidateConditions = candidate.toLowerCase().match(/\b(?:if|unless|when|provided|assuming)\b/g) ?? [];
-  const evidenceConditions = evidence.toLowerCase().match(/\b(?:if|unless|when|provided|assuming)\b/g) ?? [];
+  const candidateConditions = conditionBindings(candidate, ignoredSpeakerTokens);
+  const evidenceConditions = conditionBindings(evidence, ignoredSpeakerTokens);
   if (candidateConditions.join("\u0000") !== evidenceConditions.join("\u0000")) return false;
   const candidateCopula = /\b(?:was|were)\b/i.test(candidate)
     ? "past"

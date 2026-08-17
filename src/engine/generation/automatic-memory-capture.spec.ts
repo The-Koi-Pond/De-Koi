@@ -99,6 +99,7 @@ describe("automatic memory consequence extraction", () => {
     expect(prompt).toContain("Preserve explicit one, single, this, or that scope");
     expect(prompt).toContain("Preserve each proposition's positive or negative polarity");
     expect(prompt).toContain("Preserve conditions, tense, uncertainty, and modality");
+    expect(prompt).toContain("which clause is conditional");
     expect(prompt).toContain("Preserve each direct subject's identity");
     expect(prompt).toContain("Preserve reporting acts and their certainty");
     expect(prompt).toContain("only a bare name or antecedent identity");

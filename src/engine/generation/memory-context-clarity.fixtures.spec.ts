@@ -1038,6 +1038,14 @@ describe("memory context clarity semantic fixtures", () => {
       role: "assistant" as const,
       speakerLabel: "Mira",
     },
+    {
+      label: "a reversed conditional implication",
+      source: "The alarm sounds if East Gate is locked.",
+      candidate: "If the alarm sounds, East Gate is locked.",
+      kind: "plot_state" as const,
+      role: "assistant" as const,
+      speakerLabel: "Mira",
+    },
   ])("rejects $label", async ({ source, candidate, kind, role, speakerLabel }) => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -1080,6 +1088,34 @@ describe("memory context clarity semantic fixtures", () => {
       request: request("Celia", [
         {
           id: "assistant-claim",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content,
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([content]);
+  });
+
+  it("accepts an unchanged conditional implication order", async () => {
+    const content = "The alarm sounds if East Gate is locked.";
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-alarm"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-alarm",
           chatId: "fixture-chat",
           role: "assistant",
           content,
