@@ -361,6 +361,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "Preserve explicit one, single, this, or that scope; never broaden a specific observation into an unqualified class-wide statement.",
     "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
     "Preserve conditions, tense, uncertainty, and modality; never turn if, will, may, might, could, probably, seems, or similar qualified wording into an asserted fact.",
+    "Preserve each direct subject's identity; never replace one known participant with another.",
     "Older reference messages may resolve names or antecedents but cannot prove a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
     "Each item may include referenceMessageIds in addition to sourceMessageIds.",
@@ -626,13 +627,45 @@ const LEADING_REPORTING_FRAME_WORDS = new Set([
   "vows",
 ]);
 
-function propositionContentTokens(value: string, ignoredSpeakerTokens: Set<string>): string[] {
-  const tokens: string[] = [];
-  let skippedLeadingSpeaker = false;
+function propositionHasReportingFrame(value: string, ignoredSpeakerTokens: Set<string>): boolean {
+  const words = value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const reportingIndex = words.findIndex((word) => LEADING_REPORTING_FRAME_WORDS.has(word));
+  return (
+    reportingIndex > 0 &&
+    words
+      .slice(0, reportingIndex)
+      .every((word) => ignoredSpeakerTokens.has(word) || word === "and" || word === "has" || word === "have")
+  );
+}
+
+function propositionContentTokens(
+  value: string,
+  ignoredSpeakerTokens: Set<string>,
+  resolvedSpeakerLabel?: string,
+): string[] {
   const tokenizable = value
     .toLowerCase()
     .replace(/\b(?:aren|couldn|didn|doesn|don|hadn|hasn|haven|isn|mustn|shouldn|wasn|weren|won|wouldn)['’]t\b/gu, " ");
-  for (const token of tokenizable.match(/[\p{L}\p{N}]+/gu) ?? []) {
+  const words = tokenizable.match(/[\p{L}\p{N}]+/gu) ?? [];
+  let contentStart = 0;
+  if (propositionHasReportingFrame(value, ignoredSpeakerTokens)) {
+    contentStart = words.findIndex((word) => LEADING_REPORTING_FRAME_WORDS.has(word)) + 1;
+  } else if (words[0] === "according" && words[1] === "to") {
+    contentStart = 2;
+    while (contentStart < words.length && ignoredSpeakerTokens.has(words[contentStart] ?? "")) contentStart += 1;
+  } else if (words[0] === "per") {
+    contentStart = 1;
+    while (contentStart < words.length && ignoredSpeakerTokens.has(words[contentStart] ?? "")) contentStart += 1;
+  }
+  const tokens: string[] =
+    resolvedSpeakerLabel && /^\s*(?:I|my|we|our|please)\b/i.test(value)
+      ? (resolvedSpeakerLabel.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+      : [];
+  for (const token of words.slice(contentStart)) {
+    if (ignoredSpeakerTokens.has(token)) {
+      tokens.push(token);
+      continue;
+    }
     if (
       token.length < 3 ||
       token === "one" ||
@@ -642,11 +675,6 @@ function propositionContentTokens(value: string, ignoredSpeakerTokens: Set<strin
     ) {
       continue;
     }
-    if (tokens.length === 0 && ignoredSpeakerTokens.has(token)) {
-      skippedLeadingSpeaker = true;
-      continue;
-    }
-    if (tokens.length === 0 && skippedLeadingSpeaker && LEADING_REPORTING_FRAME_WORDS.has(token)) continue;
     tokens.push(token);
   }
   return tokens;
@@ -668,6 +696,9 @@ function surfaceForms(token: string): Set<string> {
 }
 
 function surfaceTokensMatch(left: string, right: string): boolean {
+  const leftPast = left === "kept" || (left.length > 4 && left.endsWith("ed"));
+  const rightPast = right === "kept" || (right.length > 4 && right.endsWith("ed"));
+  if (leftPast !== rightPast) return false;
   const rightForms = surfaceForms(right);
   return [...surfaceForms(left)].some((form) => rightForms.has(form));
 }
@@ -690,9 +721,9 @@ function orderedSurfaceMatchIndexes(
       const evidenceTokenValue = evidenceTokensForProposition[evidenceIndex] ?? "";
       const controlledPreferenceMatch = preferenceRequest && candidateIndex === 0 && /^keep/.test(evidenceTokenValue);
       const controlledNegativeMatch =
-        candidateIndex === 0 &&
         hasNegativePolarity(candidate) &&
-        evidenceToken(candidateToken) === evidenceToken(evidenceTokenValue);
+        ((/^trust/.test(candidateToken) && /^distrust/.test(evidenceTokenValue)) ||
+          (/^distrust/.test(candidateToken) && /^trust/.test(evidenceTokenValue)));
       if (
         surfaceTokensMatch(candidateToken, evidenceTokenValue) ||
         controlledPreferenceMatch ||
@@ -746,10 +777,12 @@ function possessiveCopularNamingParaphrase(candidate: string, evidence: string):
 }
 
 function unresolvedReferenceSupported(
+  candidate: string,
   candidateTokens: string[],
   evidenceTokensForProposition: string[],
   resolutionContext: string,
 ): boolean {
+  if (/\b(?:that|which|who)\b/i.test(candidate)) return false;
   const evidenceIndexes = evidenceTokenMatchIndexes(evidenceTokensForProposition, candidateTokens);
   if (!evidenceIndexes) return false;
   const matchedCandidateIndexes = new Set(evidenceIndexes);
@@ -773,10 +806,11 @@ function preferenceRequestEquivalent(
   evidenceTokensForProposition: string[],
   evidence: string,
 ): boolean {
-  if (!/^prefer/.test(candidateTokens[0] ?? "") || !/\bplease\b/i.test(evidence)) return false;
+  const preferenceIndex = candidateTokens.findIndex((token) => /^prefer/.test(token));
+  if (preferenceIndex < 0 || !/\bplease\b/i.test(evidence)) return false;
   const normalizedCandidate = candidateTokens
-    .filter((token, index) => index === 0 || token !== "kept")
-    .map((token, index) => (index === 0 ? "keep" : token));
+    .filter((token, index) => index <= preferenceIndex || token !== "kept")
+    .map((token, index) => (index === preferenceIndex ? "keep" : token));
   return (
     normalizedCandidate.length === evidenceTokensForProposition.length &&
     normalizedCandidate.every((token, index) => surfaceTokensMatch(token, evidenceTokensForProposition[index] ?? ""))
@@ -806,24 +840,50 @@ function propositionSupported(
   evidence: string,
   ignoredSpeakerTokens: Set<string>,
   resolutionContext: string,
+  evidenceSpeakerLabel: string,
 ): boolean {
   if (hasNegativePolarity(candidate) !== hasNegativePolarity(evidence)) return false;
   if (materialModality(candidate) !== materialModality(evidence)) return false;
+  if (
+    /^\s*(?:if|unless|when|provided|assuming)\b/i.test(candidate) !==
+    /^\s*(?:if|unless|when|provided|assuming)\b/i.test(evidence)
+  )
+    return false;
+  const candidateCopula = /\b(?:was|were)\b/i.test(candidate)
+    ? "past"
+    : /\b(?:am|is|are)\b/i.test(candidate)
+      ? "present"
+      : "";
+  const evidenceCopula = /\b(?:was|were)\b/i.test(evidence)
+    ? "past"
+    : /\b(?:am|is|are)\b/i.test(evidence)
+      ? "present"
+      : "";
+  if (candidateCopula !== evidenceCopula) return false;
+  const candidateReportingFrame = propositionHasReportingFrame(candidate, ignoredSpeakerTokens);
+  const namingParaphrase = possessiveCopularNamingParaphrase(candidate, evidence);
   const candidateTokens = propositionContentTokens(candidate, ignoredSpeakerTokens);
-  const evidenceTokensForProposition = propositionContentTokens(evidence, ignoredSpeakerTokens);
+  const evidenceTokensForProposition = propositionContentTokens(
+    evidence,
+    ignoredSpeakerTokens,
+    candidateReportingFrame ? undefined : evidenceSpeakerLabel,
+  );
+  if (namingParaphrase) {
+    const speakerTokens = evidenceSpeakerLabel.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+    if (!speakerTokens.every((token, index) => evidenceTokensForProposition[index] === token)) {
+      evidenceTokensForProposition.unshift(...speakerTokens);
+    }
+  }
   if (candidateTokens.length === 0) return true;
   if (/\bit\b/i.test(evidence)) {
-    return unresolvedReferenceSupported(candidateTokens, evidenceTokensForProposition, resolutionContext);
+    return unresolvedReferenceSupported(candidate, candidateTokens, evidenceTokensForProposition, resolutionContext);
   }
-  if (
-    possessiveCopularNamingParaphrase(candidate, evidence) &&
-    sameSurfaceTokenMultiset(candidateTokens, evidenceTokensForProposition)
-  ) {
+  if (namingParaphrase && sameSurfaceTokenMultiset(candidateTokens, evidenceTokensForProposition)) {
     return true;
   }
+  if (preferenceRequestEquivalent(candidateTokens, evidenceTokensForProposition, evidence)) return true;
   const matchIndexes = orderedSurfaceMatchIndexes(candidateTokens, evidenceTokensForProposition, candidate, evidence);
   if (!matchIndexes) return false;
-  if (preferenceRequestEquivalent(candidateTokens, evidenceTokensForProposition, evidence)) return true;
   if (directCommitmentEquivalent(candidate, evidence, candidateTokens, evidenceTokensForProposition)) return true;
   return orderedSurfaceMatchIndexes(evidenceTokensForProposition, candidateTokens, evidence, candidate) !== null;
 }
@@ -835,10 +895,18 @@ function evidencePolarityPreserved(
   referenceMessages: CanonicalConsequenceSourceMessage[],
 ): boolean {
   const resolutionContext = [...evidenceMessages, ...referenceMessages].map((message) => message.content).join(" ");
-  const evidencePropositionList = evidenceMessages.flatMap((message) => evidencePropositions(message.content));
+  const evidencePropositionList = evidenceMessages.flatMap((message) =>
+    evidencePropositions(message.content).map((content) => ({ content, speakerLabel: message.speakerLabel })),
+  );
   return evidencePropositions(content).every((candidateProposition) =>
     evidencePropositionList.some((evidenceProposition) =>
-      propositionSupported(candidateProposition, evidenceProposition, ignoredSpeakerTokens, resolutionContext),
+      propositionSupported(
+        candidateProposition,
+        evidenceProposition.content,
+        ignoredSpeakerTokens,
+        resolutionContext,
+        evidenceProposition.speakerLabel,
+      ),
     ),
   );
 }

@@ -99,6 +99,7 @@ describe("automatic memory consequence extraction", () => {
     expect(prompt).toContain("Preserve explicit one, single, this, or that scope");
     expect(prompt).toContain("Preserve each proposition's positive or negative polarity");
     expect(prompt).toContain("Preserve conditions, tense, uncertainty, and modality");
+    expect(prompt).toContain("Preserve each direct subject's identity");
     expect(prompt).toContain("A commitment requires direct first-person intent");
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.content).toBe("Celia's cat is named Miso.");
