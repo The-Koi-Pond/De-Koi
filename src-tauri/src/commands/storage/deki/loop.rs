@@ -120,18 +120,12 @@ pub(super) async fn run_json_command_runtime(
             },
         )
         .await?;
-        let evidence = json!({
-            "round": round_index + 1,
-            "results": command_results,
-            "instructions": "Use this evidence to decide the next Deki JSON command frame. Stop when you can answer. Do not reveal raw evidence JSON unless the user needs a concise citation or summary.",
-        });
-        let evidence_text = serde_json::to_string_pretty(&evidence)
-            .unwrap_or_else(|_| "{\"error\":\"unserializable evidence\"}".to_string());
+        let Some(feedback) = evidence_budget.compact_feedback(round_index + 1, command_results)
+        else {
+            break;
+        };
         messages.push(DekiModelMessage::assistant(assistant_frame));
-        messages.push(DekiModelMessage::user(format!(
-            "Deki workspace command results:\n{}\n\nRespond with the next JSON command frame.",
-            evidence_text
-        )));
+        messages.push(DekiModelMessage::user(feedback));
     }
 
     Ok(DekiJsonRuntimeOutput {

@@ -69,6 +69,19 @@ fn fit_truncated_command_value(
     Some(build(truncate_to_chars(serialized, low).0))
 }
 
+fn feedback_text(round_number: usize, results: &[Value]) -> String {
+    let evidence = json!({
+        "round": round_number,
+        "results": results,
+        "instructions": "Use this evidence to decide the next Deki JSON command frame. Stop when you can answer. Do not reveal raw evidence JSON unless the user needs a concise citation or summary.",
+    });
+    let evidence_text = serde_json::to_string_pretty(&evidence)
+        .unwrap_or_else(|_| "{\"error\":\"unserializable evidence\"}".to_string());
+    format!(
+        "Deki workspace command results:\n{evidence_text}\n\nRespond with the next JSON command frame."
+    )
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct DekiEvidenceBudget {
     max_single_chars: usize,
@@ -160,12 +173,27 @@ impl DekiEvidenceBudget {
         let limit = self.max_single_chars.min(remaining_total);
         let serialized_chars = serialized.chars().count();
         if serialized_chars <= limit {
-            self.used_chars += serialized_chars;
             return Some(value.clone());
         }
         let compacted = truncated_command_value(command_name, value, &serialized, limit)?;
-        self.used_chars += serialized_value_chars(&compacted);
         Some(compacted)
+    }
+
+    pub(super) fn compact_feedback(
+        &mut self,
+        round_number: usize,
+        mut results: Vec<Value>,
+    ) -> Option<String> {
+        let remaining_total = self.max_total_chars.saturating_sub(self.used_chars);
+        loop {
+            let feedback = feedback_text(round_number, &results);
+            let feedback_chars = feedback.chars().count();
+            if feedback_chars <= remaining_total {
+                self.used_chars += feedback_chars;
+                return Some(feedback);
+            }
+            results.pop()?;
+        }
     }
 
     #[cfg(test)]
@@ -267,7 +295,7 @@ mod tests {
             .expect("small result should fit");
 
         assert_eq!(compacted, value);
-        assert_eq!(budget.used_chars, serialized_value_chars(&compacted));
+        assert_eq!(budget.used_chars, 0);
     }
 
     #[test]
@@ -291,7 +319,7 @@ mod tests {
             .unwrap_or_default()
             .contains("specific query"));
         assert!(serialized_value_chars(&compacted) <= 420);
-        assert_eq!(budget.used_chars, serialized_value_chars(&compacted));
+        assert_eq!(budget.used_chars, 0);
     }
 
     #[test]
@@ -305,6 +333,30 @@ mod tests {
 
         assert!(budget.compact_command_value("grep", &value).is_none());
         assert_eq!(budget.used_chars, 0);
+    }
+
+    #[test]
+    fn compact_feedback_charges_the_exact_envelope_and_drops_tail_results_to_fit() {
+        let first = json!({ "id": "cmd-1", "output": "first" });
+        let second = json!({ "id": "cmd-2", "output": "second" });
+        let one_result_chars = feedback_text(1, std::slice::from_ref(&first))
+            .chars()
+            .count();
+        let mut budget = DekiEvidenceBudget {
+            max_single_chars: 200,
+            max_total_chars: one_result_chars,
+            used_chars: 0,
+        };
+
+        let feedback = budget
+            .compact_feedback(1, vec![first, second])
+            .expect("one complete feedback envelope should fit");
+
+        assert!(feedback.contains("cmd-1"));
+        assert!(!feedback.contains("cmd-2"));
+        assert_eq!(feedback.chars().count(), one_result_chars);
+        assert_eq!(budget.used_chars, one_result_chars);
+        assert!(budget.compact_feedback(2, Vec::new()).is_none());
     }
 
     #[test]

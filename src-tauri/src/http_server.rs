@@ -6,7 +6,7 @@ use crate::storage_commands::{
 };
 use axum::body::Body;
 use axum::extract::multipart::Field;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Multipart, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
@@ -669,6 +669,7 @@ fn content_type_for_path(path: &FsPath) -> &'static str {
 async fn invoke(
     State(state): State<HttpState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Extension(ResolvedClientIp(client_ip)): Extension<ResolvedClientIp>,
     headers: HeaderMap,
     Json(request): Json<InvokeRequest>,
 ) -> Response {
@@ -705,7 +706,7 @@ async fn invoke(
         }
         return response;
     }
-    let runtime_owner = deki_runtime_owner(addr);
+    let runtime_owner = deki_runtime_owner(client_ip);
     match dispatch_for_runtime_owner(&state.app, request, runtime_owner).await {
         Ok(value) => {
             request_log(format!(
@@ -734,8 +735,8 @@ async fn invoke(
     }
 }
 
-fn deki_runtime_owner(addr: SocketAddr) -> crate::storage_commands::deki::DekiRuntimeOwner {
-    crate::storage_commands::deki::DekiRuntimeOwner::Host(addr.ip().to_canonical())
+fn deki_runtime_owner(client_ip: IpAddr) -> crate::storage_commands::deki::DekiRuntimeOwner {
+    crate::storage_commands::deki::DekiRuntimeOwner::Host(client_ip.to_canonical())
 }
 
 async fn profile_export_download(
@@ -1891,6 +1892,9 @@ struct ApiRateLimitOutcome {
     retry_after: Option<Duration>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ResolvedClientIp(IpAddr);
+
 impl Default for ApiRateLimiter {
     fn default() -> Self {
         Self {
@@ -1907,6 +1911,7 @@ async fn api_controls_middleware(
     let path = request.uri().path().to_string();
     let peer = remote_ip(&request);
     let client_ip = controls.security.resolve_client_ip(peer, request.headers());
+    request.extensions_mut().insert(ResolvedClientIp(client_ip));
     if client_ip != peer {
         let port = request
             .extensions()
@@ -3527,6 +3532,7 @@ mod tests {
             let response = invoke(
                 State(state.clone()),
                 ConnectInfo(addr),
+                Extension(ResolvedClientIp(addr.ip())),
                 HeaderMap::new(),
                 Json(InvokeRequest {
                     command: "update_apply".to_string(),
@@ -3547,6 +3553,7 @@ mod tests {
         let blocked = invoke(
             State(state),
             ConnectInfo(addr),
+            Extension(ResolvedClientIp(addr.ip())),
             HeaderMap::new(),
             Json(InvokeRequest {
                 command: "update_apply".to_string(),
@@ -4166,10 +4173,10 @@ mod tests {
 
     #[test]
     fn deki_runtime_owner_uses_the_authenticated_resolved_host() {
-        let addr = SocketAddr::new(IpAddr::V6(Ipv4Addr::LOCALHOST.to_ipv6_mapped()), 54321);
+        let client_ip = IpAddr::V6(Ipv4Addr::LOCALHOST.to_ipv6_mapped());
 
         assert_eq!(
-            deki_runtime_owner(addr),
+            deki_runtime_owner(client_ip),
             crate::storage_commands::deki::DekiRuntimeOwner::Host(IpAddr::V4(Ipv4Addr::LOCALHOST))
         );
     }

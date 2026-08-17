@@ -88,8 +88,9 @@ stable unless the implementation exposes a missing optional field.
   cancellation token or a clear `not_running`/`not_supported` result. Active
   runtime state, status, and abort routing must share a scope made from the
   server-owned runtime owner plus the Deki session id. Embedded calls use the
-  trusted app owner; hostable calls derive the owner from the authenticated,
-  proxy-resolved client host so request JSON cannot forge it. Keep
+  trusted app owner; HTTP security middleware attaches the authenticated,
+  proxy-resolved client host as an explicit server-owned identity before
+  dispatch so request JSON and the raw transport peer cannot forge it. Keep
   `approve`/`reject` as explicit Slice 3 not-implemented routes if the shared
   API remains callable.
 
@@ -109,9 +110,11 @@ Use named constants in `deki/budget.rs` so tests can assert them:
 
 When output is truncated, the command result must say what was truncated and how
 to narrow the next command. The complete serialized result, including wrapper
-metadata and guidance, must fit and be charged to both evidence caps. If that
-wrapper cannot fit the remaining budget, omit the result. Silent truncation is
-not acceptable.
+metadata and guidance, must fit the single-result cap. The exact model feedback
+message, including the round/results/instructions envelope and message
+prefix/suffix, must be charged to the cumulative evidence cap. Drop tail results
+to make a complete envelope fit; if even the empty envelope cannot fit, stop the
+command loop. Silent truncation is not acceptable.
 
 ## Slice 2 Acceptance Checklist
 

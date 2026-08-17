@@ -148,13 +148,15 @@ end note
 
 note bottom of Budget
   All command results pass through budget.rs before model feedback:
-  complete serialized results fit per-command and total evidence caps;
+  complete serialized results fit the per-command cap;
+  exact feedback envelopes fit and consume the cumulative evidence cap;
   rounds, commands, trace, and wall-clock time are also bounded.
 end note
 
 note right of Status
   Prompt, status, and abort share one server-owned runtime owner
-  plus Deki session id; request JSON cannot choose the owner.
+  plus Deki session id; HTTP middleware supplies the authenticated,
+  proxy-resolved client identity and request JSON cannot choose it.
   Embedded and remote route registration are updated together,
   and cancellation wakes every waiter for only that session.
   Approve/reject remain Slice 3 unless returned as explicit not-implemented.
