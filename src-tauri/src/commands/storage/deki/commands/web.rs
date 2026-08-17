@@ -33,9 +33,10 @@ pub(in crate::storage_commands::deki) struct DekiWebResearchScope {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(in crate::storage_commands::deki) struct SearchDekiWebArgs {
     pub(in crate::storage_commands::deki) query: String,
-    #[serde(default)]
+    #[serde(default, alias = "max_results")]
     pub(in crate::storage_commands::deki) max_results: Option<usize>,
 }
 

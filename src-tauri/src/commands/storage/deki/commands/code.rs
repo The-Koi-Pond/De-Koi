@@ -27,6 +27,7 @@ const LIST_DEFAULT_LIMIT: usize = 80;
 const LIST_MAX_LIMIT: usize = 200;
 const FIND_DEFAULT_LIMIT: usize = 80;
 const FIND_MAX_LIMIT: usize = 200;
+const SEARCH_MAX_CONTEXT_LINES: usize = 3;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +44,8 @@ pub(super) struct SearchTextArgs {
     pub(super) path: Option<String>,
     #[serde(default, alias = "max_results")]
     pub(super) max_results: Option<usize>,
+    #[serde(default, alias = "context_lines")]
+    pub(super) context_lines: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,6 +75,8 @@ pub(super) struct SearchDekiCodeArgs {
     pub(super) path: Option<String>,
     #[serde(default)]
     pub(super) max_results: Option<usize>,
+    #[serde(default)]
+    pub(super) context_lines: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +119,7 @@ pub(super) fn search_code(args: SearchTextArgs) -> AppResult<Value> {
         query,
         path: args.path,
         max_results: args.max_results,
+        context_lines: args.context_lines,
     })
 }
 
@@ -208,6 +214,10 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
         return Err(AppError::invalid_input("Search query is required"));
     }
     let max_results = args.max_results.unwrap_or(32).clamp(1, 80);
+    let context_lines = args
+        .context_lines
+        .unwrap_or(0)
+        .min(SEARCH_MAX_CONTEXT_LINES);
     let (root, start, display_root) = match args
         .path
         .as_deref()
@@ -233,6 +243,7 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
             &start,
             &query_lower,
             max_results,
+            context_lines,
             &mut searched_files,
             &mut results,
         )?;
@@ -242,6 +253,7 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
             &start,
             &query_lower,
             max_results,
+            context_lines,
             &mut searched_files,
             &mut results,
         )?;
@@ -251,6 +263,7 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
         "query": query,
         "path": display_root,
         "searchedFiles": searched_files,
+        "contextLines": context_lines,
         "truncated": results.len() >= max_results,
         "results": results,
     }))
@@ -334,6 +347,7 @@ fn search_code_dir(
     dir: &Path,
     query_lower: &str,
     max_results: usize,
+    context_lines: usize,
     searched_files: &mut usize,
     results: &mut Vec<Value>,
 ) -> AppResult<()> {
@@ -366,6 +380,7 @@ fn search_code_dir(
                 &path,
                 query_lower,
                 max_results,
+                context_lines,
                 searched_files,
                 results,
             )?;
@@ -375,6 +390,7 @@ fn search_code_dir(
                 &path,
                 query_lower,
                 max_results,
+                context_lines,
                 searched_files,
                 results,
             )?;
@@ -388,6 +404,7 @@ fn search_code_file(
     path: &Path,
     query_lower: &str,
     max_results: usize,
+    context_lines: usize,
     searched_files: &mut usize,
     results: &mut Vec<Value>,
 ) -> AppResult<()> {
@@ -413,20 +430,43 @@ fn search_code_file(
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/");
-    for (index, line) in content.lines().enumerate() {
+    let lines = content.lines().collect::<Vec<_>>();
+    for (index, line) in lines.iter().enumerate() {
         if !line.to_ascii_lowercase().contains(query_lower) {
             continue;
         }
-        results.push(json!({
+        let mut result = json!({
             "path": display_path,
             "line": index + 1,
             "preview": truncate_preview(line.trim()),
-        }));
+        });
+        if context_lines > 0 {
+            result["context"] = Value::Array(search_context(&lines, index, context_lines));
+        }
+        results.push(result);
         if results.len() >= max_results {
             break;
         }
     }
     Ok(())
+}
+
+fn search_context(lines: &[&str], match_index: usize, context_lines: usize) -> Vec<Value> {
+    let start = match_index.saturating_sub(context_lines);
+    let end = match_index
+        .saturating_add(context_lines)
+        .saturating_add(1)
+        .min(lines.len());
+    lines[start..end]
+        .iter()
+        .enumerate()
+        .map(|(offset, line)| {
+            json!({
+                "line": start + offset + 1,
+                "text": truncate_preview(line.trim_end()),
+            })
+        })
+        .collect()
 }
 
 fn find_repo_paths_inner(
@@ -581,6 +621,18 @@ pub(in crate::storage_commands::deki) fn looks_like_encoded_blob(value: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_context_returns_a_bounded_one_based_window() {
+        let lines = ["zero", "one", "match", "three", "four"];
+
+        let context = search_context(&lines, 2, 1);
+
+        assert_eq!(context.len(), 3);
+        assert_eq!(context[0], json!({ "line": 2, "text": "one" }));
+        assert_eq!(context[1], json!({ "line": 3, "text": "match" }));
+        assert_eq!(context[2], json!({ "line": 4, "text": "three" }));
+    }
 
     #[test]
     fn deki_code_tools_reject_encoded_source_payloads() {

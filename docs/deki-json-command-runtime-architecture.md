@@ -65,7 +65,11 @@ stable unless the implementation exposes a missing optional field.
   `code.rs` and `web.rs`; existing `library.rs` and `chat_access.rs` remain
   focused data owners and can be called through typed command adapters. The
   `commands/mod.rs` owner should own command names, typed argument conversion,
-  and typed result conversion.
+  typed result conversion, and the model-visible JSON argument guide. Keep the
+  guide beside the registry so a command cannot be advertised without enough
+  argument information for the model to call it correctly.
+- Repository grep/search commands may request a bounded 1-3-line context window
+  when an exact call, signature, condition, or payload spans adjacent lines.
 - Existing creative-library approval parsing should move toward a focused
   `deki/action_parser.rs` owner. Until it is split, the Slice 2 loop must treat
   `<deki_action>` blocks as final visible output, not as command protocol JSON.
@@ -102,7 +106,9 @@ stable unless the implementation exposes a missing optional field.
 
 Use named constants in `deki/budget.rs` so tests can assert them:
 
-- Maximum command-loop rounds: 8.
+- Maximum command-loop rounds: 8. Round 7 is a synthesis checkpoint that may
+  issue one smallest missing command batch; round 8 is command-free synthesis.
+  This leaves one bounded recovery turn without executing unconsumable commands.
 - Maximum commands per round: 4.
 - Maximum wall-clock runtime before controlled stop: 90 seconds.
 - Maximum single command evidence fed to the next model turn: 12 KiB.

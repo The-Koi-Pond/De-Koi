@@ -1447,6 +1447,7 @@ pub(crate) async fn deki_prompt(
             connection,
             system_prompt,
             task_prompt,
+            requires_repository_evidence: needs_repo_guidance,
             chat_access_grants: input.chat_access_grants.clone(),
             web_research_grants: input.web_research_grants.clone(),
             cancellation: runtime_guard.cancellation(),

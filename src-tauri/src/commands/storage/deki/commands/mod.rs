@@ -7,6 +7,30 @@ use serde_json::{json, Value};
 pub(super) mod code;
 pub(super) mod web;
 
+pub(super) const JSON_COMMAND_GUIDE: &str = r#"Deki command argument contracts (all paths are repository-relative and all keys use camelCase):
+- read: {"path":"relative/file"}
+- grep: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
+- find: {"query":"name","path":"optional/directory","maxResults":80}
+- ls: {"path":"relative/directory","limit":80}
+- deki_code: either {"path":"relative/file"} or {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
+- search_deki_code: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
+- read_deki_code_file: {"path":"relative/file"}
+- deki_data/read_deki_library: {"itemType":"optional type","types":"optional comma-separated types","query":"optional text","limit":80,"offset":0}
+- read_deki_library_items: {"itemType":"type","id":"exact id","includeEntries":true,"entryQuery":"optional text","entryLimit":50,"entryOffset":0}
+- read_deki_chats: {"chatIds":["optional approved id"],"characterId":"optional id","modes":["conversation"],"limit":50,"offset":0}
+- read_deki_chat_messages: {"chatId":"approved id","limit":50,"before":"optional createdAt|id cursor"}
+- read_deki_memories: {"scopeType":"character or chat","scopeId":"exact id","query":"optional text","limit":50}
+- search_deki_web: {"query":"exact approved query","maxResults":5}
+- read_deki_web_page: {"query":"exact approved query","url":"approved public result URL"}
+Omit optional keys you do not need. Prefer precise searches over reading a large file from its beginning: large reads can truncate before a deep symbol, while grep/search results include matching line numbers and previews. Set contextLines to 1-3 when adjacent lines are needed to verify a call, signature, condition, or payload; keep it 0 otherwise. When the task names several exact files, search those exact file paths rather than a parent directory, and batch up to four independent query/path pairs in one frame. Continue until every user-requested query has returned evidence or a demonstrated no-match result. Never repeat an identical command after it succeeded. A search result proves only its returned path, line, preview, and requested context: copy exact symbols, signatures, and line numbers only when that text is visible in successful evidence, and never reconstruct omitted text. Say what could not be verified instead of guessing. After evidence answers the task, return commands:[] and stop:true."#;
+
+pub(super) fn is_repository_command(name: &str) -> bool {
+    matches!(
+        normalized_command_name(name).as_str(),
+        "read" | "grep" | "find" | "ls" | "deki_code" | "search_deki_code" | "read_deki_code_file"
+    )
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct DekiCommandExecution {
     pub(super) id: String,
@@ -323,5 +347,40 @@ mod tests {
             .expect("query command should parse");
 
         assert!(matches!(command, code::DekiCodeCommand::Search(_)));
+    }
+
+    #[test]
+    fn json_command_guide_documents_repository_argument_contracts() {
+        assert!(JSON_COMMAND_GUIDE.contains(r#"read: {"path":"relative/file"}"#));
+        assert!(JSON_COMMAND_GUIDE.contains(r#"grep: {"query":"text""#));
+        assert!(JSON_COMMAND_GUIDE.contains(r#"find: {"query":"name""#));
+        assert!(JSON_COMMAND_GUIDE.contains(r#"ls: {"path":"relative/directory""#));
+        assert!(JSON_COMMAND_GUIDE.contains(r#"read_deki_code_file: {"path":"relative/file"}"#));
+        assert!(JSON_COMMAND_GUIDE.contains(r#"search_deki_code: {"query":"text""#));
+        assert!(JSON_COMMAND_GUIDE.contains(r#""contextLines":0"#));
+        assert!(JSON_COMMAND_GUIDE.contains("Set contextLines to 1-3"));
+        assert!(JSON_COMMAND_GUIDE.contains("search those exact file paths"));
+        assert!(JSON_COMMAND_GUIDE
+            .contains("proves only its returned path, line, preview, and requested context"));
+        assert!(JSON_COMMAND_GUIDE.contains("never reconstruct omitted text"));
+    }
+
+    #[test]
+    fn web_search_command_accepts_the_documented_camel_case_limit() {
+        let command = DekiCommand::parse(
+            "search_deki_web",
+            json!({ "query": "De-Koi", "maxResults": 3 }),
+        )
+        .expect("documented web search args should parse");
+
+        assert!(matches!(command, DekiCommand::SearchWeb(_)));
+    }
+
+    #[test]
+    fn repository_command_classification_covers_only_codebase_reads() {
+        assert!(is_repository_command("grep"));
+        assert!(is_repository_command("READ_DEKI_CODE_FILE"));
+        assert!(!is_repository_command("read_deki_library"));
+        assert!(!is_repository_command("search_deki_web"));
     }
 }

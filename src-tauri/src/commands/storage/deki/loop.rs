@@ -6,11 +6,15 @@ use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
 
+const SYNTHESIS_CHECKPOINT_PROMPT: &str = "This is the bounded synthesis checkpoint. Answer the original user task now if the returned command evidence covers every requested file, query, and symbol. If one necessary item is still missing, issue only the smallest missing command batch with stop set to false; do not guess or claim a requested search ran when its result is absent.";
+const FINAL_SYNTHESIS_PROMPT: &str = "This is the final bounded runtime round. Do not request more commands. Answer the original user task now using only the command evidence already returned. Set commands to [] and stop to true. Copy exact paths, symbols, signatures, and line numbers only from visible command evidence; otherwise state exactly what could not be verified. Do not guess or describe internal runtime limits.";
+
 pub(super) struct DekiJsonRuntimeInput<'a> {
     pub(super) state: &'a AppState,
     pub(super) connection: marinara_llm::LlmConnection,
     pub(super) system_prompt: String,
     pub(super) task_prompt: String,
+    pub(super) requires_repository_evidence: bool,
     pub(super) chat_access_grants: Vec<super::chat_access::DekiChatAccessGrant>,
     pub(super) web_research_grants: Vec<super::commands::web::DekiWebResearchGrant>,
     pub(super) cancellation: DekiRuntimeCancellation,
@@ -34,6 +38,11 @@ struct DekiCommandRoundContext<'a> {
     trace_chars: &'a mut usize,
 }
 
+struct DekiCommandRoundOutput {
+    results: Vec<Value>,
+    has_repository_evidence: bool,
+}
+
 pub(super) async fn run_json_command_runtime(
     input: DekiJsonRuntimeInput<'_>,
 ) -> AppResult<DekiJsonRuntimeOutput> {
@@ -42,9 +51,10 @@ pub(super) async fn run_json_command_runtime(
     let mut evidence_budget = DekiEvidenceBudget::default();
     let mut messages = vec![
         DekiModelMessage::system(format!(
-            "{}\n\n{}",
+            "{}\n\n{}\n\n{}",
             input.system_prompt.trim(),
-            JSON_PROTOCOL_PROMPT
+            JSON_PROTOCOL_PROMPT,
+            super::commands::JSON_COMMAND_GUIDE,
         )),
         DekiModelMessage::user(input.task_prompt),
     ];
@@ -52,12 +62,17 @@ pub(super) async fn run_json_command_runtime(
     let mut usage = Vec::new();
     let mut trace_chars = 0usize;
     let mut last_say = String::new();
+    let mut has_repository_evidence = false;
     let mut command_state =
         super::commands::DekiCommandTurnState::new(budget.max_web_pages_per_turn());
 
     for round_index in 0..budget.max_rounds() {
         input.cancellation.ensure_not_cancelled()?;
         budget.ensure_can_start_round(round_index)?;
+        let final_round = is_final_round(round_index, budget.max_rounds());
+        if let Some(prompt) = synthesis_prompt(round_index, budget.max_rounds()) {
+            messages.push(DekiModelMessage::user(prompt.to_string()));
+        }
         let max_tokens = if round_index == 0 {
             super::DEKI_INITIAL_MAX_TOKENS
         } else {
@@ -85,17 +100,27 @@ pub(super) async fn run_json_command_runtime(
                     protocol_repair_trace(round_index, &error),
                 );
                 messages.push(DekiModelMessage::assistant(raw));
-                messages.push(DekiModelMessage::user(format!(
-                    "Your previous response did not follow Deki's JSON command protocol: {}. Return exactly one JSON object with say, commands, and stop. Do not include markdown fences or prose outside the object.",
-                    error.message
-                )));
+                messages.push(DekiModelMessage::user(protocol_repair_prompt(&error)));
                 continue;
             }
         };
+        let needs_repository_evidence = frame_needs_repository_evidence(
+            &frame,
+            input.requires_repository_evidence,
+            has_repository_evidence,
+        );
+        if needs_repository_evidence {
+            messages.push(DekiModelMessage::assistant(raw_frame_for_memory(&frame)));
+            messages.push(DekiModelMessage::user(
+                "The original task asks about the current repository, but no repository command has succeeded yet. Continue the original task with the smallest useful read, grep, find, ls, deki_code, search_deki_code, or read_deki_code_file command. Do not answer from memory and do not mention this internal reminder in say."
+                    .to_string(),
+            ));
+            continue;
+        }
         if !frame.say.trim().is_empty() {
             last_say = frame.say.trim().to_string();
         }
-        if frame.stop || frame.commands.is_empty() {
+        if frame_is_terminal(&frame, final_round) {
             return Ok(DekiJsonRuntimeOutput {
                 content: final_content_from_frame(&frame, &last_say),
                 workspace_trace: trace,
@@ -104,7 +129,7 @@ pub(super) async fn run_json_command_runtime(
         }
 
         let assistant_frame = raw_frame_for_memory(&frame);
-        let command_results = execute_command_round(
+        let command_round = execute_command_round(
             round_index,
             frame,
             DekiCommandRoundContext {
@@ -120,7 +145,9 @@ pub(super) async fn run_json_command_runtime(
             },
         )
         .await?;
-        let Some(feedback) = evidence_budget.compact_feedback(round_index + 1, command_results)
+        has_repository_evidence |= command_round.has_repository_evidence;
+        let Some(feedback) =
+            evidence_budget.compact_feedback(round_index + 1, command_round.results)
         else {
             break;
         };
@@ -139,7 +166,7 @@ async fn execute_command_round(
     round_index: usize,
     frame: DekiCommandFrame,
     context: DekiCommandRoundContext<'_>,
-) -> AppResult<Vec<Value>> {
+) -> AppResult<DekiCommandRoundOutput> {
     let DekiCommandRoundContext {
         state,
         chat_access_grants,
@@ -154,6 +181,7 @@ async fn execute_command_round(
     let requested_count = frame.commands.len();
     let command_limit = budget.max_commands_per_round();
     let mut results = Vec::new();
+    let mut has_repository_evidence = false;
     for (command_index, command) in frame.commands.into_iter().take(command_limit).enumerate() {
         cancellation.ensure_not_cancelled()?;
         budget.ensure_not_expired()?;
@@ -167,6 +195,8 @@ async fn execute_command_round(
             command,
         )
         .await;
+        has_repository_evidence |=
+            execution.ok && super::commands::is_repository_command(&execution.name);
         cancellation.ensure_not_cancelled()?;
         push_trace(
             trace,
@@ -195,7 +225,40 @@ async fn execute_command_round(
             results.push(compacted);
         }
     }
-    Ok(results)
+    Ok(DekiCommandRoundOutput {
+        results,
+        has_repository_evidence,
+    })
+}
+
+fn frame_requests_stop(frame: &DekiCommandFrame) -> bool {
+    frame.commands.is_empty()
+}
+
+fn frame_is_terminal(frame: &DekiCommandFrame, final_round: bool) -> bool {
+    frame_requests_stop(frame) || final_round
+}
+
+fn is_final_round(round_index: usize, max_rounds: usize) -> bool {
+    max_rounds > 0 && round_index.saturating_add(1) == max_rounds
+}
+
+fn synthesis_prompt(round_index: usize, max_rounds: usize) -> Option<&'static str> {
+    if is_final_round(round_index, max_rounds) {
+        Some(FINAL_SYNTHESIS_PROMPT)
+    } else if max_rounds > 1 && round_index.saturating_add(2) == max_rounds {
+        Some(SYNTHESIS_CHECKPOINT_PROMPT)
+    } else {
+        None
+    }
+}
+
+fn frame_needs_repository_evidence(
+    frame: &DekiCommandFrame,
+    requires_repository_evidence: bool,
+    has_repository_evidence: bool,
+) -> bool {
+    frame_requests_stop(frame) && requires_repository_evidence && !has_repository_evidence
 }
 
 fn raw_frame_for_memory(frame: &DekiCommandFrame) -> String {
@@ -230,13 +293,19 @@ fn final_content_from_frame(frame: &DekiCommandFrame, last_say: &str) -> String 
 }
 
 fn max_rounds_fallback(last_say: &str) -> String {
-    let fallback =
-        "I reached Deki-senpai's workspace command limit before finishing the investigation. Ask me to continue if you want another pass.";
+    let fallback = "I reached Deki-senpai's workspace command limit before finishing the investigation. Ask a narrower follow-up question so I can complete one bounded pass.";
     if last_say.trim().is_empty() {
         fallback.to_string()
     } else {
         format!("{}\n\n{}", last_say.trim(), fallback)
     }
+}
+
+fn protocol_repair_prompt(error: &AppError) -> String {
+    format!(
+        "Your previous response did not follow Deki's JSON command protocol: {}. Continue the original user task. Return exactly one JSON object with say, commands, and stop, with no markdown fences or prose outside it. Do not mention this repair, the hidden protocol, or its error in say. If the original task needs evidence, issue the next useful command. Set stop to true only after answering the original task.",
+        error.message
+    )
 }
 
 fn command_trace(execution: &super::commands::DekiCommandExecution) -> Value {
@@ -338,7 +407,21 @@ mod tests {
         let content = max_rounds_fallback("");
 
         assert!(content.contains("workspace command limit"));
+        assert!(content.contains("narrower follow-up"));
+        assert!(!content.contains("Ask me to continue"));
         assert!(!content.trim().is_empty());
+    }
+
+    #[test]
+    fn protocol_repair_resumes_the_original_task_without_leaking_protocol_details() {
+        let prompt = protocol_repair_prompt(&AppError::new(
+            "deki_protocol_invalid_json",
+            "malformed command JSON",
+        ));
+
+        assert!(prompt.contains("Continue the original user task"));
+        assert!(prompt.contains("Do not mention this repair"));
+        assert!(prompt.contains("stop to true only after answering"));
     }
 
     #[test]
@@ -353,5 +436,58 @@ mod tests {
 
         assert_eq!(content, "Visible answer.");
         assert!(!content.contains("\"commands\""));
+    }
+
+    #[test]
+    fn empty_command_frame_requests_a_stop_even_without_the_stop_flag() {
+        let frame = DekiCommandFrame {
+            say: "Answer".to_string(),
+            commands: Vec::new(),
+            stop: false,
+        };
+
+        assert!(frame_requests_stop(&frame));
+    }
+
+    #[test]
+    fn non_empty_commands_take_precedence_over_an_accidental_stop_flag() {
+        let frame = DekiCommandFrame {
+            say: "Checking one missing symbol.".to_string(),
+            commands: vec![super::super::protocol::DekiCommandRequest {
+                name: "grep".to_string(),
+                args: json!({ "query": "/api/invoke" }),
+            }],
+            stop: true,
+        };
+
+        assert!(!frame_requests_stop(&frame));
+        assert!(!frame_is_terminal(&frame, false));
+        assert!(frame_is_terminal(&frame, true));
+    }
+
+    #[test]
+    fn repository_answer_cannot_finish_before_a_successful_repository_command() {
+        let frame = DekiCommandFrame {
+            say: "Answer from memory".to_string(),
+            commands: Vec::new(),
+            stop: true,
+        };
+
+        assert!(frame_needs_repository_evidence(&frame, true, false));
+        assert!(!frame_needs_repository_evidence(&frame, true, true));
+        assert!(!frame_needs_repository_evidence(&frame, false, false));
+    }
+
+    #[test]
+    fn final_two_bounded_rounds_have_distinct_synthesis_contracts() {
+        assert_eq!(synthesis_prompt(5, 8), None);
+        assert_eq!(synthesis_prompt(6, 8), Some(SYNTHESIS_CHECKPOINT_PROMPT));
+        assert_eq!(synthesis_prompt(7, 8), Some(FINAL_SYNTHESIS_PROMPT));
+        assert_eq!(synthesis_prompt(0, 0), None);
+        assert!(SYNTHESIS_CHECKPOINT_PROMPT.contains("smallest missing command batch"));
+        assert!(SYNTHESIS_CHECKPOINT_PROMPT.contains("stop set to false"));
+        assert!(FINAL_SYNTHESIS_PROMPT.contains("Do not request more commands"));
+        assert!(FINAL_SYNTHESIS_PROMPT.contains("commands to []"));
+        assert!(FINAL_SYNTHESIS_PROMPT.contains("only from visible command evidence"));
     }
 }
