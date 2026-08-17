@@ -401,11 +401,23 @@ function evidenceTokens(value: string): Set<string> {
   );
 }
 
-function claimSupportedByEvidence(claim: string, evidence: string): boolean {
+const NEGATIVE_POLARITY =
+  /\b(?:cannot|never|no|not|without|won't|wouldn't|can't|couldn't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|shouldn't|mustn't)\b/i;
+
+function hasNegativePolarity(content: string): boolean {
+  return NEGATIVE_POLARITY.test(content);
+}
+
+function claimSupportingEvidenceClauses(claim: string, evidence: string): string[] {
   const claimTokens = evidenceTokens(claim);
-  if (claimTokens.size === 0) return false;
-  const evidenceTokenSet = evidenceTokens(evidence);
-  return [...claimTokens].every((token) => evidenceTokenSet.has(token));
+  if (claimTokens.size === 0) return [];
+  const claimIsNegative = hasNegativePolarity(claim);
+  return evidenceClauses(evidence).filter((clause) => {
+    const evidenceTokenSet = evidenceTokens(clause);
+    return (
+      hasNegativePolarity(clause) === claimIsNegative && [...claimTokens].every((token) => evidenceTokenSet.has(token))
+    );
+  });
 }
 
 function escapeRegExp(value: string): string {
@@ -420,6 +432,12 @@ const COMMITMENT_REPORTING_VERB =
   /^(?:promised|promises|committed|commits|agreed|agrees|vowed|vows|pledged|pledges|swore|swears)$/i;
 const COMMITMENT_ACT_EVIDENCE =
   /\b(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b|\bI(?:'ll|\s+(?:will|shall|am\s+going\s+to))\b/i;
+const NEGATED_EXPLICIT_COMMITMENT_ACT =
+  /\b(?:not|never)\s+(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b/i;
+
+function hasCommitmentActEvidence(content: string): boolean {
+  return COMMITMENT_ACT_EVIDENCE.test(content) && !NEGATED_EXPLICIT_COMMITMENT_ACT.test(content);
+}
 
 function knownSpeakerLabels(request: CanonicalConsequenceExtractionRequest): string[] {
   return Array.from(
@@ -475,11 +493,12 @@ function namedReportingClausesSupportedByEvidence(
       );
       if (
         speakerEvidence.length === 0 ||
-        !speakerEvidence.some(
-          (message) =>
-            claimSupportedByEvidence(claim, message.content) &&
-            (!COMMITMENT_REPORTING_VERB.test(reportingVerb) || COMMITMENT_ACT_EVIDENCE.test(message.content)),
-        )
+        !speakerEvidence.some((message) => {
+          const supportingClauses = claimSupportingEvidenceClauses(claim, message.content);
+          return supportingClauses.some(
+            (clause) => !COMMITMENT_REPORTING_VERB.test(reportingVerb) || hasCommitmentActEvidence(clause),
+          );
+        })
       ) {
         return false;
       }
@@ -497,7 +516,7 @@ function namedReportingClausesSupportedByEvidence(
     );
     if (
       speakerEvidence.length === 0 ||
-      !speakerEvidence.some((message) => claimSupportedByEvidence(claim, message.content))
+      !speakerEvidence.some((message) => claimSupportingEvidenceClauses(claim, message.content).length > 0)
     ) {
       return false;
     }
@@ -534,13 +553,24 @@ const IRREGULAR_PLURAL_TO_SINGULAR = new Map([
   ["geese", "goose"],
   ["men", "man"],
   ["mice", "mouse"],
+  ["oxen", "ox"],
   ["people", "person"],
   ["teeth", "tooth"],
   ["women", "woman"],
 ]);
+const SAME_FORM_PLURALS = new Set(["deer", "fish", "series", "sheep", "species"]);
+const PLURAL_AGREEMENT = new Set(["are", "do", "have", "were"]);
 
-function candidateSingularForm(word: string): string | null {
-  return IRREGULAR_PLURAL_TO_SINGULAR.get(word) ?? (word.length > 4 && word.endsWith("s") ? word.slice(0, -1) : null);
+function candidateSingularForms(word: string): string[] {
+  const irregular = IRREGULAR_PLURAL_TO_SINGULAR.get(word);
+  if (irregular) return [irregular];
+  if (word.length > 4 && word.endsWith("ies")) return [`${word.slice(0, -3)}y`];
+  if (/(?:ches|shes|sses|xes|zes)$/.test(word)) return [word.slice(0, -2)];
+  if (word.length > 4 && word.endsWith("ves")) {
+    const stem = word.slice(0, -3);
+    return [`${stem}f`, `${stem}fe`];
+  }
+  return word.length > 4 && word.endsWith("s") ? [word.slice(0, -1)] : [];
 }
 
 function broadensSingularEvidence(sourceClause: string, candidateClause: string): boolean {
@@ -557,9 +587,14 @@ function broadensSingularEvidence(sourceClause: string, candidateClause: string)
   );
   const sourceWords = new Set(sourceWordList);
   const candidateWords = candidateClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-  return candidateWords.some((word) => {
-    const singular = candidateSingularForm(word);
-    return singular !== null && !sourceWords.has(word) && scopedSingularNouns.has(singular);
+  return candidateWords.some((word, index) => {
+    if (
+      SAME_FORM_PLURALS.has(word) &&
+      scopedSingularNouns.has(word) &&
+      candidateWords.slice(index + 1, index + 4).some((followingWord) => PLURAL_AGREEMENT.has(followingWord))
+    )
+      return true;
+    return !sourceWords.has(word) && candidateSingularForms(word).some((singular) => scopedSingularNouns.has(singular));
   });
 }
 
@@ -622,6 +657,7 @@ function thatStartsClearFiniteClause(content: string, afterThat: number): boolea
 }
 
 interface SpecificityBinding {
+  anchor: string | null;
   kind: "singular" | "demonstrative";
   tokens: Set<string>;
 }
@@ -638,15 +674,11 @@ function specificityBindings(content: string): SpecificityBinding[] {
       kind = "demonstrative";
     }
     if (!kind) continue;
-    const tokens = new Set(
-      words
-        .slice(index + 1, index + 4)
-        .map((wordMatch) => evidenceToken(wordMatch[0].toLowerCase()))
-        .filter(
-          (token) => token.length >= 3 && token !== "one" && token !== "single" && !EVIDENCE_STOP_WORDS.has(token),
-        ),
-    );
-    bindings.push({ kind, tokens });
+    const orderedTokens = words
+      .slice(index + 1, index + 6)
+      .map((wordMatch) => evidenceToken(wordMatch[0].toLowerCase()))
+      .filter((token) => token.length >= 3 && token !== "one" && token !== "single" && !EVIDENCE_STOP_WORDS.has(token));
+    bindings.push({ anchor: orderedTokens.at(-1) ?? null, kind, tokens: new Set(orderedTokens) });
   }
   return bindings;
 }
@@ -654,8 +686,8 @@ function specificityBindings(content: string): SpecificityBinding[] {
 function specificityBindingSupported(source: SpecificityBinding, candidates: SpecificityBinding[]): boolean {
   return candidates.some((candidate) => {
     if (candidate.kind !== source.kind || source.tokens.size === 0 || candidate.tokens.size === 0) return false;
-    const overlap = [...source.tokens].filter((token) => candidate.tokens.has(token)).length;
-    return overlap >= Math.min(2, source.tokens.size);
+    if (candidate.anchor !== source.anchor) return false;
+    return [...source.tokens].every((token) => candidate.tokens.has(token));
   });
 }
 

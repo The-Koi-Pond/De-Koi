@@ -205,6 +205,62 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
+  it.each(["I did not promise to wait at the east gate.", "I will not wait at the east gate."])(
+    "rejects a positive promise from negative evidence: %s",
+    async (sourceContent) => {
+      const result = await extractCanonicalMemoryConsequences({
+        llm: gateway([
+          {
+            kind: "promise",
+            content: "Shlo promised to wait at the east gate.",
+            confidence: 0.95,
+            evidence: "explicit_promise",
+            sourceMessageIds: ["user-shlo"],
+          },
+        ]),
+        request: request("Shlo", [
+          {
+            id: "user-shlo",
+            chatId: "fixture-chat",
+            role: "user",
+            content: sourceContent,
+            characterId: null,
+            createdAt: timestamp,
+            speakerLabel: "Shlo",
+          },
+        ]),
+      });
+
+      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    },
+  );
+
+  it("accepts a negative promise from matching future-negative evidence", async () => {
+    const candidate = {
+      kind: "promise",
+      content: "Shlo promised not to wait at the east gate.",
+      confidence: 0.95,
+      evidence: "explicit_promise",
+      sourceMessageIds: ["user-shlo"],
+    };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([candidate]),
+      request: request("Shlo", [
+        {
+          id: "user-shlo",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "I will not wait at the east gate.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Shlo",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
+  });
+
   it("requires speaker-local support for an according-to frame", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -258,6 +314,33 @@ describe("memory context clarity semantic fixtures", () => {
           chatId: "fixture-chat",
           role: "user",
           content: "The east gate is rusty.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Shlo",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects a positive attribution from negative evidence", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "According to Shlo, the east gate is locked.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["user-shlo"],
+        },
+      ]),
+      request: request("Shlo", [
+        {
+          id: "user-shlo",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "The east gate is not locked.",
           characterId: null,
           createdAt: timestamp,
           speakerLabel: "Shlo",
@@ -456,6 +539,64 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
+  it.each([
+    {
+      label: "cities",
+      source: "A red city has one stone gate.",
+      candidate: "Red cities have one stone gate.",
+    },
+    {
+      label: "boxes",
+      source: "A wooden box has one brass latch.",
+      candidate: "Wooden boxes have one brass latch.",
+    },
+    {
+      label: "oxen",
+      source: "A red ox has one silver bell.",
+      candidate: "Red oxen have one silver bell.",
+    },
+    {
+      label: "same-form fish",
+      source: "A silver fish has one red fin.",
+      candidate: "Silver fish have one red fin.",
+    },
+    {
+      label: "same-form fish with an article",
+      source: "A silver fish has one red fin.",
+      candidate: "The silver fish have one red fin.",
+    },
+    {
+      label: "same-form fish with an intervening adverb",
+      source: "A silver fish has one red fin.",
+      candidate: "Silver fish generally have one red fin.",
+    },
+  ])("rejects $label singular-to-class morphology", async ({ source, candidate }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: candidate,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-observation"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-observation",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: source,
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("rejects moving demonstrative scope to a different local noun", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -500,6 +641,60 @@ describe("memory context clarity semantic fixtures", () => {
           chatId: "fixture-chat",
           role: "assistant",
           content: "This returned Machina waits at the east gate.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects laundering a moved scope through shared modifiers", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "The ancient red Machina guards this ancient red gate.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-machina"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "This ancient red Machina guards the east gate.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects laundering a moved scope when extra modifiers push the source head out", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "The very ancient red Machina guards this very ancient red gate.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-machina"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "This very ancient red Machina guards the east gate.",
           characterId: "pierrot",
           createdAt: timestamp,
           speakerLabel: "Pierrot",
