@@ -71,7 +71,8 @@ export interface AutomaticMemoryValueGateResult {
 export type StandaloneMemoryFailure =
   | "generic_speaker_label"
   | "unresolved_opening_reference"
-  | "dangling_topic_reference";
+  | "dangling_topic_reference"
+  | "third_person_personal_pronoun";
 
 export function standaloneMemoryFailure(content: string): StandaloneMemoryFailure | null {
   const normalized = content.trim();
@@ -84,6 +85,9 @@ export function standaloneMemoryFailure(content: string): StandaloneMemoryFailur
   }
   if (/\b(?:talk|speak|discuss|argue|ask|worry)\w*\s+(?:about\s+)?(?:it|this|that)\b/i.test(normalized)) {
     return "dangling_topic_reference";
+  }
+  if (/\b(?:he|him|his|himself|she|her|hers|herself|they|them|their|theirs|themself|themselves)\b/i.test(normalized)) {
+    return "third_person_personal_pronoun";
   }
   return null;
 }
@@ -343,8 +347,10 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     'Return JSON only: {"memories":[...]}',
     "Every memory must make sense as an isolated sentence.",
     `The user identity is ${request.userLabel}; never use User as a person's name.`,
-    "Name a character before using a pronoun for that character.",
-    "Replace it, this, or that with the actual supported subject when the subject matters.",
+    "Do not use third-person personal pronouns; repeat the supported person's name instead.",
+    "Replace context-dependent it, this, or that with the actual supported subject when the subject matters.",
+    "Any reporting or commitment clause naming a speaker must be supported by cited source rows from that named speaker.",
+    "Preserve explicit one, single, this, or that scope; never broaden a specific observation into an unqualified class-wide statement.",
     "Older reference messages may resolve names or antecedents but cannot prove a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
     "Each item may include referenceMessageIds in addition to sourceMessageIds.",
@@ -388,10 +394,127 @@ function evidenceTokens(value: string): Set<string> {
   );
 }
 
-export function contentSupportedByEvidence(
-  content: string,
-  messages: CanonicalConsequenceSourceMessage[],
+function meaningfulEvidenceOverlap(claim: string, evidence: string): boolean {
+  const claimTokens = evidenceTokens(claim);
+  if (claimTokens.size === 0) return false;
+  const evidenceTokenSet = evidenceTokens(evidence);
+  const overlap = [...claimTokens].filter((token) => evidenceTokenSet.has(token)).length;
+  return overlap >= Math.min(2, claimTokens.size);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const REPORTING_OR_COMMITMENT_VERB =
+  "(?:said|says|stated|states|reported|reports|told|tells|explained|explains|confirmed|confirms|" +
+  "believed|believes|discussed|discusses|promised|promises|committed|commits|agreed|agrees|" +
+  "vowed|vows|pledged|pledges|swore|swears|claimed|claims|mentioned|mentions|asked|asks|warned|warns)";
+
+function knownSpeakerLabels(request: CanonicalConsequenceExtractionRequest): string[] {
+  return Array.from(
+    new Set(
+      [
+        request.userLabel,
+        ...Object.values(request.characterLabels),
+        ...request.sourceMessages.map((message) => message.speakerLabel),
+        ...request.referenceMessages.map((message) => message.speakerLabel),
+      ]
+        .map((label) => label.trim())
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => right.length - left.length);
+}
+
+function messageBelongsToSpeaker(
+  message: CanonicalConsequenceSourceMessage,
+  speakerLabel: string,
+  request: CanonicalConsequenceExtractionRequest,
 ): boolean {
+  const normalizedLabel = speakerLabel.trim().toLowerCase();
+  if (message.speakerLabel.trim().toLowerCase() === normalizedLabel) return true;
+  if (request.userLabel.trim().toLowerCase() === normalizedLabel && message.role === "user") return true;
+  return Object.entries(request.characterLabels).some(
+    ([characterId, label]) => label.trim().toLowerCase() === normalizedLabel && message.characterId === characterId,
+  );
+}
+
+function namedReportingClausesSupportedByEvidence(
+  content: string,
+  evidenceMessages: CanonicalConsequenceSourceMessage[],
+  request: CanonicalConsequenceExtractionRequest,
+): boolean {
+  const speakerLabels = knownSpeakerLabels(request);
+  if (speakerLabels.length === 0) return true;
+  const pattern = new RegExp(
+    `(?:^|[^\\p{L}\\p{N}_])(${speakerLabels.map(escapeRegExp).join("|")})\\s+(?:(?:has|had)\\s+)?${REPORTING_OR_COMMITMENT_VERB}\\b([^.!?;]*)`,
+    "giu",
+  );
+  for (const match of content.matchAll(pattern)) {
+    const speakerLabel = match[1]?.trim() ?? "";
+    const claim = match[2]?.trim() ?? "";
+    const speakerEvidence = evidenceMessages.filter((message) =>
+      messageBelongsToSpeaker(message, speakerLabel, request),
+    );
+    if (
+      speakerEvidence.length === 0 ||
+      !speakerEvidence.some((message) => meaningfulEvidenceOverlap(claim, message.content))
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function evidenceClauses(content: string): string[] {
+  return content
+    .split(/[.!?;:]+|\s+(?:but|while|whereas)\s+/i)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+}
+
+function specificityComparisonTokens(content: string): Set<string> {
+  const tokens = evidenceTokens(content);
+  tokens.delete("one");
+  tokens.delete("single");
+  return tokens;
+}
+
+function specificityClauseMatchesCandidate(sourceClause: string, candidateClause: string): boolean {
+  const sourceTokens = specificityComparisonTokens(sourceClause);
+  const candidateTokens = specificityComparisonTokens(candidateClause);
+  const overlap = [...candidateTokens].filter((token) => sourceTokens.has(token)).length;
+  return overlap >= 2;
+}
+
+function explicitSpecificityKinds(content: string): Set<"singular" | "demonstrative"> {
+  const kinds = new Set<"singular" | "demonstrative">();
+  if (/\b(?:one|single)\b/i.test(content)) kinds.add("singular");
+  if (/\b(?:this|that)\b/i.test(content)) kinds.add("demonstrative");
+  return kinds;
+}
+
+function evidenceSpecificityPreserved(content: string, evidenceMessages: CanonicalConsequenceSourceMessage[]): boolean {
+  const candidateClauses = evidenceClauses(content);
+  for (const sourceClause of evidenceMessages.flatMap((message) => evidenceClauses(message.content))) {
+    const sourceSpecificity = explicitSpecificityKinds(sourceClause);
+    if (sourceSpecificity.size === 0) continue;
+    if (
+      candidateClauses.some((candidateClause) => {
+        const candidateSpecificity = explicitSpecificityKinds(candidateClause);
+        return (
+          [...sourceSpecificity].some((kind) => !candidateSpecificity.has(kind)) &&
+          specificityClauseMatchesCandidate(sourceClause, candidateClause)
+        );
+      })
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function contentSupportedByEvidence(content: string, messages: CanonicalConsequenceSourceMessage[]): boolean {
   const contentTokens = evidenceTokens(content);
   const sourceTokens = evidenceTokens(
     messages.map((message) => `${message.speakerLabel} ${message.content}`).join(" "),
@@ -490,6 +613,8 @@ export async function extractCanonicalMemoryConsequences(input: {
       !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
       !contentSupportedByEvidence(content, evidenceMessages) ||
       !contentSupportedByEvidence(content, [...evidenceMessages, ...referenceMessages]) ||
+      !namedReportingClausesSupportedByEvidence(content, evidenceMessages, request) ||
+      !evidenceSpecificityPreserved(content, evidenceMessages) ||
       (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
     ) {
       skippedCount += 1;

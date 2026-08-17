@@ -169,6 +169,58 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
+  it("accepts a candidate that preserves the cited observation's explicit scope", async () => {
+    const candidate = {
+      kind: "plot_state",
+      content: "One returned Machina has one brass crown.",
+      confidence: 0.95,
+      evidence: "explicit_exchange",
+      sourceMessageIds: ["assistant-machina"],
+    };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([candidate]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The returned Machina has one brass crown.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
+  });
+
+  it("does not apply specificity from an unrelated evidence clause", async () => {
+    const candidate = {
+      kind: "plot_state",
+      content: "Returned Machinas have brass crowns.",
+      confidence: 0.95,
+      evidence: "explicit_exchange",
+      sourceMessageIds: ["assistant-machina"],
+    };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([candidate]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "I saw one silver bird. Returned Machinas have brass crowns.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
+  });
+
   it("resolves a vague topic only when the cited context names it", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([

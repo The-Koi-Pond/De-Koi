@@ -349,7 +349,7 @@ describe("automatic canonical-memory consequence extraction", () => {
         memories: [
           {
             kind: "preference",
-            content: "{{user}} prefers quiet rooms.",
+            content: "{{user}} prefers this room kept quiet.",
             confidence: 0.9,
             evidence: "direct_user_assertion",
             sourceMessageIds: ["user-1"],

@@ -93,6 +93,9 @@ describe("automatic memory consequence extraction", () => {
     expect(prompt).toContain("user-current | user | Celia | My cat's name is Miso.");
     expect(prompt).toContain("user-reference | user | Celia | I meant the circus accident.");
     expect(prompt).toContain("Every memory must make sense as an isolated sentence.");
+    expect(prompt).toContain("Do not use third-person personal pronouns");
+    expect(prompt).toContain("must be supported by cited source rows from that named speaker");
+    expect(prompt).toContain("Preserve explicit one, single, this, or that scope");
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.content).toBe("Celia's cat is named Miso.");
   });
@@ -104,7 +107,7 @@ describe("automatic memory consequence extraction", () => {
     expect(standaloneMemoryFailure("Pierrot said he does not want to talk about it.")).toBe("dangling_topic_reference");
     expect(standaloneMemoryFailure("{{user}}'s cat is named Miso.")).toBeNull();
     expect(standaloneMemoryFailure("{{UserName}} prefers tea.")).toBeNull();
-    expect(standaloneMemoryFailure("Pierrot told Celia that he would return.")).toBeNull();
+    expect(standaloneMemoryFailure("Pierrot told Celia that he would return.")).toBe("third_person_personal_pronoun");
     expect(standaloneMemoryFailure("Pierrot does not want to discuss the circus accident.")).toBeNull();
   });
 
