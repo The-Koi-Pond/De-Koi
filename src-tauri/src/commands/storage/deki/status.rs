@@ -28,7 +28,8 @@ pub(super) struct DekiRuntimeGuard {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum DekiRuntimeOwner {
     Embedded,
-    Host(IpAddr),
+    Authenticated(String),
+    Network(IpAddr),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -336,12 +337,13 @@ mod tests {
     }
 
     #[test]
-    fn runtime_guards_are_isolated_by_authenticated_host() {
-        let first_owner = DekiRuntimeOwner::Host("192.0.2.10".parse().expect("valid test ip"));
-        let second_owner = DekiRuntimeOwner::Host("192.0.2.11".parse().expect("valid test ip"));
-        let first = begin_runtime(&first_owner, "shared-session").expect("first host should start");
+    fn runtime_guards_are_isolated_by_authenticated_principal() {
+        let first_owner = DekiRuntimeOwner::Authenticated("alice".to_string());
+        let second_owner = DekiRuntimeOwner::Authenticated("bob".to_string());
+        let first =
+            begin_runtime(&first_owner, "shared-session").expect("first principal should start");
         let second =
-            begin_runtime(&second_owner, "shared-session").expect("second host should start");
+            begin_runtime(&second_owner, "shared-session").expect("second principal should start");
 
         assert!(runtime_is_active(
             &runtime_scope(&first_owner, "shared-session").expect("valid first scope")

@@ -88,9 +88,11 @@ stable unless the implementation exposes a missing optional field.
   cancellation token or a clear `not_running`/`not_supported` result. Active
   runtime state, status, and abort routing must share a scope made from the
   server-owned runtime owner plus the Deki session id. Embedded calls use the
-  trusted app owner; HTTP security middleware attaches the authenticated,
-  proxy-resolved client host as an explicit server-owned identity before
-  dispatch so request JSON and the raw transport peer cannot forge it. Keep
+  trusted app owner; HTTP security middleware attaches the verified Basic Auth
+  principal as an explicit server-owned identity before dispatch. Requests
+  admitted through an intentional auth bypass use the proxy-resolved client
+  network identity instead. Request JSON and the raw transport peer cannot
+  choose either scope. Keep
   `approve`/`reject` as explicit Slice 3 not-implemented routes if the shared
   API remains callable.
 

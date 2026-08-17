@@ -155,8 +155,9 @@ end note
 
 note right of Status
   Prompt, status, and abort share one server-owned runtime owner
-  plus Deki session id; HTTP middleware supplies the authenticated,
-  proxy-resolved client identity and request JSON cannot choose it.
+  plus Deki session id; HTTP middleware supplies the verified auth principal,
+  or resolved network identity only for an intentional auth bypass.
+  Request JSON cannot choose either owner scope.
   Embedded and remote route registration are updated together,
   and cancellation wakes every waiter for only that session.
   Approve/reject remain Slice 3 unless returned as explicit not-implemented.
