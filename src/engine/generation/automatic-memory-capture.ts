@@ -363,6 +363,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "Preserve conditions, tense, uncertainty, and modality, including which clause is conditional; never turn if, will, may, might, could, probably, seems, or similar qualified wording into an asserted fact.",
     "Preserve each direct subject's identity; never replace one known participant with another.",
     "Bind first-person forms anywhere in a cited row to that row's named speaker; never bind second-person you to the speaker.",
+    "Preserve unresolved second-person argument slots such as you or your; never replace them with another name or topic without explicit addressee evidence.",
     "Preserve reporting acts and their certainty; never replace claimed with confirmed or another different act.",
     "Older reference messages may resolve only a bare name or antecedent identity; they cannot prove descriptors, appositives, relative clauses, or a new claim.",
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
@@ -646,6 +647,7 @@ const FIRST_PERSON_REFERENCE_WORDS = new Set([
   "us",
   "we",
 ]);
+const SECOND_PERSON_REFERENCE_WORDS = new Set(["you", "your", "yours", "yourself", "yourselves"]);
 
 function propositionReportingFrame(value: string, ignoredSpeakerTokens: Set<string>): string | null {
   const words = value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -688,6 +690,10 @@ function propositionContentTokens(
     if (resolvedSpeakerTokens.length > 0 && FIRST_PERSON_REFERENCE_WORDS.has(token)) {
       if (omitFirstPersonSubjects && (token === "i" || token === "we")) continue;
       tokens.push(...resolvedSpeakerTokens);
+      continue;
+    }
+    if (SECOND_PERSON_REFERENCE_WORDS.has(token)) {
+      tokens.push(token);
       continue;
     }
     if (ignoredSpeakerTokens.has(token)) {

@@ -102,6 +102,7 @@ describe("automatic memory consequence extraction", () => {
     expect(prompt).toContain("which clause is conditional");
     expect(prompt).toContain("Preserve each direct subject's identity");
     expect(prompt).toContain("Bind first-person forms anywhere in a cited row");
+    expect(prompt).toContain("Preserve unresolved second-person argument slots");
     expect(prompt).toContain("Preserve reporting acts and their certainty");
     expect(prompt).toContain("only a bare name or antecedent identity");
     expect(prompt).toContain("A commitment requires direct first-person intent");

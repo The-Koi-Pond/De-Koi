@@ -1271,6 +1271,16 @@ describe("memory context clarity semantic fixtures", () => {
       source: "The east gate frightens me.",
       candidate: "The east gate is frightened by Agent Cobalt.",
     },
+    {
+      label: "a surviving topic substituted for second-person object evidence",
+      source: "I trust you about Pierrot.",
+      candidate: "Agent Cobalt trusts Pierrot.",
+    },
+    {
+      label: "a surviving topic substituted for second-person possessive evidence",
+      source: "I trust your judgment about Pierrot.",
+      candidate: "Agent Cobalt trusts Pierrot about judgment.",
+    },
   ])("does not bind $label to the row speaker", async ({ source, candidate }) => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -1296,6 +1306,44 @@ describe("memory context clarity semantic fixtures", () => {
     });
 
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it.each([
+    {
+      label: "the unresolved second-person slot",
+      source: "I trust you about Pierrot.",
+      candidate: "Agent Cobalt trusts you about Pierrot.",
+    },
+    {
+      label: "an unrelated second-person proposition",
+      source: "I trust Pierrot. You can wait outside.",
+      candidate: "Agent Cobalt trusts Pierrot.",
+    },
+  ])("accepts first-person evidence while preserving $label", async ({ source, candidate }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "relationship_state",
+          content: candidate,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-cobalt"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-cobalt",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: source,
+          characterId: "agent-cobalt",
+          createdAt: timestamp,
+          speakerLabel: "Agent Cobalt",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate]);
   });
 
   it("does not import a referenced predicate into an unresolved antecedent", async () => {
