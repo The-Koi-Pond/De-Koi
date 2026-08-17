@@ -133,20 +133,29 @@ impl DekiEvidenceBudget {
         let remaining_total = self.max_total_chars.saturating_sub(self.used_chars);
         if remaining_total == 0 {
             return BudgetedText {
-                text: format!(
-                    "[Deki {label} evidence omitted because the total command evidence budget is exhausted. Narrow the next command with a more specific query, path, id, limit, or page URL.]"
-                ),
+                text: String::new(),
                 truncated: true,
             };
         }
         let limit = self.max_single_chars.min(remaining_total);
-        let (mut text, truncated) = truncate_to_chars(value, limit);
-        self.used_chars += text.chars().count();
-        if truncated {
-            text.push_str(&format!(
-                "\n\n[Deki {label} evidence truncated before prompting to stay within the command evidence budget. Narrow the next command with a more specific query, path, id, limit, or page URL.]"
-            ));
+        let (text, truncated) = truncate_to_chars(value, limit);
+        if !truncated {
+            self.used_chars += text.chars().count();
+            return BudgetedText { text, truncated };
         }
+
+        let marker = format!(
+            "\n\n[Deki {label} evidence truncated. Narrow the next command with a more specific query, path, id, limit, or page URL.]"
+        );
+        let marker_chars = marker.chars().count();
+        let mut text = if marker_chars < limit {
+            truncate_to_chars(value, limit - marker_chars).0
+        } else {
+            String::new()
+        };
+        let marker_limit = limit.saturating_sub(text.chars().count());
+        text.push_str(&truncate_to_chars(&marker, marker_limit).0);
+        self.used_chars += text.chars().count();
         BudgetedText { text, truncated }
     }
 }
@@ -166,15 +175,18 @@ mod tests {
     #[test]
     fn compact_value_limits_single_evidence() {
         let mut budget = DekiEvidenceBudget {
-            max_single_chars: 5,
-            max_total_chars: 100,
+            max_single_chars: 160,
+            max_total_chars: 160,
             used_chars: 0,
         };
-        let compacted = budget.compact_value(&json!({ "text": "abcdefghijklmnopqrstuvwxyz" }));
+        let compacted =
+            budget.compact_value(&json!({ "text": "abcdefghijklmnopqrstuvwxyz".repeat(20) }));
         assert!(compacted.truncated);
         assert!(compacted.text.starts_with("{\n  \""));
         assert!(compacted.text.contains("evidence truncated"));
         assert!(compacted.text.contains("Narrow the next command"));
+        assert!(compacted.text.chars().count() <= 160);
+        assert_eq!(budget.used_chars, compacted.text.chars().count());
     }
 
     #[test]
@@ -186,8 +198,7 @@ mod tests {
         };
         let compacted = budget.compact_text("abcdef");
         assert!(compacted.truncated);
-        assert!(compacted.text.contains("omitted"));
-        assert!(compacted.text.contains("Narrow the next command"));
+        assert!(compacted.text.is_empty());
     }
 
     #[test]

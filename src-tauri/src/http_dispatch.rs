@@ -1477,9 +1477,17 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             deki::deki_prompt(state, optional_value(&args, "request")).await
         }
         "deki_workspace_status" => {
-            deki::deki_workspace_status(state, optional_string(&args, "connectionId")).await
+            deki::deki_workspace_status(
+                state,
+                required_string(&args, "sessionId")?.to_string(),
+                optional_string(&args, "connectionId"),
+            )
+            .await
         }
-        "deki_workspace_abort" => deki::deki_workspace_abort(state).await,
+        "deki_workspace_abort" => {
+            deki::deki_workspace_abort(state, required_string(&args, "sessionId")?.to_string())
+                .await
+        }
         "deki_workspace_approve" => {
             deki::deki_workspace_approve(state, required_string(&args, "id")?.to_string()).await
         }

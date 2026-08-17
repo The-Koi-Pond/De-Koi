@@ -268,6 +268,7 @@ export type DekiWebResearchGrant = {
 };
 
 export type DekiEntryRequest = {
+  sessionId: string;
   userMessage: string;
   messages: DekiMessage[];
   compactedSummary?: string | null;

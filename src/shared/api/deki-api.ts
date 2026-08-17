@@ -1138,15 +1138,16 @@ export const dekiApi = {
       request,
     }),
   workspace: {
-    status: async (connectionId?: string | null): Promise<DekiWorkspaceStatus> => {
+    status: async (sessionId: string, connectionId?: string | null): Promise<DekiWorkspaceStatus> => {
       requireDekiWorkspaceRuntime("deki_workspace_status");
       return invokeTauri<DekiWorkspaceStatus>("deki_workspace_status", {
+        sessionId,
         connectionId: connectionId ?? null,
       });
     },
-    abort: async (): Promise<DekiWorkspaceAbortResult> => {
+    abort: async (sessionId: string): Promise<DekiWorkspaceAbortResult> => {
       requireDekiWorkspaceRuntime("deki_workspace_abort");
-      return invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort");
+      return invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort", { sessionId });
     },
     approve: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
       requireDekiWorkspaceRuntime("deki_workspace_approve");

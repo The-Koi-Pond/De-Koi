@@ -1,7 +1,7 @@
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use super::super::budget::truncate_to_chars;
@@ -113,7 +113,7 @@ pub(in crate::storage_commands::deki) async fn read_deki_web_page(
         )
     })?;
     let url = deki_web_page_url_for_grant(&args.url, grant)?;
-    let client = deki_web_page_client()?;
+    let client = deki_web_page_client(&url).await?;
     let (text, truncated) = if let Some(api_url) = deki_fandom_api_url_for_page(&url) {
         match fetch_deki_web_page_body(&client, &api_url).await {
             Ok((api_body, api_truncated)) => {
@@ -167,26 +167,68 @@ async fn fetch_deki_web_page_body(
     client: &reqwest::Client,
     url: &reqwest::Url,
 ) -> AppResult<(String, bool)> {
-    let bytes = client
+    let mut response = client
         .get(url.clone())
         .send()
         .await
         .map_err(|error| AppError::new("deki_web_page_request_failed", error.to_string()))?
         .error_for_status()
-        .map_err(|error| AppError::new("deki_web_page_status_failed", error.to_string()))?
-        .bytes()
+        .map_err(|error| AppError::new("deki_web_page_status_failed", error.to_string()))?;
+    let mut bytes = Vec::with_capacity(DEKI_WEB_PAGE_MAX_BYTES.min(64 * 1024));
+    let mut truncated = false;
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|error| AppError::new("deki_web_page_body_failed", error.to_string()))?;
-    let truncated = bytes.len() > DEKI_WEB_PAGE_MAX_BYTES;
-    let slice_len = bytes.len().min(DEKI_WEB_PAGE_MAX_BYTES);
-    let body = String::from_utf8_lossy(&bytes[..slice_len]).to_string();
+        .map_err(|error| AppError::new("deki_web_page_body_failed", error.to_string()))?
+    {
+        let remaining = DEKI_WEB_PAGE_MAX_BYTES.saturating_sub(bytes.len());
+        if chunk.len() > remaining {
+            bytes.extend_from_slice(&chunk[..remaining]);
+            truncated = true;
+            break;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let body = String::from_utf8_lossy(&bytes).to_string();
     Ok((body, truncated))
 }
-pub(in crate::storage_commands::deki) fn deki_web_page_client() -> AppResult<reqwest::Client> {
+async fn deki_web_page_client(url: &reqwest::Url) -> AppResult<reqwest::Client> {
+    let host = url.host_str().ok_or_else(|| {
+        AppError::new(
+            "deki_web_page_url_not_public",
+            "Deki-senpai can only read public web page URLs.",
+        )
+    })?;
+    let port = url.port_or_known_default().ok_or_else(|| {
+        AppError::new(
+            "deki_web_page_url_not_public",
+            "The web page URL does not have a supported network port.",
+        )
+    })?;
+    let resolved = if let Ok(ip) = host.parse::<IpAddr>() {
+        vec![SocketAddr::new(ip, port)]
+    } else {
+        tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|error| AppError::new("deki_web_page_dns_failed", error.to_string()))?
+            .collect::<Vec<_>>()
+    };
+    if resolved.is_empty()
+        || resolved
+            .iter()
+            .any(|address| !deki_web_ip_is_public(address.ip()))
+    {
+        return Err(AppError::new(
+            "deki_web_page_url_not_public",
+            "Deki-senpai can only read hosts whose resolved addresses are public.",
+        ));
+    }
+
     reqwest::Client::builder()
         .timeout(Duration::from_secs(DEKI_WEB_SEARCH_TIMEOUT_SECS))
         .user_agent("De-Koi Deki-senpai web research/1.0")
         .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(host, &resolved)
         .build()
         .map_err(|error| AppError::new("deki_web_page_client_failed", error.to_string()))
 }
@@ -321,24 +363,44 @@ fn deki_web_host_is_public(host: &str) -> bool {
         return false;
     }
     if let Ok(ip) = host.parse::<IpAddr>() {
-        return match ip {
-            IpAddr::V4(ip) => {
-                !(ip.is_private()
-                    || ip.is_loopback()
-                    || ip.is_link_local()
-                    || ip.is_unspecified()
-                    || ip.is_broadcast()
-                    || ip.octets()[0] == 0)
-            }
-            IpAddr::V6(ip) => {
-                !(ip.is_loopback()
-                    || ip.is_unspecified()
-                    || ip.is_unique_local()
-                    || ip.is_unicast_link_local())
-            }
-        };
+        return deki_web_ip_is_public(ip);
     }
     true
+}
+
+fn deki_web_ip_is_public(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            !(ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || ip.is_multicast()
+                || octets[0] == 0
+                || octets[0] >= 240
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+                || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+                || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113))
+        }
+        IpAddr::V6(ip) => {
+            if let Some(mapped) = ip.to_ipv4() {
+                return deki_web_ip_is_public(IpAddr::V4(mapped));
+            }
+            let segments = ip.segments();
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
+                || ip.is_multicast()
+                || segments[0] & 0xffc0 == 0xfec0
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8))
+        }
+    }
 }
 
 fn deki_web_domain_matches(host: &str, approved_domain: &str) -> bool {
@@ -692,6 +754,28 @@ fn strip_deki_html(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_page_addresses_must_resolve_to_public_networks() {
+        for address in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+        ] {
+            let ip = address
+                .parse::<IpAddr>()
+                .expect("test address should parse");
+            assert!(!deki_web_ip_is_public(ip), "{address} must be rejected");
+        }
+        assert!(deki_web_ip_is_public(
+            "1.1.1.1".parse().expect("public test address should parse")
+        ));
+    }
 
     #[test]
     fn web_search_results_stay_inside_the_approved_domain_scope() {

@@ -2,9 +2,10 @@ use super::super::llm::{llm_connection_from_value, resolve_llm_connection_for_re
 use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use tokio::sync::Notify;
+use tokio::sync::watch;
 
 #[derive(Clone, Debug)]
 pub(super) struct DekiRuntimeCancellation {
@@ -14,20 +15,20 @@ pub(super) struct DekiRuntimeCancellation {
 
 #[derive(Debug)]
 struct DekiRuntimeCancellationInner {
-    cancelled: AtomicBool,
-    notify: Notify,
+    cancelled: watch::Sender<bool>,
 }
 
 #[derive(Debug)]
 pub(super) struct DekiRuntimeGuard {
+    scope: String,
     cancellation: DekiRuntimeCancellation,
 }
 
 static NEXT_RUNTIME_ID: AtomicU64 = AtomicU64::new(1);
-static ACTIVE_RUNTIME: OnceLock<Mutex<Option<DekiRuntimeCancellation>>> = OnceLock::new();
+static ACTIVE_RUNTIMES: OnceLock<Mutex<HashMap<String, DekiRuntimeCancellation>>> = OnceLock::new();
 
-fn active_runtime() -> &'static Mutex<Option<DekiRuntimeCancellation>> {
-    ACTIVE_RUNTIME.get_or_init(|| Mutex::new(None))
+fn active_runtimes() -> &'static Mutex<HashMap<String, DekiRuntimeCancellation>> {
+    ACTIVE_RUNTIMES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 impl DekiRuntimeCancellation {
@@ -35,14 +36,13 @@ impl DekiRuntimeCancellation {
         Self {
             id: NEXT_RUNTIME_ID.fetch_add(1, Ordering::Relaxed),
             inner: Arc::new(DekiRuntimeCancellationInner {
-                cancelled: AtomicBool::new(false),
-                notify: Notify::new(),
+                cancelled: watch::channel(false).0,
             }),
         }
     }
 
     pub(super) fn ensure_not_cancelled(&self) -> AppResult<()> {
-        if self.inner.cancelled.load(Ordering::Acquire) {
+        if *self.inner.cancelled.borrow() {
             Err(AppError::new(
                 "deki_workspace_aborted",
                 "Deki-senpai's workspace run was cancelled.",
@@ -53,15 +53,19 @@ impl DekiRuntimeCancellation {
     }
 
     pub(super) async fn cancelled(&self) {
-        if self.inner.cancelled.load(Ordering::Acquire) {
+        let mut cancelled = self.inner.cancelled.subscribe();
+        if *cancelled.borrow_and_update() {
             return;
         }
-        self.inner.notify.notified().await;
+        while cancelled.changed().await.is_ok() {
+            if *cancelled.borrow_and_update() {
+                return;
+            }
+        }
     }
 
     fn cancel(&self) {
-        self.inner.cancelled.store(true, Ordering::Release);
-        self.inner.notify.notify_one();
+        self.inner.cancelled.send_replace(true);
     }
 }
 
@@ -73,42 +77,56 @@ impl DekiRuntimeGuard {
 
 impl Drop for DekiRuntimeGuard {
     fn drop(&mut self) {
-        let Ok(mut active) = active_runtime().lock() else {
+        let Ok(mut active) = active_runtimes().lock() else {
             return;
         };
         if active
-            .as_ref()
+            .get(&self.scope)
             .map(|runtime| runtime.id == self.cancellation.id)
             .unwrap_or(false)
         {
-            *active = None;
+            active.remove(&self.scope);
         }
     }
 }
 
-pub(super) fn begin_runtime() -> AppResult<DekiRuntimeGuard> {
-    let mut active = active_runtime().lock().map_err(|_| {
+pub(super) fn begin_runtime(scope: &str) -> AppResult<DekiRuntimeGuard> {
+    let scope = validate_runtime_scope(scope)?;
+    let mut active = active_runtimes().lock().map_err(|_| {
         AppError::new(
             "deki_workspace_state_failed",
             "Deki workspace runtime state is unavailable.",
         )
     })?;
-    if active.is_some() {
+    if active.contains_key(&scope) {
         return Err(AppError::new(
             "deki_workspace_busy",
             "Deki-senpai is already running a workspace task.",
         ));
     }
     let cancellation = DekiRuntimeCancellation::new();
-    *active = Some(cancellation.clone());
-    Ok(DekiRuntimeGuard { cancellation })
+    active.insert(scope.clone(), cancellation.clone());
+    Ok(DekiRuntimeGuard {
+        scope,
+        cancellation,
+    })
 }
 
-fn runtime_is_active() -> bool {
-    active_runtime()
+fn runtime_is_active(scope: &str) -> bool {
+    active_runtimes()
         .lock()
-        .map(|active| active.is_some())
+        .map(|active| active.contains_key(scope))
         .unwrap_or(false)
+}
+
+fn validate_runtime_scope(scope: &str) -> AppResult<String> {
+    let scope = scope.trim();
+    if scope.is_empty() || scope.chars().count() > 256 {
+        return Err(AppError::invalid_input(
+            "A valid Deki session id is required for workspace runtime control.",
+        ));
+    }
+    Ok(scope.to_string())
 }
 
 pub(super) const DEKI_WORKSPACE_TOOLS: &[&str] = &[
@@ -131,8 +149,10 @@ pub(super) const DEKI_WORKSPACE_TOOLS: &[&str] = &[
 
 pub(crate) async fn deki_workspace_status(
     state: &AppState,
+    session_id: String,
     connection_id: Option<String>,
 ) -> AppResult<Value> {
+    let session_id = validate_runtime_scope(&session_id)?;
     let workspace = super::deki_repo_root()
         .ok()
         .map(|path| path.to_string_lossy().to_string());
@@ -163,7 +183,7 @@ pub(crate) async fn deki_workspace_status(
         "tools": DEKI_WORKSPACE_TOOLS,
         "dataAccess": "server-managed",
         "connection": connection,
-        "active": runtime_is_active(),
+        "active": runtime_is_active(&session_id),
         "pendingApprovals": [],
         "history": [],
         "error": error,
@@ -192,8 +212,12 @@ fn deki_workspace_connection_summary(state: &AppState, connection_id: &str) -> A
     }))
 }
 
-pub(crate) async fn deki_workspace_abort(_state: &AppState) -> AppResult<Value> {
-    let runtime = active_runtime()
+pub(crate) async fn deki_workspace_abort(
+    _state: &AppState,
+    session_id: String,
+) -> AppResult<Value> {
+    let session_id = validate_runtime_scope(&session_id)?;
+    let runtime = active_runtimes()
         .lock()
         .map_err(|_| {
             AppError::new(
@@ -201,7 +225,8 @@ pub(crate) async fn deki_workspace_abort(_state: &AppState) -> AppResult<Value> 
                 "Deki workspace runtime state is unavailable.",
             )
         })?
-        .clone();
+        .get(&session_id)
+        .cloned();
     if let Some(runtime) = runtime {
         runtime.cancel();
         return Ok(json!({
@@ -261,5 +286,42 @@ mod tests {
 
         let error = waiting.await.expect("waiter should finish");
         assert_eq!(error.code, "deki_workspace_aborted");
+    }
+
+    #[test]
+    fn runtime_guards_are_isolated_by_session() {
+        let first = begin_runtime("status-test-session-a").expect("first session should start");
+        let second = begin_runtime("status-test-session-b").expect("second session should start");
+
+        assert!(runtime_is_active("status-test-session-a"));
+        assert!(runtime_is_active("status-test-session-b"));
+        assert_eq!(
+            begin_runtime("status-test-session-a")
+                .expect_err("the same session must not overlap")
+                .code,
+            "deki_workspace_busy"
+        );
+
+        drop(first);
+        drop(second);
+    }
+
+    #[tokio::test]
+    async fn cancellation_wakes_all_waiters_without_a_lost_wakeup() {
+        let cancellation = DekiRuntimeCancellation::new();
+        let first = tokio::spawn({
+            let cancellation = cancellation.clone();
+            async move { cancellation.cancelled().await }
+        });
+        let second = tokio::spawn({
+            let cancellation = cancellation.clone();
+            async move { cancellation.cancelled().await }
+        });
+
+        cancellation.cancel();
+
+        first.await.expect("first waiter should finish");
+        second.await.expect("second waiter should finish");
+        cancellation.cancelled().await;
     }
 }

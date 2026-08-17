@@ -53,7 +53,7 @@ stable unless the implementation exposes a missing optional field.
   be migrated only with a separately reviewed approval design.
 
 - The bounded command loop should live in `deki/loop.rs`. It owns max rounds,
-  wall-clock timeout checks, optional cancellation checks, internal trace
+  wall-clock timeout checks, cancellation checks, internal trace
   collection, command result compaction, and stop-condition handling.
 - Protocol parsing should live in `deki/protocol.rs`. It owns JSON frame
   extraction, fenced JSON stripping, multiple-frame rejection, visible
@@ -75,7 +75,9 @@ stable unless the implementation exposes a missing optional field.
 - Existing web research is in scope for Slice 2 as a read-only command family
   only when a matching approved web research grant exists. Web commands must use
   the same consent, public URL, allowed-domain, timeout, and result-size
-  constraints as the current main-branch behavior.
+  constraints as the current main-branch behavior. Page reads must resolve every
+  target address as public, pin the HTTP client to those validated addresses,
+  disable redirects, and enforce the response byte cap while streaming.
 - Exact code edits, extension creation, custom-agent creation, raw shell, and
   app-data mutation are not JSON-runtime commands in Slice 2. Existing selected
   write capabilities may remain on the native compatibility path; do not add
@@ -83,7 +85,9 @@ stable unless the implementation exposes a missing optional field.
 - Workspace status routing must match the chosen runtime shape. If Slice 2 makes
   workspace status meaningful, add explicit embedded and remote routing for
   `deki_workspace_status`. Add `deki_workspace_abort` only with a real
-  cancellation token or a clear `not_running`/`not_supported` result. Keep
+  cancellation token or a clear `not_running`/`not_supported` result. Active
+  runtime state, status, and abort routing must share the same Deki session id so
+  one session cannot block or cancel another. Keep
   `approve`/`reject` as explicit Slice 3 not-implemented routes if the shared
   API remains callable.
 

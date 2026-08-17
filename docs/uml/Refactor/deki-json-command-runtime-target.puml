@@ -60,12 +60,12 @@ package "Deki Rust runtime owner" {
     component "deki/protocol.rs\nJSON frame extraction,\nvisible say/message/final selection,\nprotocol leakage stripping" as Protocol <<module>>
     component "deki/budget.rs\nper-command, per-round,\ntotal evidence and trace budgets" as Budget <<module>>
     component "deki/action_parser.rs\n<deki_action> extraction,\nrepair, validation, one-action rule" as ActionParser <<module>>
-    component "deki/status.rs\nworkspace status/abort DTOs,\nroute state, enabled tools" as Status <<module>>
+    component "deki/status.rs\nsession-scoped status/abort,\nruntime state, enabled tools" as Status <<module>>
     component "deki/commands/mod.rs\ntyped read-only command registry;\nno broad Value switch" as CommandRegistry <<module>>
     component "deki/commands/code.rs\nrepo ls/find/grep/read\nsafe relative paths" as CodeCommands <<module>>
     component "deki/library.rs\ncreative library overview/detail reads" as Library <<module>>
     component "deki/chat_access.rs\nscoped chat grants and bounded messages" as ChatAccess <<module>>
-    component "deki/commands/web.rs\napproved web search/page reads,\nresult/page/time limits" as WebCommands <<module>>
+    component "deki/commands/web.rs\napproved web search/page reads,\nDNS pinning + streamed caps" as WebCommands <<module>>
 }
 
 package "Rust capability edges" {
@@ -74,7 +74,7 @@ package "Rust capability edges" {
     component "marinara_security\nrepo path safety and local/public URL guards" as Security <<rust>>
     component "De-Koi repository root\nbounded source/guidance reads only" as RepoRoot <<edge>>
     component "Public web\nonly after matching grant;\nbounded search/page fetch" as PublicWeb <<edge>>
-    component "Runtime clock/cancel state\nwall-time budget and abort checks" as RuntimeState <<edge>>
+    component "Per-session runtime clock/cancel state\nwall-time budget and abort checks" as RuntimeState <<edge>>
 }
 
 package "Out of scope for Slice 2" {
@@ -153,8 +153,9 @@ note bottom of Budget
 end note
 
 note right of Status
-  If workspace status becomes meaningful in Slice 2,
-  embedded and remote route registration must be updated together.
+  Prompt, status, and abort share one Deki session id.
+  Embedded and remote route registration are updated together,
+  and cancellation wakes every waiter for only that session.
   Approve/reject remain Slice 3 unless returned as explicit not-implemented.
 end note
 

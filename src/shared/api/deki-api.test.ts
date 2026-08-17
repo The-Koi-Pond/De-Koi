@@ -543,8 +543,8 @@ describe("dekiApi settings persistence", () => {
     embeddedMock.mockReturnValue(false);
     remoteRuntimeTargetMock.mockReturnValue(null);
 
-    const status = dekiApi.workspace.status("conn-1");
-    const abort = dekiApi.workspace.abort();
+    const status = dekiApi.workspace.status("session-1", "conn-1");
+    const abort = dekiApi.workspace.abort("session-1");
     const approval = dekiApi.workspace.approve("approval-1");
 
     await expect(status).rejects.toMatchObject({
@@ -589,9 +589,12 @@ describe("dekiApi settings persistence", () => {
       history: [],
     });
 
-    await dekiApi.workspace.status("conn-1");
+    await dekiApi.workspace.status("session-1", "conn-1");
 
-    expect(invokeMock).toHaveBeenCalledWith("deki_workspace_status", { connectionId: "conn-1" });
+    expect(invokeMock).toHaveBeenCalledWith("deki_workspace_status", {
+      sessionId: "session-1",
+      connectionId: "conn-1",
+    });
   });
 
   it("routes workspace abort and preserves the not-running result", async () => {
@@ -604,13 +607,13 @@ describe("dekiApi settings persistence", () => {
       reason: "Deki workspace runtime is not running.",
     });
 
-    await expect(dekiApi.workspace.abort()).resolves.toMatchObject({
+    await expect(dekiApi.workspace.abort("session-1")).resolves.toMatchObject({
       status: "not_running",
       aborted: false,
       active: false,
     });
 
-    expect(invokeMock).toHaveBeenCalledWith("deki_workspace_abort");
+    expect(invokeMock).toHaveBeenCalledWith("deki_workspace_abort", { sessionId: "session-1" });
   });
 
   it("routes workspace approval calls through the remote runtime when configured", async () => {

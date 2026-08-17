@@ -113,6 +113,7 @@ const LEGACY_DEKI_REPO_ROOT_ENV: &str = "MARINARA_REPO_ROOT";
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DekiPromptRequest {
+    session_id: String,
     user_message: String,
     #[serde(default)]
     messages: Vec<DekiPromptMessage>,
@@ -1433,7 +1434,7 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
         )
     };
     if !use_native_tool_path {
-        let runtime_guard = status::begin_runtime()?;
+        let runtime_guard = status::begin_runtime(&input.session_id)?;
         let response = command_loop::run_json_command_runtime(command_loop::DekiJsonRuntimeInput {
             state,
             connection,
@@ -1525,13 +1526,14 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
 
 pub(crate) async fn deki_workspace_status(
     state: &AppState,
+    session_id: String,
     connection_id: Option<String>,
 ) -> AppResult<Value> {
-    status::deki_workspace_status(state, connection_id).await
+    status::deki_workspace_status(state, session_id, connection_id).await
 }
 
-pub(crate) async fn deki_workspace_abort(state: &AppState) -> AppResult<Value> {
-    status::deki_workspace_abort(state).await
+pub(crate) async fn deki_workspace_abort(state: &AppState, session_id: String) -> AppResult<Value> {
+    status::deki_workspace_abort(state, session_id).await
 }
 
 pub(crate) async fn deki_workspace_approve(state: &AppState, id: String) -> AppResult<Value> {
@@ -4161,6 +4163,7 @@ mod tests {
 
     fn test_deki_prompt_request(user_message: &str) -> DekiPromptRequest {
         DekiPromptRequest {
+            session_id: "test-session".to_string(),
             user_message: user_message.to_string(),
             messages: Vec::new(),
             compacted_summary: None,
@@ -4312,9 +4315,13 @@ mod tests {
             )
             .expect("connection should be saved");
 
-        let status = deki_workspace_status(&state, Some("conn-1".to_string()))
-            .await
-            .expect("workspace status should return");
+        let status = deki_workspace_status(
+            &state,
+            "workspace-status-session".to_string(),
+            Some("conn-1".to_string()),
+        )
+        .await
+        .expect("workspace status should return");
 
         assert_eq!(status["enabled"], json!(true));
         assert_eq!(status["connection"]["id"], json!("conn-1"));
@@ -4333,7 +4340,7 @@ mod tests {
     async fn deki_workspace_abort_reports_not_running() {
         let state = test_state("workspace-abort-not-running");
 
-        let result = deki_workspace_abort(&state)
+        let result = deki_workspace_abort(&state, "workspace-abort-session".to_string())
             .await
             .expect("workspace abort should return");
 
@@ -4649,6 +4656,7 @@ mod tests {
     fn deki_interaction_based_library_prompt_requests_chat_access_before_library_routing() {
         let connection = test_connection("openai");
         let input = DekiPromptRequest {
+            session_id: "test-session".to_string(),
             user_message: "Suggest changes to this character based on my interactions with her."
                 .to_string(),
             messages: Vec::new(),
@@ -4678,6 +4686,7 @@ mod tests {
     fn deki_interaction_based_prompt_uses_chat_context_snapshot_after_grant() {
         let connection = test_connection("openai");
         let input = DekiPromptRequest {
+            session_id: "test-session".to_string(),
             user_message: "Suggest changes to this character based on my interactions with her."
                 .to_string(),
             messages: Vec::new(),
@@ -4723,6 +4732,7 @@ mod tests {
     fn deki_resume_prompt_uses_chat_context_snapshot_after_grant() {
         let connection = test_connection("openai_chatgpt");
         let input = DekiPromptRequest {
+            session_id: "test-session".to_string(),
             user_message: [
                 "The user approved the requested scoped chat access.",
                 "Resume the original task now using the approved chat context.",
@@ -5316,6 +5326,7 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
     fn deki_prompt_lists_approved_web_research_grants() {
         let prompt = build_task_prompt(
             &DekiPromptRequest {
+                session_id: "test-session".to_string(),
                 user_message: "Can you check Ghostface?".to_string(),
                 messages: Vec::new(),
                 compacted_summary: None,
@@ -5849,6 +5860,7 @@ Extra visible text."#;
     fn prompt_with_attachments(attachments: Vec<DekiAttachment>) -> String {
         build_task_prompt(
             &DekiPromptRequest {
+                session_id: "test-session".to_string(),
                 user_message: "Please inspect this attachment.".to_string(),
                 messages: Vec::new(),
                 compacted_summary: None,
