@@ -446,21 +446,28 @@ function namedReportingClausesSupportedByEvidence(
 ): boolean {
   const speakerLabels = knownSpeakerLabels(request);
   if (speakerLabels.length === 0) return true;
+  const speakerAlternation = speakerLabels.map(escapeRegExp).join("|");
+  const namedSpeaker = `(?:${speakerAlternation})`;
+  const reportingSubject = `(${namedSpeaker}(?:(?:\\s*,\\s*(?:and\\s+)?|\\s+and\\s+)${namedSpeaker})*)`;
   const pattern = new RegExp(
-    `(?:^|[^\\p{L}\\p{N}_])(${speakerLabels.map(escapeRegExp).join("|")})\\s+(?:(?:has|had)\\s+)?${REPORTING_OR_COMMITMENT_VERB}\\b([^.!?;]*)`,
+    `(?:^|[^\\p{L}\\p{N}_])${reportingSubject}\\s+(?:(?:has|have|had)\\s+)?${REPORTING_OR_COMMITMENT_VERB}\\b([^.!?;]*)`,
     "giu",
   );
   for (const match of content.matchAll(pattern)) {
-    const speakerLabel = match[1]?.trim() ?? "";
+    const subject = match[1]?.trim() ?? "";
     const claim = match[2]?.trim() ?? "";
-    const speakerEvidence = evidenceMessages.filter((message) =>
-      messageBelongsToSpeaker(message, speakerLabel, request),
-    );
-    if (
-      speakerEvidence.length === 0 ||
-      !speakerEvidence.some((message) => meaningfulEvidenceOverlap(claim, message.content))
-    ) {
-      return false;
+    const subjectLabelPattern = new RegExp(`(?:^|[^\\p{L}\\p{N}_])(${speakerAlternation})(?![\\p{L}\\p{N}_])`, "giu");
+    const subjectLabels = [...subject.matchAll(subjectLabelPattern)].map((labelMatch) => labelMatch[1]?.trim() ?? "");
+    for (const speakerLabel of subjectLabels) {
+      const speakerEvidence = evidenceMessages.filter((message) =>
+        messageBelongsToSpeaker(message, speakerLabel, request),
+      );
+      if (
+        speakerEvidence.length === 0 ||
+        !speakerEvidence.some((message) => meaningfulEvidenceOverlap(claim, message.content))
+      ) {
+        return false;
+      }
     }
   }
   return true;
@@ -487,10 +494,45 @@ function specificityClauseMatchesCandidate(sourceClause: string, candidateClause
   return overlap >= 2;
 }
 
+function broadensSingularEvidence(sourceClause: string, candidateClause: string): boolean {
+  const sourceWords = new Set(sourceClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+  const candidateWords = candidateClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  return candidateWords.some(
+    (word, index) =>
+      word.length > 4 &&
+      word.endsWith("s") &&
+      !sourceWords.has(word) &&
+      sourceWords.has(word.slice(0, -1)) &&
+      candidateWords
+        .slice(index + 1, index + 4)
+        .some((followingWord) =>
+          /^(?:all|are|do|each|generally|have|often|typically|usually|were)$/.test(followingWord),
+        ),
+  );
+}
+
+const COMPLEMENTIZER_THAT_PREDECESSOR = new RegExp(
+  "^(?:agrees?|agreed|assumes?|assumed|believes?|believed|claims?|claimed|confirms?|confirmed|" +
+    "discovers?|discovered|expects?|expected|explains?|explained|feels?|felt|finds?|found|hears?|heard|" +
+    "hopes?|hoped|indicates?|indicated|knows?|knew|known|learns?|learned|learnt|means?|meant|" +
+    "mentions?|mentioned|notices?|noticed|observes?|observed|promises?|promised|realizes?|realized|" +
+    "remembers?|remembered|reports?|reported|says?|said|sees?|saw|seen|shows?|showed|shown|" +
+    "states?|stated|suggests?|suggested|thinks?|thought|understands?|understood)$",
+);
+
+function hasDemonstrativeThat(content: string): boolean {
+  for (const match of content.matchAll(/\bthat\b/giu)) {
+    const before = content.slice(0, match.index).trimEnd();
+    const previousWord = before.match(/[\p{L}\p{N}]+$/u)?.[0]?.toLowerCase() ?? "";
+    if (!COMPLEMENTIZER_THAT_PREDECESSOR.test(previousWord)) return true;
+  }
+  return false;
+}
+
 function explicitSpecificityKinds(content: string): Set<"singular" | "demonstrative"> {
   const kinds = new Set<"singular" | "demonstrative">();
   if (/\b(?:one|single)\b/i.test(content)) kinds.add("singular");
-  if (/\b(?:this|that)\b/i.test(content)) kinds.add("demonstrative");
+  if (/\bthis\b/i.test(content) || hasDemonstrativeThat(content)) kinds.add("demonstrative");
   return kinds;
 }
 
@@ -503,8 +545,9 @@ function evidenceSpecificityPreserved(content: string, evidenceMessages: Canonic
       candidateClauses.some((candidateClause) => {
         const candidateSpecificity = explicitSpecificityKinds(candidateClause);
         return (
-          [...sourceSpecificity].some((kind) => !candidateSpecificity.has(kind)) &&
-          specificityClauseMatchesCandidate(sourceClause, candidateClause)
+          specificityClauseMatchesCandidate(sourceClause, candidateClause) &&
+          ([...sourceSpecificity].some((kind) => !candidateSpecificity.has(kind)) ||
+            broadensSingularEvidence(sourceClause, candidateClause))
         );
       })
     ) {

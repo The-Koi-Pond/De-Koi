@@ -142,12 +142,66 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
+  it("rejects an unsupported participant in a compound reporting subject", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "Shlo and Agent Cobalt discussed returned Machina.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-cobalt"],
+        },
+      ]),
+      request: request("Shlo", [
+        {
+          id: "assistant-cobalt",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "I discussed returned Machina.",
+          characterId: "cobalt",
+          createdAt: timestamp,
+          speakerLabel: "Agent Cobalt",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("rejects a general rule inferred from one returned-Machina observation", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
         {
           kind: "plot_state",
           content: "Returned Machinas have brass crowns.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-machina"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The returned Machina has one brass crown.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects class-wide subject drift even when a local quantifier remains", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "Returned Machinas each have one brass crown.",
           confidence: 0.95,
           evidence: "explicit_exchange",
           sourceMessageIds: ["assistant-machina"],
@@ -214,6 +268,58 @@ describe("memory context clarity semantic fixtures", () => {
           characterId: "pierrot",
           createdAt: timestamp,
           speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
+  });
+
+  it("does not treat a complementizer that as demonstrative scope", async () => {
+    const candidate = {
+      kind: "fact",
+      content: "Celia knows Miso is hungry.",
+      confidence: 0.95,
+      evidence: "direct_user_assertion",
+      sourceMessageIds: ["user-current"],
+    };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([candidate]),
+      request: request("Celia", [
+        {
+          id: "user-current",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "I know that Miso is hungry.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Celia",
+        },
+      ]),
+    });
+
+    expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
+  });
+
+  it("accepts a candidate that preserves determiner that scope", async () => {
+    const candidate = {
+      kind: "preference",
+      content: "Celia likes that room.",
+      confidence: 0.95,
+      evidence: "direct_user_assertion",
+      sourceMessageIds: ["user-current"],
+    };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([candidate]),
+      request: request("Celia", [
+        {
+          id: "user-current",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "I like that room.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Celia",
         },
       ]),
     });
