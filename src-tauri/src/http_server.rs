@@ -1,4 +1,4 @@
-use crate::http_dispatch::{dispatch, InvokeRequest};
+use crate::http_dispatch::{dispatch_for_runtime_owner, InvokeRequest};
 use crate::state::AppState;
 use crate::storage_commands::{
     avatars, connection_secrets, entity_images, fonts, imports, integrations, llm, lorebook_images,
@@ -6,7 +6,7 @@ use crate::storage_commands::{
 };
 use axum::body::Body;
 use axum::extract::multipart::Field;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Multipart, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
@@ -669,6 +669,7 @@ fn content_type_for_path(path: &FsPath) -> &'static str {
 async fn invoke(
     State(state): State<HttpState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Extension(AuthorizedDekiRuntimeOwner(runtime_owner)): Extension<AuthorizedDekiRuntimeOwner>,
     headers: HeaderMap,
     Json(request): Json<InvokeRequest>,
 ) -> Response {
@@ -705,7 +706,7 @@ async fn invoke(
         }
         return response;
     }
-    match dispatch(&state.app, request).await {
+    match dispatch_for_runtime_owner(&state.app, request, runtime_owner).await {
         Ok(value) => {
             request_log(format!(
                 "invoke {command} ok in {}ms",
@@ -1837,6 +1838,7 @@ struct SecurityConfig {
 
 #[derive(Debug, Clone)]
 struct BasicAuthConfig {
+    principal: String,
     expected_header: Vec<u8>,
 }
 
@@ -1886,6 +1888,9 @@ struct ApiRateLimitOutcome {
     retry_after: Option<Duration>,
 }
 
+#[derive(Clone, Debug)]
+struct AuthorizedDekiRuntimeOwner(crate::storage_commands::deki::DekiRuntimeOwner);
+
 impl Default for ApiRateLimiter {
     fn default() -> Self {
         Self {
@@ -1933,6 +1938,12 @@ async fn api_controls_middleware(
 
     match controls.security.evaluate_request(&request) {
         Ok(()) => {
+            let runtime_owner = controls
+                .security
+                .deki_runtime_owner(client_ip, request.headers());
+            request
+                .extensions_mut()
+                .insert(AuthorizedDekiRuntimeOwner(runtime_owner));
             let mut response = next.run(request).await;
             if let Some(outcome) = &rate_limit {
                 apply_rate_limit_headers_when_missing(response.headers_mut(), outcome);
@@ -2214,6 +2225,7 @@ impl SecurityConfig {
             env_value("BASIC_AUTH_REALM").unwrap_or_else(|| "De-Koi".to_string());
         let basic_auth = match (user, pass) {
             (Some(user), Some(pass)) => Some(BasicAuthConfig {
+                principal: user.clone(),
                 expected_header: format!(
                     "Basic {}",
                     general_purpose::STANDARD.encode(format!("{user}:{pass}"))
@@ -2298,6 +2310,29 @@ impl SecurityConfig {
         peer
     }
 
+    fn authenticated_principal<'a>(&'a self, headers: &HeaderMap) -> Option<&'a str> {
+        let config = self.basic_auth.as_ref()?;
+        let provided = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+        constant_time_eq(provided.as_bytes(), &config.expected_header)
+            .then_some(config.principal.as_str())
+    }
+
+    fn deki_runtime_owner(
+        &self,
+        client_ip: IpAddr,
+        headers: &HeaderMap,
+    ) -> crate::storage_commands::deki::DekiRuntimeOwner {
+        if is_loopback(client_ip) || self.is_trusted_interface_ip(client_ip) {
+            return crate::storage_commands::deki::DekiRuntimeOwner::UnauthenticatedRemote;
+        }
+        match self.authenticated_principal(headers) {
+            Some(principal) => crate::storage_commands::deki::DekiRuntimeOwner::Authenticated(
+                principal.to_string(),
+            ),
+            None => crate::storage_commands::deki::DekiRuntimeOwner::UnauthenticatedRemote,
+        }
+    }
+
     fn evaluate_request(&self, request: &Request<Body>) -> Result<(), SecurityRejection> {
         let path = request.uri().path();
         let method = request.method();
@@ -2335,7 +2370,7 @@ impl SecurityConfig {
             return Ok(());
         }
 
-        let Some(config) = &self.basic_auth else {
+        if self.basic_auth.is_none() {
             if self.is_ip_allowlisted(ip) {
                 return Ok(());
             }
@@ -2351,15 +2386,9 @@ impl SecurityConfig {
                 "remote_auth_required",
                 "Non-loopback access requires BASIC_AUTH_USER and BASIC_AUTH_PASS, IP_ALLOWLIST, or an explicit unauthenticated remote opt-in",
             ));
-        };
+        }
 
-        let Some(header_value) = headers.get(header::AUTHORIZATION) else {
-            return Err(SecurityRejection::challenge("Authentication required"));
-        };
-        let Ok(provided) = header_value.to_str() else {
-            return Err(SecurityRejection::challenge("Authentication required"));
-        };
-        if constant_time_eq(provided.as_bytes(), &config.expected_header) {
+        if self.authenticated_principal(headers).is_some() {
             Ok(())
         } else {
             Err(SecurityRejection::challenge("Authentication required"))
@@ -3047,6 +3076,7 @@ mod tests {
 
     fn basic_auth(user: &str, pass: &str) -> BasicAuthConfig {
         BasicAuthConfig {
+            principal: user.to_string(),
             expected_header: format!(
                 "Basic {}",
                 general_purpose::STANDARD.encode(format!("{user}:{pass}"))
@@ -3522,6 +3552,9 @@ mod tests {
             let response = invoke(
                 State(state.clone()),
                 ConnectInfo(addr),
+                Extension(AuthorizedDekiRuntimeOwner(
+                    crate::storage_commands::deki::DekiRuntimeOwner::UnauthenticatedRemote,
+                )),
                 HeaderMap::new(),
                 Json(InvokeRequest {
                     command: "update_apply".to_string(),
@@ -3542,6 +3575,9 @@ mod tests {
         let blocked = invoke(
             State(state),
             ConnectInfo(addr),
+            Extension(AuthorizedDekiRuntimeOwner(
+                crate::storage_commands::deki::DekiRuntimeOwner::UnauthenticatedRemote,
+            )),
             HeaderMap::new(),
             Json(InvokeRequest {
                 command: "update_apply".to_string(),
@@ -4157,6 +4193,55 @@ mod tests {
         );
 
         assert!(security.evaluate_request(&request).is_ok());
+    }
+
+    #[test]
+    fn deki_runtime_owner_uses_the_authenticated_principal_before_shared_ip() {
+        let client_ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10));
+        let mut alice_security = test_security();
+        alice_security.basic_auth = Some(basic_auth("alice", "pass"));
+        let mut alice_headers = HeaderMap::new();
+        alice_headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic YWxpY2U6cGFzcw=="),
+        );
+        let mut bob_security = test_security();
+        bob_security.basic_auth = Some(basic_auth("bob", "pass"));
+        let mut bob_headers = HeaderMap::new();
+        bob_headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic Ym9iOnBhc3M="),
+        );
+
+        assert_eq!(
+            alice_security.deki_runtime_owner(client_ip, &alice_headers),
+            crate::storage_commands::deki::DekiRuntimeOwner::Authenticated("alice".to_string())
+        );
+        assert_eq!(
+            bob_security.deki_runtime_owner(client_ip, &bob_headers),
+            crate::storage_commands::deki::DekiRuntimeOwner::Authenticated("bob".to_string())
+        );
+    }
+
+    #[test]
+    fn deki_runtime_owner_is_canonical_for_auth_bypass_with_optional_header() {
+        let client_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let mut security = test_security();
+        security.basic_auth = Some(basic_auth("alice", "pass"));
+        let mut authenticated_headers = HeaderMap::new();
+        authenticated_headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic YWxpY2U6cGFzcw=="),
+        );
+
+        assert_eq!(
+            security.deki_runtime_owner(client_ip, &authenticated_headers),
+            crate::storage_commands::deki::DekiRuntimeOwner::UnauthenticatedRemote
+        );
+        assert_eq!(
+            security.deki_runtime_owner(client_ip, &HeaderMap::new()),
+            crate::storage_commands::deki::DekiRuntimeOwner::UnauthenticatedRemote
+        );
     }
 
     #[test]

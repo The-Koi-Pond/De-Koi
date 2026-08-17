@@ -139,7 +139,16 @@ fn optional_string_vec(args: &Map<String, Value>, key: &str) -> AppResult<Vec<St
         .collect()
 }
 
+#[cfg(test)]
 pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Value> {
+    dispatch_for_runtime_owner(state, request, deki::DekiRuntimeOwner::Embedded).await
+}
+
+pub(crate) async fn dispatch_for_runtime_owner(
+    state: &AppState,
+    request: InvokeRequest,
+    runtime_owner: deki::DekiRuntimeOwner,
+) -> AppResult<Value> {
     let command = request.command.as_str();
     let args = Arc::new(args_object(request.args)?);
     match command {
@@ -1474,12 +1483,25 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "local_sidecar_restart" => sidecar::restart(state).await,
         "local_sidecar_test_message" => sidecar::test_message(state).await,
         "deki_prompt" | "professor_mari_prompt" => {
-            deki::deki_prompt(state, optional_value(&args, "request")).await
+            deki::deki_prompt(state, optional_value(&args, "request"), &runtime_owner).await
         }
         "deki_workspace_status" => {
-            deki::deki_workspace_status(state, optional_string(&args, "connectionId")).await
+            deki::deki_workspace_status(
+                state,
+                &runtime_owner,
+                required_string(&args, "sessionId")?.to_string(),
+                optional_string(&args, "connectionId"),
+            )
+            .await
         }
-        "deki_workspace_abort" => deki::deki_workspace_abort(state).await,
+        "deki_workspace_abort" => {
+            deki::deki_workspace_abort(
+                state,
+                &runtime_owner,
+                required_string(&args, "sessionId")?.to_string(),
+            )
+            .await
+        }
         "deki_workspace_approve" => {
             deki::deki_workspace_approve(state, required_string(&args, "id")?.to_string()).await
         }

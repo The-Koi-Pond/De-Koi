@@ -82,6 +82,7 @@ export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise
   );
   const response = await runDekiEntry(
     {
+      sessionId: input.sessionId ?? "deki-session-default",
       userMessage: input.userMessage,
       messages: contextMessages,
       compactedSummary: savedCompaction.compactedSummary,

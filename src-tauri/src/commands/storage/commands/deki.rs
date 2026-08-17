@@ -6,7 +6,7 @@ use tauri::State;
 
 #[tauri::command]
 pub async fn deki_prompt(state: State<'_, AppState>, request: Value) -> Result<Value, AppError> {
-    deki::deki_prompt(&state, request).await
+    deki::deki_prompt(&state, request, &deki::DekiRuntimeOwner::Embedded).await
 }
 
 #[tauri::command]
@@ -14,20 +14,30 @@ pub async fn professor_mari_prompt(
     state: State<'_, AppState>,
     request: Value,
 ) -> Result<Value, AppError> {
-    deki::deki_prompt(&state, request).await
+    deki::deki_prompt(&state, request, &deki::DekiRuntimeOwner::Embedded).await
 }
 
 #[tauri::command]
 pub async fn deki_workspace_status(
     state: State<'_, AppState>,
+    session_id: String,
     connection_id: Option<String>,
 ) -> Result<Value, AppError> {
-    deki::deki_workspace_status(&state, connection_id).await
+    deki::deki_workspace_status(
+        &state,
+        &deki::DekiRuntimeOwner::Embedded,
+        session_id,
+        connection_id,
+    )
+    .await
 }
 
 #[tauri::command]
-pub async fn deki_workspace_abort(state: State<'_, AppState>) -> Result<Value, AppError> {
-    deki::deki_workspace_abort(&state).await
+pub async fn deki_workspace_abort(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Value, AppError> {
+    deki::deki_workspace_abort(&state, &deki::DekiRuntimeOwner::Embedded, session_id).await
 }
 
 #[tauri::command]

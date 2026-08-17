@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runDekiEntry, type DekiGateway } from "./deki-entry";
 
-const input = { userMessage: "hello", messages: [] };
+const input = { sessionId: "session-1", userMessage: "hello", messages: [] };
 
 describe("runDekiEntry usage", () => {
   it("preserves normalized usage returned by the gateway", async () => {

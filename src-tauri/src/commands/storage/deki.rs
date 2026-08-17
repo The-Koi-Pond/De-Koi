@@ -28,12 +28,34 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[path = "deki/action_parser.rs"]
+mod action_parser;
+#[path = "deki/budget.rs"]
+mod budget;
 #[path = "deki/chat_access.rs"]
 mod chat_access;
+#[path = "deki/loop.rs"]
+mod command_loop;
+#[path = "deki/commands/mod.rs"]
+mod commands;
 #[path = "deki/library.rs"]
 mod library;
 #[path = "deki/memory_access.rs"]
 mod memory_access;
+#[path = "deki/model_client.rs"]
+mod model_client;
+#[path = "deki/prompt.rs"]
+mod prompt;
+#[path = "deki/protocol.rs"]
+mod protocol;
+#[path = "deki/status.rs"]
+mod status;
+
+pub(crate) use status::DekiRuntimeOwner;
+
+use self::commands::web::DekiWebResearchGrant;
+#[cfg(test)]
+use self::commands::web::DekiWebResearchScope;
 
 const DEKI_ACTION_ENTITIES: &[&str] = &[
     "characters",
@@ -89,22 +111,11 @@ const DEKI_WEB_PAGE_MAX_BYTES: usize = 768 * 1024;
 const DEKI_WEB_PAGE_MAX_CHARS: usize = 16 * 1024;
 const DEKI_REPO_ROOT_ENV: &str = "DE_KOI_REPO_ROOT";
 const LEGACY_DEKI_REPO_ROOT_ENV: &str = "MARINARA_REPO_ROOT";
-const DEKI_WORKSPACE_TOOLS: &[&str] = &[
-    "read",
-    "grep",
-    "find",
-    "ls",
-    "deki_data",
-    "deki_code",
-    "read_deki_chats",
-    "read_deki_chat_messages",
-    "read_deki_memories",
-    "edit_deki_memory",
-];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DekiPromptRequest {
+    session_id: String,
     user_message: String,
     #[serde(default)]
     messages: Vec<DekiPromptMessage>,
@@ -118,6 +129,7 @@ struct DekiPromptRequest {
     attachments: Vec<DekiAttachment>,
     #[serde(default)]
     chat_access_grants: Vec<chat_access::DekiChatAccessGrant>,
+    #[serde(default)]
     web_research_grants: Vec<DekiWebResearchGrant>,
 }
 
@@ -406,6 +418,19 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
     names
 }
 
+const DEKI_NATIVE_WRITE_TOOLS: &[&str] = &[
+    "edit_deki_code_file",
+    "edit_deki_memory",
+    "create_deki_extension",
+    "create_deki_custom_agent",
+];
+
+fn deki_request_requires_native_tool_path(tool_names: &[&str]) -> bool {
+    tool_names
+        .iter()
+        .any(|name| DEKI_NATIVE_WRITE_TOOLS.contains(name))
+}
+
 const DEKI_ROUTING_HISTORY_LIMIT: usize = 6;
 
 fn deki_prior_routing_context(input: &DekiPromptRequest) -> String {
@@ -458,26 +483,6 @@ struct DekiAttachment {
     #[serde(default)]
     size: u64,
     content: String,
-}
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DekiWebResearchGrant {
-    id: String,
-    action_message_id: String,
-    scope: DekiWebResearchScope,
-    granted_at: String,
-    #[serde(default)]
-    expires_at: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DekiWebResearchScope {
-    #[serde(rename = "type")]
-    scope_type: String,
-    query: String,
-    #[serde(default)]
-    allowed_domains: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -1368,9 +1373,14 @@ impl fmt::Debug for DekiAgent {
     }
 }
 
-pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Value> {
+pub(crate) async fn deki_prompt(
+    state: &AppState,
+    body: Value,
+    runtime_owner: &DekiRuntimeOwner,
+) -> AppResult<Value> {
     let input: DekiPromptRequest = serde_json::from_value(body.clone())
         .map_err(|error| AppError::invalid_input(error.to_string()))?;
+    status::validate_runtime_owner(runtime_owner)?;
     let Some(connection_id) = input
         .connection_id
         .as_deref()
@@ -1388,10 +1398,24 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
         }),
     )?;
     let connection = llm_connection_from_value(&connection_value)?;
-    ensure_connection_supports_native_tools(&connection)?;
-    let system_prompt = build_system_prompt(input.persona.as_ref());
-    let repo_guidance = if looks_like_codebase_question(&input.user_message) {
-        repo_guidance_for_prompt().ok()
+    let tool_names = deki_tool_names_for_request(&input);
+    let use_native_tool_path = deki_request_requires_native_tool_path(&tool_names);
+    let system_prompt = if use_native_tool_path {
+        build_system_prompt(input.persona.as_ref())
+    } else {
+        prompt::build_system_prompt(input.persona.as_ref())
+    };
+    let needs_repo_guidance = if use_native_tool_path {
+        looks_like_codebase_question(&input.user_message)
+    } else {
+        prompt::looks_like_codebase_question(&input.user_message)
+    };
+    let repo_guidance = if needs_repo_guidance {
+        if use_native_tool_path {
+            repo_guidance_for_prompt().ok()
+        } else {
+            prompt::repo_guidance_for_prompt().ok()
+        }
     } else {
         None
     };
@@ -1403,12 +1427,54 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
             &input.chat_access_grants,
         )?)
     };
-    let task_prompt = build_task_prompt(
-        &input,
-        repo_guidance.as_deref(),
-        approved_chat_context.as_deref(),
-    );
-    let tool_names = deki_tool_names_for_request(&input);
+    let task_prompt = if use_native_tool_path {
+        build_task_prompt(
+            &input,
+            repo_guidance.as_deref(),
+            approved_chat_context.as_deref(),
+        )
+    } else {
+        prompt::build_task_prompt(
+            &input,
+            repo_guidance.as_deref(),
+            approved_chat_context.as_deref(),
+        )
+    };
+    if !use_native_tool_path {
+        let runtime_guard = status::begin_runtime(runtime_owner, &input.session_id)?;
+        let response = command_loop::run_json_command_runtime(command_loop::DekiJsonRuntimeInput {
+            state,
+            connection,
+            system_prompt,
+            task_prompt,
+            requires_repository_evidence: needs_repo_guidance,
+            chat_access_grants: input.chat_access_grants.clone(),
+            web_research_grants: input.web_research_grants.clone(),
+            cancellation: runtime_guard.cancellation(),
+        })
+        .await?;
+        let (content, action) = action_parser::deki_response_content_and_action(&response.content)?;
+        if content.trim().is_empty() {
+            return Err(AppError::new(
+                "deki_empty_response",
+                "Deki-senpai returned an empty response. Try again or select a different connection.",
+            ));
+        }
+        let usage = if response.usage.is_empty() {
+            None
+        } else {
+            Some(aggregate_deki_token_usage(&response.usage))
+        };
+        let _workspace_trace = response.workspace_trace;
+        return Ok(json!({
+            "content": content,
+            "createdAt": chrono::Utc::now().to_rfc3339(),
+            "action": action,
+            "usage": usage,
+        }));
+    }
+
+    ensure_connection_supports_native_tools(&connection)?;
     let collected_usage = Arc::new(Mutex::new(Vec::new()));
     let provider: Arc<dyn LLMProvider> = Arc::new(DekiLlmProvider {
         connection,
@@ -1468,102 +1534,27 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
 
 pub(crate) async fn deki_workspace_status(
     state: &AppState,
+    runtime_owner: &DekiRuntimeOwner,
+    session_id: String,
     connection_id: Option<String>,
 ) -> AppResult<Value> {
-    let workspace = deki_repo_root()
-        .ok()
-        .map(|path| path.to_string_lossy().to_string());
-    let requested_connection_id = connection_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty());
-    let (connection, error) = match requested_connection_id {
-        Some(connection_id) => match deki_workspace_connection_summary(state, connection_id) {
-            Ok(connection) => (
-                connection,
-                "Deki workspace runtime is not implemented yet for the selected connection."
-                    .to_string(),
-            ),
-            Err(error) => (
-                Value::Null,
-                format!(
-                    "Deki workspace runtime is not implemented yet. Requested connection {connection_id} could not be summarized: {}",
-                    error.message
-                ),
-            ),
-        },
-        None => (
-            Value::Null,
-            "Deki workspace runtime is not implemented yet.".to_string(),
-        ),
-    };
-    Ok(json!({
-        "enabled": false,
-        "workspace": workspace,
-        "dataDir": state.data_dir.to_string_lossy(),
-        "tools": DEKI_WORKSPACE_TOOLS,
-        "dataAccess": "server-managed",
-        "connection": connection,
-        "active": false,
-        "pendingApprovals": [],
-        "history": [],
-        "error": error,
-    }))
+    status::deki_workspace_status(state, runtime_owner, session_id, connection_id).await
 }
 
-fn deki_workspace_connection_summary(state: &AppState, connection_id: &str) -> AppResult<Value> {
-    let connection_value = resolve_llm_connection_for_request(
-        state,
-        &json!({
-            "connectionId": connection_id,
-        }),
-    )?;
-    let connection = llm_connection_from_value(&connection_value)?;
-    let name = connection_value
-        .get("name")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(connection_id);
-    Ok(json!({
-        "id": connection_id,
-        "name": name,
-        "provider": connection.provider,
-        "model": connection.model,
-    }))
+pub(crate) async fn deki_workspace_abort(
+    state: &AppState,
+    runtime_owner: &DekiRuntimeOwner,
+    session_id: String,
+) -> AppResult<Value> {
+    status::deki_workspace_abort(state, runtime_owner, session_id).await
 }
 
-pub(crate) async fn deki_workspace_abort(_state: &AppState) -> AppResult<Value> {
-    Ok(json!({
-        "status": "not_running",
-        "aborted": false,
-        "active": false,
-        "reason": "Deki workspace runtime is not running.",
-    }))
+pub(crate) async fn deki_workspace_approve(state: &AppState, id: String) -> AppResult<Value> {
+    status::deki_workspace_approve(state, id).await
 }
 
-pub(crate) async fn deki_workspace_approve(_state: &AppState, id: String) -> AppResult<Value> {
-    validate_workspace_approval_id(&id)?;
-    Err(deki_workspace_not_implemented("approval apply"))
-}
-
-pub(crate) async fn deki_workspace_reject(_state: &AppState, id: String) -> AppResult<Value> {
-    validate_workspace_approval_id(&id)?;
-    Err(deki_workspace_not_implemented("approval reject"))
-}
-
-fn validate_workspace_approval_id(id: &str) -> AppResult<()> {
-    if id.trim().is_empty() {
-        return Err(AppError::invalid_input("Workspace approval id is required"));
-    }
-    Ok(())
-}
-
-fn deki_workspace_not_implemented(action: &str) -> AppError {
-    AppError::new(
-        "deki_workspace_not_implemented",
-        format!("Deki workspace {action} is not implemented yet."),
-    )
+pub(crate) async fn deki_workspace_reject(state: &AppState, id: String) -> AppResult<Value> {
+    status::deki_workspace_reject(state, id).await
 }
 
 fn deki_no_action_contract() -> Value {
@@ -2499,24 +2490,7 @@ fn normalize_deki_chat_access_scope(scope: Option<&Value>) -> AppResult<Value> {
 }
 
 fn normalize_deki_chat_access_window(window: Option<&Value>) -> AppResult<Value> {
-    let Some(window) = window else {
-        return Ok(json!({ "messageCount": 50 }));
-    };
-    let window = window.as_object().ok_or_else(|| {
-        AppError::new(
-            "deki_action_invalid",
-            "Deki-senpai chat access window must be an object.",
-        )
-    })?;
-    let message_count = match window.get("messageCount") {
-        Some(Value::Null) => DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT,
-        Some(value) => value
-            .as_u64()
-            .map(|value| value.clamp(1, DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT))
-            .unwrap_or(50),
-        None => 50,
-    };
-    Ok(json!({ "messageCount": message_count }))
+    action_parser::normalize_deki_chat_access_window(window)
 }
 
 fn autoagents_message_to_marinara(message: &ChatMessage) -> Vec<marinara_llm::LlmMessage> {
@@ -4185,6 +4159,7 @@ mod tests {
 
     fn test_deki_prompt_request(user_message: &str) -> DekiPromptRequest {
         DekiPromptRequest {
+            session_id: "test-session".to_string(),
             user_message: user_message.to_string(),
             messages: Vec::new(),
             compacted_summary: None,
@@ -4336,28 +4311,39 @@ mod tests {
             )
             .expect("connection should be saved");
 
-        let status = deki_workspace_status(&state, Some("conn-1".to_string()))
-            .await
-            .expect("workspace status should return");
+        let status = deki_workspace_status(
+            &state,
+            &DekiRuntimeOwner::Embedded,
+            "workspace-status-session".to_string(),
+            Some("conn-1".to_string()),
+        )
+        .await
+        .expect("workspace status should return");
 
-        assert_eq!(status["enabled"], json!(false));
+        assert_eq!(status["enabled"], json!(true));
         assert_eq!(status["connection"]["id"], json!("conn-1"));
         assert_eq!(status["connection"]["name"], json!("Workspace Test"));
         assert_eq!(status["connection"]["provider"], json!("openai"));
         assert_eq!(status["connection"]["model"], json!("gpt-4.1"));
-        assert!(status["error"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("selected connection"));
+        assert_eq!(status["active"], json!(false));
+        assert_eq!(status["error"], Value::Null);
+        assert!(status["tools"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("read_deki_memories")));
     }
 
     #[tokio::test]
     async fn deki_workspace_abort_reports_not_running() {
         let state = test_state("workspace-abort-not-running");
 
-        let result = deki_workspace_abort(&state)
-            .await
-            .expect("workspace abort should return");
+        let result = deki_workspace_abort(
+            &state,
+            &DekiRuntimeOwner::Embedded,
+            "workspace-abort-session".to_string(),
+        )
+        .await
+        .expect("workspace abort should return");
 
         assert_eq!(result["status"], json!("not_running"));
         assert_eq!(result["aborted"], json!(false));
@@ -4671,6 +4657,7 @@ mod tests {
     fn deki_interaction_based_library_prompt_requests_chat_access_before_library_routing() {
         let connection = test_connection("openai");
         let input = DekiPromptRequest {
+            session_id: "test-session".to_string(),
             user_message: "Suggest changes to this character based on my interactions with her."
                 .to_string(),
             messages: Vec::new(),
@@ -4700,6 +4687,7 @@ mod tests {
     fn deki_interaction_based_prompt_uses_chat_context_snapshot_after_grant() {
         let connection = test_connection("openai");
         let input = DekiPromptRequest {
+            session_id: "test-session".to_string(),
             user_message: "Suggest changes to this character based on my interactions with her."
                 .to_string(),
             messages: Vec::new(),
@@ -4745,6 +4733,7 @@ mod tests {
     fn deki_resume_prompt_uses_chat_context_snapshot_after_grant() {
         let connection = test_connection("openai_chatgpt");
         let input = DekiPromptRequest {
+            session_id: "test-session".to_string(),
             user_message: [
                 "The user approved the requested scoped chat access.",
                 "Resume the original task now using the approved chat context.",
@@ -5052,6 +5041,29 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
     }
 
     #[test]
+    fn native_deki_response_rejects_malformed_chat_access_counts() {
+        for message_count in [
+            json!(-1),
+            json!(1.5),
+            json!("50"),
+            json!(true),
+            json!({ "count": 50 }),
+        ] {
+            let action = json!({
+                "type": "request_chat_access",
+                "scope": { "type": "character", "characterName": "Rina" },
+                "window": { "messageCount": message_count },
+                "label": "Read Rina chats",
+            });
+            let raw = format!("Chat access requested.\n<deki_action>{action}</deki_action>");
+            let error = deki_response_content_and_action(&raw)
+                .expect_err("native action parsing must reject malformed explicit counts");
+
+            assert_eq!(error.code, "deki_action_invalid");
+        }
+    }
+
+    #[test]
     fn deki_response_extracts_lorebook_redraft_action_without_visible_json() {
         let raw = r#"I drafted the whole lorebook for approval.
 
@@ -5338,6 +5350,7 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
     fn deki_prompt_lists_approved_web_research_grants() {
         let prompt = build_task_prompt(
             &DekiPromptRequest {
+                session_id: "test-session".to_string(),
                 user_message: "Can you check Ghostface?".to_string(),
                 messages: Vec::new(),
                 compacted_summary: None,
@@ -5525,6 +5538,16 @@ Extra visible text."#;
         assert!(follow_up.contains(&"edit_deki_memory"));
     }
 
+    #[test]
+    fn deki_runtime_routes_only_write_capabilities_to_native_tools() {
+        assert!(!deki_request_requires_native_tool_path(&[
+            "search_deki_code",
+            "read_deki_memories",
+        ]));
+        for tool_name in DEKI_NATIVE_WRITE_TOOLS {
+            assert!(deki_request_requires_native_tool_path(&[tool_name]));
+        }
+    }
     #[test]
     fn deki_system_prompt_documents_scoped_memory_access() {
         let prompt = build_system_prompt(None);
@@ -5861,6 +5884,7 @@ Extra visible text."#;
     fn prompt_with_attachments(attachments: Vec<DekiAttachment>) -> String {
         build_task_prompt(
             &DekiPromptRequest {
+                session_id: "test-session".to_string(),
                 user_message: "Please inspect this attachment.".to_string(),
                 messages: Vec::new(),
                 compacted_summary: None,

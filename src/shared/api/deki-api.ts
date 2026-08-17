@@ -149,8 +149,15 @@ const DEKI_WORKSPACE_TOOL_NAMES = new Set<DekiWorkspaceToolName>([
   "ls",
   "deki_data",
   "deki_code",
+  "read_deki_library",
+  "read_deki_library_items",
+  "search_deki_code",
+  "read_deki_code_file",
   "read_deki_chats",
   "read_deki_chat_messages",
+  "read_deki_memories",
+  "search_deki_web",
+  "read_deki_web_page",
 ]);
 
 const DEKI_WORKSPACE_HISTORY_STATUSES = new Set<DekiWorkspaceHistoryEntry["status"]>([
@@ -1131,15 +1138,16 @@ export const dekiApi = {
       request,
     }),
   workspace: {
-    status: async (connectionId?: string | null): Promise<DekiWorkspaceStatus> => {
+    status: async (sessionId: string, connectionId?: string | null): Promise<DekiWorkspaceStatus> => {
       requireDekiWorkspaceRuntime("deki_workspace_status");
       return invokeTauri<DekiWorkspaceStatus>("deki_workspace_status", {
+        sessionId,
         connectionId: connectionId ?? null,
       });
     },
-    abort: async (): Promise<DekiWorkspaceAbortResult> => {
+    abort: async (sessionId: string): Promise<DekiWorkspaceAbortResult> => {
       requireDekiWorkspaceRuntime("deki_workspace_abort");
-      return invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort");
+      return invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort", { sessionId });
     },
     approve: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
       requireDekiWorkspaceRuntime("deki_workspace_approve");

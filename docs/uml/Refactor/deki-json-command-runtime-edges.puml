@@ -1,0 +1,133 @@
+@startuml name "Deki JSON command runtime edge compatibility"
+title "Deki Slice 2 edge compatibility - behavior to preserve"
+rightfooter Surrounding components that must remain functional during issue #675
+
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+skinparam component {
+    BackgroundColor<<changed>> #EDE7F6
+    BorderColor<<changed>> #5E35B1
+    BackgroundColor<<preserve>> #E8F5E9
+    BorderColor<<preserve>> #2E7D32
+    BackgroundColor<<ui>> #E3F2FD
+    BorderColor<<ui>> #1565C0
+    BackgroundColor<<future>> #FFF8E1
+    BorderColor<<future>> #F9A825
+    BackgroundColor<<blocked>> #FFEBEE
+    BorderColor<<blocked>> #C62828
+}
+
+legend right
+  |= Marker |= Meaning |
+  | <color:#5E35B1>purple</color> | Main Slice 2 implementation area |
+  | <color:#2E7D32>green</color> | Existing behavior to preserve |
+  | <color:#1565C0>blue</color> | UI/session edge using existing contract |
+  | <color:#F9A825>yellow</color> | Future slice boundary |
+  | <color:#C62828>red</color> | Must not be introduced in Slice 2 |
+endlegend
+
+package "Main change" {
+    component "Thin deki.rs facade\npublic request/response glue" as RuntimeFacade <<changed>>
+    component "JSON loop modules\nmodel client, protocol,\nbudget, typed registry" as JsonRuntime <<changed>>
+    component "Bounded internal trace\ncollected now, surfaced in Slice 4" as InternalTrace <<changed>>
+}
+
+package "Current Deki UI/session edges" {
+    component "Deki final-response send flow\nrunDetachedDekiSend" as SendFlow <<ui>>
+    component "Deki history in app-settings\nsessions, messages, compaction" as History <<ui>>
+    component "Sidebar Deki sessions\nunread indicator, batch deletion" as Sidebar <<ui>>
+    component "Deki pond/surface rendering\nno live timeline yet" as Surface <<ui>>
+}
+
+package "Current approval/action edges" {
+    component "<deki_action> extraction\nfenced JSON, repaired strings,\none action block" as ActionParser <<preserve>>
+    component "Creative-library action cards\ncreate/edit/redraft pending until user applies" as ActionCards <<preserve>>
+    component "Inline action diff preview\ncurrent-record reads and nested diffs" as ActionDiffs <<preserve>>
+    component "Scoped chat access card\nexplicit grant, bounded chat window" as ChatAccess <<preserve>>
+    component "Consent-gated web research\nrequest card then approved exact query" as WebResearch <<preserve>>
+}
+
+package "Current read-only command edges" {
+    component "Repo code search/read\nsafe relative paths, size limits,\nsource/guidance files only" as CodeReads <<preserve>>
+    component "Creative library overview/detail\nno chats, memories, keys, or secrets" as LibraryReads <<preserve>>
+    component "Approved chat overview/messages\nno access without grant" as ChatReads <<preserve>>
+    component "Approved public web search/page read\nmatching grant, public URL,\nresult/page/time limits" as WebReads <<preserve>>
+}
+
+package "Routing/status edge" {
+    component "deki_workspace_status\nroute only when status is meaningful;\nembedded and remote dispatch match" as WorkspaceStatus <<preserve>>
+    component "deki_workspace_abort\nonly with real cancellation or\nclear not_supported/not_running result" as WorkspaceAbort <<preserve>>
+    component "deki_workspace_approve/reject\nexplicit Slice 3 not-implemented\nif wrappers remain callable" as WorkspaceApprovalRoutes <<future>>
+}
+
+package "Future slices" {
+    component "Slice 3: deki_data dry-run approvals\noperation hash, pending approvals,\nexplicit approve/reject" as Slice3 <<future>>
+    component "Slice 4: streamed trace UI\nprompt events, command timeline,\nbounded persisted trace history" as Slice4 <<future>>
+}
+
+package "Forbidden for Slice 2" {
+    component "Raw shell commands" as RawShell <<blocked>>
+    component "Direct app-data mutation\nfrom model output" as DirectMutation <<blocked>>
+    component "Exact code edit command\nwithout approval runtime" as CodeEdit <<blocked>>
+    component "Extension/custom-agent creation\nwithout approval runtime" as RecordCreation <<blocked>>
+    component "Hidden protocol text\nsaved in transcript" as ProtocolLeak <<blocked>>
+    component "UI-only fake success\nor silent fallback over bad contracts" as FakeSuccess <<blocked>>
+}
+
+RuntimeFacade -[#5E35B1]-> JsonRuntime
+JsonRuntime -[#5E35B1]-> InternalTrace
+JsonRuntime -[#2E7D32]-> SendFlow : same final content + action result
+SendFlow -[#1565C0]-> History
+SendFlow -[#1565C0]-> Sidebar
+SendFlow -[#1565C0]-> Surface
+
+JsonRuntime -[#2E7D32]-> ActionParser
+ActionParser -[#2E7D32]-> ActionCards
+ActionCards -[#2E7D32]-> ActionDiffs
+ActionCards -[#2E7D32]-> ChatAccess
+ActionCards -[#2E7D32]-> WebResearch
+
+JsonRuntime -[#2E7D32]-> CodeReads
+JsonRuntime -[#2E7D32]-> LibraryReads
+JsonRuntime -[#2E7D32]-> ChatReads
+JsonRuntime -[#2E7D32]-> WebReads
+ChatAccess -[#2E7D32]-> ChatReads
+WebResearch -[#2E7D32]-> WebReads
+JsonRuntime -[#2E7D32]-> WorkspaceStatus
+JsonRuntime -[#2E7D32]-> WorkspaceAbort
+WorkspaceApprovalRoutes -[#F9A825,dashed]-> Slice3
+
+JsonRuntime -[#F9A825,dashed]-> Slice3 : leave mutation approvals out
+InternalTrace -[#F9A825,dashed]-> Slice4 : render/persist later
+JsonRuntime -[#C62828,dashed]-> RawShell
+JsonRuntime -[#C62828,dashed]-> DirectMutation
+JsonRuntime -[#C62828,dashed]-> CodeEdit
+JsonRuntime -[#C62828,dashed]-> RecordCreation
+JsonRuntime -[#C62828,dashed]-> ProtocolLeak
+JsonRuntime -[#C62828,dashed]-> FakeSuccess
+
+note right of ActionParser
+  Recent Deki fixes hardened action JSON parsing,
+  control characters, character scenario patches,
+  whole-lorebook redrafts, and web/chat access cards.
+end note
+
+note bottom of JsonRuntime
+  The implementation may use JSON protocol frames internally,
+  but the external Slice 2 UI contract stays final-response based.
+end note
+
+note right of WorkspaceStatus
+  Do not leave shared API wrappers pointing at unsupported routes.
+  If status/abort are enabled, register embedded Tauri handlers,
+  remote-runtime allowlist names, and http_dispatch handlers together.
+end note
+
+note bottom of Slice3
+  Slice 3 may reuse the command protocol but must add dry-run,
+  validation, operation hashes, pending approvals, and apply/reject.
+end note
+
+@enduml
