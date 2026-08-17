@@ -108,6 +108,41 @@ describe("automatic memory consequence extraction", () => {
     expect(standaloneMemoryFailure("Pierrot does not want to discuss the circus accident.")).toBeNull();
   });
 
+  it("rejects a candidate that gives Agent Cobalt the wrong third-person pronoun", async () => {
+    const extractionRequest = request();
+    extractionRequest.scope = { kind: "character", id: "cobalt" };
+    extractionRequest.activeCharacterId = "cobalt";
+    extractionRequest.characterLabels = { cobalt: "Agent Cobalt" };
+    extractionRequest.sourceMessages = [
+      {
+        id: "assistant-cobalt",
+        chatId: "chat-1",
+        role: "assistant",
+        content: "I will wait at the east gate.",
+        characterId: "cobalt",
+        createdAt: "2026-07-30T12:02:00.000Z",
+        speakerLabel: "Agent Cobalt",
+      },
+    ];
+
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway({
+        memories: [
+          {
+            kind: "promise",
+            content: "Agent Cobalt said she will wait at the east gate.",
+            confidence: 0.95,
+            evidence: "explicit_exchange",
+            sourceMessageIds: ["assistant-cobalt"],
+          },
+        ],
+      }),
+      request: extractionRequest,
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("uses reference context only to resolve wording and persists both provenance ID sets", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway({

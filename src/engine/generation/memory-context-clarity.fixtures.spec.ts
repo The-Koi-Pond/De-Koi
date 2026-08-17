@@ -115,6 +115,60 @@ describe("memory context clarity semantic fixtures", () => {
     expect(result.candidates.map((memory) => memory.content)).toEqual([candidate.content]);
   });
 
+  it("rejects a candidate that says Shlo made Agent Cobalt's promise", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "promise",
+          content: "Shlo promised to wait at the east gate.",
+          confidence: 0.95,
+          evidence: "explicit_promise",
+          sourceMessageIds: ["assistant-cobalt"],
+        },
+      ]),
+      request: request("Shlo", [
+        {
+          id: "assistant-cobalt",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "I promise I will wait at the east gate.",
+          characterId: "cobalt",
+          createdAt: timestamp,
+          speakerLabel: "Agent Cobalt",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects a general rule inferred from one returned-Machina observation", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "plot_state",
+          content: "Returned Machinas have brass crowns.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-machina"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-machina",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "The returned Machina has one brass crown.",
+          characterId: "pierrot",
+          createdAt: timestamp,
+          speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("resolves a vague topic only when the cited context names it", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
