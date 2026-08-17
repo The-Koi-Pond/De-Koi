@@ -2490,24 +2490,7 @@ fn normalize_deki_chat_access_scope(scope: Option<&Value>) -> AppResult<Value> {
 }
 
 fn normalize_deki_chat_access_window(window: Option<&Value>) -> AppResult<Value> {
-    let Some(window) = window else {
-        return Ok(json!({ "messageCount": 50 }));
-    };
-    let window = window.as_object().ok_or_else(|| {
-        AppError::new(
-            "deki_action_invalid",
-            "Deki-senpai chat access window must be an object.",
-        )
-    })?;
-    let message_count = match window.get("messageCount") {
-        Some(Value::Null) => DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT,
-        Some(value) => value
-            .as_u64()
-            .map(|value| value.clamp(1, DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT))
-            .unwrap_or(50),
-        None => 50,
-    };
-    Ok(json!({ "messageCount": message_count }))
+    action_parser::normalize_deki_chat_access_window(window)
 }
 
 fn autoagents_message_to_marinara(message: &ChatMessage) -> Vec<marinara_llm::LlmMessage> {
@@ -5055,6 +5038,29 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
             action["window"]["messageCount"],
             json!(DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT)
         );
+    }
+
+    #[test]
+    fn native_deki_response_rejects_malformed_chat_access_counts() {
+        for message_count in [
+            json!(-1),
+            json!(1.5),
+            json!("50"),
+            json!(true),
+            json!({ "count": 50 }),
+        ] {
+            let action = json!({
+                "type": "request_chat_access",
+                "scope": { "type": "character", "characterName": "Rina" },
+                "window": { "messageCount": message_count },
+                "label": "Read Rina chats",
+            });
+            let raw = format!("Chat access requested.\n<deki_action>{action}</deki_action>");
+            let error = deki_response_content_and_action(&raw)
+                .expect_err("native action parsing must reject malformed explicit counts");
+
+            assert_eq!(error.code, "deki_action_invalid");
+        }
     }
 
     #[test]

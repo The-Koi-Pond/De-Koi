@@ -949,7 +949,7 @@ fn normalize_deki_chat_access_scope(scope: Option<&Value>) -> AppResult<Value> {
     }
 }
 
-fn normalize_deki_chat_access_window(window: Option<&Value>) -> AppResult<Value> {
+pub(super) fn normalize_deki_chat_access_window(window: Option<&Value>) -> AppResult<Value> {
     let Some(window) = window else {
         return Ok(json!({ "messageCount": 50 }));
     };
