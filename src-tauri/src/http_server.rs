@@ -1,4 +1,4 @@
-use crate::http_dispatch::{dispatch, InvokeRequest};
+use crate::http_dispatch::{dispatch_for_runtime_owner, InvokeRequest};
 use crate::state::AppState;
 use crate::storage_commands::{
     avatars, connection_secrets, entity_images, fonts, imports, integrations, llm, lorebook_images,
@@ -705,7 +705,8 @@ async fn invoke(
         }
         return response;
     }
-    match dispatch(&state.app, request).await {
+    let runtime_owner = deki_runtime_owner(addr);
+    match dispatch_for_runtime_owner(&state.app, request, runtime_owner).await {
         Ok(value) => {
             request_log(format!(
                 "invoke {command} ok in {}ms",
@@ -731,6 +732,10 @@ async fn invoke(
             response
         }
     }
+}
+
+fn deki_runtime_owner(addr: SocketAddr) -> crate::storage_commands::deki::DekiRuntimeOwner {
+    crate::storage_commands::deki::DekiRuntimeOwner::Host(addr.ip().to_canonical())
 }
 
 async fn profile_export_download(
@@ -4157,6 +4162,16 @@ mod tests {
         );
 
         assert!(security.evaluate_request(&request).is_ok());
+    }
+
+    #[test]
+    fn deki_runtime_owner_uses_the_authenticated_resolved_host() {
+        let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0xffff00000001)), 54321);
+
+        assert_eq!(
+            deki_runtime_owner(addr),
+            crate::storage_commands::deki::DekiRuntimeOwner::Host(IpAddr::V4(Ipv4Addr::LOCALHOST))
+        );
     }
 
     #[test]

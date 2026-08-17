@@ -86,8 +86,10 @@ stable unless the implementation exposes a missing optional field.
   workspace status meaningful, add explicit embedded and remote routing for
   `deki_workspace_status`. Add `deki_workspace_abort` only with a real
   cancellation token or a clear `not_running`/`not_supported` result. Active
-  runtime state, status, and abort routing must share the same Deki session id so
-  one session cannot block or cancel another. Keep
+  runtime state, status, and abort routing must share a scope made from the
+  server-owned runtime owner plus the Deki session id. Embedded calls use the
+  trusted app owner; hostable calls derive the owner from the authenticated,
+  proxy-resolved client host so request JSON cannot forge it. Keep
   `approve`/`reject` as explicit Slice 3 not-implemented routes if the shared
   API remains callable.
 
@@ -106,7 +108,10 @@ Use named constants in `deki/budget.rs` so tests can assert them:
 - Maximum extracted text per web page evidence item: 12 KiB.
 
 When output is truncated, the command result must say what was truncated and how
-to narrow the next command. Silent truncation is not acceptable.
+to narrow the next command. The complete serialized result, including wrapper
+metadata and guidance, must fit and be charged to both evidence caps. If that
+wrapper cannot fit the remaining budget, omit the result. Silent truncation is
+not acceptable.
 
 ## Slice 2 Acceptance Checklist
 

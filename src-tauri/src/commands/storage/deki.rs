@@ -51,6 +51,8 @@ mod protocol;
 #[path = "deki/status.rs"]
 mod status;
 
+pub(crate) use status::DekiRuntimeOwner;
+
 use self::commands::web::DekiWebResearchGrant;
 #[cfg(test)]
 use self::commands::web::DekiWebResearchScope;
@@ -1371,7 +1373,11 @@ impl fmt::Debug for DekiAgent {
     }
 }
 
-pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Value> {
+pub(crate) async fn deki_prompt(
+    state: &AppState,
+    body: Value,
+    runtime_owner: &DekiRuntimeOwner,
+) -> AppResult<Value> {
     let input: DekiPromptRequest = serde_json::from_value(body.clone())
         .map_err(|error| AppError::invalid_input(error.to_string()))?;
     let Some(connection_id) = input
@@ -1434,7 +1440,7 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
         )
     };
     if !use_native_tool_path {
-        let runtime_guard = status::begin_runtime(&input.session_id)?;
+        let runtime_guard = status::begin_runtime(runtime_owner, &input.session_id)?;
         let response = command_loop::run_json_command_runtime(command_loop::DekiJsonRuntimeInput {
             state,
             connection,
@@ -1526,14 +1532,19 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
 
 pub(crate) async fn deki_workspace_status(
     state: &AppState,
+    runtime_owner: &DekiRuntimeOwner,
     session_id: String,
     connection_id: Option<String>,
 ) -> AppResult<Value> {
-    status::deki_workspace_status(state, session_id, connection_id).await
+    status::deki_workspace_status(state, runtime_owner, session_id, connection_id).await
 }
 
-pub(crate) async fn deki_workspace_abort(state: &AppState, session_id: String) -> AppResult<Value> {
-    status::deki_workspace_abort(state, session_id).await
+pub(crate) async fn deki_workspace_abort(
+    state: &AppState,
+    runtime_owner: &DekiRuntimeOwner,
+    session_id: String,
+) -> AppResult<Value> {
+    status::deki_workspace_abort(state, runtime_owner, session_id).await
 }
 
 pub(crate) async fn deki_workspace_approve(state: &AppState, id: String) -> AppResult<Value> {
@@ -4317,6 +4328,7 @@ mod tests {
 
         let status = deki_workspace_status(
             &state,
+            &DekiRuntimeOwner::Embedded,
             "workspace-status-session".to_string(),
             Some("conn-1".to_string()),
         )
@@ -4340,9 +4352,13 @@ mod tests {
     async fn deki_workspace_abort_reports_not_running() {
         let state = test_state("workspace-abort-not-running");
 
-        let result = deki_workspace_abort(&state, "workspace-abort-session".to_string())
-            .await
-            .expect("workspace abort should return");
+        let result = deki_workspace_abort(
+            &state,
+            &DekiRuntimeOwner::Embedded,
+            "workspace-abort-session".to_string(),
+        )
+        .await
+        .expect("workspace abort should return");
 
         assert_eq!(result["status"], json!("not_running"));
         assert_eq!(result["aborted"], json!(false));

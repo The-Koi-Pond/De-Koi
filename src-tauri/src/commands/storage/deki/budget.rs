@@ -19,6 +19,56 @@ pub(super) struct DekiRuntimeBudget {
     deadline: Instant,
 }
 
+fn serialized_value_chars(value: &Value) -> usize {
+    serde_json::to_string_pretty(value)
+        .map(|serialized| serialized.chars().count())
+        .unwrap_or(usize::MAX)
+}
+
+fn truncated_command_value(
+    command_name: &str,
+    value: &Value,
+    serialized: &str,
+    limit: usize,
+) -> Option<Value> {
+    let build = |evidence: String| {
+        json!({
+            "id": value.get("id").cloned().unwrap_or(Value::Null),
+            "name": value.get("name").cloned().unwrap_or_else(|| json!(command_name)),
+            "ok": value.get("ok").cloned().unwrap_or(Value::Bool(false)),
+            "truncated": true,
+            "evidence": evidence,
+            "narrowing": format!(
+                "The {command_name} result exceeded Deki's command evidence budget. Narrow the next command with a more specific query, path, record id, lower limit, entryLimit, or page URL."
+            ),
+        })
+    };
+    fit_truncated_command_value(serialized, limit, build)
+}
+
+fn fit_truncated_command_value(
+    serialized: &str,
+    limit: usize,
+    build: impl Fn(String) -> Value,
+) -> Option<Value> {
+    if serialized_value_chars(&build(String::new())) > limit {
+        return None;
+    }
+
+    let mut low = 0;
+    let mut high = serialized.chars().count().min(limit);
+    while low < high {
+        let candidate_length = low + (high - low).div_ceil(2);
+        let candidate = build(truncate_to_chars(serialized, candidate_length).0);
+        if serialized_value_chars(&candidate) <= limit {
+            low = candidate_length;
+        } else {
+            high = candidate_length - 1;
+        }
+    }
+    Some(build(truncate_to_chars(serialized, low).0))
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct DekiEvidenceBudget {
     max_single_chars: usize,
@@ -26,6 +76,7 @@ pub(super) struct DekiEvidenceBudget {
     used_chars: usize,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct BudgetedText {
     pub(super) text: String,
@@ -98,23 +149,23 @@ impl DekiRuntimeBudget {
 }
 
 impl DekiEvidenceBudget {
-    pub(super) fn compact_command_value(&mut self, command_name: &str, value: &Value) -> Value {
+    pub(super) fn compact_command_value(
+        &mut self,
+        command_name: &str,
+        value: &Value,
+    ) -> Option<Value> {
         let serialized = serde_json::to_string_pretty(value)
             .unwrap_or_else(|_| "{\"error\":\"unserializable evidence\"}".to_string());
-        let compacted = self.compact_text_with_label(command_name, &serialized);
-        if !compacted.truncated {
-            return value.clone();
+        let remaining_total = self.max_total_chars.saturating_sub(self.used_chars);
+        let limit = self.max_single_chars.min(remaining_total);
+        let serialized_chars = serialized.chars().count();
+        if serialized_chars <= limit {
+            self.used_chars += serialized_chars;
+            return Some(value.clone());
         }
-        json!({
-            "id": value.get("id").cloned().unwrap_or(Value::Null),
-            "name": value.get("name").cloned().unwrap_or_else(|| json!(command_name)),
-            "ok": value.get("ok").cloned().unwrap_or(Value::Bool(false)),
-            "truncated": true,
-            "evidence": compacted.text,
-            "narrowing": format!(
-                "The {command_name} result exceeded Deki's command evidence budget. Narrow the next command with a more specific query, path, record id, lower limit, entryLimit, or page URL."
-            ),
-        })
+        let compacted = truncated_command_value(command_name, value, &serialized, limit)?;
+        self.used_chars += serialized_value_chars(&compacted);
+        Some(compacted)
     }
 
     #[cfg(test)]
@@ -129,6 +180,7 @@ impl DekiEvidenceBudget {
         self.compact_text_with_label("command", value)
     }
 
+    #[cfg(test)]
     fn compact_text_with_label(&mut self, label: &str, value: &str) -> BudgetedText {
         let remaining_total = self.max_total_chars.saturating_sub(self.used_chars);
         if remaining_total == 0 {
@@ -210,21 +262,26 @@ mod tests {
         };
         let value = json!({ "id": "cmd-1", "name": "grep", "ok": true, "output": { "rows": [] } });
 
-        let compacted = budget.compact_command_value("grep", &value);
+        let compacted = budget
+            .compact_command_value("grep", &value)
+            .expect("small result should fit");
 
         assert_eq!(compacted, value);
+        assert_eq!(budget.used_chars, serialized_value_chars(&compacted));
     }
 
     #[test]
     fn compact_command_value_wraps_truncated_results_with_narrowing_guidance() {
         let mut budget = DekiEvidenceBudget {
-            max_single_chars: 20,
-            max_total_chars: 20,
+            max_single_chars: 420,
+            max_total_chars: 420,
             used_chars: 0,
         };
-        let value = json!({ "id": "cmd-1", "name": "grep", "ok": true, "output": { "text": "abcdefghijklmnopqrstuvwxyz" } });
+        let value = json!({ "id": "cmd-1", "name": "grep", "ok": true, "output": { "text": "abcdefghijklmnopqrstuvwxyz".repeat(100) } });
 
-        let compacted = budget.compact_command_value("grep", &value);
+        let compacted = budget
+            .compact_command_value("grep", &value)
+            .expect("truncated wrapper should fit");
 
         assert_eq!(compacted["id"], json!("cmd-1"));
         assert_eq!(compacted["name"], json!("grep"));
@@ -233,6 +290,21 @@ mod tests {
             .as_str()
             .unwrap_or_default()
             .contains("specific query"));
+        assert!(serialized_value_chars(&compacted) <= 420);
+        assert_eq!(budget.used_chars, serialized_value_chars(&compacted));
+    }
+
+    #[test]
+    fn compact_command_value_omits_results_that_cannot_fit_the_complete_wrapper() {
+        let mut budget = DekiEvidenceBudget {
+            max_single_chars: 20,
+            max_total_chars: 20,
+            used_chars: 0,
+        };
+        let value = json!({ "id": "cmd-1", "output": "too large" });
+
+        assert!(budget.compact_command_value("grep", &value).is_none());
+        assert_eq!(budget.used_chars, 0);
     }
 
     #[test]

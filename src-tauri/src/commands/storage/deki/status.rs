@@ -3,6 +3,7 @@ use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::watch;
@@ -20,14 +21,27 @@ struct DekiRuntimeCancellationInner {
 
 #[derive(Debug)]
 pub(super) struct DekiRuntimeGuard {
-    scope: String,
+    scope: DekiRuntimeScope,
     cancellation: DekiRuntimeCancellation,
 }
 
-static NEXT_RUNTIME_ID: AtomicU64 = AtomicU64::new(1);
-static ACTIVE_RUNTIMES: OnceLock<Mutex<HashMap<String, DekiRuntimeCancellation>>> = OnceLock::new();
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum DekiRuntimeOwner {
+    Embedded,
+    Host(IpAddr),
+}
 
-fn active_runtimes() -> &'static Mutex<HashMap<String, DekiRuntimeCancellation>> {
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct DekiRuntimeScope {
+    owner: DekiRuntimeOwner,
+    session_id: String,
+}
+
+static NEXT_RUNTIME_ID: AtomicU64 = AtomicU64::new(1);
+static ACTIVE_RUNTIMES: OnceLock<Mutex<HashMap<DekiRuntimeScope, DekiRuntimeCancellation>>> =
+    OnceLock::new();
+
+fn active_runtimes() -> &'static Mutex<HashMap<DekiRuntimeScope, DekiRuntimeCancellation>> {
     ACTIVE_RUNTIMES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -90,8 +104,11 @@ impl Drop for DekiRuntimeGuard {
     }
 }
 
-pub(super) fn begin_runtime(scope: &str) -> AppResult<DekiRuntimeGuard> {
-    let scope = validate_runtime_scope(scope)?;
+pub(super) fn begin_runtime(
+    owner: &DekiRuntimeOwner,
+    session_id: &str,
+) -> AppResult<DekiRuntimeGuard> {
+    let scope = runtime_scope(owner, session_id)?;
     let mut active = active_runtimes().lock().map_err(|_| {
         AppError::new(
             "deki_workspace_state_failed",
@@ -112,21 +129,24 @@ pub(super) fn begin_runtime(scope: &str) -> AppResult<DekiRuntimeGuard> {
     })
 }
 
-fn runtime_is_active(scope: &str) -> bool {
+fn runtime_is_active(scope: &DekiRuntimeScope) -> bool {
     active_runtimes()
         .lock()
         .map(|active| active.contains_key(scope))
         .unwrap_or(false)
 }
 
-fn validate_runtime_scope(scope: &str) -> AppResult<String> {
-    let scope = scope.trim();
-    if scope.is_empty() || scope.chars().count() > 256 {
+fn runtime_scope(owner: &DekiRuntimeOwner, session_id: &str) -> AppResult<DekiRuntimeScope> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() || session_id.chars().count() > 256 {
         return Err(AppError::invalid_input(
             "A valid Deki session id is required for workspace runtime control.",
         ));
     }
-    Ok(scope.to_string())
+    Ok(DekiRuntimeScope {
+        owner: owner.clone(),
+        session_id: session_id.to_string(),
+    })
 }
 
 pub(super) const DEKI_WORKSPACE_TOOLS: &[&str] = &[
@@ -149,10 +169,11 @@ pub(super) const DEKI_WORKSPACE_TOOLS: &[&str] = &[
 
 pub(crate) async fn deki_workspace_status(
     state: &AppState,
+    owner: &DekiRuntimeOwner,
     session_id: String,
     connection_id: Option<String>,
 ) -> AppResult<Value> {
-    let session_id = validate_runtime_scope(&session_id)?;
+    let scope = runtime_scope(owner, &session_id)?;
     let workspace = super::deki_repo_root()
         .ok()
         .map(|path| path.to_string_lossy().to_string());
@@ -183,7 +204,7 @@ pub(crate) async fn deki_workspace_status(
         "tools": DEKI_WORKSPACE_TOOLS,
         "dataAccess": "server-managed",
         "connection": connection,
-        "active": runtime_is_active(&session_id),
+        "active": runtime_is_active(&scope),
         "pendingApprovals": [],
         "history": [],
         "error": error,
@@ -214,9 +235,10 @@ fn deki_workspace_connection_summary(state: &AppState, connection_id: &str) -> A
 
 pub(crate) async fn deki_workspace_abort(
     _state: &AppState,
+    owner: &DekiRuntimeOwner,
     session_id: String,
 ) -> AppResult<Value> {
-    let session_id = validate_runtime_scope(&session_id)?;
+    let scope = runtime_scope(owner, &session_id)?;
     let runtime = active_runtimes()
         .lock()
         .map_err(|_| {
@@ -225,7 +247,7 @@ pub(crate) async fn deki_workspace_abort(
                 "Deki workspace runtime state is unavailable.",
             )
         })?
-        .get(&session_id)
+        .get(&scope)
         .cloned();
     if let Some(runtime) = runtime {
         runtime.cancel();
@@ -290,17 +312,43 @@ mod tests {
 
     #[test]
     fn runtime_guards_are_isolated_by_session() {
-        let first = begin_runtime("status-test-session-a").expect("first session should start");
-        let second = begin_runtime("status-test-session-b").expect("second session should start");
+        let owner = DekiRuntimeOwner::Embedded;
+        let first =
+            begin_runtime(&owner, "status-test-session-a").expect("first session should start");
+        let second =
+            begin_runtime(&owner, "status-test-session-b").expect("second session should start");
 
-        assert!(runtime_is_active("status-test-session-a"));
-        assert!(runtime_is_active("status-test-session-b"));
+        assert!(runtime_is_active(
+            &runtime_scope(&owner, "status-test-session-a").expect("valid scope")
+        ));
+        assert!(runtime_is_active(
+            &runtime_scope(&owner, "status-test-session-b").expect("valid scope")
+        ));
         assert_eq!(
-            begin_runtime("status-test-session-a")
+            begin_runtime(&owner, "status-test-session-a")
                 .expect_err("the same session must not overlap")
                 .code,
             "deki_workspace_busy"
         );
+
+        drop(first);
+        drop(second);
+    }
+
+    #[test]
+    fn runtime_guards_are_isolated_by_authenticated_host() {
+        let first_owner = DekiRuntimeOwner::Host("192.0.2.10".parse().expect("valid test ip"));
+        let second_owner = DekiRuntimeOwner::Host("192.0.2.11".parse().expect("valid test ip"));
+        let first = begin_runtime(&first_owner, "shared-session").expect("first host should start");
+        let second =
+            begin_runtime(&second_owner, "shared-session").expect("second host should start");
+
+        assert!(runtime_is_active(
+            &runtime_scope(&first_owner, "shared-session").expect("valid first scope")
+        ));
+        assert!(runtime_is_active(
+            &runtime_scope(&second_owner, "shared-session").expect("valid second scope")
+        ));
 
         drop(first);
         drop(second);

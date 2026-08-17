@@ -181,7 +181,9 @@ async fn execute_command_round(
             command_trace(&execution),
         );
         let evidence = execution.evidence_value();
-        results.push(evidence_budget.compact_command_value(&execution.name, &evidence));
+        if let Some(compacted) = evidence_budget.compact_command_value(&execution.name, &evidence) {
+            results.push(compacted);
+        }
     }
     if requested_count > command_limit {
         let evidence = json!({
@@ -195,7 +197,9 @@ async fn execute_command_round(
                 ),
             },
         });
-        results.push(evidence_budget.compact_command_value("deki_runtime", &evidence));
+        if let Some(compacted) = evidence_budget.compact_command_value("deki_runtime", &evidence) {
+            results.push(compacted);
+        }
     }
     Ok(results)
 }
