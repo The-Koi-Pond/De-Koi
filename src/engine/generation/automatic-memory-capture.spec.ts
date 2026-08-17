@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import {
+  automaticCaptureMemoryFailure,
   extractCanonicalMemoryConsequences,
   standaloneMemoryFailure,
   type CanonicalConsequenceExtractionRequest,
@@ -93,6 +94,19 @@ describe("automatic memory consequence extraction", () => {
     expect(prompt).toContain("user-current | user | Celia | My cat's name is Miso.");
     expect(prompt).toContain("user-reference | user | Celia | I meant the circus accident.");
     expect(prompt).toContain("Every memory must make sense as an isolated sentence.");
+    expect(prompt).toContain("Do not use third-person personal pronouns");
+    expect(prompt).toContain("must be supported by cited source rows from that named speaker");
+    expect(prompt).toContain("Preserve explicit one, single, this, or that scope");
+    expect(prompt).toContain("Preserve each proposition's positive or negative polarity");
+    expect(prompt).toContain("Preserve conditions, tense, uncertainty, and modality");
+    expect(prompt).toContain("which clause is conditional");
+    expect(prompt).toContain("Preserve each direct subject's identity");
+    expect(prompt).toContain("Bind first-person forms anywhere in a cited row");
+    expect(prompt).toContain("Preserve unresolved second-person argument slots");
+    expect(prompt).toContain("Preserve role prepositions around second-person slots");
+    expect(prompt).toContain("Preserve reporting acts and their certainty");
+    expect(prompt).toContain("only a bare name or antecedent identity");
+    expect(prompt).toContain("A commitment requires direct first-person intent");
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.content).toBe("Celia's cat is named Miso.");
   });
@@ -105,7 +119,45 @@ describe("automatic memory consequence extraction", () => {
     expect(standaloneMemoryFailure("{{user}}'s cat is named Miso.")).toBeNull();
     expect(standaloneMemoryFailure("{{UserName}} prefers tea.")).toBeNull();
     expect(standaloneMemoryFailure("Pierrot told Celia that he would return.")).toBeNull();
+    expect(automaticCaptureMemoryFailure("Pierrot told Celia that he would return.")).toBe(
+      "third_person_personal_pronoun",
+    );
     expect(standaloneMemoryFailure("Pierrot does not want to discuss the circus accident.")).toBeNull();
+  });
+
+  it("rejects a candidate that gives Agent Cobalt the wrong third-person pronoun", async () => {
+    const extractionRequest = request();
+    extractionRequest.scope = { kind: "character", id: "cobalt" };
+    extractionRequest.activeCharacterId = "cobalt";
+    extractionRequest.characterLabels = { cobalt: "Agent Cobalt" };
+    extractionRequest.sourceMessages = [
+      {
+        id: "assistant-cobalt",
+        chatId: "chat-1",
+        role: "assistant",
+        content: "I will wait at the east gate.",
+        characterId: "cobalt",
+        createdAt: "2026-07-30T12:02:00.000Z",
+        speakerLabel: "Agent Cobalt",
+      },
+    ];
+
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway({
+        memories: [
+          {
+            kind: "promise",
+            content: "Agent Cobalt said she will wait at the east gate.",
+            confidence: 0.95,
+            evidence: "explicit_exchange",
+            sourceMessageIds: ["assistant-cobalt"],
+          },
+        ],
+      }),
+      request: extractionRequest,
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
   });
 
   it("uses reference context only to resolve wording and persists both provenance ID sets", async () => {
