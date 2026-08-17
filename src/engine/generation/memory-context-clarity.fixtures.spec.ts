@@ -291,6 +291,33 @@ describe("memory context clarity semantic fixtures", () => {
     },
   );
 
+  it("rejects a promise inferred from refusing to make that commitment", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "promise",
+          content: "Shlo promised to wait at the east gate.",
+          confidence: 0.95,
+          evidence: "explicit_promise",
+          sourceMessageIds: ["user-shlo"],
+        },
+      ]),
+      request: request("Shlo", [
+        {
+          id: "user-shlo",
+          chatId: "fixture-chat",
+          role: "user",
+          content: "I refused to promise to wait at the east gate.",
+          characterId: null,
+          createdAt: timestamp,
+          speakerLabel: "Shlo",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
   it("requires speaker-local support for an according-to frame", async () => {
     const result = await extractCanonicalMemoryConsequences({
       llm: gateway([
@@ -428,6 +455,71 @@ describe("memory context clarity semantic fixtures", () => {
           characterId: "pierrot",
           createdAt: timestamp,
           speakerLabel: "Pierrot",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it("rejects a direct claim with an unsupported surface predicate", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "relationship_state",
+          content: "Mira trusts Celia.",
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-mira"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-mira",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: "Mira distrusts Celia.",
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
+        },
+      ]),
+    });
+
+    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  it.each([
+    {
+      label: "opposite-polarity predicate with extra topic overlap",
+      source: "Mira distrusts Celia about the east gate.",
+      candidate: "Mira trusts Celia about the east gate.",
+    },
+    {
+      label: "same-polarity predicate with extra topic overlap",
+      source: "Mira avoids Celia by the east gate.",
+      candidate: "Mira trusts Celia by the east gate.",
+    },
+  ])("rejects $label", async ({ source, candidate }) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: gateway([
+        {
+          kind: "relationship_state",
+          content: candidate,
+          confidence: 0.95,
+          evidence: "explicit_exchange",
+          sourceMessageIds: ["assistant-mira"],
+        },
+      ]),
+      request: request("Celia", [
+        {
+          id: "assistant-mira",
+          chatId: "fixture-chat",
+          role: "assistant",
+          content: source,
+          characterId: "mira",
+          createdAt: timestamp,
+          speakerLabel: "Mira",
         },
       ]),
     });
@@ -694,6 +786,11 @@ describe("memory context clarity semantic fixtures", () => {
       label: "agreement-only unlisted same-form moose",
       source: "Silver moose has one red tag.",
       candidate: "Silver moose generally have one red tag.",
+    },
+    {
+      label: "unlisted noun with lexical agreement",
+      source: "A silver moose carries one red tag.",
+      candidate: "Silver moose generally carry one red tag.",
     },
   ])("rejects $label singular-to-class morphology", async ({ source, candidate }) => {
     const result = await extractCanonicalMemoryConsequences({

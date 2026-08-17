@@ -357,6 +357,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "Do not use third-person personal pronouns; repeat the supported person's name instead.",
     "Replace context-dependent it, this, or that with the actual supported subject when the subject matters.",
     "Any reporting or commitment clause naming a speaker must be supported by cited source rows from that named speaker.",
+    "A commitment requires direct first-person intent such as I promise or I will; refusal or inability is not a commitment.",
     "Preserve explicit one, single, this, or that scope; never broaden a specific observation into an unqualified class-wide statement.",
     "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
     "Older reference messages may resolve names or antecedents but cannot prove a new claim.",
@@ -403,7 +404,7 @@ function evidenceTokens(value: string): Set<string> {
 }
 
 const NEGATIVE_POLARITY =
-  /\b(?:cannot|never|no|not|without|won't|wouldn't|can't|couldn't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|shouldn't|mustn't)\b/i;
+  /\b(?:cannot|never|no|not|without|distrust(?:s|ed|ing)?|won't|wouldn't|can't|couldn't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|shouldn't|mustn't)\b/i;
 
 function hasNegativePolarity(content: string): boolean {
   return NEGATIVE_POLARITY.test(content);
@@ -438,13 +439,17 @@ const REPORTING_OR_COMMITMENT_VERB =
   "vowed|vows|pledged|pledges|swore|swears|claimed|claims|mentioned|mentions|asked|asks|warned|warns)";
 const COMMITMENT_REPORTING_VERB =
   /^(?:promised|promises|committed|commits|agreed|agrees|vowed|vows|pledged|pledges|swore|swears)$/i;
-const COMMITMENT_ACT_EVIDENCE =
-  /\b(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b|\bI(?:'ll|\s+(?:will|shall|am\s+going\s+to))\b/i;
+const DIRECT_FIRST_PERSON_COMMITMENT_ACT =
+  /\b(?:I|we)\s+(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b/i;
+const DIRECT_FIRST_PERSON_FUTURE_INTENT = /\b(?:I|we)(?:'ll|\s+(?:will|shall|am\s+going\s+to|are\s+going\s+to))\b/i;
 const NEGATED_EXPLICIT_COMMITMENT_ACT =
   /\b(?:cannot|never|not|can't|couldn't|didn't|doesn't|don't|won't|wouldn't)\s+(?:promise[ds]?|commit(?:s|ted)?|vow(?:s|ed)?|pledge[ds]?|swear(?:s)?|swore|agree[ds]?)\b/i;
 
 function hasCommitmentActEvidence(content: string): boolean {
-  return COMMITMENT_ACT_EVIDENCE.test(content) && !NEGATED_EXPLICIT_COMMITMENT_ACT.test(content);
+  return (
+    (DIRECT_FIRST_PERSON_COMMITMENT_ACT.test(content) || DIRECT_FIRST_PERSON_FUTURE_INTENT.test(content)) &&
+    !NEGATED_EXPLICIT_COMMITMENT_ACT.test(content)
+  );
 }
 
 function knownSpeakerLabels(request: CanonicalConsequenceExtractionRequest): string[] {
@@ -460,6 +465,10 @@ function knownSpeakerLabels(request: CanonicalConsequenceExtractionRequest): str
         .filter(Boolean),
     ),
   ).sort((left, right) => right.length - left.length);
+}
+
+function knownSpeakerTokens(request: CanonicalConsequenceExtractionRequest): Set<string> {
+  return new Set(knownSpeakerLabels(request).flatMap((label) => label.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []));
 }
 
 function messageBelongsToSpeaker(
@@ -546,35 +555,120 @@ function evidencePropositions(content: string): string[] {
     .filter(Boolean);
 }
 
-function polarityTopicTokens(value: string): Set<string> {
-  return new Set(
-    (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
-      .map((token) => (token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token))
-      .filter((token) => token.length >= 3 && !EVIDENCE_STOP_WORDS.has(token)),
+const PROPOSITION_FRAME_WORDS = new Set([
+  "according",
+  "agreed",
+  "agrees",
+  "asked",
+  "asks",
+  "believed",
+  "believes",
+  "can",
+  "claimed",
+  "claims",
+  "committed",
+  "commits",
+  "confirmed",
+  "confirms",
+  "could",
+  "did",
+  "discussed",
+  "discusses",
+  "do",
+  "does",
+  "explained",
+  "explains",
+  "going",
+  "had",
+  "is",
+  "may",
+  "mentioned",
+  "mentions",
+  "might",
+  "must",
+  "name",
+  "named",
+  "per",
+  "pledged",
+  "pledges",
+  "prefer",
+  "prefers",
+  "promised",
+  "promises",
+  "reported",
+  "reports",
+  "said",
+  "says",
+  "shall",
+  "should",
+  "stated",
+  "states",
+  "swore",
+  "swears",
+  "told",
+  "tells",
+  "vowed",
+  "vows",
+  "warned",
+  "warns",
+  "will",
+  "would",
+]);
+
+function propositionContentTokens(value: string, ignoredSpeakerTokens: Set<string>): string[] {
+  return (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
+    (token) =>
+      token.length >= 3 &&
+      token !== "one" &&
+      token !== "single" &&
+      !EVIDENCE_STOP_WORDS.has(token) &&
+      !PROPOSITION_FRAME_WORDS.has(token) &&
+      !ignoredSpeakerTokens.has(token),
   );
 }
 
-function propositionTopicsOverlap(candidate: string, evidence: string): boolean {
-  const candidateTokens = polarityTopicTokens(candidate);
-  const evidenceTokenSet = polarityTopicTokens(evidence);
-  const requiredOverlap = Math.min(2, candidateTokens.size, evidenceTokenSet.size);
-  if (requiredOverlap === 0) return false;
-  return [...candidateTokens].filter((token) => evidenceTokenSet.has(token)).length >= requiredOverlap;
+function surfaceForms(token: string): Set<string> {
+  const forms = new Set([token]);
+  if (token.length > 4 && token.endsWith("ies")) forms.add(`${token.slice(0, -3)}y`);
+  if (/(?:ches|shes|sses|xes|zes|oes)$/.test(token)) forms.add(token.slice(0, -2));
+  if (token.length > 4 && token.endsWith("s")) forms.add(token.slice(0, -1));
+  if (token.length > 4 && token.endsWith("ed")) {
+    forms.add(token.slice(0, -2));
+    forms.add(token.slice(0, -1));
+  }
+  return forms;
 }
 
-function evidencePolarityPreserved(content: string, evidenceMessages: CanonicalConsequenceSourceMessage[]): boolean {
+function surfaceTokensMatch(left: string, right: string): boolean {
+  const rightForms = surfaceForms(right);
+  return [...surfaceForms(left)].some((form) => rightForms.has(form));
+}
+
+function propositionSupported(candidate: string, evidence: string, ignoredSpeakerTokens: Set<string>): boolean {
+  if (hasNegativePolarity(candidate) !== hasNegativePolarity(evidence)) return false;
+  const candidateTokens = propositionContentTokens(candidate, ignoredSpeakerTokens);
+  const evidenceTokensForProposition = propositionContentTokens(evidence, ignoredSpeakerTokens);
+  if (candidateTokens.length === 0) return true;
+  const leadingTokenSupported = evidenceTokensForProposition.some((token) =>
+    surfaceTokensMatch(candidateTokens[0] ?? "", token),
+  );
+  const negativePredicateSupported =
+    hasNegativePolarity(candidate) &&
+    evidenceTokensForProposition.some((token) => evidenceToken(candidateTokens[0] ?? "") === evidenceToken(token));
+  return leadingTokenSupported || negativePredicateSupported;
+}
+
+function evidencePolarityPreserved(
+  content: string,
+  evidenceMessages: CanonicalConsequenceSourceMessage[],
+  ignoredSpeakerTokens: Set<string>,
+): boolean {
   const evidencePropositionList = evidenceMessages.flatMap((message) => evidencePropositions(message.content));
-  return evidencePropositions(content).every((candidateProposition) => {
-    const topicalEvidence = evidencePropositionList.filter((evidenceProposition) =>
-      propositionTopicsOverlap(candidateProposition, evidenceProposition),
-    );
-    return (
-      topicalEvidence.length === 0 ||
-      topicalEvidence.some(
-        (evidenceProposition) => hasNegativePolarity(candidateProposition) === hasNegativePolarity(evidenceProposition),
-      )
-    );
-  });
+  return evidencePropositions(content).every((candidateProposition) =>
+    evidencePropositionList.some((evidenceProposition) =>
+      propositionSupported(candidateProposition, evidenceProposition, ignoredSpeakerTokens),
+    ),
+  );
 }
 
 function specificityComparisonTokens(content: string): Set<string> {
@@ -625,6 +719,12 @@ function candidateSingularForms(word: string): string[] {
   return word.length > 4 && word.endsWith("s") ? [word.slice(0, -1)] : [];
 }
 
+function thirdPersonAgreementBases(word: string): string[] {
+  if (word.length > 4 && word.endsWith("ies")) return [`${word.slice(0, -3)}y`];
+  if (/(?:ches|shes|sses|xes|zes|oes)$/.test(word)) return [word.slice(0, -2)];
+  return word.length > 4 && word.endsWith("s") ? [word.slice(0, -1)] : [];
+}
+
 function broadensSingularEvidence(sourceClause: string, candidateClause: string): boolean {
   const sourceWordList = sourceClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const scopedSingularNouns = new Set(
@@ -639,6 +739,15 @@ function broadensSingularEvidence(sourceClause: string, candidateClause: string)
   );
   const sourceWords = new Set(sourceWordList);
   const candidateWords: string[] = candidateClause.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (
+    sourceWordList.some(
+      (sourceWord) =>
+        !candidateWords.includes(sourceWord) &&
+        thirdPersonAgreementBases(sourceWord).some((base) => candidateWords.includes(base)),
+    )
+  ) {
+    return true;
+  }
   if (
     [...PLURAL_AGREEMENT_FOR_SINGULAR].some(
       ([singular, plural]) =>
@@ -729,10 +838,11 @@ function specificityBindings(content: string): SpecificityBinding[] {
     const marker = match[0].toLowerCase();
     let kind: SpecificityBinding["kind"] | null = null;
     const followingWords = words.slice(index + 1, index + 6);
-    const articleIntroducesSingularSubject =
-      (marker === "a" || marker === "an" || marker === "the") &&
-      followingWords.some((wordMatch) => SINGULAR_AGREEMENT.has(wordMatch[0].toLowerCase()));
-    if (articleIntroducesSingularSubject || marker === "one" || marker === "single") kind = "singular";
+    const articleIntroducesSingularScope =
+      marker === "a" ||
+      marker === "an" ||
+      (marker === "the" && followingWords.some((wordMatch) => SINGULAR_AGREEMENT.has(wordMatch[0].toLowerCase())));
+    if (articleIntroducesSingularScope || marker === "one" || marker === "single") kind = "singular";
     if (marker === "this") kind = "demonstrative";
     if (marker === "that" && !thatStartsClearFiniteClause(content, match.index + match[0].length)) {
       kind = "demonstrative";
@@ -867,7 +977,7 @@ export async function extractCanonicalMemoryConsequences(input: {
       !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
       !contentSupportedByEvidence(content, evidenceMessages) ||
       !contentSupportedByEvidence(content, [...evidenceMessages, ...referenceMessages]) ||
-      !evidencePolarityPreserved(content, evidenceMessages) ||
+      !evidencePolarityPreserved(content, evidenceMessages, knownSpeakerTokens(request)) ||
       !namedReportingClausesSupportedByEvidence(content, evidenceMessages, request) ||
       !evidenceSpecificityPreserved(content, evidenceMessages) ||
       (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
