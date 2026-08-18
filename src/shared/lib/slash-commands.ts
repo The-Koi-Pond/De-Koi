@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { chatBackgroundMetadataToUrl } from "./backgrounds";
 import { planRoleplayScene, createRoleplayScene } from "../../engine/modes/roleplay/scene/scene-service";
+import { buildRoleplaySceneOpeningGuide } from "../../engine/modes/roleplay/scene/scene-opening";
 import { llmApi } from "../api/llm-api";
 import { chatMetadataStorageApi, chatTranscriptStorageApi, storageApi } from "../api/storage-api";
 import { visualAssetsApi } from "../api/visual-assets-api";
@@ -784,15 +785,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
           openingStarted = await ctx.generate({
             chatId: res.chatId,
             connectionId: null,
-            generationGuide: buildNarratorInstructionMessage(
-              [
-                "Open this roleplay scene now.",
-                "Treat the planned opening beat as intent, not prose to copy. Write a fresh in-world opening using the scene context and current Roleplay settings, then leave room for the user.",
-                "",
-                "Planned opening beat:",
-                planRes.plan.firstMessage,
-              ].join("\n"),
-            ),
+            generationGuide: buildRoleplaySceneOpeningGuide(planRes.plan.firstMessage),
             generationGuideSource: "narrator",
           });
         } catch {
