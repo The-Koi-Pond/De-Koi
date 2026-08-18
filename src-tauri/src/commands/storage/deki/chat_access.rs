@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use autoagents::prelude::{ToolInput, ToolInputT};
+use autoagents::prelude::ToolInput;
 use marinara_core::{now_iso, AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};

@@ -1,7 +1,7 @@
 use super::chat_access::{self, DekiChatAccessGrant};
 use crate::state::AppState;
 use crate::storage_commands::{canonical_memory, chat_memory};
-use autoagents::prelude::{ToolInput, ToolInputT};
+use autoagents::prelude::ToolInput;
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};

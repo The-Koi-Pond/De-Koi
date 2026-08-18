@@ -49,10 +49,10 @@ server = []
 tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
-aes-gcm = "0.10"
-autoagents = "0.3.7"
+aes-gcm = "0.11"
+autoagents = "0.4.0"
 axum = { version = "0.8", features = ["multipart"] }
-base64 = "0.22"
+base64 = "0.23"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 libc = "0.2"
@@ -73,7 +73,7 @@ sha2 = "0.11"
 tokio = { version = "1", features = ["sync", "time", "net", "io-util", "macros", "process", "rt-multi-thread"] }
 tokio-stream = "0.1"
 unicode-normalization = "0.1"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.7", features = ["cors"] }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 marinara-core = { path = "crates/core" }
 marinara-security = { path = "crates/security" }
