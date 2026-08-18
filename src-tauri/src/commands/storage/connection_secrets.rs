@@ -259,8 +259,10 @@ pub(crate) fn encrypt_secret(state: &AppState, value: &str) -> AppResult<String>
             "Failed to generate encryption nonce",
         )
     })?;
+    let cipher_nonce = Nonce::try_from(nonce.as_slice())
+        .map_err(|_| AppError::new("connection_secret_error", "Invalid connection secret nonce"))?;
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), value.as_bytes())
+        .encrypt(&cipher_nonce, value.as_bytes())
         .map_err(|_| AppError::new("connection_secret_error", "Failed to encrypt secret"))?;
     Ok(format!(
         "{SECRET_VERSION}:{}:{}",
@@ -286,11 +288,12 @@ pub(crate) fn decrypt_secret(state: &AppState, value: &str) -> AppResult<String>
     if nonce.len() != 12 {
         return Err(decrypt_error());
     }
+    let nonce = Nonce::try_from(nonce.as_slice()).map_err(|_| decrypt_error())?;
     let key = master_key(state)?;
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|_| AppError::new("connection_secret_error", "Invalid connection secret key"))?;
     let plaintext = cipher
-        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+        .decrypt(&nonce, ciphertext.as_ref())
         .map_err(|_| decrypt_error())?;
     String::from_utf8(plaintext).map_err(|_| decrypt_error())
 }
@@ -408,6 +411,26 @@ mod tests {
         assert_eq!(
             decrypt_secret(&state, &encrypted).expect("secret should decrypt"),
             "provider-secret"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn decrypt_secret_accepts_legacy_v1_ciphertext_fixture() {
+        let (state, root) = test_state("legacy-secret");
+        let key_dir = state.data_dir.join("secrets");
+        std::fs::create_dir_all(&key_dir).expect("secret key directory should be created");
+        std::fs::write(
+            key_dir.join(MASTER_KEY_FILE),
+            "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        )
+        .expect("legacy master key fixture should be written");
+
+        let stored = "v1:AAECAwQFBgcICQoL:K2exeqac72v/LuHi1YwKQPCz5EaVD/1Px7sq4oqLHQu52f3FIuA";
+        assert_eq!(
+            decrypt_secret(&state, stored).expect("legacy secret should decrypt"),
+            "legacy-provider-secret"
         );
 
         let _ = std::fs::remove_dir_all(root);

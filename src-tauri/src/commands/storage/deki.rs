@@ -15,7 +15,9 @@ use autoagents::llm::embedding::EmbeddingProvider;
 use autoagents::llm::error::LLMError;
 use autoagents::llm::models::{ModelListRequest, ModelListResponse, ModelsProvider};
 use autoagents::llm::{FunctionCall, LLMProvider, ToolCall};
-use autoagents::prelude::{tool, AgentHooks, ToolInput, ToolInputT, ToolT};
+#[cfg(test)]
+use autoagents::prelude::ToolInputT;
+use autoagents::prelude::{tool, AgentHooks, ToolInput, ToolT};
 use marinara_core::{now_iso, AppError, AppResult};
 use marinara_security::{assert_inside_dir, assert_relative_safe_path};
 use serde::{Deserialize, Serialize};
@@ -104,7 +106,6 @@ const DEKI_INITIAL_MAX_TOKENS: u64 = 8192;
 const DEKI_FORCED_TOOL_MAX_TOKENS: u64 = 512;
 const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
 const DEKI_AGENT_MAX_TURNS: usize = 10;
-const DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT: u64 = 200;
 const DEKI_WEB_SEARCH_MAX_RESULTS: usize = 8;
 const DEKI_WEB_SEARCH_TIMEOUT_SECS: u64 = 12;
 const DEKI_WEB_PAGE_MAX_BYTES: usize = 768 * 1024;
@@ -5036,7 +5037,7 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
 
         assert_eq!(
             action["window"]["messageCount"],
-            json!(DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT)
+            json!(action_parser::DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT)
         );
     }
 

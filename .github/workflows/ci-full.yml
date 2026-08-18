@@ -62,7 +62,7 @@ jobs:
             echo "docs=true"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: >
           github.event_name == 'pull_request' &&
           !(github.event.action == 'synchronize' && vars.DE_KOI_PR_SYNC_AUTOMATION == 'off') &&
@@ -160,25 +160,25 @@ jobs:
       github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Reset self-hosted pnpm tool home
         if: runner.environment != 'github-hosted'
         run: rm -rf "$HOME/setup-pnpm"
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with:
           version: 10.33.2
       - name: Set up Node with pnpm cache
         if: runner.environment == 'github-hosted'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
       - name: Set up Node without pnpm cache
         if: runner.environment != 'github-hosted'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile
@@ -210,14 +210,14 @@ jobs:
       needs.classify.outputs.rust == 'true'
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.2
         with:
           tool: nextest,cargo-deny,cargo-machete
       - name: Install Tauri Linux dependencies
@@ -254,22 +254,22 @@ jobs:
       (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Reset self-hosted pnpm tool home
         if: runner.environment != 'github-hosted'
         run: rm -rf "$HOME/setup-pnpm"
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with:
           version: 10.33.2
       - name: Set up Node with pnpm cache
         if: runner.environment == 'github-hosted'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
       - name: Set up Node without pnpm cache
         if: runner.environment != 'github-hosted'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile
