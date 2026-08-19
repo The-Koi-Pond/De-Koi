@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { evaluateRustAdvisoryBoundaries } from "./check-rust-advisory-boundaries.mjs";
+import { RUST_ADVISORY_PROFILES, evaluateRustAdvisoryBoundaries } from "./check-rust-advisory-boundaries.mjs";
 
 const patchedGraph = "de-koi v1.6.1\nh2 v0.4.16";
 const vulnerableGraph = "de-koi v1.6.1\nh2 v0.3.27\ntauri-plugin-devtools v2.1.0";
+
+test("resolves the Pi profile for the ARM64 Linux production target", () => {
+  assert.deepEqual(RUST_ADVISORY_PROFILES.pi, {
+    features: "server",
+    target: "aarch64-unknown-linux-gnu",
+  });
+});
 
 test("accepts the temporary waiver only when h2 0.3 is devtools-only", () => {
   assert.doesNotThrow(() =>

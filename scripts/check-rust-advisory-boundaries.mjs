@@ -5,16 +5,16 @@ import { fileURLToPath } from "node:url";
 
 const ADVISORY_ID = "RUSTSEC-2026-0258";
 const VULNERABLE_H2_PATTERN = /^h2 v0\.3\.27(?:\s|$)/m;
-const PRODUCTION_PROFILE_FEATURES = {
-  desktop: "desktop",
-  server: "server",
+export const RUST_ADVISORY_PROFILES = {
+  desktop: { features: "desktop" },
+  server: { features: "server" },
   // Pi build commands are kept on this feature by check-pi-container-distribution.mjs.
-  pi: "server",
+  pi: { features: "server", target: "aarch64-unknown-linux-gnu" },
 };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function evaluateRustAdvisoryBoundaries({ waiverConfigured, profiles }) {
-  for (const profile of Object.keys(PRODUCTION_PROFILE_FEATURES)) {
+  for (const profile of Object.keys(RUST_ADVISORY_PROFILES)) {
     if (VULNERABLE_H2_PATTERN.test(profiles[profile])) {
       throw new Error(`${profile} feature graph contains h2 0.3.27`);
     }
@@ -29,7 +29,8 @@ export function evaluateRustAdvisoryBoundaries({ waiverConfigured, profiles }) {
   }
 }
 
-function cargoTree(features) {
+function cargoTree({ features, target }) {
+  const targetArgs = target ? ["--target", target] : [];
   const result = spawnSync(
     "cargo",
     [
@@ -43,6 +44,7 @@ function cargoTree(features) {
       "none",
       "--format",
       "{p}",
+      ...targetArgs,
       "--no-default-features",
       "--features",
       features,
@@ -60,13 +62,13 @@ function main() {
   const denyConfig = readFileSync(resolve(repoRoot, "deny.toml"), "utf8");
   const waiverConfigured = denyConfig.includes(`"${ADVISORY_ID}"`);
   const profiles = Object.fromEntries(
-    Object.entries(PRODUCTION_PROFILE_FEATURES).map(([profile, features]) => [profile, cargoTree(features)]),
+    Object.entries(RUST_ADVISORY_PROFILES).map(([profile, config]) => [profile, cargoTree(config)]),
   );
-  profiles.devtools = cargoTree("devtools");
+  profiles.devtools = cargoTree({ features: "devtools" });
 
   evaluateRustAdvisoryBoundaries({ waiverConfigured, profiles });
   console.log(
-    `Rust advisory boundary check passed: desktop/server/Pi exclude h2 0.3.27; devtools waiver ${
+    `Rust advisory boundary check passed: desktop/server/Pi ARM64 Linux exclude h2 0.3.27; devtools waiver ${
       waiverConfigured ? "is required" : "is absent"
     }.`,
   );
