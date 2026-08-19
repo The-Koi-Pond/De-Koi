@@ -236,6 +236,8 @@ jobs:
       - run: cargo check --manifest-path src-tauri/Cargo.toml --workspace
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings -A dead_code
       - run: cargo nextest run --manifest-path src-tauri/Cargo.toml --workspace
+      - name: Rust advisory boundary policy
+        run: node scripts/check-rust-advisory-boundaries.mjs
       - name: Rust dependency policy
         run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml check
       - name: Unused Rust dependency report

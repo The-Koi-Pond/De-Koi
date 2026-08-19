@@ -5,7 +5,10 @@ all-features = true
 version = 2
 yanked = "warn"
 unmaintained = "workspace"
-ignore = []
+# Temporary: tauri-plugin-devtools 2.1.0's opt-in dependency chain still uses
+# tonic 0.10 -> hyper 0.14 -> h2 0.3.27. Default desktop and server/Pi builds do
+# not enable the devtools feature. Remove when the plugin uses h2 >= 0.4.16.
+ignore = ["RUSTSEC-2026-0258"]
 
 [bans]
 multiple-versions = "warn"
