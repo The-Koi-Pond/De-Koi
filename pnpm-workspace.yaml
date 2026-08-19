@@ -2,6 +2,9 @@
 # when no workspace package globs are specified.
 minimumReleaseAge: 1440
 trustPolicy: no-downgrade
+# Older locked transitive packages predate modern trusted publishing. Keep
+# no-downgrade enforcement focused on releases from the last year.
+trustPolicyIgnoreAfter: 525600
 blockExoticSubdeps: true
 strictDepBuilds: true
 
