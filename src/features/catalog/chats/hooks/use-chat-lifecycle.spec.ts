@@ -31,7 +31,7 @@ vi.mock("../../../../shared/api/chat-command-api", () => ({
   chatCommandApi: { groupDelete: vi.fn() },
 }));
 
-vi.mock("../../../../engine/modes/chat/autonomous/autonomous.service", () => ({
+vi.mock("../../../../engine/modes/chat/autonomous/activity-state", () => ({
   clearChatActivity: vi.fn(),
 }));
 

@@ -649,6 +649,18 @@ async function writeStorageRecord(
   else await storageApi.create(entity, value);
 }
 
+async function readDekiSessionMessages(sessionId: string, measured: boolean): Promise<DekiMessage[]> {
+  const readMessages = () =>
+    storageApi.list<DekiMessageRecord>("deki-messages", {
+      filters: { sessionId },
+      orderBy: "sortOrder",
+    });
+  const records = measured
+    ? await measureDekiStage("deki.active_history", readMessages, (messages) => ({ messageCount: messages.length }))
+    : await readMessages();
+  return records.map((message) => normalizeDekiMessage(message)).filter((message): message is DekiMessage => !!message);
+}
+
 async function readDurableSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState | null> {
   const records = await measureDekiStage(
     "deki.session_summaries",
@@ -678,20 +690,12 @@ async function readDurableSessionsState(hydrateSessionId?: string | null): Promi
   for (const record of records) {
     const sessionId = readTrimmedString(record.id);
     if (!sessionId || seen.has(sessionId)) continue;
-    const readMessages = () =>
-      storageApi.list<DekiMessageRecord>("deki-messages", {
-        filters: { sessionId },
-        orderBy: "sortOrder",
-      });
-    const messageRecords =
+    const messages =
       sessionId === messageSessionId
-        ? await measureDekiStage("deki.active_history", readMessages, (messages) => ({ messageCount: messages.length }))
+        ? await readDekiSessionMessages(sessionId, true)
         : hydrateSessionId === undefined
-          ? await readMessages()
+          ? await readDekiSessionMessages(sessionId, false)
           : [];
-    const messages = messageRecords
-      .map((message) => normalizeDekiMessage(message))
-      .filter((message): message is DekiMessage => !!message);
     const session = normalizeDekiSessionRecord({ ...record, id: sessionId }, messages);
     if (session) {
       seen.add(session.id);
@@ -793,6 +797,18 @@ async function saveSessionsState(
   nextState: DekiSessionsState,
 ): Promise<DekiSessionsState> {
   return saveIncrementalSessionsState(previousState, nextState);
+}
+
+async function hydrateSelectedDekiSessions(
+  state: DekiSessionsState,
+  sessionIds: ReadonlySet<string>,
+): Promise<DekiSessionsState> {
+  const sessions = await Promise.all(
+    state.sessions.map(async (session) =>
+      sessionIds.has(session.id) ? { ...session, messages: await readDekiSessionMessages(session.id, false) } : session,
+    ),
+  );
+  return { activeSessionId: state.activeSessionId, sessions };
 }
 function updateSession(
   state: DekiSessionsState,
@@ -1106,7 +1122,7 @@ async function writeDekiActionApplication(
   messages: DekiMessage[];
   compaction: DekiCompactionState;
 }> {
-  const state = await readSessionsState();
+  const state = await readSessionsState(sessionId ?? "");
   let savedApplication: DekiActionApplication | null = null;
   const nextState = updateSession(state, sessionId, (session) => ({
     ...session,
@@ -1220,12 +1236,12 @@ export const dekiApi = {
   sessions: {
     list: async (): Promise<DekiSessionsState> => readSessionsState(null),
     create: async (): Promise<DekiSessionsState> => {
-      const state = await readSessionsState();
+      const state = await readSessionsState(null);
       const session = createEmptyDekiSession();
       return saveSessionsState(state, { activeSessionId: session.id, sessions: [session, ...state.sessions] });
     },
     select: async (sessionId: string): Promise<DekiSessionsState> => {
-      const state = await readSessionsState();
+      const state = await readSessionsState(null);
       const nextActiveSessionId = state.sessions.some((session) => session.id === sessionId)
         ? sessionId
         : state.activeSessionId;
@@ -1236,8 +1252,13 @@ export const dekiApi = {
     },
     deleteMany: async (sessionIds: readonly string[]): Promise<DekiSessionsState> => {
       const ids = new Set(sessionIds.map((id) => id.trim()).filter(Boolean));
-      const state = await readSessionsState();
-      if (ids.size === 0) return state;
+      const summaries = await readSessionsState(null);
+      if (ids.size === 0) return summaries;
+
+      const selectedSessionIds = new Set(
+        summaries.sessions.filter((session) => ids.has(session.id)).map((session) => session.id),
+      );
+      const state = await hydrateSelectedDekiSessions(summaries, selectedSessionIds);
 
       const remaining = state.sessions.filter((session) => !ids.has(session.id));
       if (remaining.length === state.sessions.length) return state;
@@ -1285,7 +1306,7 @@ export const dekiApi = {
       messages: DekiMessage[];
       compaction: DekiCompactionState;
     }): Promise<DekiHistorySnapshot> => {
-      const state = await readSessionsState();
+      const state = await readSessionsState(sessionId ?? "");
       const nextCompaction = compactionForMessages(messages, compaction);
       const nextState = updateSession(state, sessionId, (session) => ({
         ...session,
@@ -1305,7 +1326,7 @@ export const dekiApi = {
       messageId: string;
       content: string;
     }): Promise<DekiMessage> => {
-      const state = await readSessionsState();
+      const state = await readSessionsState(sessionId ?? "");
       let updatedMessage: DekiMessage | null = null;
       const nextState = updateSession(state, sessionId, (session) => {
         const messages = session.messages.map((message) => {
@@ -1329,13 +1350,13 @@ export const dekiApi = {
       sessionId: string | null | undefined,
       compaction: DekiCompactionState,
     ): Promise<DekiCompactionState> => {
-      const state = await readSessionsState();
+      const state = await readSessionsState(sessionId ?? "");
       const nextState = updateSession(state, sessionId, (session) => ({ ...session, compaction }));
       const saved = await saveSessionsState(state, nextState);
       return sessionFromState(saved, sessionId).compaction;
     },
     reset: async (_sessionId?: string | null): Promise<DekiSessionsState> => {
-      const state = await readSessionsState();
+      const state = await readSessionsState(null);
       const session = createEmptyDekiSession();
       return saveSessionsState(state, { activeSessionId: session.id, sessions: [session, ...state.sessions] });
     },

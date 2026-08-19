@@ -1067,6 +1067,53 @@ describe("dekiApi.history session updates", () => {
       }),
     );
   });
+
+  it("selects a durable session without hydrating any message partition", async () => {
+    const sessionRows = [
+      { id: "session-active", title: "Active", compaction: {}, createdAt: "2026-08-01", updatedAt: "2026-08-01" },
+      { id: "session-next", title: "Next", compaction: {}, createdAt: "2026-08-02", updatedAt: "2026-08-02" },
+    ];
+    storageApiMock.get.mockResolvedValue({ id: "deki", value: { activeSessionId: "session-active" } });
+    storageApiMock.list.mockImplementation(async (entity: string) => (entity === "deki-sessions" ? sessionRows : []));
+
+    await dekiApi.sessions.select("session-next");
+
+    expect(storageApiMock.list.mock.calls.filter(([entity]) => entity === "deki-messages")).toEqual([]);
+  });
+
+  it("updates one durable message without hydrating unrelated message partitions", async () => {
+    const sessionRows = [
+      { id: "session-active", title: "Active", compaction: {}, createdAt: "2026-08-01", updatedAt: "2026-08-01" },
+      { id: "session-target", title: "Target", compaction: {}, createdAt: "2026-08-02", updatedAt: "2026-08-02" },
+    ];
+    storageApiMock.get.mockResolvedValue({ id: "deki", value: { activeSessionId: "session-active" } });
+    storageApiMock.list.mockImplementation(async (entity: string, options?: { filters?: Record<string, unknown> }) => {
+      if (entity === "deki-sessions") return sessionRows;
+      if (entity === "deki-messages" && options?.filters?.sessionId === "session-target") {
+        return [
+          {
+            id: "message-target",
+            sessionId: "session-target",
+            role: "assistant",
+            content: "Before",
+            createdAt: "2026-08-02",
+            sortOrder: 0,
+          },
+        ];
+      }
+      return [];
+    });
+
+    await dekiApi.history.updateMessage({
+      sessionId: "session-target",
+      messageId: "message-target",
+      content: "After",
+    });
+
+    expect(storageApiMock.list.mock.calls.filter(([entity]) => entity === "deki-messages")).toEqual([
+      ["deki-messages", { filters: { sessionId: "session-target" }, orderBy: "sortOrder" }],
+    ]);
+  });
 });
 describe("dekiApi.sessions.deleteMany", () => {
   beforeEach(() => {
@@ -1149,5 +1196,36 @@ describe("dekiApi.sessions.deleteMany", () => {
     expect(state.sessions).toHaveLength(1);
     expect(state.sessions[0]!.id).not.toBe("session-delete");
     expect(state.activeSessionId).toBe(state.sessions[0]!.id);
+  });
+
+  it("hydrates only selected durable message partitions before deletion", async () => {
+    const sessionRows = [
+      { id: "session-keep", title: "Keep", compaction: {}, createdAt: "2026-08-01", updatedAt: "2026-08-01" },
+      { id: "session-delete", title: "Delete", compaction: {}, createdAt: "2026-08-02", updatedAt: "2026-08-02" },
+    ];
+    storageApiMock.get.mockResolvedValue({ id: "deki", value: { activeSessionId: "session-keep" } });
+    storageApiMock.list.mockImplementation(async (entity: string, options?: { filters?: Record<string, unknown> }) => {
+      if (entity === "deki-sessions") return sessionRows;
+      if (entity === "deki-messages" && options?.filters?.sessionId === "session-delete") {
+        return [
+          {
+            id: "message-delete",
+            sessionId: "session-delete",
+            role: "user",
+            content: "Delete this history.",
+            createdAt: "2026-08-02",
+            sortOrder: 0,
+          },
+        ];
+      }
+      return [];
+    });
+
+    await dekiApi.sessions.deleteMany(["session-delete"]);
+
+    expect(storageApiMock.list.mock.calls.filter(([entity]) => entity === "deki-messages")).toEqual([
+      ["deki-messages", { filters: { sessionId: "session-delete" }, orderBy: "sortOrder" }],
+    ]);
+    expect(storageApiMock.delete).toHaveBeenCalledWith("deki-messages", "message-delete");
   });
 });
