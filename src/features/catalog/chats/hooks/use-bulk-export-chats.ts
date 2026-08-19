@@ -1,28 +1,11 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import type { Chat, Message } from "../../../../engine/contracts/types/chat";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { getExportErrorMessage } from "../../../shared/lib/export-feedback";
 import { downloadBlobFile, downloadTextFile } from "../lib/download";
 import type { BulkChatExportFormat } from "../lib/chat-transcript-export";
-
-async function loadChatsForExport(chatIds: string[]) {
-  const ids = Array.from(new Set(chatIds.map((id) => id.trim()).filter(Boolean)));
-  if (ids.length === 0) throw new Error("Choose at least one chat to export.");
-  return Promise.all(
-    ids.map(async (chatId) => {
-      const [chat, messages] = await Promise.all([
-        storageApi.get<Chat>("chats", chatId).then((chat) => {
-          if (!chat) throw new Error("Chat was not found.");
-          return chat;
-        }),
-        storageApi.listChatMessages<Message>(chatId),
-      ]);
-      return { chat, messages };
-    }),
-  );
-}
+import { listChatIdsForExport, loadChatsForExport } from "../lib/chat-export-loader";
 
 /** Export selected chats as native JSON or a ZIP of JSONL/text transcripts. */
 export function useBulkExportChats() {
@@ -36,9 +19,8 @@ export function useBulkExportChats() {
       format?: BulkChatExportFormat;
       scope?: "selected" | "all";
     }) => {
-      const exportIds =
-        scope === "all" ? (await storageApi.list<Chat>("chats")).map((chat) => chat.id) : (chatIds ?? []);
-      const chats = await loadChatsForExport(exportIds);
+      const exportIds = scope === "all" ? await listChatIdsForExport(storageApi) : (chatIds ?? []);
+      const chats = await loadChatsForExport(storageApi, exportIds);
       const exportedAt = new Date().toISOString();
       if (format === "jsonl" || format === "text") {
         const [{ buildChatTranscriptZipFiles }, { createStoredZip }] = await Promise.all([

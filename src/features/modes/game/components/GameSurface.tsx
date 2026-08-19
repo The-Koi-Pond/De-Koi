@@ -98,10 +98,7 @@ import { gameAssetFileUrlFromPath, userBackgroundUrl } from "../../../../shared/
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
-import {
-  DISCOVERY_APP_EVENT,
-  type DiscoveryAppEventDetail,
-} from "../../../../shared/lib/discovery-navigation";
+import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../../../shared/lib/discovery-navigation";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { audioManager } from "../lib/game-audio";
 import { canStartGameWithConnection, GAME_START_CONNECTION_REQUIRED_MESSAGE } from "../lib/game-start-connection";
@@ -123,10 +120,7 @@ import {
 } from "../lib/game-tag-parser";
 import { resolveAssetTag } from "../lib/asset-fuzzy-match";
 import { filterGameAssetMap, parseGameAssetExcludedFolders } from "../lib/game-asset-selection";
-import {
-  getSceneBackgroundTags,
-  pickFallbackBackgroundTag,
-} from "../lib/game-background-selection";
+import { getSceneBackgroundTags, pickFallbackBackgroundTag } from "../lib/game-background-selection";
 import { resolveCombatFullBodyPose, resolveDialogueFullBodyPose } from "../lib/game-full-body-pose";
 import { characterNamesMatch, findNamedEntry } from "../lib/game-character-name-match";
 import { normalizeGameSegmentEdit, serializeGameSegmentEdit, type GameSegmentEdit } from "../lib/game-segment-edits";
@@ -224,9 +218,7 @@ import { GameInput } from "./GameInput";
 import { GameVolumeMixer } from "./GameVolumeMixer";
 import { GameMapPanel, MobileMapButton } from "./GameMap";
 import { GamePartyBar } from "./GamePartyBar";
-import { GameCharacterSheet } from "./GameCharacterSheet";
 import type { GameCharacterSheetGameCard } from "./GameCharacterSheet";
-import { GameSetupWizard } from "./GameSetupWizard";
 import { GameDiceResult } from "./GameDiceResult";
 import { GameSkillCheckResult } from "./GameSkillCheckResult";
 import { GameElementReaction } from "./GameElementReaction";
@@ -238,7 +230,6 @@ import { GameQteOverlay } from "./GameQteOverlay";
 import { GameJsonRepairModal } from "./GameJsonRepairModal";
 import { GameShowcaseBanner } from "./GameShowcaseBanner";
 import { DirectionEngine } from "./DirectionEngine";
-import { GameWidgetPanel, GameWidgetSessionPrepModal, MobileWidgetPanel } from "./GameWidgetPanel";
 import { WeatherEffects } from "../../../runtime/visuals/index";
 import {
   buildMissingSceneAssetGenerationPayload,
@@ -768,6 +759,31 @@ const GameReadableDisplay = lazy(async () => {
 const GameTutorial = lazy(async () => {
   const module = await import("./GameTutorial");
   return { default: module.GameTutorial };
+});
+
+const GameSetupWizard = lazy(async () => {
+  const module = await import("./GameSetupWizard");
+  return { default: module.GameSetupWizard };
+});
+
+const GameCharacterSheet = lazy(async () => {
+  const module = await import("./GameCharacterSheet");
+  return { default: module.GameCharacterSheet };
+});
+
+const GameWidgetPanel = lazy(async () => {
+  const module = await import("./GameWidgetPanel");
+  return { default: module.GameWidgetPanel };
+});
+
+const MobileWidgetPanel = lazy(async () => {
+  const module = await import("./GameWidgetPanel");
+  return { default: module.MobileWidgetPanel };
+});
+
+const GameWidgetSessionPrepModal = lazy(async () => {
+  const module = await import("./GameWidgetPanel");
+  return { default: module.GameWidgetSessionPrepModal };
 });
 
 function GameOverlayLoadingFallback({ label, zClassName = "z-40" }: { label: string; zClassName?: string }) {
@@ -7142,17 +7158,19 @@ export function GameSurface({
     setStartGameRequested(false);
   }, [hasEverHadPlayableContent, sessionStatus, startGameRequested]);
 
-  const widgetSessionPrepModal = (
-    <GameWidgetSessionPrepModal
-      open={prepareSessionWidgetsOpen}
-      widgets={normalizedWidgets}
-      chatId={activeChatId}
-      mode="next"
-      onClose={() => setPrepareSessionWidgetsOpen(false)}
-      onStartSession={handleStartNewSessionNow}
-      isStartingSession={startSessionLocked}
-    />
-  );
+  const widgetSessionPrepModal = prepareSessionWidgetsOpen ? (
+    <Suspense fallback={null}>
+      <GameWidgetSessionPrepModal
+        open
+        widgets={normalizedWidgets}
+        chatId={activeChatId}
+        mode="next"
+        onClose={() => setPrepareSessionWidgetsOpen(false)}
+        onStartSession={handleStartNewSessionNow}
+        isStartingSession={startSessionLocked}
+      />
+    </Suspense>
+  ) : null;
 
   // Does this chat need initial game creation?
   const needsCreation = !chatMeta.gameId;
@@ -7236,53 +7254,61 @@ export function GameSurface({
   if (setupMainGame) {
     return (
       <>
-        <GameSetupWizard
-          error={gameSetupFailure}
-          onComplete={(config, preferences, conns, wizardGameName) => {
-            setGameSetupFailure(null);
-            if (needsCreation) {
-              // Create game structure first, then run setup
-              createGame.mutate(
-                {
-                  name: wizardGameName || chat?.name || "New Game",
-                  setupConfig: config,
-                  chatId: activeChatId,
-                  connectionId: conns.gmConnectionId,
-                  partyCharacterIds: config.partyCharacterIds,
-                },
-                {
-                  onSuccess: (res) => {
-                    gameSetup.mutate(
-                      {
-                        chatId: res.sessionChat.id,
-                        connectionId: conns.gmConnectionId,
-                        preferences,
-                        setupConfig: config,
-                      },
-                      { onError: handleGameSetupFailure },
-                    );
+        <Suspense
+          fallback={
+            <div className="flex h-full items-center justify-center bg-[var(--background)] dark:bg-black/80">
+              <Loader2 size={24} className="animate-spin text-[var(--muted-foreground)]" />
+            </div>
+          }
+        >
+          <GameSetupWizard
+            error={gameSetupFailure}
+            onComplete={(config, preferences, conns, wizardGameName) => {
+              setGameSetupFailure(null);
+              if (needsCreation) {
+                // Create game structure first, then run setup
+                createGame.mutate(
+                  {
+                    name: wizardGameName || chat?.name || "New Game",
+                    setupConfig: config,
+                    chatId: activeChatId,
+                    connectionId: conns.gmConnectionId,
+                    partyCharacterIds: config.partyCharacterIds,
                   },
-                  onError: handleGameSetupFailure,
-                },
-              );
-            } else {
-              gameSetup.mutate(
-                { chatId: activeChatId, connectionId: conns.gmConnectionId, preferences, setupConfig: config },
-                { onError: handleGameSetupFailure },
-              );
-            }
-          }}
-          onCancel={() => {
-            setGameSetupFailure(null);
-            if (needsCreation || sessionStatus === "setup") {
-              // Delete the broken/empty game chat
-              useChatStore.getState().setActiveChatId(null);
-              deleteChat.mutate(activeChatId);
-            }
-            useGameModeStore.getState().setSetupActive(false);
-          }}
-          isLoading={createGame.isPending || gameSetup.isPending}
-        />
+                  {
+                    onSuccess: (res) => {
+                      gameSetup.mutate(
+                        {
+                          chatId: res.sessionChat.id,
+                          connectionId: conns.gmConnectionId,
+                          preferences,
+                          setupConfig: config,
+                        },
+                        { onError: handleGameSetupFailure },
+                      );
+                    },
+                    onError: handleGameSetupFailure,
+                  },
+                );
+              } else {
+                gameSetup.mutate(
+                  { chatId: activeChatId, connectionId: conns.gmConnectionId, preferences, setupConfig: config },
+                  { onError: handleGameSetupFailure },
+                );
+              }
+            }}
+            onCancel={() => {
+              setGameSetupFailure(null);
+              if (needsCreation || sessionStatus === "setup") {
+                // Delete the broken/empty game chat
+                useChatStore.getState().setActiveChatId(null);
+                deleteChat.mutate(activeChatId);
+              }
+              useGameModeStore.getState().setSetupActive(false);
+            }}
+            isLoading={createGame.isPending || gameSetup.isPending}
+          />
+        </Suspense>
         <GameJsonRepairModal
           request={jsonRepairRequest}
           onClose={() => setJsonRepairRequest(null)}
@@ -7443,18 +7469,22 @@ export function GameSurface({
             </div>
           </div>
         </div>
-        <GameWidgetSessionPrepModal
-          open={prepareInitialWidgetsOpen}
-          widgets={normalizedWidgets}
-          chatId={activeChatId}
-          mode="initial"
-          onClose={() => setPrepareInitialWidgetsOpen(false)}
-          onStartSession={() => {
-            setPrepareInitialWidgetsOpen(false);
-            handleStartGameNow();
-          }}
-          isStartingSession={startGame.isPending || startGameRequested}
-        />
+        {prepareInitialWidgetsOpen && (
+          <Suspense fallback={null}>
+            <GameWidgetSessionPrepModal
+              open
+              widgets={normalizedWidgets}
+              chatId={activeChatId}
+              mode="initial"
+              onClose={() => setPrepareInitialWidgetsOpen(false)}
+              onStartSession={() => {
+                setPrepareInitialWidgetsOpen(false);
+                handleStartGameNow();
+              }}
+              isStartingSession={startGame.isPending || startGameRequested}
+            />
+          </Suspense>
+        )}
         {imagePromptReviewModal}
         {widgetSessionPrepModal}
       </>
@@ -8267,15 +8297,17 @@ export function GameSurface({
                   // Mobile widget slot â€” rendered inside GameNarration to sit above the narration box
                   const mobileWidgetSlot =
                     !combatUiActive && hudWidgets.length > 0 ? (
-                      <div
-                        className={cn(
-                          "pointer-events-auto mb-2 flex items-end justify-between",
-                          !compactHudWidgets && "md:hidden",
-                        )}
-                      >
-                        <MobileWidgetPanel widgets={normalizedWidgets} position="hud_left" chatId={activeChatId} />
-                        <MobileWidgetPanel widgets={normalizedWidgets} position="hud_right" chatId={activeChatId} />
-                      </div>
+                      <Suspense fallback={null}>
+                        <div
+                          className={cn(
+                            "pointer-events-auto mb-2 flex items-end justify-between",
+                            !compactHudWidgets && "md:hidden",
+                          )}
+                        >
+                          <MobileWidgetPanel widgets={normalizedWidgets} position="hud_left" chatId={activeChatId} />
+                          <MobileWidgetPanel widgets={normalizedWidgets} position="hud_right" chatId={activeChatId} />
+                        </div>
+                      </Suspense>
                     ) : undefined;
 
                   // Choice cards slot â€” rendered inside GameNarration above the narration box
@@ -8794,7 +8826,7 @@ export function GameSurface({
 
               {/* HUD Widgets - Left & Right, tops aligned */}
               {!combatUiActive && hudWidgets.length > 0 && !compactHudWidgets && (
-                <>
+                <Suspense fallback={null}>
                   {/* Desktop: full widget cards */}
                   <div className="pointer-events-none absolute inset-x-3 bottom-24 z-30 hidden items-end justify-between md:flex">
                     <div className="w-44" data-game-widget-rail="left">
@@ -8814,7 +8846,7 @@ export function GameSurface({
                       />
                     </div>
                   </div>
-                </>
+                </Suspense>
               )}
             </div>
           </div>
@@ -8826,15 +8858,17 @@ export function GameSurface({
 
       {/* Character sheet modal */}
       {characterSheetOpen && characterSheetCharId && partyCards[characterSheetCharId] && (
-        <GameCharacterSheet
-          card={partyCards[characterSheetCharId]}
-          onClose={closeCharacterSheet}
-          onSave={(gameCard: GameCharacterSheetGameCard | undefined) =>
-            handleSaveCharacterSheet(partyCards[characterSheetCharId].title, gameCard)
-          }
-          onRegenerate={() => handleRegeneratePartyCard(partyCards[characterSheetCharId].title)}
-          isRegenerating={regeneratePartyCard.isPending}
-        />
+        <Suspense fallback={<GameOverlayLoadingFallback label="Loading character sheet..." />}>
+          <GameCharacterSheet
+            card={partyCards[characterSheetCharId]}
+            onClose={closeCharacterSheet}
+            onSave={(gameCard: GameCharacterSheetGameCard | undefined) =>
+              handleSaveCharacterSheet(partyCards[characterSheetCharId].title, gameCard)
+            }
+            onRegenerate={() => handleRegeneratePartyCard(partyCards[characterSheetCharId].title)}
+            isRegenerating={regeneratePartyCard.isPending}
+          />
+        </Suspense>
       )}
 
       {imagePromptReviewModal}

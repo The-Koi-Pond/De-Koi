@@ -32,14 +32,7 @@ import {
   chatMessagesInfiniteQueryOptions,
   DEFAULT_CHAT_MESSAGE_PAGE_SIZE,
 } from "../chat-query-options";
-import { getExportErrorMessage } from "../../../shared/lib/export-feedback";
 import { selectChatSummarySourceMessages, type ChatSummarySourceMode } from "../lib/chat-summary-source";
-import {
-  chatExportFilename,
-  formatChatJsonl,
-  formatChatText,
-  type ChatTranscriptExportFormat,
-} from "../lib/chat-transcript-export";
 import { downloadTextFile } from "../lib/download";
 import { completeCharacterTitleUpdate } from "../lib/chat-character-update";
 import {
@@ -78,7 +71,6 @@ export { chatKeys } from "../query-keys";
 export { useCreateChat, useDeleteChat, useDeleteChatGroup, useUpdateChatMetadata } from "./use-chat-lifecycle";
 export { useChatSummaries, useRecentChatSummaries } from "./use-chat-summaries";
 export type { ChatListItem } from "./use-chat-summaries";
-export type { ChatTranscriptExportFormat } from "../lib/chat-transcript-export";
 
 const MAX_MEMORY_RECALL_IMPORT_BYTES = 25 * 1024 * 1024;
 const scheduledDeleteRefreshTimers = new Map<string, number>();
@@ -1153,34 +1145,6 @@ function resolveSummaryPromptTemplate(
     id: selected?.id ?? null,
     prompt: selected?.prompt ?? getDefaultAgentPrompt("chat-summary"),
   };
-}
-
-/** Export a chat as JSONL or plain text */
-export function useExportChat() {
-  return useMutation({
-    mutationFn: async ({ chatId, format = "jsonl" }: { chatId: string; format?: ChatTranscriptExportFormat }) => {
-      const [chat, messages] = await Promise.all([
-        storageApi.get<Chat>("chats", chatId).then((chat) => {
-          if (!chat) throw new Error("Chat was not found.");
-          return chat;
-        }),
-        storageApi.listChatMessages<Message>(chatId),
-      ]);
-      const filename = chatExportFilename(chat, format);
-      const result =
-        format === "text"
-          ? await downloadTextFile(formatChatText(chat, messages), filename, "text/plain;charset=utf-8")
-          : await downloadTextFile(formatChatJsonl(chat, messages), filename, "application/x-ndjson;charset=utf-8");
-      return { format, result };
-    },
-    onSuccess: ({ format, result }) => {
-      if (result === "cancelled") return;
-      toast.success(format === "text" ? "Chat transcript exported as text." : "Chat transcript exported as JSONL.");
-    },
-    onError: (error) => {
-      toast.error(getExportErrorMessage(error, "Failed to export chat transcript."));
-    },
-  });
 }
 
 /** Create a branch (copy) of an existing chat */

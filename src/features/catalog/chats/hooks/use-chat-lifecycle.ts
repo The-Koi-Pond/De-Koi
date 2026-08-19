@@ -3,7 +3,7 @@ import { toast } from "sonner";
 
 import { createChatSchema } from "../../../../engine/contracts/schemas/chat.schema";
 import type { Chat } from "../../../../engine/contracts/types/chat";
-import { clearChatActivity } from "../../../../engine/modes/chat/autonomous/autonomous.service";
+import { clearChatActivity } from "../../../../engine/modes/chat/autonomous/activity-state";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";

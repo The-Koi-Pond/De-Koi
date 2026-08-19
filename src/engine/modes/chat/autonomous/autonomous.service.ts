@@ -11,6 +11,12 @@ import {
   type ConversationRoutine,
   type WeekSchedule,
 } from "../schedules/schedule.service.js";
+import {
+  getChatActivityState,
+  hasChatActivityState,
+  setChatActivityState,
+  type AutonomousClientPresenceStatus,
+} from "./activity-state.js";
 
 // Ã¢â€â‚¬Ã¢â€â‚¬ Types Ã¢â€â‚¬Ã¢â€â‚¬
 
@@ -115,7 +121,12 @@ async function syncStoredConversationStatus(
   storage: StorageGateway,
   character: StoredCharacter | null | undefined,
   characterId: string,
-  status: { status: string; activity: string; availabilityExplanation?: string; source?: "routine" | "schedule" } | null,
+  status: {
+    status: string;
+    activity: string;
+    availabilityExplanation?: string;
+    source?: "routine" | "schedule";
+  } | null,
 ): Promise<boolean> {
   if (!character) return false;
   const data = metadataRecord(character.data);
@@ -230,10 +241,7 @@ export function getConversationStatus(storage: StorageGateway, chatId: string): 
   requests.set(chatId, request);
   return request;
 }
-async function computeConversationStatus(
-  storage: StorageGateway,
-  chatId: string,
-): Promise<ConversationStatusResult> {
+async function computeConversationStatus(storage: StorageGateway, chatId: string): Promise<ConversationStatusResult> {
   const chat = await requireChat(storage, chatId);
   const meta = metadataRecord(chat.metadata);
   const routines = characterRoutines(meta);
@@ -415,7 +423,9 @@ export async function checkConversationAutonomous(
     if (last?.role === "user") {
       const onlineIds = ids.filter((characterId) => {
         if (sceneBusyIds.has(characterId)) return false;
-        const decision = getAvailabilityDecision(routines[characterId] ?? schedules[characterId] ?? autonomyProfiles[characterId]!);
+        const decision = getAvailabilityDecision(
+          routines[characterId] ?? schedules[characterId] ?? autonomyProfiles[characterId]!,
+        );
         return getAvailabilityAutonomousPolicy(decision).canMessageFirst;
       });
       if (onlineIds.length > 0) {
@@ -456,37 +466,24 @@ export async function checkConversationCharacterExchange(
   if (meta.characterExchanges !== true) {
     return { shouldTrigger: false, characterIds: [], reason: "disabled", inactivityMs: 0 };
   }
-  return checkCharacterExchange(input.chatId, input.lastSpeakerCharId, { ...characterSchedules(meta), ...characterRoutines(meta) });
+  return checkCharacterExchange(input.chatId, input.lastSpeakerCharId, {
+    ...characterSchedules(meta),
+    ...characterRoutines(meta),
+  });
 }
-
-export type AutonomousClientPresenceStatus = "active" | "idle" | "dnd";
 
 /** Auto-reset generationInProgress after this many ms (5 minutes) */
 const GENERATION_TIMEOUT_MS = 5 * 60 * 1000;
 
-interface ChatActivityState {
-  /** Timestamp of the last user message */
-  lastUserMessageAt: number;
-  /** Timestamp of the last assistant message */
-  lastAssistantMessageAt: number;
-  /** Per-character autonomous message tracking: count sent + timestamp of last autonomous msg */
-  autonomousMessages: Map<string, { count: number; lastSentAt: number }>;
-  /** Timestamp when generation started, or null if not in progress */
-  generationInProgressSince: number | null;
-  /** Last status reported by a connected client autonomous poller. */
-  clientPresence?: { status: AutonomousClientPresenceStatus; updatedAt: number };
-}
-
 // Ã¢â€â‚¬Ã¢â€â‚¬ In-memory activity tracker Ã¢â€â‚¬Ã¢â€â‚¬
 // Keyed by chatId. This is intentionally in-memory since it's just timing state.
-const activityStates = new Map<string, ChatActivityState>();
 
 /**
  * Record that the user sent a message in a chat.
  */
 export function recordUserActivity(chatId: string, opts: { preserveGenerationInProgress?: boolean } = {}): void {
   const now = Date.now();
-  const existing = activityStates.get(chatId);
+  const existing = getChatActivityState(chatId);
   if (existing) {
     existing.lastUserMessageAt = now;
     existing.autonomousMessages.clear(); // Reset Ã¢â‚¬â€ user is active again
@@ -494,7 +491,7 @@ export function recordUserActivity(chatId: string, opts: { preserveGenerationInP
       existing.generationInProgressSince = null;
     }
   } else {
-    activityStates.set(chatId, {
+    setChatActivityState(chatId, {
       lastUserMessageAt: now,
       lastAssistantMessageAt: 0,
       autonomousMessages: new Map(),
@@ -507,7 +504,7 @@ export function recordUserActivity(chatId: string, opts: { preserveGenerationInP
  * Record that an assistant message was sent (either user-triggered or autonomous).
  */
 export function recordAssistantActivity(chatId: string, characterId?: string): void {
-  const existing = activityStates.get(chatId);
+  const existing = getChatActivityState(chatId);
   if (existing) {
     const now = Date.now();
     existing.lastAssistantMessageAt = now;
@@ -527,11 +524,11 @@ export function recordAssistantActivity(chatId: string, characterId?: string): v
  */
 export function markGenerationInProgress(chatId: string): number {
   const now = Date.now();
-  const state = activityStates.get(chatId);
+  const state = getChatActivityState(chatId);
   if (state) {
     state.generationInProgressSince = now;
   } else {
-    activityStates.set(chatId, {
+    setChatActivityState(chatId, {
       lastUserMessageAt: 0,
       lastAssistantMessageAt: 0,
       autonomousMessages: new Map(),
@@ -546,7 +543,7 @@ export function markGenerationInProgress(chatId: string): number {
  * clear the marker that this caller created.
  */
 export function clearGenerationInProgress(chatId: string, startedAt?: number): void {
-  const state = activityStates.get(chatId);
+  const state = getChatActivityState(chatId);
   if (!state) return;
   if (startedAt != null && state.generationInProgressSince !== startedAt) return;
   state.generationInProgressSince = null;
@@ -562,7 +559,7 @@ function initializeActivityFromMessages(
   messages: Array<{ role: string; createdAt?: string; characterId?: string | null }>,
 ): void {
   // Already tracked Ã¢â‚¬â€ don't overwrite
-  if (activityStates.has(chatId)) return;
+  if (hasChatActivityState(chatId)) return;
   if (messages.length === 0) return;
 
   let lastUserAt = 0;
@@ -579,7 +576,7 @@ function initializeActivityFromMessages(
 
   if (!lastUserAt) return; // No user messages Ã¢â‚¬â€ can't initialize
 
-  activityStates.set(chatId, {
+  setChatActivityState(chatId, {
     lastUserMessageAt: lastUserAt,
     lastAssistantMessageAt: lastAssistantAt,
     autonomousMessages: new Map(),
@@ -592,13 +589,13 @@ export function recordAutonomousClientPresence(
   status: AutonomousClientPresenceStatus = "active",
 ): void {
   const now = Date.now();
-  const state = activityStates.get(chatId);
+  const state = getChatActivityState(chatId);
   if (state) {
     state.clientPresence = { status, updatedAt: now };
     return;
   }
 
-  activityStates.set(chatId, {
+  setChatActivityState(chatId, {
     lastUserMessageAt: 0,
     lastAssistantMessageAt: 0,
     autonomousMessages: new Map(),
@@ -623,7 +620,7 @@ function checkAutonomousMessaging(
     inactivityMs: 0,
   };
 
-  const state = activityStates.get(chatId);
+  const state = getChatActivityState(chatId);
   if (!state) return noTrigger;
 
   // Auto-reset stuck generation flag after timeout
@@ -729,7 +726,7 @@ function checkCharacterExchange(
     inactivityMs: 0,
   };
 
-  const state = activityStates.get(chatId);
+  const state = getChatActivityState(chatId);
   if (!state) return noTrigger;
   if (state.generationInProgressSince) {
     if (Date.now() - state.generationInProgressSince > GENERATION_TIMEOUT_MS) {
@@ -769,11 +766,4 @@ function checkCharacterExchange(
     reason: "character_exchange",
     inactivityMs,
   };
-}
-
-/**
- * Clean up activity state for a chat (when chat is deleted or closed).
- */
-export function clearChatActivity(chatId: string): void {
-  activityStates.delete(chatId);
 }

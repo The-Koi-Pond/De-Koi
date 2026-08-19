@@ -17,6 +17,14 @@ function readChatHooksSource() {
   return readFileSync(join(currentDir, "../features/catalog/chats/hooks/use-chats.ts"), "utf8");
 }
 
+function readChatLifecycleSource() {
+  return readFileSync(join(currentDir, "../features/catalog/chats/hooks/use-chat-lifecycle.ts"), "utf8");
+}
+
+function readChatExportHookSource() {
+  return readFileSync(join(currentDir, "../features/catalog/chats/hooks/use-export-chat.ts"), "utf8");
+}
+
 function readChatSidebarEntrySource() {
   return readFileSync(join(currentDir, "../features/catalog/chats/sidebar.ts"), "utf8");
 }
@@ -79,6 +87,22 @@ describe("app boot shell boundary", () => {
     expect(sidebarSource).not.toContain('from "./hooks/use-chats"');
     expect(queryOptionsSource).not.toContain("hooks/use-chats");
     expect(queryOptionsSource).not.toContain("engine/generation");
+  });
+
+  it("keeps autonomous scheduling out of the eager chat lifecycle hook", () => {
+    const lifecycleSource = readChatLifecycleSource();
+
+    expect(lifecycleSource).toContain('from "../../../../engine/modes/chat/autonomous/activity-state"');
+    expect(lifecycleSource).not.toContain("autonomous.service");
+  });
+
+  it("keeps transcript formatting out of the broad chat hook bundle", () => {
+    const chatHooksSource = readChatHooksSource();
+    const exportHookSource = readChatExportHookSource();
+
+    expect(chatHooksSource).not.toContain("chat-transcript-export");
+    expect(chatHooksSource).not.toMatch(/export function useExportChat\(\)/);
+    expect(exportHookSource).toContain('from "../lib/chat-transcript-export"');
   });
 
   it("keeps automatic memory maintenance behind an idle lazy boundary", () => {
