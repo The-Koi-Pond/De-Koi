@@ -5,10 +5,16 @@ import { fileURLToPath } from "node:url";
 
 const ADVISORY_ID = "RUSTSEC-2026-0258";
 const VULNERABLE_H2_PATTERN = /^h2 v0\.3\.27(?:\s|$)/m;
+const PRODUCTION_PROFILE_FEATURES = {
+  desktop: "desktop",
+  server: "server",
+  // Pi build commands are kept on this feature by check-pi-container-distribution.mjs.
+  pi: "server",
+};
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function evaluateRustAdvisoryBoundaries({ waiverConfigured, profiles }) {
-  for (const profile of ["desktop", "server"]) {
+  for (const profile of Object.keys(PRODUCTION_PROFILE_FEATURES)) {
     if (VULNERABLE_H2_PATTERN.test(profiles[profile])) {
       throw new Error(`${profile} feature graph contains h2 0.3.27`);
     }
@@ -53,15 +59,14 @@ function cargoTree(features) {
 function main() {
   const denyConfig = readFileSync(resolve(repoRoot, "deny.toml"), "utf8");
   const waiverConfigured = denyConfig.includes(`"${ADVISORY_ID}"`);
-  const profiles = {
-    desktop: cargoTree("desktop"),
-    server: cargoTree("server"),
-    devtools: cargoTree("devtools"),
-  };
+  const profiles = Object.fromEntries(
+    Object.entries(PRODUCTION_PROFILE_FEATURES).map(([profile, features]) => [profile, cargoTree(features)]),
+  );
+  profiles.devtools = cargoTree("devtools");
 
   evaluateRustAdvisoryBoundaries({ waiverConfigured, profiles });
   console.log(
-    `Rust advisory boundary check passed: desktop/server exclude h2 0.3.27; devtools waiver ${
+    `Rust advisory boundary check passed: desktop/server/Pi exclude h2 0.3.27; devtools waiver ${
       waiverConfigured ? "is required" : "is absent"
     }.`,
   );
