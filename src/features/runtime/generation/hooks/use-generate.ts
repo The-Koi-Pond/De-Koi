@@ -2021,7 +2021,30 @@ export async function runGenerationWithUi(
           break;
         }
         case "scene_created": {
-          handleSceneCreatedGenerationEvent(queryClient, chatId, event.data);
+          const data = parseMaybeRecord(event.data);
+          handleSceneCreatedGenerationEvent(queryClient, chatId, data);
+          const sceneChatId = readString(data.chatId).trim();
+          const openingGenerationGuide = readString(data.openingGenerationGuide).trim();
+          if (sceneChatId && openingGenerationGuide) {
+            let openingStarted = false;
+            try {
+              openingStarted = await runGenerationWithUi(
+                queryClient,
+                {
+                  chatId: sceneChatId,
+                  connectionId: null,
+                  generationGuide: openingGenerationGuide,
+                  generationGuideSource: "narrator",
+                },
+                streamFactory,
+              );
+            } catch (error) {
+              console.warn("[generation] Character-created scene opening failed", error);
+            }
+            if (!openingStarted) {
+              toast.warning("Scene created, but its opening could not start. Send a message in the scene to continue.");
+            }
+          }
           break;
         }
         case "done":

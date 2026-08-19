@@ -17,6 +17,7 @@ import {
   type UpdatePersonaCommand,
 } from "../modes/chat/commands/character-commands";
 import { conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
+import { buildRoleplaySceneOpeningGuide } from "../modes/roleplay/scene/scene-opening";
 import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
@@ -960,6 +961,7 @@ async function createSceneFromCommand(args: {
       initiatorCharId: activeCharacterId(args.chat),
       plan,
       connectionId: args.llmConnectionId ?? null,
+      openingMode: "generated",
     },
     args.visuals,
   );
@@ -970,6 +972,7 @@ async function createSceneFromCommand(args: {
       chatName: created.chatName,
       originChatId: chatId,
       background: created.background,
+      openingGenerationGuide: buildRoleplaySceneOpeningGuide(plan.firstMessage),
     },
   });
   return true;

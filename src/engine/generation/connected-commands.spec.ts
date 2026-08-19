@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { IntegrationGateway } from "../capabilities/integrations";
+import type { LlmGateway } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
 import { persistConnectedCommandTags, pruneConnectedConversationNotes } from "./connected-commands";
 import { loadCharacters } from "./prompt-assembly";
@@ -1395,6 +1396,52 @@ describe("persistConnectedCommandTags", () => {
       chatId: "created-0",
       value: { role: "assistant", characterId: "bob-1", content: "Secret [selfie] <note>plain text</note>." },
     });
+  });
+
+  it("leaves character-created scenes empty for the Roleplay generator to open", async () => {
+    const chats: JsonRecord[] = [
+      {
+        id: "conversation-1",
+        name: "Conversation",
+        mode: "conversation",
+        characterIds: ["char-1"],
+        metadata: {},
+      },
+    ];
+    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
+    const messages: Array<{ chatId: string; value: JsonRecord }> = [];
+    const storage = commandStorage({ chats, lorebooks: [], lorebookEntries: [], creates, messages });
+    const llm = {
+      complete: async () => {
+        throw new Error("The fallback scene plan should not call the LLM without a connection");
+      },
+      stream: async function* () {},
+      listModels: async () => [],
+    } as unknown as LlmGateway;
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chats[0]!,
+      '[scene: scenario="Shlo learns that the current year is Stellar Year 265."]',
+      undefined,
+      llm,
+    );
+
+    expect(creates).toContainEqual(
+      expect.objectContaining({ entity: "chats", value: expect.objectContaining({ mode: "roleplay" }) }),
+    );
+    expect(messages.filter(({ value }) => value.role === "assistant")).toEqual([]);
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        type: "scene_created",
+        data: expect.objectContaining({
+          chatId: "created-0",
+          openingGenerationGuide: expect.stringContaining(
+            "The moment settles into focus. Shlo learns that the current year is Stellar Year 265.",
+          ),
+        }),
+      }),
+    );
   });
 
   it("reuses and tags a linked conversation for the resolved target", async () => {

@@ -16,6 +16,7 @@ import {
   notifyOffChatAssistantMessage,
   runGenerationWithUi,
   showAgentWarningToast,
+  type GenerateArgs,
 } from "./use-generate";
 import type { AgentResult } from "../../../../engine/contracts/types/agent";
 import type { Chat, Message, StreamEvent } from "../../../../engine/contracts/types/chat";
@@ -844,6 +845,69 @@ describe("runGenerationWithUi", () => {
 
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: chatKeys.messages("conversation-1") });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: chatKeys.messages("scene-1") });
+    queryClient.clear();
+  });
+
+  it("opens a character-created scene through the normal Roleplay generation stream", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const originChatId = "conversation-1";
+    const sceneChatId = "scene-1";
+    const openingGenerationGuide =
+      "[Narrator instruction]\nOpen the planned scene without swapping character ownership.";
+    queryClient.setQueryData(chatKeys.detail(originChatId), {
+      id: originChatId,
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+    queryClient.setQueryData(chatKeys.detail(sceneChatId), {
+      id: sceneChatId,
+      mode: "roleplay",
+      metadata: { sceneStatus: "active" },
+    } as unknown as Chat);
+    useChatStore.getState().setActiveChatId(originChatId);
+    const streamCalls: GenerateArgs[] = [];
+
+    async function* stream(args: GenerateArgs): AsyncGenerator<StreamEvent> {
+      streamCalls.push(args);
+      if (args.chatId === originChatId) {
+        yield {
+          type: "scene_created",
+          data: {
+            chatId: sceneChatId,
+            chatName: "Quiet Hours",
+            originChatId,
+            openingGenerationGuide,
+          },
+        } as StreamEvent;
+      } else {
+        yield { type: "token", data: "Cobalt gives Shlo the space to absorb the news." } as StreamEvent;
+        yield {
+          type: "assistant_message",
+          data: {
+            id: "scene-opening-1",
+            chatId: sceneChatId,
+            role: "assistant",
+            characterId: "char-1",
+            content: "Cobalt gives Shlo the space to absorb the news.",
+          },
+        } as StreamEvent;
+      }
+      yield { type: "done" } as StreamEvent;
+    }
+
+    await runGenerationWithUi(queryClient, { chatId: originChatId }, stream);
+
+    expect(streamCalls).toEqual([
+      expect.objectContaining({ chatId: originChatId }),
+      expect.objectContaining({
+        chatId: sceneChatId,
+        connectionId: null,
+        generationGuide: openingGenerationGuide,
+        generationGuideSource: "narrator",
+      }),
+    ]);
+    expect(useChatStore.getState().activeChatId).toBe(originChatId);
+    expect(toast.warning).not.toHaveBeenCalled();
     queryClient.clear();
   });
 
