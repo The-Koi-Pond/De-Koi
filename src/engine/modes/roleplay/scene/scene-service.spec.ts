@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { ChatMessageListOptions, StorageEntity, StorageGateway } from "../../../capabilities/storage";
@@ -182,7 +182,6 @@ function llmWithResponse(response: string): LlmGateway {
 }
 
 describe("roleplay scene recent history", () => {
-
   it("bounds scene planning recent conversation reads", async () => {
     const plan = {
       name: "Scene: Mirror Hall",
@@ -417,6 +416,30 @@ describe("createRoleplayScene", () => {
 
     return { ...fixture, create };
   }
+
+  it("rejects a second active scene before creating another chat", async () => {
+    const { create, createdRecords } = await createSceneFromOrigin({
+      mode: "conversation",
+      metadata: { activeSceneChatId: "existing-scene", sceneBusyCharIds: ["char-1"] },
+      connectedChatId: "existing-scene",
+    });
+
+    await expect(create).rejects.toThrow("already has another active scene");
+    expect(createdRecords).toHaveLength(0);
+  });
+
+  it("removes the partial scene and origin links when opening-message creation fails", async () => {
+    const fixture = await createSceneFromOrigin({ mode: "conversation" });
+    vi.spyOn(fixture.storage, "createChatMessage").mockRejectedValue(new Error("opening write failed"));
+
+    await expect(fixture.create).rejects.toThrow("opening write failed");
+
+    expect(fixture.deletedRecords).toContainEqual({ entity: "chats", id: "created-1" });
+    await expect(fixture.storage.get<JsonRecord>("chats", "origin")).resolves.toMatchObject({
+      connectedChatId: null,
+      metadata: { activeSceneChatId: null, sceneBusyCharIds: null },
+    });
+  });
 
   it("does not place a branched roleplay scene in the origin conversation folder", async () => {
     const { create, createdRecords } = await createSceneFromOrigin({

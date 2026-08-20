@@ -90,6 +90,9 @@ export async function initRoleplayEncounter(
     raw: result.raw,
   });
   const parsed = result.parsed;
+  if (parsed === null) {
+    throw new Error("The AI could not create a valid combat encounter. Try again.");
+  }
   const rawCombatState = recordValue(parsed?.combatState) ?? parsed;
   const combatState = sanitizeCombatInitState(rawCombatState, context.fallbackState);
   debug("[debug/roleplay/encounter:init] parsed response", { chatId: input.chatId, combatState });
@@ -140,22 +143,23 @@ export async function summarizeRoleplayEncounter(
 
   const context = await buildEncounterContext(capabilities.storage, input);
   const messages = buildSummaryPrompt(context, input.encounterLog ?? [], input.result, input.settings.summaryNarrative);
-  const fallback = fallbackSummary(input.encounterLog ?? [], input.result);
-  let summary = fallback;
+  let generated: string;
 
   try {
     const connectionId = await resolveConnectionId(capabilities.storage, context.chat, input.connectionId ?? null);
-    const generated = await capabilities.llm.complete({
+    generated = await capabilities.llm.complete({
       connectionId,
       messages,
       parameters: { temperature: 0.9, maxTokens: SUMMARY_OUTPUT_TOKENS },
     });
-    summary =
-      extractLeadingThinkingBlocks(generated)
-        .cleanText.replace(/\[FIGHT CONCLUDED\]\s*/i, "")
-        .trim() || fallback;
   } catch {
-    summary = fallback;
+    throw new Error("The AI could not create a combat summary. Try again.");
+  }
+  const summary = extractLeadingThinkingBlocks(generated)
+    .cleanText.replace(/\[FIGHT CONCLUDED\]\s*/i, "")
+    .trim();
+  if (!summary) {
+    throw new Error("The AI could not create a combat summary. Try again.");
   }
 
   const message = await createChatMessage(capabilities.storage, input.chatId, {
@@ -643,15 +647,6 @@ function fallbackActionResult(input: EncounterActionRequest): CombatActionResult
     combatEnd: victory || defeat,
     result: victory ? "victory" : defeat ? "defeat" : undefined,
   };
-}
-
-function fallbackSummary(encounterLog: EncounterLogEntry[], result: string): string {
-  const lines = [`Combat concluded: ${result}.`];
-  for (const entry of encounterLog.slice(0, 8)) {
-    if (entry.action) lines.push(`- ${entry.action}`);
-    if (entry.result) lines.push(`  ${entry.result}`);
-  }
-  return lines.join("\n");
 }
 
 function sanitizeCombatInitState(value: JsonRecord | null, fallback: CombatInitState): CombatInitState {

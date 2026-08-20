@@ -15,6 +15,7 @@ import type {
 } from "../../engine/contracts/types/combat-encounter";
 
 interface EncounterState {
+  chatId: string | null;
   // ── State ──
   active: boolean;
   initialized: boolean;
@@ -47,7 +48,7 @@ interface EncounterState {
   summaryStatus: "idle" | "generating" | "done" | "error";
 
   // ── Actions ──
-  openConfigModal: () => void;
+  openConfigModal: (chatId: string) => void;
   closeConfigModal: () => void;
   updateSettings: (settings: Partial<EncounterSettings>) => void;
   setSpellbookId: (id: string | null) => void;
@@ -56,7 +57,7 @@ interface EncounterState {
   setProcessing: (processing: boolean) => void;
   setError: (error: string | null) => void;
 
-  initCombat: (state: CombatInitState) => void;
+  initCombat: (chatId: string, state: CombatInitState) => void;
   updateCombat: (data: {
     party: CombatPartyMember[];
     enemies: CombatEnemy[];
@@ -92,6 +93,7 @@ const defaultSettings: EncounterSettings = {
 };
 
 export const useEncounterStore = create<EncounterState>((set) => ({
+  chatId: null,
   active: false,
   initialized: false,
   isLoading: false,
@@ -113,7 +115,26 @@ export const useEncounterStore = create<EncounterState>((set) => ({
   combatResult: null,
   summaryStatus: "idle",
 
-  openConfigModal: () => set({ showConfigModal: true, spellbookId: null }),
+  openConfigModal: (chatId) =>
+    set({
+      chatId,
+      active: false,
+      initialized: false,
+      isLoading: false,
+      isProcessing: false,
+      error: null,
+      party: [],
+      enemies: [],
+      environment: "",
+      styleNotes: null,
+      playerActions: null,
+      encounterLog: [],
+      pendingLogs: [],
+      showConfigModal: true,
+      spellbookId: null,
+      combatResult: null,
+      summaryStatus: "idle",
+    }),
   closeConfigModal: () => set({ showConfigModal: false }),
   updateSettings: (partial) => set((s) => ({ settings: { ...s.settings, ...partial } })),
   setSpellbookId: (id) => set({ spellbookId: id }),
@@ -122,25 +143,29 @@ export const useEncounterStore = create<EncounterState>((set) => ({
   setProcessing: (processing) => set({ isProcessing: processing }),
   setError: (error) => set({ error }),
 
-  initCombat: (state) =>
-    set({
-      active: true,
-      initialized: true,
-      isLoading: false,
-      error: null,
-      party: state.party,
-      enemies: state.enemies,
-      environment: state.environment,
-      styleNotes: state.styleNotes,
-      playerActions: {
-        attacks: state.party.find((m) => m.isPlayer)?.attacks ?? [],
-        items: state.party.find((m) => m.isPlayer)?.items ?? [],
-      },
-      encounterLog: [],
-      pendingLogs: [],
-      combatResult: null,
-      summaryStatus: "idle",
-    }),
+  initCombat: (chatId, state) =>
+    set((current) =>
+      current.chatId === chatId
+        ? {
+            active: true,
+            initialized: true,
+            isLoading: false,
+            error: null,
+            party: state.party,
+            enemies: state.enemies,
+            environment: state.environment,
+            styleNotes: state.styleNotes,
+            playerActions: {
+              attacks: state.party.find((m) => m.isPlayer)?.attacks ?? [],
+              items: state.party.find((m) => m.isPlayer)?.items ?? [],
+            },
+            encounterLog: [],
+            pendingLogs: [],
+            combatResult: null,
+            summaryStatus: "idle" as const,
+          }
+        : {},
+    ),
 
   updateCombat: (data) =>
     set((s) => {
@@ -175,6 +200,7 @@ export const useEncounterStore = create<EncounterState>((set) => ({
 
   reset: () =>
     set({
+      chatId: null,
       active: false,
       initialized: false,
       isLoading: false,

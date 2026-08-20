@@ -186,6 +186,9 @@ export async function createRoleplayScene(
 ): Promise<SceneCreateResponse> {
   const originChat = await requireChat(storage, input.originChatId);
   const originMeta = parseJsonObject(originChat.metadata);
+  if (stringValue(originMeta.activeSceneChatId)) {
+    throw new Error("The origin conversation already has another active scene");
+  }
   const plan = input.plan;
   const background = null;
   const originCharacterIds = stringArray(originChat.characterIds);
@@ -246,26 +249,37 @@ export async function createRoleplayScene(
   const sceneChatId = stringValue(sceneChat.id);
   if (!sceneChatId) throw new Error("Created scene chat has no id");
 
-  await patchChatMetadata(storage, input.originChatId, {
-    activeSceneChatId: sceneChatId,
-    sceneBusyCharIds: characterIds,
-  });
-  await storage.update("chats", input.originChatId, { connectedChatId: sceneChatId });
+  try {
+    await patchChatMetadata(storage, input.originChatId, {
+      activeSceneChatId: sceneChatId,
+      sceneBusyCharIds: characterIds,
+    });
+    await storage.update("chats", input.originChatId, { connectedChatId: sceneChatId });
 
-  if (plan.participationGuide.trim()) {
-    await createChatMessage(storage, sceneChatId, {
-      role: "narrator",
-      content: plan.participationGuide,
-      characterId: null,
-    });
-  }
-  if (input.openingMode !== "generated") {
-    const firstCharacterId = input.initiatorCharId || characterIds[0] || null;
-    await createChatMessage(storage, sceneChatId, {
-      role: "assistant",
-      content: [description, "", firstMessage].join("\n"),
-      characterId: firstCharacterId,
-    });
+    if (plan.participationGuide.trim()) {
+      await createChatMessage(storage, sceneChatId, {
+        role: "narrator",
+        content: plan.participationGuide,
+        characterId: null,
+      });
+    }
+    if (input.openingMode !== "generated") {
+      const firstCharacterId = input.initiatorCharId || characterIds[0] || null;
+      await createChatMessage(storage, sceneChatId, {
+        role: "assistant",
+        content: [description, "", firstMessage].join("\n"),
+        characterId: firstCharacterId,
+      });
+    }
+  } catch (error) {
+    try {
+      await rollbackCreatedRoleplayScene(storage, input.originChatId, sceneChatId);
+    } catch (cleanupError) {
+      throw new Error(
+        `Scene creation failed: ${errorMessage(error)}. Cleanup also failed: ${errorMessage(cleanupError)}`,
+      );
+    }
+    throw error;
   }
 
   return {
@@ -1160,6 +1174,25 @@ async function cleanOriginScenePointers(storage: StorageGateway, originChatId: s
     sceneBusyCharIds: null,
   });
   await storage.update("chats", originChatId, { connectedChatId: null });
+}
+
+async function rollbackCreatedRoleplayScene(
+  storage: StorageGateway,
+  originChatId: string,
+  sceneChatId: string,
+): Promise<void> {
+  const originChat = await requireChat(storage, originChatId);
+  const originMeta = parseJsonObject(originChat.metadata);
+  if (stringValue(originMeta.activeSceneChatId) === sceneChatId) {
+    await patchChatMetadata(storage, originChatId, {
+      activeSceneChatId: null,
+      sceneBusyCharIds: null,
+    });
+  }
+  if (stringValue(originChat.connectedChatId) === sceneChatId) {
+    await storage.update("chats", originChatId, { connectedChatId: null });
+  }
+  await deleteChatWithMessages(storage, sceneChatId);
 }
 
 async function deleteChatWithMessages(storage: StorageGateway, chatId: string): Promise<void> {

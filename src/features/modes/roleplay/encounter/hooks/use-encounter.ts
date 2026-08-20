@@ -62,8 +62,8 @@ export function useEncounter() {
 
   /** Start combat: show config modal → init → render. */
   const startEncounter = useCallback(() => {
-    store.openConfigModal();
-  }, [store]);
+    if (activeChatId) store.openConfigModal(activeChatId);
+  }, [activeChatId, store]);
 
   /** Called after the config modal — actually fire the init request. */
   const initEncounter = useCallback(
@@ -90,8 +90,10 @@ export function useEncounter() {
             debugSink: useAgentStore.getState().addDebugEntry,
           },
         );
-        store.initCombat(res.combatState);
+        if (useEncounterStore.getState().chatId !== activeChatId) return;
+        store.initCombat(activeChatId, res.combatState);
       } catch (err) {
+        if (useEncounterStore.getState().chatId !== activeChatId) return;
         const msg = err instanceof Error ? err.message : "Failed to initialize encounter";
         store.setError(msg);
         store.setLoading(false);
@@ -104,7 +106,9 @@ export function useEncounter() {
   const generateSummary = useCallback(
     async (result: "victory" | "defeat" | "fled" | "interrupted") => {
       if (!activeChatId) return;
-      const { encounterLog, settings } = useEncounterStore.getState();
+      const encounter = useEncounterStore.getState();
+      if (encounter.chatId !== activeChatId) return;
+      const { encounterLog, settings } = encounter;
 
       store.setSummaryStatus("generating");
 
@@ -120,6 +124,7 @@ export function useEncounter() {
           },
         );
 
+        if (useEncounterStore.getState().chatId !== activeChatId) return;
         store.setSummaryStatus("done");
 
         // Invalidate chat messages so the new summary shows up
@@ -127,6 +132,7 @@ export function useEncounter() {
           queryKey: chatKeys.messages(activeChatId),
         });
       } catch {
+        if (useEncounterStore.getState().chatId !== activeChatId) return;
         store.setSummaryStatus("error");
       }
     },
@@ -137,9 +143,9 @@ export function useEncounter() {
   const sendAction = useCallback(
     async (actionText: string) => {
       if (!activeChatId) return;
-      if (useEncounterStore.getState().isProcessing) return;
-      const { party, enemies, environment, playerActions, encounterLog, settings } = useEncounterStore.getState();
-      const spellbookId = useEncounterStore.getState().spellbookId;
+      const encounter = useEncounterStore.getState();
+      if (encounter.chatId !== activeChatId || encounter.isProcessing) return;
+      const { party, enemies, environment, playerActions, encounterLog, settings, spellbookId } = encounter;
 
       store.setProcessing(true);
       store.setError(null);
@@ -158,6 +164,8 @@ export function useEncounter() {
             spellbookId,
           },
         );
+
+        if (useEncounterStore.getState().chatId !== activeChatId) return;
 
         // Model produced no usable combat turn (unparseable output or LLM
         // error) — surface a retryable error and keep combat state unchanged.
@@ -231,6 +239,7 @@ export function useEncounter() {
           await generateSummary(r.result);
         }
       } catch (err) {
+        if (useEncounterStore.getState().chatId !== activeChatId) return;
         const msg = err instanceof Error ? err.message : "Failed to process action";
         store.setError(msg);
         store.setProcessing(false);
