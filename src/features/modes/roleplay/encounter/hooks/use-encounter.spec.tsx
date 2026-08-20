@@ -121,6 +121,31 @@ describe("useEncounter request ownership", () => {
     });
   });
 
+  it("cancels initialization lifecycle state when navigating away and back", async () => {
+    const pending = deferred<{ combatState: CombatInitState }>();
+    encounterService.initRoleplayEncounter.mockReturnValueOnce(pending.promise);
+    act(() => encounter.startEncounter());
+    let initialization!: Promise<void>;
+    act(() => {
+      initialization = encounter.initEncounter(settings);
+    });
+
+    act(() => useChatStore.setState({ activeChatId: "chat-b" }));
+    expect(useEncounterStore.getState()).toMatchObject({ chatId: "chat-a", active: false, isLoading: false });
+    act(() => useChatStore.setState({ activeChatId: "chat-a" }));
+    const canceledRequestId = useEncounterStore.getState().requestId;
+    pending.resolve({ combatState });
+    await act(async () => initialization);
+
+    expect(useEncounterStore.getState()).toMatchObject({
+      chatId: "chat-a",
+      requestId: canceledRequestId,
+      active: false,
+      initialized: false,
+      isLoading: false,
+    });
+  });
+
   it("does not let an older action mutate a newer same-chat encounter", async () => {
     act(() => encounter.startEncounter());
     const requestId = useEncounterStore.getState().requestId;
@@ -147,6 +172,34 @@ describe("useEncounter request ownership", () => {
     });
   });
 
+  it("settles action processing when navigating away and back", async () => {
+    act(() => encounter.startEncounter());
+    const requestId = useEncounterStore.getState().requestId;
+    act(() => useEncounterStore.getState().initCombat("chat-a", requestId, combatState));
+    const pending = deferred<{ result: never; invalid: true }>();
+    encounterService.resolveRoleplayEncounterAction.mockReturnValueOnce(pending.promise);
+    let action!: Promise<void>;
+    act(() => {
+      action = encounter.sendAction("Strike");
+    });
+
+    act(() => useChatStore.setState({ activeChatId: "chat-b" }));
+    expect(useEncounterStore.getState()).toMatchObject({ chatId: "chat-a", active: true, isProcessing: false });
+    act(() => useChatStore.setState({ activeChatId: "chat-a" }));
+    const canceledRequestId = useEncounterStore.getState().requestId;
+    pending.resolve({ result: undefined as never, invalid: true });
+    await act(async () => action);
+
+    expect(useEncounterStore.getState()).toMatchObject({
+      chatId: "chat-a",
+      requestId: canceledRequestId,
+      active: true,
+      initialized: true,
+      isProcessing: false,
+      error: "Encounter action canceled when you left this chat.",
+    });
+  });
+
   it("does not let an older summary settle a newer same-chat encounter", async () => {
     act(() => encounter.startEncounter());
     const requestId = useEncounterStore.getState().requestId;
@@ -169,6 +222,33 @@ describe("useEncounter request ownership", () => {
       showConfigModal: true,
       active: false,
       summaryStatus: "idle",
+    });
+  });
+
+  it("settles summary state when navigating away and back", async () => {
+    act(() => encounter.startEncounter());
+    const requestId = useEncounterStore.getState().requestId;
+    act(() => useEncounterStore.getState().initCombat("chat-a", requestId, combatState));
+    act(() => useEncounterStore.getState().endCombat("victory"));
+    const pending = deferred<{ summary: string; messageId: string }>();
+    encounterService.summarizeRoleplayEncounter.mockReturnValueOnce(pending.promise);
+    let summary!: Promise<void>;
+    act(() => {
+      summary = encounter.generateSummary("victory");
+    });
+
+    act(() => useChatStore.setState({ activeChatId: "chat-b" }));
+    expect(useEncounterStore.getState()).toMatchObject({ chatId: "chat-a", summaryStatus: "error" });
+    act(() => useChatStore.setState({ activeChatId: "chat-a" }));
+    const canceledRequestId = useEncounterStore.getState().requestId;
+    pending.resolve({ summary: "The fight ends.", messageId: "message-1" });
+    await act(async () => summary);
+
+    expect(useEncounterStore.getState()).toMatchObject({
+      chatId: "chat-a",
+      requestId: canceledRequestId,
+      combatResult: "victory",
+      summaryStatus: "done",
     });
   });
 });

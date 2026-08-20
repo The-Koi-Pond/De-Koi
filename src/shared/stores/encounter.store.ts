@@ -53,6 +53,7 @@ interface EncounterState {
   closeConfigModal: () => void;
   updateSettings: (settings: Partial<EncounterSettings>) => void;
   setSpellbookId: (id: string | null) => void;
+  cancelInactiveRequest: (activeChatId: string | null) => void;
 
   beginRequest: (
     chatId: string,
@@ -149,6 +150,22 @@ export const useEncounterStore = create<EncounterState>((set) => ({
   closeConfigModal: () => set({ showConfigModal: false }),
   updateSettings: (partial) => set((s) => ({ settings: { ...s.settings, ...partial } })),
   setSpellbookId: (id) => set({ spellbookId: id }),
+  cancelInactiveRequest: (activeChatId) =>
+    set((current) => {
+      if (!current.chatId || current.chatId === activeChatId) return {};
+      const initializationPending = current.isLoading && !current.initialized;
+      const actionPending = current.isProcessing;
+      const summaryPending = current.summaryStatus === "generating";
+      if (!initializationPending && !actionPending && !summaryPending) return {};
+      return {
+        ...((initializationPending || actionPending) && { requestId: current.requestId + 1 }),
+        isLoading: false,
+        isProcessing: false,
+        ...(initializationPending ? { active: false, error: null } : {}),
+        ...(actionPending ? { error: "Encounter action canceled when you left this chat." } : {}),
+        ...(summaryPending ? { summaryStatus: "error" as const } : {}),
+      };
+    }),
 
   beginRequest: (chatId, patch) => {
     let nextRequestId: number | null = null;

@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Hook: Combat Encounter API calls
 // ──────────────────────────────────────────────
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   initRoleplayEncounter,
@@ -59,6 +59,10 @@ export function useEncounter() {
   const qc = useQueryClient();
   const store = useEncounterStore();
   const activeChatId = useChatStore((s) => s.activeChatId);
+
+  useEffect(() => {
+    useEncounterStore.getState().cancelInactiveRequest(activeChatId);
+  }, [activeChatId]);
 
   /** Start combat: show config modal → init → render. */
   const startEncounter = useCallback(() => {
