@@ -61,7 +61,7 @@ import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickRe
 import { blobToDataUrl, loadUrlBlob } from "../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../shared/lib/chat-attachment-images";
 import { getDraftTranslationActionState, useDraftTranslation } from "../../../../shared/hooks/use-draft-translation";
-import { registerAppCloseGuard } from "../../../../shared/lib/app-close-guard";
+import { ephemeralAttachmentDrafts } from "../../../../shared/lib/ephemeral-attachment-drafts";
 import {
   CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
   CHAT_INPUT_ICON_BUTTON_CLASS,
@@ -162,8 +162,7 @@ export function ConversationInput({
   const [selectedCompletion, setSelectedCompletion] = useState(0);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [pendingAttachmentReadsByChat, setPendingAttachmentReadsByChat] = useState<Record<string, number>>({});
-  const pendingAttachmentReadsByChatRef = useRef<Record<string, number>>({});
+  const [, setAttachmentDraftRevision] = useState(0);
   const { isTranslatingDraft, translateDraft, cancelDraftTranslation } = useDraftTranslation();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
@@ -184,7 +183,6 @@ export function ConversationInput({
   const charPickerMenuRef = useRef<HTMLDivElement>(null);
   const inputBarRef = useRef<HTMLDivElement>(null);
   const attachmentsRef = useRef<Attachment[]>([]);
-  const pendingAttachmentDraftsRef = useRef<Map<string, Attachment[]>>(new Map());
   const activeChatId = useChatStore((s) => s.activeChatId);
   const { data: activeChat } = useChat(activeChatId);
   const chatName = activeChat?.name;
@@ -215,7 +213,9 @@ export function ConversationInput({
   const updateMessageExtra = useUpdateMessageExtra(activeChatId);
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pendingAttachmentReads = activeChatId ? (pendingAttachmentReadsByChat[activeChatId] ?? 0) : 0;
+  const pendingAttachmentReads = activeChatId
+    ? ephemeralAttachmentDrafts.pendingReads("conversation", activeChatId)
+    : 0;
   const isReadingAttachments = pendingAttachmentReads > 0;
   const hasPendingAttachments = isReadingAttachments || attachments.length > 0;
   const requiresManualGuideTarget = groupResponseOrder === "manual" && characterNames.length > 1;
@@ -260,42 +260,32 @@ export function ConversationInput({
     [setCurrentInput],
   );
 
-  const replaceAttachments = useCallback((next: Attachment[]) => {
+  const replaceAttachments = useCallback(
+    (next: Attachment[], chatId = useChatStore.getState().activeChatId) => {
+      if (chatId) ephemeralAttachmentDrafts.replace("conversation", chatId, next);
+      attachmentsRef.current = next;
+      setAttachments(next);
+    },
+    [],
+  );
+
+  const updateAttachments = useCallback((updater: (current: Attachment[]) => Attachment[]) => {
+    const next = updater(attachmentsRef.current);
+    const chatId = useChatStore.getState().activeChatId;
+    if (chatId) ephemeralAttachmentDrafts.replace("conversation", chatId, next);
     attachmentsRef.current = next;
     setAttachments(next);
   }, []);
 
-  const updateAttachments = useCallback((updater: (current: Attachment[]) => Attachment[]) => {
-    setAttachments((current) => {
-      const next = updater(current);
-      attachmentsRef.current = next;
-      return next;
-    });
-  }, []);
-
   const adjustPendingAttachmentReads = useCallback((chatId: string, delta: number) => {
-    setPendingAttachmentReadsByChat((current) => {
-      const nextCount = Math.max(0, (current[chatId] ?? 0) + delta);
-      const next = { ...current };
-      if (nextCount === 0) {
-        delete next[chatId];
-      } else {
-        next[chatId] = nextCount;
-      }
-      return next;
-    });
+    ephemeralAttachmentDrafts.adjustPendingReads("conversation", chatId, delta);
   }, []);
 
   const appendAttachmentForChat = useCallback(
     (chatId: string, attachment: Attachment) => {
-      if (useChatStore.getState().activeChatId === chatId) {
-        updateAttachments((prev) => [...prev, attachment]);
-        return;
-      }
-      const pendingAttachments = pendingAttachmentDraftsRef.current.get(chatId) ?? [];
-      pendingAttachmentDraftsRef.current.set(chatId, [...pendingAttachments, attachment]);
+      ephemeralAttachmentDrafts.append("conversation", chatId, attachment);
     },
-    [updateAttachments],
+    [],
   );
 
   useEffect(() => {
@@ -303,18 +293,12 @@ export function ConversationInput({
   }, [attachments]);
 
   useEffect(() => {
-    pendingAttachmentReadsByChatRef.current = pendingAttachmentReadsByChat;
-  }, [pendingAttachmentReadsByChat]);
-
-  useEffect(() => {
-    return registerAppCloseGuard({
-      label: "Conversation attachments",
-      hasPendingWork: () => {
-        const chatId = useChatStore.getState().activeChatId;
-        if (!chatId) return false;
-        return attachmentsRef.current.length > 0 || (pendingAttachmentReadsByChatRef.current[chatId] ?? 0) > 0;
-      },
-      message: "Unsent conversation attachments have not been saved. Close anyway and lose those attachments?",
+    return ephemeralAttachmentDrafts.subscribe((mode, changedChatId) => {
+      if (mode !== "conversation" || useChatStore.getState().activeChatId !== changedChatId) return;
+      const next = ephemeralAttachmentDrafts.read("conversation", changedChatId);
+      attachmentsRef.current = next;
+      setAttachments(next);
+      setAttachmentDraftRevision((revision) => revision + 1);
     });
   }, []);
 
@@ -330,11 +314,7 @@ export function ConversationInput({
           clearInputDraft(prevChatIdRef.current);
         }
         const prevAttachments = attachmentsRef.current;
-        if (prevAttachments.length > 0) {
-          pendingAttachmentDraftsRef.current.set(prevChatIdRef.current, prevAttachments);
-        } else {
-          pendingAttachmentDraftsRef.current.delete(prevChatIdRef.current);
-        }
+        ephemeralAttachmentDrafts.replace("conversation", prevChatIdRef.current, prevAttachments);
       }
       prevChatIdRef.current = activeChatId;
       if (textareaRef.current) {
@@ -345,9 +325,8 @@ export function ConversationInput({
         textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
       }
       if (activeChatId) {
-        const restoredAttachments = pendingAttachmentDraftsRef.current.get(activeChatId) ?? [];
-        replaceAttachments(restoredAttachments);
-        pendingAttachmentDraftsRef.current.delete(activeChatId);
+        const restoredAttachments = ephemeralAttachmentDrafts.read("conversation", activeChatId);
+        replaceAttachments(restoredAttachments, activeChatId);
       } else {
         replaceAttachments([]);
       }
@@ -368,6 +347,7 @@ export function ConversationInput({
         } else {
           useChatStore.getState().clearInputDraft(chatId);
         }
+        ephemeralAttachmentDrafts.replace("conversation", chatId, attachmentsRef.current);
       }
     };
   }, [activeChatId]);
@@ -696,7 +676,7 @@ export function ConversationInput({
           if (activeChatIdAfterFailure === activeChatId) {
             updateAttachments((current) => (current.length === 0 ? submittedAttachments : current));
           } else {
-            pendingAttachmentDraftsRef.current.set(activeChatId, submittedAttachments);
+            ephemeralAttachmentDrafts.replace("conversation", activeChatId, submittedAttachments);
           }
         }
         if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== activeChatId)) {
@@ -762,7 +742,7 @@ export function ConversationInput({
         if (activeChatIdAfterFailure === submittingChatId) {
           updateAttachments((current) => (current.length === 0 ? submittedAttachments : current));
         } else {
-          pendingAttachmentDraftsRef.current.set(submittingChatId, submittedAttachments);
+          ephemeralAttachmentDrafts.replace("conversation", submittingChatId, submittedAttachments);
         }
       }
       if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== submittingChatId)) {
@@ -1089,7 +1069,7 @@ export function ConversationInput({
         if (activeChatIdAfterFailure === submittingChatId) {
           updateAttachments((current) => (current.length === 0 ? submittedAttachments : current));
         } else {
-          pendingAttachmentDraftsRef.current.set(submittingChatId, submittedAttachments);
+          ephemeralAttachmentDrafts.replace("conversation", submittingChatId, submittedAttachments);
         }
       }
       if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== submittingChatId)) {

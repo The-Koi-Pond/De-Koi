@@ -27,6 +27,10 @@ import { showLocalChatNotification } from "../../../../../shared/lib/local-notif
 import { playNotificationPing } from "../../../../../shared/lib/notification-sound";
 import { chatKeys, useChatSummaries } from "../../../../catalog/chats/index";
 import { invalidateCharacterCollectionQueries } from "../../../../catalog/characters/index";
+import {
+  acquireChatGenerationController,
+  releaseChatGenerationController,
+} from "../../../../runtime/generation/index";
 
 interface RawCharacter {
   id: string;
@@ -77,6 +81,7 @@ export function useBackgroundAutonomousPolling() {
         // Don't proceed if this chat already has an in-flight generation
         if (useChatStore.getState().abortControllers.has(chat.id)) continue;
 
+        let startedAt: number | null = null;
         try {
           const result = await checkConversationAutonomous(storageApi, {
             chatId: chat.id,
@@ -86,12 +91,13 @@ export function useBackgroundAutonomousPolling() {
 
           if (result.shouldTrigger && result.characterIds.length > 0) {
             const characterId = result.characterIds[0]!;
-            const startedAt = markGenerationInProgress(chat.id);
+            startedAt = markGenerationInProgress(chat.id);
+            const lockedAt = startedAt;
 
             // Check busy delay
             const delay = await getConversationBusyDelay(storageApi, { chatId: chat.id, characterId });
             if (cancelled) {
-              clearGenerationInProgress(chat.id, startedAt);
+              clearGenerationInProgress(chat.id, lockedAt);
               return;
             }
 
@@ -100,19 +106,20 @@ export function useBackgroundAutonomousPolling() {
             const doGenerate = async () => {
               let receivedTokens = false;
               let shouldClearAutonomousFlag = true;
+              let controller: AbortController | null = null;
               try {
                 // Re-check guard — a generation may have started for this chat
                 // during the busy delay.
-                if (useChatStore.getState().abortControllers.has(chat.id)) {
+                controller = acquireChatGenerationController(chat.id);
+                if (!controller) {
                   shouldClearAutonomousFlag = false;
                   generatingForRef.current.delete(chat.id);
-                  clearGenerationInProgress(chat.id, startedAt);
+                  clearGenerationInProgress(chat.id, lockedAt);
                   return;
                 }
 
-                // Drain the TS generation engine; tokens aren't displayed for background chats.
                 const { startGeneration } = await import("../../../../../engine/generation/start-generation");
-                for await (const _event of startGeneration(
+                for await (const event of startGeneration(
                   { storage: storageApi, llm: llmApi, integrations: integrationGateway },
                   {
                     chatId: chat.id,
@@ -122,8 +129,9 @@ export function useBackgroundAutonomousPolling() {
                     hideAutomatedSummarySourceMessages:
                       useUIStore.getState().summaryPopoverSettings.hideSummarizedMessages,
                   },
+                  controller.signal,
                 )) {
-                  if ((_event as { type: string }).type === "token") receivedTokens = true;
+                  if ((event as { type: string }).type === "token") receivedTokens = true;
                 }
 
                 // Only notify if the generation actually produced a message
@@ -163,18 +171,12 @@ export function useBackgroundAutonomousPolling() {
                   /* use fallback name */
                 }
 
-                // Play notification sound
                 const uiState = useUIStore.getState();
                 if (uiState.convoNotificationSound) {
                   playNotificationPing(uiState.notificationSound, uiState.customNotificationSound);
                 }
-
-                // Increment unread badge
                 useChatStore.getState().incrementUnread(chat.id);
-
-                // Add floating avatar notification bubble
                 useChatStore.getState().addNotification(chat.id, charName, charAvatar, charAvatarCrop);
-
                 void showLocalChatNotification({
                   enabled: useUIStore.getState().conversationBrowserNotifications,
                   chatId: chat.id,
@@ -190,7 +192,8 @@ export function useBackgroundAutonomousPolling() {
                 if (!receivedTokens && shouldClearAutonomousFlag) {
                   recordAssistantActivity(chat.id);
                 }
-                clearGenerationInProgress(chat.id, startedAt);
+                if (controller) releaseChatGenerationController(chat.id, controller);
+                clearGenerationInProgress(chat.id, lockedAt);
                 generatingForRef.current.delete(chat.id);
               }
             };
@@ -200,17 +203,18 @@ export function useBackgroundAutonomousPolling() {
                 delayTimers.delete(timerId);
                 if (cancelled) {
                   generatingForRef.current.delete(chat.id);
-                  clearGenerationInProgress(chat.id, startedAt);
+                  clearGenerationInProgress(chat.id, lockedAt);
                   return;
                 }
                 doGenerate();
               }, delay.delayMs);
-              delayTimers.set(timerId, { chatId: chat.id, startedAt });
+              delayTimers.set(timerId, { chatId: chat.id, startedAt: lockedAt });
             } else {
               doGenerate();
             }
           }
         } catch {
+          if (startedAt != null) clearGenerationInProgress(chat.id, startedAt);
           // Check failed — skip this chat, try next
         }
       }

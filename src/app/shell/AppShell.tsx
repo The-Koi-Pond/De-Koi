@@ -275,6 +275,7 @@ export function AppShell() {
     let cleanup: (() => void) | undefined;
     let cancelled = false;
     const unregisterEditorGuard = registerEditorDirtyAppCloseGuard(() => useUIStore.getState().editorDirty);
+    const unregisterConversationAttachmentGuard = registerEphemeralAttachmentDraftAppCloseGuard("conversation");
     const unregisterRoleplayAttachmentGuard = registerEphemeralAttachmentDraftAppCloseGuard("roleplay");
     const unregisterBeforeUnloadGuard = registerBrowserBeforeUnloadGuard();
     void onDesktopWindowCloseRequested(() => {
@@ -291,6 +292,7 @@ export function AppShell() {
       cleanup?.();
       unregisterBeforeUnloadGuard();
       unregisterRoleplayAttachmentGuard();
+      unregisterConversationAttachmentGuard();
       unregisterEditorGuard();
     };
   }, []);
