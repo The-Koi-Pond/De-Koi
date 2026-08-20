@@ -158,7 +158,7 @@ export const useEncounterStore = create<EncounterState>((set) => ({
       const summaryPending = current.summaryStatus === "generating";
       if (!initializationPending && !actionPending && !summaryPending) return {};
       return {
-        ...((initializationPending || actionPending) && { requestId: current.requestId + 1 }),
+        requestId: current.requestId + 1,
         isLoading: false,
         isProcessing: false,
         ...(initializationPending ? { active: false, error: null } : {}),

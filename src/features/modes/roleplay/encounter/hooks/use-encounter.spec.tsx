@@ -52,10 +52,12 @@ const combatState: CombatInitState = {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe("useEncounter request ownership", () => {
@@ -225,7 +227,7 @@ describe("useEncounter request ownership", () => {
     });
   });
 
-  it("settles summary state when navigating away and back", async () => {
+  it("keeps a resolved canceled summary settled after navigating away and back", async () => {
     act(() => encounter.startEncounter());
     const requestId = useEncounterStore.getState().requestId;
     act(() => useEncounterStore.getState().initCombat("chat-a", requestId, combatState));
@@ -241,6 +243,7 @@ describe("useEncounter request ownership", () => {
     expect(useEncounterStore.getState()).toMatchObject({ chatId: "chat-a", summaryStatus: "error" });
     act(() => useChatStore.setState({ activeChatId: "chat-a" }));
     const canceledRequestId = useEncounterStore.getState().requestId;
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     pending.resolve({ summary: "The fight ends.", messageId: "message-1" });
     await act(async () => summary);
 
@@ -248,7 +251,72 @@ describe("useEncounter request ownership", () => {
       chatId: "chat-a",
       requestId: canceledRequestId,
       combatResult: "victory",
+      summaryStatus: "error",
+    });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+
+  it("keeps a rejected canceled summary settled after navigating away and back", async () => {
+    act(() => encounter.startEncounter());
+    const requestId = useEncounterStore.getState().requestId;
+    act(() => useEncounterStore.getState().initCombat("chat-a", requestId, combatState));
+    const pending = deferred<{ summary: string; messageId: string }>();
+    encounterService.summarizeRoleplayEncounter.mockReturnValueOnce(pending.promise);
+    let summary!: Promise<void>;
+    act(() => {
+      summary = encounter.generateSummary("victory");
+    });
+
+    act(() => useChatStore.setState({ activeChatId: "chat-b" }));
+    act(() => useChatStore.setState({ activeChatId: "chat-a" }));
+    const canceledRequestId = useEncounterStore.getState().requestId;
+    pending.reject(new Error("provider failed late"));
+    await act(async () => summary);
+
+    expect(useEncounterStore.getState()).toMatchObject({
+      chatId: "chat-a",
+      requestId: canceledRequestId,
+      summaryStatus: "error",
+    });
+  });
+
+  it("does not let a canceled summary settle a replacement summary", async () => {
+    act(() => encounter.startEncounter());
+    const requestId = useEncounterStore.getState().requestId;
+    act(() => useEncounterStore.getState().initCombat("chat-a", requestId, combatState));
+    const oldPending = deferred<{ summary: string; messageId: string }>();
+    const replacementPending = deferred<{ summary: string; messageId: string }>();
+    encounterService.summarizeRoleplayEncounter
+      .mockReturnValueOnce(oldPending.promise)
+      .mockReturnValueOnce(replacementPending.promise);
+    let oldSummary!: Promise<void>;
+    act(() => {
+      oldSummary = encounter.generateSummary("victory");
+    });
+
+    act(() => useChatStore.setState({ activeChatId: "chat-b" }));
+    act(() => useChatStore.setState({ activeChatId: "chat-a" }));
+    let replacementSummary!: Promise<void>;
+    act(() => {
+      replacementSummary = encounter.generateSummary("victory");
+    });
+    const replacementRequestId = useEncounterStore.getState().requestId;
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    oldPending.resolve({ summary: "Old summary", messageId: "message-old" });
+    await act(async () => oldSummary);
+    expect(useEncounterStore.getState()).toMatchObject({
+      requestId: replacementRequestId,
+      summaryStatus: "generating",
+    });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+
+    replacementPending.resolve({ summary: "Replacement summary", messageId: "message-new" });
+    await act(async () => replacementSummary);
+    expect(useEncounterStore.getState()).toMatchObject({
+      requestId: replacementRequestId,
       summaryStatus: "done",
     });
+    expect(invalidateQueries).toHaveBeenCalledTimes(1);
   });
 });
