@@ -74,6 +74,7 @@ import {
   MEMORY_EMBEDDING_UNAVAILABLE_DESCRIPTION,
   MEMORY_EMBEDDING_UNAVAILABLE_TITLE,
 } from "../lib/memory-embedding-guidance";
+import { acquireChatGenerationController, releaseChatGenerationController } from "../lib/chat-generation-controller";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
 
 export type GenerateArgs = GenerationReplayInput & {
@@ -1478,9 +1479,12 @@ export async function runGenerationWithUi(
       return false;
     }
 
-    controller = new AbortController();
+    controller = acquireChatGenerationController(chatId);
+    if (!controller) {
+      console.warn("[generation] Generation already in progress for chat", chatId);
+      return false;
+    }
     chatStore.setGenerationFailure(chatId, null);
-    chatStore.setAbortController(chatId, controller);
     chatStore.setStreaming(true, chatId);
     chatStore.setRegenerateMessageId(regenerateMessageId, chatId);
     chatStore.setStreamingCharacterId(requestedCharacterId, chatId);
@@ -1773,7 +1777,7 @@ export async function runGenerationWithUi(
     const state = useChatStore.getState();
     if (!ownsChatController()) return;
     foregroundGenerationReleased = true;
-    state.setAbortController(chatId, null);
+    releaseChatGenerationController(chatId, controller);
     state.setAssistantPhase(chatId, "idle");
     clearChatAvailabilityState();
     // Clear this chat's own regenerate/streaming-character ids regardless of

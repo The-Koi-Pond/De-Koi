@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   }>,
   checkConversationAutonomous: vi.fn(),
   clearGenerationInProgress: vi.fn(),
+  acquireGenerationController: vi.fn(),
+  releaseGenerationController: vi.fn(),
+  controller: new AbortController(),
   getConversationBusyDelay: vi.fn(),
   markGenerationInProgress: vi.fn(),
   startGeneration: vi.fn(),
@@ -37,6 +40,11 @@ vi.mock("../../../../../engine/modes/chat/autonomous/autonomous.service", () => 
 
 vi.mock("../../../../../engine/generation/start-generation", () => ({
   startGeneration: mocks.startGeneration,
+}));
+
+vi.mock("../../../../runtime/generation/index", () => ({
+  acquireChatGenerationController: mocks.acquireGenerationController,
+  releaseChatGenerationController: mocks.releaseGenerationController,
 }));
 
 vi.mock("../../../../../shared/api/storage-api", () => ({
@@ -78,6 +86,9 @@ describe("useBackgroundAutonomousPolling", () => {
     });
     mocks.clearGenerationInProgress.mockReset();
     mocks.getConversationBusyDelay.mockReset().mockResolvedValue({ delayMs: 0 });
+    mocks.controller = new AbortController();
+    mocks.acquireGenerationController.mockReset().mockImplementation(() => mocks.controller);
+    mocks.releaseGenerationController.mockReset();
     mocks.markGenerationInProgress.mockReset().mockReturnValue(123);
     mocks.startGeneration.mockReset().mockImplementation(async function* () {});
     useChatStore.setState({ activeChatId: null });
@@ -174,5 +185,41 @@ describe("useBackgroundAutonomousPolling", () => {
     expect(mocks.checkConversationAutonomous).toHaveBeenCalledTimes(2);
     expect(mocks.getConversationBusyDelay).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(2);
+  });
+
+  it("routes background replies through the shared per-chat generation controller", async () => {
+    mocks.checkConversationAutonomous.mockResolvedValue({
+      shouldTrigger: true,
+      characterIds: ["character-1"],
+    });
+    mocks.startGeneration.mockImplementation(async function* () {
+      yield { type: "token", data: "hello" };
+    });
+    mocks.summaries = [{ id: "chat-1", mode: "conversation", metadata: { autonomousMessages: true } }];
+    act(() => root.render(<Harness revision={0} />));
+
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+
+    expect(mocks.acquireGenerationController).toHaveBeenCalledWith("chat-1");
+    expect(mocks.startGeneration).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ chatId: "chat-1", forCharacterId: "character-1" }),
+      mocks.controller.signal,
+    );
+    expect(mocks.releaseGenerationController).toHaveBeenCalledWith("chat-1", mocks.controller);
+  });
+
+  it("releases the autonomous guard when busy-delay lookup fails", async () => {
+    mocks.checkConversationAutonomous.mockResolvedValue({
+      shouldTrigger: true,
+      characterIds: ["character-1"],
+    });
+    mocks.getConversationBusyDelay.mockRejectedValue(new Error("delay lookup failed"));
+    mocks.summaries = [{ id: "chat-1", mode: "conversation", metadata: { autonomousMessages: true } }];
+    act(() => root.render(<Harness revision={0} />));
+
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+
+    expect(mocks.clearGenerationInProgress).toHaveBeenCalledWith("chat-1", 123);
   });
 });

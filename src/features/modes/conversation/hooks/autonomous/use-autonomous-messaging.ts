@@ -31,14 +31,17 @@ export function useAutonomousMessaging(
   const qc = useQueryClient();
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const busyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const busyGenerationStartedAtRef = useRef<number | null>(null);
-  const generatingRef = useRef(false);
+  const busyGenerationRef = useRef<{ chatId: string; startedAt: number; epoch: number } | null>(null);
+  const generatingChatEpochsRef = useRef<Map<string, number>>(new Map());
+  const pollEpochRef = useRef(0);
   const onAutonomousMessageRef = useRef(onAutonomousMessage);
   onAutonomousMessageRef.current = onAutonomousMessage;
 
-  const schedulePoll = useCallback((run: () => Promise<void>, delayMs = 30_000) => {
+  const schedulePoll = useCallback((run: () => Promise<void>, epoch: number, delayMs = 30_000) => {
+    if (pollEpochRef.current !== epoch) return;
     clearTimeout(pollTimerRef.current);
     pollTimerRef.current = setTimeout(() => {
+      if (pollEpochRef.current !== epoch) return;
       void run();
     }, delayMs);
   }, []);
@@ -76,9 +79,9 @@ export function useAutonomousMessaging(
   }, [chatId]);
 
   const triggerAutonomousGeneration = useCallback(
-    async (characterId: string, poll: () => Promise<void>, lockedAt?: number) => {
-      if (!chatId) return;
-      generatingRef.current = true;
+    async (characterId: string, poll: () => Promise<void>, epoch: number, lockedAt?: number) => {
+      if (!chatId || pollEpochRef.current !== epoch) return;
+      generatingChatEpochsRef.current.set(chatId, epoch);
       const startedAt = lockedAt ?? markGenerationInProgress(chatId);
       let produced = false;
       let shouldSchedulePoll = true;
@@ -88,6 +91,7 @@ export function useAutonomousMessaging(
           connectionId: null,
           forCharacterId: characterId,
         });
+        if (pollEpochRef.current !== epoch) return;
         if (produced) {
           recordAssistantActivityState(chatId, characterId);
           await qc.invalidateQueries({ queryKey: chatKeys.list() });
@@ -98,8 +102,12 @@ export function useAutonomousMessaging(
         // Autonomous generation failures are surfaced through provider/runtime state; keep polling alive.
       } finally {
         clearGenerationInProgress(chatId, startedAt);
-        generatingRef.current = false;
+        if (generatingChatEpochsRef.current.get(chatId) === epoch) {
+          generatingChatEpochsRef.current.delete(chatId);
+        }
       }
+
+      if (pollEpochRef.current !== epoch) return;
 
       if (produced && exchangesEnabled) {
         try {
@@ -114,9 +122,9 @@ export function useAutonomousMessaging(
             busyTimerRef.current = setTimeout(
               () => {
                 if (!useChatStore.getState().abortControllers.has(chatId)) {
-                  void triggerAutonomousGeneration(nextCharacterId, poll);
+                  void triggerAutonomousGeneration(nextCharacterId, poll, epoch);
                 } else {
-                  schedulePoll(poll);
+                  schedulePoll(poll, epoch);
                 }
               },
               2_000 + Math.random() * 3_000,
@@ -130,17 +138,19 @@ export function useAutonomousMessaging(
       if (!produced) {
         recordAssistantActivityState(chatId);
       }
-      if (shouldSchedulePoll) schedulePoll(poll);
+      if (shouldSchedulePoll) schedulePoll(poll, epoch);
     },
     [chatId, exchangesEnabled, generate, qc, schedulePoll],
   );
 
   useEffect(() => {
     if (!chatId || (!autonomousEnabled && !conversationStatusMessagesEnabled)) return;
+    const epoch = ++pollEpochRef.current;
 
     const poll = async () => {
-      if (generatingRef.current || useChatStore.getState().abortControllers.has(chatId)) {
-        schedulePoll(poll);
+      if (pollEpochRef.current !== epoch) return;
+      if (generatingChatEpochsRef.current.has(chatId) || useChatStore.getState().abortControllers.has(chatId)) {
+        schedulePoll(poll, epoch);
         return;
       }
 
@@ -156,71 +166,82 @@ export function useAutonomousMessaging(
         } catch (error) {
           console.error("Failed to refresh conversation status blurbs.", error);
         }
+        if (pollEpochRef.current !== epoch) return;
       }
 
       if (!autonomousEnabled) {
-        schedulePoll(poll);
+        schedulePoll(poll, epoch);
         return;
       }
 
       const userStatus = useUIStore.getState().userStatus;
       recordAutonomousClientPresence(chatId, userStatus);
       if (userStatus === "dnd") {
-        schedulePoll(poll);
+        schedulePoll(poll, epoch);
         return;
       }
 
       let startedAt: number | null = null;
       try {
         const result = await checkConversationAutonomous(storageApi, { chatId, userStatus });
+        if (pollEpochRef.current !== epoch) return;
         invalidateCharacterCollectionQueries(qc);
         const characterId = result.characterIds[0];
         if (!result.shouldTrigger || !characterId) {
-          schedulePoll(poll);
+          schedulePoll(poll, epoch);
           return;
         }
         startedAt = markGenerationInProgress(chatId);
 
         const delay = await getConversationBusyDelay(storageApi, { chatId, characterId });
+        if (pollEpochRef.current !== epoch) {
+          clearGenerationInProgress(chatId, startedAt);
+          return;
+        }
         if (delay.delayMs > 0) {
           const lockedAt = startedAt;
-          if (busyGenerationStartedAtRef.current != null) {
-            clearGenerationInProgress(chatId, busyGenerationStartedAtRef.current);
+          const priorBusyGeneration = busyGenerationRef.current;
+          if (priorBusyGeneration != null) {
+            clearGenerationInProgress(priorBusyGeneration.chatId, priorBusyGeneration.startedAt);
           }
           clearTimeout(busyTimerRef.current);
-          busyGenerationStartedAtRef.current = lockedAt;
+          busyGenerationRef.current = { chatId, startedAt: lockedAt, epoch };
           busyTimerRef.current = setTimeout(() => {
-            busyGenerationStartedAtRef.current = null;
-            if (generatingRef.current || useChatStore.getState().abortControllers.has(chatId)) {
+            if (pollEpochRef.current !== epoch) return;
+            if (busyGenerationRef.current?.epoch === epoch) busyGenerationRef.current = null;
+            if (generatingChatEpochsRef.current.has(chatId) || useChatStore.getState().abortControllers.has(chatId)) {
               clearGenerationInProgress(chatId, lockedAt);
-              schedulePoll(poll);
+              schedulePoll(poll, epoch);
               return;
             }
-            void triggerAutonomousGeneration(characterId, poll, lockedAt);
+            void triggerAutonomousGeneration(characterId, poll, epoch, lockedAt);
           }, delay.delayMs);
           return;
         }
 
-        await triggerAutonomousGeneration(characterId, poll, startedAt);
+        await triggerAutonomousGeneration(characterId, poll, epoch, startedAt);
       } catch {
         if (startedAt != null) {
           clearGenerationInProgress(chatId, startedAt);
         }
-        if (busyGenerationStartedAtRef.current != null) {
-          clearGenerationInProgress(chatId, busyGenerationStartedAtRef.current);
-          busyGenerationStartedAtRef.current = null;
+        const busyGeneration = busyGenerationRef.current;
+        if (busyGeneration?.epoch === epoch) {
+          clearGenerationInProgress(busyGeneration.chatId, busyGeneration.startedAt);
+          busyGenerationRef.current = null;
         }
-        schedulePoll(poll);
+        schedulePoll(poll, epoch);
       }
     };
 
-    schedulePoll(poll, 10_000);
+    schedulePoll(poll, epoch, 10_000);
     return () => {
+      if (pollEpochRef.current === epoch) pollEpochRef.current += 1;
       clearTimeout(pollTimerRef.current);
       clearTimeout(busyTimerRef.current);
-      if (busyGenerationStartedAtRef.current != null) {
-        clearGenerationInProgress(chatId, busyGenerationStartedAtRef.current);
-        busyGenerationStartedAtRef.current = null;
+      const busyGeneration = busyGenerationRef.current;
+      if (busyGeneration?.epoch === epoch) {
+        clearGenerationInProgress(busyGeneration.chatId, busyGeneration.startedAt);
+        busyGenerationRef.current = null;
       }
     };
   }, [autonomousEnabled, chatId, conversationStatusMessagesEnabled, exchangesEnabled, qc, schedulePoll, triggerAutonomousGeneration]);
