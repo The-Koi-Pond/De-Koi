@@ -15,6 +15,8 @@ import type {
 } from "../../engine/contracts/types/combat-encounter";
 
 interface EncounterState {
+  chatId: string | null;
+  requestId: number;
   // ── State ──
   active: boolean;
   initialized: boolean;
@@ -47,16 +49,27 @@ interface EncounterState {
   summaryStatus: "idle" | "generating" | "done" | "error";
 
   // ── Actions ──
-  openConfigModal: () => void;
+  openConfigModal: (chatId: string) => void;
   closeConfigModal: () => void;
   updateSettings: (settings: Partial<EncounterSettings>) => void;
   setSpellbookId: (id: string | null) => void;
+  cancelInactiveRequest: (activeChatId: string | null) => void;
 
-  setLoading: (loading: boolean) => void;
-  setProcessing: (processing: boolean) => void;
-  setError: (error: string | null) => void;
+  beginRequest: (
+    chatId: string,
+    patch: Partial<
+      Pick<EncounterState, "active" | "isLoading" | "isProcessing" | "error" | "combatResult" | "summaryStatus">
+    >,
+  ) => number | null;
+  setRequestState: (
+    chatId: string,
+    requestId: number,
+    patch: Partial<
+      Pick<EncounterState, "active" | "isLoading" | "isProcessing" | "error" | "combatResult" | "summaryStatus">
+    >,
+  ) => void;
 
-  initCombat: (state: CombatInitState) => void;
+  initCombat: (chatId: string, requestId: number, state: CombatInitState) => void;
   updateCombat: (data: {
     party: CombatPartyMember[];
     enemies: CombatEnemy[];
@@ -70,8 +83,6 @@ interface EncounterState {
   clearPendingLogs: () => void;
 
   endCombat: (result: "victory" | "defeat" | "fled" | "interrupted") => void;
-  setSummaryStatus: (status: "idle" | "generating" | "done" | "error") => void;
-
   reset: () => void;
 }
 
@@ -92,6 +103,8 @@ const defaultSettings: EncounterSettings = {
 };
 
 export const useEncounterStore = create<EncounterState>((set) => ({
+  chatId: null,
+  requestId: 0,
   active: false,
   initialized: false,
   isLoading: false,
@@ -113,34 +126,82 @@ export const useEncounterStore = create<EncounterState>((set) => ({
   combatResult: null,
   summaryStatus: "idle",
 
-  openConfigModal: () => set({ showConfigModal: true, spellbookId: null }),
+  openConfigModal: (chatId) =>
+    set((current) => ({
+      chatId,
+      requestId: current.requestId + 1,
+      active: false,
+      initialized: false,
+      isLoading: false,
+      isProcessing: false,
+      error: null,
+      party: [],
+      enemies: [],
+      environment: "",
+      styleNotes: null,
+      playerActions: null,
+      encounterLog: [],
+      pendingLogs: [],
+      showConfigModal: true,
+      spellbookId: null,
+      combatResult: null,
+      summaryStatus: "idle",
+    })),
   closeConfigModal: () => set({ showConfigModal: false }),
   updateSettings: (partial) => set((s) => ({ settings: { ...s.settings, ...partial } })),
   setSpellbookId: (id) => set({ spellbookId: id }),
-
-  setLoading: (loading) => set({ isLoading: loading }),
-  setProcessing: (processing) => set({ isProcessing: processing }),
-  setError: (error) => set({ error }),
-
-  initCombat: (state) =>
-    set({
-      active: true,
-      initialized: true,
-      isLoading: false,
-      error: null,
-      party: state.party,
-      enemies: state.enemies,
-      environment: state.environment,
-      styleNotes: state.styleNotes,
-      playerActions: {
-        attacks: state.party.find((m) => m.isPlayer)?.attacks ?? [],
-        items: state.party.find((m) => m.isPlayer)?.items ?? [],
-      },
-      encounterLog: [],
-      pendingLogs: [],
-      combatResult: null,
-      summaryStatus: "idle",
+  cancelInactiveRequest: (activeChatId) =>
+    set((current) => {
+      if (!current.chatId || current.chatId === activeChatId) return {};
+      const initializationPending = current.isLoading && !current.initialized;
+      const actionPending = current.isProcessing;
+      const summaryPending = current.summaryStatus === "generating";
+      if (!initializationPending && !actionPending && !summaryPending) return {};
+      return {
+        requestId: current.requestId + 1,
+        isLoading: false,
+        isProcessing: false,
+        ...(initializationPending ? { active: false, error: null } : {}),
+        ...(actionPending ? { error: "Encounter action canceled when you left this chat." } : {}),
+        ...(summaryPending ? { summaryStatus: "error" as const } : {}),
+      };
     }),
+
+  beginRequest: (chatId, patch) => {
+    let nextRequestId: number | null = null;
+    set((current) => {
+      if (current.chatId !== chatId) return {};
+      nextRequestId = current.requestId + 1;
+      return { ...patch, requestId: nextRequestId };
+    });
+    return nextRequestId;
+  },
+  setRequestState: (chatId, requestId, patch) =>
+    set((current) => (current.chatId === chatId && current.requestId === requestId ? patch : {})),
+
+  initCombat: (chatId, requestId, state) =>
+    set((current) =>
+      current.chatId === chatId && current.requestId === requestId
+        ? {
+            active: true,
+            initialized: true,
+            isLoading: false,
+            error: null,
+            party: state.party,
+            enemies: state.enemies,
+            environment: state.environment,
+            styleNotes: state.styleNotes,
+            playerActions: {
+              attacks: state.party.find((m) => m.isPlayer)?.attacks ?? [],
+              items: state.party.find((m) => m.isPlayer)?.items ?? [],
+            },
+            encounterLog: [],
+            pendingLogs: [],
+            combatResult: null,
+            summaryStatus: "idle" as const,
+          }
+        : {},
+    ),
 
   updateCombat: (data) =>
     set((s) => {
@@ -171,10 +232,11 @@ export const useEncounterStore = create<EncounterState>((set) => ({
   clearPendingLogs: () => set({ pendingLogs: [] }),
 
   endCombat: (result) => set({ combatResult: result }),
-  setSummaryStatus: (status) => set({ summaryStatus: status }),
 
   reset: () =>
-    set({
+    set((current) => ({
+      chatId: null,
+      requestId: current.requestId + 1,
       active: false,
       initialized: false,
       isLoading: false,
@@ -191,5 +253,5 @@ export const useEncounterStore = create<EncounterState>((set) => ({
       spellbookId: null,
       combatResult: null,
       summaryStatus: "idle",
-    }),
+    })),
 }));

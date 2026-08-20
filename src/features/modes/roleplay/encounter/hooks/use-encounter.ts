@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Hook: Combat Encounter API calls
 // ──────────────────────────────────────────────
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   initRoleplayEncounter,
@@ -60,23 +60,25 @@ export function useEncounter() {
   const store = useEncounterStore();
   const activeChatId = useChatStore((s) => s.activeChatId);
 
+  useEffect(() => {
+    useEncounterStore.getState().cancelInactiveRequest(activeChatId);
+  }, [activeChatId]);
+
   /** Start combat: show config modal → init → render. */
   const startEncounter = useCallback(() => {
-    store.openConfigModal();
-  }, [store]);
+    if (activeChatId) store.openConfigModal(activeChatId);
+  }, [activeChatId, store]);
 
   /** Called after the config modal — actually fire the init request. */
   const initEncounter = useCallback(
     async (settings: EncounterSettings) => {
       if (!activeChatId) return;
+      const encounter = useEncounterStore.getState();
+      if (encounter.chatId !== activeChatId) return;
+      const { spellbookId } = encounter;
+      const requestId = store.beginRequest(activeChatId, { active: true, isLoading: true, error: null });
+      if (requestId === null) return;
       store.closeConfigModal();
-      store.setLoading(true);
-      store.setError(null);
-
-      // Mark active so the modal renders in loading state
-      useEncounterStore.setState({ active: true });
-
-      const spellbookId = useEncounterStore.getState().spellbookId;
 
       try {
         const res = await initRoleplayEncounter(
@@ -90,11 +92,10 @@ export function useEncounter() {
             debugSink: useAgentStore.getState().addDebugEntry,
           },
         );
-        store.initCombat(res.combatState);
+        store.initCombat(activeChatId, requestId, res.combatState);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to initialize encounter";
-        store.setError(msg);
-        store.setLoading(false);
+        store.setRequestState(activeChatId, requestId, { error: msg, isLoading: false });
       }
     },
     [activeChatId, store],
@@ -104,9 +105,11 @@ export function useEncounter() {
   const generateSummary = useCallback(
     async (result: "victory" | "defeat" | "fled" | "interrupted") => {
       if (!activeChatId) return;
-      const { encounterLog, settings } = useEncounterStore.getState();
-
-      store.setSummaryStatus("generating");
+      const encounter = useEncounterStore.getState();
+      if (encounter.chatId !== activeChatId) return;
+      const { encounterLog, settings } = encounter;
+      const requestId = store.beginRequest(activeChatId, { summaryStatus: "generating" });
+      if (requestId === null) return;
 
       try {
         await summarizeRoleplayEncounter(
@@ -120,14 +123,15 @@ export function useEncounter() {
           },
         );
 
-        store.setSummaryStatus("done");
+        if (!encounterRequestIsCurrent(activeChatId, requestId)) return;
+        store.setRequestState(activeChatId, requestId, { summaryStatus: "done" });
 
         // Invalidate chat messages so the new summary shows up
         await qc.invalidateQueries({
           queryKey: chatKeys.messages(activeChatId),
         });
       } catch {
-        store.setSummaryStatus("error");
+        store.setRequestState(activeChatId, requestId, { summaryStatus: "error" });
       }
     },
     [activeChatId, store, qc],
@@ -137,12 +141,11 @@ export function useEncounter() {
   const sendAction = useCallback(
     async (actionText: string) => {
       if (!activeChatId) return;
-      if (useEncounterStore.getState().isProcessing) return;
-      const { party, enemies, environment, playerActions, encounterLog, settings } = useEncounterStore.getState();
-      const spellbookId = useEncounterStore.getState().spellbookId;
-
-      store.setProcessing(true);
-      store.setError(null);
+      const encounter = useEncounterStore.getState();
+      if (encounter.chatId !== activeChatId || encounter.isProcessing) return;
+      const { party, enemies, environment, playerActions, encounterLog, settings, spellbookId } = encounter;
+      const requestId = store.beginRequest(activeChatId, { isProcessing: true, error: null });
+      if (requestId === null) return;
 
       try {
         const res = await resolveRoleplayEncounterAction(
@@ -159,11 +162,15 @@ export function useEncounter() {
           },
         );
 
+        if (!encounterRequestIsCurrent(activeChatId, requestId)) return;
+
         // Model produced no usable combat turn (unparseable output or LLM
         // error) — surface a retryable error and keep combat state unchanged.
         if (res.invalid) {
-          store.setError("AI returned an invalid response. Try again.");
-          store.setProcessing(false);
+          store.setRequestState(activeChatId, requestId, {
+            error: "AI returned an invalid response. Try again.",
+            isProcessing: false,
+          });
           return;
         }
 
@@ -171,8 +178,10 @@ export function useEncounter() {
 
         // Validate critical fields — AI may return malformed data
         if (!r || typeof r !== "object") {
-          store.setError("AI returned an invalid response. Try again.");
-          store.setProcessing(false);
+          store.setRequestState(activeChatId, requestId, {
+            error: "AI returned an invalid response. Try again.",
+            isProcessing: false,
+          });
           return;
         }
 
@@ -232,8 +241,7 @@ export function useEncounter() {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to process action";
-        store.setError(msg);
-        store.setProcessing(false);
+        store.setRequestState(activeChatId, requestId, { error: msg, isProcessing: false });
       }
     },
     [activeChatId, store, generateSummary],
@@ -258,4 +266,9 @@ export function useEncounter() {
     closeEncounter,
     generateSummary,
   };
+}
+
+function encounterRequestIsCurrent(chatId: string, requestId: number): boolean {
+  const current = useEncounterStore.getState();
+  return current.chatId === chatId && current.requestId === requestId;
 }

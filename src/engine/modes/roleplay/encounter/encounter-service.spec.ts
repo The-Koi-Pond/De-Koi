@@ -11,7 +11,7 @@ import type {
   EncounterActionRequest,
   EncounterSettings,
 } from "../../../contracts/types/combat-encounter";
-import { initRoleplayEncounter, resolveRoleplayEncounterAction } from "./encounter-service";
+import { initRoleplayEncounter, resolveRoleplayEncounterAction, summarizeRoleplayEncounter } from "./encounter-service";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -162,6 +162,35 @@ describe("roleplay encounter recent history", () => {
     await initRoleplayEncounter({ storage, llm }, { chatId: "chat-1", connectionId: null, settings });
 
     expect(listChatMessages).toHaveBeenCalledWith("chat-1", expect.objectContaining({ limit: settings.historyDepth }));
+  });
+
+  it("rejects an invalid initial encounter instead of starting fallback combat", async () => {
+    const storage = storageGateway();
+    const llm = llmWithResponses(["not valid JSON"]);
+
+    await expect(
+      initRoleplayEncounter({ storage, llm }, { chatId: "chat-1", connectionId: null, settings }),
+    ).rejects.toThrow("could not create a valid combat encounter");
+  });
+
+  it("does not persist a fabricated summary when summary generation fails", async () => {
+    const storage = storageGateway();
+    const createChatMessage = vi.spyOn(storage, "createChatMessage");
+    const llm = llmWithResponses([]);
+
+    await expect(
+      summarizeRoleplayEncounter(
+        { storage, llm },
+        {
+          chatId: "chat-1",
+          connectionId: null,
+          encounterLog: [{ timestamp: 1, action: "Strike", result: "The warden falls." }],
+          result: "victory",
+          settings,
+        },
+      ),
+    ).rejects.toThrow("could not create a combat summary");
+    expect(createChatMessage).not.toHaveBeenCalled();
   });
 
   it("bounds action chat history reads to the requested depth", async () => {

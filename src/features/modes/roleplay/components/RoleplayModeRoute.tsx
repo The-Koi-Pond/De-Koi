@@ -150,7 +150,9 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   const spriteState = useSpriteMetadataState({ chat: data.chat, chatMeta: data.chatMeta, messages: renderMessages });
   const { startEncounter } = useEncounter();
   const { concludeScene, reopenScene, abandonScene, forkScene, isForking } = useScene();
-  const encounterActive = useEncounterStore((state) => state.active || state.showConfigModal);
+  const encounterActive = useEncounterStore(
+    (state) => state.chatId === activeChatId && (state.active || state.showConfigModal),
+  );
   const { request, drafts, onDraftChange, onContinue, onClose } = useAgentInjectionReview();
 
   const summaryContextSize: number = (data.chatMeta.summaryContextSize as number) ?? 50;

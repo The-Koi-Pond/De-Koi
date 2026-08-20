@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { ChatMessageListOptions, StorageEntity, StorageGateway } from "../../../capabilities/storage";
@@ -182,7 +182,6 @@ function llmWithResponse(response: string): LlmGateway {
 }
 
 describe("roleplay scene recent history", () => {
-
   it("bounds scene planning recent conversation reads", async () => {
     const plan = {
       name: "Scene: Mirror Hall",
@@ -417,6 +416,69 @@ describe("createRoleplayScene", () => {
 
     return { ...fixture, create };
   }
+
+  it("rejects a second active scene before creating another chat", async () => {
+    const { create, createdRecords } = await createSceneFromOrigin({
+      mode: "conversation",
+      metadata: { activeSceneChatId: "existing-scene", sceneBusyCharIds: ["char-1"] },
+      connectedChatId: "existing-scene",
+    });
+
+    await expect(create).rejects.toThrow("already has another active scene");
+    expect(createdRecords).toHaveLength(0);
+  });
+
+  it("rejects concurrent scene creation for the same origin", async () => {
+    const fixture = storageForScene({
+      chats: [{ id: "origin", name: "Dinner Chat", mode: "conversation", characterIds: ["char-1"], metadata: {} }],
+      messages: { origin: [{ id: "message-1", role: "user", content: "Begin the scene." }] },
+    });
+    const originalCreate = fixture.storage.create.bind(fixture.storage);
+    let releaseFirstCreate!: () => void;
+    const firstCreateBlocked = new Promise<void>((resolve) => {
+      releaseFirstCreate = resolve;
+    });
+    let firstCreateStarted!: () => void;
+    const firstCreateReady = new Promise<void>((resolve) => {
+      firstCreateStarted = resolve;
+    });
+    let chatCreates = 0;
+    vi.spyOn(fixture.storage, "create").mockImplementation(async (entity, value) => {
+      if (entity === "chats" && chatCreates++ === 0) {
+        firstCreateStarted();
+        await firstCreateBlocked;
+      }
+      return originalCreate(entity, value);
+    });
+    const request = {
+      originChatId: "origin",
+      initiatorCharId: null,
+      connectionId: null,
+      plan: basePlan,
+    };
+
+    const first = createRoleplayScene(fixture.storage, request);
+    await firstCreateReady;
+    await expect(createRoleplayScene(fixture.storage, request)).rejects.toThrow(
+      "scene creation is already in progress",
+    );
+    releaseFirstCreate();
+    await expect(first).resolves.toMatchObject({ chatId: "created-1" });
+    expect(fixture.createdRecords.filter((record) => record.entity === "chats")).toHaveLength(1);
+  });
+
+  it("removes the partial scene and origin links when opening-message creation fails", async () => {
+    const fixture = await createSceneFromOrigin({ mode: "conversation" });
+    vi.spyOn(fixture.storage, "createChatMessage").mockRejectedValue(new Error("opening write failed"));
+
+    await expect(fixture.create).rejects.toThrow("opening write failed");
+
+    expect(fixture.deletedRecords).toContainEqual({ entity: "chats", id: "created-1" });
+    await expect(fixture.storage.get<JsonRecord>("chats", "origin")).resolves.toMatchObject({
+      connectedChatId: null,
+      metadata: { activeSceneChatId: null, sceneBusyCharIds: null },
+    });
+  });
 
   it("does not place a branched roleplay scene in the origin conversation folder", async () => {
     const { create, createdRecords } = await createSceneFromOrigin({
