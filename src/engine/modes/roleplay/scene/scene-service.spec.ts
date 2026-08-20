@@ -428,6 +428,45 @@ describe("createRoleplayScene", () => {
     expect(createdRecords).toHaveLength(0);
   });
 
+  it("rejects concurrent scene creation for the same origin", async () => {
+    const fixture = storageForScene({
+      chats: [{ id: "origin", name: "Dinner Chat", mode: "conversation", characterIds: ["char-1"], metadata: {} }],
+      messages: { origin: [{ id: "message-1", role: "user", content: "Begin the scene." }] },
+    });
+    const originalCreate = fixture.storage.create.bind(fixture.storage);
+    let releaseFirstCreate!: () => void;
+    const firstCreateBlocked = new Promise<void>((resolve) => {
+      releaseFirstCreate = resolve;
+    });
+    let firstCreateStarted!: () => void;
+    const firstCreateReady = new Promise<void>((resolve) => {
+      firstCreateStarted = resolve;
+    });
+    let chatCreates = 0;
+    vi.spyOn(fixture.storage, "create").mockImplementation(async (entity, value) => {
+      if (entity === "chats" && chatCreates++ === 0) {
+        firstCreateStarted();
+        await firstCreateBlocked;
+      }
+      return originalCreate(entity, value);
+    });
+    const request = {
+      originChatId: "origin",
+      initiatorCharId: null,
+      connectionId: null,
+      plan: basePlan,
+    };
+
+    const first = createRoleplayScene(fixture.storage, request);
+    await firstCreateReady;
+    await expect(createRoleplayScene(fixture.storage, request)).rejects.toThrow(
+      "scene creation is already in progress",
+    );
+    releaseFirstCreate();
+    await expect(first).resolves.toMatchObject({ chatId: "created-1" });
+    expect(fixture.createdRecords.filter((record) => record.entity === "chats")).toHaveLength(1);
+  });
+
   it("removes the partial scene and origin links when opening-message creation fails", async () => {
     const fixture = await createSceneFromOrigin({ mode: "conversation" });
     vi.spyOn(fixture.storage, "createChatMessage").mockRejectedValue(new Error("opening write failed"));

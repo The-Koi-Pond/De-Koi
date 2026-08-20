@@ -16,6 +16,7 @@ import type {
 
 interface EncounterState {
   chatId: string | null;
+  requestId: number;
   // ── State ──
   active: boolean;
   initialized: boolean;
@@ -53,11 +54,21 @@ interface EncounterState {
   updateSettings: (settings: Partial<EncounterSettings>) => void;
   setSpellbookId: (id: string | null) => void;
 
-  setLoading: (loading: boolean) => void;
-  setProcessing: (processing: boolean) => void;
-  setError: (error: string | null) => void;
+  beginRequest: (
+    chatId: string,
+    patch: Partial<
+      Pick<EncounterState, "active" | "isLoading" | "isProcessing" | "error" | "combatResult" | "summaryStatus">
+    >,
+  ) => number | null;
+  setRequestState: (
+    chatId: string,
+    requestId: number,
+    patch: Partial<
+      Pick<EncounterState, "active" | "isLoading" | "isProcessing" | "error" | "combatResult" | "summaryStatus">
+    >,
+  ) => void;
 
-  initCombat: (chatId: string, state: CombatInitState) => void;
+  initCombat: (chatId: string, requestId: number, state: CombatInitState) => void;
   updateCombat: (data: {
     party: CombatPartyMember[];
     enemies: CombatEnemy[];
@@ -71,8 +82,6 @@ interface EncounterState {
   clearPendingLogs: () => void;
 
   endCombat: (result: "victory" | "defeat" | "fled" | "interrupted") => void;
-  setSummaryStatus: (status: "idle" | "generating" | "done" | "error") => void;
-
   reset: () => void;
 }
 
@@ -94,6 +103,7 @@ const defaultSettings: EncounterSettings = {
 
 export const useEncounterStore = create<EncounterState>((set) => ({
   chatId: null,
+  requestId: 0,
   active: false,
   initialized: false,
   isLoading: false,
@@ -116,8 +126,9 @@ export const useEncounterStore = create<EncounterState>((set) => ({
   summaryStatus: "idle",
 
   openConfigModal: (chatId) =>
-    set({
+    set((current) => ({
       chatId,
+      requestId: current.requestId + 1,
       active: false,
       initialized: false,
       isLoading: false,
@@ -134,18 +145,26 @@ export const useEncounterStore = create<EncounterState>((set) => ({
       spellbookId: null,
       combatResult: null,
       summaryStatus: "idle",
-    }),
+    })),
   closeConfigModal: () => set({ showConfigModal: false }),
   updateSettings: (partial) => set((s) => ({ settings: { ...s.settings, ...partial } })),
   setSpellbookId: (id) => set({ spellbookId: id }),
 
-  setLoading: (loading) => set({ isLoading: loading }),
-  setProcessing: (processing) => set({ isProcessing: processing }),
-  setError: (error) => set({ error }),
+  beginRequest: (chatId, patch) => {
+    let nextRequestId: number | null = null;
+    set((current) => {
+      if (current.chatId !== chatId) return {};
+      nextRequestId = current.requestId + 1;
+      return { ...patch, requestId: nextRequestId };
+    });
+    return nextRequestId;
+  },
+  setRequestState: (chatId, requestId, patch) =>
+    set((current) => (current.chatId === chatId && current.requestId === requestId ? patch : {})),
 
-  initCombat: (chatId, state) =>
+  initCombat: (chatId, requestId, state) =>
     set((current) =>
-      current.chatId === chatId
+      current.chatId === chatId && current.requestId === requestId
         ? {
             active: true,
             initialized: true,
@@ -196,11 +215,11 @@ export const useEncounterStore = create<EncounterState>((set) => ({
   clearPendingLogs: () => set({ pendingLogs: [] }),
 
   endCombat: (result) => set({ combatResult: result }),
-  setSummaryStatus: (status) => set({ summaryStatus: status }),
 
   reset: () =>
-    set({
+    set((current) => ({
       chatId: null,
+      requestId: current.requestId + 1,
       active: false,
       initialized: false,
       isLoading: false,
@@ -217,5 +236,5 @@ export const useEncounterStore = create<EncounterState>((set) => ({
       spellbookId: null,
       combatResult: null,
       summaryStatus: "idle",
-    }),
+    })),
 }));

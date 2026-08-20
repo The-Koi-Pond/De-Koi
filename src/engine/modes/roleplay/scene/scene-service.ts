@@ -179,7 +179,26 @@ export async function planRoleplayScene(
   }
 }
 
+const pendingSceneCreationOrigins = new Set<string>();
+
 export async function createRoleplayScene(
+  storage: StorageGateway,
+  input: SceneCreateRequest,
+  visuals?: VisualAssetGateway,
+): Promise<SceneCreateResponse> {
+  const originChatId = input.originChatId.trim();
+  if (pendingSceneCreationOrigins.has(originChatId)) {
+    throw new Error("Roleplay scene creation is already in progress for this conversation");
+  }
+  pendingSceneCreationOrigins.add(originChatId);
+  try {
+    return await createRoleplaySceneUnlocked(storage, input, visuals);
+  } finally {
+    pendingSceneCreationOrigins.delete(originChatId);
+  }
+}
+
+async function createRoleplaySceneUnlocked(
   storage: StorageGateway,
   input: SceneCreateRequest,
   _visuals?: VisualAssetGateway,
