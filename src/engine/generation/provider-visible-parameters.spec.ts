@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { generationParameterSources, mergeStoredGenerationParameters } from "./generate-route-utils";
 import { providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { resolveRecommendedGenerationProfile } from "./recommended-generation-profile";
 
@@ -106,23 +107,29 @@ describe("providerVisibleLlmParameters", () => {
   });
 
   it("mirrors the actual custom LinkAPI Claude payload instead of raw saved controls", () => {
-    const visible = providerVisibleLlmParameters(
-      {
-        provider: "custom",
-        model: "[SP]claude-opus-4-7",
-        baseUrl: "https://linkapi.ai/v1",
-      },
-      {
-        maxTokens: 8192,
-        temperature: 1,
-        topP: 1,
-        frequencyPenalty: 0.3,
-        reasoningEffort: "low",
-        verbosity: "medium",
-      },
+    const connection = {
+      provider: "custom",
+      model: "claude-3-5-sonnet",
+      baseUrl: "https://linkapi.ai/v1",
+    };
+    const parameters = mergeStoredGenerationParameters(
+      ...generationParameterSources(
+        connection,
+        {},
+        { mode: "roleplay", metadata: {} },
+        {
+          maxTokens: 8192,
+          temperature: 1,
+          topP: 1,
+          frequencyPenalty: 0.3,
+          reasoningEffort: "low",
+          verbosity: "medium",
+        },
+      ),
     );
+    const visible = providerVisibleLlmParameters(connection, parameters ?? {});
 
-    expect(visible).toEqual({ max_tokens: 8192, stream: false });
+    expect(visible).toEqual({ frequency_penalty: 0.3, max_tokens: 8192, stream: false });
   });
 
   it("mirrors custom Gemini reasoning effort sent by the Rust transport", () => {

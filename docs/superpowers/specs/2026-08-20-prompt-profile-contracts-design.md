@@ -12,7 +12,7 @@ The LinkAPI Claude profile deliberately targets the existing OpenAI-compatible c
 
 Conversation group prompts use a neutral group role contract plus turn-specific speaker guidance. Automatic multi-speaker turns may write the selected characters; targeted and sequential turns write only the selected character. No shared base prompt claims that a list of all characters is one exclusive speaker.
 
-Roleplay uses a 50-message default history tail while preserving explicit chat/request limits up to the existing 300-message ceiling. The universal preset defaults to SFW across every entrypoint, uses conservative generic output/reasoning defaults, and retains adult-dark as an explicit selectable option. Existing bundled adult, 8192-token, and maximum-reasoning defaults migrate to the safer values only when they still exactly match the prior bundle; custom values remain untouched.
+Roleplay uses a 50-message default history tail while preserving explicit chat/request limits up to the existing 300-message ceiling. The universal preset defaults to SFW across every entrypoint, uses conservative generic output/reasoning defaults, and retains adult-dark as an explicit selectable option. The exact prior bundled adult/8192-token/maximum-reasoning fingerprint migrates to the safer values; current adult selections and custom values remain untouched.
 
 Per-mode prose guidance remains a late system instruction but becomes positive and compact. Literal negative examples and duplicate lists of banned constructions are removed; dynamic repetition detection remains responsible for concrete phrases already repeating in history.
 

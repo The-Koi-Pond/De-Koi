@@ -13,6 +13,7 @@ const MARINARA_PRESET_AUTHOR: &str = "De-Koi";
 const LEGACY_MARINARA_PRESET_AUTHOR: &str = "Marinara";
 const LEGACY_DEKI_CHARACTER_ID: &str = "__professor_mari__";
 const LEGACY_CLEANUP_MAX_COLLECTION_BYTES: u64 = 4 * 1024 * 1024;
+const PREVIOUS_BUNDLED_ADULT_BOUNDARY: &str = "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.";
 const BUNDLED_UNIVERSAL_V2_PRESET_JSON: &str =
     include_str!("../resources/default-data/db/default-preset-v2.json");
 
@@ -149,15 +150,15 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
     let desired_parameters = desired_preset
         .and_then(|preset| preset.get("parameters"))
         .and_then(Value::as_object);
-    let previous_bundled_adult_boundary =
-        bundled_choice_option_value(data, "choice_v2_content_boundary", "boundary_mature_dark");
-
     let mut patch = Map::new();
     let mut parameters = prompt
         .get("parameters")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    let has_previous_bundled_parameter_defaults =
+        parameters.get("maxTokens").and_then(Value::as_i64) == Some(8192)
+            && parameters.get("reasoningEffort").and_then(Value::as_str) == Some("maximum");
     let mut parameters_changed = false;
     if parameters.get("maxTokens").and_then(Value::as_i64) == Some(8192) {
         if let Some(desired_max_tokens) = desired_parameters
@@ -197,7 +198,8 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
             .and_then(Value::as_str);
         if current_boundary.is_some_and(|current| {
             looks_like_legacy_v2_boundary(current)
-                || previous_bundled_adult_boundary == Some(current)
+                || has_previous_bundled_parameter_defaults
+                    && current == PREVIOUS_BUNDLED_ADULT_BOUNDARY
         }) {
             default_choices.insert("contentBoundary".to_string(), desired_boundary);
             default_choices_changed = true;
@@ -239,23 +241,6 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
         storage.patch("prompts", UNIVERSAL_V2_PRESET_ID, Value::Object(patch))?;
     }
     Ok(())
-}
-
-fn bundled_choice_option_value<'a>(
-    data: &'a Value,
-    block_id: &str,
-    option_id: &str,
-) -> Option<&'a str> {
-    data.get("choiceBlocks")
-        .and_then(Value::as_array)?
-        .iter()
-        .find(|block| block.get("id").and_then(Value::as_str) == Some(block_id))?
-        .get("options")
-        .and_then(Value::as_array)?
-        .iter()
-        .find(|option| option.get("id").and_then(Value::as_str) == Some(option_id))?
-        .get("value")
-        .and_then(Value::as_str)
 }
 
 fn refresh_prompt_order_field(
@@ -1094,6 +1079,38 @@ mod tests {
         assert_eq!(
             custom["parameters"]["reasoningEffort"].as_str(),
             Some("maximum")
+        );
+
+        storage
+            .patch(
+                "prompts",
+                UNIVERSAL_V2_PRESET_ID,
+                json!({
+                    "defaultChoices": {
+                        "contentBoundary": previous_adult_default
+                    },
+                    "parameters": {
+                        "maxTokens": 4096,
+                        "reasoningEffort": "low"
+                    }
+                }),
+            )
+            .expect("current adult selection should patch");
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed with a current adult selection");
+
+        let managed = storage
+            .get("prompts", UNIVERSAL_V2_PRESET_ID)
+            .expect("managed prompt should read")
+            .expect("managed prompt should exist");
+        assert_eq!(
+            managed["defaultChoices"]["contentBoundary"].as_str(),
+            Some(previous_adult_default.as_str())
+        );
+        assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(4096));
+        assert_eq!(
+            managed["parameters"]["reasoningEffort"].as_str(),
+            Some("low")
         );
 
         storage

@@ -166,7 +166,15 @@ function isLinkApi(input: RecommendedGenerationProfileInput): boolean {
 }
 
 function isLinkApiClaude(input: RecommendedGenerationProfileInput): boolean {
-  return isLinkApi(input) && /claude-(?:opus|sonnet|haiku|fable|mythos)-\d/.test(normalized(input.model));
+  if (!isLinkApi(input)) return false;
+  const modelId = normalized(input.model)
+    .replace(/^\[[^\]]+\]/, "")
+    .split("/")
+    .at(-1)
+    ?.replace(/[._]/g, "-");
+  if (!modelId) return false;
+  const family = "(?:opus|sonnet|haiku|fable|mythos)";
+  return new RegExp(`^claude-(?:${family}-\\d+(?:-\\d+)*|\\d+(?:-\\d+)*-${family})(?:$|[-\\[])`).test(modelId);
 }
 
 function isSupportedLinkApiGemini35Mode(input: RecommendedGenerationProfileInput): boolean {

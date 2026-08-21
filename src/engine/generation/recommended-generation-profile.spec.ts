@@ -245,6 +245,43 @@ describe("resolveRecommendedGenerationProfile", () => {
     expect(profile.parameters).not.toHaveProperty("verbosity");
   });
 
+  it.each([
+    { mode: "conversation" as const, model: "claude-3-5-sonnet", profileId: "conversation-balanced" },
+    { mode: "roleplay" as const, model: "claude-3-7-opus", profileId: "roleplay-expressive" },
+    { mode: "visual_novel" as const, model: "claude-3.5-sonnet", profileId: "roleplay-expressive" },
+  ])("recognizes version-first LinkAPI Claude model $model in $mode", ({ mode, model, profileId }) => {
+    expect(
+      resolveRecommendedGenerationProfile({
+        mode,
+        provider: "custom",
+        model,
+        baseUrl: "https://linkapi.ai/v1",
+        capabilities: null,
+        maxContext: 1_050_000,
+        executionTarget: "remote",
+      }),
+    ).toMatchObject({
+      profileId,
+      source: "recommended",
+      parameters: { maxTokens: 8192 },
+      suppressedParameters: ["temperature", "topP", "reasoningEffort", "verbosity"],
+    });
+  });
+
+  it("keeps unsupported LinkAPI Claude identifiers on the provider-neutral fallback", () => {
+    expect(
+      resolveRecommendedGenerationProfile({
+        mode: "roleplay",
+        provider: "custom",
+        model: "claude-experimental-sonnet",
+        baseUrl: "https://linkapi.ai/v1",
+        capabilities: null,
+        maxContext: 1_050_000,
+        executionTarget: "remote",
+      }),
+    ).toMatchObject({ profileId: "provider-neutral-fallback", source: "provider-neutral-fallback" });
+  });
+
   it("does not treat unrelated custom Gemini models as maintained LinkAPI metadata", () => {
     expect(
       resolveRecommendedGenerationProfile({
