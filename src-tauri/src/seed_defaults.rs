@@ -19,10 +19,34 @@ const BUNDLED_UNIVERSAL_V2_PRESET_JSON: &str =
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
     remove_legacy_deki_character_records(storage)?;
+    remove_obsolete_connection_metadata(storage)?;
     seed_prompt_presets(storage, &db_root)?;
     seed_default_chat_presets(storage)?;
     seed_default_regex_scripts(storage)?;
     seed_default_ui_settings(storage)?;
+    Ok(())
+}
+
+fn remove_obsolete_connection_metadata(storage: &FileStorage) -> AppResult<()> {
+    for connection in storage.list("connections")? {
+        let Some(id) = connection.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(mut metadata) = connection
+            .get("providerMetadata")
+            .and_then(Value::as_object)
+            .cloned()
+        else {
+            continue;
+        };
+        if metadata.remove("roleplayProsePilot").is_some() {
+            storage.patch(
+                "connections",
+                id,
+                json!({ "providerMetadata": Value::Object(metadata) }),
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -122,8 +146,41 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
     let desired_default_choices = desired_preset
         .and_then(|preset| preset.get("defaultChoices"))
         .and_then(Value::as_object);
+    let desired_parameters = desired_preset
+        .and_then(|preset| preset.get("parameters"))
+        .and_then(Value::as_object);
+    let previous_bundled_adult_boundary =
+        bundled_choice_option_value(data, "choice_v2_content_boundary", "boundary_mature_dark");
 
     let mut patch = Map::new();
+    let mut parameters = prompt
+        .get("parameters")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut parameters_changed = false;
+    if parameters.get("maxTokens").and_then(Value::as_i64) == Some(8192) {
+        if let Some(desired_max_tokens) = desired_parameters
+            .and_then(|value| value.get("maxTokens"))
+            .cloned()
+        {
+            parameters.insert("maxTokens".to_string(), desired_max_tokens);
+            parameters_changed = true;
+        }
+    }
+    if parameters.get("reasoningEffort").and_then(Value::as_str) == Some("maximum") {
+        if let Some(desired_reasoning_effort) = desired_parameters
+            .and_then(|value| value.get("reasoningEffort"))
+            .cloned()
+        {
+            parameters.insert("reasoningEffort".to_string(), desired_reasoning_effort);
+            parameters_changed = true;
+        }
+    }
+    if parameters_changed {
+        patch.insert("parameters".to_string(), Value::Object(parameters));
+    }
+
     let mut default_choices = prompt
         .get("defaultChoices")
         .and_then(Value::as_object)
@@ -138,10 +195,10 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
         let current_boundary = default_choices
             .get("contentBoundary")
             .and_then(Value::as_str);
-        if current_boundary
-            .map(looks_like_legacy_v2_boundary)
-            .unwrap_or(false)
-        {
+        if current_boundary.is_some_and(|current| {
+            looks_like_legacy_v2_boundary(current)
+                || previous_bundled_adult_boundary == Some(current)
+        }) {
             default_choices.insert("contentBoundary".to_string(), desired_boundary);
             default_choices_changed = true;
         }
@@ -182,6 +239,23 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
         storage.patch("prompts", UNIVERSAL_V2_PRESET_ID, Value::Object(patch))?;
     }
     Ok(())
+}
+
+fn bundled_choice_option_value<'a>(
+    data: &'a Value,
+    block_id: &str,
+    option_id: &str,
+) -> Option<&'a str> {
+    data.get("choiceBlocks")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|block| block.get("id").and_then(Value::as_str) == Some(block_id))?
+        .get("options")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|option| option.get("id").and_then(Value::as_str) == Some(option_id))?
+        .get("value")
+        .and_then(Value::as_str)
 }
 
 fn refresh_prompt_order_field(
@@ -726,6 +800,24 @@ mod tests {
 
         assert!(is_truthy(v2.get("isDefault")));
         assert_eq!(
+            v2.get("parameters")
+                .and_then(|value| value.get("maxTokens"))
+                .and_then(Value::as_i64),
+            Some(4096)
+        );
+        assert_eq!(
+            v2.get("parameters")
+                .and_then(|value| value.get("reasoningEffort"))
+                .and_then(Value::as_str),
+            Some("low")
+        );
+        assert!(v2
+            .get("defaultChoices")
+            .and_then(|value| value.get("contentBoundary"))
+            .and_then(Value::as_str)
+            .expect("content boundary default should be present")
+            .starts_with("Keep the scene SFW."));
+        assert_eq!(
             prompts
                 .iter()
                 .filter(|preset| is_truthy(preset.get("isDefault")))
@@ -824,7 +916,7 @@ mod tests {
             .get("contentBoundary")
             .and_then(Value::as_str)
             .expect("boundary should be present")
-            .contains("author-level consent"));
+            .starts_with("Keep the scene SFW."));
         assert!(default_choices
             .get("eroticTone")
             .and_then(Value::as_str)
@@ -930,6 +1022,147 @@ mod tests {
             adult_dark.get("description").and_then(Value::as_str),
             Some("NSFW adult fiction with dark, messy, or unhealthy dynamics allowed by writer intent.")
         );
+    }
+
+    #[test]
+    fn migrates_previous_bundled_defaults_without_overwriting_custom_values() {
+        let (storage, root) = temp_storage();
+        let bundled: Value = serde_json::from_str(BUNDLED_UNIVERSAL_V2_PRESET_JSON)
+            .expect("bundled preset JSON should parse");
+        let previous_adult_default = bundled["data"]["choiceBlocks"]
+            .as_array()
+            .and_then(|blocks| {
+                blocks.iter().find(|block| {
+                    block.get("id").and_then(Value::as_str) == Some("choice_v2_content_boundary")
+                })
+            })
+            .and_then(|block| block.get("options"))
+            .and_then(Value::as_array)
+            .and_then(|options| {
+                options.iter().find(|option| {
+                    option.get("id").and_then(Value::as_str) == Some("boundary_mature_dark")
+                })
+            })
+            .and_then(|option| option.get("value"))
+            .and_then(Value::as_str)
+            .expect("bundled adult boundary should exist")
+            .to_string();
+
+        for (id, boundary) in [
+            (UNIVERSAL_V2_PRESET_ID, previous_adult_default.as_str()),
+            ("custom-preset", "Keep this custom boundary exactly."),
+        ] {
+            storage
+                .create(
+                    "prompts",
+                    json!({
+                        "id": id,
+                        "name": if id == UNIVERSAL_V2_PRESET_ID { UNIVERSAL_V2_PRESET_NAME } else { "Custom" },
+                        "author": if id == UNIVERSAL_V2_PRESET_ID { MARINARA_PRESET_AUTHOR } else { "User" },
+                        "parameters": { "maxTokens": 8192, "reasoningEffort": "maximum" },
+                        "defaultChoices": { "contentBoundary": boundary }
+                    }),
+                )
+                .expect("prompt should insert");
+        }
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let managed = storage
+            .get("prompts", UNIVERSAL_V2_PRESET_ID)
+            .expect("managed prompt should read")
+            .expect("managed prompt should exist");
+        assert!(managed["defaultChoices"]["contentBoundary"]
+            .as_str()
+            .expect("managed boundary should exist")
+            .starts_with("Keep the scene SFW."));
+        assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(4096));
+        assert_eq!(
+            managed["parameters"]["reasoningEffort"].as_str(),
+            Some("low")
+        );
+        let custom = storage
+            .get("prompts", "custom-preset")
+            .expect("custom prompt should read")
+            .expect("custom prompt should exist");
+        assert_eq!(
+            custom["defaultChoices"]["contentBoundary"].as_str(),
+            Some("Keep this custom boundary exactly.")
+        );
+        assert_eq!(custom["parameters"]["maxTokens"].as_i64(), Some(8192));
+        assert_eq!(
+            custom["parameters"]["reasoningEffort"].as_str(),
+            Some("maximum")
+        );
+
+        storage
+            .patch(
+                "prompts",
+                UNIVERSAL_V2_PRESET_ID,
+                json!({
+                    "defaultChoices": {
+                        "contentBoundary": "Keep this managed preset customization exactly."
+                    },
+                    "parameters": {
+                        "maxTokens": 6144,
+                        "reasoningEffort": "high"
+                    }
+                }),
+            )
+            .expect("managed preset customization should patch");
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed again");
+
+        let managed = storage
+            .get("prompts", UNIVERSAL_V2_PRESET_ID)
+            .expect("managed prompt should read")
+            .expect("managed prompt should exist");
+        assert_eq!(
+            managed["defaultChoices"]["contentBoundary"].as_str(),
+            Some("Keep this managed preset customization exactly.")
+        );
+        assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(6144));
+        assert_eq!(
+            managed["parameters"]["reasoningEffort"].as_str(),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn removes_obsolete_roleplay_prose_pilot_metadata_without_touching_siblings() {
+        let (storage, root) = temp_storage();
+        storage
+            .create(
+                "connections",
+                json!({
+                    "id": "nano",
+                    "name": "Nano",
+                    "provider": "nanogpt",
+                    "model": "zai-org/glm-5.2",
+                    "providerMetadata": {
+                        "roleplayProsePilot": { "enabled": true },
+                        "retained": "keep-me"
+                    }
+                }),
+            )
+            .expect("connection should insert");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let connection = storage
+            .get("connections", "nano")
+            .expect("connection should read")
+            .expect("connection should remain available");
+        let metadata = connection["providerMetadata"]
+            .as_object()
+            .expect("provider metadata should remain an object");
+        assert_eq!(
+            metadata.get("retained").and_then(Value::as_str),
+            Some("keep-me")
+        );
+        assert!(!metadata.contains_key("roleplayProsePilot"));
     }
 
     #[test]

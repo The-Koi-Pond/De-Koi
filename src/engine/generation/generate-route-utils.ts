@@ -378,6 +378,38 @@ export function mergeStoredGenerationParameters(...sources: Array<unknown>): Sto
   return Object.keys(merged).length > 0 ? merged : null;
 }
 
+const RAW_PARAMETER_ALIASES: Partial<Record<keyof GenerationParameters, readonly string[]>> = {
+  temperature: ["temperature"],
+  topP: ["topP", "top_p"],
+  topK: ["topK", "top_k"],
+  reasoningEffort: [
+    "reasoningEffort",
+    "reasoning_effort",
+    "reasoning",
+    "thinking",
+    "thinkingBudget",
+    "thinking_budget",
+    "reasoningMaxTokens",
+    "reasoning_max_tokens",
+  ],
+  verbosity: ["verbosity"],
+};
+
+function suppressInheritedGenerationParameter(
+  parameters: StoredGenerationParameters,
+  key: keyof GenerationParameters,
+): void {
+  delete parameters[key];
+  const aliases = RAW_PARAMETER_ALIASES[key] ?? [key];
+  for (const containerKey of ["customParameters", "custom_params"] as const) {
+    const custom = parameters[containerKey];
+    if (!isPlainRecord(custom)) continue;
+    const filtered = { ...custom };
+    for (const alias of aliases) delete filtered[alias];
+    parameters[containerKey] = filtered;
+  }
+}
+
 export function recommendedGenerationProfileForRequest(
   connection: Record<string, unknown> | null | undefined,
   input: Record<string, unknown> | null | undefined,
@@ -419,10 +451,17 @@ export function generationParameterSources(
   const meta = parseRecord(chat?.metadata);
   const mode = readString(chat?.mode || chat?.chatMode);
   const setupConfig = parseRecord(meta.gameSetupConfig);
-  return [
-    recommendedGenerationProfileForRequest(connection, input, chat).parameters,
+  const profile = recommendedGenerationProfileForRequest(connection, input, chat);
+  const inheritedDefaults = mergeStoredGenerationParameters(
     connection?.defaultParameters,
     promptPresetParameters,
+    profile.parameters,
+  );
+  for (const key of profile.suppressedParameters ?? []) {
+    if (inheritedDefaults) suppressInheritedGenerationParameter(inheritedDefaults, key);
+  }
+  return [
+    inheritedDefaults,
     mode === "game" ? setupConfig.generationParameters : null,
     mode === "game" ? meta.gameGenerationParameters : null,
     meta.chatParameters,

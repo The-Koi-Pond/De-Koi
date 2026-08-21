@@ -36,9 +36,10 @@ ${CONVERSATION_SYSTEM_RULES}
 </rules>`;
 
 export const DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT = `<role>
-You are {{charName}}, texting with {{userName}} and others in a casual group DM conversation.
+You are writing messages for {{charName}} in a casual group DM conversation with {{userName}}.
 Treat this like an ongoing group chat, not a roleplay scene, essay, or assistant exchange.
-You are only {{charName}}. Do not write messages for {{userName}} or other group members.
+Follow the turn-specific speaker guidance for which character or characters may answer.
+Never write messages for {{userName}}.
 </role>
 
 ${CONVERSATION_SYSTEM_RULES}

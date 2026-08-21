@@ -217,6 +217,32 @@ describe("resolveRecommendedGenerationProfile", () => {
     });
     expect(profile.parameters).not.toHaveProperty("temperature");
     expect(profile.parameters).not.toHaveProperty("topP");
+    expect(profile).toMatchObject({ suppressedParameters: ["temperature", "topP"] });
+  });
+
+  it.each([
+    { mode: "conversation" as const, profileId: "conversation-balanced" },
+    { mode: "roleplay" as const, profileId: "roleplay-expressive" },
+    { mode: "visual_novel" as const, profileId: "roleplay-expressive" },
+  ])("uses transport-safe LinkAPI Claude defaults for $mode", ({ mode, profileId }) => {
+    const profile = resolveRecommendedGenerationProfile({
+      mode,
+      provider: "custom",
+      model: "[SP]claude-opus-4-7",
+      baseUrl: "https://linkapi.ai/v1",
+      capabilities: null,
+      maxContext: 1_050_000,
+      executionTarget: "remote",
+    });
+
+    expect(profile).toMatchObject({
+      profileId,
+      source: "recommended",
+      parameters: { maxTokens: 8192 },
+      suppressedParameters: ["temperature", "topP", "reasoningEffort", "verbosity"],
+    });
+    expect(profile.parameters).not.toHaveProperty("reasoningEffort");
+    expect(profile.parameters).not.toHaveProperty("verbosity");
   });
 
   it("does not treat unrelated custom Gemini models as maintained LinkAPI metadata", () => {
@@ -226,6 +252,20 @@ describe("resolveRecommendedGenerationProfile", () => {
         provider: "custom",
         model: "gemini-3.0-flash",
         baseUrl: "https://linkapi.ai/v1",
+        capabilities: null,
+        maxContext: 1_050_000,
+        executionTarget: "remote",
+      }),
+    ).toMatchObject({ profileId: "provider-neutral-fallback", source: "provider-neutral-fallback" });
+  });
+
+  it("does not treat Claude models on unrelated custom endpoints as LinkAPI metadata", () => {
+    expect(
+      resolveRecommendedGenerationProfile({
+        mode: "roleplay",
+        provider: "custom",
+        model: "[SP]claude-opus-4-7",
+        baseUrl: "https://example.com/v1",
         capabilities: null,
         maxContext: 1_050_000,
         executionTarget: "remote",
@@ -297,11 +337,7 @@ describe("resolveRecommendedGenerationProfile", () => {
     ).toMatchObject({ memoryRecallTokenBudget: 700 });
 
     expect(
-      applyRecommendedPromptBudgetGuidance(
-        {},
-        { memoryRecallTokenBudget: 500 },
-        { memoryRecallTokenBudget: 384 },
-      ),
+      applyRecommendedPromptBudgetGuidance({}, { memoryRecallTokenBudget: 500 }, { memoryRecallTokenBudget: 384 }),
     ).toMatchObject({ memoryRecallTokenBudget: 500 });
 
     expect(

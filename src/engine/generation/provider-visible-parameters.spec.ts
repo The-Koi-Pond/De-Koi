@@ -105,52 +105,75 @@ describe("providerVisibleLlmParameters", () => {
     expect(visible).not.toHaveProperty("frequency_penalty");
   });
 
-  it.each(["z-ai/glm-5.2", "glm-5.1", "glm"])(
-    "strips top_k for NanoGPT GLM chat completions: %s",
-    (model) => {
-      const visible = providerVisibleLlmParameters(
-        {
-          provider: "nanogpt",
-          model,
-        },
-        {
-          maxTokens: 4096,
-          temperature: 0.8,
-          topP: 0.9,
-          topK: 40,
-          customParameters: { top_k: 99 },
-        },
-      );
+  it("mirrors the actual custom LinkAPI Claude payload instead of raw saved controls", () => {
+    const visible = providerVisibleLlmParameters(
+      {
+        provider: "custom",
+        model: "[SP]claude-opus-4-7",
+        baseUrl: "https://linkapi.ai/v1",
+      },
+      {
+        maxTokens: 8192,
+        temperature: 1,
+        topP: 1,
+        frequencyPenalty: 0.3,
+        reasoningEffort: "low",
+        verbosity: "medium",
+      },
+    );
 
-      expect(visible).toMatchObject({
-        max_tokens: 4096,
+    expect(visible).toEqual({ max_tokens: 8192, stream: false });
+  });
+
+  it("mirrors custom Gemini reasoning effort sent by the Rust transport", () => {
+    const visible = providerVisibleLlmParameters(
+      { provider: "custom", model: "gemini-3.5-flash" },
+      { maxTokens: 8192, reasoningEffort: "low" },
+    );
+
+    expect(visible).toMatchObject({ max_tokens: 8192, reasoning_effort: "low" });
+  });
+
+  it.each(["z-ai/glm-5.2", "glm-5.1", "glm"])("strips top_k for NanoGPT GLM chat completions: %s", (model) => {
+    const visible = providerVisibleLlmParameters(
+      {
+        provider: "nanogpt",
+        model,
+      },
+      {
+        maxTokens: 4096,
         temperature: 0.8,
-        top_p: 0.9,
-      });
-      expect(visible).not.toHaveProperty("top_k");
-    },
-  );
+        topP: 0.9,
+        topK: 40,
+        customParameters: { top_k: 99 },
+      },
+    );
 
-  it.each(["not-glm-model", "glm-router-test"])(
-    "keeps top_k for NanoGPT models that are not GLM ids: %s",
-    (model) => {
-      const visible = providerVisibleLlmParameters(
-        {
-          provider: "nanogpt",
-          model,
-        },
-        {
-          maxTokens: 4096,
-          topK: 40,
-        },
-      );
+    expect(visible).toMatchObject({
+      max_tokens: 4096,
+      temperature: 0.8,
+      top_p: 0.9,
+    });
+    expect(visible).not.toHaveProperty("top_k");
+  });
 
-      expect(visible).toMatchObject({
-        max_tokens: 4096,
-        top_k: 40,
-      });
-    },
-  );
+  it.each(["not-glm-model", "glm-router-test"])("keeps top_k for NanoGPT models that are not GLM ids: %s", (model) => {
+    const visible = providerVisibleLlmParameters(
+      {
+        provider: "nanogpt",
+        model,
+      },
+      {
+        maxTokens: 4096,
+        topK: 40,
+      },
+    );
+
+    expect(visible).toMatchObject({
+      max_tokens: 4096,
+      top_k: 40,
+    });
+  });
   it("mirrors capped Gemini 2.5 thinking budgets for small output ceilings", () => {
     const visible = providerVisibleLlmParameters(
       {

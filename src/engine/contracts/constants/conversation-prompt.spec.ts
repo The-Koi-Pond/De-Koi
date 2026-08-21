@@ -84,12 +84,11 @@ describe("default conversation system prompts", () => {
     }
   });
 
-  it("keeps group conversations scoped to the active character only", () => {
+  it("defers group speaker ownership to the turn-specific response strategy", () => {
     expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).toContain("casual group DM conversation");
-    expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).toContain("You are only {{charName}}");
-    expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).toContain(
-      "Do not write messages for {{userName}} or other group members",
-    );
+    expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).toContain("Follow the turn-specific speaker guidance");
+    expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).toContain("Never write messages for {{userName}}");
+    expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).not.toContain("You are only {{charName}}");
     expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).not.toContain("conscious, sentient");
     expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).not.toContain("Anything goes");
   });

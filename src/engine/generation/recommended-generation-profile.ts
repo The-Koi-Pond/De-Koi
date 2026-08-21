@@ -29,6 +29,7 @@ export interface RecommendedGenerationProfile {
   source: RecommendedGenerationProfileSource;
   rationale: string;
   parameters: RecommendedGenerationParameters;
+  suppressedParameters?: Array<keyof GenerationParameters>;
   promptBudgetGuidance: RecommendedPromptBudgetGuidance;
 }
 
@@ -45,10 +46,7 @@ export interface RecommendedGenerationProfileInput {
 
 type PromptBudgetRequest = Record<string, unknown>;
 
-function normalizedPromptBudget(
-  key: keyof RecommendedPromptBudgetGuidance,
-  value: unknown,
-): number | undefined {
+function normalizedPromptBudget(key: keyof RecommendedPromptBudgetGuidance, value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
   const normalized = Math.floor(value);
   if (key === "lorebookTokenBudget") return normalized >= 0 ? normalized : undefined;
@@ -162,9 +160,23 @@ function isLinkApiGemini35(input: RecommendedGenerationProfileInput): boolean {
   );
 }
 
+function isLinkApi(input: RecommendedGenerationProfileInput): boolean {
+  const baseUrl = normalized(input.baseUrl);
+  return normalized(input.provider) === "custom" && /^(?:https?:\/\/)?(?:www\.)?linkapi\.ai(?::|\/|$)/.test(baseUrl);
+}
+
+function isLinkApiClaude(input: RecommendedGenerationProfileInput): boolean {
+  return isLinkApi(input) && /claude-(?:opus|sonnet|haiku|fable|mythos)-\d/.test(normalized(input.model));
+}
+
 function isSupportedLinkApiGemini35Mode(input: RecommendedGenerationProfileInput): boolean {
   const mode = normalized(input.mode);
   return isLinkApiGemini35(input) && (mode === "conversation" || mode === "roleplay" || mode === "visual_novel");
+}
+
+function isSupportedLinkApiClaudeMode(input: RecommendedGenerationProfileInput): boolean {
+  const mode = normalized(input.mode);
+  return isLinkApiClaude(input) && (mode === "conversation" || mode === "roleplay" || mode === "visual_novel");
 }
 
 function reasoningCapable(input: RecommendedGenerationProfileInput): boolean {
@@ -196,7 +208,8 @@ function knownModelMetadata(input: RecommendedGenerationProfileInput): boolean {
     hasAdvertisedModelMetadata(input.capabilities) ||
     modelMatchesMaintainedFamily(provider, model) ||
     isSupportedNanoGlm52Mode(input) ||
-    isSupportedLinkApiGemini35Mode(input)
+    isSupportedLinkApiGemini35Mode(input) ||
+    isSupportedLinkApiClaudeMode(input)
   );
 }
 
@@ -259,6 +272,34 @@ export function resolveRecommendedGenerationProfile(
           reasoningEffort: "low",
           verbosity: "medium",
         },
+        suppressedParameters: ["temperature", "topP"],
+        promptBudgetGuidance: {},
+      };
+    }
+    if (isLinkApiClaude(input)) {
+      return {
+        profileId: "roleplay-expressive",
+        profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
+        source: "recommended",
+        rationale:
+          "Uses transport-safe LinkAPI Claude chat-completions defaults; adaptive thinking requires the native Anthropic route.",
+        parameters: { maxTokens: boundedOutputTokens(8192, maxContext) },
+        suppressedParameters: ["temperature", "topP", "reasoningEffort", "verbosity"],
+        promptBudgetGuidance: {},
+      };
+    }
+    if (isNanoGlm52(input)) {
+      return {
+        profileId: "roleplay-expressive",
+        profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
+        source: "recommended",
+        rationale: "Uses maintained GLM-5.2 sampling and a bounded roleplay output window.",
+        parameters: {
+          temperature: 1,
+          topP: 0.95,
+          maxTokens: boundedOutputTokens(2048, maxContext),
+        },
+        suppressedParameters: ["topK", "reasoningEffort", "verbosity"],
         promptBudgetGuidance: {},
       };
     }
@@ -329,6 +370,36 @@ export function resolveRecommendedGenerationProfile(
         reasoningEffort: "low",
         verbosity: "medium",
       },
+      suppressedParameters: ["temperature", "topP"],
+      promptBudgetGuidance: {},
+    };
+  }
+
+  if (isLinkApiClaude(input)) {
+    return {
+      profileId: "conversation-balanced",
+      profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
+      source: "recommended",
+      rationale:
+        "Uses transport-safe LinkAPI Claude chat-completions defaults; adaptive thinking requires the native Anthropic route.",
+      parameters: { maxTokens: boundedOutputTokens(8192, maxContext) },
+      suppressedParameters: ["temperature", "topP", "reasoningEffort", "verbosity"],
+      promptBudgetGuidance: {},
+    };
+  }
+
+  if (isNanoGlm52(input)) {
+    return {
+      profileId: "conversation-balanced",
+      profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
+      source: "recommended",
+      rationale: "Uses maintained GLM-5.2 sampling and a bounded conversation output window.",
+      parameters: {
+        temperature: 1,
+        topP: 0.95,
+        maxTokens: boundedOutputTokens(2048, maxContext),
+      },
+      suppressedParameters: ["topK", "reasoningEffort", "verbosity"],
       promptBudgetGuidance: {},
     };
   }

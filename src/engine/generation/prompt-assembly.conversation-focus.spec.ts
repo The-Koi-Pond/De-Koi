@@ -263,6 +263,27 @@ describe("long Conversation context focus", () => {
     expect(promptText(result.messages)).not.toContain("<conversation_voice_examples>");
   });
 
+  it("keeps an automatic group speaker contract internally consistent", async () => {
+    const result = await assembleGenerationPrompt(focusStorage([longCharacter(), longCharacter("sol", "Sol")]), {
+      chat: {
+        id: "chat-group-contract",
+        mode: "conversation",
+        characterIds: ["mira", "sol"],
+        metadata: { groupResponseOrder: "smart" },
+      },
+      storedMessages: [{ id: "current-user", role: "user", content: "what do you both think?" }],
+      connection: { provider: "openai", model: "qa-model", maxContext: 128_000 },
+      request: {},
+      latestUserInput: "what do you both think?",
+    });
+
+    const text = promptText(result.messages);
+    expect(text).toContain("Follow the turn-specific speaker guidance");
+    expect(text).toContain("Prefix each character's line with their name");
+    expect(text).not.toContain("You are only Mira, Sol");
+    expect(text).not.toContain("Do not write messages for User or other group members");
+  });
+
   it("focuses an explicitly targeted group Conversation speaker", async () => {
     const result = await assembleGenerationPrompt(focusStorage([longCharacter(), longCharacter("sol", "Sol")]), {
       chat: { id: "chat-targeted", mode: "conversation", characterIds: ["mira", "sol"], metadata: {} },
@@ -275,9 +296,7 @@ describe("long Conversation context focus", () => {
     const text = promptText(result.messages);
     expect(result.messages.filter((message) => message.contextKind === "history")).toHaveLength(5);
     expect(
-      result.messages
-        .filter((message) => message.contextKind === "history")
-        .map((message) => message.role),
+      result.messages.filter((message) => message.contextKind === "history").map((message) => message.role),
     ).toEqual(["user", "assistant", "user", "assistant", "user"]);
     expect(text).toContain("<conversation_voice_examples>");
     expect(text).toContain("Respond only as Mira");
