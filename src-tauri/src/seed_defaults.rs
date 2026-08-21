@@ -13,7 +13,6 @@ const MARINARA_PRESET_AUTHOR: &str = "De-Koi";
 const LEGACY_MARINARA_PRESET_AUTHOR: &str = "Marinara";
 const LEGACY_DEKI_CHARACTER_ID: &str = "__professor_mari__";
 const LEGACY_CLEANUP_MAX_COLLECTION_BYTES: u64 = 4 * 1024 * 1024;
-const PREVIOUS_BUNDLED_ADULT_BOUNDARY: &str = "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.";
 const BUNDLED_UNIVERSAL_V2_PRESET_JSON: &str =
     include_str!("../resources/default-data/db/default-preset-v2.json");
 
@@ -147,64 +146,13 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
     let desired_default_choices = desired_preset
         .and_then(|preset| preset.get("defaultChoices"))
         .and_then(Value::as_object);
-    let desired_parameters = desired_preset
-        .and_then(|preset| preset.get("parameters"))
-        .and_then(Value::as_object);
     let mut patch = Map::new();
-    let mut parameters = prompt
-        .get("parameters")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let has_previous_bundled_parameter_defaults =
-        parameters.get("maxTokens").and_then(Value::as_i64) == Some(8192)
-            && parameters.get("reasoningEffort").and_then(Value::as_str) == Some("maximum");
-    let mut parameters_changed = false;
-    if parameters.get("maxTokens").and_then(Value::as_i64) == Some(8192) {
-        if let Some(desired_max_tokens) = desired_parameters
-            .and_then(|value| value.get("maxTokens"))
-            .cloned()
-        {
-            parameters.insert("maxTokens".to_string(), desired_max_tokens);
-            parameters_changed = true;
-        }
-    }
-    if parameters.get("reasoningEffort").and_then(Value::as_str) == Some("maximum") {
-        if let Some(desired_reasoning_effort) = desired_parameters
-            .and_then(|value| value.get("reasoningEffort"))
-            .cloned()
-        {
-            parameters.insert("reasoningEffort".to_string(), desired_reasoning_effort);
-            parameters_changed = true;
-        }
-    }
-    if parameters_changed {
-        patch.insert("parameters".to_string(), Value::Object(parameters));
-    }
-
     let mut default_choices = prompt
         .get("defaultChoices")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
     let mut default_choices_changed = false;
-
-    if let Some(desired_boundary) = desired_default_choices
-        .and_then(|choices| choices.get("contentBoundary"))
-        .cloned()
-    {
-        let current_boundary = default_choices
-            .get("contentBoundary")
-            .and_then(Value::as_str);
-        if current_boundary.is_some_and(|current| {
-            looks_like_legacy_v2_boundary(current)
-                || has_previous_bundled_parameter_defaults
-                    && current == PREVIOUS_BUNDLED_ADULT_BOUNDARY
-        }) {
-            default_choices.insert("contentBoundary".to_string(), desired_boundary);
-            default_choices_changed = true;
-        }
-    }
 
     if let Some(desired_erotic_tone) = desired_default_choices
         .and_then(|choices| choices.get("eroticTone"))
@@ -897,11 +845,12 @@ mod tests {
             default_choices.get("language").and_then(Value::as_str),
             Some("English")
         );
-        assert!(default_choices
-            .get("contentBoundary")
-            .and_then(Value::as_str)
-            .expect("boundary should be present")
-            .starts_with("Keep the scene SFW."));
+        assert_eq!(
+            default_choices
+                .get("contentBoundary")
+                .and_then(Value::as_str),
+            Some(old_boundary)
+        );
         assert!(default_choices
             .get("eroticTone")
             .and_then(Value::as_str)
@@ -1010,31 +959,12 @@ mod tests {
     }
 
     #[test]
-    fn migrates_previous_bundled_defaults_without_overwriting_custom_values() {
+    fn preserves_existing_managed_and_custom_defaults_without_a_version_marker() {
         let (storage, root) = temp_storage();
-        let bundled: Value = serde_json::from_str(BUNDLED_UNIVERSAL_V2_PRESET_JSON)
-            .expect("bundled preset JSON should parse");
-        let previous_adult_default = bundled["data"]["choiceBlocks"]
-            .as_array()
-            .and_then(|blocks| {
-                blocks.iter().find(|block| {
-                    block.get("id").and_then(Value::as_str) == Some("choice_v2_content_boundary")
-                })
-            })
-            .and_then(|block| block.get("options"))
-            .and_then(Value::as_array)
-            .and_then(|options| {
-                options.iter().find(|option| {
-                    option.get("id").and_then(Value::as_str) == Some("boundary_mature_dark")
-                })
-            })
-            .and_then(|option| option.get("value"))
-            .and_then(Value::as_str)
-            .expect("bundled adult boundary should exist")
-            .to_string();
+        let historical_adult_boundary = "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.";
 
         for (id, boundary) in [
-            (UNIVERSAL_V2_PRESET_ID, previous_adult_default.as_str()),
+            (UNIVERSAL_V2_PRESET_ID, historical_adult_boundary),
             ("custom-preset", "Keep this custom boundary exactly."),
         ] {
             storage
@@ -1058,14 +988,14 @@ mod tests {
             .get("prompts", UNIVERSAL_V2_PRESET_ID)
             .expect("managed prompt should read")
             .expect("managed prompt should exist");
-        assert!(managed["defaultChoices"]["contentBoundary"]
-            .as_str()
-            .expect("managed boundary should exist")
-            .starts_with("Keep the scene SFW."));
-        assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(4096));
+        assert_eq!(
+            managed["defaultChoices"]["contentBoundary"].as_str(),
+            Some(historical_adult_boundary)
+        );
+        assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(8192));
         assert_eq!(
             managed["parameters"]["reasoningEffort"].as_str(),
-            Some("low")
+            Some("maximum")
         );
         let custom = storage
             .get("prompts", "custom-preset")
@@ -1087,11 +1017,10 @@ mod tests {
                 UNIVERSAL_V2_PRESET_ID,
                 json!({
                     "defaultChoices": {
-                        "contentBoundary": previous_adult_default
+                        "contentBoundary": historical_adult_boundary
                     },
                     "parameters": {
-                        "maxTokens": 4096,
-                        "reasoningEffort": "low"
+                        "maxTokens": 4096
                     }
                 }),
             )
@@ -1105,13 +1034,10 @@ mod tests {
             .expect("managed prompt should exist");
         assert_eq!(
             managed["defaultChoices"]["contentBoundary"].as_str(),
-            Some(previous_adult_default.as_str())
+            Some(historical_adult_boundary)
         );
         assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(4096));
-        assert_eq!(
-            managed["parameters"]["reasoningEffort"].as_str(),
-            Some("low")
-        );
+        assert_eq!(managed["parameters"]["reasoningEffort"].as_str(), None);
 
         storage
             .patch(

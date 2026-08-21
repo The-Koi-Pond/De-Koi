@@ -85,10 +85,10 @@
 **Interfaces:**
 
 - Consumes: bundled preset JSON and an existing managed universal preset row.
-- Produces: SFW fallback, 4096-token/low-reasoning generic defaults, and a narrow bundled-default migration.
+- Produces: SFW fallback and 4096-token/low-reasoning defaults for freshly seeded presets while preserving existing managed rows without an immutable version marker.
 
-- [x] Add failing Rust assertions that fresh defaults are SFW and that known bundled adult, token, and reasoning defaults migrate while unrelated custom values remain untouched.
-- [x] Change bundled defaults and narrow migration predicates.
+- [x] Add failing Rust assertions that fresh defaults are SFW and existing managed/custom adult, token, and reasoning choices survive repeated startup.
+- [x] Change bundled defaults without inferring user intent from editable persisted values.
 - [x] Run the focused `seed_defaults` Rust tests and confirm they pass.
 
 ### Task 5: Remove obsolete Nano profile metadata safely
