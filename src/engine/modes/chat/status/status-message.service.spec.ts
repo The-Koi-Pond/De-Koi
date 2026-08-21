@@ -1046,12 +1046,9 @@ describe("maybeRefreshConversationStatusMessages", () => {
     expect(
       providerVisibleLlmParameters({ provider: "custom", model: "gemini-3.5-flash" }, requests[0].parameters ?? {}),
     ).toMatchObject({
-      maxTokens: 1024,
-      reasoningEffort: "none",
-      customParameters: {
-        reasoning_effort: "none",
-        reasoning: { exclude: true },
-      },
+      max_tokens: 1024,
+      reasoning_effort: "none",
+      reasoning: { exclude: true },
     });
     expect(
       providerVisibleLlmParameters({ provider: "google", model: "gemini-3.5-flash" }, requests[1].parameters ?? {}),

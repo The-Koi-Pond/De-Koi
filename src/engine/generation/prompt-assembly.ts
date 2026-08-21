@@ -826,13 +826,7 @@ function characterCardText(
       : "";
     if (resolvedPublicProfile) parts.push(`Public Profile:\n${resolvedPublicProfile}`);
   }
-  for (const field of [
-    "first_mes",
-    "mes_example",
-    "creator_notes",
-    "system_prompt",
-    "post_history_instructions",
-  ]) {
+  for (const field of ["first_mes", "mes_example", "creator_notes", "system_prompt", "post_history_instructions"]) {
     addField(field);
   }
   if (!gameCardFieldCovered(coverage, character, "memories") && character.memories?.length) {
@@ -1526,10 +1520,7 @@ const TARGETED_CONVERSATION_TARGET_FIELDS = [
 
 const TARGETED_CONVERSATION_PEER_FIELDS = ["description", "personality", "scenario"] as const;
 
-const COMPACT_MERGED_ROLEPLAY_OMITTED_CHARACTER_FIELDS = new Set([
-  "first_mes",
-  "mes_example",
-]);
+const COMPACT_MERGED_ROLEPLAY_OMITTED_CHARACTER_FIELDS = new Set(["first_mes", "mes_example"]);
 
 const CHARACTER_FIELD_LABELS: Record<string, string> = {
   name: "Name",
@@ -2152,12 +2143,7 @@ function fallbackSystemPrompt(
   const common: NonNullable<ChatMLMessage["contextSegments"]> = [
     {
       content: args.focusedConversation
-        ? renderFocusedConversationCharacters(
-            args.characters,
-            args.wrapFormat,
-            args.macros,
-            args.groupScenarioOverride,
-          )
+        ? renderFocusedConversationCharacters(args.characters, args.wrapFormat, args.macros, args.groupScenarioOverride)
         : renderCharacters(args.characters, args.wrapFormat, null, args.macros, args.groupScenarioOverride, {
             compactCharacterCards: args.compactCharacterCards,
             conversationTargetId: args.conversationTargetId,
@@ -4583,9 +4569,10 @@ export async function assembleGenerationPrompt(
         chatMode === "roleplay" ? false : undefined,
       );
   const summary = summaryProjection.text;
+  const defaultHistoryLimit = chatMode === "roleplay" ? 50 : 300;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
-  const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
-  const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
+  const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || defaultHistoryLimit);
+  const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || defaultHistoryLimit));
   const selectedHistoryLimit = conversationFocus
     ? Math.min(historyLimit, conversationFocus.historyLimit)
     : historyLimit;

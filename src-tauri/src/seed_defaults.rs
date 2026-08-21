@@ -19,10 +19,34 @@ const BUNDLED_UNIVERSAL_V2_PRESET_JSON: &str =
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
     remove_legacy_deki_character_records(storage)?;
+    remove_obsolete_connection_metadata(storage)?;
     seed_prompt_presets(storage, &db_root)?;
     seed_default_chat_presets(storage)?;
     seed_default_regex_scripts(storage)?;
     seed_default_ui_settings(storage)?;
+    Ok(())
+}
+
+fn remove_obsolete_connection_metadata(storage: &FileStorage) -> AppResult<()> {
+    for connection in storage.list("connections")? {
+        let Some(id) = connection.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(mut metadata) = connection
+            .get("providerMetadata")
+            .and_then(Value::as_object)
+            .cloned()
+        else {
+            continue;
+        };
+        if metadata.remove("roleplayProsePilot").is_some() {
+            storage.patch(
+                "connections",
+                id,
+                json!({ "providerMetadata": Value::Object(metadata) }),
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -122,7 +146,6 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
     let desired_default_choices = desired_preset
         .and_then(|preset| preset.get("defaultChoices"))
         .and_then(Value::as_object);
-
     let mut patch = Map::new();
     let mut default_choices = prompt
         .get("defaultChoices")
@@ -130,22 +153,6 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
         .cloned()
         .unwrap_or_default();
     let mut default_choices_changed = false;
-
-    if let Some(desired_boundary) = desired_default_choices
-        .and_then(|choices| choices.get("contentBoundary"))
-        .cloned()
-    {
-        let current_boundary = default_choices
-            .get("contentBoundary")
-            .and_then(Value::as_str);
-        if current_boundary
-            .map(looks_like_legacy_v2_boundary)
-            .unwrap_or(false)
-        {
-            default_choices.insert("contentBoundary".to_string(), desired_boundary);
-            default_choices_changed = true;
-        }
-    }
 
     if let Some(desired_erotic_tone) = desired_default_choices
         .and_then(|choices| choices.get("eroticTone"))
@@ -726,6 +733,24 @@ mod tests {
 
         assert!(is_truthy(v2.get("isDefault")));
         assert_eq!(
+            v2.get("parameters")
+                .and_then(|value| value.get("maxTokens"))
+                .and_then(Value::as_i64),
+            Some(4096)
+        );
+        assert_eq!(
+            v2.get("parameters")
+                .and_then(|value| value.get("reasoningEffort"))
+                .and_then(Value::as_str),
+            Some("low")
+        );
+        assert!(v2
+            .get("defaultChoices")
+            .and_then(|value| value.get("contentBoundary"))
+            .and_then(Value::as_str)
+            .expect("content boundary default should be present")
+            .starts_with("Keep the scene SFW."));
+        assert_eq!(
             prompts
                 .iter()
                 .filter(|preset| is_truthy(preset.get("isDefault")))
@@ -820,11 +845,12 @@ mod tests {
             default_choices.get("language").and_then(Value::as_str),
             Some("English")
         );
-        assert!(default_choices
-            .get("contentBoundary")
-            .and_then(Value::as_str)
-            .expect("boundary should be present")
-            .contains("author-level consent"));
+        assert_eq!(
+            default_choices
+                .get("contentBoundary")
+                .and_then(Value::as_str),
+            Some(old_boundary)
+        );
         assert!(default_choices
             .get("eroticTone")
             .and_then(Value::as_str)
@@ -930,6 +956,156 @@ mod tests {
             adult_dark.get("description").and_then(Value::as_str),
             Some("NSFW adult fiction with dark, messy, or unhealthy dynamics allowed by writer intent.")
         );
+    }
+
+    #[test]
+    fn preserves_existing_managed_and_custom_defaults_without_a_version_marker() {
+        let (storage, root) = temp_storage();
+        let historical_adult_boundary = "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.";
+
+        for (id, boundary) in [
+            (UNIVERSAL_V2_PRESET_ID, historical_adult_boundary),
+            ("custom-preset", "Keep this custom boundary exactly."),
+        ] {
+            storage
+                .create(
+                    "prompts",
+                    json!({
+                        "id": id,
+                        "name": if id == UNIVERSAL_V2_PRESET_ID { UNIVERSAL_V2_PRESET_NAME } else { "Custom" },
+                        "author": if id == UNIVERSAL_V2_PRESET_ID { MARINARA_PRESET_AUTHOR } else { "User" },
+                        "parameters": { "maxTokens": 8192, "reasoningEffort": "maximum" },
+                        "defaultChoices": { "contentBoundary": boundary }
+                    }),
+                )
+                .expect("prompt should insert");
+        }
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let managed = storage
+            .get("prompts", UNIVERSAL_V2_PRESET_ID)
+            .expect("managed prompt should read")
+            .expect("managed prompt should exist");
+        assert_eq!(
+            managed["defaultChoices"]["contentBoundary"].as_str(),
+            Some(historical_adult_boundary)
+        );
+        assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(8192));
+        assert_eq!(
+            managed["parameters"]["reasoningEffort"].as_str(),
+            Some("maximum")
+        );
+        let custom = storage
+            .get("prompts", "custom-preset")
+            .expect("custom prompt should read")
+            .expect("custom prompt should exist");
+        assert_eq!(
+            custom["defaultChoices"]["contentBoundary"].as_str(),
+            Some("Keep this custom boundary exactly.")
+        );
+        assert_eq!(custom["parameters"]["maxTokens"].as_i64(), Some(8192));
+        assert_eq!(
+            custom["parameters"]["reasoningEffort"].as_str(),
+            Some("maximum")
+        );
+
+        storage
+            .patch(
+                "prompts",
+                UNIVERSAL_V2_PRESET_ID,
+                json!({
+                    "defaultChoices": {
+                        "contentBoundary": historical_adult_boundary
+                    },
+                    "parameters": {
+                        "maxTokens": 4096
+                    }
+                }),
+            )
+            .expect("current adult selection should patch");
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed with a current adult selection");
+
+        let managed = storage
+            .get("prompts", UNIVERSAL_V2_PRESET_ID)
+            .expect("managed prompt should read")
+            .expect("managed prompt should exist");
+        assert_eq!(
+            managed["defaultChoices"]["contentBoundary"].as_str(),
+            Some(historical_adult_boundary)
+        );
+        assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(4096));
+        assert_eq!(managed["parameters"]["reasoningEffort"].as_str(), None);
+
+        storage
+            .patch(
+                "prompts",
+                UNIVERSAL_V2_PRESET_ID,
+                json!({
+                    "defaultChoices": {
+                        "contentBoundary": "Keep this managed preset customization exactly."
+                    },
+                    "parameters": {
+                        "maxTokens": 6144,
+                        "reasoningEffort": "high"
+                    }
+                }),
+            )
+            .expect("managed preset customization should patch");
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed again");
+
+        let managed = storage
+            .get("prompts", UNIVERSAL_V2_PRESET_ID)
+            .expect("managed prompt should read")
+            .expect("managed prompt should exist");
+        assert_eq!(
+            managed["defaultChoices"]["contentBoundary"].as_str(),
+            Some("Keep this managed preset customization exactly.")
+        );
+        assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(6144));
+        assert_eq!(
+            managed["parameters"]["reasoningEffort"].as_str(),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn removes_obsolete_roleplay_prose_pilot_metadata_without_touching_siblings() {
+        let (storage, root) = temp_storage();
+        storage
+            .create(
+                "connections",
+                json!({
+                    "id": "nano",
+                    "name": "Nano",
+                    "provider": "nanogpt",
+                    "model": "zai-org/glm-5.2",
+                    "providerMetadata": {
+                        "roleplayProsePilot": { "enabled": true },
+                        "retained": "keep-me"
+                    }
+                }),
+            )
+            .expect("connection should insert");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let connection = storage
+            .get("connections", "nano")
+            .expect("connection should read")
+            .expect("connection should remain available");
+        let metadata = connection["providerMetadata"]
+            .as_object()
+            .expect("provider metadata should remain an object");
+        assert_eq!(
+            metadata.get("retained").and_then(Value::as_str),
+            Some("keep-me")
+        );
+        assert!(!metadata.contains_key("roleplayProsePilot"));
     }
 
     #[test]

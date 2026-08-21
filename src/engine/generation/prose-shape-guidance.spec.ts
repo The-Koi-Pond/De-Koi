@@ -9,7 +9,7 @@ describe("withModeProseShapeGuidance", () => {
     { role: "user" as const, content: "Continue with a deliberate lyrical triplet." },
   ];
 
-  it("routes Roleplay through its compact contrastive guide", () => {
+  it("routes Roleplay through compact positive prose guidance", () => {
     const messages = withModeProseShapeGuidance(prompt, "roleplay");
 
     expect(messages.map((message) => message.role)).toEqual(["system", "assistant", "system", "user"]);
@@ -19,16 +19,16 @@ describe("withModeProseShapeGuidance", () => {
       displayName: "Roleplay Prose Guidance",
     });
     expect(messages[2]?.content).toContain("Keep prose specific to this character and moment.");
-    expect(messages[2]?.content).toContain("unless the requested voice or scene calls for them");
+    expect(messages[2]?.content).toContain("Let sentence rhythm come from the active character and scene pressure");
     expect(messages[2]?.content).toContain("plainly observable detail");
     expect(messages[2]?.content).toContain("infer a non-conflicting detail or write around it");
-    expect(messages[2]?.content).toContain("Automatic: It wasn't fear. Not exactly.");
-    expect(messages[2]?.content).toContain("Cleaner: She was afraid.");
+    expect(messages[2]?.content).not.toContain("Automatic:");
+    expect(messages[2]?.content).not.toContain("Cleaner:");
     expect(messages[2]?.content).not.toMatch(/plot|beat plan|what happens next/i);
     expect(messages.filter((message) => message.displayName === "Roleplay Prose Guidance")).toHaveLength(1);
   });
 
-  it("routes Conversation through its lighter message-shaped guide", () => {
+  it("routes Conversation through lighter positive message-shaped guidance", () => {
     const messages = withModeProseShapeGuidance(prompt, "conversation");
 
     expect(messages.map((message) => message.role)).toEqual(["system", "assistant", "system", "user"]);
@@ -38,9 +38,9 @@ describe("withModeProseShapeGuidance", () => {
       displayName: "Conversation Prose Guidance",
     });
     expect(messages[2]?.content).toContain("Reply naturally in the established character voice.");
-    expect(messages[2]?.content).toContain("Keep those shapes when they genuinely fit the character");
-    expect(messages[2]?.content).toContain("Automatic: You're not angry. You're afraid of what it means.");
-    expect(messages[2]?.content).toContain("Cleaner: You're afraid of what it means.");
+    expect(messages[2]?.content).toContain("Let sentence shape follow the character's diction and current emotion");
+    expect(messages[2]?.content).not.toContain("Automatic:");
+    expect(messages[2]?.content).not.toContain("Cleaner:");
     expect(messages[2]?.content).not.toContain("generic gestures");
     expect(messages.filter((message) => message.displayName === "Conversation Prose Guidance")).toHaveLength(1);
   });

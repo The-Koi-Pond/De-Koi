@@ -89,6 +89,44 @@ function promptText(result: Awaited<ReturnType<typeof assembleGenerationPrompt>>
 }
 
 describe("Roleplay quality prompt guidance", () => {
+  it("defaults roleplay history to the latest 50 messages", async () => {
+    const history = Array.from({ length: 60 }, (_, index) => ({
+      id: `history-${index + 1}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `HISTORY_SENTINEL_${String(index + 1).padStart(2, "0")}`,
+    }));
+    const result = await assembleGenerationPrompt(storage(), {
+      chat: { id: "chat-bounded", mode: "roleplay", characterIds: ["mira"], metadata: {} },
+      storedMessages: history,
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "HISTORY_SENTINEL_60",
+    });
+
+    const text = promptText(result);
+    expect(result.messages.filter((message) => message.contextKind === "history")).toHaveLength(50);
+    expect(text).not.toContain("HISTORY_SENTINEL_10");
+    expect(text).toContain("HISTORY_SENTINEL_11");
+  });
+
+  it("honors an explicit roleplay history limit above the default", async () => {
+    const history = Array.from({ length: 60 }, (_, index) => ({
+      id: `history-${index + 1}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `EXPLICIT_HISTORY_${String(index + 1).padStart(2, "0")}`,
+    }));
+    const result = await assembleGenerationPrompt(storage(), {
+      chat: { id: "chat-explicit", mode: "roleplay", characterIds: ["mira"], metadata: {} },
+      storedMessages: history,
+      connection: { provider: "openai", model: "qa-model" },
+      request: { historyLimit: 60 },
+      latestUserInput: "EXPLICIT_HISTORY_60",
+    });
+
+    expect(result.messages.filter((message) => message.contextKind === "history")).toHaveLength(60);
+    expect(promptText(result)).toContain("EXPLICIT_HISTORY_01");
+  });
+
   it.each(["roleplay", "visual_novel"])("injects and attributes bounded guidance in %s mode", async (mode) => {
     const result = await assembleGenerationPrompt(storage(), {
       chat: {

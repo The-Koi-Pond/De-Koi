@@ -484,6 +484,10 @@ function isGemini25Model(model: string): boolean {
   );
 }
 
+function isGeminiModel(model: string): boolean {
+  return model.toLowerCase().includes("gemini");
+}
+
 function isGemini25ProModel(model: string): boolean {
   const normalized = model.toLowerCase();
   return isGemini25Model(normalized) && normalized.includes("-pro");
@@ -907,7 +911,12 @@ function visibleOpenAiCompatibleParameters(
   const responseFormat = parameterString(parameters, ["responseFormat", "response_format"]);
   if (responseFormat) body.response_format = { type: responseFormat };
 
-  if (provider === "openrouter") {
+  if (provider === "custom" && isGeminiModel(model)) {
+    const supportsNoReasoningEffort = !isGemini25Model(model);
+    const effort = openRouterReasoningEffort(parameters);
+    if (effort && (effort !== "none" || supportsNoReasoningEffort)) body.reasoning_effort = effort;
+    if (!effort && supportsNoReasoningEffort && responseFormat === "json_object") body.reasoning_effort = "none";
+  } else if (provider === "openrouter") {
     const reasoning = openRouterReasoningConfig(parameters);
     if (reasoning) body.reasoning = reasoning;
     const openrouterProvider = readString(connection.openrouterProvider ?? connection.openrouter_provider).trim();
@@ -1067,7 +1076,7 @@ export function providerVisibleLlmParameters(
   if (provider === "google" || provider === "google_vertex")
     return visibleGoogleParameters(connection, normalizedParameters);
   if (provider === "cohere") return visibleCohereParameters(connection, normalizedParameters, options);
-  if (["openai", "openai_chatgpt", "openrouter", "xai", "mistral", "nanogpt"].includes(provider)) {
+  if (["openai", "openai_chatgpt", "openrouter", "xai", "mistral", "nanogpt", "custom"].includes(provider)) {
     return visibleOpenAiCompatibleParameters(connection, normalizedParameters, options);
   }
 

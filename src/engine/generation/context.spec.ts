@@ -75,7 +75,7 @@ describe("recommended generation parameter precedence", () => {
     });
   });
 
-  it("keeps every explicit layer above the recommended baseline", () => {
+  it("keeps chat and request overrides above the maintained baseline", () => {
     expect(
       llmParameters(
         {
@@ -92,13 +92,13 @@ describe("recommended generation parameter precedence", () => {
     ).toMatchObject({
       temperature: 0.1,
       maxTokens: 3333,
-      topP: 0.8,
+      topP: 0.95,
       topK: 20,
       reasoningEffort: "low",
     });
   });
 
-  it("lets an explicit chat preset override an explicit connection default", () => {
+  it("keeps the maintained baseline above inherited connection and preset defaults", () => {
     expect(
       llmParameters(
         {
@@ -110,7 +110,7 @@ describe("recommended generation parameter precedence", () => {
         { temperature: 0.3 },
       ),
     ).toMatchObject({
-      temperature: 0.3,
+      temperature: 0.7,
     });
   });
 

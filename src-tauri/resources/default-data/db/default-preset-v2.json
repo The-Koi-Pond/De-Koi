@@ -23,9 +23,7 @@
         "section_v2_history",
         "section_v2_output"
       ],
-      "groupOrder": [
-        "group_v2_context"
-      ],
+      "groupOrder": ["group_v2_context"],
       "variableOrder": [
         "choice_v2_mode",
         "choice_v2_content_boundary",
@@ -46,11 +44,11 @@
         "topP": 1,
         "topK": 0,
         "minP": 0,
-        "maxTokens": 8192,
+        "maxTokens": 4096,
         "maxContext": 128000,
         "frequencyPenalty": 0,
         "presencePenalty": 0,
-        "reasoningEffort": "maximum",
+        "reasoningEffort": "low",
         "verbosity": "high",
         "squashSystemMessages": true,
         "showThoughts": false,
@@ -62,7 +60,7 @@
       "wrapFormat": "xml",
       "defaultChoices": {
         "mode": "an excellent Game Master for a continuous roleplay. You portray the world and every character except {{user}}, create fair consequences, and keep the scene moving without stealing the user's chosen speech or deliberate actions",
-        "contentBoundary": "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.",
+        "contentBoundary": "Keep the scene SFW. Profanity, fear, danger, grief, and non-graphic violence may appear when appropriate, but sexual content fades to black and gore stays restrained.",
         "agencyStrictness": "strict agency: never write {{user}}'s dialogue, intent, decisions, or deliberate actions. You may describe only involuntary reactions, immediate sensory perception, and consequences of choices the user already made.",
         "pacing": "balanced pacing: favor one clean scene beat, one pressure shift, and a natural stop; let dialogue breathe, keep action concrete, and avoid padding when the scene already has a useful decision point",
         "styleFlavor": "grounded prose: specific, tactile, and plain when possible; use imagery only when it changes action, knowledge, tension, or choice",
