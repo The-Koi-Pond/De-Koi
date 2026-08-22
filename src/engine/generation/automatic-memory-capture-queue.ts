@@ -18,6 +18,7 @@ import {
 import { resolveBackgroundTextConnection } from "./background-llm-connection";
 import { isTerminalBackgroundGenerationError } from "./background-generation-error";
 import { wakeAutomaticMemoryMaintenanceQueueProcessing } from "./automatic-memory-maintenance-queue";
+import { legacyMemoryId, sha256MemoryId } from "./deterministic-memory-id";
 
 export { beginForegroundGeneration } from "./background-generation-coordinator";
 
@@ -154,17 +155,25 @@ function deferWorkerUntilForegroundCompletes(
   });
 }
 
-function stableHash(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
+function jobIdentity(chatId: string, sourceMessageIds: string[]): string {
+  return `${AUTOMATIC_MEMORY_CAPTURE_VERSION}\u001f${chatId}\u001f${sourceMessageIds.join("\u001f")}`;
 }
 
-function jobIdFor(chatId: string, sourceMessageIds: string[]): string {
-  return `memory-capture-${stableHash(`${AUTOMATIC_MEMORY_CAPTURE_VERSION}\u001f${chatId}\u001f${sourceMessageIds.join("\u001f")}`)}`;
+async function jobIdFor(chatId: string, sourceMessageIds: string[]): Promise<string> {
+  return sha256MemoryId("memory-capture", jobIdentity(chatId, sourceMessageIds));
+}
+
+function legacyJobIdFor(chatId: string, sourceMessageIds: string[]): string {
+  return legacyMemoryId("memory-capture", jobIdentity(chatId, sourceMessageIds));
+}
+
+function jobMatchesIdentity(job: JsonRecord, chatId: string, sourceMessageIds: string[]): boolean {
+  return (
+    readNumber(job.captureVersion, 0) === AUTOMATIC_MEMORY_CAPTURE_VERSION &&
+    readString(job.chatId).trim() === chatId &&
+    JSON.stringify(parseArray(job.sourceMessageIds).map((value) => readString(value).trim())) ===
+      JSON.stringify(sourceMessageIds)
+  );
 }
 
 function sourceSnapshot(value: unknown): AutomaticMemorySourceMessage | null {
@@ -357,8 +366,19 @@ export async function enqueueAutomaticMemoryCaptureJob(
     activeCharacters: input.characters,
   });
 
-  const id = jobIdFor(chatId, sourceMessageIds);
-  const existing = await storage.get<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION, id).catch(() => null);
+  let id = await jobIdFor(chatId, sourceMessageIds);
+  let existing = await storage.get<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION, id).catch(() => null);
+  if (existing && !jobMatchesIdentity(existing, chatId, sourceMessageIds)) {
+    throw new Error("Automatic memory capture SHA-256 job id collision");
+  }
+  if (!existing) {
+    const legacyId = legacyJobIdFor(chatId, sourceMessageIds);
+    const legacy = await storage.get<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION, legacyId).catch(() => null);
+    if (legacy && jobMatchesIdentity(legacy, chatId, sourceMessageIds)) {
+      id = legacyId;
+      existing = legacy;
+    }
+  }
   const base: MemoryCaptureJob = {
     id,
     status: "pending",

@@ -1,6 +1,7 @@
 use crate::state::AppState;
 use marinara_core::{new_id, now_iso, AppError, AppResult};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
@@ -716,10 +717,11 @@ fn lexical_tokens(content: &str) -> Vec<String> {
         .collect()
 }
 
-fn stable_hash(value: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+fn sha256_hash(value: &str) -> String {
+    Sha256::digest(value.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn lexical_vector(tokens: &[String]) -> Vec<f64> {
@@ -753,14 +755,14 @@ fn lexical_index_row(memory: &Value) -> AppResult<Value> {
     }
     let content = read_string(memory.get("content"));
     let tokens = lexical_tokens(&content);
-    let projection_hash = stable_hash(&format!("{}:{}", memory_id, tokens.join(" ")));
+    let projection_hash = sha256_hash(&format!("{}:{}", memory_id, tokens.join(" ")));
     Ok(json!({
         "id": format!("{memory_id}:lexical:{projection_hash}"),
         "memoryId": memory_id,
         "provider": LEXICAL_PROVIDER,
         "model": LEXICAL_MODEL,
         "dimensions": LEXICAL_DIMENSIONS,
-        "contentHash": stable_hash(&content),
+        "contentHash": sha256_hash(&content),
         "projectionHash": projection_hash,
         "canonicalUpdatedAt": canonical_updated_at,
         "lexicalTokens": tokens,
@@ -1283,6 +1285,12 @@ mod tests {
         assert!(rows
             .iter()
             .all(|row| row["projectionHash"].as_str().is_some()));
+        assert!(rows.iter().all(|row| row["contentHash"]
+            .as_str()
+            .is_some_and(|hash| hash.len() == 64)));
+        assert!(rows.iter().all(|row| row["projectionHash"]
+            .as_str()
+            .is_some_and(|hash| hash.len() == 64)));
     }
 
     #[test]

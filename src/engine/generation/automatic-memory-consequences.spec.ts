@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { LlmGateway } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
 import type { CanonicalMemoryInput, CanonicalMemoryPatch, CanonicalMemoryRecord } from "../contracts/types/memory";
-import { extractCanonicalMemoryConsequences, persistCanonicalMemoryConsequences } from "./automatic-memory-capture";
+import {
+  extractCanonicalMemoryConsequences,
+  persistCanonicalMemoryConsequences,
+  stableHash,
+} from "./automatic-memory-capture";
 
 function llmReturning(raw: string): LlmGateway {
   return {
@@ -176,6 +180,97 @@ describe("automatic canonical-memory consequence extraction", () => {
     expect(second.affected).toEqual([expect.objectContaining({ operation: "updated" })]);
     expect(second.affected[0]?.memory.provenance.messageIds).toEqual(["user-1", "user-2"]);
     expect([...memories.values()][0]?.supersedesMemoryId).toBeNull();
+  });
+
+  it("does not reuse an unrelated record at a colliding legacy consequence id", async () => {
+    const content = "The user's cat is named Miso.";
+    const legacyIdentity = `character:char-1:fact:${stableHash(content.toLowerCase())}`;
+    const legacyId = `canonical-consequence-${stableHash(legacyIdentity)}`;
+    const unrelated = {
+      id: legacyId,
+      kind: "fact",
+      status: "active",
+      scope: { kind: "character", id: "char-1" },
+      content: "An unrelated legacy memory.",
+      confidence: 0.7,
+      provenance: { sourceChatId: "chat-old", messageIds: ["old-user"] },
+      title: null,
+      tags: [],
+      supersedesMemoryId: null,
+      supersededByMemoryId: null,
+      payload: { semanticIdentity: "unrelated:identity" },
+      createdAt: "2026-07-18T10:00:00.000Z",
+      updatedAt: "2026-07-18T10:00:00.000Z",
+    } satisfies CanonicalMemoryRecord;
+    const { memories, storage } = canonicalMemoryStorage([unrelated]);
+
+    const result = await persistCanonicalMemoryConsequences({
+      storage,
+      candidates: [
+        {
+          kind: "fact",
+          status: "active",
+          scope: { kind: "character", id: "char-1" },
+          content,
+          confidence: 0.96,
+          provenance: { sourceChatId: "chat-1", messageIds: ["user-1"], characterId: "char-1" },
+          payload: { automatic: true, captureJobId: "job-1" },
+        },
+      ],
+      eligibleMemories: [],
+      now: "2026-07-19T10:00:00.000Z",
+    });
+
+    expect(memories.size).toBe(2);
+    expect(memories.get(legacyId)).toEqual(unrelated);
+    expect(result.affected).toEqual([
+      expect.objectContaining({ operation: "created", memory: expect.not.objectContaining({ id: legacyId }) }),
+    ]);
+  });
+
+  it("updates a matching legacy consequence record in place", async () => {
+    const content = "The user's cat is named Miso.";
+    const legacyIdentity = `character:char-1:fact:${stableHash(content.toLowerCase())}`;
+    const legacyId = `canonical-consequence-${stableHash(legacyIdentity)}`;
+    const legacy = {
+      id: legacyId,
+      kind: "fact",
+      status: "active",
+      scope: { kind: "character", id: "char-1" },
+      content,
+      confidence: 0.7,
+      provenance: { sourceChatId: "chat-old", messageIds: ["old-user"] },
+      title: null,
+      tags: [],
+      supersedesMemoryId: null,
+      supersededByMemoryId: null,
+      payload: { semanticIdentity: legacyIdentity },
+      createdAt: "2026-07-18T10:00:00.000Z",
+      updatedAt: "2026-07-18T10:00:00.000Z",
+    } satisfies CanonicalMemoryRecord;
+    const { memories, storage } = canonicalMemoryStorage([legacy]);
+
+    const result = await persistCanonicalMemoryConsequences({
+      storage,
+      candidates: [
+        {
+          kind: "fact",
+          status: "active",
+          scope: { kind: "character", id: "char-1" },
+          content,
+          confidence: 0.96,
+          provenance: { sourceChatId: "chat-1", messageIds: ["user-1"], characterId: "char-1" },
+          payload: { automatic: true, captureJobId: "job-1" },
+        },
+      ],
+      eligibleMemories: [],
+      now: "2026-07-19T10:00:00.000Z",
+    });
+
+    expect(memories).toHaveLength(1);
+    expect(result.affected).toEqual([
+      expect.objectContaining({ operation: "updated", memory: expect.objectContaining({ id: legacyId }) }),
+    ]);
   });
 
   it("supersedes only an eligible active memory and preserves both sides of the history link", async () => {

@@ -19,6 +19,7 @@ import {
 } from "./automatic-memory-capture-queue";
 import type { CharacterMemoryScopeCharacter } from "./character-memory-scope";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
+import { legacyMemoryId } from "./deterministic-memory-id";
 
 function message(id: string, role: string, content: string): JsonRecord {
   return {
@@ -281,6 +282,45 @@ function queueStorage(
 }
 
 describe("automatic memory capture queue", () => {
+  it("does not reuse a colliding legacy job without an exact capture identity match", async () => {
+    const harness = queueStorage();
+    const identity = "2\u001fchat-1\u001fuser-1\u001fassistant-1";
+    const legacyId = legacyMemoryId("memory-capture", identity);
+    harness.jobs.set(legacyId, {
+      id: legacyId,
+      status: "completed",
+      captureVersion: 2,
+      chatId: "unrelated-chat",
+      sourceMessageIds: ["unrelated-message"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const job = await harness.enqueue();
+
+    expect(job?.id).not.toBe(legacyId);
+    expect(job?.chatId).toBe("chat-1");
+    expect(harness.jobs).toHaveLength(2);
+  });
+
+  it("reuses a matching legacy job id", async () => {
+    const harness = queueStorage();
+    const identity = "2\u001fchat-1\u001fuser-1\u001fassistant-1";
+    const legacyId = legacyMemoryId("memory-capture", identity);
+    harness.jobs.set(legacyId, {
+      id: legacyId,
+      status: "completed",
+      captureVersion: 2,
+      chatId: "chat-1",
+      sourceMessageIds: ["user-1", "assistant-1"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const job = await harness.enqueue();
+
+    expect(job?.id).toBe(legacyId);
+    expect(harness.jobs).toHaveLength(1);
+  });
+
   it("resolves the dedicated background connection when the queued job runs", async () => {
     const harness = queueStorage({
       connections: [
