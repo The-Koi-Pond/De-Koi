@@ -9574,6 +9574,47 @@ mod tests {
     }
 
     #[test]
+    fn projected_message_page_honors_large_requested_limit() {
+        let root = temp_storage_root("projected-message-page-large-limit");
+        let storage = FileStorage::new(&root).unwrap();
+        let messages = (0..120)
+            .map(|index| {
+                json!({
+                    "id": format!("message-{index:03}"),
+                    "chatId": "chat-a",
+                    "createdAt": format!("2026-01-01T00:00:00.{index:03}Z"),
+                    "content": format!("message {index}"),
+                })
+            })
+            .collect();
+        storage.replace_all("messages", messages).unwrap();
+        drop(storage);
+
+        let storage = FileStorage::new(&root).unwrap();
+        let rows = storage
+            .list_messages_for_chat_page_projected(
+                "chat-a",
+                96,
+                None,
+                &["id".to_string(), "createdAt".to_string()],
+                &Map::new(),
+            )
+            .unwrap();
+
+        assert_eq!(rows.len(), 96);
+        assert_eq!(
+            rows.first().and_then(|row| row.get("id")),
+            Some(&json!("message-024"))
+        );
+        assert_eq!(
+            rows.last().and_then(|row| row.get("id")),
+            Some(&json!("message-119"))
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn replace_all_many_rejects_invalid_collection_before_replacing_anything() {
         let root = temp_storage_root("replace-many-invalid");
         let storage = FileStorage::new(&root).unwrap();

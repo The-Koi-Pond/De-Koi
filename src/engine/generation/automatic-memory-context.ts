@@ -144,19 +144,19 @@ export async function buildAutomaticMemoryCaptureContext(
     referenceMessages.length < MAX_REFERENCE_MESSAGES
   ) {
     const remaining = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
-    const limit = expandedPageLimit ?? Math.min(REFERENCE_MESSAGE_PAGE_SIZE, remaining);
+    const requestedLimit = expandedPageLimit ?? Math.min(REFERENCE_MESSAGE_PAGE_SIZE, remaining);
     expandedPageLimit = null;
     const page = await storage
       .listChatMessages<JsonRecord>(chatId, {
         orderBy: "createdAt",
         descending: true,
         before,
-        limit,
+        limit: requestedLimit,
         fields: ["id", "chatId", "role", "content", "characterId", "createdAt", "extra"],
       })
       .catch(() => []);
     if (page.length === 0) break;
-    const storageOrderedPage = page.slice(0, limit).sort((left, right) => {
+    const storageOrderedPage = page.slice(0, requestedLimit).sort((left, right) => {
       return (
         readString(right.createdAt).localeCompare(readString(left.createdAt)) ||
         readString(right.id).localeCompare(readString(left.id))
@@ -195,10 +195,10 @@ export async function buildAutomaticMemoryCaptureContext(
       .find((message) => readString(message.createdAt).trim() && readString(message.id).trim());
     const boundaryId = readString(boundary?.id).trim();
     const nextBefore = boundaryId ? `${readString(boundary?.createdAt).trim()}|${boundaryId}` : "";
-    if (page.length < limit) break;
+    if (page.length < requestedLimit) break;
     if (!nextBefore) {
       const expandedLimit = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
-      if (expandedLimit > limit) {
+      if (expandedLimit > requestedLimit) {
         expandedPageLimit = expandedLimit;
         continue;
       }
