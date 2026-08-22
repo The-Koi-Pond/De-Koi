@@ -209,8 +209,8 @@ describe("automatic memory capture context", () => {
       savedAssistantMessage: assistant,
     });
 
-    expect(calls).toHaveLength(2);
-    expect(calls[1]).toMatchObject({ before: "2025-13-99T99:99:99.000Z|invalid-00" });
+    expect(calls).toHaveLength(3);
+    expect(calls[1]).toMatchObject({ before: "2026-01-01T00:00:00.000Z", limit: 24, rawOffset: 24 });
     expect(context?.referenceMessages.map((message) => message.id)).toEqual(["older-valid"]);
   });
 
@@ -252,8 +252,8 @@ describe("automatic memory capture context", () => {
       savedAssistantMessage: assistant,
     });
 
-    expect(calls).toHaveLength(2);
-    expect(calls[1]).toMatchObject({ before: "2025-13-99T99:99:99.000Z|invalid-00" });
+    expect(calls).toHaveLength(3);
+    expect(calls[1]).toMatchObject({ before: "2026-01-01T00:00:00.000Z", limit: 24, rawOffset: 24 });
     expect(context?.referenceMessages.map((message) => message.id)).toEqual(["older-valid"]);
   });
 
@@ -270,7 +270,7 @@ describe("automatic memory capture context", () => {
         savedMessage("", "user", "missing id", `2025-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`),
       ),
     },
-  ])("widens one bounded page past rows with $label", async ({ page }) => {
+  ])("advances one bounded page past rows with $label", async ({ page }) => {
     const calls: Array<Record<string, unknown> | undefined> = [];
     const older = savedMessage("older-valid", "user", "Older valid reference.", "2024-01-01T00:00:00.000Z");
     const storage = {
@@ -279,7 +279,7 @@ describe("automatic memory capture context", () => {
       },
       async listChatMessages<T = unknown>(_chatId: string, options?: Record<string, unknown>): Promise<T[]> {
         calls.push(options);
-        return (calls.length === 1 ? page : [...page, older]) as T[];
+        return (calls.length === 1 ? page : [older]) as T[];
       },
     } as unknown as StorageGateway;
     const user = savedMessage("user-current", "user", "What happened?", "2026-01-01T00:00:00.000Z");
@@ -297,8 +297,8 @@ describe("automatic memory capture context", () => {
       savedAssistantMessage: assistant,
     });
 
-    expect(calls).toHaveLength(2);
-    expect(calls[1]).toMatchObject({ before: "2026-01-01T00:00:00.000Z", limit: 96 });
+    expect(calls).toHaveLength(3);
+    expect(calls[1]).toMatchObject({ before: "2026-01-01T00:00:00.000Z", limit: 24, rawOffset: 24 });
     expect(context?.referenceMessages.map((message) => message.id)).toEqual(["older-valid"]);
   });
 

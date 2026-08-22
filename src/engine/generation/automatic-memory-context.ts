@@ -136,7 +136,7 @@ export async function buildAutomaticMemoryCaptureContext(
   const seenReferenceIds = new Set<string>();
   let scanned = 0;
   let before = sourceMessages[0]?.createdAt ?? "";
-  let expandedPageLimit: number | null = null;
+  let rawOffset = 0;
   while (
     firstSourceAt !== null &&
     before &&
@@ -144,14 +144,14 @@ export async function buildAutomaticMemoryCaptureContext(
     referenceMessages.length < MAX_REFERENCE_MESSAGES
   ) {
     const remaining = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
-    const requestedLimit = expandedPageLimit ?? Math.min(REFERENCE_MESSAGE_PAGE_SIZE, remaining);
-    expandedPageLimit = null;
+    const requestedLimit = Math.min(REFERENCE_MESSAGE_PAGE_SIZE, remaining);
     const page = await storage
       .listChatMessages<JsonRecord>(chatId, {
         orderBy: "createdAt",
         descending: true,
         before,
         limit: requestedLimit,
+        ...(rawOffset > 0 ? { rawOffset } : {}),
         fields: ["id", "chatId", "role", "content", "characterId", "createdAt", "extra"],
       })
       .catch(() => []);
@@ -193,22 +193,17 @@ export async function buildAutomaticMemoryCaptureContext(
     for (let index = storageOrderedPage.length - 1; index >= 0; index -= 1) {
       const boundaryCreatedAt = readString(storageOrderedPage[index]?.createdAt).trim();
       const boundaryId = readString(storageOrderedPage[index]?.id).trim();
-      if (!boundaryCreatedAt || !boundaryId) continue;
+      if (parseIsoTimestamp(boundaryCreatedAt) === null || !boundaryId) continue;
       nextBefore = `${boundaryCreatedAt}|${boundaryId}`;
       break;
     }
-    if (page.length < requestedLimit) break;
     if (nextBefore) {
       if (nextBefore >= before) break;
       before = nextBefore;
+      rawOffset = 0;
       continue;
     }
-    const expandedLimit = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
-    if (expandedLimit > requestedLimit) {
-      expandedPageLimit = expandedLimit;
-      continue;
-    }
-    break;
+    rawOffset += page.length;
   }
   referenceMessages.sort(chronological);
 

@@ -398,11 +398,13 @@ pub(crate) fn read_pretty_message_page_from_file(
     chat_id: &str,
     limit: usize,
     before: Option<&str>,
+    raw_offset: usize,
 ) -> AppResult<Option<Vec<Value>>> {
     let mut file = fs::File::open(path)?;
     let mut position = file.metadata()?.len();
     let before_cursor = before.map(parse_storage_message_cursor);
     let mut rows_newest_first = Vec::new();
+    let mut skipped = 0_usize;
     let mut record_lines_newest_first: Vec<Vec<u8>> = Vec::new();
     let mut in_record = false;
     let mut saw_record = false;
@@ -454,6 +456,12 @@ pub(crate) fn read_pretty_message_page_from_file(
             if row.get("chatId").and_then(Value::as_str) == Some(chat_id)
                 && message_is_before_cursor(&row, before_cursor.as_ref())
             {
+                if skipped < raw_offset {
+                    skipped += 1;
+                    in_record = false;
+                    record_lines_newest_first.clear();
+                    continue;
+                }
                 rows_newest_first.push(row);
                 if rows_newest_first.len() >= limit {
                     rows_newest_first.reverse();
@@ -485,6 +493,7 @@ pub(crate) fn read_pretty_projected_message_page_from_file(
     chat_id: &str,
     limit: usize,
     before: Option<&str>,
+    raw_offset: usize,
     fields: &HashSet<String>,
     field_selections: &HashMap<String, HashSet<String>>,
 ) -> AppResult<Option<Vec<Value>>> {
@@ -492,6 +501,7 @@ pub(crate) fn read_pretty_projected_message_page_from_file(
     let mut position = file.metadata()?.len();
     let before_cursor = before.map(parse_storage_message_cursor);
     let mut rows_newest_first = Vec::new();
+    let mut skipped = 0_usize;
     let mut record_lines_newest_first: Vec<Vec<u8>> = Vec::new();
     let mut in_record = false;
     let mut saw_record = false;
@@ -546,6 +556,12 @@ pub(crate) fn read_pretty_projected_message_page_from_file(
                 field_selections,
             )? {
                 if message_parts_are_before_cursor(&created_at, &id, before_cursor.as_ref()) {
+                    if skipped < raw_offset {
+                        skipped += 1;
+                        in_record = false;
+                        record_lines_newest_first.clear();
+                        continue;
+                    }
                     rows_newest_first.push(row);
                     if rows_newest_first.len() >= limit {
                         rows_newest_first.reverse();
@@ -1061,7 +1077,12 @@ pub(crate) fn message_parts_are_before_cursor(
             && before_id.as_deref().is_some_and(|cursor_id| id < cursor_id))
 }
 
-pub(crate) fn apply_message_page(rows: &mut Vec<Value>, limit: usize, before: Option<&str>) {
+pub(crate) fn apply_message_page(
+    rows: &mut Vec<Value>,
+    limit: usize,
+    before: Option<&str>,
+    raw_offset: usize,
+) {
     rows.sort_by(|a, b| {
         let a_created_at = a.get("createdAt").and_then(Value::as_str).unwrap_or("");
         let b_created_at = b.get("createdAt").and_then(Value::as_str).unwrap_or("");
@@ -1074,6 +1095,7 @@ pub(crate) fn apply_message_page(rows: &mut Vec<Value>, limit: usize, before: Op
     if before_cursor.is_some() {
         rows.retain(|row| message_is_before_cursor(row, before_cursor.as_ref()));
     }
+    rows.truncate(rows.len().saturating_sub(raw_offset));
     if rows.len() > limit {
         let keep_from = rows.len() - limit;
         rows.drain(0..keep_from);
