@@ -257,6 +257,51 @@ describe("automatic memory capture context", () => {
     expect(context?.referenceMessages.map((message) => message.id)).toEqual(["older-valid"]);
   });
 
+  it.each([
+    {
+      label: "blank timestamps",
+      page: Array.from({ length: 24 }, (_, index) =>
+        savedMessage(`blank-${String(index).padStart(2, "0")}`, "user", "blank timestamp", ""),
+      ),
+    },
+    {
+      label: "missing ids",
+      page: Array.from({ length: 24 }, (_, index) =>
+        savedMessage("", "user", "missing id", `2025-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`),
+      ),
+    },
+  ])("widens one bounded page past rows with $label", async ({ page }) => {
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    const older = savedMessage("older-valid", "user", "Older valid reference.", "2024-01-01T00:00:00.000Z");
+    const storage = {
+      async get() {
+        return { id: "persona-1", name: "Celia" };
+      },
+      async listChatMessages<T = unknown>(_chatId: string, options?: Record<string, unknown>): Promise<T[]> {
+        calls.push(options);
+        return (calls.length === 1 ? page : [...page, older]) as T[];
+      },
+    } as unknown as StorageGateway;
+    const user = savedMessage("user-current", "user", "What happened?", "2026-01-01T00:00:00.000Z");
+    const assistant = savedMessage(
+      "assistant-current",
+      "assistant",
+      "The circus accident happened.",
+      "2026-01-01T00:00:01.000Z",
+    );
+
+    const context = await buildAutomaticMemoryCaptureContext(storage, {
+      chat: { id: "chat-1", personaId: "persona-1" },
+      characters: [{ id: "pierrot", name: "Pierrot" }],
+      savedUserMessage: user,
+      savedAssistantMessage: assistant,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ before: "2026-01-01T00:00:00.000Z", limit: 96 });
+    expect(context?.referenceMessages.map((message) => message.id)).toEqual(["older-valid"]);
+  });
+
   it("continues across a page boundary shared by more than 24 equal timestamps", async () => {
     const tiedAt = "2025-01-01T00:00:00.000Z";
     const rows = Array.from({ length: 30 }, (_, index) =>

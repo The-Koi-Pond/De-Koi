@@ -136,6 +136,7 @@ export async function buildAutomaticMemoryCaptureContext(
   const seenReferenceIds = new Set<string>();
   let scanned = 0;
   let before = sourceMessages[0]?.createdAt ?? "";
+  let expandedPageLimit: number | null = null;
   while (
     firstSourceAt !== null &&
     before &&
@@ -143,7 +144,8 @@ export async function buildAutomaticMemoryCaptureContext(
     referenceMessages.length < MAX_REFERENCE_MESSAGES
   ) {
     const remaining = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
-    const limit = Math.min(REFERENCE_MESSAGE_PAGE_SIZE, remaining);
+    const limit = expandedPageLimit ?? Math.min(REFERENCE_MESSAGE_PAGE_SIZE, remaining);
+    expandedPageLimit = null;
     const page = await storage
       .listChatMessages<JsonRecord>(chatId, {
         orderBy: "createdAt",
@@ -193,7 +195,16 @@ export async function buildAutomaticMemoryCaptureContext(
       .find((message) => readString(message.createdAt).trim() && readString(message.id).trim());
     const boundaryId = readString(boundary?.id).trim();
     const nextBefore = boundaryId ? `${readString(boundary?.createdAt).trim()}|${boundaryId}` : "";
-    if (page.length < limit || !nextBefore || nextBefore >= before) break;
+    if (page.length < limit) break;
+    if (!nextBefore) {
+      const expandedLimit = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
+      if (expandedLimit > limit) {
+        expandedPageLimit = expandedLimit;
+        continue;
+      }
+      break;
+    }
+    if (nextBefore >= before) break;
     before = nextBefore;
   }
   referenceMessages.sort(chronological);
