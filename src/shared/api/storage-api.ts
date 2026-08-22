@@ -353,6 +353,7 @@ export const storageApi: StorageGateway = {
   queryMemoryIndex: (body) => canonicalMemoryApi.index.query(body),
   queryMemoryIndexBatch: (queries) => canonicalMemoryApi.index.queryBatch(queries),
   rebuildMemoryIndex: (body) => canonicalMemoryApi.index.rebuildLexical(body),
+  memoryIndexHealth: () => canonicalMemoryApi.index.health(),
   list: async (entity: StorageEntity, options?: StorageListOptions) =>
     normalizeStorageReadResult(
       entity,

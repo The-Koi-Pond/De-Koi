@@ -1155,6 +1155,12 @@ pub(crate) async fn dispatch_for_runtime_owner(
             })
             .await
         }
+        "memory_index_health" => {
+            dispatch_blocking_http_storage(state, &args, |state, _args| {
+                canonical_memory::memory_index_health(state)
+            })
+            .await
+        }
         "memory_index_query" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::query_memory_index(state, optional_value(args, "body"))
@@ -1920,6 +1926,7 @@ mod tests {
         "memory_index_delete_for_memory",
         "memory_index_query",
         "memory_index_rebuild_lexical",
+        "memory_index_health",
         "memory_index_upsert",
         "memory_query",
         "memory_update",

@@ -612,6 +612,78 @@ describe("canonical memory context", () => {
     expect(storage.queryMemoryIndex).toHaveBeenCalledWith({ scope: { kind: "character", id: "char-1" } });
   });
 
+  it("skips the durable fallback when the lexical index is complete", async () => {
+    const indexed = memory({
+      id: "memory-indexed",
+      content: "Mira left the brass key beneath the red teacup.",
+    });
+    const storage = storageWithMemories({ indexed: [indexed], fallback: [indexed] });
+    Object.assign(storage, {
+      memoryIndexHealth: vi.fn(async () => ({ version: 1, lexicalComplete: true })),
+    });
+
+    await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key?",
+      characters: [],
+      maxContext: 4096,
+    });
+
+    expect(storage.queryMemories).not.toHaveBeenCalled();
+  });
+
+  it("does not rebuild when an older runtime cannot report index health", async () => {
+    const durable = memory({
+      id: "memory-durable",
+      content: "Mira left the brass key beneath the red teacup.",
+    });
+    const rebuildMemoryIndex = vi.fn(async () => ({ indexed: 1 }));
+    const storage = storageWithMemories({ indexed: [], fallback: [durable] });
+    Object.assign(storage, {
+      memoryIndexHealth: vi.fn(async () => {
+        throw new Error("unknown remote command: memory_index_health");
+      }),
+      rebuildMemoryIndex,
+    });
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key?",
+      characters: [],
+      maxContext: 4096,
+    });
+
+    expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-durable"]);
+    expect(storage.queryMemories).toHaveBeenCalled();
+    expect(rebuildMemoryIndex).not.toHaveBeenCalled();
+  });
+
+  it("rebuilds after durable fallback when index health explicitly reports incomplete", async () => {
+    const durable = memory({
+      id: "memory-durable",
+      content: "Mira left the brass key beneath the red teacup.",
+    });
+    const rebuildMemoryIndex = vi.fn(async () => ({ indexed: 1 }));
+    const storage = storageWithMemories({ indexed: [], fallback: [durable] });
+    Object.assign(storage, {
+      memoryIndexHealth: vi.fn(async () => ({ version: 1, lexicalComplete: false })),
+      rebuildMemoryIndex,
+    });
+
+    await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key?",
+      characters: [],
+      maxContext: 4096,
+    });
+
+    expect(storage.queryMemories).toHaveBeenCalled();
+    expect(rebuildMemoryIndex).toHaveBeenCalledTimes(1);
+  });
+
   it("queries mixed canonical scopes in one batch while retaining their ranked results", async () => {
     const batch = vi.fn(async () => [
       memory({

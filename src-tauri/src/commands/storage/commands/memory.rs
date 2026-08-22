@@ -68,6 +68,11 @@ pub fn memory_index_rebuild_lexical(
 }
 
 #[tauri::command]
+pub fn memory_index_health(state: State<'_, AppState>) -> Result<Value, AppError> {
+    canonical_memory::memory_index_health(&state)
+}
+
+#[tauri::command]
 pub fn memory_index_query(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
     canonical_memory::query_memory_index(&state, body)
 }

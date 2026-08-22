@@ -7,6 +7,7 @@ import type {
   CanonicalMemorySemanticMatch,
   CanonicalMemorySemanticQuery,
   MemoryLexicalRebuildResult,
+  MemoryIndexHealth,
 } from "../contracts/types/memory";
 import type { ChatMemoryChunk, DaySummaryEntry, WeekSummaryEntry } from "../contracts/types/chat";
 
@@ -192,6 +193,7 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   queryMemoryIndex?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
   queryMemoryIndexBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
   rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
+  memoryIndexHealth?(): Promise<MemoryIndexHealth>;
   listChatMemories<T = unknown>(chatId: string, options?: ListChatMemoriesOptions): Promise<T[]>;
   refreshChatMemories?<T = unknown>(chatId: string, options?: RefreshChatMemoriesOptions): Promise<T>;
   previewChatMemoryCapture?(chatId: string, sourceMessageIds: string[]): Promise<ChatMemoryCapturePreview>;
