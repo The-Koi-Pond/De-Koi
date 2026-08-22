@@ -155,6 +155,29 @@ function attachMemoryCaptureLease(storage: StorageGateway, jobs: Map<string, Rec
       jobs.set(jobId, row);
       return row;
     },
+    async createMemoryCaptureMemory(leaseId: string, body: Parameters<NonNullable<StorageGateway["createMemory"]>>[0]) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.createMemory!(body);
+    },
+    async updateMemoryCaptureMemory(
+      leaseId: string,
+      memoryId: string,
+      patch: Parameters<NonNullable<StorageGateway["updateMemory"]>>[1],
+    ) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.updateMemory!(memoryId, patch);
+    },
+    async patchMemoryCaptureMessageExtra(leaseId: string, messageId: string, patch: Record<string, unknown>) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.patchChatMessageExtra(messageId, patch);
+    },
+    async rebuildMemoryCaptureIndex(
+      leaseId: string,
+      body?: Parameters<NonNullable<StorageGateway["rebuildMemoryIndex"]>>[0],
+    ) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.rebuildMemoryIndex!(body);
+    },
   });
 }
 
@@ -689,6 +712,7 @@ describe("startGeneration group typing", () => {
         chatId: "chat-1",
         sourceMessageIds: ["message-1", "message-2"],
         fingerprint: "capture-fingerprint",
+        leaseId: expect.any(String),
       }),
     );
     await vi.waitFor(() =>

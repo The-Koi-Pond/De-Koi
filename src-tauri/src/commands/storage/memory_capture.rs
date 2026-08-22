@@ -1,3 +1,4 @@
+use super::{canonical_memory, entity_commands};
 use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
@@ -54,6 +55,77 @@ pub(crate) fn update_job(state: &AppState, body: Value) -> AppResult<Value> {
     })
 }
 
+pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
+    let lease_id = lease_id(&body)?;
+    let memory = body
+        .get("memory")
+        .cloned()
+        .ok_or_else(|| AppError::invalid_input("Canonical memory body is required"))?;
+    state.with_memory_capture_lease(lease_id, || canonical_memory::create_memory(state, memory))
+}
+
+pub(crate) fn update_memory(state: &AppState, body: Value) -> AppResult<Value> {
+    let lease_id = lease_id(&body)?;
+    let memory_id = body
+        .get("memoryId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("Canonical memory id is required"))?;
+    let patch = body
+        .get("patch")
+        .cloned()
+        .ok_or_else(|| AppError::invalid_input("Canonical memory patch is required"))?;
+    state.with_memory_capture_lease(lease_id, || {
+        canonical_memory::update_memory(state, memory_id, patch)
+    })
+}
+
+pub(crate) fn patch_message_extra(state: &AppState, body: Value) -> AppResult<Value> {
+    let lease_id = lease_id(&body)?;
+    let message_id = body
+        .get("messageId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("Memory capture message id is required"))?;
+    let patch = body
+        .get("patch")
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or_else(|| AppError::invalid_input("Memory capture message patch is required"))?;
+    state.with_memory_capture_lease(lease_id, || {
+        let message = state
+            .storage
+            .get("messages", message_id)?
+            .ok_or_else(|| AppError::not_found("Message not found"))?;
+        let mut extra = message
+            .get("extra")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        extra.extend(patch);
+        entity_commands::storage_update_inner(
+            state,
+            "messages".to_string(),
+            message_id.to_string(),
+            json!({ "extra": extra }),
+        )
+    })
+}
+
+pub(crate) fn rebuild_index(state: &AppState, body: Value) -> AppResult<Value> {
+    let lease_id = lease_id(&body)?;
+    let query = body
+        .get("query")
+        .cloned()
+        .filter(|value| !value.is_null())
+        .unwrap_or_else(|| json!({}));
+    state.with_memory_capture_lease(lease_id, || {
+        canonical_memory::rebuild_memory_lexical_index(state, query)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,6 +153,13 @@ mod tests {
                 json!({ "id": "job-1", "status": "pending" }),
             )
             .expect("job should seed");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({ "id": "message-1", "chatId": "chat-1", "content": "hello", "extra": {} }),
+            )
+            .expect("message should seed");
         let first = acquire_worker(&state, json!({ "workerId": "browser-a" })).unwrap();
         assert!(
             acquire_worker(&state, json!({ "workerId": "browser-b" })).unwrap()["leaseId"]
@@ -92,6 +171,15 @@ mod tests {
             json!({ "leaseId": lease_id, "jobId": "job-1", "patch": { "status": "processing" } }),
         )
         .expect("lease owner should update");
+        patch_message_extra(
+            &state,
+            json!({
+                "leaseId": lease_id,
+                "messageId": "message-1",
+                "patch": { "memoryCapture": { "status": "processing" } }
+            }),
+        )
+        .expect("lease owner should patch message status");
         release_worker(
             &state,
             json!({ "workerId": "browser-a", "leaseId": lease_id }),
@@ -103,5 +191,17 @@ mod tests {
         )
         .expect_err("released lease must not update");
         assert_eq!(stale.code, "memory_capture_lease_lost");
+        let stale_memory = create_memory(&state, json!({ "leaseId": lease_id, "memory": {} }))
+            .expect_err("released lease must not create canonical memory");
+        assert_eq!(stale_memory.code, "memory_capture_lease_lost");
+        let stale_message = patch_message_extra(
+            &state,
+            json!({ "leaseId": lease_id, "messageId": "message-1", "patch": { "memoryCapture": {} } }),
+        )
+        .expect_err("released lease must not patch message status");
+        assert_eq!(stale_message.code, "memory_capture_lease_lost");
+        let stale_index = rebuild_index(&state, json!({ "leaseId": lease_id, "query": {} }))
+            .expect_err("released lease must not rebuild the canonical index");
+        assert_eq!(stale_index.code, "memory_capture_lease_lost");
     }
 }

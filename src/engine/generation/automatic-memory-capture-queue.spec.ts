@@ -71,6 +71,7 @@ function queueStorage(
   const refreshCalls: Array<{ chatId: string; options?: RefreshChatMemoriesOptions }> = [];
   const previewCalls: Array<{ chatId: string; sourceMessageIds: string[] }> = [];
   const commitCalls: CommitChatMemoryCaptureInput[] = [];
+  const releaseCalls: Array<{ workerId: string; leaseId: string }> = [];
   let refreshFailures = options.refreshFailures ?? 0;
   let captureLease: { workerId: string; leaseId: string } | null = null;
 
@@ -183,6 +184,7 @@ function queueStorage(
       };
     },
     async commitChatMemoryCapture(body) {
+      if (!body.leaseId || captureLease?.leaseId !== body.leaseId) throw { code: "memory_capture_lease_lost" };
       commitCalls.push(body);
       if (refreshFailures > 0) {
         refreshFailures -= 1;
@@ -263,11 +265,36 @@ function queueStorage(
       return captureLease.leaseId;
     },
     async releaseMemoryCaptureWorker(workerId: string, leaseId: string) {
+      releaseCalls.push({ workerId, leaseId });
       if (captureLease?.workerId === workerId && captureLease.leaseId === leaseId) captureLease = null;
     },
     async updateMemoryCaptureJob(leaseId: string, jobId: string, patch: Record<string, unknown>) {
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
       return storage.update("memory-capture-jobs", jobId, patch);
+    },
+    async createMemoryCaptureMemory(leaseId: string, body: Parameters<NonNullable<StorageGateway["createMemory"]>>[0]) {
+      if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
+      return storage.createMemory!(body);
+    },
+    async updateMemoryCaptureMemory(
+      leaseId: string,
+      memoryId: string,
+      patch: Parameters<NonNullable<StorageGateway["updateMemory"]>>[1],
+    ) {
+      if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
+      return storage.updateMemory!(memoryId, patch);
+    },
+    async patchMemoryCaptureMessageExtra(
+      leaseId: string,
+      messageId: string,
+      patch: Record<string, unknown>,
+    ) {
+      if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
+      return storage.patchChatMessageExtra(messageId, patch);
+    },
+    async rebuildMemoryCaptureIndex(leaseId: string, body?: Parameters<NonNullable<StorageGateway["rebuildMemoryIndex"]>>[0]) {
+      if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
+      return storage.rebuildMemoryIndex!(body);
     },
   });
 
@@ -295,6 +322,7 @@ function queueStorage(
     refreshCalls,
     previewCalls,
     commitCalls,
+    releaseCalls,
     revokeCaptureLease: () => {
       captureLease = null;
     },
@@ -311,6 +339,10 @@ describe("automatic memory capture queue", () => {
       harness.storage.acquireMemoryCaptureWorker = undefined;
       harness.storage.releaseMemoryCaptureWorker = undefined;
       harness.storage.updateMemoryCaptureJob = undefined;
+      harness.storage.createMemoryCaptureMemory = undefined;
+      harness.storage.updateMemoryCaptureMemory = undefined;
+      harness.storage.patchMemoryCaptureMessageExtra = undefined;
+      harness.storage.rebuildMemoryCaptureIndex = undefined;
 
       scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
       await vi.advanceTimersByTimeAsync(60_000);
@@ -393,6 +425,70 @@ describe("automatic memory capture queue", () => {
 
     expect(harness.canonicalMemories.size).toBe(0);
     expect(harness.commitCalls).toHaveLength(0);
+  });
+
+  it("fences every canonical write when the lease is lost mid-batch", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    const originalCreate = harness.storage.createMemoryCaptureMemory!.bind(harness.storage);
+    let writes = 0;
+    harness.storage.createMemoryCaptureMemory = async (...args) => {
+      const created = await originalCreate(...args);
+      writes += 1;
+      if (writes === 1) harness.revokeCaptureLease();
+      return created;
+    };
+    const llm = passingValueReviewLlm(async () =>
+      JSON.stringify({
+        memories: [
+          {
+            kind: "fact",
+            content: "{{user}}'s cat is named Miso.",
+            confidence: 0.97,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["user-1"],
+          },
+          {
+            kind: "preference",
+            content: "{{user}} likes quiet mornings.",
+            confidence: 0.91,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["user-1"],
+          },
+        ],
+      }),
+    );
+
+    await expect(processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm })).rejects.toMatchObject({
+      code: "memory_capture_lease_lost",
+    });
+
+    expect(harness.canonicalMemories.size).toBe(1);
+    expect(harness.commitCalls).toHaveLength(0);
+  });
+
+  it("times out a hung lease renewal and still attempts release", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    const originalAcquire = harness.storage.acquireMemoryCaptureWorker!.bind(harness.storage);
+    let acquisitionCalls = 0;
+    harness.storage.acquireMemoryCaptureWorker = async (...args) => {
+      acquisitionCalls += 1;
+      if (acquisitionCalls <= 2) return originalAcquire(...args);
+      return new Promise<string | null>(() => {});
+    };
+    const llm = passingValueReviewLlm(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return JSON.stringify({ memories: [] });
+    });
+
+    const processing = processAutomaticMemoryCaptureQueue(
+      { storage: harness.storage, llm },
+      { leaseHeartbeatMs: 1, leaseRequestTimeoutMs: 20 },
+    );
+
+    await expect(processing).resolves.toMatchObject({ completed: 0, retryable: 1 });
+    expect(harness.releaseCalls).toHaveLength(1);
   });
 
   it("does not reuse a colliding legacy job without an exact capture identity match", async () => {

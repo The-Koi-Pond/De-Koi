@@ -147,6 +147,22 @@ function memoryRecallStorage(
       memoryCaptureJobs.set(jobId, row);
       return row;
     },
+    async createMemoryCaptureMemory(leaseId, body) {
+      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.createMemory!(body);
+    },
+    async updateMemoryCaptureMemory(leaseId, memoryId, patch) {
+      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.updateMemory!(memoryId, patch);
+    },
+    async patchMemoryCaptureMessageExtra(leaseId, messageId, patch) {
+      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.patchChatMessageExtra(messageId, patch);
+    },
+    async rebuildMemoryCaptureIndex(leaseId, body) {
+      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.rebuildMemoryIndex!(body);
+    },
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
       if (entity === "connections") return [records["conn-1"]] as T[];
       if (entity === "personas") return [] as T[];

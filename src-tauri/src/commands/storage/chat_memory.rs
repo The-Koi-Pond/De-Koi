@@ -1711,47 +1711,54 @@ pub(crate) fn preview_chat_memory_capture(state: &AppState, body: Value) -> AppR
 async fn persist_prepared_focused_capture(
     state: &AppState,
     mut prepared: PreparedFocusedCapture,
+    lease_id: Option<&str>,
 ) -> AppResult<Value> {
     let chat = get_required(state, "chats", &prepared.chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
     let expected_key = memory_chunk_key(&prepared.source_message_ids);
     embed_chat_memory_object(&mut prepared.memory, embedding_context.as_ref()).await?;
-    let (operation, memory) = mutate_chat_memory_values_with_trigger(
-        state,
-        &prepared.chat_id,
-        super::memory_maintenance::jobs::Trigger::Capture,
-        |memories| {
-            let existing = memories.iter().find(|memory| {
-                chat_memory_is_automatic_exchange_capture(memory)
-                    && memory_chunk_key(&memory_message_ids(memory)) == expected_key
-            });
-            let operation = if let Some(existing) = existing {
-                if let Some(id) = existing.get("id").and_then(Value::as_str) {
-                    prepared
-                        .memory
-                        .insert("id".to_string(), Value::String(id.to_string()));
-                    prepared
-                        .memory
-                        .insert("legacySourceId".to_string(), Value::String(id.to_string()));
-                }
-                if let Some(created_at) = existing.get("createdAt") {
-                    prepared
-                        .memory
-                        .insert("createdAt".to_string(), created_at.clone());
-                }
-                "updated"
-            } else {
-                "created"
-            };
-            memories.retain(|memory| {
-                !(chat_memory_is_automatic_exchange_capture(memory)
-                    && memory_chunk_key(&memory_message_ids(memory)) == expected_key)
-            });
-            let memory = Value::Object(prepared.memory);
-            memories.push(memory.clone());
-            Ok((operation, memory))
-        },
-    )?;
+    let persist = || {
+        mutate_chat_memory_values_with_trigger(
+            state,
+            &prepared.chat_id,
+            super::memory_maintenance::jobs::Trigger::Capture,
+            |memories| {
+                let existing = memories.iter().find(|memory| {
+                    chat_memory_is_automatic_exchange_capture(memory)
+                        && memory_chunk_key(&memory_message_ids(memory)) == expected_key
+                });
+                let operation = if let Some(existing) = existing {
+                    if let Some(id) = existing.get("id").and_then(Value::as_str) {
+                        prepared
+                            .memory
+                            .insert("id".to_string(), Value::String(id.to_string()));
+                        prepared
+                            .memory
+                            .insert("legacySourceId".to_string(), Value::String(id.to_string()));
+                    }
+                    if let Some(created_at) = existing.get("createdAt") {
+                        prepared
+                            .memory
+                            .insert("createdAt".to_string(), created_at.clone());
+                    }
+                    "updated"
+                } else {
+                    "created"
+                };
+                memories.retain(|memory| {
+                    !(chat_memory_is_automatic_exchange_capture(memory)
+                        && memory_chunk_key(&memory_message_ids(memory)) == expected_key)
+                });
+                let memory = Value::Object(prepared.memory);
+                memories.push(memory.clone());
+                Ok((operation, memory))
+            },
+        )
+    };
+    let (operation, memory) = match lease_id {
+        Some(lease_id) => state.with_memory_capture_lease(lease_id, persist),
+        None => persist(),
+    }?;
     Ok(json!({
         "operation": operation,
         "memory": memory,
@@ -1759,6 +1766,7 @@ async fn persist_prepared_focused_capture(
 }
 
 pub(crate) async fn commit_chat_memory_capture(state: &AppState, body: Value) -> AppResult<Value> {
+    let lease_id = body.get("leaseId").and_then(Value::as_str).map(str::trim);
     let request = parse_capture_request(&body, true)?;
     let current = prepare_focused_capture(state, &request.chat_id, request.source_message_ids)?
         .ok_or_else(|| AppError::invalid_input("Automatic memory capture is no longer eligible"))?;
@@ -1767,7 +1775,7 @@ pub(crate) async fn commit_chat_memory_capture(state: &AppState, body: Value) ->
             "Automatic memory capture preview is stale",
         ));
     }
-    persist_prepared_focused_capture(state, current).await
+    persist_prepared_focused_capture(state, current, lease_id).await
 }
 
 #[cfg(test)]

@@ -64,6 +64,7 @@ export interface CommitChatMemoryCaptureInput {
   chatId: string;
   sourceMessageIds: string[];
   fingerprint: string;
+  leaseId?: string;
 }
 
 export interface CommitChatMemoryCaptureResult {
@@ -192,6 +193,18 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
     jobId: string,
     patch: Record<string, unknown>,
   ): Promise<Record<string, unknown>>;
+  createMemoryCaptureMemory?(leaseId: string, body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
+  updateMemoryCaptureMemory?(
+    leaseId: string,
+    memoryId: string,
+    patch: CanonicalMemoryPatch,
+  ): Promise<CanonicalMemoryRecord>;
+  patchMemoryCaptureMessageExtra?<T = unknown>(
+    leaseId: string,
+    messageId: string,
+    patch: Record<string, unknown>,
+  ): Promise<T>;
+  rebuildMemoryCaptureIndex?(leaseId: string, body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
   createMemory?(body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
   updateMemory?(memoryId: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord>;
   queryMemories?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;

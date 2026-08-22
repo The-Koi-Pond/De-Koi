@@ -1152,6 +1152,30 @@ pub(crate) async fn dispatch_for_runtime_owner(
             })
             .await
         }
+        "memory_capture_memory_create" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::create_memory(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_memory_update" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::update_memory(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_message_extra_patch" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::patch_message_extra(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_index_rebuild" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::rebuild_index(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "memory_index_upsert" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::upsert_memory_index_row(state, optional_value(args, "row"))
@@ -1937,6 +1961,10 @@ mod tests {
         "memory_create",
         "memory_cleanup_undo",
         "memory_capture_worker_acquire",
+        "memory_capture_memory_create",
+        "memory_capture_memory_update",
+        "memory_capture_message_extra_patch",
+        "memory_capture_index_rebuild",
         "memory_capture_job_update",
         "memory_capture_worker_release",
         "memory_maintenance_worker_acquire",

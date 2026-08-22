@@ -349,6 +349,11 @@ export const storageApi: StorageGateway = {
   acquireMemoryCaptureWorker: (workerId, leaseId) => memoryCaptureApi.acquireWorker(workerId, leaseId),
   releaseMemoryCaptureWorker: (workerId, leaseId) => memoryCaptureApi.releaseWorker(workerId, leaseId),
   updateMemoryCaptureJob: (leaseId, jobId, patch) => memoryCaptureApi.updateJob(leaseId, jobId, patch),
+  createMemoryCaptureMemory: (leaseId, body) => memoryCaptureApi.createMemory(leaseId, body),
+  updateMemoryCaptureMemory: (leaseId, memoryId, patch) => memoryCaptureApi.updateMemory(leaseId, memoryId, patch),
+  patchMemoryCaptureMessageExtra: (leaseId, messageId, patch) =>
+    memoryCaptureApi.patchMessageExtra(leaseId, messageId, patch),
+  rebuildMemoryCaptureIndex: (leaseId, body) => memoryCaptureApi.rebuildIndex(leaseId, body),
   createMemory: (body) => canonicalMemoryApi.create(body),
   updateMemory: (memoryId, patch) => canonicalMemoryApi.update(memoryId, patch),
   queryMemories: (body) => canonicalMemoryApi.query(body),
