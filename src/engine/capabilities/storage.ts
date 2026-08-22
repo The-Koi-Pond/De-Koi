@@ -185,6 +185,13 @@ export interface TrackerSnapshotSelectionQuery {
 }
 
 export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPort, ChatMetadataPort {
+  acquireMemoryCaptureWorker?(workerId: string, leaseId?: string): Promise<string | null>;
+  releaseMemoryCaptureWorker?(workerId: string, leaseId: string): Promise<void>;
+  updateMemoryCaptureJob?(
+    leaseId: string,
+    jobId: string,
+    patch: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
   createMemory?(body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
   updateMemory?(memoryId: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord>;
   queryMemories?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;

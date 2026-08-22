@@ -71,6 +71,8 @@ pub(crate) mod lorebook_images;
 pub(crate) mod managed_thumbnails;
 #[path = "storage/media_uploads.rs"]
 pub(crate) mod media_uploads;
+#[path = "storage/memory_capture.rs"]
+pub(crate) mod memory_capture;
 #[path = "storage/memory_maintenance.rs"]
 pub(crate) mod memory_maintenance;
 #[path = "storage/message_swipes.rs"]
