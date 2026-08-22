@@ -187,7 +187,10 @@ export async function buildAutomaticMemoryCaptureContext(
       referenceMessages.push(snapshot);
       if (referenceMessages.length === MAX_REFERENCE_MESSAGES) break;
     }
-    const boundary = storageOrderedPage.at(-1);
+    const boundary = storageOrderedPage
+      .slice()
+      .reverse()
+      .find((message) => readString(message.createdAt).trim() && readString(message.id).trim());
     const boundaryId = readString(boundary?.id).trim();
     const nextBefore = boundaryId ? `${readString(boundary?.createdAt).trim()}|${boundaryId}` : "";
     if (page.length < limit || !nextBefore || nextBefore >= before) break;

@@ -214,6 +214,49 @@ describe("automatic memory capture context", () => {
     expect(context?.referenceMessages.map((message) => message.id)).toEqual(["older-valid"]);
   });
 
+  it("continues when the storage page boundary has a blank timestamp", async () => {
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    const firstPage = [
+      ...Array.from({ length: 23 }, (_, index) =>
+        savedMessage(
+          `invalid-${String(index).padStart(2, "0")}`,
+          "user",
+          "invalid timestamp",
+          "2025-13-99T99:99:99.000Z",
+        ),
+      ),
+      savedMessage("blank-boundary", "user", "blank timestamp", ""),
+    ];
+    const older = savedMessage("older-valid", "user", "Older valid reference.", "2024-01-01T00:00:00.000Z");
+    const storage = {
+      async get() {
+        return { id: "persona-1", name: "Celia" };
+      },
+      async listChatMessages<T = unknown>(_chatId: string, options?: Record<string, unknown>): Promise<T[]> {
+        calls.push(options);
+        return (calls.length === 1 ? firstPage : [older]) as T[];
+      },
+    } as unknown as StorageGateway;
+    const user = savedMessage("user-current", "user", "What happened?", "2026-01-01T00:00:00.000Z");
+    const assistant = savedMessage(
+      "assistant-current",
+      "assistant",
+      "The circus accident happened.",
+      "2026-01-01T00:00:01.000Z",
+    );
+
+    const context = await buildAutomaticMemoryCaptureContext(storage, {
+      chat: { id: "chat-1", personaId: "persona-1" },
+      characters: [{ id: "pierrot", name: "Pierrot" }],
+      savedUserMessage: user,
+      savedAssistantMessage: assistant,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ before: "2025-13-99T99:99:99.000Z|invalid-00" });
+    expect(context?.referenceMessages.map((message) => message.id)).toEqual(["older-valid"]);
+  });
+
   it("continues across a page boundary shared by more than 24 equal timestamps", async () => {
     const tiedAt = "2025-01-01T00:00:00.000Z";
     const rows = Array.from({ length: 30 }, (_, index) =>
