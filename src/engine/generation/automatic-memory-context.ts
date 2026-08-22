@@ -154,7 +154,13 @@ export async function buildAutomaticMemoryCaptureContext(
       })
       .catch(() => []);
     if (page.length === 0) break;
-    const orderedPage = page.slice(0, limit).sort((left, right) => {
+    const storageOrderedPage = page.slice(0, limit).sort((left, right) => {
+      return (
+        readString(right.createdAt).localeCompare(readString(left.createdAt)) ||
+        readString(right.id).localeCompare(readString(left.id))
+      );
+    });
+    const orderedPage = storageOrderedPage.slice().sort((left, right) => {
       const leftAt = parseIsoTimestamp(readString(left.createdAt).trim());
       const rightAt = parseIsoTimestamp(readString(right.createdAt).trim());
       return (
@@ -181,10 +187,9 @@ export async function buildAutomaticMemoryCaptureContext(
       referenceMessages.push(snapshot);
       if (referenceMessages.length === MAX_REFERENCE_MESSAGES) break;
     }
-    const nextBefore = orderedPage
-      .map((message) => readString(message.createdAt).trim())
-      .filter((value) => parseIsoTimestamp(value) !== null)
-      .at(-1);
+    const boundary = storageOrderedPage.at(-1);
+    const boundaryId = readString(boundary?.id).trim();
+    const nextBefore = boundaryId ? `${readString(boundary?.createdAt).trim()}|${boundaryId}` : "";
     if (page.length < limit || !nextBefore || nextBefore >= before) break;
     before = nextBefore;
   }

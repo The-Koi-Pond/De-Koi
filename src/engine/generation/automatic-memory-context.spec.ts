@@ -174,6 +174,108 @@ describe("automatic memory capture context", () => {
     ]);
   });
 
+  it("continues past a full page of invalid timestamps", async () => {
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    const invalidPage = Array.from({ length: 24 }, (_, index) =>
+      savedMessage(
+        `invalid-${String(index).padStart(2, "0")}`,
+        "user",
+        "invalid timestamp",
+        "2025-13-99T99:99:99.000Z",
+      ),
+    );
+    const older = savedMessage("older-valid", "user", "Older valid reference.", "2024-01-01T00:00:00.000Z");
+    const storage = {
+      async get() {
+        return { id: "persona-1", name: "Celia" };
+      },
+      async listChatMessages<T = unknown>(_chatId: string, options?: Record<string, unknown>): Promise<T[]> {
+        calls.push(options);
+        return (calls.length === 1 ? invalidPage : [older]) as T[];
+      },
+    } as unknown as StorageGateway;
+    const user = savedMessage("user-current", "user", "What happened?", "2026-01-01T00:00:00.000Z");
+    const assistant = savedMessage(
+      "assistant-current",
+      "assistant",
+      "The circus accident happened.",
+      "2026-01-01T00:00:01.000Z",
+    );
+
+    const context = await buildAutomaticMemoryCaptureContext(storage, {
+      chat: { id: "chat-1", personaId: "persona-1" },
+      characters: [{ id: "pierrot", name: "Pierrot" }],
+      savedUserMessage: user,
+      savedAssistantMessage: assistant,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ before: "2025-13-99T99:99:99.000Z|invalid-00" });
+    expect(context?.referenceMessages.map((message) => message.id)).toEqual(["older-valid"]);
+  });
+
+  it("continues across a page boundary shared by more than 24 equal timestamps", async () => {
+    const tiedAt = "2025-01-01T00:00:00.000Z";
+    const rows = Array.from({ length: 30 }, (_, index) =>
+      savedMessage(
+        `tie-${String(index).padStart(2, "0")}`,
+        "user",
+        `tied message ${index}`,
+        tiedAt,
+        index >= 6 ? { extra: { hiddenFromAI: true } } : {},
+      ),
+    );
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    const storage = {
+      async get() {
+        return { id: "persona-1", name: "Celia" };
+      },
+      async listChatMessages<T = unknown>(_chatId: string, options?: Record<string, unknown>): Promise<T[]> {
+        calls.push(options);
+        const [cursorAt, cursorId] = String(options?.before ?? "").split("|", 2);
+        return rows
+          .filter(
+            (row) =>
+              String(row.createdAt) < cursorAt ||
+              (String(row.createdAt) === cursorAt && Boolean(cursorId) && String(row.id) < cursorId),
+          )
+          .sort(
+            (left, right) =>
+              String(right.createdAt).localeCompare(String(left.createdAt)) ||
+              String(right.id).localeCompare(String(left.id)),
+          )
+          .slice(0, 24) as T[];
+      },
+    } as unknown as StorageGateway;
+    const user = savedMessage("user-current", "user", "What happened?", "2026-01-01T00:00:00.000Z");
+    const assistant = savedMessage(
+      "assistant-current",
+      "assistant",
+      "The circus accident happened.",
+      "2026-01-01T00:00:01.000Z",
+    );
+
+    const context = await buildAutomaticMemoryCaptureContext(storage, {
+      chat: { id: "chat-1", personaId: "persona-1" },
+      characters: [{ id: "pierrot", name: "Pierrot" }],
+      savedUserMessage: user,
+      savedAssistantMessage: assistant,
+    });
+
+    expect(calls.map((options) => options?.before)).toEqual([
+      "2026-01-01T00:00:00.000Z",
+      "2025-01-01T00:00:00.000Z|tie-06",
+    ]);
+    expect(context?.referenceMessages.map((message) => message.id)).toEqual([
+      "tie-00",
+      "tie-01",
+      "tie-02",
+      "tie-03",
+      "tie-04",
+      "tie-05",
+    ]);
+  });
+
   it("stops paging after scanning 120 unusable reference messages", async () => {
     let calls = 0;
     const sourceTime = Date.parse("2026-01-02T00:00:00.000Z");
