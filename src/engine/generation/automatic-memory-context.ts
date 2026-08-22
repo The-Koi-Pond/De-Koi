@@ -3,8 +3,9 @@ import type { CharacterMemoryScopeCharacter } from "./character-memory-scope";
 import { hiddenFromAi, parseRecord, readString, type JsonRecord } from "./runtime-records";
 
 const MAX_REFERENCE_MESSAGES = 6;
-const ISO_TIMESTAMP =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const REFERENCE_MESSAGE_PAGE_SIZE = 24;
+const MAX_REFERENCE_MESSAGES_SCANNED = 120;
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 export interface AutomaticMemorySourceMessage {
   id: string;
@@ -131,23 +132,63 @@ export async function buildAutomaticMemoryCaptureContext(
 
   const sourceIds = new Set(sourceMessages.map((message) => message.id));
   const firstSourceAt = parseIsoTimestamp(sourceMessages[0]?.createdAt ?? "");
-  const storedMessages = await storage
-    .listChatMessages<JsonRecord>(chatId, {
-      fields: ["id", "chatId", "role", "content", "characterId", "createdAt", "extra"],
-    })
-    .catch(() => []);
-  const referenceMessages = storedMessages
-    .filter((message) => readString(message.chatId).trim() === chatId)
-    .filter((message) => !sourceIds.has(readString(message.id).trim()))
-    .filter((message) => !hiddenFromAi(message))
-    .map((message) => automaticMemorySourceSnapshot(message, speakerContext))
-    .filter((message): message is AutomaticMemorySourceMessage => message !== null)
-    .filter((message) => {
-      const createdAt = parseIsoTimestamp(message.createdAt);
-      return firstSourceAt !== null && createdAt !== null && createdAt < firstSourceAt;
-    })
-    .sort(chronological)
-    .slice(-MAX_REFERENCE_MESSAGES);
+  const referenceMessages: AutomaticMemorySourceMessage[] = [];
+  const seenReferenceIds = new Set<string>();
+  let scanned = 0;
+  let before = sourceMessages[0]?.createdAt ?? "";
+  while (
+    firstSourceAt !== null &&
+    before &&
+    scanned < MAX_REFERENCE_MESSAGES_SCANNED &&
+    referenceMessages.length < MAX_REFERENCE_MESSAGES
+  ) {
+    const remaining = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
+    const limit = Math.min(REFERENCE_MESSAGE_PAGE_SIZE, remaining);
+    const page = await storage
+      .listChatMessages<JsonRecord>(chatId, {
+        orderBy: "createdAt",
+        descending: true,
+        before,
+        limit,
+        fields: ["id", "chatId", "role", "content", "characterId", "createdAt", "extra"],
+      })
+      .catch(() => []);
+    if (page.length === 0) break;
+    const orderedPage = page.slice(0, limit).sort((left, right) => {
+      const leftAt = parseIsoTimestamp(readString(left.createdAt).trim());
+      const rightAt = parseIsoTimestamp(readString(right.createdAt).trim());
+      return (
+        (leftAt !== null && rightAt !== null ? rightAt - leftAt : 0) ||
+        readString(right.id).localeCompare(readString(left.id))
+      );
+    });
+    scanned += orderedPage.length;
+    for (const message of orderedPage) {
+      const id = readString(message.id).trim();
+      if (
+        !id ||
+        seenReferenceIds.has(id) ||
+        readString(message.chatId).trim() !== chatId ||
+        sourceIds.has(id) ||
+        hiddenFromAi(message)
+      ) {
+        continue;
+      }
+      seenReferenceIds.add(id);
+      const snapshot = automaticMemorySourceSnapshot(message, speakerContext);
+      const createdAt = snapshot ? parseIsoTimestamp(snapshot.createdAt) : null;
+      if (!snapshot || createdAt === null || createdAt >= firstSourceAt) continue;
+      referenceMessages.push(snapshot);
+      if (referenceMessages.length === MAX_REFERENCE_MESSAGES) break;
+    }
+    const nextBefore = orderedPage
+      .map((message) => readString(message.createdAt).trim())
+      .filter((value) => parseIsoTimestamp(value) !== null)
+      .at(-1);
+    if (page.length < limit || !nextBefore || nextBefore >= before) break;
+    before = nextBefore;
+  }
+  referenceMessages.sort(chronological);
 
   return { userLabel, characterLabels, sourceMessages, referenceMessages };
 }

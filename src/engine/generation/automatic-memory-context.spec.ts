@@ -123,6 +123,98 @@ describe("automatic memory capture context", () => {
     expect([...(context?.referenceMessages ?? []), ...(context?.sourceMessages ?? [])]).toHaveLength(8);
   });
 
+  it("requests a bounded descending page before the source exchange", async () => {
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    const prior = Array.from({ length: 12 }, (_, index) =>
+      savedMessage(
+        `prior-${index}`,
+        index % 2 === 0 ? "user" : "assistant",
+        `prior message ${index}`,
+        `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`,
+      ),
+    ).reverse();
+    const storage = {
+      async get() {
+        return { id: "persona-1", name: "Celia" };
+      },
+      async listChatMessages<T = unknown>(_chatId: string, options?: Record<string, unknown>): Promise<T[]> {
+        calls.push(options);
+        return prior as T[];
+      },
+    } as unknown as StorageGateway;
+    const user = savedMessage("user-current", "user", "What happened?", "2026-01-01T00:12:00.000Z");
+    const assistant = savedMessage(
+      "assistant-current",
+      "assistant",
+      "The circus accident happened.",
+      "2026-01-01T00:13:00.000Z",
+    );
+
+    const context = await buildAutomaticMemoryCaptureContext(storage, {
+      chat: { id: "chat-1", personaId: "persona-1" },
+      characters: [{ id: "pierrot", name: "Pierrot" }],
+      savedUserMessage: user,
+      savedAssistantMessage: assistant,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      orderBy: "createdAt",
+      descending: true,
+      before: "2026-01-01T00:12:00.000Z",
+      limit: 24,
+    });
+    expect(context?.referenceMessages.map((message) => message.id)).toEqual([
+      "prior-6",
+      "prior-7",
+      "prior-8",
+      "prior-9",
+      "prior-10",
+      "prior-11",
+    ]);
+  });
+
+  it("stops paging after scanning 120 unusable reference messages", async () => {
+    let calls = 0;
+    const sourceTime = Date.parse("2026-01-02T00:00:00.000Z");
+    const storage = {
+      async get() {
+        return { id: "persona-1", name: "Celia" };
+      },
+      async listChatMessages<T = unknown>(): Promise<T[]> {
+        const page = Array.from({ length: 24 }, (_, index) => {
+          const ordinal = calls * 24 + index + 1;
+          return savedMessage(
+            `hidden-${ordinal}`,
+            "user",
+            "hidden",
+            new Date(sourceTime - ordinal * 1_000).toISOString(),
+            { extra: { hiddenFromAI: true } },
+          );
+        });
+        calls += 1;
+        return page as T[];
+      },
+    } as unknown as StorageGateway;
+    const user = savedMessage("user-current", "user", "What happened?", new Date(sourceTime).toISOString());
+    const assistant = savedMessage(
+      "assistant-current",
+      "assistant",
+      "The circus accident happened.",
+      new Date(sourceTime + 1_000).toISOString(),
+    );
+
+    const context = await buildAutomaticMemoryCaptureContext(storage, {
+      chat: { id: "chat-1", personaId: "persona-1" },
+      characters: [{ id: "pierrot", name: "Pierrot" }],
+      savedUserMessage: user,
+      savedAssistantMessage: assistant,
+    });
+
+    expect(calls).toBe(5);
+    expect(context?.referenceMessages).toEqual([]);
+  });
+
   it("excludes reference messages that cannot be proven to precede the source exchange", async () => {
     const validPrior = savedMessage("valid-prior", "user", "The circus accident?", "2026-01-01T00:09:00.000Z");
     const missingTimestamp = savedMessage("missing-time", "user", "Unknown order.", "");
