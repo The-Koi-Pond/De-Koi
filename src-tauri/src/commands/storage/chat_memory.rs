@@ -398,15 +398,14 @@ fn insert_memory_embedding_fields(memory: &mut Map<String, Value>, result: Memor
     memory.insert("hasEmbedding".to_string(), json!(true));
     memory.insert("embeddingStatus".to_string(), json!("vectorized"));
     memory.insert("embeddingSource".to_string(), json!(result.source));
-    if let Some(connection_id) = result.connection_id {
-        memory.insert(
-            "embeddingConnectionId".to_string(),
-            Value::String(connection_id),
-        );
-    }
-    if let Some(model) = result.model {
-        memory.insert("embeddingModel".to_string(), Value::String(model));
-    }
+    memory.insert(
+        "embeddingConnectionId".to_string(),
+        result.connection_id.map(Value::String).unwrap_or(Value::Null),
+    );
+    memory.insert(
+        "embeddingModel".to_string(),
+        result.model.map(Value::String).unwrap_or(Value::Null),
+    );
 }
 
 fn remove_memory_embedding_fields(memory: &mut Map<String, Value>) {
@@ -3384,7 +3383,9 @@ mod tests {
                             "hasEmbedding": true,
                             "embedding": [1, 0, 0],
                             "embeddingStatus": "vectorized",
-                            "embeddingSource": "lexical"
+                            "embeddingSource": "provider",
+                            "embeddingConnectionId": "stale-provider-connection",
+                            "embeddingModel": "stale-provider-model"
                         }
                     ]
                 }),
@@ -3406,6 +3407,9 @@ mod tests {
         let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
         assert_eq!(chat["memories"][0]["userEdited"], json!(true));
         assert_eq!(chat["memories"][0]["hasEmbedding"], json!(true));
+        assert_eq!(chat["memories"][0]["embeddingSource"], json!("lexical"));
+        assert!(chat["memories"][0]["embeddingConnectionId"].is_null());
+        assert!(chat["memories"][0]["embeddingModel"].is_null());
         assert!(chat["memories"][0]["embedding"].as_array().unwrap().len() > 8);
 
         let mut embedding_missing = chat["memories"][0].as_object().unwrap().clone();
@@ -4472,8 +4476,8 @@ mod tests {
         );
         for memory in memories {
             assert_eq!(memory["embeddingSource"], json!("lexical"));
-            assert!(memory.get("embeddingConnectionId").is_none());
-            assert!(memory.get("embeddingModel").is_none());
+            assert!(memory["embeddingConnectionId"].is_null());
+            assert!(memory["embeddingModel"].is_null());
         }
     }
 
@@ -4566,8 +4570,8 @@ mod tests {
             .expect("chat should read")
             .expect("chat should exist");
         assert_eq!(chat["memories"][0]["embeddingSource"], json!("lexical"));
-        assert!(chat["memories"][0].get("embeddingConnectionId").is_none());
-        assert!(chat["memories"][0].get("embeddingModel").is_none());
+        assert!(chat["memories"][0]["embeddingConnectionId"].is_null());
+        assert!(chat["memories"][0]["embeddingModel"].is_null());
     }
 
     #[tokio::test]
