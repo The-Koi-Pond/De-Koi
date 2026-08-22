@@ -186,6 +186,7 @@ const REMOTE_COMMANDS = new Set([
   "memory_maintenance_job_update",
   "memory_maintenance_worker_release",
   "memory_index_upsert",
+  "memory_index_health",
   "memory_index_delete_for_memory",
   "memory_index_rebuild_lexical",
   "memory_index_query",

@@ -454,6 +454,7 @@ pub fn run() {
             storage_commands::memory_commands::memory_index_upsert,
             storage_commands::memory_commands::memory_index_delete_for_memory,
             storage_commands::memory_commands::memory_index_rebuild_lexical,
+            storage_commands::memory_commands::memory_index_health,
             storage_commands::memory_commands::memory_index_query,
             storage_commands::memory_commands::memory_index_query_batch,
             storage_commands::agent_commands::admin_expunge_command,

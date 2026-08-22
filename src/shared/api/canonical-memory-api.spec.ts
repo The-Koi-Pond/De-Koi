@@ -61,6 +61,7 @@ describe("canonicalMemoryApi", () => {
     await canonicalMemoryApi.index.deleteForMemory("memory-1");
     await canonicalMemoryApi.index.rebuildLexical({ scope: { kind: "chat", id: "chat-1" } });
     await canonicalMemoryApi.index.query({ scope: { kind: "chat", id: "chat-1" } });
+    await canonicalMemoryApi.index.health();
 
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(1, "memory_index_upsert", { row });
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(2, "memory_index_delete_for_memory", {
@@ -72,6 +73,7 @@ describe("canonicalMemoryApi", () => {
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(4, "memory_index_query", {
       body: { scope: { kind: "chat", id: "chat-1" } },
     });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(5, "memory_index_health");
   });
 
   it("routes provider-backed semantic retrieval through one focused command", async () => {

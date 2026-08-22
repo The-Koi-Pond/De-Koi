@@ -36,6 +36,7 @@ describe("memory maintenance remote routing", () => {
     expect(isRemoteCommand("memory_maintenance_worker_acquire")).toBe(true);
     expect(isRemoteCommand("memory_maintenance_job_update")).toBe(true);
     expect(isRemoteCommand("memory_maintenance_worker_release")).toBe(true);
+    expect(isRemoteCommand("memory_index_health")).toBe(true);
   });
 
   it("explicitly allows automatic memory capture preview and commit", () => {
