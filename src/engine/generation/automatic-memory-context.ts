@@ -198,16 +198,17 @@ export async function buildAutomaticMemoryCaptureContext(
       break;
     }
     if (page.length < requestedLimit) break;
-    if (!nextBefore) {
-      const expandedLimit = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
-      if (expandedLimit > requestedLimit) {
-        expandedPageLimit = expandedLimit;
-        continue;
-      }
-      break;
+    if (nextBefore) {
+      if (nextBefore >= before) break;
+      before = nextBefore;
+      continue;
     }
-    if (nextBefore >= before) break;
-    before = nextBefore;
+    const expandedLimit = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
+    if (expandedLimit > requestedLimit) {
+      expandedPageLimit = expandedLimit;
+      continue;
+    }
+    break;
   }
   referenceMessages.sort(chronological);
 
