@@ -3,8 +3,9 @@ import type { CharacterMemoryScopeCharacter } from "./character-memory-scope";
 import { hiddenFromAi, parseRecord, readString, type JsonRecord } from "./runtime-records";
 
 const MAX_REFERENCE_MESSAGES = 6;
-const ISO_TIMESTAMP =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const REFERENCE_MESSAGE_PAGE_SIZE = 24;
+const MAX_REFERENCE_MESSAGES_SCANNED = 120;
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 export interface AutomaticMemorySourceMessage {
   id: string;
@@ -131,23 +132,80 @@ export async function buildAutomaticMemoryCaptureContext(
 
   const sourceIds = new Set(sourceMessages.map((message) => message.id));
   const firstSourceAt = parseIsoTimestamp(sourceMessages[0]?.createdAt ?? "");
-  const storedMessages = await storage
-    .listChatMessages<JsonRecord>(chatId, {
-      fields: ["id", "chatId", "role", "content", "characterId", "createdAt", "extra"],
-    })
-    .catch(() => []);
-  const referenceMessages = storedMessages
-    .filter((message) => readString(message.chatId).trim() === chatId)
-    .filter((message) => !sourceIds.has(readString(message.id).trim()))
-    .filter((message) => !hiddenFromAi(message))
-    .map((message) => automaticMemorySourceSnapshot(message, speakerContext))
-    .filter((message): message is AutomaticMemorySourceMessage => message !== null)
-    .filter((message) => {
-      const createdAt = parseIsoTimestamp(message.createdAt);
-      return firstSourceAt !== null && createdAt !== null && createdAt < firstSourceAt;
-    })
-    .sort(chronological)
-    .slice(-MAX_REFERENCE_MESSAGES);
+  const referenceMessages: AutomaticMemorySourceMessage[] = [];
+  const seenReferenceIds = new Set<string>();
+  let scanned = 0;
+  let before = sourceMessages[0]?.createdAt ?? "";
+  let rawOffset = 0;
+  while (
+    firstSourceAt !== null &&
+    before &&
+    scanned < MAX_REFERENCE_MESSAGES_SCANNED &&
+    referenceMessages.length < MAX_REFERENCE_MESSAGES
+  ) {
+    const remaining = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
+    const requestedLimit = Math.min(REFERENCE_MESSAGE_PAGE_SIZE, remaining);
+    const page = await storage
+      .listChatMessages<JsonRecord>(chatId, {
+        orderBy: "createdAt",
+        descending: true,
+        before,
+        limit: requestedLimit,
+        ...(rawOffset > 0 ? { rawOffset } : {}),
+        fields: ["id", "chatId", "role", "content", "characterId", "createdAt", "extra"],
+      })
+      .catch(() => []);
+    if (page.length === 0) break;
+    const storageOrderedPage = page.slice(0, requestedLimit).sort((left, right) => {
+      return (
+        readString(right.createdAt).localeCompare(readString(left.createdAt)) ||
+        readString(right.id).localeCompare(readString(left.id))
+      );
+    });
+    const orderedPage = storageOrderedPage.slice().sort((left, right) => {
+      const leftAt = parseIsoTimestamp(readString(left.createdAt).trim());
+      const rightAt = parseIsoTimestamp(readString(right.createdAt).trim());
+      return (
+        (leftAt !== null && rightAt !== null ? rightAt - leftAt : 0) ||
+        readString(right.id).localeCompare(readString(left.id))
+      );
+    });
+    scanned += orderedPage.length;
+    for (const message of orderedPage) {
+      const id = readString(message.id).trim();
+      if (
+        !id ||
+        seenReferenceIds.has(id) ||
+        readString(message.chatId).trim() !== chatId ||
+        sourceIds.has(id) ||
+        hiddenFromAi(message)
+      ) {
+        continue;
+      }
+      seenReferenceIds.add(id);
+      const snapshot = automaticMemorySourceSnapshot(message, speakerContext);
+      const createdAt = snapshot ? parseIsoTimestamp(snapshot.createdAt) : null;
+      if (!snapshot || createdAt === null || createdAt >= firstSourceAt) continue;
+      referenceMessages.push(snapshot);
+      if (referenceMessages.length === MAX_REFERENCE_MESSAGES) break;
+    }
+    let nextBefore = "";
+    for (let index = storageOrderedPage.length - 1; index >= 0; index -= 1) {
+      const boundaryCreatedAt = readString(storageOrderedPage[index]?.createdAt).trim();
+      const boundaryId = readString(storageOrderedPage[index]?.id).trim();
+      if (parseIsoTimestamp(boundaryCreatedAt) === null || !boundaryId) continue;
+      nextBefore = `${boundaryCreatedAt}|${boundaryId}`;
+      break;
+    }
+    if (nextBefore) {
+      if (nextBefore >= before) break;
+      before = nextBefore;
+      rawOffset = 0;
+      continue;
+    }
+    rawOffset += page.length;
+  }
+  referenceMessages.sort(chronological);
 
   return { userLabel, characterLabels, sourceMessages, referenceMessages };
 }

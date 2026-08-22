@@ -205,7 +205,7 @@ fn storage_list_inner_impl(
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             if !has_search {
-                if let Some((limit, before)) = message_page_options(options.as_ref()) {
+                if let Some((limit, before, raw_offset)) = message_page_options(options.as_ref()) {
                     if let Some(fields) = projection_fields
                         .as_ref()
                         .filter(|fields| !fields.is_empty())
@@ -214,6 +214,7 @@ fn storage_list_inner_impl(
                             chat_id,
                             limit,
                             before.as_deref(),
+                            raw_offset,
                             &message_projection_fields_for_materialization(
                                 fields,
                                 options.as_ref(),
@@ -225,6 +226,7 @@ fn storage_list_inner_impl(
                             chat_id,
                             limit,
                             before.as_deref(),
+                            raw_offset,
                         )?
                     }
                 } else if message_id_projection_only(options.as_ref()) {
@@ -6783,6 +6785,38 @@ mod tests {
         .expect("projected message list should succeed");
 
         assert_eq!(result, json!([{ "id": "older", "content": "older" }]));
+    }
+
+    #[test]
+    fn storage_list_projected_messages_honors_raw_offset() {
+        let state = test_state("message-projection-raw-offset");
+        state
+            .storage
+            .replace_all(
+                "messages",
+                vec![
+                    json!({ "id": "oldest", "chatId": "chat-1", "createdAt": "2026-01-01T00:00:00Z", "content": "oldest" }),
+                    json!({ "id": "middle", "chatId": "chat-1", "createdAt": "2026-01-02T00:00:00Z", "content": "middle" }),
+                    json!({ "id": "newest", "chatId": "chat-1", "createdAt": "2026-01-03T00:00:00Z", "content": "newest" }),
+                ],
+            )
+            .expect("messages should be seeded");
+
+        let result = storage_list_inner(
+            &state,
+            "messages".to_string(),
+            Some(json!({
+                "filters": { "chatId": "chat-1" },
+                "fields": ["id", "content"],
+                "orderBy": "createdAt",
+                "descending": true,
+                "limit": 1,
+                "rawOffset": 1
+            })),
+        )
+        .expect("raw-offset message list should succeed");
+
+        assert_eq!(result, json!([{ "id": "middle", "content": "middle" }]));
     }
 
     #[test]

@@ -188,7 +188,7 @@ pub(super) fn messages(
         .clamp(1, CHAT_MESSAGES_MAX_LIMIT);
     let rows = state
         .storage
-        .list_messages_for_chat_page(&chat_id, limit, args.before.as_deref())?
+        .list_messages_for_chat_page(&chat_id, limit, args.before.as_deref(), 0)?
         .into_iter()
         .map(project_message)
         .collect::<Vec<_>>();
@@ -266,7 +266,7 @@ pub(super) fn prompt_context(
             .clamp(1, CHAT_MESSAGES_MAX_LIMIT);
         let messages = state
             .storage
-            .list_messages_for_chat_page(chat_id, limit, None)?
+            .list_messages_for_chat_page(chat_id, limit, None, 0)?
             .into_iter()
             .map(project_message)
             .collect::<Vec<_>>();

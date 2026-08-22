@@ -126,7 +126,9 @@ pub(super) fn message_projection_fields_for_materialization(
     projection
 }
 
-pub(super) fn message_page_options(options: Option<&Value>) -> Option<(usize, Option<String>)> {
+pub(super) fn message_page_options(
+    options: Option<&Value>,
+) -> Option<(usize, Option<String>, usize)> {
     let options = options?;
     let limit = options.get("limit").and_then(Value::as_u64)? as usize;
     let before = options
@@ -135,7 +137,12 @@ pub(super) fn message_page_options(options: Option<&Value>) -> Option<(usize, Op
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-    Some((limit, before))
+    let raw_offset = options
+        .get("rawOffset")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(0);
+    Some((limit, before, raw_offset))
 }
 
 pub(super) fn storage_get_projection_fields_for_read(
