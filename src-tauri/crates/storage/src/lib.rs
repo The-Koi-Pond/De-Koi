@@ -232,6 +232,13 @@ struct PreparedCollectionReplacements {
     pending: Vec<PendingCollectionReplacement>,
 }
 
+#[derive(Clone, Copy)]
+struct MessagePageWindow<'a> {
+    limit: usize,
+    before: Option<&'a str>,
+    raw_offset: usize,
+}
+
 fn take_requested_replacements(entries: Vec<AtomicCollectionRows>) -> Vec<(String, Vec<Value>)> {
     entries
         .into_iter()
@@ -2876,9 +2883,11 @@ impl FileStorage {
     ) -> AppResult<Vec<Value>> {
         self.read_messages_for_chat_page_projected_inner(
             chat_id,
-            limit,
-            before,
-            raw_offset,
+            MessagePageWindow {
+                limit,
+                before,
+                raw_offset,
+            },
             fields,
             field_selections,
             true,
@@ -2896,9 +2905,11 @@ impl FileStorage {
     ) -> AppResult<Vec<Value>> {
         self.read_messages_for_chat_page_projected_inner(
             chat_id,
-            limit,
-            before,
-            raw_offset,
+            MessagePageWindow {
+                limit,
+                before,
+                raw_offset,
+            },
             fields,
             field_selections,
             false,
@@ -2908,14 +2919,12 @@ impl FileStorage {
     fn read_messages_for_chat_page_projected_inner(
         &self,
         chat_id: &str,
-        limit: usize,
-        before: Option<&str>,
-        raw_offset: usize,
+        page: MessagePageWindow<'_>,
         fields: &[String],
         field_selections: &Map<String, Value>,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
-        if limit == 0 || fields.is_empty() {
+        if page.limit == 0 || fields.is_empty() {
             return Ok(Vec::new());
         }
 
@@ -2926,7 +2935,7 @@ impl FileStorage {
                 .into_iter()
                 .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
                 .collect::<Vec<_>>();
-            apply_message_page(&mut rows, limit, before, raw_offset);
+            apply_message_page(&mut rows, page.limit, page.before, page.raw_offset);
             return Ok(rows
                 .into_iter()
                 .map(|row| project_row(row, &field_set, &nested_field_sets))
@@ -2941,9 +2950,9 @@ impl FileStorage {
         match read_pretty_projected_message_page_from_file(
             &path,
             chat_id,
-            limit,
-            before,
-            raw_offset,
+            page.limit,
+            page.before,
+            page.raw_offset,
             &field_set,
             &nested_field_sets,
         ) {
@@ -2957,7 +2966,7 @@ impl FileStorage {
         } else {
             self.read_messages_for_chat_no_recovery(chat_id)?
         };
-        apply_message_page(&mut rows, limit, before, raw_offset);
+        apply_message_page(&mut rows, page.limit, page.before, page.raw_offset);
         Ok(rows
             .into_iter()
             .map(|row| project_row(row, &field_set, &nested_field_sets))
