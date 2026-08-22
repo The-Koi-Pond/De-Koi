@@ -1,3 +1,5 @@
+import { sha256Hex } from "../../shared/lib/extension-device-consent";
+
 function legacyHash(value: string): string {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -12,7 +14,5 @@ export function legacyMemoryId(prefix: string, identity: string): string {
 }
 
 export async function sha256MemoryId(prefix: string, identity: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity));
-  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${prefix}-${hex}`;
+  return `${prefix}-${await sha256Hex(new TextEncoder().encode(identity))}`;
 }
