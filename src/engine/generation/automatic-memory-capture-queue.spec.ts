@@ -299,7 +299,7 @@ describe("automatic memory capture queue", () => {
 
     expect(job?.id).not.toBe(legacyId);
     expect(job?.chatId).toBe("chat-1");
-    expect(harness.jobs).toHaveLength(2);
+    expect(harness.jobs.size).toBe(2);
   });
 
   it("reuses a matching legacy job id", async () => {
@@ -318,7 +318,7 @@ describe("automatic memory capture queue", () => {
     const job = await harness.enqueue();
 
     expect(job?.id).toBe(legacyId);
-    expect(harness.jobs).toHaveLength(1);
+    expect(harness.jobs.size).toBe(1);
   });
 
   it("resolves the dedicated background connection when the queued job runs", async () => {

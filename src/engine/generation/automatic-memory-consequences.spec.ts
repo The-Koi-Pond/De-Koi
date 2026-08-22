@@ -267,7 +267,7 @@ describe("automatic canonical-memory consequence extraction", () => {
       now: "2026-07-19T10:00:00.000Z",
     });
 
-    expect(memories).toHaveLength(1);
+    expect(memories.size).toBe(1);
     expect(result.affected).toEqual([
       expect.objectContaining({ operation: "updated", memory: expect.objectContaining({ id: legacyId }) }),
     ]);
