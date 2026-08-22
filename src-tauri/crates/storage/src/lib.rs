@@ -232,6 +232,13 @@ struct PreparedCollectionReplacements {
     pending: Vec<PendingCollectionReplacement>,
 }
 
+#[derive(Clone, Copy)]
+struct MessagePageWindow<'a> {
+    limit: usize,
+    before: Option<&'a str>,
+    raw_offset: usize,
+}
+
 fn take_requested_replacements(entries: Vec<AtomicCollectionRows>) -> Vec<(String, Vec<Value>)> {
     entries
         .into_iter()
@@ -672,10 +679,11 @@ impl FileStorage {
         chat_id: &str,
         limit: usize,
         before: Option<&str>,
+        raw_offset: usize,
     ) -> AppResult<Vec<Value>> {
         self.read_locked_or_recover(
-            || self.read_messages_for_chat_page_no_recovery(chat_id, limit, before),
-            || self.read_messages_for_chat_page(chat_id, limit, before),
+            || self.read_messages_for_chat_page_no_recovery(chat_id, limit, before, raw_offset),
+            || self.read_messages_for_chat_page(chat_id, limit, before, raw_offset),
         )
     }
 
@@ -684,6 +692,7 @@ impl FileStorage {
         chat_id: &str,
         limit: usize,
         before: Option<&str>,
+        raw_offset: usize,
         fields: &[String],
         field_selections: &Map<String, Value>,
     ) -> AppResult<Vec<Value>> {
@@ -693,6 +702,7 @@ impl FileStorage {
                     chat_id,
                     limit,
                     before,
+                    raw_offset,
                     fields,
                     field_selections,
                 )
@@ -702,6 +712,7 @@ impl FileStorage {
                     chat_id,
                     limit,
                     before,
+                    raw_offset,
                     fields,
                     field_selections,
                 )
@@ -2807,8 +2818,9 @@ impl FileStorage {
         chat_id: &str,
         limit: usize,
         before: Option<&str>,
+        raw_offset: usize,
     ) -> AppResult<Vec<Value>> {
-        self.read_messages_for_chat_page_inner(chat_id, limit, before, true)
+        self.read_messages_for_chat_page_inner(chat_id, limit, before, raw_offset, true)
     }
 
     fn read_messages_for_chat_page_no_recovery(
@@ -2816,8 +2828,9 @@ impl FileStorage {
         chat_id: &str,
         limit: usize,
         before: Option<&str>,
+        raw_offset: usize,
     ) -> AppResult<Vec<Value>> {
-        self.read_messages_for_chat_page_inner(chat_id, limit, before, false)
+        self.read_messages_for_chat_page_inner(chat_id, limit, before, raw_offset, false)
     }
 
     fn read_messages_for_chat_page_inner(
@@ -2825,6 +2838,7 @@ impl FileStorage {
         chat_id: &str,
         limit: usize,
         before: Option<&str>,
+        raw_offset: usize,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
         if limit == 0 {
@@ -2835,7 +2849,7 @@ impl FileStorage {
                 .into_iter()
                 .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
                 .collect::<Vec<_>>();
-            apply_message_page(&mut rows, limit, before);
+            apply_message_page(&mut rows, limit, before, raw_offset);
             return Ok(rows);
         }
         let path = self.collection_path("messages")?;
@@ -2843,7 +2857,7 @@ impl FileStorage {
             return Ok(Vec::new());
         }
 
-        match read_pretty_message_page_from_file(&path, chat_id, limit, before) {
+        match read_pretty_message_page_from_file(&path, chat_id, limit, before, raw_offset) {
             Ok(Some(rows)) => return Ok(rows),
             Ok(None) => {}
             Err(_) => {}
@@ -2854,7 +2868,7 @@ impl FileStorage {
         } else {
             self.read_messages_for_chat_no_recovery(chat_id)?
         };
-        apply_message_page(&mut rows, limit, before);
+        apply_message_page(&mut rows, limit, before, raw_offset);
         Ok(rows)
     }
 
@@ -2863,13 +2877,17 @@ impl FileStorage {
         chat_id: &str,
         limit: usize,
         before: Option<&str>,
+        raw_offset: usize,
         fields: &[String],
         field_selections: &Map<String, Value>,
     ) -> AppResult<Vec<Value>> {
         self.read_messages_for_chat_page_projected_inner(
             chat_id,
-            limit,
-            before,
+            MessagePageWindow {
+                limit,
+                before,
+                raw_offset,
+            },
             fields,
             field_selections,
             true,
@@ -2881,13 +2899,17 @@ impl FileStorage {
         chat_id: &str,
         limit: usize,
         before: Option<&str>,
+        raw_offset: usize,
         fields: &[String],
         field_selections: &Map<String, Value>,
     ) -> AppResult<Vec<Value>> {
         self.read_messages_for_chat_page_projected_inner(
             chat_id,
-            limit,
-            before,
+            MessagePageWindow {
+                limit,
+                before,
+                raw_offset,
+            },
             fields,
             field_selections,
             false,
@@ -2897,13 +2919,12 @@ impl FileStorage {
     fn read_messages_for_chat_page_projected_inner(
         &self,
         chat_id: &str,
-        limit: usize,
-        before: Option<&str>,
+        page: MessagePageWindow<'_>,
         fields: &[String],
         field_selections: &Map<String, Value>,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
-        if limit == 0 || fields.is_empty() {
+        if page.limit == 0 || fields.is_empty() {
             return Ok(Vec::new());
         }
 
@@ -2914,7 +2935,7 @@ impl FileStorage {
                 .into_iter()
                 .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
                 .collect::<Vec<_>>();
-            apply_message_page(&mut rows, limit, before);
+            apply_message_page(&mut rows, page.limit, page.before, page.raw_offset);
             return Ok(rows
                 .into_iter()
                 .map(|row| project_row(row, &field_set, &nested_field_sets))
@@ -2929,8 +2950,9 @@ impl FileStorage {
         match read_pretty_projected_message_page_from_file(
             &path,
             chat_id,
-            limit,
-            before,
+            page.limit,
+            page.before,
+            page.raw_offset,
             &field_set,
             &nested_field_sets,
         ) {
@@ -2944,7 +2966,7 @@ impl FileStorage {
         } else {
             self.read_messages_for_chat_no_recovery(chat_id)?
         };
-        apply_message_page(&mut rows, limit, before);
+        apply_message_page(&mut rows, page.limit, page.before, page.raw_offset);
         Ok(rows
             .into_iter()
             .map(|row| project_row(row, &field_set, &nested_field_sets))
@@ -9535,7 +9557,7 @@ mod tests {
             .unwrap();
 
         let rows = storage
-            .list_messages_for_chat_page("chat-a", 2, None)
+            .list_messages_for_chat_page("chat-a", 2, None, 0)
             .unwrap();
 
         assert_eq!(rows.len(), 2);
@@ -9563,12 +9585,54 @@ mod tests {
             .unwrap();
 
         let rows = storage
-            .list_messages_for_chat_page("chat-a", 2, Some("2026-01-01T00:00:03Z|a-3"))
+            .list_messages_for_chat_page("chat-a", 2, Some("2026-01-01T00:00:03Z|a-3"), 0)
             .unwrap();
 
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["id"], "a-1");
         assert_eq!(rows[1]["id"], "a-2");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn projected_message_page_honors_raw_offset() {
+        let root = temp_storage_root("projected-message-page-raw-offset");
+        let storage = FileStorage::new(&root).unwrap();
+        let messages = (0..120)
+            .map(|index| {
+                json!({
+                    "id": format!("message-{index:03}"),
+                    "chatId": "chat-a",
+                    "createdAt": format!("2026-01-01T00:00:00.{index:03}Z"),
+                    "content": format!("message {index}"),
+                })
+            })
+            .collect();
+        storage.replace_all("messages", messages).unwrap();
+        drop(storage);
+
+        let storage = FileStorage::new(&root).unwrap();
+        let rows = storage
+            .list_messages_for_chat_page_projected(
+                "chat-a",
+                24,
+                None,
+                24,
+                &["id".to_string(), "createdAt".to_string()],
+                &Map::new(),
+            )
+            .unwrap();
+
+        assert_eq!(rows.len(), 24);
+        assert_eq!(
+            rows.first().and_then(|row| row.get("id")),
+            Some(&json!("message-072"))
+        );
+        assert_eq!(
+            rows.last().and_then(|row| row.get("id")),
+            Some(&json!("message-095"))
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

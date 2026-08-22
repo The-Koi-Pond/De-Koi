@@ -33,6 +33,7 @@ export type StorageReadOptions = Pick<StorageListOptions, "fields" | "fieldSelec
 export type ChatMessageListOptions = StorageListBaseOptions & {
   role?: string;
   characterId?: string;
+  rawOffset?: number;
 };
 export type ChatMessageReadOptions = StorageReadOptions;
 
