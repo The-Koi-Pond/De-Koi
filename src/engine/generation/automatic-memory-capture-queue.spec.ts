@@ -303,6 +303,49 @@ function queueStorage(
 }
 
 describe("automatic memory capture queue", () => {
+  it("does not schedule durable capture on runtimes without lease support", async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = queueStorage();
+      await harness.enqueue();
+      harness.storage.acquireMemoryCaptureWorker = undefined;
+      harness.storage.releaseMemoryCaptureWorker = undefined;
+      harness.storage.updateMemoryCaptureJob = undefined;
+
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(vi.getTimerCount()).toBe(0);
+      expect([...harness.jobs.values()]).toEqual([expect.objectContaining({ status: "pending" })]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("backs off when another runtime owns the durable capture lease", async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = queueStorage();
+      await harness.enqueue();
+      let acquisitionCalls = 0;
+      harness.storage.acquireMemoryCaptureWorker = async () => {
+        acquisitionCalls += 1;
+        return null;
+      };
+
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(acquisitionCalls).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(acquisitionCalls).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(acquisitionCalls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("allows only one runtime to process the durable capture queue", async () => {
     const harness = queueStorage();
     await harness.enqueue();
@@ -698,7 +741,7 @@ describe("automatic memory capture queue", () => {
 
     const result = await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
 
-    expect(result).toEqual({ processed: 1, completed: 1, retryable: 0, failed: 0, stale: 0 });
+    expect(result).toEqual({ leaseAcquired: true, processed: 1, completed: 1, retryable: 0, failed: 0, stale: 0 });
     expect(harness.previewCalls).toEqual([{ chatId: "chat-1", sourceMessageIds: ["user-1", "assistant-1"] }]);
     expect(harness.commitCalls).toHaveLength(1);
     expect(harness.refreshCalls).toHaveLength(0);

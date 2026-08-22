@@ -440,16 +440,24 @@ export async function enqueueAutomaticMemoryCaptureJob(
 export async function processAutomaticMemoryCaptureQueue(
   dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
   options: AutomaticMemoryCaptureProcessOptions = {},
-): Promise<{ processed: number; completed: number; retryable: number; failed: number; stale: number }> {
+): Promise<{
+  leaseAcquired: boolean;
+  processed: number;
+  completed: number;
+  retryable: number;
+  failed: number;
+  stale: number;
+}> {
   const { storage, llm } = queueDependencies(dependencies);
   const now = options.now ?? nowIso();
-  const result = { processed: 0, completed: 0, retryable: 0, failed: 0, stale: 0 };
+  const result = { leaseAcquired: false, processed: 0, completed: 0, retryable: 0, failed: 0, stale: 0 };
   if (!storage.acquireMemoryCaptureWorker || !storage.releaseMemoryCaptureWorker || !storage.updateMemoryCaptureJob) {
     return result;
   }
   const workerId = options.workerId ?? automaticCaptureWorkerId;
   const leaseId = await storage.acquireMemoryCaptureWorker(workerId);
   if (!leaseId) return result;
+  result.leaseAcquired = true;
   let leaseLost = false;
   let leaseRenewal: Promise<void> | null = null;
   const renewLease = () => {
@@ -707,6 +715,7 @@ function clearScheduledWorker(storage: StorageGateway): void {
 
 async function scheduleNextAutomaticMemoryCaptureQueuePass(
   dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
+  minimumDelayMs = 0,
 ): Promise<void> {
   const { storage } = queueDependencies(dependencies);
   if (foregroundGenerationActive(storage)) {
@@ -727,11 +736,12 @@ async function scheduleNextAutomaticMemoryCaptureQueuePass(
     return;
   }
   const now = Date.now();
+  const earliestRunAt = now + minimumDelayMs;
   let nextRunAt: number | null = null;
   for (const job of jobs) {
     const status = jobStatus(job);
     if (status === "pending") {
-      nextRunAt = now;
+      nextRunAt = earliestRunAt;
       break;
     }
     if (status === "processing") {
@@ -761,6 +771,9 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
 ): void {
   const { storage } = queueDependencies(dependencies);
   clearScheduledWorker(storage);
+  if (!storage.acquireMemoryCaptureWorker || !storage.releaseMemoryCaptureWorker || !storage.updateMemoryCaptureJob) {
+    return;
+  }
   if (foregroundGenerationActive(storage)) {
     deferWorkerUntilForegroundCompletes(storage, dependencies);
     return;
@@ -770,7 +783,11 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
     return;
   }
   activeWorkers.add(storage);
+  let minimumDelayMs = 0;
   void processAutomaticMemoryCaptureQueue(dependencies)
+    .then((result) => {
+      if (!result.leaseAcquired) minimumDelayMs = CAPTURE_LEASE_HEARTBEAT_MS;
+    })
     .catch(() => undefined)
     .finally(() => {
       activeWorkers.delete(storage);
@@ -779,7 +796,7 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
         scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
         return;
       }
-      void scheduleNextAutomaticMemoryCaptureQueuePass(dependencies);
+      void scheduleNextAutomaticMemoryCaptureQueuePass(dependencies, minimumDelayMs);
     });
 }
 
