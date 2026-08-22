@@ -1,4 +1,4 @@
-use super::{canonical_memory, memory_maintenance};
+use super::{canonical_memory, memory_capture, memory_maintenance};
 use crate::state::AppState;
 use marinara_core::AppError;
 use serde_json::Value;
@@ -68,6 +68,11 @@ pub fn memory_index_rebuild_lexical(
 }
 
 #[tauri::command]
+pub fn memory_index_health(state: State<'_, AppState>) -> Result<Value, AppError> {
+    canonical_memory::memory_index_health(&state)
+}
+
+#[tauri::command]
 pub fn memory_index_query(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
     canonical_memory::query_memory_index(&state, body)
 }
@@ -111,6 +116,30 @@ pub fn memory_maintenance_job_update(
     body: Value,
 ) -> Result<Value, AppError> {
     memory_maintenance::update_memory_maintenance_job(&state, body)
+}
+
+#[tauri::command]
+pub fn memory_capture_worker_acquire(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_capture::acquire_worker(&state, body)
+}
+
+#[tauri::command]
+pub fn memory_capture_worker_release(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_capture::release_worker(&state, body)
+}
+
+#[tauri::command]
+pub fn memory_capture_job_update(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_capture::update_job(&state, body)
 }
 
 #[tauri::command]

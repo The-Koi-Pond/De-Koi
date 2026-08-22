@@ -9,6 +9,7 @@ import {
 } from "../entities/memory-maintenance-sources";
 import { reviewMemoryValues } from "./memory-value-review";
 import { isRecord, parseRecord, readString } from "./runtime-records";
+import { sha256MemoryId } from "./deterministic-memory-id";
 
 type AutomaticMemoryCandidate = {
   kind?: unknown;
@@ -224,9 +225,15 @@ export function stableHash(value: string): string {
   return hash.toString(16).padStart(8, "0");
 }
 
-function semanticConsequenceIdentity(candidate: CanonicalMemoryInput): string {
+async function semanticConsequenceIdentities(
+  candidate: CanonicalMemoryInput,
+): Promise<{ current: string; legacy: string }> {
   const normalizedContent = candidate.content.trim().replace(/\s+/g, " ").toLowerCase();
-  return `${candidate.scope.kind}:${candidate.scope.id}:${candidate.kind}:${stableHash(normalizedContent)}`;
+  const prefix = `${candidate.scope.kind}:${candidate.scope.id}:${candidate.kind}`;
+  return {
+    current: `${prefix}:${await sha256MemoryId("content", normalizedContent)}`,
+    legacy: `${prefix}:${stableHash(normalizedContent)}`,
+  };
 }
 
 function mergedProvenance(
@@ -259,15 +266,33 @@ export async function persistCanonicalMemoryConsequences(input: {
   const seenSemanticIdentities = new Set<string>();
 
   for (const candidate of input.candidates) {
-    const semanticIdentity = semanticConsequenceIdentity(candidate);
+    const identities = await semanticConsequenceIdentities(candidate);
+    const semanticIdentity = identities.current;
     if (seenSemanticIdentities.has(semanticIdentity)) continue;
     seenSemanticIdentities.add(semanticIdentity);
-    const memoryId = `canonical-consequence-${stableHash(semanticIdentity)}`;
+    const memoryId = await sha256MemoryId("canonical-consequence", semanticIdentity);
+    const legacyId = `canonical-consequence-${stableHash(identities.legacy)}`;
+    const storedCurrent = await input.storage
+      .get<CanonicalMemoryRecord>("canonical-memories", memoryId)
+      .catch(() => null);
+    if (storedCurrent && readString(parseRecord(storedCurrent.payload).semanticIdentity).trim() !== semanticIdentity) {
+      throw new Error("Canonical consequence SHA-256 id collision");
+    }
+    const storedLegacy = storedCurrent
+      ? null
+      : await input.storage.get<CanonicalMemoryRecord>("canonical-memories", legacyId).catch(() => null);
+    const storedLegacyIdentity = readString(parseRecord(storedLegacy?.payload).semanticIdentity).trim();
+    const matchingLegacy =
+      storedLegacy && (storedLegacyIdentity === identities.legacy || storedLegacyIdentity === semanticIdentity)
+        ? storedLegacy
+        : null;
     const existing =
-      (await input.storage.get<CanonicalMemoryRecord>("canonical-memories", memoryId).catch(() => null)) ??
-      input.eligibleMemories
-        .filter(canonicalMemoryEligibleForConsequences)
-        .find((memory) => readString(parseRecord(memory.payload).semanticIdentity).trim() === semanticIdentity) ??
+      storedCurrent ??
+      matchingLegacy ??
+      input.eligibleMemories.filter(canonicalMemoryEligibleForConsequences).find((memory) => {
+        const identity = readString(parseRecord(memory.payload).semanticIdentity).trim();
+        return identity === semanticIdentity || identity === identities.legacy;
+      }) ??
       null;
     const sourceChatIds = Array.from(
       new Set(

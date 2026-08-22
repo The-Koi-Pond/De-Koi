@@ -136,6 +136,28 @@ function groupTypingStorage(
   return { storage, messages, characterGetIds };
 }
 
+function attachMemoryCaptureLease(storage: StorageGateway, jobs: Map<string, Record<string, unknown>>): void {
+  let lease: { workerId: string; leaseId: string } | null = null;
+  Object.assign(storage, {
+    async acquireMemoryCaptureWorker(workerId: string, leaseId?: string) {
+      if (leaseId) return lease?.workerId === workerId && lease.leaseId === leaseId ? leaseId : null;
+      if (lease) return null;
+      const acquiredLeaseId = `lease-${workerId}`;
+      lease = { workerId, leaseId: acquiredLeaseId };
+      return acquiredLeaseId;
+    },
+    async releaseMemoryCaptureWorker(workerId: string, leaseId: string) {
+      if (lease?.workerId === workerId && lease.leaseId === leaseId) lease = null;
+    },
+    async updateMemoryCaptureJob(leaseId: string, jobId: string, patch: Record<string, unknown>) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      const row = { ...(jobs.get(jobId) ?? { id: jobId }), ...patch };
+      jobs.set(jobId, row);
+      return row;
+    },
+  });
+}
+
 function groupTypingLlm(selectorResponse = ""): LlmGateway {
   return {
     complete: vi.fn(async () => selectorResponse),
@@ -638,6 +660,7 @@ describe("startGeneration group typing", () => {
       },
       commitChatMemoryCapture,
     });
+    attachMemoryCaptureLease(storage, jobs);
 
     const llm = groupTypingLlm();
     llm.complete = vi.fn(async (request: LlmRequest) =>
@@ -759,6 +782,7 @@ describe("startGeneration group typing", () => {
         return [];
       },
     });
+    attachMemoryCaptureLease(storage, jobs);
 
     let streamCount = 0;
     const llm: LlmGateway = {

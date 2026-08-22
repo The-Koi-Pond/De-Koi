@@ -1,4 +1,4 @@
-use super::{batch_queries, query_memories_batch, read_string, stable_hash, INDEX_COLLECTION};
+use super::{batch_queries, query_memories_batch, read_string, sha256_hash, INDEX_COLLECTION};
 use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
@@ -60,12 +60,12 @@ fn semantic_index_row(
             "Canonical memory semantic indexing requires id, content, and updatedAt",
         ));
     }
-    let content_hash = stable_hash(&content);
-    let identity_hash = stable_hash(&format!(
+    let content_hash = sha256_hash(&content);
+    let identity_hash = sha256_hash(&format!(
         "{}:{}:{}",
         identity.connection_id, identity.provider, identity.model
     ));
-    let projection_hash = stable_hash(&format!("{identity_hash}:{content_hash}"));
+    let projection_hash = sha256_hash(&format!("{identity_hash}:{content_hash}"));
     Ok(json!({
         "id": format!("{memory_id}:semantic:{identity_hash}"),
         "memoryId": memory_id,
@@ -131,7 +131,7 @@ fn semantic_index_plan(
     let mut missing_memory_ids = Vec::new();
     for memory in memories {
         let memory_id = read_string(memory.get("id"));
-        let content_hash = stable_hash(&read_string(memory.get("content")));
+        let content_hash = sha256_hash(&read_string(memory.get("content")));
         let updated_at = read_string(memory.get("updatedAt"));
         let fresh = rows_by_memory_id.get(&memory_id).and_then(|rows| {
             rows.iter().find_map(|row| {
@@ -515,6 +515,37 @@ mod tests {
         assert!(plan.missing_memory_ids.is_empty());
     }
 
+    #[test]
+    fn semantic_index_rows_use_sha256_identifiers() {
+        let identity = SemanticIndexIdentity {
+            connection_id: "embedding-connection".to_string(),
+            provider: "openai".to_string(),
+            model: "text-embedding-3-small".to_string(),
+        };
+        let row = semantic_index_row(
+            &json!({
+                "id": "candidate",
+                "content": "Candidate fact",
+                "updatedAt": "2026-08-05T10:00:00Z"
+            }),
+            &identity,
+            vec![1.0, 0.0],
+        )
+        .unwrap();
+
+        assert_eq!(row["contentHash"].as_str().unwrap().len(), 64);
+        assert_eq!(row["projectionHash"].as_str().unwrap().len(), 64);
+        assert_eq!(
+            row["id"]
+                .as_str()
+                .unwrap()
+                .strip_prefix("candidate:semantic:")
+                .unwrap()
+                .len(),
+            64
+        );
+    }
+
     fn nested_semantic_index_plan_reference(
         memories: &[Value],
         index_rows: &[Value],
@@ -531,7 +562,7 @@ mod tests {
                 (read_string(row.get("memoryId")) == memory_id
                     && semantic_row_matches_identity(row, identity)
                     && read_string(row.get("canonicalUpdatedAt")) == updated_at
-                    && read_string(row.get("contentHash")) == stable_hash(&content))
+                    && read_string(row.get("contentHash")) == sha256_hash(&content))
                 .then(|| vector_from_value(row.get("vector")))
                 .flatten()
                 .filter(|vector| vector.len() == expected_dimensions)
@@ -703,7 +734,11 @@ mod tests {
 
         assert_eq!(selected.len(), MAX_SEMANTIC_CANDIDATES);
         assert_eq!(selected[0]["id"], json!("memory-00"));
-        assert!(selected.iter().any(|memory| memory["id"] == json!("memory-61")));
-        assert!(!selected.iter().any(|memory| memory["id"] == json!("memory-01")));
+        assert!(selected
+            .iter()
+            .any(|memory| memory["id"] == json!("memory-61")));
+        assert!(!selected
+            .iter()
+            .any(|memory| memory["id"] == json!("memory-01")));
     }
 }

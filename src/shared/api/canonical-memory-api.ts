@@ -9,6 +9,7 @@ import type {
   MemoryIndexRow,
   MemoryIndexRowInput,
   MemoryLexicalRebuildResult,
+  MemoryIndexHealth,
 } from "../../engine/contracts/types/memory";
 import { invokeTauri } from "./tauri-client";
 
@@ -24,6 +25,7 @@ export const canonicalMemoryApi = {
   querySemantic: (body: CanonicalMemorySemanticQuery) =>
     invokeTauri<CanonicalMemorySemanticMatch[]>("memory_query_semantic", { body }),
   index: {
+    health: () => invokeTauri<MemoryIndexHealth>("memory_index_health"),
     upsert: (row: MemoryIndexRowInput) => invokeTauri<MemoryIndexRow>("memory_index_upsert", { row }),
     deleteForMemory: (memoryId: string) =>
       invokeTauri<MemoryIndexDeleteResult>("memory_index_delete_for_memory", { memoryId }),

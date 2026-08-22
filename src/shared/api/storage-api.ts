@@ -29,6 +29,7 @@ import {
 import { blobToDataUrl } from "../lib/url-blob";
 import { chatCommandApi } from "./chat-command-api";
 import { canonicalMemoryApi } from "./canonical-memory-api";
+import { memoryCaptureApi } from "./memory-capture-api";
 import { invokeTauri } from "./tauri-client";
 import { trackerSnapshotApi, type TrackerSnapshotInput } from "./tracker-snapshot-api";
 import { urlBinaryApi } from "./url-binary-api";
@@ -345,6 +346,9 @@ async function resolveImageAttachmentDataUrl(attachment: StorageImageAttachmentR
 const DURABLE_STORAGE_REQUEST_OPTIONS = { timeoutMs: null } as const;
 
 export const storageApi: StorageGateway = {
+  acquireMemoryCaptureWorker: (workerId, leaseId) => memoryCaptureApi.acquireWorker(workerId, leaseId),
+  releaseMemoryCaptureWorker: (workerId, leaseId) => memoryCaptureApi.releaseWorker(workerId, leaseId),
+  updateMemoryCaptureJob: (leaseId, jobId, patch) => memoryCaptureApi.updateJob(leaseId, jobId, patch),
   createMemory: (body) => canonicalMemoryApi.create(body),
   updateMemory: (memoryId, patch) => canonicalMemoryApi.update(memoryId, patch),
   queryMemories: (body) => canonicalMemoryApi.query(body),
@@ -353,6 +357,7 @@ export const storageApi: StorageGateway = {
   queryMemoryIndex: (body) => canonicalMemoryApi.index.query(body),
   queryMemoryIndexBatch: (queries) => canonicalMemoryApi.index.queryBatch(queries),
   rebuildMemoryIndex: (body) => canonicalMemoryApi.index.rebuildLexical(body),
+  memoryIndexHealth: () => canonicalMemoryApi.index.health(),
   list: async (entity: StorageEntity, options?: StorageListOptions) =>
     normalizeStorageReadResult(
       entity,

@@ -367,6 +367,18 @@ async function collectMemoryRows(
   } else if (storage.queryMemoryIndex) {
     for (const query of queries) indexed.push(...(await storage.queryMemoryIndex(query)));
   }
+  let lexicalIndexComplete: boolean | null = null;
+  if (storage.memoryIndexHealth) {
+    try {
+      const health = await storage.memoryIndexHealth();
+      lexicalIndexComplete = health.lexicalComplete;
+      if (health.lexicalComplete) {
+        return indexed.map((memory) => ({ memory, source: "index" as const }));
+      }
+    } catch {
+      // Unknown health must retain the durable fallback for compatibility and correctness.
+    }
+  }
   const fallback: CanonicalMemoryRecord[] = [];
   try {
     if (storage.queryMemoriesBatch) {
@@ -382,6 +394,10 @@ async function collectMemoryRows(
     // Keep valid index recall available if that supplemental read is temporarily
     // unavailable; without any index result there is no safe recall to return.
     if (indexed.length === 0) throw error;
+  }
+
+  if (lexicalIndexComplete === false && storage.rebuildMemoryIndex) {
+    void storage.rebuildMemoryIndex().catch(() => undefined);
   }
 
   const seen = new Set(indexed.map((memory) => memory.id));

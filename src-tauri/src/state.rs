@@ -39,6 +39,7 @@ pub struct AppState {
     pub default_data_roots: Vec<PathBuf>,
     llm_stream_cancellations: Arc<Mutex<LlmStreamCancellations>>,
     memory_maintenance_worker: Arc<Mutex<Option<MemoryMaintenanceWorkerLease>>>,
+    memory_capture_worker: Arc<Mutex<Option<MemoryCaptureWorkerLease>>>,
 }
 
 #[derive(Default)]
@@ -48,6 +49,14 @@ struct LlmStreamCancellations {
 }
 
 struct MemoryMaintenanceWorkerLease {
+    worker_id: String,
+    lease_id: String,
+    expires_at: Instant,
+    active_operations: usize,
+    release_requested: bool,
+}
+
+struct MemoryCaptureWorkerLease {
     worker_id: String,
     lease_id: String,
     expires_at: Instant,
@@ -68,6 +77,7 @@ const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInli
 const CHARACTER_VERSION_RETENTION_MIGRATION_KEY: &str = "characterVersionRetentionV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
+const MEMORY_CAPTURE_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);
 const USER_BACKGROUND_GAME_ASSET_PREFIX: &str = "__user_bg__/";
 
 impl AppState {
@@ -110,6 +120,7 @@ impl AppState {
             default_data_roots,
             llm_stream_cancellations: Arc::new(Mutex::new(LlmStreamCancellations::default())),
             memory_maintenance_worker: Arc::new(Mutex::new(None)),
+            memory_capture_worker: Arc::new(Mutex::new(None)),
         };
         let character_version_media_ready = match run_startup_migration_once(
             &state.storage,
@@ -418,6 +429,119 @@ impl AppState {
             AppError::new(
                 "memory_maintenance_lease_error",
                 "Memory maintenance worker lease is unavailable",
+            )
+        })?;
+        if let Some(current) = active
+            .as_mut()
+            .filter(|current| current.lease_id == lease_id)
+        {
+            current.active_operations = current.active_operations.saturating_sub(1);
+            if current.active_operations == 0 && current.release_requested {
+                *active = None;
+            }
+        }
+        result
+    }
+
+    pub(crate) fn acquire_memory_capture_worker(
+        &self,
+        worker_id: &str,
+        lease_id: Option<&str>,
+    ) -> AppResult<Option<String>> {
+        let now = Instant::now();
+        let mut active = self.memory_capture_worker.lock().map_err(|_| {
+            AppError::new(
+                "memory_capture_lease_error",
+                "Memory capture worker lease is unavailable",
+            )
+        })?;
+        if let Some(requested_lease) = lease_id {
+            let Some(current) = active.as_mut() else {
+                return Ok(None);
+            };
+            if current.worker_id != worker_id
+                || current.lease_id != requested_lease
+                || (current.expires_at <= now && current.active_operations == 0)
+            {
+                return Ok(None);
+            }
+            current.expires_at = now + MEMORY_CAPTURE_WORKER_LEASE_TTL;
+            current.release_requested = false;
+            return Ok(Some(current.lease_id.clone()));
+        }
+        if active
+            .as_ref()
+            .is_some_and(|current| current.expires_at > now || current.active_operations > 0)
+        {
+            return Ok(None);
+        }
+        let lease_id = new_id();
+        *active = Some(MemoryCaptureWorkerLease {
+            worker_id: worker_id.to_string(),
+            lease_id: lease_id.clone(),
+            expires_at: now + MEMORY_CAPTURE_WORKER_LEASE_TTL,
+            active_operations: 0,
+            release_requested: false,
+        });
+        Ok(Some(lease_id))
+    }
+
+    pub(crate) fn release_memory_capture_worker(
+        &self,
+        worker_id: &str,
+        lease_id: &str,
+    ) -> AppResult<bool> {
+        let mut active = self.memory_capture_worker.lock().map_err(|_| {
+            AppError::new(
+                "memory_capture_lease_error",
+                "Memory capture worker lease is unavailable",
+            )
+        })?;
+        let Some(current) = active.as_mut() else {
+            return Ok(false);
+        };
+        if current.worker_id != worker_id || current.lease_id != lease_id {
+            return Ok(false);
+        }
+        if current.active_operations == 0 {
+            *active = None;
+        } else {
+            current.release_requested = true;
+        }
+        Ok(true)
+    }
+
+    pub(crate) fn with_memory_capture_lease<T>(
+        &self,
+        lease_id: &str,
+        operation: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        {
+            let mut active = self.memory_capture_worker.lock().map_err(|_| {
+                AppError::new(
+                    "memory_capture_lease_error",
+                    "Memory capture worker lease is unavailable",
+                )
+            })?;
+            let Some(current) = active.as_mut() else {
+                return Err(AppError::new(
+                    "memory_capture_lease_lost",
+                    "Automatic memory capture is owned by another runtime",
+                ));
+            };
+            if current.lease_id != lease_id || current.expires_at <= Instant::now() {
+                return Err(AppError::new(
+                    "memory_capture_lease_lost",
+                    "Automatic memory capture is owned by another runtime",
+                ));
+            }
+            current.active_operations += 1;
+        }
+        let result = operation();
+        let mut active = self.memory_capture_worker.lock().map_err(|_| {
+            AppError::new(
+                "memory_capture_lease_error",
+                "Memory capture worker lease is unavailable",
             )
         })?;
         if let Some(current) = active
