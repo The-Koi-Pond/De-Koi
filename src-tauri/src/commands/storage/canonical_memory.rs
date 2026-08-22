@@ -648,6 +648,28 @@ fn memory_scope_matches_chat(memory: &Value, chat_id: &str) -> bool {
     read_string(scope.get("kind")) == "chat" && read_string(scope.get("id")) == chat_id
 }
 
+fn delete_memory_index_rows_matching(
+    state: &AppState,
+    matches: impl Fn(&Value) -> bool,
+) -> AppResult<usize> {
+    state.storage.update_collections_atomically(
+        vec![INDEX_COLLECTION, INDEX_METADATA_COLLECTION],
+        move |collections| {
+            let (index_collections, metadata_collections) = collections.split_at_mut(1);
+            let index_rows = index_collections[0].rows_mut();
+            let before = index_rows.len();
+            index_rows.retain(|row| !matches(row));
+            let deleted = before.saturating_sub(index_rows.len());
+            if deleted > 0 {
+                metadata_collections[0]
+                    .rows_mut()
+                    .retain(|row| read_string(row.get("id")) != INDEX_HEALTH_ID);
+            }
+            Ok(deleted)
+        },
+    )
+}
+
 pub(crate) fn delete_memory_index_rows_for_chat(
     state: &AppState,
     chat_id: &str,
@@ -669,24 +691,20 @@ pub(crate) fn delete_memory_index_rows_for_chat(
     if memory_ids.is_empty() {
         return Ok(json!({ "deleted": 0 }));
     }
-    let deleted = state
-        .storage
-        .delete_where_matching(INDEX_COLLECTION, |row| {
-            row.get("memoryId")
-                .and_then(Value::as_str)
-                .is_some_and(|memory_id| memory_ids.contains(memory_id))
-        })?;
+    let deleted = delete_memory_index_rows_matching(state, |row| {
+        row.get("memoryId")
+            .and_then(Value::as_str)
+            .is_some_and(|memory_id| memory_ids.contains(memory_id))
+    })?;
     Ok(json!({ "deleted": deleted }))
 }
 pub(crate) fn delete_memory_index_rows_for_memory(
     state: &AppState,
     memory_id: &str,
 ) -> AppResult<Value> {
-    let deleted = state
-        .storage
-        .delete_where_matching(INDEX_COLLECTION, |row| {
-            row.get("memoryId").and_then(Value::as_str) == Some(memory_id)
-        })?;
+    let deleted = delete_memory_index_rows_matching(state, |row| {
+        row.get("memoryId").and_then(Value::as_str) == Some(memory_id)
+    })?;
     Ok(json!({ "deleted": deleted }))
 }
 
@@ -1290,6 +1308,24 @@ mod tests {
         assert_eq!(
             memory_index_health(&state).unwrap()["lexicalComplete"],
             true
+        );
+    }
+
+    #[test]
+    fn deleting_index_rows_invalidates_complete_health() {
+        let state = test_state("delete-index-invalidates-health");
+        seed_memory(&state, "memory-one", "chat", "chat-1", "active");
+        rebuild_memory_lexical_index(&state, json!({})).unwrap();
+        assert_eq!(
+            memory_index_health(&state).unwrap()["lexicalComplete"],
+            true
+        );
+
+        delete_memory_index_rows_for_memory(&state, "memory-one").unwrap();
+
+        assert_eq!(
+            memory_index_health(&state).unwrap()["lexicalComplete"],
+            false
         );
     }
 
