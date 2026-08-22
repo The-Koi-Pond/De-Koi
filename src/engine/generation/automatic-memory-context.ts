@@ -189,12 +189,14 @@ export async function buildAutomaticMemoryCaptureContext(
       referenceMessages.push(snapshot);
       if (referenceMessages.length === MAX_REFERENCE_MESSAGES) break;
     }
-    const boundary = storageOrderedPage
-      .slice()
-      .reverse()
-      .find((message) => readString(message.createdAt).trim() && readString(message.id).trim());
-    const boundaryId = readString(boundary?.id).trim();
-    const nextBefore = boundaryId ? `${readString(boundary?.createdAt).trim()}|${boundaryId}` : "";
+    let nextBefore = "";
+    for (let index = storageOrderedPage.length - 1; index >= 0; index -= 1) {
+      const boundaryCreatedAt = readString(storageOrderedPage[index]?.createdAt).trim();
+      const boundaryId = readString(storageOrderedPage[index]?.id).trim();
+      if (!boundaryCreatedAt || !boundaryId) continue;
+      nextBefore = `${boundaryCreatedAt}|${boundaryId}`;
+      break;
+    }
     if (page.length < requestedLimit) break;
     if (!nextBefore) {
       const expandedLimit = MAX_REFERENCE_MESSAGES_SCANNED - scanned;
