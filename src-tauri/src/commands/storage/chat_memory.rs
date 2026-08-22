@@ -420,6 +420,23 @@ fn remove_memory_embedding_fields(memory: &mut Map<String, Value>) {
     memory.insert("embeddingModel".to_string(), Value::Null);
 }
 
+fn copy_memory_embedding_fields(target: &mut Map<String, Value>, source: &Map<String, Value>) {
+    for key in [
+        "embedding",
+        "hasEmbedding",
+        "embeddingStatus",
+        "embeddingSource",
+        "embeddingConnectionId",
+        "embeddingModel",
+    ] {
+        if let Some(value) = source.get(key) {
+            target.insert(key.to_string(), value.clone());
+        } else {
+            target.remove(key);
+        }
+    }
+}
+
 fn chat_memory_status(memory: &Value) -> &str {
     memory
         .get("status")
@@ -954,6 +971,7 @@ pub(crate) fn list_chat_memories_excluding_recent(
     Ok(Value::Array(values))
 }
 
+#[cfg(test)]
 fn set_chat_memory_values_with_trigger(
     state: &AppState,
     chat_id: &str,
@@ -998,19 +1016,88 @@ fn set_chat_memory_values_with_trigger(
     Ok(result)
 }
 
-fn set_chat_memory_values(state: &AppState, chat_id: &str, values: Vec<Value>) -> AppResult<Value> {
-    set_chat_memory_values_with_trigger(
+pub(crate) fn mutate_chat_memory_values_with_trigger<T, F>(
+    state: &AppState,
+    chat_id: &str,
+    trigger: super::memory_maintenance::jobs::Trigger,
+    mutate: F,
+) -> AppResult<T>
+where
+    F: FnOnce(&mut Vec<Value>) -> AppResult<T>,
+{
+    let mut mutate = Some(mutate);
+    let mut output = None;
+    let mut scope_kinds = HashSet::new();
+    state
+        .storage
+        .patch_with("chats", chat_id, json!({}), |chat, _| {
+            let mut values = chat_memory_values_for_mutation(&Value::Object(chat.clone()))?;
+            for memory in &values {
+                scope_kinds.insert(
+                    if memory.get("scopeType").and_then(Value::as_str) == Some("scene") {
+                        "scene"
+                    } else {
+                        "chat"
+                    },
+                );
+            }
+            let result = mutate.take().ok_or_else(|| {
+                AppError::invalid_input("Chat memory mutation ran more than once")
+            })?(&mut values)?;
+            let values = deduplicate_chat_memory_values(values);
+            for memory in &values {
+                scope_kinds.insert(
+                    if memory.get("scopeType").and_then(Value::as_str) == Some("scene") {
+                        "scene"
+                    } else {
+                        "chat"
+                    },
+                );
+            }
+            chat.insert("memories".to_string(), Value::Array(values));
+            output = Some(result);
+            Ok(())
+        })?;
+    if scope_kinds.is_empty() {
+        scope_kinds.insert("chat");
+    }
+    for kind in scope_kinds {
+        super::memory_maintenance::jobs::enqueue_memory_maintenance(
+            state,
+            super::memory_maintenance::jobs::target(
+                super::memory_maintenance::contracts::CleanupStore::Chat,
+                kind,
+                chat_id,
+            ),
+            trigger,
+        )?;
+    }
+    output.ok_or_else(|| AppError::invalid_input("Chat memory mutation did not run"))
+}
+
+pub(crate) fn mutate_chat_memory_values<T, F>(
+    state: &AppState,
+    chat_id: &str,
+    mutate: F,
+) -> AppResult<T>
+where
+    F: FnOnce(&mut Vec<Value>) -> AppResult<T>,
+{
+    mutate_chat_memory_values_with_trigger(
         state,
         chat_id,
-        values,
         super::memory_maintenance::jobs::Trigger::Manual,
+        mutate,
     )
 }
 
 pub(crate) fn clear_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
-    let result = set_chat_memory_values(state, chat_id, Vec::new())?;
+    mutate_chat_memory_values(state, chat_id, |values| {
+        values.clear();
+        Ok(())
+    })?;
     canonical_memory::delete_memory_index_rows_for_chat(state, chat_id)?;
-    Ok(result)
+    get_required(state, "chats", chat_id)
 }
 
 pub(crate) fn delete_chat_memory(
@@ -1018,12 +1105,11 @@ pub(crate) fn delete_chat_memory(
     chat_id: &str,
     memory_id: &str,
 ) -> AppResult<Value> {
-    let chat = get_required(state, "chats", chat_id)?;
-    let values = chat_memory_values_for_mutation(&chat)?
-        .into_iter()
-        .filter(|item| item.get("id").and_then(Value::as_str) != Some(memory_id))
-        .collect::<Vec<_>>();
-    set_chat_memory_values(state, chat_id, values)
+    mutate_chat_memory_values(state, chat_id, |values| {
+        values.retain(|item| item.get("id").and_then(Value::as_str) != Some(memory_id));
+        Ok(())
+    })?;
+    get_required(state, "chats", chat_id)
 }
 
 pub(crate) async fn create_chat_memory(
@@ -1039,7 +1125,6 @@ pub(crate) async fn create_chat_memory(
         .ok_or_else(|| AppError::invalid_input("Memory content is required"))?;
     let chat = get_required(state, "chats", chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
-    let mut values = chat_memory_values_for_mutation(&chat)?;
     let now = now_iso();
     let memory_id = new_id();
     let mut memory = Map::new();
@@ -1065,8 +1150,10 @@ pub(crate) async fn create_chat_memory(
     embed_chat_memory_object(&mut memory, embedding_context.as_ref()).await?;
 
     let created = Value::Object(memory);
-    values.push(created.clone());
-    set_chat_memory_values(state, chat_id, values)?;
+    mutate_chat_memory_values(state, chat_id, |values| {
+        values.push(created.clone());
+        Ok(())
+    })?;
     Ok(created)
 }
 
@@ -1076,29 +1163,44 @@ pub(crate) async fn update_chat_memory(
     memory_id: &str,
     body: Value,
 ) -> AppResult<Value> {
+    let content = body
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("Memory content is required"))?
+        .to_string();
     let chat = get_required(state, "chats", chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
     let mut values = chat_memory_values_for_mutation(&chat)?;
     let now = now_iso();
-    {
+    let prepared = {
         let memory = memory_object_by_id_mut(&mut values, memory_id)?;
         if !chat_memory_object_is_retrievable(memory) {
             return Err(AppError::invalid_input(
                 "Only active memories can be edited",
             ));
         }
-        let content = body
-            .get("content")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| AppError::invalid_input("Memory content is required"))?;
-        memory.insert("content".to_string(), Value::String(content.to_string()));
+        memory.insert("content".to_string(), Value::String(content.clone()));
         memory.insert("userEdited".to_string(), json!(true));
         memory.insert("updatedAt".to_string(), Value::String(now.clone()));
         embed_chat_memory_object(memory, embedding_context.as_ref()).await?;
-    }
-    set_chat_memory_values(state, chat_id, values)
+        memory.clone()
+    };
+    mutate_chat_memory_values(state, chat_id, |current_values| {
+        let current = memory_object_by_id_mut(current_values, memory_id)?;
+        if !chat_memory_object_is_retrievable(current) {
+            return Err(AppError::invalid_input(
+                "Only active memories can be edited",
+            ));
+        }
+        current.insert("content".to_string(), Value::String(content));
+        current.insert("userEdited".to_string(), json!(true));
+        current.insert("updatedAt".to_string(), Value::String(now));
+        copy_memory_embedding_fields(current, &prepared);
+        Ok(())
+    })?;
+    get_required(state, "chats", chat_id)
 }
 
 pub(crate) fn soft_delete_chat_memory(
@@ -1106,15 +1208,14 @@ pub(crate) fn soft_delete_chat_memory(
     chat_id: &str,
     memory_id: &str,
 ) -> AppResult<Value> {
-    let chat = get_required(state, "chats", chat_id)?;
-    let mut values = chat_memory_values_for_mutation(&chat)?;
-    {
-        let memory = memory_object_by_id_mut(&mut values, memory_id)?;
+    mutate_chat_memory_values(state, chat_id, |values| {
+        let memory = memory_object_by_id_mut(values, memory_id)?;
         remove_memory_embedding_fields(memory);
         memory.insert("status".to_string(), json!("deleted"));
         memory.insert("deletedAt".to_string(), Value::String(now_iso()));
-    }
-    set_chat_memory_values(state, chat_id, values)
+        Ok(())
+    })?;
+    get_required(state, "chats", chat_id)
 }
 
 pub(crate) async fn restore_chat_memory(
@@ -1125,15 +1226,31 @@ pub(crate) async fn restore_chat_memory(
     let chat = get_required(state, "chats", chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
     let mut values = chat_memory_values_for_mutation(&chat)?;
-    {
+    let prepared = {
         let memory = memory_object_by_id_mut(&mut values, memory_id)?;
         memory.remove("deletedAt");
         memory.remove("correctedAt");
         memory.insert("status".to_string(), json!("active"));
         memory.insert("restoredAt".to_string(), Value::String(now_iso()));
         embed_chat_memory_object(memory, embedding_context.as_ref()).await?;
-    }
-    set_chat_memory_values(state, chat_id, values)
+        memory.clone()
+    };
+    mutate_chat_memory_values(state, chat_id, |current_values| {
+        let current = memory_object_by_id_mut(current_values, memory_id)?;
+        current.remove("deletedAt");
+        current.remove("correctedAt");
+        current.insert("status".to_string(), json!("active"));
+        current.insert(
+            "restoredAt".to_string(),
+            prepared
+                .get("restoredAt")
+                .cloned()
+                .unwrap_or_else(|| Value::String(now_iso())),
+        );
+        copy_memory_embedding_fields(current, &prepared);
+        Ok(())
+    })?;
+    get_required(state, "chats", chat_id)
 }
 
 pub(crate) fn pin_chat_memory(
@@ -1142,14 +1259,13 @@ pub(crate) fn pin_chat_memory(
     memory_id: &str,
     pinned: bool,
 ) -> AppResult<Value> {
-    let chat = get_required(state, "chats", chat_id)?;
-    let mut values = chat_memory_values_for_mutation(&chat)?;
-    {
-        let memory = memory_object_by_id_mut(&mut values, memory_id)?;
+    mutate_chat_memory_values(state, chat_id, |values| {
+        let memory = memory_object_by_id_mut(values, memory_id)?;
         memory.insert("pinned".to_string(), json!(pinned));
         memory.insert("updatedAt".to_string(), Value::String(now_iso()));
-    }
-    set_chat_memory_values(state, chat_id, values)
+        Ok(())
+    })?;
+    get_required(state, "chats", chat_id)
 }
 
 pub(crate) async fn correct_chat_memory(
@@ -1165,10 +1281,6 @@ pub(crate) async fn correct_chat_memory(
     let mut replacement: Option<Value> = None;
     {
         let memory = memory_object_by_id_mut(&mut values, memory_id)?;
-        remove_memory_embedding_fields(memory);
-        memory.insert("status".to_string(), json!("wrong"));
-        memory.insert("correctedAt".to_string(), Value::String(now.clone()));
-
         let replacement_content = body
             .get("replacementContent")
             .and_then(Value::as_str)
@@ -1221,15 +1333,28 @@ pub(crate) async fn correct_chat_memory(
             replacement = Some(Value::Object(next));
         }
     }
-    if let Some(replacement) = replacement {
-        values.push(replacement);
-    }
-    set_chat_memory_values_with_trigger(
+    mutate_chat_memory_values_with_trigger(
         state,
         chat_id,
-        values,
         super::memory_maintenance::jobs::Trigger::Correction,
-    )
+        |current_values| {
+            let memory = memory_object_by_id_mut(current_values, memory_id)?;
+            remove_memory_embedding_fields(memory);
+            memory.insert("status".to_string(), json!("wrong"));
+            memory.insert("correctedAt".to_string(), Value::String(now));
+            if let Some(replacement) = replacement {
+                if let Some(replacement_id) = replacement.get("id").and_then(Value::as_str) {
+                    memory.insert(
+                        "correctedByMemoryId".to_string(),
+                        Value::String(replacement_id.to_string()),
+                    );
+                }
+                current_values.push(replacement);
+            }
+            Ok(())
+        },
+    )?;
+    get_required(state, "chats", chat_id)
 }
 fn capture_memory_content(
     messages: &[Value],
@@ -1590,42 +1715,43 @@ async fn persist_prepared_focused_capture(
 ) -> AppResult<Value> {
     let chat = get_required(state, "chats", &prepared.chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
-    let mut memories = chat_memory_values_for_mutation(&chat)?;
     let expected_key = memory_chunk_key(&prepared.source_message_ids);
-    let existing = memories.iter().find(|memory| {
-        chat_memory_is_automatic_exchange_capture(memory)
-            && memory_chunk_key(&memory_message_ids(memory)) == expected_key
-    });
-    let operation = if let Some(existing) = existing {
-        if let Some(id) = existing.get("id").and_then(Value::as_str) {
-            prepared
-                .memory
-                .insert("id".to_string(), Value::String(id.to_string()));
-            prepared
-                .memory
-                .insert("legacySourceId".to_string(), Value::String(id.to_string()));
-        }
-        if let Some(created_at) = existing.get("createdAt") {
-            prepared
-                .memory
-                .insert("createdAt".to_string(), created_at.clone());
-        }
-        "updated"
-    } else {
-        "created"
-    };
     embed_chat_memory_object(&mut prepared.memory, embedding_context.as_ref()).await?;
-    memories.retain(|memory| {
-        !(chat_memory_is_automatic_exchange_capture(memory)
-            && memory_chunk_key(&memory_message_ids(memory)) == expected_key)
-    });
-    let memory = Value::Object(prepared.memory);
-    memories.push(memory.clone());
-    set_chat_memory_values_with_trigger(
+    let (operation, memory) = mutate_chat_memory_values_with_trigger(
         state,
         &prepared.chat_id,
-        memories,
         super::memory_maintenance::jobs::Trigger::Capture,
+        |memories| {
+            let existing = memories.iter().find(|memory| {
+                chat_memory_is_automatic_exchange_capture(memory)
+                    && memory_chunk_key(&memory_message_ids(memory)) == expected_key
+            });
+            let operation = if let Some(existing) = existing {
+                if let Some(id) = existing.get("id").and_then(Value::as_str) {
+                    prepared
+                        .memory
+                        .insert("id".to_string(), Value::String(id.to_string()));
+                    prepared
+                        .memory
+                        .insert("legacySourceId".to_string(), Value::String(id.to_string()));
+                }
+                if let Some(created_at) = existing.get("createdAt") {
+                    prepared
+                        .memory
+                        .insert("createdAt".to_string(), created_at.clone());
+                }
+                "updated"
+            } else {
+                "created"
+            };
+            memories.retain(|memory| {
+                !(chat_memory_is_automatic_exchange_capture(memory)
+                    && memory_chunk_key(&memory_message_ids(memory)) == expected_key)
+            });
+            let memory = Value::Object(prepared.memory);
+            memories.push(memory.clone());
+            Ok((operation, memory))
+        },
     )?;
     Ok(json!({
         "operation": operation,
@@ -1690,31 +1816,6 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
     if focused_refresh {
         focused_capture_message_ids.extend(capture_message_ids(&focused_messages));
     }
-    let preserved_memories = existing_memories
-        .iter()
-        .filter(|memory| {
-            if !chat_memory_is_refresh_owned(memory) {
-                return true;
-            }
-            if chat_memory_is_automatic_exchange_capture(memory) {
-                return !focused_refresh
-                    || !chat_memory_message_ids(memory)
-                        .iter()
-                        .any(|id| source_message_id_set.contains(id));
-            }
-            if chat_memory_message_ids(memory)
-                .iter()
-                .any(|id| focused_capture_message_ids.contains(id))
-            {
-                return false;
-            }
-            focused_refresh
-                && !chat_memory_message_ids(memory)
-                    .iter()
-                    .any(|id| source_message_id_set.contains(id))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
     let existing_by_chunk = existing_memories
         .iter()
         .filter(|memory| chat_memory_is_refresh_owned(memory))
@@ -1807,11 +1908,40 @@ pub(crate) async fn refresh_chat_memories_for_source_messages(
                 }
             }))
         });
-    chunks.extend(preserved_memories);
-    let chunks = deduplicate_chat_memory_values(chunks);
-    state
-        .storage
-        .patch("chats", chat_id, json!({ "memories": chunks }))?;
+    let generated_chunks = deduplicate_chat_memory_values(chunks);
+    let chunks = mutate_chat_memory_values_with_trigger(
+        state,
+        chat_id,
+        super::memory_maintenance::jobs::Trigger::Capture,
+        |current| {
+            let mut preserved = std::mem::take(current);
+            preserved.retain(|memory| {
+                if !chat_memory_is_refresh_owned(memory) {
+                    return true;
+                }
+                if chat_memory_is_automatic_exchange_capture(memory) {
+                    return !focused_refresh
+                        || !chat_memory_message_ids(memory)
+                            .iter()
+                            .any(|id| source_message_id_set.contains(id));
+                }
+                if chat_memory_message_ids(memory)
+                    .iter()
+                    .any(|id| focused_capture_message_ids.contains(id))
+                {
+                    return false;
+                }
+                focused_refresh
+                    && !chat_memory_message_ids(memory)
+                        .iter()
+                        .any(|id| source_message_id_set.contains(id))
+            });
+            let mut merged = generated_chunks;
+            merged.extend(preserved);
+            *current = deduplicate_chat_memory_values(merged);
+            Ok(current.clone())
+        },
+    )?;
     Ok(json!({
         "rebuilt": chunks.len(),
         "embedded": embedded,
@@ -2501,8 +2631,36 @@ pub(crate) async fn rebuild_chat_memory_indexes(
             rebuilt += 1;
         }
     }
-    set_chat_memory_values(state, chat_id, values)?;
-    Ok(json!({ "rebuilt": rebuilt }))
+    let prepared = values
+        .into_iter()
+        .filter_map(|memory| {
+            let id = memory.get("id")?.as_str()?.to_string();
+            let object = memory.as_object()?.clone();
+            Some((id, object))
+        })
+        .collect::<HashMap<_, _>>();
+    let applied = mutate_chat_memory_values(state, chat_id, |current| {
+        let mut applied = 0usize;
+        for memory in current {
+            let Some(object) = memory.as_object_mut() else {
+                continue;
+            };
+            let Some(prepared) = object
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|id| prepared.get(id))
+            else {
+                continue;
+            };
+            if !chat_memory_object_is_retrievable(object) {
+                continue;
+            }
+            copy_memory_embedding_fields(object, prepared);
+            applied += 1;
+        }
+        Ok(applied)
+    })?;
+    Ok(json!({ "rebuilt": applied.min(rebuilt) }))
 }
 
 pub(crate) async fn migrate_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
@@ -2533,41 +2691,53 @@ pub(crate) async fn migrate_chat_memories(state: &AppState, chat_id: &str) -> Ap
             embed_chat_memory_object(object, embedding_context.as_ref()).await?;
         }
     }
-    let metadata = migration_metadata(
-        object_or_parse(chat.get("metadata")),
-        &now,
-        created,
-        updated,
-    );
-    let mut maintenance_scope_kinds = values
-        .iter()
-        .map(|memory| {
-            if memory.get("scopeType").and_then(Value::as_str) == Some("scene") {
-                "scene"
-            } else {
-                "chat"
-            }
-        })
-        .collect::<HashSet<_>>();
-    if maintenance_scope_kinds.is_empty() {
-        maintenance_scope_kinds.insert("chat");
-    }
-    state.storage.patch(
-        "chats",
+    let expected_created = created;
+    let expected_updated = updated;
+    let (created, updated) = mutate_chat_memory_values_with_trigger(
+        state,
         chat_id,
-        json!({ "memories": values, "metadata": metadata }),
+        super::memory_maintenance::jobs::Trigger::Import,
+        |current| {
+            let mut created = 0usize;
+            let mut updated = 0usize;
+            let mut known_sources = legacy_source_ids(current);
+            for prepared in values {
+                let prepared_id = prepared.get("id").and_then(Value::as_str).unwrap_or("");
+                if let Some(existing) = current
+                    .iter_mut()
+                    .find(|memory| memory.get("id").and_then(Value::as_str) == Some(prepared_id))
+                {
+                    if existing.get("content") == prepared.get("content") {
+                        *existing = prepared;
+                        updated += 1;
+                    }
+                    continue;
+                }
+                let source_id = prepared
+                    .get("legacySourceId")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
+                if source_id.is_empty() || known_sources.insert(source_id.to_string()) {
+                    current.push(prepared);
+                    created += 1;
+                }
+            }
+            Ok((created.min(expected_created), updated.min(expected_updated)))
+        },
     )?;
-    for kind in maintenance_scope_kinds {
-        super::memory_maintenance::jobs::enqueue_memory_maintenance(
-            state,
-            super::memory_maintenance::jobs::target(
-                super::memory_maintenance::contracts::CleanupStore::Chat,
-                kind,
-                chat_id,
-            ),
-            super::memory_maintenance::jobs::Trigger::Import,
-        )?;
-    }
+    state
+        .storage
+        .patch_with("chats", chat_id, json!({}), |chat, _| {
+            let metadata = migration_metadata(
+                object_or_parse(chat.get("metadata")),
+                &now,
+                created,
+                updated,
+            );
+            chat.insert("metadata".to_string(), Value::Object(metadata));
+            Ok(())
+        })?;
     Ok(json!({ "created": created, "updated": updated, "version": 1 }))
 }
 pub(crate) async fn import_chat_memories(
@@ -2576,57 +2746,70 @@ pub(crate) async fn import_chat_memories(
     body: Value,
     replace: Option<bool>,
 ) -> AppResult<Value> {
-    let chat = get_required(state, "chats", chat_id)?;
+    get_required(state, "chats", chat_id)?;
     let (incoming, source_chat_id) = memory_recall_import_chunks(&body)?;
     let replace = replace.unwrap_or(false);
-    let mut memories = if replace {
-        Vec::new()
-    } else {
-        chat_memory_values_for_mutation(&chat)?
-    };
-    let mut seen = memories
-        .iter()
-        .filter_map(memory_recall_existing_keys)
-        .flatten()
-        .collect::<HashSet<_>>();
+    let mut incoming_seen = HashSet::new();
     let now = now_iso();
-    let mut imported = 0usize;
-    let mut skipped = 0usize;
-    let mut lexical_indexed = 0usize;
+    let mut prepared = Vec::new();
+    let mut malformed_or_duplicate = 0usize;
     for value in incoming {
         let Some((mut memory, keys, content)) =
             normalize_memory_recall_import_chunk(value, chat_id, &source_chat_id, &now)
         else {
-            skipped += 1;
+            malformed_or_duplicate += 1;
             continue;
         };
-        if keys.iter().any(|key| seen.contains(key)) {
-            skipped += 1;
+        if keys.iter().any(|key| incoming_seen.contains(key)) {
+            malformed_or_duplicate += 1;
             continue;
         }
         memory.remove("embedding");
         memory.remove("embeddingConnectionId");
         memory.remove("embeddingModel");
         insert_memory_embedding_fields(&mut memory, embed_memory_content(None, &content).await?);
-        lexical_indexed += 1;
         if let Some(stored_keys) = memory_recall_existing_keys(&Value::Object(memory.clone())) {
-            seen.extend(stored_keys);
+            incoming_seen.extend(stored_keys);
         } else {
-            seen.extend(keys);
+            incoming_seen.extend(keys.iter().cloned());
         }
-        memories.push(Value::Object(memory));
-        imported += 1;
+        prepared.push((Value::Object(memory), keys));
     }
-    if replace && imported == 0 {
+    if replace && prepared.is_empty() {
         return Err(AppError::invalid_input(
             "Memory Recall replace import must contain at least one importable chunk",
         ));
     }
-    set_chat_memory_values_with_trigger(
+    let (imported, skipped) = mutate_chat_memory_values_with_trigger(
         state,
         chat_id,
-        memories,
         super::memory_maintenance::jobs::Trigger::Import,
+        |memories| {
+            if replace {
+                memories.clear();
+            }
+            let mut seen = memories
+                .iter()
+                .filter_map(memory_recall_existing_keys)
+                .flatten()
+                .collect::<HashSet<_>>();
+            let mut imported = 0usize;
+            let mut skipped = malformed_or_duplicate;
+            for (memory, keys) in prepared {
+                if keys.iter().any(|key| seen.contains(key)) {
+                    skipped += 1;
+                    continue;
+                }
+                if let Some(stored_keys) = memory_recall_existing_keys(&memory) {
+                    seen.extend(stored_keys);
+                } else {
+                    seen.extend(keys);
+                }
+                memories.push(memory);
+                imported += 1;
+            }
+            Ok((imported, skipped))
+        },
     )?;
     if replace {
         canonical_memory::delete_memory_index_rows_for_chat(state, chat_id)?;
@@ -2635,7 +2818,7 @@ pub(crate) async fn import_chat_memories(
         "imported": imported,
         "skipped": skipped,
         "replaced": replace,
-        "lexicalIndexed": lexical_indexed
+        "lexicalIndexed": imported
     }))
 }
 
@@ -2656,6 +2839,42 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp chat memory dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn chat_memory_atomic_mutations_merge_latest_values() {
+        let state = test_state("atomic-mutations-merge");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "memories": [] }))
+            .expect("chat should seed");
+
+        for (id, content) in [
+            ("memory-a", "Mira keeps the brass key."),
+            ("memory-b", "The archive room stays quiet."),
+        ] {
+            mutate_chat_memory_values(&state, "chat-1", |values| {
+                values.push(json!({
+                    "id": id,
+                    "content": content,
+                    "status": "active",
+                    "scopeType": "chat",
+                    "scopeId": "chat-1"
+                }));
+                Ok(())
+            })
+            .expect("atomic memory mutation should persist");
+        }
+
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat read should succeed")
+            .expect("chat should exist");
+        assert_eq!(
+            memory_ids(chat.get("memories").unwrap()),
+            ["memory-a", "memory-b"]
+        );
     }
 
     fn memory_ids(value: &Value) -> Vec<String> {

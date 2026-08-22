@@ -19,6 +19,7 @@ import {
 } from "./automatic-memory-capture-queue";
 import type { CharacterMemoryScopeCharacter } from "./character-memory-scope";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
+import { legacyMemoryId } from "./deterministic-memory-id";
 
 function message(id: string, role: string, content: string): JsonRecord {
   return {
@@ -71,6 +72,7 @@ function queueStorage(
   const previewCalls: Array<{ chatId: string; sourceMessageIds: string[] }> = [];
   const commitCalls: CommitChatMemoryCaptureInput[] = [];
   let refreshFailures = options.refreshFailures ?? 0;
+  let captureLease: { workerId: string; leaseId: string } | null = null;
 
   const storage: StorageGateway = {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
@@ -251,6 +253,23 @@ function queueStorage(
       ) as never;
     },
   };
+  Object.assign(storage, {
+    async acquireMemoryCaptureWorker(workerId: string, leaseId?: string) {
+      if (leaseId) {
+        return captureLease?.workerId === workerId && captureLease.leaseId === leaseId ? leaseId : null;
+      }
+      if (captureLease) return null;
+      captureLease = { workerId, leaseId: `capture-lease-${workerId}` };
+      return captureLease.leaseId;
+    },
+    async releaseMemoryCaptureWorker(workerId: string, leaseId: string) {
+      if (captureLease?.workerId === workerId && captureLease.leaseId === leaseId) captureLease = null;
+    },
+    async updateMemoryCaptureJob(leaseId: string, jobId: string, patch: Record<string, unknown>) {
+      if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
+      return storage.update("memory-capture-jobs", jobId, patch);
+    },
+  });
 
   async function enqueue() {
     return enqueueAutomaticMemoryCaptureJob(
@@ -281,6 +300,57 @@ function queueStorage(
 }
 
 describe("automatic memory capture queue", () => {
+  it("allows only one runtime to process the durable capture queue", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    let extractionCalls = 0;
+    let releaseExtraction = () => {};
+    let markStarted = () => {};
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseExtraction = resolve;
+    });
+    const llm = passingValueReviewLlm(async () => {
+      extractionCalls += 1;
+      markStarted();
+      await gate;
+      return JSON.stringify({ memories: [] });
+    });
+
+    const first = processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm });
+    await started;
+    const second = processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm });
+    try {
+      await vi.waitFor(() => expect(extractionCalls).toBe(1));
+    } finally {
+      releaseExtraction();
+    }
+    await Promise.all([first, second]);
+    expect(extractionCalls).toBe(1);
+  });
+
+  it("does not reuse a colliding legacy job without an exact capture identity match", async () => {
+    const harness = queueStorage();
+    const identity = "2\u001fchat-1\u001fuser-1\u001fassistant-1";
+    const legacyId = legacyMemoryId("memory-capture", identity);
+    harness.jobs.set(legacyId, {
+      id: legacyId,
+      status: "completed",
+      captureVersion: 2,
+      chatId: "unrelated-chat",
+      sourceMessageIds: ["unrelated-message"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const job = await harness.enqueue();
+
+    expect(job?.id).not.toBe(legacyId);
+    expect(job?.chatId).toBe("chat-1");
+    expect(harness.jobs).toHaveLength(2);
+  });
+
   it("resolves the dedicated background connection when the queued job runs", async () => {
     const harness = queueStorage({
       connections: [
@@ -814,6 +884,34 @@ describe("automatic memory capture queue", () => {
 
       await vi.advanceTimersByTimeAsync(1);
       expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed", attempts: 2 }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries scheduling after a storage list failure", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:03:00.000Z"));
+    try {
+      const harness = queueStorage({ refreshFailures: 1 });
+      const job = await harness.enqueue();
+      const originalList = harness.storage.list.bind(harness.storage);
+      let jobListCalls = 0;
+      harness.storage.list = async (...args) => {
+        if (args[0] === "memory-capture-jobs") {
+          jobListCalls += 1;
+          if (jobListCalls === 2) throw new Error("storage list unavailable");
+        }
+        return originalList(...args);
+      };
+
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(harness.jobs.get(String(job?.id))?.status).toBe("retryable");
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(harness.jobs.get(String(job?.id))).toEqual(expect.objectContaining({ status: "completed", attempts: 2 }));
+      expect(jobListCalls).toBeGreaterThanOrEqual(3);
     } finally {
       vi.useRealTimers();
     }

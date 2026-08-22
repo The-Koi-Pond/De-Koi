@@ -7,6 +7,7 @@ import type {
   CanonicalMemorySemanticMatch,
   CanonicalMemorySemanticQuery,
   MemoryLexicalRebuildResult,
+  MemoryIndexHealth,
 } from "../contracts/types/memory";
 import type { ChatMemoryChunk, DaySummaryEntry, WeekSummaryEntry } from "../contracts/types/chat";
 
@@ -183,6 +184,13 @@ export interface TrackerSnapshotSelectionQuery {
 }
 
 export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPort, ChatMetadataPort {
+  acquireMemoryCaptureWorker?(workerId: string, leaseId?: string): Promise<string | null>;
+  releaseMemoryCaptureWorker?(workerId: string, leaseId: string): Promise<void>;
+  updateMemoryCaptureJob?(
+    leaseId: string,
+    jobId: string,
+    patch: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
   createMemory?(body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
   updateMemory?(memoryId: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord>;
   queryMemories?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
@@ -191,6 +199,7 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   queryMemoryIndex?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
   queryMemoryIndexBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
   rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
+  memoryIndexHealth?(): Promise<MemoryIndexHealth>;
   listChatMemories<T = unknown>(chatId: string, options?: ListChatMemoriesOptions): Promise<T[]>;
   refreshChatMemories?<T = unknown>(chatId: string, options?: RefreshChatMemoriesOptions): Promise<T>;
   previewChatMemoryCapture?(chatId: string, sourceMessageIds: string[]): Promise<ChatMemoryCapturePreview>;

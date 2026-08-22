@@ -1,6 +1,7 @@
 use crate::state::AppState;
 use marinara_core::{new_id, now_iso, AppError, AppResult};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
@@ -11,6 +12,8 @@ pub(crate) use semantic::query_memories_semantic;
 
 const MEMORY_COLLECTION: &str = "canonical-memories";
 const INDEX_COLLECTION: &str = "memory-index-rows";
+const INDEX_METADATA_COLLECTION: &str = "memory-index-metadata";
+const INDEX_HEALTH_ID: &str = "lexical-v1";
 const LEXICAL_PROVIDER: &str = "lexical";
 const LEXICAL_MODEL: &str = "de-koi-lexical-v1";
 const LEXICAL_DIMENSIONS: usize = 64;
@@ -624,10 +627,7 @@ fn normalize_index_row(state: &AppState, mut object: Map<String, Value>) -> AppR
         } else {
             format!("{memory_id}:{connection_id}:{provider}:{model}:{projection_hash}")
         };
-        object.insert(
-            "id".to_string(),
-            Value::String(id),
-        );
+        object.insert("id".to_string(), Value::String(id));
     }
     object.insert("memoryId".to_string(), Value::String(memory_id));
     let _ = memory;
@@ -699,10 +699,11 @@ fn lexical_tokens(content: &str) -> Vec<String> {
         .collect()
 }
 
-fn stable_hash(value: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+fn sha256_hash(value: &str) -> String {
+    Sha256::digest(value.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn lexical_vector(tokens: &[String]) -> Vec<f64> {
@@ -736,14 +737,14 @@ fn lexical_index_row(memory: &Value) -> AppResult<Value> {
     }
     let content = read_string(memory.get("content"));
     let tokens = lexical_tokens(&content);
-    let projection_hash = stable_hash(&format!("{}:{}", memory_id, tokens.join(" ")));
+    let projection_hash = sha256_hash(&format!("{}:{}", memory_id, tokens.join(" ")));
     Ok(json!({
         "id": format!("{memory_id}:lexical:{projection_hash}"),
         "memoryId": memory_id,
         "provider": LEXICAL_PROVIDER,
         "model": LEXICAL_MODEL,
         "dimensions": LEXICAL_DIMENSIONS,
-        "contentHash": stable_hash(&content),
+        "contentHash": sha256_hash(&content),
         "projectionHash": projection_hash,
         "canonicalUpdatedAt": canonical_updated_at,
         "lexicalTokens": tokens,
@@ -768,28 +769,74 @@ pub(crate) fn replace_memory_lexical_index(
 }
 
 pub(crate) fn rebuild_memory_lexical_index(state: &AppState, body: Value) -> AppResult<Value> {
-    let memories = query_memories(state, body)?;
-    let rows = match memories {
-        Value::Array(rows) => rows,
-        _ => Vec::new(),
+    let body = if body.is_null() { json!({}) } else { body };
+    if !body.is_object() {
+        return Err(AppError::invalid_input(
+            "memory index rebuild body must be an object",
+        ));
+    }
+    let full_rebuild = body.as_object().is_some_and(Map::is_empty);
+    let collections = if full_rebuild {
+        vec![
+            MEMORY_COLLECTION,
+            INDEX_COLLECTION,
+            INDEX_METADATA_COLLECTION,
+        ]
+    } else {
+        vec![MEMORY_COLLECTION, INDEX_COLLECTION]
     };
-    let rebuilt = rows
-        .iter()
-        .filter(|memory| !read_string(memory.get("id")).is_empty())
-        .count();
-    state
+    let rebuilt = state
         .storage
-        .update_collections_atomically(vec![INDEX_COLLECTION], move |collections| {
-            let index_rows = collections[0].rows_mut();
+        .update_collections_atomically(collections, move |collections| {
+            let (memory_collections, index_collections) = collections.split_at_mut(1);
+            let rows = memory_collections[0]
+                .rows()
+                .iter()
+                .filter(|memory| memory_allowed_by_query(memory, &body))
+                .cloned()
+                .collect::<Vec<_>>();
+            let index_rows = index_collections[0].rows_mut();
+            if full_rebuild {
+                index_rows.retain(|row| {
+                    read_string(row.get("provider")) != LEXICAL_PROVIDER
+                        || read_string(row.get("model")) != LEXICAL_MODEL
+                });
+            }
             for memory in &rows {
                 if read_string(memory.get("id")).is_empty() {
                     continue;
                 }
                 replace_memory_lexical_index(index_rows, memory)?;
             }
-            Ok(())
+            if full_rebuild {
+                let metadata_rows = index_collections[1].rows_mut();
+                metadata_rows.retain(|row| read_string(row.get("id")) != INDEX_HEALTH_ID);
+                metadata_rows.push(json!({
+                    "id": INDEX_HEALTH_ID,
+                    "version": 1,
+                    "lexicalComplete": true,
+                    "updatedAt": now_iso()
+                }));
+            }
+            Ok(rows.len())
         })?;
     Ok(json!({ "rebuilt": rebuilt }))
+}
+
+pub(crate) fn memory_index_health(state: &AppState) -> AppResult<Value> {
+    Ok(state
+        .storage
+        .get(INDEX_METADATA_COLLECTION, INDEX_HEALTH_ID)?
+        .map(|row| {
+            json!({
+                "version": 1,
+                "lexicalComplete": row
+                    .get("lexicalComplete")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or_else(|| json!({ "version": 1, "lexicalComplete": false })))
 }
 
 pub(crate) fn query_memory_index(state: &AppState, body: Value) -> AppResult<Value> {
@@ -803,7 +850,7 @@ pub(crate) fn query_memory_index(state: &AppState, body: Value) -> AppResult<Val
     let mut memories = Vec::new();
     for row in state.storage.list(INDEX_COLLECTION)? {
         let memory_id = read_string(row.get("memoryId"));
-        if memory_id.is_empty() || !seen.insert(memory_id.clone()) {
+        if memory_id.is_empty() || seen.contains(&memory_id) {
             continue;
         }
         let Ok(memory) = get_memory(state, &memory_id) else {
@@ -812,6 +859,7 @@ pub(crate) fn query_memory_index(state: &AppState, body: Value) -> AppResult<Val
         if memory.get("updatedAt") != row.get("canonicalUpdatedAt") {
             continue;
         }
+        seen.insert(memory_id);
         if memory_allowed_by_query(&memory, &body) {
             memories.push(memory);
         }
@@ -828,7 +876,7 @@ pub(crate) fn query_memory_index_batch(state: &AppState, body: Value) -> AppResu
     let mut indexed = Vec::new();
     for row in state.storage.list(INDEX_COLLECTION)? {
         let memory_id = read_string(row.get("memoryId"));
-        if memory_id.is_empty() || !seen.insert(memory_id.clone()) {
+        if memory_id.is_empty() || seen.contains(&memory_id) {
             continue;
         }
         let Ok(memory) = get_memory(state, &memory_id) else {
@@ -837,6 +885,7 @@ pub(crate) fn query_memory_index_batch(state: &AppState, body: Value) -> AppResu
         if memory.get("updatedAt") != row.get("canonicalUpdatedAt") {
             continue;
         }
+        seen.insert(memory_id);
         indexed.push(memory);
     }
     let mut emitted = HashSet::new();
@@ -1154,6 +1203,44 @@ mod tests {
     }
 
     #[test]
+    fn index_query_prefers_a_fresh_row_after_a_stale_row_for_the_same_memory() {
+        let state = test_state("index-query-stale-before-fresh");
+        let memory = seed_memory(&state, "memory-one", "chat", "chat-1", "active");
+        delete_memory_index_rows_for_memory(&state, "memory-one")
+            .expect("generated lexical projection should be removable");
+        for (id, canonical_updated_at) in [
+            ("index-stale", json!("stale-canonical-updated-at")),
+            ("index-fresh", memory["updatedAt"].clone()),
+        ] {
+            upsert_memory_index_row(
+                &state,
+                json!({
+                    "id": id,
+                    "memoryId": "memory-one",
+                    "provider": "lexical",
+                    "model": "de-koi-lexical-v1",
+                    "dimensions": 64,
+                    "contentHash": format!("{id}-content"),
+                    "projectionHash": format!("{id}-projection"),
+                    "canonicalUpdatedAt": canonical_updated_at,
+                    "vector": [0.2, 0.4]
+                }),
+            )
+            .expect("index row should seed");
+        }
+
+        let query = json!({ "scope": { "kind": "chat", "id": "chat-1" } });
+        assert_eq!(
+            ids(&query_memory_index(&state, query.clone()).unwrap()),
+            ["memory-one"]
+        );
+        assert_eq!(
+            ids(&query_memory_index_batch(&state, json!({ "queries": [query] })).unwrap()),
+            ["memory-one"]
+        );
+    }
+
+    #[test]
     fn lexical_rebuild_recreates_projection_rows_from_canonical_records() {
         let state = test_state("lexical-rebuild");
         seed_memory(&state, "memory-one", "chat", "chat-1", "active");
@@ -1180,6 +1267,38 @@ mod tests {
         assert!(rows
             .iter()
             .all(|row| row["projectionHash"].as_str().is_some()));
+        assert!(rows.iter().all(|row| row["contentHash"]
+            .as_str()
+            .is_some_and(|hash| hash.len() == 64)));
+        assert!(rows.iter().all(|row| row["projectionHash"]
+            .as_str()
+            .is_some_and(|hash| hash.len() == 64)));
+    }
+
+    #[test]
+    fn full_lexical_rebuild_marks_the_index_complete() {
+        let state = test_state("full-lexical-rebuild-health");
+        seed_memory(&state, "memory-one", "chat", "chat-1", "active");
+
+        assert_eq!(
+            memory_index_health(&state).unwrap()["lexicalComplete"],
+            false
+        );
+        rebuild_memory_lexical_index(
+            &state,
+            json!({ "scope": { "kind": "chat", "id": "chat-1" } }),
+        )
+        .unwrap();
+        assert_eq!(
+            memory_index_health(&state).unwrap()["lexicalComplete"],
+            false
+        );
+
+        rebuild_memory_lexical_index(&state, json!({})).unwrap();
+        assert_eq!(
+            memory_index_health(&state).unwrap()["lexicalComplete"],
+            true
+        );
     }
 
     #[test]

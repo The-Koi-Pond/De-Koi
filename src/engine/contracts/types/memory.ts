@@ -122,3 +122,8 @@ export interface MemoryIndexDeleteResult {
 export interface MemoryLexicalRebuildResult {
   rebuilt: number;
 }
+
+export interface MemoryIndexHealth {
+  version: 1;
+  lexicalComplete: boolean;
+}

@@ -4,8 +4,8 @@ use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, canonical_memory, characters,
     chat_memory, chats, connection_secrets, custom_tools, customization, deki, entity_images,
     exports, fonts, game_assets, generation, http, images, imports, integrations, knowledge, llm,
-    lorebook_images, managed_thumbnails, memory_maintenance, personas, profile, prompts, shared,
-    sidecar, sprites, translation, updates, web_research,
+    lorebook_images, managed_thumbnails, memory_capture, memory_maintenance, personas, profile,
+    prompts, shared, sidecar, sprites, translation, updates, web_research,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -1134,6 +1134,24 @@ pub(crate) async fn dispatch_for_runtime_owner(
             })
             .await
         }
+        "memory_capture_worker_acquire" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::acquire_worker(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_worker_release" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::release_worker(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_job_update" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::update_job(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "memory_index_upsert" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::upsert_memory_index_row(state, optional_value(args, "row"))
@@ -1152,6 +1170,12 @@ pub(crate) async fn dispatch_for_runtime_owner(
         "memory_index_rebuild_lexical" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::rebuild_memory_lexical_index(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_index_health" => {
+            dispatch_blocking_http_storage(state, &args, |state, _args| {
+                canonical_memory::memory_index_health(state)
             })
             .await
         }
@@ -1912,6 +1936,9 @@ mod tests {
         "lorebook_entry_reorder",
         "memory_create",
         "memory_cleanup_undo",
+        "memory_capture_worker_acquire",
+        "memory_capture_job_update",
+        "memory_capture_worker_release",
         "memory_maintenance_worker_acquire",
         "memory_maintenance_job_update",
         "memory_maintenance_worker_release",
@@ -1920,6 +1947,7 @@ mod tests {
         "memory_index_delete_for_memory",
         "memory_index_query",
         "memory_index_rebuild_lexical",
+        "memory_index_health",
         "memory_index_upsert",
         "memory_query",
         "memory_update",
