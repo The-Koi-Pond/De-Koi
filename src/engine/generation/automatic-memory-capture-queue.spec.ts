@@ -295,6 +295,9 @@ function queueStorage(
     refreshCalls,
     previewCalls,
     commitCalls,
+    revokeCaptureLease: () => {
+      captureLease = null;
+    },
     enqueue,
   };
 }
@@ -329,6 +332,24 @@ describe("automatic memory capture queue", () => {
     }
     await Promise.all([first, second]);
     expect(extractionCalls).toBe(1);
+  });
+
+  it("stops before persistence when the durable capture lease is lost", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    const originalPreview = harness.storage.previewChatMemoryCapture!.bind(harness.storage);
+    harness.storage.previewChatMemoryCapture = async (...args) => {
+      const preview = await originalPreview(...args);
+      harness.revokeCaptureLease();
+      return preview;
+    };
+
+    await expect(processAutomaticMemoryCaptureQueue(harness.dependencies)).rejects.toMatchObject({
+      code: "memory_capture_lease_lost",
+    });
+
+    expect(harness.canonicalMemories.size).toBe(0);
+    expect(harness.commitCalls).toHaveLength(0);
   });
 
   it("does not reuse a colliding legacy job without an exact capture identity match", async () => {
