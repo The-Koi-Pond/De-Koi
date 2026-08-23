@@ -464,8 +464,16 @@ describe("automatic memory capture queue", () => {
       code: "memory_capture_lease_lost",
     });
 
+    expect(writes).toBe(1);
     expect(harness.canonicalMemories.size).toBe(1);
     expect(harness.commitCalls).toHaveLength(0);
+    const firstPersisted = Array.from(harness.canonicalMemories.values())[0];
+    expect(firstPersisted).toMatchObject({
+      kind: "fact",
+      content: "{{user}}'s cat is named Miso.",
+      payload: { sourceMessageIds: ["user-1"] },
+    });
+    const firstPersistedId = String(firstPersisted?.id);
 
     await harness.storage.update("memory-capture-jobs", String(job?.id), {
       leaseExpiresAt: "2000-01-01T00:00:00.000Z",
@@ -477,19 +485,40 @@ describe("automatic memory capture queue", () => {
       ),
     ).resolves.toMatchObject({ completed: 1, retryable: 0 });
 
-    const persistedIds = Array.from(harness.canonicalMemories.keys());
+    const persisted = Array.from(harness.canonicalMemories.values());
+    const persistedIds = persisted.map((memory) => String(memory.id));
+    expect(persistedIds).toHaveLength(2);
     expect(new Set(persistedIds).size).toBe(2);
-    expect(harness.canonicalMemories.size).toBe(2);
+    expect(persisted.find((memory) => memory.content === "{{user}}'s cat is named Miso.")?.id).toBe(firstPersistedId);
+    expect(
+      persisted
+        .map((memory) => ({
+          kind: memory.kind,
+          content: memory.content,
+          sourceMessageIds: (memory.payload as JsonRecord | undefined)?.sourceMessageIds,
+        }))
+        .sort((left, right) => String(left.kind).localeCompare(String(right.kind))),
+    ).toEqual([
+      {
+        kind: "fact",
+        content: "{{user}}'s cat is named Miso.",
+        sourceMessageIds: ["user-1"],
+      },
+      {
+        kind: "preference",
+        content: "{{user}} likes quiet mornings.",
+        sourceMessageIds: ["user-1"],
+      },
+    ]);
     expect(harness.commitCalls).toHaveLength(1);
-    expect(harness.jobs.get(String(job?.id))).toMatchObject({
-      status: "completed",
-      affectedCanonicalMemoryIds: persistedIds,
-    });
+    const completedJob = harness.jobs.get(String(job?.id));
+    expect(completedJob?.status).toBe("completed");
+    expect(new Set(completedJob?.affectedCanonicalMemoryIds as string[])).toEqual(new Set(persistedIds));
   });
 
   it("times out a hung lease renewal and still attempts release", async () => {
     const harness = queueStorage();
-    await harness.enqueue();
+    const job = await harness.enqueue();
     const originalAcquire = harness.storage.acquireMemoryCaptureWorker!.bind(harness.storage);
     let acquisitionCalls = 0;
     harness.storage.acquireMemoryCaptureWorker = async (...args) => {
@@ -509,6 +538,12 @@ describe("automatic memory capture queue", () => {
 
     await expect(processing).resolves.toMatchObject({ completed: 0, retryable: 1 });
     expect(harness.releaseCalls).toHaveLength(1);
+
+    harness.storage.acquireMemoryCaptureWorker = originalAcquire;
+    await expect(
+      processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2100-01-01T00:00:00.000Z" }),
+    ).resolves.toMatchObject({ leaseAcquired: true, completed: 1 });
+    expect(harness.jobs.get(String(job?.id))?.status).toBe("completed");
   });
 
   it("does not reuse a colliding legacy job without an exact capture identity match", async () => {
