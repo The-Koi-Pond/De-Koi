@@ -513,7 +513,9 @@ describe("automatic memory capture queue", () => {
     expect(harness.commitCalls).toHaveLength(1);
     const completedJob = harness.jobs.get(String(job?.id));
     expect(completedJob?.status).toBe("completed");
-    expect(new Set(completedJob?.affectedCanonicalMemoryIds as string[])).toEqual(new Set(persistedIds));
+    const affectedIds = completedJob?.affectedCanonicalMemoryIds as string[];
+    expect(affectedIds).toEqual(persistedIds);
+    expect(new Set(affectedIds).size).toBe(affectedIds.length);
   });
 
   it("times out a hung lease renewal and still attempts release", async () => {
