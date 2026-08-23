@@ -34,6 +34,7 @@ describe("chatCommandApi", () => {
       chatId: "chat-1",
       sourceMessageIds: ["message-1", "message-2"],
       fingerprint: "fingerprint-1",
+      leaseId: "lease-1",
     };
 
     await chatCommandApi.memoryCapturePreview("chat-1", commit.sourceMessageIds);

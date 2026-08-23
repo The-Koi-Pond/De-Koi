@@ -26,6 +26,12 @@ const MEMORY_CAPTURE_JOBS_COLLECTION: StorageEntity = "memory-capture-jobs";
 const AUTOMATIC_MEMORY_CAPTURE_VERSION = 2;
 const MAX_CAPTURE_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
+const CAPTURE_LEASE_TTL_MS = 30_000;
+const CAPTURE_LEASE_HEARTBEAT_MS = 10_000;
+const CAPTURE_LEASE_REQUEST_TIMEOUT_MS = 5_000;
+const automaticCaptureWorkerId = `automatic-memory-capture-${
+  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}`;
 
 type MemoryCaptureJobStatus = "pending" | "processing" | "retryable" | "completed" | "failed" | "stale";
 
@@ -55,6 +61,7 @@ interface MemoryCaptureJob extends JsonRecord {
   attempts: number;
   maxAttempts: number;
   nextAttemptAt?: string | null;
+  leaseExpiresAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,6 +78,9 @@ export interface AutomaticMemoryCaptureScheduleInput {
 export interface AutomaticMemoryCaptureProcessOptions {
   now?: string;
   limit?: number;
+  workerId?: string;
+  leaseHeartbeatMs?: number;
+  leaseRequestTimeoutMs?: number;
 }
 
 export interface AutomaticMemoryCaptureQueueDependencies {
@@ -216,7 +226,11 @@ function jobStatus(job: JsonRecord): MemoryCaptureJobStatus {
 
 function jobDue(job: JsonRecord, now: string): boolean {
   const status = jobStatus(job);
-  if (status === "pending" || status === "processing") return true;
+  if (status === "pending") return true;
+  if (status === "processing") {
+    const leaseExpiresAt = readString(job.leaseExpiresAt).trim();
+    return !leaseExpiresAt || leaseExpiresAt <= now;
+  }
   if (status !== "retryable") return false;
   const nextAttemptAt = readString(job.nextAttemptAt).trim();
   return !nextAttemptAt || nextAttemptAt <= now;
@@ -238,7 +252,16 @@ function jobSourceIds(job: JsonRecord): string[] {
     .filter(Boolean);
 }
 
-async function updateJob(storage: StorageGateway, id: string, patch: Record<string, unknown>): Promise<JsonRecord> {
+async function updateJob(
+  storage: StorageGateway,
+  id: string,
+  patch: Record<string, unknown>,
+  leaseId?: string,
+): Promise<JsonRecord> {
+  if (leaseId) {
+    if (!storage.updateMemoryCaptureJob) throw new Error("Automatic memory capture lease API is unavailable");
+    return (await storage.updateMemoryCaptureJob(leaseId, id, patch)) as JsonRecord;
+  }
   return storage.update<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION, id, patch);
 }
 
@@ -247,12 +270,34 @@ async function patchMemoryCaptureStatus(
   job: JsonRecord,
   status: AutomaticMemoryCaptureStatus["status"],
   memoryCapture: Record<string, unknown>,
+  leaseId?: string,
 ): Promise<void> {
   const assistantMessageId = readString(job.assistantMessageId).trim();
   const chatId = readString(job.chatId).trim();
   if (!assistantMessageId || !chatId) return;
-  await storage.patchChatMessageExtra(assistantMessageId, { memoryCapture });
+  if (leaseId) {
+    if (!storage.patchMemoryCaptureMessageExtra) throw new Error("Automatic memory capture lease API is unavailable");
+    await storage.patchMemoryCaptureMessageExtra(leaseId, assistantMessageId, { memoryCapture });
+  } else {
+    await storage.patchChatMessageExtra(assistantMessageId, { memoryCapture });
+  }
   publishMemoryCaptureStatus({ chatId, assistantMessageId, status });
+}
+
+function boundedLeaseRequest<T>(request: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Automatic memory capture lease request timed out")), timeoutMs);
+    void request.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function validateSourceMessages(storage: StorageGateway, job: JsonRecord): Promise<string | null> {
@@ -419,195 +464,288 @@ export async function enqueueAutomaticMemoryCaptureJob(
 export async function processAutomaticMemoryCaptureQueue(
   dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
   options: AutomaticMemoryCaptureProcessOptions = {},
-): Promise<{ processed: number; completed: number; retryable: number; failed: number; stale: number }> {
+): Promise<{
+  leaseAcquired: boolean;
+  processed: number;
+  completed: number;
+  retryable: number;
+  failed: number;
+  stale: number;
+}> {
   const { storage, llm } = queueDependencies(dependencies);
   const now = options.now ?? nowIso();
-  const jobs = await storage.list<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION).catch(() => []);
-  const dueJobs = jobs
-    .filter((job) => jobDue(job, now))
-    .sort((left, right) => readString(left.createdAt).localeCompare(readString(right.createdAt)))
-    .slice(0, options.limit ?? 10);
-  const result = { processed: 0, completed: 0, retryable: 0, failed: 0, stale: 0 };
-
-  for (const job of dueJobs) {
-    if (foregroundGenerationActive(storage)) {
-      deferWorkerUntilForegroundCompletes(storage, dependencies);
-      break;
-    }
-    const id = readString(job.id).trim();
-    if (!id) continue;
-    const attempts = readNumber(job.attempts, 0) + 1;
-    const maxAttempts = Math.max(1, readNumber(job.maxAttempts, MAX_CAPTURE_ATTEMPTS));
-    result.processed += 1;
-    await updateJob(storage, id, {
-      status: "processing",
-      attempts,
-      startedAt: now,
-      updatedAt: now,
-      lastError: null,
-    });
-
-    try {
-      await patchMemoryCaptureStatus(storage, job, "processing", {
-        status: "processing",
-        jobId: id,
-        sourceMessageIds: jobSourceIds(job),
-        attempts,
-        updatedAt: now,
+  const result = { leaseAcquired: false, processed: 0, completed: 0, retryable: 0, failed: 0, stale: 0 };
+  if (
+    !storage.acquireMemoryCaptureWorker ||
+    !storage.releaseMemoryCaptureWorker ||
+    !storage.updateMemoryCaptureJob ||
+    !storage.createMemoryCaptureMemory ||
+    !storage.updateMemoryCaptureMemory ||
+    !storage.patchMemoryCaptureMessageExtra ||
+    !storage.rebuildMemoryCaptureIndex
+  ) {
+    return result;
+  }
+  const workerId = options.workerId ?? automaticCaptureWorkerId;
+  const leaseId = await storage.acquireMemoryCaptureWorker(workerId);
+  if (!leaseId) return result;
+  result.leaseAcquired = true;
+  let leaseLost = false;
+  let leaseRenewal: Promise<void> | null = null;
+  const leaseRequestTimeoutMs = Math.max(1, options.leaseRequestTimeoutMs ?? CAPTURE_LEASE_REQUEST_TIMEOUT_MS);
+  const renewLease = () => {
+    if (leaseRenewal || leaseLost) return;
+    leaseRenewal = boundedLeaseRequest(storage.acquireMemoryCaptureWorker!(workerId, leaseId), leaseRequestTimeoutMs)
+      .then((renewed) => {
+        if (renewed !== leaseId) leaseLost = true;
+      })
+      .catch(() => {
+        leaseLost = true;
+      })
+      .finally(() => {
+        leaseRenewal = null;
       });
-      const staleReason = await validateSourceMessages(storage, job);
-      if (staleReason) {
-        await updateJob(storage, id, {
-          status: "stale",
-          staleReason,
-          completedAt: now,
+  };
+  const requireLease = async () => {
+    if (leaseRenewal) await leaseRenewal;
+    if (
+      leaseLost ||
+      (await boundedLeaseRequest(storage.acquireMemoryCaptureWorker!(workerId, leaseId), leaseRequestTimeoutMs)) !==
+        leaseId
+    ) {
+      leaseLost = true;
+      throw new Error("Automatic memory capture lease was lost");
+    }
+  };
+  const heartbeat = setInterval(renewLease, Math.max(1, options.leaseHeartbeatMs ?? CAPTURE_LEASE_HEARTBEAT_MS));
+  try {
+    const jobs = await storage.list<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION);
+    const dueJobs = jobs
+      .filter((job) => jobDue(job, now))
+      .sort((left, right) => readString(left.createdAt).localeCompare(readString(right.createdAt)))
+      .slice(0, options.limit ?? 10);
+
+    for (const job of dueJobs) {
+      if (leaseLost) break;
+      await requireLease();
+      if (foregroundGenerationActive(storage)) {
+        deferWorkerUntilForegroundCompletes(storage, dependencies);
+        break;
+      }
+      const id = readString(job.id).trim();
+      if (!id) continue;
+      const attempts = readNumber(job.attempts, 0) + 1;
+      const maxAttempts = Math.max(1, readNumber(job.maxAttempts, MAX_CAPTURE_ATTEMPTS));
+      result.processed += 1;
+      await updateJob(
+        storage,
+        id,
+        {
+          status: "processing",
+          attempts,
+          startedAt: now,
+          leaseExpiresAt: new Date(Date.parse(now) + CAPTURE_LEASE_TTL_MS).toISOString(),
           updatedAt: now,
-        });
-        await patchMemoryCaptureStatus(storage, job, "failed", {
-          status: "failed",
+          lastError: null,
+        },
+        leaseId,
+      );
+
+      try {
+        await patchMemoryCaptureStatus(storage, job, "processing", {
+          status: "processing",
           jobId: id,
           sourceMessageIds: jobSourceIds(job),
           attempts,
-          failureCategory: "capture_unavailable",
           updatedAt: now,
-        }).catch(() => {});
-        result.stale += 1;
-        continue;
-      }
-
-      const sourceMessageIds = jobSourceIds(job);
-      const chatId = readString(job.chatId).trim();
-      if (!llm) throw new Error("Automatic memory value review requires an LLM gateway");
-      const queuedConnectionId = readString(job.connectionId).trim();
-      const queuedModel = readString(job.model).trim();
-      const backgroundConnection = await resolveBackgroundTextConnection(storage, queuedConnectionId, queuedModel);
-      const connectionId = readString(backgroundConnection.id).trim();
-      const model =
-        readString(backgroundConnection.model).trim() ||
-        (connectionId === queuedConnectionId ? queuedModel : "") ||
-        null;
-      if (!storage.previewChatMemoryCapture || !storage.commitChatMemoryCapture) {
-        throw new Error("Automatic memory capture requires a two-phase storage runtime");
-      }
-      const preview = await storage.previewChatMemoryCapture(chatId, sourceMessageIds);
-      const extracted = await extractConsequences({ storage, llm, job, connectionId, model });
-      const valueGate = await reviewAutomaticMemoryCandidates({
-        llm,
-        connectionId,
-        jobId: id,
-        scope: extracted.scope,
-        transcriptCandidate: preview.candidate,
-        canonicalCandidates: extracted.candidates,
-      });
-      const persisted = await persistCanonicalMemoryConsequences({
-        storage,
-        candidates: valueGate.acceptedCanonicalCandidates,
-        eligibleMemories: extracted.eligibleMemories,
-        now,
-      });
-      const consequences: PersistedCanonicalConsequence[] = persisted.affected;
-      if (consequences.length > 0 && storage.rebuildMemoryIndex) {
-        try {
-          await storage.rebuildMemoryIndex({ scope: extracted.scope });
-        } catch (error) {
-          await updateJob(storage, id, {
-            canonicalIndexError: errorMessage(error),
-            canonicalIndexFailedAt: now,
+        }, leaseId);
+        const staleReason = await validateSourceMessages(storage, job);
+        if (staleReason) {
+          await updateJob(
+            storage,
+            id,
+            {
+              status: "stale",
+              staleReason,
+              completedAt: now,
+              updatedAt: now,
+            },
+            leaseId,
+          );
+          await patchMemoryCaptureStatus(storage, job, "failed", {
+            status: "failed",
+            jobId: id,
+            sourceMessageIds: jobSourceIds(job),
+            attempts,
+            failureCategory: "capture_unavailable",
             updatedAt: now,
+          }, leaseId).catch(() => {});
+          result.stale += 1;
+          continue;
+        }
+
+        const sourceMessageIds = jobSourceIds(job);
+        const chatId = readString(job.chatId).trim();
+        if (!llm) throw new Error("Automatic memory value review requires an LLM gateway");
+        const queuedConnectionId = readString(job.connectionId).trim();
+        const queuedModel = readString(job.model).trim();
+        const backgroundConnection = await resolveBackgroundTextConnection(storage, queuedConnectionId, queuedModel);
+        const connectionId = readString(backgroundConnection.id).trim();
+        const model =
+          readString(backgroundConnection.model).trim() ||
+          (connectionId === queuedConnectionId ? queuedModel : "") ||
+          null;
+        if (!storage.previewChatMemoryCapture || !storage.commitChatMemoryCapture) {
+          throw new Error("Automatic memory capture requires a two-phase storage runtime");
+        }
+        const preview = await storage.previewChatMemoryCapture(chatId, sourceMessageIds);
+        const extracted = await extractConsequences({ storage, llm, job, connectionId, model });
+        const valueGate = await reviewAutomaticMemoryCandidates({
+          llm,
+          connectionId,
+          jobId: id,
+          scope: extracted.scope,
+          transcriptCandidate: preview.candidate,
+          canonicalCandidates: extracted.candidates,
+        });
+        await requireLease();
+        const persisted = await persistCanonicalMemoryConsequences({
+          storage,
+          candidates: valueGate.acceptedCanonicalCandidates,
+          eligibleMemories: extracted.eligibleMemories,
+          now,
+          createMemory: (body) => storage.createMemoryCaptureMemory!(leaseId, body),
+          updateMemory: (memoryId, patch) => storage.updateMemoryCaptureMemory!(leaseId, memoryId, patch),
+        });
+        const consequences: PersistedCanonicalConsequence[] = persisted.affected;
+        if (consequences.length > 0) {
+          try {
+            await storage.rebuildMemoryCaptureIndex(leaseId, { scope: extracted.scope });
+          } catch (error) {
+            await updateJob(
+              storage,
+              id,
+              {
+                canonicalIndexError: errorMessage(error),
+                canonicalIndexFailedAt: now,
+                updatedAt: now,
+              },
+              leaseId,
+            );
+          }
+        }
+        await requireLease();
+        const committedCapture = valueGate.acceptTranscriptCandidate
+          ? await storage.commitChatMemoryCapture({
+              version: 1,
+              chatId: preview.chatId,
+              sourceMessageIds: preview.sourceMessageIds,
+              fingerprint: preview.fingerprint,
+              leaseId,
+            })
+          : null;
+        const capture = committedCapture ? memoryCaptureFromCommit(committedCapture) : null;
+        const reviewedCandidateCount = (preview.candidate ? 1 : 0) + extracted.candidates.length;
+        const valueReview = {
+          status: "completed",
+          reviewed: reviewedCandidateCount,
+          rejected: valueGate.rejectedCandidateCount,
+          accepted: reviewedCandidateCount - valueGate.rejectedCandidateCount,
+        };
+        const assistantMessageId = readString(job.assistantMessageId).trim();
+        await requireLease();
+        if (assistantMessageId) {
+          await storage.patchMemoryCaptureMessageExtra(leaseId, assistantMessageId, {
+            memoryCapture: {
+              status: "completed",
+              jobId: id,
+              sourceMessageIds,
+              completedAt: now,
+              ...(capture ? { capture } : {}),
+              valueReview,
+              consequences: {
+                status: "completed",
+                affected: consequences.map(({ operation, memory }) => ({
+                  operation,
+                  memory: {
+                    id: memory.id,
+                    kind: memory.kind,
+                    status: memory.status,
+                    content: memory.content,
+                  },
+                })),
+              },
+            },
+          });
+          publishMemoryCaptureStatus({ chatId, assistantMessageId, status: "completed" });
+        }
+        await updateJob(
+          storage,
+          id,
+          {
+            status: "completed",
+            completedAt: now,
+            updatedAt: now,
+            leaseExpiresAt: null,
+            lastError: null,
+            nextAttemptAt: null,
+            consequenceStatus: "completed",
+            consequenceSkipReason: null,
+            valueReview,
+            affectedCanonicalMemoryIds: consequences.map((entry) => entry.memory.id),
+          },
+          leaseId,
+        );
+        wakeAutomaticMemoryMaintenanceQueueProcessing(storage);
+        result.completed += 1;
+        const completion = consequences[0];
+        if (completion && assistantMessageId) {
+          publishMemoryCaptureCompletion({
+            chatId,
+            assistantMessageId,
+            operation: completion.operation === "created" ? "created" : "updated",
+            memory: { id: completion.memory.id, content: completion.memory.content },
           });
         }
-      }
-      const committedCapture = valueGate.acceptTranscriptCandidate
-        ? await storage.commitChatMemoryCapture({
-            version: 1,
-            chatId: preview.chatId,
-            sourceMessageIds: preview.sourceMessageIds,
-            fingerprint: preview.fingerprint,
-          })
-        : null;
-      const capture = committedCapture ? memoryCaptureFromCommit(committedCapture) : null;
-      const reviewedCandidateCount = (preview.candidate ? 1 : 0) + extracted.candidates.length;
-      const valueReview = {
-        status: "completed",
-        reviewed: reviewedCandidateCount,
-        rejected: valueGate.rejectedCandidateCount,
-        accepted: reviewedCandidateCount - valueGate.rejectedCandidateCount,
-      };
-      const assistantMessageId = readString(job.assistantMessageId).trim();
-      if (assistantMessageId) {
-        await storage.patchChatMessageExtra(assistantMessageId, {
-          memoryCapture: {
-            status: "completed",
-            jobId: id,
-            sourceMessageIds,
-            completedAt: now,
-            ...(capture ? { capture } : {}),
-            valueReview,
-            consequences: {
-              status: "completed",
-              affected: consequences.map(({ operation, memory }) => ({
-                operation,
-                memory: {
-                  id: memory.id,
-                  kind: memory.kind,
-                  status: memory.status,
-                  content: memory.content,
-                },
-              })),
-            },
+      } catch (error) {
+        const configurationFailure = isTerminalBackgroundGenerationError(error);
+        const terminal = configurationFailure || attempts >= maxAttempts;
+        const nextAttemptAt = terminal ? null : retryTime(now, attempts);
+        await updateJob(
+          storage,
+          id,
+          {
+            status: terminal ? "failed" : "retryable",
+            lastError: errorMessage(error),
+            failedAt: terminal ? now : null,
+            nextAttemptAt,
+            leaseExpiresAt: null,
+            updatedAt: now,
           },
-        });
-        publishMemoryCaptureStatus({ chatId, assistantMessageId, status: "completed" });
+          leaseId,
+        );
+        await patchMemoryCaptureStatus(storage, job, terminal ? "failed" : "retryable", {
+          status: terminal ? "failed" : "retryable",
+          jobId: id,
+          sourceMessageIds: jobSourceIds(job),
+          attempts,
+          ...(terminal
+            ? { failureCategory: configurationFailure ? "configuration_error" : "capture_unavailable" }
+            : { nextAttemptAt }),
+          updatedAt: now,
+        }, leaseId).catch(() => {});
+        if (terminal) result.failed += 1;
+        else result.retryable += 1;
       }
-      await updateJob(storage, id, {
-        status: "completed",
-        completedAt: now,
-        updatedAt: now,
-        lastError: null,
-        nextAttemptAt: null,
-        consequenceStatus: "completed",
-        consequenceSkipReason: null,
-        valueReview,
-        affectedCanonicalMemoryIds: consequences.map((entry) => entry.memory.id),
-      });
-      wakeAutomaticMemoryMaintenanceQueueProcessing(storage);
-      result.completed += 1;
-      const completion = consequences[0];
-      if (completion && assistantMessageId) {
-        publishMemoryCaptureCompletion({
-          chatId,
-          assistantMessageId,
-          operation: completion.operation === "created" ? "created" : "updated",
-          memory: { id: completion.memory.id, content: completion.memory.content },
-        });
-      }
-    } catch (error) {
-      const configurationFailure = isTerminalBackgroundGenerationError(error);
-      const terminal = configurationFailure || attempts >= maxAttempts;
-      const nextAttemptAt = terminal ? null : retryTime(now, attempts);
-      await updateJob(storage, id, {
-        status: terminal ? "failed" : "retryable",
-        lastError: errorMessage(error),
-        failedAt: terminal ? now : null,
-        nextAttemptAt,
-        updatedAt: now,
-      });
-      await patchMemoryCaptureStatus(storage, job, terminal ? "failed" : "retryable", {
-        status: terminal ? "failed" : "retryable",
-        jobId: id,
-        sourceMessageIds: jobSourceIds(job),
-        attempts,
-        ...(terminal
-          ? { failureCategory: configurationFailure ? "configuration_error" : "capture_unavailable" }
-          : { nextAttemptAt }),
-        updatedAt: now,
-      }).catch(() => {});
-      if (terminal) result.failed += 1;
-      else result.retryable += 1;
     }
+    return result;
+  } finally {
+    clearInterval(heartbeat);
+    await leaseRenewal;
+    await boundedLeaseRequest(storage.releaseMemoryCaptureWorker(workerId, leaseId), leaseRequestTimeoutMs).catch(
+      () => {},
+    );
   }
-
-  return result;
 }
 
 function clearScheduledWorker(storage: StorageGateway): void {
@@ -619,6 +757,7 @@ function clearScheduledWorker(storage: StorageGateway): void {
 
 async function scheduleNextAutomaticMemoryCaptureQueuePass(
   dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
+  minimumDelayMs = 0,
 ): Promise<void> {
   const { storage } = queueDependencies(dependencies);
   if (foregroundGenerationActive(storage)) {
@@ -626,14 +765,32 @@ async function scheduleNextAutomaticMemoryCaptureQueuePass(
     return;
   }
 
-  const jobs = await storage.list<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION).catch(() => []);
+  let jobs: JsonRecord[];
+  try {
+    jobs = await storage.list<JsonRecord>(MEMORY_CAPTURE_JOBS_COLLECTION);
+  } catch {
+    clearScheduledWorker(storage);
+    const timer = setTimeout(() => {
+      scheduledWorkerTimers.delete(storage);
+      scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
+    }, RETRY_BACKOFF_MS[0]);
+    scheduledWorkerTimers.set(storage, timer);
+    return;
+  }
   const now = Date.now();
+  const earliestRunAt = now + minimumDelayMs;
   let nextRunAt: number | null = null;
   for (const job of jobs) {
     const status = jobStatus(job);
-    if (status === "pending" || status === "processing") {
-      nextRunAt = now;
+    if (status === "pending") {
+      nextRunAt = earliestRunAt;
       break;
+    }
+    if (status === "processing") {
+      const parsed = Date.parse(readString(job.leaseExpiresAt).trim());
+      const runAt = Number.isFinite(parsed) && parsed > now ? parsed : now + CAPTURE_LEASE_HEARTBEAT_MS;
+      nextRunAt = nextRunAt === null ? runAt : Math.min(nextRunAt, runAt);
+      continue;
     }
     if (status !== "retryable") continue;
     const parsed = Date.parse(readString(job.nextAttemptAt).trim());
@@ -656,6 +813,17 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
 ): void {
   const { storage } = queueDependencies(dependencies);
   clearScheduledWorker(storage);
+  if (
+    !storage.acquireMemoryCaptureWorker ||
+    !storage.releaseMemoryCaptureWorker ||
+    !storage.updateMemoryCaptureJob ||
+    !storage.createMemoryCaptureMemory ||
+    !storage.updateMemoryCaptureMemory ||
+    !storage.patchMemoryCaptureMessageExtra ||
+    !storage.rebuildMemoryCaptureIndex
+  ) {
+    return;
+  }
   if (foregroundGenerationActive(storage)) {
     deferWorkerUntilForegroundCompletes(storage, dependencies);
     return;
@@ -665,15 +833,21 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
     return;
   }
   activeWorkers.add(storage);
-  void processAutomaticMemoryCaptureQueue(dependencies).finally(() => {
-    activeWorkers.delete(storage);
-    if (pendingWorkerReruns.has(storage)) {
-      pendingWorkerReruns.delete(storage);
-      scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
-      return;
-    }
-    void scheduleNextAutomaticMemoryCaptureQueuePass(dependencies);
-  });
+  let minimumDelayMs = 0;
+  void processAutomaticMemoryCaptureQueue(dependencies)
+    .then((result) => {
+      if (!result.leaseAcquired) minimumDelayMs = CAPTURE_LEASE_HEARTBEAT_MS;
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      activeWorkers.delete(storage);
+      if (pendingWorkerReruns.has(storage)) {
+        pendingWorkerReruns.delete(storage);
+        scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
+        return;
+      }
+      void scheduleNextAutomaticMemoryCaptureQueuePass(dependencies, minimumDelayMs);
+    });
 }
 
 export async function enqueueAndScheduleAutomaticMemoryCapture(

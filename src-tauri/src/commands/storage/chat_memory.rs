@@ -1711,47 +1711,51 @@ pub(crate) fn preview_chat_memory_capture(state: &AppState, body: Value) -> AppR
 async fn persist_prepared_focused_capture(
     state: &AppState,
     mut prepared: PreparedFocusedCapture,
+    lease_id: &str,
 ) -> AppResult<Value> {
     let chat = get_required(state, "chats", &prepared.chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat).await?;
     let expected_key = memory_chunk_key(&prepared.source_message_ids);
     embed_chat_memory_object(&mut prepared.memory, embedding_context.as_ref()).await?;
-    let (operation, memory) = mutate_chat_memory_values_with_trigger(
-        state,
-        &prepared.chat_id,
-        super::memory_maintenance::jobs::Trigger::Capture,
-        |memories| {
-            let existing = memories.iter().find(|memory| {
-                chat_memory_is_automatic_exchange_capture(memory)
-                    && memory_chunk_key(&memory_message_ids(memory)) == expected_key
-            });
-            let operation = if let Some(existing) = existing {
-                if let Some(id) = existing.get("id").and_then(Value::as_str) {
-                    prepared
-                        .memory
-                        .insert("id".to_string(), Value::String(id.to_string()));
-                    prepared
-                        .memory
-                        .insert("legacySourceId".to_string(), Value::String(id.to_string()));
-                }
-                if let Some(created_at) = existing.get("createdAt") {
-                    prepared
-                        .memory
-                        .insert("createdAt".to_string(), created_at.clone());
-                }
-                "updated"
-            } else {
-                "created"
-            };
-            memories.retain(|memory| {
-                !(chat_memory_is_automatic_exchange_capture(memory)
-                    && memory_chunk_key(&memory_message_ids(memory)) == expected_key)
-            });
-            let memory = Value::Object(prepared.memory);
-            memories.push(memory.clone());
-            Ok((operation, memory))
-        },
-    )?;
+    let persist = || {
+        mutate_chat_memory_values_with_trigger(
+            state,
+            &prepared.chat_id,
+            super::memory_maintenance::jobs::Trigger::Capture,
+            |memories| {
+                let existing = memories.iter().find(|memory| {
+                    chat_memory_is_automatic_exchange_capture(memory)
+                        && memory_chunk_key(&memory_message_ids(memory)) == expected_key
+                });
+                let operation = if let Some(existing) = existing {
+                    if let Some(id) = existing.get("id").and_then(Value::as_str) {
+                        prepared
+                            .memory
+                            .insert("id".to_string(), Value::String(id.to_string()));
+                        prepared
+                            .memory
+                            .insert("legacySourceId".to_string(), Value::String(id.to_string()));
+                    }
+                    if let Some(created_at) = existing.get("createdAt") {
+                        prepared
+                            .memory
+                            .insert("createdAt".to_string(), created_at.clone());
+                    }
+                    "updated"
+                } else {
+                    "created"
+                };
+                memories.retain(|memory| {
+                    !(chat_memory_is_automatic_exchange_capture(memory)
+                        && memory_chunk_key(&memory_message_ids(memory)) == expected_key)
+                });
+                let memory = Value::Object(prepared.memory);
+                memories.push(memory.clone());
+                Ok((operation, memory))
+            },
+        )
+    };
+    let (operation, memory) = state.with_memory_capture_lease(lease_id, persist)?;
     Ok(json!({
         "operation": operation,
         "memory": memory,
@@ -1759,6 +1763,12 @@ async fn persist_prepared_focused_capture(
 }
 
 pub(crate) async fn commit_chat_memory_capture(state: &AppState, body: Value) -> AppResult<Value> {
+    let lease_id = body
+        .get("leaseId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| AppError::invalid_input("Memory capture lease id is required"))?;
     let request = parse_capture_request(&body, true)?;
     let current = prepare_focused_capture(state, &request.chat_id, request.source_message_ids)?
         .ok_or_else(|| AppError::invalid_input("Automatic memory capture is no longer eligible"))?;
@@ -1767,7 +1777,7 @@ pub(crate) async fn commit_chat_memory_capture(state: &AppState, body: Value) ->
             "Automatic memory capture preview is stale",
         ));
     }
-    persist_prepared_focused_capture(state, current).await
+    persist_prepared_focused_capture(state, current, lease_id).await
 }
 
 #[cfg(test)]
@@ -2992,6 +3002,13 @@ mod tests {
                 .expect("message should seed");
         }
         source_ids
+    }
+
+    fn capture_lease(state: &AppState, worker_id: &str) -> String {
+        state
+            .acquire_memory_capture_worker(worker_id, None)
+            .expect("capture lease acquisition should succeed")
+            .expect("capture lease should be available")
     }
 
     #[test]
@@ -5018,6 +5035,7 @@ mod tests {
     async fn capture_commit_revalidates_and_is_idempotent() {
         let state = test_state("memory-capture-commit-idempotent");
         let source_ids = seed_complete_exchange(&state, "chat-1");
+        let lease_id = capture_lease(&state, "test-worker");
         let preview = preview_chat_memory_capture(
             &state,
             json!({
@@ -5031,7 +5049,8 @@ mod tests {
             "version": 1,
             "chatId": preview["chatId"],
             "sourceMessageIds": preview["sourceMessageIds"],
-            "fingerprint": preview["fingerprint"]
+            "fingerprint": preview["fingerprint"],
+            "leaseId": lease_id
         });
 
         let first = commit_chat_memory_capture(&state, body.clone())
@@ -5057,9 +5076,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn capture_commit_requires_a_lease_without_writing() {
+        let state = test_state("memory-capture-commit-needs-lease");
+        let source_ids = seed_complete_exchange(&state, "chat-1");
+        let preview = preview_chat_memory_capture(
+            &state,
+            json!({
+                "version": 1,
+                "chatId": "chat-1",
+                "sourceMessageIds": source_ids
+            }),
+        )
+        .expect("preview should succeed");
+
+        let error = commit_chat_memory_capture(
+            &state,
+            json!({
+                "version": 1,
+                "chatId": preview["chatId"],
+                "sourceMessageIds": preview["sourceMessageIds"],
+                "fingerprint": preview["fingerprint"]
+            }),
+        )
+        .await
+        .expect_err("missing lease must fail");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(list_chat_memories(&state, "chat-1", None, None)
+            .expect("memories should list")
+            .as_array()
+            .expect("memories should be an array")
+            .is_empty());
+    }
+
+    #[tokio::test]
     async fn capture_commit_rejects_a_stale_preview_without_writing() {
         let state = test_state("memory-capture-commit-stale");
         let source_ids = seed_complete_exchange(&state, "chat-1");
+        let lease_id = capture_lease(&state, "test-worker");
         let preview = preview_chat_memory_capture(
             &state,
             json!({
@@ -5084,7 +5138,8 @@ mod tests {
                 "version": 1,
                 "chatId": preview["chatId"],
                 "sourceMessageIds": preview["sourceMessageIds"],
-                "fingerprint": preview["fingerprint"]
+                "fingerprint": preview["fingerprint"],
+                "leaseId": lease_id
             }),
         )
         .await

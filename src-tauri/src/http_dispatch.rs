@@ -4,8 +4,8 @@ use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, canonical_memory, characters,
     chat_memory, chats, connection_secrets, custom_tools, customization, deki, entity_images,
     exports, fonts, game_assets, generation, http, images, imports, integrations, knowledge, llm,
-    lorebook_images, managed_thumbnails, memory_maintenance, personas, profile, prompts, shared,
-    sidecar, sprites, translation, updates, web_research,
+    lorebook_images, managed_thumbnails, memory_capture, memory_maintenance, personas, profile,
+    prompts, shared, sidecar, sprites, translation, updates, web_research,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -1134,6 +1134,48 @@ pub(crate) async fn dispatch_for_runtime_owner(
             })
             .await
         }
+        "memory_capture_worker_acquire" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::acquire_worker(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_worker_release" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::release_worker(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_job_update" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::update_job(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_memory_create" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::create_memory(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_memory_update" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::update_memory(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_message_extra_patch" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::patch_message_extra(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "memory_capture_index_rebuild" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::rebuild_index(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "memory_index_upsert" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::upsert_memory_index_row(state, optional_value(args, "row"))
@@ -1918,6 +1960,13 @@ mod tests {
         "lorebook_entry_reorder",
         "memory_create",
         "memory_cleanup_undo",
+        "memory_capture_worker_acquire",
+        "memory_capture_memory_create",
+        "memory_capture_memory_update",
+        "memory_capture_message_extra_patch",
+        "memory_capture_index_rebuild",
+        "memory_capture_job_update",
+        "memory_capture_worker_release",
         "memory_maintenance_worker_acquire",
         "memory_maintenance_job_update",
         "memory_maintenance_worker_release",

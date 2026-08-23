@@ -136,6 +136,51 @@ function groupTypingStorage(
   return { storage, messages, characterGetIds };
 }
 
+function attachMemoryCaptureLease(storage: StorageGateway, jobs: Map<string, Record<string, unknown>>): void {
+  let lease: { workerId: string; leaseId: string } | null = null;
+  Object.assign(storage, {
+    async acquireMemoryCaptureWorker(workerId: string, leaseId?: string) {
+      if (leaseId) return lease?.workerId === workerId && lease.leaseId === leaseId ? leaseId : null;
+      if (lease) return null;
+      const acquiredLeaseId = `lease-${workerId}`;
+      lease = { workerId, leaseId: acquiredLeaseId };
+      return acquiredLeaseId;
+    },
+    async releaseMemoryCaptureWorker(workerId: string, leaseId: string) {
+      if (lease?.workerId === workerId && lease.leaseId === leaseId) lease = null;
+    },
+    async updateMemoryCaptureJob(leaseId: string, jobId: string, patch: Record<string, unknown>) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      const row = { ...(jobs.get(jobId) ?? { id: jobId }), ...patch };
+      jobs.set(jobId, row);
+      return row;
+    },
+    async createMemoryCaptureMemory(leaseId: string, body: Parameters<NonNullable<StorageGateway["createMemory"]>>[0]) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.createMemory!(body);
+    },
+    async updateMemoryCaptureMemory(
+      leaseId: string,
+      memoryId: string,
+      patch: Parameters<NonNullable<StorageGateway["updateMemory"]>>[1],
+    ) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.updateMemory!(memoryId, patch);
+    },
+    async patchMemoryCaptureMessageExtra(leaseId: string, messageId: string, patch: Record<string, unknown>) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.patchChatMessageExtra(messageId, patch);
+    },
+    async rebuildMemoryCaptureIndex(
+      leaseId: string,
+      body?: Parameters<NonNullable<StorageGateway["rebuildMemoryIndex"]>>[0],
+    ) {
+      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.rebuildMemoryIndex!(body);
+    },
+  });
+}
+
 function groupTypingLlm(selectorResponse = ""): LlmGateway {
   return {
     complete: vi.fn(async () => selectorResponse),
@@ -638,6 +683,7 @@ describe("startGeneration group typing", () => {
       },
       commitChatMemoryCapture,
     });
+    attachMemoryCaptureLease(storage, jobs);
 
     const llm = groupTypingLlm();
     llm.complete = vi.fn(async (request: LlmRequest) =>
@@ -666,6 +712,7 @@ describe("startGeneration group typing", () => {
         chatId: "chat-1",
         sourceMessageIds: ["message-1", "message-2"],
         fingerprint: "capture-fingerprint",
+        leaseId: expect.any(String),
       }),
     );
     await vi.waitFor(() =>
@@ -759,6 +806,7 @@ describe("startGeneration group typing", () => {
         return [];
       },
     });
+    attachMemoryCaptureLease(storage, jobs);
 
     let streamCount = 0;
     const llm: LlmGateway = {

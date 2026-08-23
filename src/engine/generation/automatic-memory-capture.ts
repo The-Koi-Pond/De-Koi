@@ -1,7 +1,13 @@
 import type { LlmGateway } from "../capabilities/llm";
 import type { ChatMemoryChunk } from "../contracts/types/chat";
 import type { StorageGateway } from "../capabilities/storage";
-import type { CanonicalMemoryInput, CanonicalMemoryRecord, MemoryKind, MemoryScope } from "../contracts/types/memory";
+import type {
+  CanonicalMemoryInput,
+  CanonicalMemoryPatch,
+  CanonicalMemoryRecord,
+  MemoryKind,
+  MemoryScope,
+} from "../contracts/types/memory";
 import {
   canonicalInputCleanupSource,
   chatMemoryCleanupSource,
@@ -251,9 +257,13 @@ export async function persistCanonicalMemoryConsequences(input: {
   candidates: CanonicalMemoryInput[];
   eligibleMemories: CanonicalMemoryRecord[];
   now: string;
+  createMemory?: (body: CanonicalMemoryInput) => Promise<CanonicalMemoryRecord>;
+  updateMemory?: (memoryId: string, patch: CanonicalMemoryPatch) => Promise<CanonicalMemoryRecord>;
 }): Promise<{ affected: PersistedCanonicalConsequence[] }> {
   if (input.candidates.length === 0) return { affected: [] };
-  if (!input.storage.createMemory || !input.storage.updateMemory) {
+  const createMemory = input.createMemory ?? input.storage.createMemory?.bind(input.storage);
+  const updateMemory = input.updateMemory ?? input.storage.updateMemory?.bind(input.storage);
+  if (!createMemory || !updateMemory) {
     throw new Error("Canonical memory storage is unavailable");
   }
   const eligibleById = new Map(
@@ -314,7 +324,7 @@ export async function persistCanonicalMemoryConsequences(input: {
     let memory: CanonicalMemoryRecord;
     let operation: PersistedCanonicalConsequence["operation"];
     if (existing) {
-      memory = await input.storage.updateMemory(existing.id, {
+      memory = await updateMemory(existing.id, {
         kind: candidate.kind,
         status: existing.status === "pinned" ? "pinned" : candidate.status,
         scope: candidate.scope,
@@ -328,7 +338,7 @@ export async function persistCanonicalMemoryConsequences(input: {
       });
       operation = "updated";
     } else {
-      memory = await input.storage.createMemory({
+      memory = await createMemory({
         ...candidate,
         id: memoryId,
         supersedesMemoryId,
@@ -341,7 +351,7 @@ export async function persistCanonicalMemoryConsequences(input: {
     const superseded = supersedesMemoryId ? eligibleById.get(supersedesMemoryId) : undefined;
     affected.push({ operation, memory });
     if (superseded && superseded.id !== memory.id) {
-      const supersededMemory = await input.storage.updateMemory(superseded.id, {
+      const supersededMemory = await updateMemory(superseded.id, {
         status: "superseded",
         supersededByMemoryId: memory.id,
       });

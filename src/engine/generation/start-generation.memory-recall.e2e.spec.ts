@@ -65,6 +65,7 @@ function memoryRecallStorage(
   const messages: StoredMessage[] = [];
   const memoryCaptureJobs = new Map<string, Record<string, unknown>>();
   const canonicalMemories = new Map<string, CanonicalMemoryRecord>();
+  let memoryCaptureLease: { workerId: string; leaseId: string } | null = null;
   let nextMessageId = 1;
   const previewCalls: Array<{ chatId: string; sourceMessageIds: string[] }> = [];
   const semanticQueries = vi.fn(async () => []);
@@ -126,6 +127,42 @@ function memoryRecallStorage(
   }
 
   const storage: StorageGateway = {
+    async acquireMemoryCaptureWorker(workerId, leaseId) {
+      if (leaseId) {
+        return memoryCaptureLease?.workerId === workerId && memoryCaptureLease.leaseId === leaseId ? leaseId : null;
+      }
+      if (memoryCaptureLease) return null;
+      const acquiredLeaseId = `lease-${workerId}`;
+      memoryCaptureLease = { workerId, leaseId: acquiredLeaseId };
+      return acquiredLeaseId;
+    },
+    async releaseMemoryCaptureWorker(workerId, leaseId) {
+      if (memoryCaptureLease?.workerId === workerId && memoryCaptureLease.leaseId === leaseId) {
+        memoryCaptureLease = null;
+      }
+    },
+    async updateMemoryCaptureJob(leaseId, jobId, patch) {
+      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      const row = { ...(memoryCaptureJobs.get(jobId) ?? { id: jobId }), ...patch };
+      memoryCaptureJobs.set(jobId, row);
+      return row;
+    },
+    async createMemoryCaptureMemory(leaseId, body) {
+      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.createMemory!(body);
+    },
+    async updateMemoryCaptureMemory(leaseId, memoryId, patch) {
+      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.updateMemory!(memoryId, patch);
+    },
+    async patchMemoryCaptureMessageExtra(leaseId, messageId, patch) {
+      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.patchChatMessageExtra(messageId, patch);
+    },
+    async rebuildMemoryCaptureIndex(leaseId, body) {
+      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
+      return storage.rebuildMemoryIndex!(body);
+    },
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
       if (entity === "connections") return [records["conn-1"]] as T[];
       if (entity === "personas") return [] as T[];
