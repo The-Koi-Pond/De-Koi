@@ -140,6 +140,7 @@ describe("storageApi automatic memory capture", () => {
       chatId: "chat-1",
       sourceMessageIds: ["message-1", "message-2"],
       fingerprint: "fingerprint-1",
+      leaseId: "lease-1",
     };
 
     await storageApi.previewChatMemoryCapture?.("chat-1", commit.sourceMessageIds);

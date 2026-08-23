@@ -427,9 +427,10 @@ describe("automatic memory capture queue", () => {
     expect(harness.commitCalls).toHaveLength(0);
   });
 
-  it("fences every canonical write when the lease is lost mid-batch", async () => {
+  it("retries a lease-interrupted canonical batch without duplicates", async () => {
     const harness = queueStorage();
-    await harness.enqueue();
+    harness.messages.set("user-1", message("user-1", "user", "My cat's name is Miso. I like quiet mornings."));
+    const job = await harness.enqueue();
     const originalCreate = harness.storage.createMemoryCaptureMemory!.bind(harness.storage);
     let writes = 0;
     harness.storage.createMemoryCaptureMemory = async (...args) => {
@@ -465,6 +466,25 @@ describe("automatic memory capture queue", () => {
 
     expect(harness.canonicalMemories.size).toBe(1);
     expect(harness.commitCalls).toHaveLength(0);
+
+    await harness.storage.update("memory-capture-jobs", String(job?.id), {
+      leaseExpiresAt: "2000-01-01T00:00:00.000Z",
+    });
+    await expect(
+      processAutomaticMemoryCaptureQueue(
+        { storage: harness.storage, llm },
+        { now: "2100-01-01T00:00:00.000Z" },
+      ),
+    ).resolves.toMatchObject({ completed: 1, retryable: 0 });
+
+    const persistedIds = Array.from(harness.canonicalMemories.keys());
+    expect(new Set(persistedIds).size).toBe(2);
+    expect(harness.canonicalMemories.size).toBe(2);
+    expect(harness.commitCalls).toHaveLength(1);
+    expect(harness.jobs.get(String(job?.id))).toMatchObject({
+      status: "completed",
+      affectedCanonicalMemoryIds: persistedIds,
+    });
   });
 
   it("times out a hung lease renewal and still attempts release", async () => {

@@ -1,9 +1,22 @@
-use super::{canonical_memory, entity_commands};
+use super::canonical_memory;
 use crate::state::AppState;
-use marinara_core::{AppError, AppResult};
-use serde_json::{json, Value};
+use marinara_core::{now_iso, AppError, AppResult};
+use serde_json::{json, Map, Value};
 
 const JOBS_COLLECTION: &str = "memory-capture-jobs";
+
+fn merge_object_patch(target: &mut Map<String, Value>, patch: Map<String, Value>) {
+    for (key, value) in patch {
+        match (target.get_mut(&key), value) {
+            (Some(Value::Object(current)), Value::Object(patch)) => {
+                merge_object_patch(current, patch);
+            }
+            (_, value) => {
+                target.insert(key, value);
+            }
+        }
+    }
+}
 
 fn worker_id(body: &Value) -> AppResult<&str> {
     body.get("workerId")
@@ -95,22 +108,23 @@ pub(crate) fn patch_message_extra(state: &AppState, body: Value) -> AppResult<Va
         .cloned()
         .ok_or_else(|| AppError::invalid_input("Memory capture message patch is required"))?;
     state.with_memory_capture_lease(lease_id, || {
-        let message = state
+        state
             .storage
-            .get("messages", message_id)?
-            .ok_or_else(|| AppError::not_found("Message not found"))?;
-        let mut extra = message
-            .get("extra")
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
-        extra.extend(patch);
-        entity_commands::storage_update_inner(
-            state,
-            "messages".to_string(),
-            message_id.to_string(),
-            json!({ "extra": extra }),
-        )
+            .update_record_journaled("messages", message_id, move |message| {
+                let object = message
+                    .as_object_mut()
+                    .ok_or_else(|| AppError::invalid_input("Stored message is not an object"))?;
+                let extra = object
+                    .entry("extra".to_string())
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+                    .ok_or_else(|| {
+                        AppError::invalid_input("Stored message extra is not an object")
+                    })?;
+                merge_object_patch(extra, patch);
+                object.insert("updatedAt".to_string(), Value::String(now_iso()));
+                Ok(message.clone())
+            })
     })
 }
 
@@ -203,5 +217,50 @@ mod tests {
         let stale_index = rebuild_index(&state, json!({ "leaseId": lease_id, "query": {} }))
             .expect_err("released lease must not rebuild the canonical index");
         assert_eq!(stale_index.code, "memory_capture_lease_lost");
+    }
+
+    #[test]
+    fn memory_capture_message_patch_atomically_preserves_newer_extra_fields() {
+        let state = test_state("message-extra-merge");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "content": "hello",
+                    "extra": {
+                        "foregroundWriter": { "revision": 2 },
+                        "memoryCapture": { "jobId": "job-1", "attempts": 2 }
+                    }
+                }),
+            )
+            .expect("message should seed");
+        let lease = acquire_worker(&state, json!({ "workerId": "browser-a" })).unwrap();
+        let lease_id = lease["leaseId"].as_str().expect("lease should exist");
+
+        patch_message_extra(
+            &state,
+            json!({
+                "leaseId": lease_id,
+                "messageId": "message-1",
+                "patch": { "memoryCapture": { "status": "completed" } }
+            }),
+        )
+        .expect("capture patch should persist");
+
+        let message = state
+            .storage
+            .get("messages", "message-1")
+            .expect("message read should succeed")
+            .expect("message should exist");
+        assert_eq!(message["extra"]["foregroundWriter"]["revision"], json!(2));
+        assert_eq!(message["extra"]["memoryCapture"]["jobId"], json!("job-1"));
+        assert_eq!(message["extra"]["memoryCapture"]["attempts"], json!(2));
+        assert_eq!(
+            message["extra"]["memoryCapture"]["status"],
+            json!("completed")
+        );
     }
 }

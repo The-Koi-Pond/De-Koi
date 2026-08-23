@@ -64,7 +64,7 @@ export interface CommitChatMemoryCaptureInput {
   chatId: string;
   sourceMessageIds: string[];
   fingerprint: string;
-  leaseId?: string;
+  leaseId: string;
 }
 
 export interface CommitChatMemoryCaptureResult {
