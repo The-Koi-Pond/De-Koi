@@ -56,17 +56,28 @@ pub(crate) fn duplicate_prompt_preset(state: &AppState, preset_id: &str) -> AppR
     let new_preset_id = value_id(&preset, "duplicated prompt preset")?;
 
     let group_rows = prompt_child_rows(state, "prompt-groups", preset_id)?;
-    let (group_id_map, group_order, groups) =
-        prepare_duplicated_prompt_children("prompt-groups", group_rows, &new_preset_id, None)?;
+    let PreparedPromptChildren {
+        id_map: group_id_map,
+        order: group_order,
+        records: groups,
+    } = prepare_duplicated_prompt_children("prompt-groups", group_rows, &new_preset_id, None)?;
     let section_rows = prompt_child_rows(state, "prompt-sections", preset_id)?;
-    let (section_id_map, section_order, sections) = prepare_duplicated_prompt_children(
+    let PreparedPromptChildren {
+        id_map: section_id_map,
+        order: section_order,
+        records: sections,
+    } = prepare_duplicated_prompt_children(
         "prompt-sections",
         section_rows,
         &new_preset_id,
         Some(&group_id_map),
     )?;
     let variable_rows = prompt_child_rows(state, "prompt-variables", preset_id)?;
-    let (variable_id_map, variable_order, variables) = prepare_duplicated_prompt_children(
+    let PreparedPromptChildren {
+        id_map: variable_id_map,
+        order: variable_order,
+        records: variables,
+    } = prepare_duplicated_prompt_children(
         "prompt-variables",
         variable_rows,
         &new_preset_id,
@@ -113,12 +124,17 @@ fn prompt_child_rows(state: &AppState, collection: &str, preset_id: &str) -> App
     Ok(rows)
 }
 
+struct PreparedPromptChildren {
+    id_map: HashMap<String, String>,
+    order: Vec<String>,
+    records: Vec<Value>,
+}
 fn prepare_duplicated_prompt_children(
     collection: &str,
     rows: Vec<Value>,
     new_preset_id: &str,
     group_id_map: Option<&HashMap<String, String>>,
-) -> AppResult<(HashMap<String, String>, Vec<String>, Vec<Value>)> {
+) -> AppResult<PreparedPromptChildren> {
     let mut id_map = HashMap::new();
     let mut created_order = Vec::new();
     let mut prepared = Vec::with_capacity(rows.len());
@@ -175,7 +191,11 @@ fn prepare_duplicated_prompt_children(
         }
     }
 
-    Ok((id_map, created_order, prepared))
+    Ok(PreparedPromptChildren {
+        id_map,
+        order: created_order,
+        records: prepared,
+    })
 }
 
 pub(crate) fn delete_prompt_preset_children(state: &AppState, preset_id: &str) -> AppResult<()> {

@@ -173,10 +173,15 @@ fn st_order_map(raw: &Value) -> HashMap<String, (usize, bool)> {
         .unwrap_or_default()
 }
 
+struct PreparedStPromptGroups {
+    identifier_group_map: HashMap<String, String>,
+    group_ids: Vec<String>,
+    records: Vec<Value>,
+}
 fn prepare_st_prompt_groups(
     preset_id: &str,
     prompts: &[Value],
-) -> AppResult<(HashMap<String, String>, Vec<String>, Vec<Value>)> {
+) -> AppResult<PreparedStPromptGroups> {
     let mut identifier_group_map = HashMap::new();
     let mut group_ids = Vec::new();
     let mut group_records = Vec::new();
@@ -214,7 +219,11 @@ fn prepare_st_prompt_groups(
         }
     }
 
-    Ok((identifier_group_map, group_ids, group_records))
+    Ok(PreparedStPromptGroups {
+        identifier_group_map,
+        group_ids,
+        records: group_records,
+    })
 }
 
 pub(super) fn import_st_preset_payload(
@@ -299,8 +308,11 @@ pub(super) fn import_st_preset_payload(
     apply_timestamp_overrides(&mut preset_body, &raw, &raw);
     let mut preset = prepare_created_record(preset_body)?;
     let preset_id = created_record_id(&preset, "preset")?;
-    let (group_id_map, group_ids, group_records) =
-        prepare_st_prompt_groups(&preset_id, &sorted_prompts)?;
+    let PreparedStPromptGroups {
+        identifier_group_map: group_id_map,
+        group_ids,
+        records: group_records,
+    } = prepare_st_prompt_groups(&preset_id, &sorted_prompts)?;
     let mut section_ids = Vec::new();
     let mut section_records = Vec::new();
     let mut emitted_markers: std::collections::HashSet<String> = std::collections::HashSet::new();
