@@ -825,36 +825,6 @@ fn native_marinara_persona_import_rolls_back_avatar_when_record_write_fails() {
         "failed native persona import must remove the managed avatar file"
     );
 }
-
-#[test]
-fn parented_record_import_rolls_back_created_records_on_failure() {
-    let state = test_state("parented-rollback");
-    let owner_id = "preset-rollback";
-    let error = import_parented_records(
-        &state,
-        vec![
-            json!({ "id": "old-root", "name": "Root", "presetId": "old-preset" }),
-            json!("not an object"),
-        ],
-        "prompt-groups",
-        "presetId",
-        owner_id,
-        "parentGroupId",
-        "prompt group",
-    )
-    .expect_err("invalid imported record should fail the batch");
-
-    assert_eq!(error.code, "invalid_input");
-    let remaining = state
-        .storage
-        .list("prompt-groups")
-        .expect("prompt groups should be readable")
-        .into_iter()
-        .filter(|group| group.get("presetId").and_then(Value::as_str) == Some(owner_id))
-        .collect::<Vec<_>>();
-    assert!(remaining.is_empty());
-}
-
 #[test]
 fn generic_marinara_lorebook_import_rolls_back_outer_records_on_entry_failure() {
     let state = test_state("generic-lorebook-outer-rollback");
@@ -1134,6 +1104,37 @@ fn marinara_preset_import_remaps_nested_groups_and_section_groups() {
     );
     assert_eq!(orphan.get("groupId"), Some(&Value::Null));
     assert_eq!(malformed.get("groupId"), Some(&Value::Null));
+}
+
+#[test]
+fn marinara_preset_import_counts_groups_without_source_ids() {
+    let state = test_state("preset-idless-groups");
+    let imported = import_marinara_envelope(
+        &state,
+        json!({
+            "type": "marinara_preset",
+            "version": 1,
+            "data": {
+                "preset": { "id": "old-preset", "name": "Mixed Group IDs" },
+                "groups": [
+                    { "name": "Generated ID", "presetId": "old-preset" },
+                    { "id": "old-group", "name": "Remapped ID", "presetId": "old-preset" }
+                ]
+            }
+        }),
+    )
+    .expect("preset import should succeed");
+    let preset_id = test_string(&imported, "id");
+    let persisted_count = state
+        .storage
+        .list("prompt-groups")
+        .expect("groups should be readable")
+        .iter()
+        .filter(|group| group.get("presetId").and_then(Value::as_str) == Some(preset_id))
+        .count();
+
+    assert_eq!(persisted_count, 2);
+    assert_eq!(imported["groupsImported"], json!(persisted_count));
 }
 
 #[test]

@@ -632,15 +632,13 @@ where
         ("messages", vec![stored_message.clone()]),
         (COLLECTION, sidecars.clone()),
     ];
-    state
-        .storage
-        .upsert_many_journaled_with_record(
-            upserts,
-            collection,
-            id,
-            require_related_record,
-            update,
-        )?;
+    state.storage.upsert_many_journaled_with_record(
+        upserts,
+        collection,
+        id,
+        require_related_record,
+        update,
+    )?;
 
     let mut materialized = stored_message;
     apply_sidecar_swipes(
@@ -1144,17 +1142,8 @@ pub(crate) fn delete_message_rows_for_chats_with_swipes(
         })
 }
 
-pub(crate) fn create_message(state: &AppState, message: Value) -> AppResult<Value> {
-    let prepared = prepare_message_create_row(state, message)?;
-    persist_created_message_swipes(state, prepared.message, prepared.caller_supplied_id)
-}
-
-fn persist_created_message_swipes(
-    state: &AppState,
-    mut message: Value,
-    caller_supplied_id: bool,
-) -> AppResult<Value> {
-    if message.get("swipes").is_some() {
+fn prepare_created_message_swipes(mut message: Value) -> AppResult<(Value, Vec<Value>)> {
+    let swipes = if message.get("swipes").is_some() {
         let embedded_swipe_count = message
             .get("swipes")
             .and_then(Value::as_array)
@@ -1167,10 +1156,100 @@ fn persist_created_message_swipes(
         if swipes.is_empty() {
             swipes.push(initial_swipe_for_message(&message));
         }
-        return persist_created_message_with_swipes(state, message, swipes, caller_supplied_id);
-    }
-    let swipes = vec![initial_swipe_for_message(&message)];
+        swipes
+    } else {
+        vec![initial_swipe_for_message(&message)]
+    };
+    clamp_message_active_swipe_index(&mut message, swipes.len());
+    Ok((message, swipes))
+}
+
+fn persist_created_message_swipes(
+    state: &AppState,
+    message: Value,
+    caller_supplied_id: bool,
+) -> AppResult<Value> {
+    let (message, swipes) = prepare_created_message_swipes(message)?;
     persist_created_message_with_swipes(state, message, swipes, caller_supplied_id)
+}
+
+pub(crate) fn create_message(state: &AppState, message: Value) -> AppResult<Value> {
+    let prepared = prepare_message_create_row(state, message)?;
+    persist_created_message_swipes(state, prepared.message, prepared.caller_supplied_id)
+}
+
+pub(crate) fn create_messages(state: &AppState, messages: Vec<Value>) -> AppResult<Vec<Value>> {
+    if messages.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut stored_messages = Vec::with_capacity(messages.len());
+    let mut sidecar_rows = Vec::with_capacity(messages.len());
+    let mut materialized_messages = Vec::with_capacity(messages.len());
+    let mut message_ids = HashSet::with_capacity(messages.len());
+    let mut caller_supplied_ids = HashSet::new();
+    for message in messages {
+        let prepared = prepare_message_create_row(state, message)?;
+        let caller_supplied_id = prepared.caller_supplied_id;
+        let (message, swipes) = prepare_created_message_swipes(prepared.message)?;
+        let (message_id, stored_message) = message_row_for_write(message, false)?;
+        if !message_ids.insert(message_id.clone()) {
+            return Err(AppError::invalid_input(format!(
+                "messages/{message_id} appears more than once"
+            )));
+        }
+        if caller_supplied_id {
+            caller_supplied_ids.insert(message_id);
+        }
+        let sidecars = swipe_rows_for_message(&stored_message, &swipes)?;
+        let mut materialized = stored_message.clone();
+        apply_sidecar_swipes(
+            &mut materialized,
+            &sidecars,
+            MessageSwipeMaterialization::full(),
+        );
+        stored_messages.push(stored_message);
+        sidecar_rows.extend(sidecars);
+        materialized_messages.push(materialized);
+    }
+
+    if caller_supplied_ids.is_empty()
+        && state.storage.append_many_uncached(vec![
+            ("messages", stored_messages.clone()),
+            (COLLECTION, sidecar_rows.clone()),
+        ])?
+    {
+        return Ok(materialized_messages);
+    }
+
+    state.storage.update_collections_atomically(
+        vec!["messages", COLLECTION],
+        move |collections| {
+            let messages = collections[0].rows_mut();
+            if let Some(existing_id) = messages.iter().find_map(|row| {
+                let id = row.get("id").and_then(Value::as_str)?;
+                caller_supplied_ids.contains(id).then(|| id.to_string())
+            }) {
+                return Err(AppError::invalid_input(format!(
+                    "messages/{existing_id} already exists"
+                )));
+            }
+            messages.retain(|row| {
+                row.get("id")
+                    .and_then(Value::as_str)
+                    .is_none_or(|id| !message_ids.contains(id))
+            });
+            messages.extend(stored_messages);
+
+            let sidecars = collections[1].rows_mut();
+            sidecars
+                .retain(|row| sidecar_message_id(row).is_none_or(|id| !message_ids.contains(id)));
+            sidecars.extend(sidecar_rows);
+            sort_sidecar_rows(sidecars);
+            Ok(())
+        },
+    )?;
+    Ok(materialized_messages)
 }
 
 #[cfg(test)]
@@ -2687,5 +2766,37 @@ mod tests {
         assert_eq!(sidecars[0]["messageId"], message_id);
         assert_eq!(sidecars[0]["index"], json!(0));
         assert_eq!(sidecars[0]["content"], json!("first"));
+    }
+    #[test]
+    fn create_messages_persists_each_message_with_its_sidecar_swipes() {
+        let state = test_state("create-message-batch");
+        let created = create_messages(
+            &state,
+            vec![
+                json!({
+                    "chatId": "chat-1",
+                    "role": "user",
+                    "content": "First",
+                    "swipes": [{ "content": "First" }]
+                }),
+                json!({
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "Second",
+                    "swipes": [
+                        { "content": "Second" },
+                        { "content": "Alternate second" }
+                    ],
+                    "activeSwipeIndex": 1
+                }),
+            ],
+        )
+        .expect("message batch should persist");
+
+        assert_eq!(created.len(), 2);
+        assert_eq!(created[0]["swipes"].as_array().map(Vec::len), Some(1));
+        assert_eq!(created[1]["swipes"].as_array().map(Vec::len), Some(2));
+        assert_eq!(state.storage.list("messages").unwrap().len(), 2);
+        assert_eq!(state.storage.list(COLLECTION).unwrap().len(), 3);
     }
 }

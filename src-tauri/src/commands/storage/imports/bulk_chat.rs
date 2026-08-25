@@ -422,7 +422,7 @@ pub(super) fn import_st_chat_text(
         let chat_record = state.storage.create("chats", Value::Object(chat))?;
         let chat_id = created_record_id(&chat_record, "chat")?;
         created_chat_id = Some(chat_id.clone());
-        let mut imported = 0usize;
+        let mut message_payloads = Vec::new();
         let fallback_timestamp = st_created_timestamp_override(&context).unwrap_or_else(Utc::now);
         let mut previous_timestamp = None;
         for row in parsed_rows {
@@ -449,10 +449,13 @@ pub(super) fn import_st_chat_text(
                 object.insert("createdAt".to_string(), Value::String(created_at.clone()));
                 object.insert("updatedAt".to_string(), Value::String(created_at));
             }
-            let message =
-                crate::storage_commands::message_swipes::create_message(state, message_payload)?;
+            message_payloads.push(message_payload);
+        }
+        let imported = message_payloads.len();
+        let messages =
+            crate::storage_commands::message_swipes::create_messages(state, message_payloads)?;
+        for message in messages {
             created_message_ids.push(created_record_id(&message, "message")?);
-            imported += 1;
         }
         flush_import_writes(state)?;
         Ok(

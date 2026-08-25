@@ -84,6 +84,7 @@ pub(super) fn import_marinara_chat_bulk(state: &AppState, payload: Value) -> App
     let result = (|| -> AppResult<Value> {
         let mut imported = Vec::new();
         let mut messages_imported = 0usize;
+        let mut message_payloads = Vec::new();
         for entry in chats {
             let entry = entry
                 .as_object()
@@ -133,11 +134,7 @@ pub(super) fn import_marinara_chat_bulk(state: &AppState, payload: Value) -> App
                     message.clone(),
                 ));
                 message.insert("role".to_string(), Value::String(role.to_string()));
-                let created = crate::storage_commands::message_swipes::create_message(
-                    state,
-                    Value::Object(message),
-                )?;
-                created_message_ids.push(created_record_id(&created, "message")?);
+                message_payloads.push(Value::Object(message));
                 messages_imported += 1;
             }
             imported.push(json!({
@@ -146,6 +143,11 @@ pub(super) fn import_marinara_chat_bulk(state: &AppState, payload: Value) -> App
                 "messagesImported": messages.len(),
                 "chat": chat_record
             }));
+        }
+        let messages =
+            crate::storage_commands::message_swipes::create_messages(state, message_payloads)?;
+        for message in messages {
+            created_message_ids.push(created_record_id(&message, "message")?);
         }
         flush_import_writes(state)?;
         Ok(json!({

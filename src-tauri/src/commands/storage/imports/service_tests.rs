@@ -515,6 +515,77 @@ fn create_lorebook_rolls_back_parent_when_entry_write_fails() {
 }
 
 #[test]
+fn fresh_lorebook_import_replaces_source_id_without_overwriting_existing_records() {
+    let app_root = temp_path("lorebook-source-id");
+    let state =
+        AppState::from_data_dir(&app_root, Vec::new()).expect("test app state should initialize");
+    state
+        .storage
+        .create(
+            "lorebooks",
+            json!({ "id": "source-book", "name": "Existing Lorebook" }),
+        )
+        .expect("existing lorebook should be created");
+    state
+        .storage
+        .create(
+            "lorebook-entries",
+            json!({
+                "id": "existing-entry",
+                "lorebookId": "source-book",
+                "content": "keep me"
+            }),
+        )
+        .expect("existing entry should be created");
+
+    let imported = create_lorebook_from_payload(
+        &state,
+        &json!({
+            "id": "source-book",
+            "name": "Imported Lorebook",
+            "entries": [{ "content": "new entry", "keys": ["new"] }]
+        }),
+        "Imported Lorebook",
+        None,
+    )
+    .expect("fresh lorebook import should succeed");
+    let imported_id = imported
+        .get("lorebookId")
+        .and_then(Value::as_str)
+        .expect("import should return a lorebook id");
+
+    assert_ne!(imported_id, "source-book");
+    assert_eq!(
+        state
+            .storage
+            .get("lorebooks", "source-book")
+            .unwrap()
+            .unwrap()
+            .get("name")
+            .and_then(Value::as_str),
+        Some("Existing Lorebook")
+    );
+    assert!(state
+        .storage
+        .get("lorebook-entries", "existing-entry")
+        .unwrap()
+        .is_some());
+    assert_eq!(state.storage.list("lorebooks").unwrap().len(), 2);
+    assert_eq!(
+        state
+            .storage
+            .list("lorebook-entries")
+            .unwrap()
+            .iter()
+            .filter(|entry| entry.get("lorebookId").and_then(Value::as_str) == Some(imported_id))
+            .count(),
+        1
+    );
+
+    let _ = fs::remove_dir_all(app_root);
+}
+
+#[test]
 fn import_st_character_rolls_back_character_and_avatar_when_embedded_lorebook_fails() {
     let app_root = temp_path("character-rollback");
     let state =
