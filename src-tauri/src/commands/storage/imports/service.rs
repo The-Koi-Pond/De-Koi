@@ -49,47 +49,42 @@ fn create_lorebook_from_payload(
 ) -> AppResult<Value> {
     let (mut lorebook, entries) = normalize_lorebook(payload, fallback_name, character_id);
     apply_timestamp_overrides(&mut lorebook, &Value::Null, payload);
-    let mut created_lorebook_id = None;
-    let mut created_entry_ids = Vec::new();
-    let result = (|| -> AppResult<Value> {
-        let record = state.storage.create("lorebooks", lorebook)?;
-        let lorebook_id = created_record_id(&record, "lorebook")?;
-        created_lorebook_id = Some(lorebook_id.clone());
-        for (index, entry) in entries.iter().enumerate() {
-            let entry = state.storage.create(
-                "lorebook-entries",
-                normalize_lorebook_entry(&lorebook_id, entry, index),
-            )?;
-            created_entry_ids.push(created_record_id(&entry, "lorebook entry")?);
-        }
-        flush_import_writes(state)?;
-        Ok(json!({
-            "success": true,
-            "lorebookId": lorebook_id,
-            "name": record.get("name").cloned().unwrap_or(Value::Null),
-            "entriesImported": entries.len(),
-            "lorebook": record
-        }))
-    })();
+    let record = prepare_created_record(lorebook)?;
+    let lorebook_id = created_record_id(&record, "lorebook")?;
+    let entry_records = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            prepare_created_record(normalize_lorebook_entry(&lorebook_id, entry, index))
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    let response_record = record.clone();
+    let entries_imported = entry_records.len();
 
-    result.map_err(|error| {
-        let mut rollback_errors = Vec::new();
-        rollback_created_records(
-            state,
-            "lorebook-entries",
-            &created_entry_ids,
-            &mut rollback_errors,
-        );
-        if let Some(lorebook_id) = created_lorebook_id.as_deref() {
-            rollback_created_records(
-                state,
-                "lorebooks",
-                &[lorebook_id.to_string()],
-                &mut rollback_errors,
-            );
-        }
-        append_rollback_errors(error, "lorebook import", rollback_errors)
-    })
+    state.storage.update_collections_atomically(
+        vec!["lorebooks", "lorebook-entries"],
+        |collections| {
+            collections
+                .get_mut(0)
+                .ok_or_else(|| AppError::new("storage_error", "Lorebook collection missing"))?
+                .rows_mut()
+                .push(record);
+            collections
+                .get_mut(1)
+                .ok_or_else(|| AppError::new("storage_error", "Lorebook entry collection missing"))?
+                .rows_mut()
+                .extend(entry_records);
+            Ok(())
+        },
+    )?;
+
+    Ok(json!({
+        "success": true,
+        "lorebookId": lorebook_id,
+        "name": response_record.get("name").cloned().unwrap_or(Value::Null),
+        "entriesImported": entries_imported,
+        "lorebook": response_record
+    }))
 }
 
 fn patch_imported_character_lorebook_pointer(

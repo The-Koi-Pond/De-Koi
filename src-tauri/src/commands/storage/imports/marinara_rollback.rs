@@ -1,5 +1,58 @@
 use super::*;
 
+pub(super) fn prepare_parented_records(
+    items: Vec<Value>,
+    owner_field: &str,
+    owner_id: &str,
+    parent_field: &str,
+    label: &str,
+) -> AppResult<(HashMap<String, String>, Vec<Value>)> {
+    let mut id_map = HashMap::new();
+    let mut pending_parents = Vec::new();
+    let mut records = Vec::with_capacity(items.len());
+    for item in items {
+        let old_id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        let old_parent_id = item
+            .get(parent_field)
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        let mut record = ensure_object(item)?;
+        record.remove("id");
+        record.remove(owner_field);
+        record.insert(owner_field.to_string(), Value::String(owner_id.to_string()));
+        if old_parent_id.is_some() {
+            record.insert(parent_field.to_string(), Value::Null);
+        }
+        let record = prepare_created_record(Value::Object(record))?;
+        let new_id = created_record_id(&record, label)?;
+        if let Some(old_id) = old_id {
+            id_map.insert(old_id, new_id);
+        }
+        if let Some(old_parent_id) = old_parent_id {
+            pending_parents.push((records.len(), old_parent_id));
+        }
+        records.push(record);
+    }
+    for (record_index, old_parent_id) in pending_parents {
+        if let Some(new_parent_id) = id_map.get(&old_parent_id) {
+            let record = records
+                .get_mut(record_index)
+                .and_then(Value::as_object_mut)
+                .ok_or_else(|| {
+                    AppError::new("storage_error", format!("Prepared {label} is invalid"))
+                })?;
+            record.insert(
+                parent_field.to_string(),
+                Value::String(new_parent_id.clone()),
+            );
+        }
+    }
+    Ok((id_map, records))
+}
+
 pub(super) fn import_parented_records(
     state: &AppState,
     items: Vec<Value>,
@@ -11,45 +64,12 @@ pub(super) fn import_parented_records(
 ) -> AppResult<(HashMap<String, String>, Vec<String>)> {
     let mut created_ids = Vec::new();
     let result = (|| -> AppResult<(HashMap<String, String>, Vec<String>)> {
-        let mut id_map = HashMap::new();
-        let mut pending_parents = Vec::new();
-        for item in items {
-            let old_id = item
-                .get("id")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned);
-            let old_parent_id = item
-                .get(parent_field)
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned);
-            let mut record = ensure_object(item)?;
-            record.remove("id");
-            record.remove(owner_field);
-            record.insert(owner_field.to_string(), Value::String(owner_id.to_string()));
-            if old_parent_id.is_some() {
-                record.insert(parent_field.to_string(), Value::Null);
-            }
-            let created = state.storage.create(collection, Value::Object(record))?;
+        let (id_map, records) =
+            prepare_parented_records(items, owner_field, owner_id, parent_field, label)?;
+        for record in records {
+            let created = state.storage.create(collection, record)?;
             let new_id = created_record_id(&created, label)?;
-            created_ids.push(new_id.clone());
-            if let Some(old_id) = old_id {
-                id_map.insert(old_id, new_id.clone());
-            }
-            if let Some(old_parent_id) = old_parent_id {
-                pending_parents.push((new_id, old_parent_id));
-            }
-        }
-        for (record_id, old_parent_id) in pending_parents {
-            if let Some(new_parent_id) = id_map.get(&old_parent_id) {
-                let mut patch = Map::new();
-                patch.insert(
-                    parent_field.to_string(),
-                    Value::String(new_parent_id.clone()),
-                );
-                state
-                    .storage
-                    .patch(collection, &record_id, Value::Object(patch))?;
-            }
+            created_ids.push(new_id);
         }
         Ok((id_map, created_ids.clone()))
     })();

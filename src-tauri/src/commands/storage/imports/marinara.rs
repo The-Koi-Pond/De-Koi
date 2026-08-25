@@ -423,29 +423,24 @@ fn import_marinara_lorebook(
         }
     }
     apply_import_timestamps(&mut lorebook, &lorebook_data);
-    let mut created_lorebook_id = None;
-    let mut created_folder_ids = Vec::new();
-    let mut created_entry_ids = Vec::new();
-    let result = (|| -> AppResult<Value> {
-        let record = state.storage.create("lorebooks", lorebook)?;
-        let lorebook_id = created_record_id(&record, "lorebook")?;
-        created_lorebook_id = Some(lorebook_id.clone());
-        let (folder_id_map, folder_order) = import_parented_records(
-            state,
-            array_from_envelope(&data, envelope, "folders"),
-            "lorebook-folders",
-            "lorebookId",
-            &lorebook_id,
-            "parentFolderId",
-            "lorebook folder",
-        )?;
-        created_folder_ids.extend(folder_order);
+    let record = prepare_created_record(lorebook)?;
+    let lorebook_id = created_record_id(&record, "lorebook")?;
+    let (folder_id_map, folder_records) = prepare_parented_records(
+        array_from_envelope(&data, envelope, "folders"),
+        "lorebookId",
+        &lorebook_id,
+        "parentFolderId",
+        "lorebook folder",
+    )?;
 
-        let mut exported_entries = array_from_envelope(&data, envelope, "entries");
-        if exported_entries.is_empty() {
-            exported_entries = lorebook_entries(&data);
-        }
-        for (index, entry) in exported_entries.iter().enumerate() {
+    let mut exported_entries = array_from_envelope(&data, envelope, "entries");
+    if exported_entries.is_empty() {
+        exported_entries = lorebook_entries(&data);
+    }
+    let entry_records = exported_entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
             let mut normalized = normalize_imported_lorebook_entry(&lorebook_id, entry, index);
             if let Some(old_folder_id) = entry.get("folderId").and_then(Value::as_str) {
                 if let Some(object) = normalized.as_object_mut() {
@@ -458,47 +453,47 @@ fn import_marinara_lorebook(
                     );
                 }
             }
-            let entry_record = state.storage.create("lorebook-entries", normalized)?;
-            created_entry_ids.push(created_record_id(&entry_record, "lorebook entry")?);
-        }
+            prepare_created_record(normalized)
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    let response_record = record.clone();
+    let folders_imported = folder_records.len();
+    let entries_imported = entry_records.len();
 
-        flush_import_writes(state)?;
-        Ok(json!({
-            "success": true,
-            "type": "marinara_lorebook",
-            "id": lorebook_id,
-            "lorebookId": lorebook_id,
-            "name": record.get("name").cloned().unwrap_or(Value::Null),
-            "entriesImported": exported_entries.len(),
-            "foldersImported": folder_id_map.len(),
-            "lorebook": record
-        }))
-    })();
+    state.storage.update_collections_atomically(
+        vec!["lorebooks", "lorebook-folders", "lorebook-entries"],
+        |collections| {
+            collections
+                .get_mut(0)
+                .ok_or_else(|| AppError::new("storage_error", "Lorebook collection missing"))?
+                .rows_mut()
+                .push(record);
+            collections
+                .get_mut(1)
+                .ok_or_else(|| {
+                    AppError::new("storage_error", "Lorebook folder collection missing")
+                })?
+                .rows_mut()
+                .extend(folder_records);
+            collections
+                .get_mut(2)
+                .ok_or_else(|| AppError::new("storage_error", "Lorebook entry collection missing"))?
+                .rows_mut()
+                .extend(entry_records);
+            Ok(())
+        },
+    )?;
 
-    result.map_err(|error| {
-        let mut rollback_errors = Vec::new();
-        rollback_created_records_collect(
-            state,
-            "lorebook-entries",
-            &created_entry_ids,
-            &mut rollback_errors,
-        );
-        rollback_created_records_collect(
-            state,
-            "lorebook-folders",
-            &created_folder_ids,
-            &mut rollback_errors,
-        );
-        if let Some(lorebook_id) = created_lorebook_id.as_deref() {
-            rollback_created_records_collect(
-                state,
-                "lorebooks",
-                &[lorebook_id.to_string()],
-                &mut rollback_errors,
-            );
-        }
-        append_marinara_rollback_errors(error, "lorebook import", rollback_errors)
-    })
+    Ok(json!({
+        "success": true,
+        "type": "marinara_lorebook",
+        "id": lorebook_id,
+        "lorebookId": lorebook_id,
+        "name": response_record.get("name").cloned().unwrap_or(Value::Null),
+        "entriesImported": entries_imported,
+        "foldersImported": folders_imported,
+        "lorebook": response_record
+    }))
 }
 
 fn import_marinara_preset(

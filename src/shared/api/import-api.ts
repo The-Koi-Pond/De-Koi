@@ -71,12 +71,12 @@ async function filesPayload(
 export const importApi = {
   marinara: <T>(envelope: unknown) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(
-      invokeTauri<T>("import_marinara", { envelope }),
+      invokeTauri<T>("import_marinara", { envelope }, { timeoutMs: null }),
       IMPORT_MANAGED_ASSET_KINDS,
     ),
   marinaraFile: async <T>(payload: ImportFilePayload | File) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(
-      invokeTauri<T>("import_marinara_file", { body: await filePayload(payload) }),
+      invokeTauri<T>("import_marinara_file", { body: await filePayload(payload) }, { timeoutMs: null }),
       IMPORT_MANAGED_ASSET_KINDS,
     ),
   stCharacterJson: <T>(body: unknown) =>
@@ -119,7 +119,10 @@ export const importApi = {
     ),
   stPreset: <T>(payload: unknown) => invokeTauri<T>("import_st_preset", { payload }),
   stLorebook: <T>(payload: unknown) =>
-    invalidateRemoteManagedAssetObjectUrlsAfter(invokeTauri<T>("import_st_lorebook", { payload }), "lorebook"),
+    invalidateRemoteManagedAssetObjectUrlsAfter(
+      invokeTauri<T>("import_st_lorebook", { payload }, { timeoutMs: null }),
+      "lorebook",
+    ),
   stBulkScan: <T>(payload: unknown) => invokeTauri<T>("import_st_bulk_scan", { payload }),
   stBulkRun: <T>(payload: unknown) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(
