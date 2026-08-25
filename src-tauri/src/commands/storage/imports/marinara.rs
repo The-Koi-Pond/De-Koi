@@ -621,7 +621,7 @@ fn import_marinara_preset(
         "id": preset_id,
         "name": record.get("name").cloned().unwrap_or(Value::Null),
         "preset": record,
-        "groupsImported": group_id_map.len(),
+        "groupsImported": group_order.len(),
         "sectionsImported": section_order.len(),
         "variablesImported": variable_order.len()
     }))

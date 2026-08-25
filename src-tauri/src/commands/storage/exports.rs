@@ -1,4 +1,4 @@
-use super::imports::{lorebook_entries, persist_lorebook_records};
+use super::imports::{create_lorebook_records, lorebook_entries, replace_lorebook_records};
 use super::shared::*;
 use super::*;
 use serde_json::Map;
@@ -210,7 +210,11 @@ pub(crate) fn import_character_embedded_lorebook(
     lorebook_object.insert("characterId".to_string(), json!(character_id));
     lorebook_object.insert("sourceCharacterId".to_string(), json!(character_id));
 
-    let (lorebook, imported) = persist_lorebook_records(state, lorebook, &entries, reimported)?;
+    let (lorebook, imported) = if reimported {
+        replace_lorebook_records(state, lorebook, &entries)?
+    } else {
+        create_lorebook_records(state, lorebook, &entries)?
+    };
     let lorebook_id = lorebook
         .get("id")
         .and_then(Value::as_str)

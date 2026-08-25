@@ -1107,6 +1107,37 @@ fn marinara_preset_import_remaps_nested_groups_and_section_groups() {
 }
 
 #[test]
+fn marinara_preset_import_counts_groups_without_source_ids() {
+    let state = test_state("preset-idless-groups");
+    let imported = import_marinara_envelope(
+        &state,
+        json!({
+            "type": "marinara_preset",
+            "version": 1,
+            "data": {
+                "preset": { "id": "old-preset", "name": "Mixed Group IDs" },
+                "groups": [
+                    { "name": "Generated ID", "presetId": "old-preset" },
+                    { "id": "old-group", "name": "Remapped ID", "presetId": "old-preset" }
+                ]
+            }
+        }),
+    )
+    .expect("preset import should succeed");
+    let preset_id = test_string(&imported, "id");
+    let persisted_count = state
+        .storage
+        .list("prompt-groups")
+        .expect("groups should be readable")
+        .iter()
+        .filter(|group| group.get("presetId").and_then(Value::as_str) == Some(preset_id))
+        .count();
+
+    assert_eq!(persisted_count, 2);
+    assert_eq!(imported["groupsImported"], json!(persisted_count));
+}
+
+#[test]
 fn marinara_preset_import_remaps_root_child_order_arrays() {
     let state = test_state("preset-order");
     let imported = import_marinara_envelope(

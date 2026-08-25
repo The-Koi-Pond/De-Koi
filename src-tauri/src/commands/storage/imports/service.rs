@@ -12,6 +12,8 @@ mod bulk_imports;
 mod character_assets;
 #[path = "lorebook_normalization.rs"]
 mod lorebook_normalization;
+#[path = "lorebook_persistence.rs"]
+mod lorebook_persistence;
 #[path = "lorebook_signals.rs"]
 mod lorebook_signals;
 #[path = "marinara.rs"]
@@ -29,7 +31,8 @@ mod timestamps;
 use access::*;
 use character_assets::*;
 use lorebook_normalization::*;
-pub(crate) use lorebook_normalization::{lorebook_entries, normalize_lorebook_entry};
+pub(crate) use lorebook_normalization::lorebook_entries;
+pub(crate) use lorebook_persistence::{create_lorebook_records, replace_lorebook_records};
 use marinara::*;
 use normalization::*;
 use payloads::*;
@@ -41,76 +44,6 @@ use timestamps::{apply_timestamp_overrides, timestamp_overrides_from_value};
 
 const MAX_CHARACTER_IMPORT_UPLOAD_BYTES: usize = 75 * 1024 * 1024;
 const CHARACTER_IMPORT_UPLOAD_TOO_LARGE: &str = "Character imports must be 75 MB or smaller";
-pub(crate) fn persist_lorebook_records(
-    state: &AppState,
-    lorebook: Value,
-    entries: &[Value],
-    replace_existing_children: bool,
-) -> AppResult<(Value, usize)> {
-    let mut lorebook_object = ensure_object(lorebook)?;
-    let has_id = lorebook_object
-        .get("id")
-        .and_then(Value::as_str)
-        .is_some_and(|id| !id.trim().is_empty());
-    let record = if has_id {
-        lorebook_object.insert("updatedAt".to_string(), Value::String(now_iso()));
-        Value::Object(lorebook_object)
-    } else {
-        prepare_created_record(Value::Object(lorebook_object))?
-    };
-    let lorebook_id = created_record_id(&record, "lorebook")?;
-    let entry_records = entries
-        .iter()
-        .enumerate()
-        .map(|(index, entry)| {
-            prepare_created_record(normalize_lorebook_entry(&lorebook_id, entry, index))
-        })
-        .collect::<AppResult<Vec<_>>>()?;
-    let entries_imported = entry_records.len();
-    let collections = if replace_existing_children {
-        vec!["lorebooks", "lorebook-entries", "lorebook-folders"]
-    } else {
-        vec!["lorebooks", "lorebook-entries"]
-    };
-
-    state
-        .storage
-        .update_collections_atomically(collections, |collections| {
-            let lorebooks = collections
-                .get_mut(0)
-                .ok_or_else(|| AppError::new("storage_error", "Lorebook collection missing"))?
-                .rows_mut();
-            lorebooks.retain(|row| row.get("id").and_then(Value::as_str) != Some(&lorebook_id));
-            lorebooks.push(record.clone());
-
-            let lorebook_entries = collections
-                .get_mut(1)
-                .ok_or_else(|| AppError::new("storage_error", "Lorebook entry collection missing"))?
-                .rows_mut();
-            if replace_existing_children {
-                lorebook_entries.retain(|row| {
-                    row.get("lorebookId").and_then(Value::as_str) != Some(&lorebook_id)
-                });
-            }
-            lorebook_entries.extend(entry_records);
-
-            if replace_existing_children {
-                collections
-                    .get_mut(2)
-                    .ok_or_else(|| {
-                        AppError::new("storage_error", "Lorebook folder collection missing")
-                    })?
-                    .rows_mut()
-                    .retain(|row| {
-                        row.get("lorebookId").and_then(Value::as_str) != Some(&lorebook_id)
-                    });
-            }
-            Ok(())
-        })?;
-
-    Ok((record, entries_imported))
-}
-
 fn create_lorebook_from_payload(
     state: &AppState,
     payload: &Value,
@@ -119,7 +52,7 @@ fn create_lorebook_from_payload(
 ) -> AppResult<Value> {
     let (mut lorebook, entries) = normalize_lorebook(payload, fallback_name, character_id);
     apply_timestamp_overrides(&mut lorebook, &Value::Null, payload);
-    let (record, entries_imported) = persist_lorebook_records(state, lorebook, &entries, false)?;
+    let (record, entries_imported) = create_lorebook_records(state, lorebook, &entries)?;
     let lorebook_id = created_record_id(&record, "lorebook")?;
 
     Ok(json!({
