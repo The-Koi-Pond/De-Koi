@@ -53,45 +53,6 @@ pub(super) fn prepare_parented_records(
     Ok((id_map, records))
 }
 
-pub(super) fn import_parented_records(
-    state: &AppState,
-    items: Vec<Value>,
-    collection: &str,
-    owner_field: &str,
-    owner_id: &str,
-    parent_field: &str,
-    label: &str,
-) -> AppResult<(HashMap<String, String>, Vec<String>)> {
-    let mut created_ids = Vec::new();
-    let result = (|| -> AppResult<(HashMap<String, String>, Vec<String>)> {
-        let (id_map, records) =
-            prepare_parented_records(items, owner_field, owner_id, parent_field, label)?;
-        for record in records {
-            let created = state.storage.create(collection, record)?;
-            let new_id = created_record_id(&created, label)?;
-            created_ids.push(new_id);
-        }
-        Ok((id_map, created_ids.clone()))
-    })();
-
-    result.map_err(|error| rollback_created_records_error(state, collection, &created_ids, error))
-}
-
-fn rollback_created_records_error(
-    state: &AppState,
-    collection: &str,
-    record_ids: &[String],
-    error: AppError,
-) -> AppError {
-    let mut rollback_errors = Vec::new();
-    rollback_created_records_collect(state, collection, record_ids, &mut rollback_errors);
-    append_marinara_rollback_errors(
-        error,
-        &format!("imported {collection} records"),
-        rollback_errors,
-    )
-}
-
 pub(super) fn rollback_created_records_collect(
     state: &AppState,
     collection: &str,

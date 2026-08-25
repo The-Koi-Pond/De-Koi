@@ -1,6 +1,18 @@
 use super::*;
 use crate::storage_commands::contracts::{self, TypedJsonKind};
 
+pub(crate) fn prepare_created_record(value: Value) -> AppResult<Value> {
+    let mut object = ensure_object(value)?;
+    let now = now_iso();
+    object.insert("id".to_string(), Value::String(new_id()));
+    object
+        .entry("createdAt".to_string())
+        .or_insert_with(|| Value::String(now.clone()));
+    object
+        .entry("updatedAt".to_string())
+        .or_insert_with(|| Value::String(now));
+    Ok(Value::Object(object))
+}
 pub(crate) struct ParsedPath {
     pub(crate) parts: Vec<String>,
     pub(crate) query: HashMap<String, String>,

@@ -509,141 +509,123 @@ fn import_marinara_preset(
     );
     let mut record_value = with_entity_defaults("prompts", preset_data.clone())?;
     apply_import_timestamps(&mut record_value, &preset_data);
-    let mut created_preset_id = None;
-    let mut created_group_ids = Vec::new();
-    let mut created_section_ids = Vec::new();
-    let mut created_variable_ids = Vec::new();
-    let result = (|| -> AppResult<Value> {
-        let record = state.storage.create("prompts", record_value)?;
-        let preset_id = created_record_id(&record, "preset")?;
-        created_preset_id = Some(preset_id.clone());
-        let (group_id_map, group_order) = import_parented_records(
-            state,
-            array_from_envelope(&data, envelope, "groups"),
-            "prompt-groups",
-            "presetId",
-            &preset_id,
-            "parentGroupId",
-            "prompt group",
-        )?;
-        created_group_ids.extend(group_order.iter().cloned());
+    let mut record = prepare_created_record(record_value)?;
+    let preset_id = created_record_id(&record, "preset")?;
 
-        let mut sections_imported = 0usize;
-        let mut section_id_map = HashMap::new();
-        let mut section_order = Vec::new();
-        for section in array_from_envelope(&data, envelope, "sections") {
-            let old_section_id = section
-                .get("id")
+    let (group_id_map, group_records) = prepare_parented_records(
+        array_from_envelope(&data, envelope, "groups"),
+        "presetId",
+        &preset_id,
+        "parentGroupId",
+        "prompt group",
+    )?;
+    let group_order = group_records
+        .iter()
+        .map(|record| created_record_id(record, "prompt group"))
+        .collect::<AppResult<Vec<_>>>()?;
+
+    let mut section_id_map = HashMap::new();
+    let mut section_order = Vec::new();
+    let mut section_records = Vec::new();
+    for section in array_from_envelope(&data, envelope, "sections") {
+        let old_section_id = section
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        let mut section_record = ensure_object(section)?;
+        section_record.remove("id");
+        section_record.remove("presetId");
+        section_record.insert("presetId".to_string(), Value::String(preset_id.clone()));
+        if section_record.contains_key("groupId") {
+            let group_id = section_record
+                .get("groupId")
                 .and_then(Value::as_str)
-                .map(ToOwned::to_owned);
-            let mut section_record = ensure_object(section)?;
-            section_record.remove("id");
-            section_record.remove("presetId");
-            section_record.insert("presetId".to_string(), Value::String(preset_id.clone()));
-            if section_record.contains_key("groupId") {
-                let group_id = section_record
-                    .get("groupId")
-                    .and_then(Value::as_str)
-                    .and_then(|old_group_id| group_id_map.get(old_group_id))
-                    .map(|id| Value::String(id.clone()))
-                    .unwrap_or(Value::Null);
-                section_record.insert("groupId".to_string(), group_id);
-            }
-            let section = state
-                .storage
-                .create("prompt-sections", Value::Object(section_record))?;
-            let section_id = created_record_id(&section, "prompt section")?;
-            created_section_ids.push(section_id.clone());
-            section_order.push(section_id.clone());
-            if let Some(old_section_id) = old_section_id {
-                section_id_map.insert(old_section_id, section_id);
-            }
-            sections_imported += 1;
+                .and_then(|old_group_id| group_id_map.get(old_group_id))
+                .cloned()
+                .map(Value::String)
+                .unwrap_or(Value::Null);
+            section_record.insert("groupId".to_string(), group_id);
         }
-
-        let mut variables_imported = 0usize;
-        let mut variable_id_map = HashMap::new();
-        let mut variable_order = Vec::new();
-        let mut variables = array_from_envelope(&data, envelope, "choiceBlocks");
-        if variables.is_empty() {
-            variables = array_from_envelope(&data, envelope, "variables");
+        let section = prepare_created_record(Value::Object(section_record))?;
+        let section_id = created_record_id(&section, "prompt section")?;
+        section_order.push(section_id.clone());
+        if let Some(old_section_id) = old_section_id {
+            section_id_map.insert(old_section_id, section_id);
         }
-        for variable in variables {
-            let old_variable_id = variable
-                .get("id")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned);
-            let mut variable_record = ensure_object(variable)?;
-            variable_record.remove("id");
-            variable_record.remove("presetId");
-            variable_record.insert("presetId".to_string(), Value::String(preset_id.clone()));
-            let variable = state
-                .storage
-                .create("prompt-variables", Value::Object(variable_record))?;
-            let variable_id = created_record_id(&variable, "prompt variable")?;
-            created_variable_ids.push(variable_id.clone());
-            variable_order.push(variable_id.clone());
-            if let Some(old_variable_id) = old_variable_id {
-                variable_id_map.insert(old_variable_id, variable_id);
-            }
-            variables_imported += 1;
+        section_records.push(section);
+    }
+
+    let mut variable_id_map = HashMap::new();
+    let mut variable_order = Vec::new();
+    let mut variable_records = Vec::new();
+    let mut variables = array_from_envelope(&data, envelope, "choiceBlocks");
+    if variables.is_empty() {
+        variables = array_from_envelope(&data, envelope, "variables");
+    }
+    for variable in variables {
+        let old_variable_id = variable
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        let mut variable_record = ensure_object(variable)?;
+        variable_record.remove("id");
+        variable_record.remove("presetId");
+        variable_record.insert("presetId".to_string(), Value::String(preset_id.clone()));
+        let variable = prepare_created_record(Value::Object(variable_record))?;
+        let variable_id = created_record_id(&variable, "prompt variable")?;
+        variable_order.push(variable_id.clone());
+        if let Some(old_variable_id) = old_variable_id {
+            variable_id_map.insert(old_variable_id, variable_id);
         }
+        variable_records.push(variable);
+    }
 
-        let record = state.storage.patch(
-            "prompts",
-            &preset_id,
-            json!({
-                "groupOrder": remap_imported_child_order(preset_data.get("groupOrder"), &group_id_map, &group_order),
-                "sectionOrder": remap_imported_child_order(preset_data.get("sectionOrder"), &section_id_map, &section_order),
-                "variableOrder": remap_imported_child_order(preset_data.get("variableOrder"), &variable_id_map, &variable_order)
-            }),
-        )?;
+    let record_object = record
+        .as_object_mut()
+        .ok_or_else(|| AppError::invalid_input("Prepared prompt preset is not an object"))?;
+    record_object.insert(
+        "groupOrder".to_string(),
+        json!(remap_imported_child_order(
+            preset_data.get("groupOrder"),
+            &group_id_map,
+            &group_order,
+        )),
+    );
+    record_object.insert(
+        "sectionOrder".to_string(),
+        json!(remap_imported_child_order(
+            preset_data.get("sectionOrder"),
+            &section_id_map,
+            &section_order,
+        )),
+    );
+    record_object.insert(
+        "variableOrder".to_string(),
+        json!(remap_imported_child_order(
+            preset_data.get("variableOrder"),
+            &variable_id_map,
+            &variable_order,
+        )),
+    );
+    let record = crate::storage_commands::prompts::persist_prepared_prompt_tree(
+        state,
+        record,
+        group_records,
+        section_records,
+        variable_records,
+    )?;
 
-        flush_import_writes(state)?;
-        Ok(json!({
-            "success": true,
-            "type": "marinara_preset",
-            "id": preset_id,
-            "name": record.get("name").cloned().unwrap_or(Value::Null),
-            "preset": record,
-            "groupsImported": group_id_map.len(),
-            "sectionsImported": sections_imported,
-            "variablesImported": variables_imported
-        }))
-    })();
-
-    result.map_err(|error| {
-        let mut rollback_errors = Vec::new();
-        rollback_created_records_collect(
-            state,
-            "prompt-variables",
-            &created_variable_ids,
-            &mut rollback_errors,
-        );
-        rollback_created_records_collect(
-            state,
-            "prompt-sections",
-            &created_section_ids,
-            &mut rollback_errors,
-        );
-        rollback_created_records_collect(
-            state,
-            "prompt-groups",
-            &created_group_ids,
-            &mut rollback_errors,
-        );
-        if let Some(preset_id) = created_preset_id.as_deref() {
-            rollback_created_records_collect(
-                state,
-                "prompts",
-                &[preset_id.to_string()],
-                &mut rollback_errors,
-            );
-        }
-        append_marinara_rollback_errors(error, "preset import", rollback_errors)
-    })
+    Ok(json!({
+        "success": true,
+        "type": "marinara_preset",
+        "id": preset_id,
+        "name": record.get("name").cloned().unwrap_or(Value::Null),
+        "preset": record,
+        "groupsImported": group_id_map.len(),
+        "sectionsImported": section_order.len(),
+        "variablesImported": variable_order.len()
+    }))
 }
-
 pub(super) fn import_marinara_envelope(state: &AppState, envelope: Value) -> AppResult<Value> {
     let object = envelope
         .as_object()

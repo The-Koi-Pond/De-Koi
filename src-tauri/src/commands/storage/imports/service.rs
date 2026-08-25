@@ -41,15 +41,23 @@ use timestamps::{apply_timestamp_overrides, timestamp_overrides_from_value};
 
 const MAX_CHARACTER_IMPORT_UPLOAD_BYTES: usize = 75 * 1024 * 1024;
 const CHARACTER_IMPORT_UPLOAD_TOO_LARGE: &str = "Character imports must be 75 MB or smaller";
-fn create_lorebook_from_payload(
+pub(crate) fn persist_lorebook_records(
     state: &AppState,
-    payload: &Value,
-    fallback_name: &str,
-    character_id: Option<&str>,
-) -> AppResult<Value> {
-    let (mut lorebook, entries) = normalize_lorebook(payload, fallback_name, character_id);
-    apply_timestamp_overrides(&mut lorebook, &Value::Null, payload);
-    let record = prepare_created_record(lorebook)?;
+    lorebook: Value,
+    entries: &[Value],
+    replace_existing_children: bool,
+) -> AppResult<(Value, usize)> {
+    let mut lorebook_object = ensure_object(lorebook)?;
+    let has_id = lorebook_object
+        .get("id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| !id.trim().is_empty());
+    let record = if has_id {
+        lorebook_object.insert("updatedAt".to_string(), Value::String(now_iso()));
+        Value::Object(lorebook_object)
+    } else {
+        prepare_created_record(Value::Object(lorebook_object))?
+    };
     let lorebook_id = created_record_id(&record, "lorebook")?;
     let entry_records = entries
         .iter()
@@ -58,32 +66,68 @@ fn create_lorebook_from_payload(
             prepare_created_record(normalize_lorebook_entry(&lorebook_id, entry, index))
         })
         .collect::<AppResult<Vec<_>>>()?;
-    let response_record = record.clone();
     let entries_imported = entry_records.len();
+    let collections = if replace_existing_children {
+        vec!["lorebooks", "lorebook-entries", "lorebook-folders"]
+    } else {
+        vec!["lorebooks", "lorebook-entries"]
+    };
 
-    state.storage.update_collections_atomically(
-        vec!["lorebooks", "lorebook-entries"],
-        |collections| {
-            collections
+    state
+        .storage
+        .update_collections_atomically(collections, |collections| {
+            let lorebooks = collections
                 .get_mut(0)
                 .ok_or_else(|| AppError::new("storage_error", "Lorebook collection missing"))?
-                .rows_mut()
-                .push(record);
-            collections
+                .rows_mut();
+            lorebooks.retain(|row| row.get("id").and_then(Value::as_str) != Some(&lorebook_id));
+            lorebooks.push(record.clone());
+
+            let lorebook_entries = collections
                 .get_mut(1)
                 .ok_or_else(|| AppError::new("storage_error", "Lorebook entry collection missing"))?
-                .rows_mut()
-                .extend(entry_records);
+                .rows_mut();
+            if replace_existing_children {
+                lorebook_entries.retain(|row| {
+                    row.get("lorebookId").and_then(Value::as_str) != Some(&lorebook_id)
+                });
+            }
+            lorebook_entries.extend(entry_records);
+
+            if replace_existing_children {
+                collections
+                    .get_mut(2)
+                    .ok_or_else(|| {
+                        AppError::new("storage_error", "Lorebook folder collection missing")
+                    })?
+                    .rows_mut()
+                    .retain(|row| {
+                        row.get("lorebookId").and_then(Value::as_str) != Some(&lorebook_id)
+                    });
+            }
             Ok(())
-        },
-    )?;
+        })?;
+
+    Ok((record, entries_imported))
+}
+
+fn create_lorebook_from_payload(
+    state: &AppState,
+    payload: &Value,
+    fallback_name: &str,
+    character_id: Option<&str>,
+) -> AppResult<Value> {
+    let (mut lorebook, entries) = normalize_lorebook(payload, fallback_name, character_id);
+    apply_timestamp_overrides(&mut lorebook, &Value::Null, payload);
+    let (record, entries_imported) = persist_lorebook_records(state, lorebook, &entries, false)?;
+    let lorebook_id = created_record_id(&record, "lorebook")?;
 
     Ok(json!({
         "success": true,
         "lorebookId": lorebook_id,
-        "name": response_record.get("name").cloned().unwrap_or(Value::Null),
+        "name": record.get("name").cloned().unwrap_or(Value::Null),
         "entriesImported": entries_imported,
-        "lorebook": response_record
+        "lorebook": record
     }))
 }
 

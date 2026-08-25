@@ -1,4 +1,4 @@
-use super::imports::{lorebook_entries, normalize_lorebook_entry};
+use super::imports::{lorebook_entries, persist_lorebook_records};
 use super::shared::*;
 use super::*;
 use serde_json::Map;
@@ -192,48 +192,31 @@ pub(crate) fn import_character_embedded_lorebook(
         .or_else(|| data.get("name").and_then(Value::as_str))
         .unwrap_or("Character");
     let existing_lorebook_id = linked_embedded_lorebook_id(state, character_id, &data)?;
-    let (lorebook, reimported) = if let Some(lorebook_id) = existing_lorebook_id {
-        let patched = state.storage.patch(
-            "lorebooks",
-            &lorebook_id,
-            json!({
-                "name": format!("{name} Lorebook"),
-                "description": "Imported from embedded character book",
-                "category": "character",
-                "characterId": character_id,
-                "sourceCharacterId": character_id
-            }),
-        )?;
-        remove_lorebook_child_rows(state, &lorebook_id)?;
-        remove_duplicate_embedded_lorebooks(state, character_id, &lorebook_id)?;
-        (patched, true)
+    let reimported = existing_lorebook_id.is_some();
+    let mut lorebook = if let Some(lorebook_id) = existing_lorebook_id.as_deref() {
+        get_required(state, "lorebooks", lorebook_id)?
     } else {
-        let created = state.storage.create(
-            "lorebooks",
-            with_entity_defaults(
-                "lorebooks",
-                json!({
-                    "name": format!("{name} Lorebook"),
-                    "description": "Imported from embedded character book",
-                    "category": "character",
-                    "characterId": character_id,
-                    "sourceCharacterId": character_id
-                }),
-            )?,
-        )?;
-        (created, false)
+        with_entity_defaults("lorebooks", json!({}))?
     };
+    let lorebook_object = lorebook
+        .as_object_mut()
+        .ok_or_else(|| AppError::invalid_input("Embedded lorebook record is not an object"))?;
+    lorebook_object.insert("name".to_string(), json!(format!("{name} Lorebook")));
+    lorebook_object.insert(
+        "description".to_string(),
+        json!("Imported from embedded character book"),
+    );
+    lorebook_object.insert("category".to_string(), json!("character"));
+    lorebook_object.insert("characterId".to_string(), json!(character_id));
+    lorebook_object.insert("sourceCharacterId".to_string(), json!(character_id));
+
+    let (lorebook, imported) = persist_lorebook_records(state, lorebook, &entries, reimported)?;
     let lorebook_id = lorebook
         .get("id")
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::new("storage_error", "Created lorebook is missing an id"))?
         .to_string();
-    let mut imported = 0;
-    for (index, entry) in entries.into_iter().enumerate() {
-        let normalized = normalize_lorebook_entry(&lorebook_id, &entry, index);
-        state.storage.create("lorebook-entries", normalized)?;
-        imported += 1;
-    }
+    remove_duplicate_embedded_lorebooks(state, character_id, &lorebook_id)?;
     patch_character_embedded_lorebook_pointer(state, character_id, &lorebook_id, imported)?;
     Ok(json!({
         "success": true,

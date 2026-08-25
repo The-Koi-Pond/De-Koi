@@ -825,36 +825,6 @@ fn native_marinara_persona_import_rolls_back_avatar_when_record_write_fails() {
         "failed native persona import must remove the managed avatar file"
     );
 }
-
-#[test]
-fn parented_record_import_rolls_back_created_records_on_failure() {
-    let state = test_state("parented-rollback");
-    let owner_id = "preset-rollback";
-    let error = import_parented_records(
-        &state,
-        vec![
-            json!({ "id": "old-root", "name": "Root", "presetId": "old-preset" }),
-            json!("not an object"),
-        ],
-        "prompt-groups",
-        "presetId",
-        owner_id,
-        "parentGroupId",
-        "prompt group",
-    )
-    .expect_err("invalid imported record should fail the batch");
-
-    assert_eq!(error.code, "invalid_input");
-    let remaining = state
-        .storage
-        .list("prompt-groups")
-        .expect("prompt groups should be readable")
-        .into_iter()
-        .filter(|group| group.get("presetId").and_then(Value::as_str) == Some(owner_id))
-        .collect::<Vec<_>>();
-    assert!(remaining.is_empty());
-}
-
 #[test]
 fn generic_marinara_lorebook_import_rolls_back_outer_records_on_entry_failure() {
     let state = test_state("generic-lorebook-outer-rollback");
