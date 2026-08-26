@@ -5,7 +5,7 @@
     "title": "Add curated Roleplay workflow profiles",
     "source": "GitHub issue #1265",
     "classification": "persistent chat configuration, runtime provider selection, and cross-entrypoint Roleplay UX",
-    "status": "pr_preparation"
+    "status": "pr_open_checks_pending"
   },
   "coreClaim": "Roleplay users can inspect, selectively apply, and conflict-safely revert one of four versioned workflow profiles without silently changing chat identity, TTS, writer routing, paid media, or unrelated settings.",
   "scope": {
@@ -210,8 +210,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1269,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1269",
     "headRefName": "feature/issue-1265-roleplay-workflow-profiles",
     "baseRefName": "main",
     "healthStatus": "pending",
