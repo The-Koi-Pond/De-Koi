@@ -17,11 +17,12 @@ function asStorageValue<T>(value: unknown): T {
   return value as T;
 }
 
-function testStorage(agentRows: JsonRecord[], connections: JsonRecord[]): StorageGateway {
+function testStorage(agentRows: JsonRecord[], connections: JsonRecord[], agentRuns: JsonRecord[] = []): StorageGateway {
   return {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
       if (entity === "agents") return asStorageValue<T[]>(agentRows);
       if (entity === "connections") return asStorageValue<T[]>(connections);
+      if (entity === "agent-runs") return asStorageValue<T[]>(agentRuns);
       return [];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
@@ -703,6 +704,371 @@ describe("generation agent runner", () => {
     await explicitRetryRuntime.runPost("main response");
 
     expect(requests).toEqual([]);
+  });
+
+  it("uses a chat agent connection override before the stored agent connection", async () => {
+    const requests: LlmRequest[] = [];
+    const chatOverrideConnection = { id: "chat-override", name: "Chat override", provider: "openai", model: "override-model" };
+    const storedAgentConnection = { id: "stored-agent", name: "Stored agent", provider: "openai", model: "stored-model" };
+    const defaultAgentConnection = {
+      id: "default-agent",
+      name: "Default agent",
+      provider: "openai",
+      model: "default-model",
+      defaultForAgents: true,
+    };
+    const writerConnection = { id: "writer", name: "Writer", provider: "openai", model: "writer-model" };
+
+    const input = runtimeInput(writerConnection);
+    input.chat.metadata = {
+      ...(input.chat.metadata as JsonRecord),
+      agentConnectionOverrides: { "world-state": "chat-override" },
+    };
+    input.agentTypes = new Set(["world-state"]);
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "world-state-config",
+              type: "world-state",
+              name: "World State",
+              enabled: true,
+              phase: "parallel",
+              connectionId: "stored-agent",
+              model: "agent-model",
+            },
+          ],
+          [chatOverrideConnection, storedAgentConnection, defaultAgentConnection, writerConnection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runParallel();
+    expect(requests).toEqual([expect.objectContaining({ connectionId: "chat-override", model: "agent-model" })]);
+  });
+
+  it("uses the config-ID override before a simultaneous canonical-type override", async () => {
+    const requests: LlmRequest[] = [];
+    const configConnection = { id: "config-override", name: "Config override", provider: "openai", model: "config-model" };
+    const typeConnection = { id: "type-override", name: "Type override", provider: "openai", model: "type-model" };
+    const writerConnection = { id: "writer", name: "Writer", provider: "openai", model: "writer-model" };
+    const input = runtimeInput(writerConnection);
+    input.chat.metadata = {
+      ...(input.chat.metadata as JsonRecord),
+      agentConnectionOverrides: {
+        "world-state-config": "config-override",
+        "world-state": "type-override",
+      },
+    };
+    input.agentTypes = new Set(["world-state"]);
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "world-state-config",
+              type: "world-state",
+              name: "World State",
+              enabled: true,
+              phase: "parallel",
+              model: "agent-model",
+            },
+          ],
+          [configConnection, typeConnection, writerConnection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runParallel();
+    expect(requests).toEqual([expect.objectContaining({ connectionId: "config-override" })]);
+  });
+
+  it("uses a null chat override to bypass the stored connection and fall back to the default agent connection", async () => {
+    const requests: LlmRequest[] = [];
+    const storedAgentConnection = { id: "stored-agent", name: "Stored agent", provider: "openai", model: "stored-model" };
+    const defaultAgentConnection = {
+      id: "default-agent",
+      name: "Default agent",
+      provider: "openai",
+      model: "default-model",
+      defaultForAgents: true,
+    };
+    const writerConnection = { id: "writer", name: "Writer", provider: "openai", model: "writer-model" };
+    const input = runtimeInput(writerConnection);
+    input.chat.metadata = {
+      ...(input.chat.metadata as JsonRecord),
+      agentConnectionOverrides: { "world-state": null },
+    };
+    input.agentTypes = new Set(["world-state"]);
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "world-state-config",
+              type: "world-state",
+              name: "World State",
+              enabled: true,
+              phase: "parallel",
+              connectionId: "stored-agent",
+              model: "agent-model",
+            },
+          ],
+          [storedAgentConnection, defaultAgentConnection, writerConnection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runParallel();
+    expect(requests).toEqual([expect.objectContaining({ connectionId: "default-agent" })]);
+  });
+
+  it("keeps the established stored-connection behavior when chat override maps are absent", async () => {
+    const requests: LlmRequest[] = [];
+    const storedAgentConnection = { id: "stored-agent", name: "Stored agent", provider: "openai", model: "stored-model" };
+    const writerConnection = { id: "writer", name: "Writer", provider: "openai", model: "writer-model" };
+    const input = runtimeInput(writerConnection);
+    input.agentTypes = new Set(["world-state"]);
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "world-state-config",
+              type: "world-state",
+              name: "World State",
+              enabled: true,
+              phase: "parallel",
+              connectionId: "stored-agent",
+              model: "agent-model",
+            },
+          ],
+          [storedAgentConnection, writerConnection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runParallel();
+    expect(requests).toEqual([expect.objectContaining({ connectionId: "stored-agent" })]);
+  });
+
+  it("falls back to the writer connection when no chat, stored, or default agent connection exists", async () => {
+    const requests: LlmRequest[] = [];
+    const writerConnection = { id: "writer", name: "Writer", provider: "openai", model: "writer-model" };
+    const input = runtimeInput(writerConnection);
+    input.agentTypes = new Set(["world-state"]);
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "world-state-config",
+              type: "world-state",
+              name: "World State",
+              enabled: true,
+              phase: "parallel",
+              model: "agent-model",
+            },
+          ],
+          [writerConnection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runParallel();
+    expect(requests).toEqual([expect.objectContaining({ connectionId: "writer" })]);
+  });
+
+  it("skips a chat override that no longer resolves instead of falling back to an external connection", async () => {
+    const requests: LlmRequest[] = [];
+    const writerConnection = { id: "writer", name: "Writer", provider: "openai", model: "writer-model" };
+    const input = runtimeInput(writerConnection);
+    input.chat.metadata = {
+      ...(input.chat.metadata as JsonRecord),
+      agentConnectionOverrides: { "world-state": "missing-local" },
+    };
+    input.agentTypes = new Set(["world-state"]);
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "world-state-config",
+              type: "world-state",
+              name: "World State",
+              enabled: true,
+              phase: "parallel",
+              connectionId: "stored-agent",
+              model: "agent-model",
+            },
+          ],
+          [writerConnection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    expect(runtime.preResults).toEqual([
+      expect.objectContaining({
+        success: false,
+        data: expect.objectContaining({ code: "dangling_agent_connection", connectionId: "missing-local" }),
+      }),
+    ]);
+    await runtime.runParallel();
+    expect(requests).toEqual([]);
+  });
+
+  it("uses a chat run cadence override before the stored agent setting", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "writer", name: "Writer", provider: "openai", model: "writer-model" };
+    const input = activeAgentRuntimeInput(connection, {
+      activeAgentIds: ["chat-summary"],
+      enableAgents: true,
+    });
+    input.chat.metadata = {
+      ...(input.chat.metadata as JsonRecord),
+      agentRunIntervalOverrides: { "chat-summary": 2 },
+    };
+    input.storedMessages = [
+      { id: "message-1", role: "user", content: "one" },
+      { id: "message-2", role: "user", content: "two" },
+      { id: "message-3", role: "user", content: "three" },
+    ];
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "chat-summary-config",
+              type: "chat-summary",
+              name: "Chat Summary",
+              enabled: true,
+              phase: "parallel",
+              model: "agent-model",
+              settings: { runInterval: 9 },
+            },
+          ],
+          [connection],
+          [{ chatId: "chat-1", agentType: "chat-summary", agentId: "chat-summary-config", messageId: "message-1", success: true }],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runParallel();
+    expect(requests).toHaveLength(1);
+  });
+
+  it("uses a chat run cadence override before the stored setting for custom agents", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "writer", name: "Writer", provider: "openai", model: "writer-model" };
+    const input = activeAgentRuntimeInput(connection, {
+      activeAgentIds: ["custom-config"],
+      enableAgents: true,
+    });
+    input.chat.metadata = {
+      ...(input.chat.metadata as JsonRecord),
+      agentRunIntervalOverrides: { "custom-config": 2 },
+    };
+    input.storedMessages = [
+      { id: "message-1", role: "user", content: "one" },
+      { id: "message-2", role: "user", content: "two" },
+      { id: "message-3", role: "user", content: "three" },
+    ];
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "custom-config",
+              type: "custom-agent",
+              name: "Custom Agent",
+              enabled: true,
+              phase: "parallel",
+              model: "agent-model",
+              promptTemplate: "Return a test result.",
+              settings: { runInterval: 9 },
+            },
+          ],
+          [connection],
+          [{ chatId: "chat-1", agentType: "custom-agent", agentId: "custom-config", messageId: "message-1", success: true }],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runParallel();
+    expect(requests).toHaveLength(1);
+  });
+
+  it("honors the stored custom-agent cadence instead of the built-in default when the chat cadence map is absent", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "writer", name: "Writer", provider: "openai", model: "writer-model" };
+    const input = activeAgentRuntimeInput(connection, {
+      activeAgentIds: ["custom-config"],
+      enableAgents: true,
+    });
+    input.storedMessages = [
+      { id: "message-1", role: "user", content: "one" },
+      { id: "message-2", role: "user", content: "two" },
+    ];
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "custom-config",
+              type: "custom-agent",
+              name: "Custom Agent",
+              enabled: true,
+              phase: "parallel",
+              model: "agent-model",
+              promptTemplate: "Return a test result.",
+              settings: { runInterval: 2 },
+            },
+          ],
+          [connection],
+          [{ chatId: "chat-1", agentType: "custom-agent", agentId: "custom-config", messageId: "message-1", success: true }],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runParallel();
+    expect(requests).toHaveLength(0);
   });
 
   it("runs agents assigned to the synthetic Local Model connection", async () => {

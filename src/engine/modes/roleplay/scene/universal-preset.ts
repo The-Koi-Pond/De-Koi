@@ -3,7 +3,7 @@ import { parseJsonObject } from "../../../core/json";
 import type { SceneFullPlan } from "../../../contracts/types/scene";
 import { readString as stringValue } from "../../../shared/value-readers";
 
-const DE_KOI_UNIVERSAL_PRESET_ID = "preset_universal_v2";
+export const DE_KOI_UNIVERSAL_PRESET_ID = "preset_universal_v2";
 
 type JsonRecord = Record<string, unknown>;
 

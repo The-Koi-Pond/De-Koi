@@ -5,12 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DISCOVERY_APP_EVENT } from "../../../../../shared/lib/discovery-navigation";
 import { useChatOverlays } from "./use-chat-overlays";
 
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 function OverlayHarness() {
   const overlays = useChatOverlays("chat-1");
   return (
-    <button type="button" onClick={overlays.closeSettings}>
-      {overlays.settingsOpen ? "Close settings" : "Settings closed"}
-    </button>
+    <>
+      <button type="button" onClick={overlays.closeSettings}>
+        {overlays.settingsOpen ? "Close settings" : "Settings closed"}
+      </button>
+      <output data-testid="settings-destination">{overlays.pendingDiscoverySection}</output>
+    </>
   );
 }
 
@@ -88,5 +93,20 @@ describe("useChatOverlays discovery reveal lifecycle", () => {
 
     expect(container.textContent).toContain("Close settings");
     expect(disconnectSpy).not.toHaveBeenCalled();
+  });
+
+  it("opens settings and reveals the Roleplay workflow chooser destination", () => {
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(DISCOVERY_APP_EVENT, {
+          detail: { type: "open-chat-destination", destination: "chat-settings-workflow-profile" as never },
+        }),
+      );
+    });
+
+    expect(container.textContent).toContain("Close settings");
+    expect(container.querySelector('[data-testid="settings-destination"]')?.textContent).toBe(
+      "chat-settings-workflow-profile",
+    );
   });
 });

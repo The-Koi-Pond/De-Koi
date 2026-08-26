@@ -159,6 +159,7 @@ import {
   useSetActiveChatPreset,
   sanitizeChatPresetSettings,
   createChatPresetExportEnvelope,
+  RoleplayWorkflowProfileDrawerControl,
 } from "../../../../catalog/chat-presets/index";
 import type { AgentPhase } from "../../../../../engine/contracts/types/agent";
 import {
@@ -228,6 +229,7 @@ interface ChatSettingsDrawerProps {
   onToggleSpriteArrange?: () => void;
   onResetSpritePlacements?: () => void;
   onSpriteSideChange?: (side: "left" | "right") => void;
+  settingsDestination?: string | null;
 }
 
 type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
@@ -437,6 +439,7 @@ function ChatSettingsDrawerInner({
   onToggleSpriteArrange,
   onResetSpritePlacements,
   onSpriteSideChange,
+  settingsDestination = null,
 }: ChatSettingsDrawerProps) {
   const qc = useQueryClient();
   const updateChat = useUpdateChat();
@@ -2061,6 +2064,13 @@ function ChatSettingsDrawerInner({
             onImportClick={handleImportClick}
             onExportPreset={handleExportPreset}
             onDeletePreset={handleDeletePreset}
+          />
+        )}
+
+        {isRoleplayMode && (
+          <RoleplayWorkflowProfileDrawerControl
+            chat={chat}
+            revealFromDiscovery={settingsDestination === "chat-settings-workflow-profile"}
           />
         )}
 

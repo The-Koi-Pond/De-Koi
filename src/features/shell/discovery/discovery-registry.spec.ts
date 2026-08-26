@@ -70,6 +70,18 @@ describe("discovery showcase registry", () => {
     expect(entry?.where.toLowerCase()).not.toContain("auto-open");
   });
 
+  it("routes Roleplay workflow profiles to the active chat chooser", () => {
+    const entry = DISCOVERY_ENTRIES.find((item) => item.id === "roleplay-workflow-profiles");
+
+    expect(entry?.title).toBe("Roleplay workflow profiles");
+    expect(entry?.actions).toContainEqual({
+      type: "open-chat-destination",
+      destination: "chat-settings-workflow-profile",
+      label: "Open Workflow Profiles",
+    });
+    expect(validateDiscoveryEntries()).toEqual([]);
+  });
+
   it("describes both Memory Recall scopes and how automatic capture and embeddings behave", () => {
     const entry = DISCOVERY_ENTRIES.find((item) => item.id === "chat-memory-summaries");
     const summary = entry?.summary.toLowerCase() ?? "";

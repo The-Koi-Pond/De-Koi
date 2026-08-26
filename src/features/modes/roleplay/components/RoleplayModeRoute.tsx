@@ -456,6 +456,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         totalMessageCount={data.totalMessageCount}
         lastAssistantMessageId={timeline.lastAssistantMessageId}
         settingsOpen={overlays.settingsOpen}
+        settingsDestination={overlays.pendingDiscoverySection}
         filesOpen={overlays.filesOpen}
         galleryOpen={overlays.galleryOpen}
         wizardOpen={overlays.wizardOpen}

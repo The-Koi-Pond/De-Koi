@@ -120,6 +120,40 @@ export interface ChatSummaryEntry {
   updatedAt: string;
 }
 
+/** Values a Roleplay workflow receipt may retain; chat content is intentionally excluded. */
+export type RoleplayWorkflowApplicationFieldValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | string[]
+  | Record<string, string | null>
+  | Record<string, number>;
+
+/** A reversible field-level change made by a Roleplay workflow profile. */
+export interface RoleplayWorkflowApplicationChange {
+  itemIds: string[];
+  field:
+    | "promptPresetId"
+    | "metadata.enableMemoryRecall"
+    | "metadata.enableAgents"
+    | "metadata.activeAgentIds"
+    | "metadata.agentConnectionOverrides"
+    | "metadata.agentRunIntervalOverrides";
+  before: RoleplayWorkflowApplicationFieldValue;
+  after: RoleplayWorkflowApplicationFieldValue;
+}
+
+/** Minimal, non-content receipt for a Roleplay workflow profile application. */
+export interface RoleplayWorkflowApplicationReceipt {
+  profileId: string;
+  profileVersion: number;
+  appliedAt: string;
+  selectedItemIds: string[];
+  changes: RoleplayWorkflowApplicationChange[];
+}
+
 export type ChatMemoryKind =
   | "episode"
   | "transcript"
@@ -247,6 +281,12 @@ export interface ChatMetadata {
   pinned?: boolean;
   /** Per-agent enable overrides (agentId → boolean) */
   agentOverrides: Record<string, boolean>;
+  /** Per-agent connection choices supplied by a Roleplay workflow profile. */
+  agentConnectionOverrides?: Record<string, string | null>;
+  /** Per-agent automatic-run cadences supplied by a Roleplay workflow profile. */
+  agentRunIntervalOverrides?: Record<string, number>;
+  /** Latest reversible Roleplay workflow profile application, never chat content. */
+  roleplayWorkflowApplication?: RoleplayWorkflowApplicationReceipt | null;
   /** Legacy/global agent gate. False preserves disabled imported agent selections without running them. */
   enableAgents?: boolean;
   /** Agent IDs scoped to this chat. Only these agents run automatically; empty = no automatic agents. */

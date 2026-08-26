@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Add curated Roleplay workflow profiles",
+    "source": "GitHub issue #1265",
+    "classification": "persistent chat configuration, runtime provider selection, and cross-entrypoint Roleplay UX",
+    "status": "pr_preparation"
+  },
+  "coreClaim": "Roleplay users can inspect, selectively apply, and conflict-safely revert one of four versioned workflow profiles without silently changing chat identity, TTS, writer routing, paid media, or unrelated settings.",
+  "scope": {
+    "inScope": [
+      "Four versioned Roleplay profile recipes and inspectable change ledgers",
+      "Selected-item-only patch construction and conflict-safe receipt-based revert",
+      "Per-chat agent connection and cadence override precedence",
+      "Chat-preset round trips for override maps while excluding application receipts",
+      "Roleplay setup-wizard, Chat Settings, focused-settings, and Discover entrypoints",
+      "Embedded and hostable-runtime use of the existing typed chat update API"
+    ],
+    "outOfScope": [
+      "Changing global agent configuration",
+      "Changing TTS configuration or autoplay",
+      "Changing the Roleplay writer connection",
+      "Silently enabling optional Illustrator or Music Player rows",
+      "Adding Rust commands, HTTP routes, schema migrations, or new providers",
+      "Deploying or changing live Raspberry Pi data"
+    ],
+    "intendedFiles": [
+      "src/engine/contracts/types/chat.ts",
+      "src/engine/contracts/types/chat-preset.ts",
+      "src/engine/generation/agent-runner.ts",
+      "src/engine/modes/roleplay/scene/universal-preset.ts",
+      "src/engine/modes/roleplay/workflow-profiles.ts",
+      "src/features/catalog/chat-presets",
+      "src/features/modes/roleplay",
+      "src/features/modes/shared/chat-ui",
+      "src/features/shell/discovery",
+      "src/shared/lib/discovery-navigation.ts",
+      "scripts/check-discovery-metadata.mjs",
+      ".github/pr-evidence/roleplay-workflow-profiles/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "persistent chat settings",
+      "provider routing",
+      "cross-entrypoint behavior",
+      "legacy/default compatibility",
+      "external media disclosure"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The chooser discloses and applies only selected valid profile items in one chat update, records only configuration before/after values, and reverts matching applied values without overwriting later edits.",
+    "riskType": "persistent chat configuration, provider routing, legacy/default compatibility, cross-entrypoint behavior, and external data disclosure",
+    "entrypoints": [
+      "Final optional step of standard new-Roleplay setup",
+      "Roleplay-only Workflow profile control in Chat Settings",
+      "Roleplay workflow profiles Discover action",
+      "Automatic agent connection and cadence resolution during generation",
+      "Chat preset save and apply"
+    ],
+    "currentPathsOrFormats": [
+      "Optional ChatMetadata agentConnectionOverrides, agentRunIntervalOverrides, and roleplayWorkflowApplication fields",
+      "Existing ChatPreset metadata boundary",
+      "Existing typed storageApi.update chats path shared by embedded and remote runtimes",
+      "Existing Universal V2 preset owner and built-in agent identifiers"
+    ],
+    "legacyPathsOrFormats": [
+      "Chats without the new optional override or receipt fields keep the pre-existing runtime fallbacks",
+      "Older presets omit override maps and therefore clear profile-specific maps through normal preset defaults",
+      "Existing custom prompt, memory, agent, connection, cadence, identity, lorebook, sprite, summary, and scene values remain unchanged unless their disclosed rows are selected"
+    ],
+    "outOfScopeClaims": [
+      "Profiles do not guarantee a provider's price or latency.",
+      "Profiles do not install models, create provider credentials, or purchase media calls.",
+      "Profiles do not make multiple independent chat writes atomic across chats.",
+      "Profiles do not roll back later user edits that conflict with the recorded applied value."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The shipped Roleplay capabilities previously had no single inspectable opt-in composition path, while agent routing and cadence had no per-chat profile override layer.",
+    "producer": "src/engine/modes/roleplay/workflow-profiles.ts and src/engine/contracts/types/chat.ts",
+    "consumer": "src/features/catalog/chat-presets and src/engine/generation/agent-runner.ts",
+    "impliedContract": "React-free Roleplay recipes produce disclosed diffs; the catalog owner persists one selected valid patch; runtime generation consumes optional per-chat overrides without changing missing-field behavior.",
+    "actualEnforcement": "Pure recipe resolution and patch/revert builders own configuration meaning, catalog hooks re-read and perform one typed chat update, and agent-runner applies explicit precedence with fail-closed dangling overrides.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src/engine owns profile and runtime semantics; src/features owns chooser capabilities, persistence orchestration, and entrypoint UI.",
+    "consumerOnlyLanes": [
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not duplicate recipe or runtime interpretation in Roleplay React surfaces, add raw remote requests, or add a Rust migration for optional metadata fields.",
+    "regressionProof": [
+      "pnpm vitest run src/engine/modes/roleplay/workflow-profiles.spec.ts src/engine/generation/agent-runner.test.ts src/features/catalog/chat-presets/hooks/use-chat-presets.spec.ts src/features/catalog/chat-presets/roleplay-workflow-capabilities.spec.ts src/features/catalog/chat-presets/components/RoleplayWorkflowProfileChooser.spec.tsx src/features/catalog/chat-presets/components/RoleplayWorkflowProfileDrawerControl.spec.tsx src/features/catalog/chat-presets/workflow-profile-entrypoints.spec.ts src/features/modes/shared/chat-ui/hooks/use-chat-overlays.spec.tsx src/features/shell/discovery/discovery-registry.spec.ts src/features/shell/discovery/lib/discovery-actions.spec.ts",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check:discovery",
+      "pnpm build",
+      "pnpm check"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "All four v1 recipes expose the exact required agents, cadence, destinations, prerequisites, and default selections.",
+        "evidence": "workflow-profiles.spec.ts covers the exact recipe definitions, call estimates, missing prerequisites, optional media rows, explicit-value defaults, selected-item-only patches, and Local Assist tracker-only routing."
+      },
+      {
+        "claim": "Application is atomic and stale previews cannot write an outdated selection.",
+        "evidence": "use-chat-presets.spec.ts proves latest-chat re-read, stale rejection with zero updates, one update for valid application, receipt replacement, and total failure with no partial write."
+      },
+      {
+        "claim": "Revert restores only fields still equal to their recorded applied values.",
+        "evidence": "Pure revert-builder and catalog-hook tests prove matching fields restore prior values, later edits become reported conflicts, unrelated values remain untouched, and the active receipt clears."
+      },
+      {
+        "claim": "The visible chooser is available from both Roleplay entrypoints and Discover with inspectable cost, destination, prerequisite, and settings-link copy.",
+        "evidence": "Chooser, drawer-control, entrypoint, overlay, and discovery suites pass; a local browser session verified desktop and 390px phone layouts in dark and light themes and completed apply/revert through a mocked remote /api/invoke path."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Local Assist must not fall through to a paid or external provider when a selected local assignment becomes invalid.",
+        "evidence": "Agent-runner and apply-hook tests prove dangling explicit overrides fail per agent, invalid local assignments are omitted and reported, existing active routes are preserved, and no substitute connection is selected."
+      },
+      {
+        "claim": "Optional Illustrator, Music Player, and TTS behavior must not become automatic profile mutations.",
+        "evidence": "Resolver and component tests prove Illustrator and Music Player start unchecked, unusable prerequisites disable their rows, destination copy names external use, and TTS is informational with an ordinary-settings link only."
+      },
+      {
+        "claim": "Profile persistence must not copy chat identity or rollback history into presets.",
+        "evidence": "Preset tests prove override maps round-trip while receipts, character/persona/lorebook/summary/sprite/scene-owned identity fields remain excluded."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Missing per-chat connection and cadence overrides retain existing behavior.",
+        "evidence": "agent-runner.test.ts proves stored agent configuration, default agent connection, writer connection, stored cadence, and built-in cadence fallbacks remain in their previous order when maps are absent."
+      },
+      {
+        "claim": "Existing explicit chat values remain opt-in rather than silently overwritten.",
+        "evidence": "Resolver regressions cover custom prompts, disabled Memory Recall, existing agents, explicit enableAgents true with an empty list, existing routes, and existing cadence values defaulting unchecked."
+      },
+      {
+        "claim": "Older presets clear profile-specific maps without copying a prior application receipt.",
+        "evidence": "Preset hook tests cover older/default preset application and ordinary preset precedence."
+      }
+    ],
+    "untestedRows": [
+      "The exact wide new-chat wizard entrypoint was component- and structure-tested but was not opened in the local remote-runtime browser harness.",
+      "No real Pi or paid external provider was invoked; remote equivalence used the typed runtime seam and a mocked /api/invoke browser path."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The resolver defines four profile IDs at recipe version 1 and exports the existing Universal V2 identifier from its Roleplay owner.",
+      "sourceType": "derived",
+      "evidence": "Direct source inspection plus exact recipe assertions in workflow-profiles.spec.ts."
+    },
+    {
+      "description": "The final focused verification covers 97 tests across ten files.",
+      "sourceType": "measured",
+      "evidence": "Final pnpm vitest run reported 10 passed files and 97 passed tests after the explicit-Minimal-value regression fix."
+    },
+    {
+      "description": "The final tree passes the full TypeScript, architecture, discovery, production-build, Rust, deterministic-repository, and diff checks.",
+      "sourceType": "measured",
+      "evidence": "pnpm typecheck, pnpm check:architecture, pnpm check:discovery, pnpm build, pnpm check, and git diff --check all exited successfully."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "No backup is required for ordinary use because every change is previewed and the receipt supports conflict-safe revert. A user who wants an independent copy before changing chat settings can export a full backup.",
+      "source": "De-Koi Settings > Backups for the current profile",
+      "destination": "A user-selected folder outside De-Koi's application data directory",
+      "files": [
+        "The downloaded De-Koi backup archive containing chats and companion profile records"
+      ],
+      "action": "Create and download the backup archive before applying the profile, then confirm the archive exists in the selected folder.",
+      "detectedLayouts": [
+        "Current De-Koi profile backup archive",
+        "Existing embedded or remote profile data remains in place and is not deleted by apply or revert"
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Exact wide new-chat wizard live-browser entrypoint",
+      "blockingCoreClaim": false,
+      "status": "accepted-risk",
+      "reason": "The final step mount and responsive width are covered by focused component/entrypoint tests and source inspection; actual browser layout was verified through the same chooser in desktop drawer and phone views."
+    },
+    {
+      "item": "Real Pi and paid-provider invocation",
+      "blockingCoreClaim": false,
+      "status": "accepted-risk",
+      "reason": "The feature reuses the existing typed update/runtime boundaries and tests both missing-field and remote-capable paths without spending money or mutating live user data."
+    }
+  ],
+  "reviewThreadLedger": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "Ten focused files passed 97 tests; pnpm typecheck, pnpm check:architecture, pnpm check:discovery, pnpm build, pnpm check, and git diff --check passed on the final uncommitted tree."
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "pass",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 0,
+    "url": "",
+    "headRefName": "feature/issue-1265-roleplay-workflow-profiles",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": true,
+    "visualProofRequired": true,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "notes": [
+    "The user authorized commit, push, PR, hosted checks, and merge in the current turn.",
+    "The isolated worktree was created from origin/main and the dirty primary checkout remains untouched."
+  ]
+}
