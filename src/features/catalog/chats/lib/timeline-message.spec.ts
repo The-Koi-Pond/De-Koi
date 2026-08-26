@@ -22,6 +22,12 @@ describe("timelineMessageProjection", () => {
 
     expect(projection.fieldSelections?.extra).toContain("generationInterrupted");
   });
+
+  it("requests memory capture metadata needed for persisted timeline feedback", () => {
+    const projection = timelineMessageProjection();
+
+    expect(projection.fieldSelections?.extra).toContain("memoryCapture");
+  });
 });
 
 describe("sanitizeTimelineMessageRecord", () => {
